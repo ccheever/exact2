@@ -107,6 +107,14 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
     const named = join({ id: 'web-1' }, label, inner);
     expect(named.held.rows.map(r => [r.name, r.row, r.source?.line, r.token?.names])).toEqual([['background-color', 'press_background_color', 9, ['accent.soft']]]);
     expect(named.source.line).toBe(12);
+    // Held where the build names the press (its held site): the held inline row is set-row's at its place, with
+    // its state and the press's own copies (one; the label's chain is not counted for it).
+    const offered = join({ id: 'web-1' }, label, inner, { app: dir });
+    expect(offered.held.rows[0].editable).toEqual({ rung: 'template', file: 'app.contract', at: { line: 9, col: 9 }, sha256: sha(text), row: 'background-color', state: 'active', instances: 1, text: 'accent.soft', token: 'accent.soft', modes: '' });
+    // A held hover's row (a base binding, no state place) is not set-row's: the look is not written there.
+    const hover = { ...label, held: { state: 'hover', node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#f00' }] } };
+    const based = { ...inner, nodes: [{ ...inner.nodes[0], bindings: [...inner.nodes[0].bindings, { row: 'background_color', origin: 'own', at: part, attr: 'background-color' }] }, inner.nodes[1]] };
+    expect(join({ id: 'web-1' }, hover, based, { app: dir }).held.rows[0].editable?.rung ?? null).not.toBe('template');
     // The held node's own file is checked too: one moved since makes the selection read-only.
     const style = joinPath(dir, 'style.contract');
     writeFileSync(style, 'style now');
@@ -334,9 +342,9 @@ test('a row its author wrote joins on the template or style rung for set-row, th
     const at = (line, attr, file = card) => ({ file, line, col: col(line, attr), end_col: col(line, attr) + attr.length });
     const node = { file: card, line: 3, col: 5, end_col: 8, component: 'Card', chain: [], bindings: [
       { row: 'background_color', origin: 'own', at: at(3, 'background-color'), attr: 'background-color' },
-      { row: 'border_top_left_radius', origin: 'own', at: at(3, 'border-radius'), attr: 'border-radius' },
+      { row: 'border_radius_top_left', origin: 'own', at: at(3, 'border-radius'), attr: 'border-radius' },
       { row: 'opacity', origin: 'own', at: at(3, 'opacity'), attr: 'opacity' },
-      { row: 'border_top_color', origin: 'own', at: at(4, 'border-color'), attr: 'border-color' },
+      { row: 'border_color_top', origin: 'own', at: at(4, 'border-color'), attr: 'border-color' },
       { row: 'text_color', origin: 'class:Panel__card', at: at(7, 'color'), attr: 'color' },
       { row: 'margin_top', origin: 'class:Panel__card', at: at(8, 'margin'), attr: 'margin', layout: true },
       { row: 'outline_color', origin: 'own', at: { file: pkg, line: 1, col: 9, end_col: 14 }, attr: 'color' },
@@ -348,9 +356,9 @@ test('a row its author wrote joins on the template or style rung for set-row, th
     const map = { digest: 'p1', sources: [{ file: card, sha256: sha(text) }, { file: pkg, sha256: sha('    box color="blue"') }], nodes: [node, { ...node, chain: [{ file: card, line: 9, col: 1, end_col: 2, component: 'App' }] }, { ...node, bindings: [] }] };
     const rows = [
       { name: 'background_color', value: '#fff', source: 'authored', token: { names: ['surface.card'], text: 'surface.card', modes: '', implied: false } },
-      { name: 'border_top_left_radius', value: 12, source: 'authored' },
+      { name: 'border_radius_top_left', value: 12, source: 'authored' },
       { name: 'opacity', value: 0.5, source: 'authored' },
-      { name: 'border_top_color', value: '#000', source: 'authored' },
+      { name: 'border_color_top', value: '#000', source: 'authored' },
       { name: 'text_color', value: '#f00', source: 'authored' },
       { name: 'margin_top', value: 8, source: 'authored' },
       { name: 'outline_color', value: '#00f', source: 'authored' },
@@ -387,6 +395,8 @@ test('a row its author wrote joins on the template or style rung for set-row, th
     // Literals as Contract writes them: an exponent, nested parentheses, a minus, a bare colour, a positional string after.
     expect(['opacity=5e-1', 'opacity=((0.5))', 'opacity=-(0.5)', 'color=#1f9d62', 'color="red" "Hi"'].map(l => plainAt(`    box ${l}`, 9, l.split('=')[0]))).toEqual(['5e-1', '0.5', '-0.5', '#1f9d62', 'red']);
     expect(['color=alpha', 'opacity=0.5 - 1', 'color=(c ? "a" : "b")', 'opacity=(0.5'].map(l => plainAt(`    box ${l}`, 9, l.split('=')[0]))).toEqual([null, null, null, null]);
+    // A string's escapes as the lexer decodes them, one by one; a positional in parentheses after.
+    expect(['marker-end="url(#a\\\\u{62})"', 'marker-end="url(#a\\$b)"', 'color="red\\u{9}"', 'color="x\\`y"', 'opacity=0.5 ("hello")', 'color="\\q"'].map(l => plainAt(`    box ${l}`, 9, l.split('=')[0]))).toEqual(['url(#a\\u{62})', 'url(#a$b)', 'red\t', 'x`y', '0.5', null]);
     // Moved since: read-only, its token still linked.
     writeFileSync(card, `${text}// edited\n`);
     expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir }).rows[0].editable).toMatchObject({ rung: null, link: 'surface.card' });

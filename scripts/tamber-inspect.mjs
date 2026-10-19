@@ -251,11 +251,31 @@ export function rowRung(row, b, map, app, instances = 1, read = readFileSync, ow
   return { rung: 'template', file: rel, at: { line: b.at.line, col: b.at.col }, sha256, row: attr, ...(b.state ? { state: b.state } : {}), instances, text };
 }
 
+/** A Contract string's text, its escapes decoded one by one as the lexer does (lexer.rs `escape`):
+ * `\n`, `\t`, `\"`, `\\`, `` \` ``, `\$`, and `\u{…}` (one to six hex digits) or `\u` four bare; null
+ * for another (which the lexer refuses). */
+const unescaped = (body) => {
+  let out = '';
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== '\\') { out += body[i]; continue; }
+    const c = body[++i];
+    const simple = { n: '\n', t: '\t', '"': '"', '\\': '\\', '`': '`', $: '$' }[c];
+    if (simple != null) { out += simple; continue; }
+    if (c !== 'u') return null;
+    const m = /^\{([0-9a-fA-F]{1,6})\}|^([0-9a-fA-F]{4})/.exec(body.slice(i + 1));
+    const code = m ? parseInt(m[1] ?? m[2], 16) : NaN;
+    if (!m || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return null;
+    out += String.fromCodePoint(code); i += m[0].length;
+  }
+  return out;
+};
+
 /** The value of attribute `attr` written at UTF-8 byte column `col` of `line` (the map's columns are
  * bytes), when it is one plain value as `set-row` replaces (tamber_rows.rs `plain`): a string (its
  * escapes decoded) or a bare `#…` colour, which the lexer reads as a string; a number, an exponent
  * and a minus included; inside any parentheses; then the line's end, a comment, another attribute or
- * a positional string. Null otherwise (an expression, a name in scope, an unclosed value). */
+ * a positional argument (a string, a template or one in parentheses). Null otherwise (an expression, a
+ * name in scope, an unclosed value). */
 export function plainAt(line, col, attr) {
   const at = Buffer.from(line, 'utf8').subarray(Math.max(0, col - 1)).toString('utf8');
   const head = new RegExp(`^${attr.replace(/[-]/g, '\\-')}\\s*=\\s*`).exec(at);
@@ -271,13 +291,13 @@ export function plainAt(line, col, attr) {
   if (lead) { if (minus) return null; minus = '-'; rest = rest.slice(lead[0].length); }
   let text = null, m;
   if ((m = /^"((?:[^"\\]|\\.)*)"/.exec(rest)) && !minus) {
-    try { text = JSON.parse(`"${m[1].replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, h) => String.fromCodePoint(parseInt(h, 16)).replace(/["\\]/g, c => `\\${c}`))}"`); } catch { return null; }
+    if ((text = unescaped(m[1])) == null) return null;
   } else if ((m = /^#[0-9A-Za-z]+/.exec(rest)) && !minus) text = m[0];
   else if ((m = /^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?(?![\w.])/.exec(rest))) text = `${minus}${m[0]}`;
   else return null;
   rest = rest.slice(m[0].length);
   for (; open > 0; open--) { const c = /^\s*\)/.exec(rest); if (!c) return null; rest = rest.slice(c[0].length); }
-  return /^(\s*$|\s*\/\/|\s+[\w-]+\s*=|\s+")/.test(rest) ? text : null;
+  return /^(\s*$|\s*\/\/|\s+[\w-]+\s*=|\s+["`(])/.test(rest) ? text : null;
 }
 
 /** Each row's editability: the token or param rung, or why not (D5, D6). Fails
@@ -347,9 +367,10 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   const files = [...new Set([...placed(node), ...(owner !== node ? placed(owner) : [])])];
   const readOnly = files.map(f => moved(map, f, read)).find(Boolean) || designMoved(map, build, served, design, read) || null;
   const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [] };
-  // This source node's copies (a template edit is every one's): one a call-site chain, as a hold's replay
+  // A source node's copies (a template edit is every one's): one a call-site chain, as a hold's replay
   // counts them (a `button "…"`'s label shares its span and chain, and is no second copy).
-  const copies = Math.max(1, new Set(sitesAt(map, node).filter(i => same(map.nodes[i], node)).map(i => JSON.stringify((map.nodes[i].chain ?? []).map(c => [c.file, c.line, c.col])))).size);
+  const copiesOf = n => Math.max(1, new Set(sitesAt(map, n).filter(i => same(map.nodes[i], n)).map(i => JSON.stringify((map.nodes[i].chain ?? []).map(c => [c.file, c.line, c.col])))).size);
+  const copies = copiesOf(node);
   // What is held (LLP 1122 D8): each row where it is written: an `:active` row lowered to the press paint at its
   // part's place (the map's `at`), a state look's at its node, with the state. Its node is the one it is held on
   // (the press it resolved to, named on a node inside it: stage 9 E), its site's map node.
@@ -357,13 +378,16 @@ export function join(build, selected, map, { read = readFileSync, served = null,
     const ownerBound = owner === node ? bound : new Map((owner?.bindings ?? []).map(b => [b.row, b]));
     const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.chain ?? [] };
     // Edited where it is held (T4): only where the build names that node (its held site); else shown, not offered.
-    const named = Number.isSafeInteger(base.held.site) && !!owner;
+    const heldHere = Number.isSafeInteger(base.held.site) && !!owner;
     base.held = { ...base.held, rows: (base.held.rows ?? []).map(r => {
       const b = ownerBound.get(r.name);
       // An `:active` row is named as its author wrote it, under its part (theme2's 16:13 (2)), the press row it
       // lowered to beside it (`row`).
       const authored = b?.state ? AUTHORED[r.name] ?? null : null;
-      const offered = !named || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, false, stateRung(r, b, app, read, own), rowRung(r, b, map, app, copies, read, own));
+      // (A held look's row is set-row's only where it is written under the node in that state: a hover's row
+      // with no place of its own is the base row's binding, not the look's.)
+      const unread = named(r.token, params).unread;
+      const offered = !heldHere || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, unread, stateRung(r, b, app, read, own), b?.state ? rowRung(r, b, map, app, copiesOf(owner), read, own) : null);
       return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state ? b.at ?? null : ownerSource ?? null, ...(offered ? { editable: offered } : {}) };
     }) };
   }
