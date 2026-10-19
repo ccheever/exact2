@@ -31,6 +31,8 @@ component App
     taps = taps + 1
   action follow(url: string)
     nav = go(nav, url == "/post/0" ? "/post/9" : url)
+  action dim
+    setMode("dark-style", "dim")
   view
     main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow width="100%" height="100%" position="relative"
       for t in nav.tabs key = t.name
@@ -44,6 +46,8 @@ component App
               text \`Post \${params(nav, "id").join("")}\` role="heading" aria-level=1 testId="post"
             button press=tap testId="tap"
               text \`Taps \${taps}\`
+            button press=dim testId="dim"
+              text "Dim"
 `;
 
 const free = async () => { const s = createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const { port } = s.address(); await new Promise(ok => s.close(ok)); return port; };
@@ -65,8 +69,11 @@ async function copies(wasm) {
   // loop's frame-ancestors names, EXACT_TOOL_PORT): another origin, three named frames; each
   // build's word kept with the frame it came from, by its source alone.
   const names = ['exact-copy-1', 'exact-copy-2', 'exact-copy-3'];
+  // (And at /hosts, six copies each at a loopback name of its own, as the design tool frames them: theme2's F1 ruling.)
+  const hosts = Array.from({ length: 6 }, (_, i) => `exact-copy-${i + 1}`);
   const parent = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/html' });
+    if (req.url === '/hosts') return res.end(`<!doctype html><script>window.words=[];addEventListener('message',e=>{if(e.data?.type!=='exact-build')return;const name=${JSON.stringify(hosts)}.find(n=>window.frames[n]===e.source);words.push({name:name??null,id:e.data.id,origin:e.origin})})</script>${hosts.map(n => `<iframe name="${n}" src="http://${n}.localhost:${port}/" width="390" height="400"></iframe>`).join('')}`);
     res.end(`<!doctype html><script>window.words=[];addEventListener('message',e=>{if(e.data?.type!=='exact-build')return;const name=${JSON.stringify(names)}.find(n=>window.frames[n]===e.source);words.push({name:name??null,id:e.data.id,origin:e.origin})})</script>${[...names, 'app-own'].map(n => `<iframe name="${n}" src="${base}/" width="390" height="400"></iframe>`).join('')}`);
   });
   await new Promise(ok => parent.listen(0, '127.0.0.1', ok));
@@ -152,6 +159,21 @@ async function copies(wasm) {
     const refused = await until(events, es => es.find(e => e.event === 'unsupported' && e.what === 'navigate'), 'a refusal');
     expect(refused.find(e => e.event === 'unsupported' && e.what === 'navigate')).toMatchObject({ build: first['exact-copy-3'], detail: expect.stringContaining('no route') });
     expect(page.frame({ name: 'exact-copy-3' }).url()).toBe(before);
+    // Six copies at loopback names of their own: each registers and reports, none starved of connections.
+    await page.goto(`http://127.0.0.1:${parent.address().port}/hosts`);
+    const six = await until(async () => byName(await words()), ws => Object.keys(ws).length === 6, 'six copies at their own names say their builds');
+    expect((await words()).every(w => w.origin === `http://${w.name}.localhost:${port}`)).toBe(true);
+    await until(listed, bs => Object.values(six).every(id => bs.find(b => b.id === id)?.status?.location === '/'), 'six copies report');
+    // A pinned copy holds its pin over the app's own setMode (theme2's F2 ruling), says what the app asked, and takes the app's choice when handed back.
+    const c1 = six['exact-copy-1'], status1 = async () => (await listed()).find(b => b.id === c1)?.status;
+    await call({ method: 'pin', client: 'copies', build: c1, pin: { scheme: 'dark', mode: { 'dark-style': 'black' } } });
+    await until(status1, st => st?.mode?.['dark-style'] === 'black' && st?.scheme === 'dark', 'copy 1 pinned black');
+    await page.frame({ name: 'exact-copy-1' }).click('[data-testid="dim"]');
+    const held = await until(status1, st => st?.app?.mode?.['dark-style'] === 'dim', 'copy 1 says the app asked dim');
+    expect(held.mode['dark-style']).toBe('black');
+    await call({ method: 'pin', client: 'copies', build: c1, pin: null });
+    const back = await until(status1, st => st?.mode?.['dark-style'] === 'dim', 'copy 1 handed back takes the app\'s dim');
+    expect(back.app ?? null).toBe(null);
     presence.abort();
   } finally {
     await browser.close();

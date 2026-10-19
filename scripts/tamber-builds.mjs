@@ -131,6 +131,7 @@ function reportRefused(r) {
     if (!maybe(r.scheme, v => text(v, 32)) || !maybe(r.contrast, v => text(v, 32))) return '`scheme` and `contrast` are strings, or null';
     if (!maybe(r.mode, v => object(v) && Object.keys(v).length <= 64 && Object.entries(v).every(([a, x]) => a.length <= 64 && text(x, 64)))) return '`mode` is {axis: value}, or null';
     if (!maybe(r.rootFontSize, Number.isFinite) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0)) return '`rootFontSize` is a number and `revision` a whole number, or null';
+    if (!maybe(r.app, v => object(v) && JSON.stringify(v).length <= 1024 && Object.keys(v).every(k => ['scheme', 'mode', 'rootFontSize'].includes(k)) && maybe(v.scheme, s => text(s, 32)) && maybe(v.rootFontSize, s => text(s, 64)) && maybe(v.mode, m => object(m) && Object.entries(m).every(([a, x]) => a.length <= 64 && text(x, 64))))) return '`app` is what the app asked instead of a copy\'s pin: `{scheme?, mode?, rootFontSize?}`, strings (mode `{axis: value}`), at most 1 KiB, or null';
     if (!maybe(r.location, located)) return '`location` is a path on the build\'s own origin (with its query and fragment, printable ASCII, at most 2 KiB), or null';
   }
   if (r.kind === 'selected' && !maybe(r.inspect, v => Number.isSafeInteger(v) && v >= 0)) return '`inspect` is a whole number';
@@ -423,7 +424,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         // status stays at that revision, gone once it moves on.
         if (b.unsupported && b.unsupported.revision === undefined) b.unsupported.revision = at;
         else if (b.unsupported && b.unsupported.revision !== at) b.unsupported = null;
-        b.status = { scheme: r.scheme ?? null, contrast: r.contrast ?? null, mode: r.mode ?? null, rootFontSize: r.rootFontSize ?? null, revision: at, location: r.location ?? null };
+        b.status = { scheme: r.scheme ?? null, contrast: r.contrast ?? null, mode: r.mode ?? null, rootFontSize: r.rootFontSize ?? null, revision: at, location: r.location ?? null, app: r.app ?? null };
         if (typeof r.plan === 'string') b.plan = r.plan;
         // (Said unknown, null, it is unknown: such a build is sent every plan's outline.)
         const was = b.planDigest;

@@ -271,7 +271,11 @@ export function installBrowserOrigins({host, port, interfaces = networkInterface
  * see the installer's token — only from a loopback peer naming a loopback
  * host, never through an allowed name, and never with a proxy's forwarding
  * headers: a tunnel that rewrites Host to 127.0.0.1 is still the internet. A
- * browser POST whose Origin is not the host it names is refused (cross-site). */
+ * browser POST whose Origin is not the host it names is refused (cross-site).
+ * The design tool's live copies (LLP 1122 T7, theme2's F1 ruling) are each
+ * at a loopback name of its own, `exact-copy-<n>.localhost` at this port (n
+ * 1 to 99), so six of them are not six streams on one host's six
+ * connections: admitted, never local. */
 export function developmentGate(origins, port, allowHosts = []) {
   const loopback = [`http://127.0.0.1:${port}`, `http://localhost:${port}`].map(origin => new URL(origin));
   const names = new Set([...origins.map(o => new URL(o.origin).host), ...loopback.map(u => u.host)]);
@@ -290,7 +294,8 @@ export function developmentGate(origins, port, allowHosts = []) {
       if (req.method === 'POST' && headers.origin !== undefined) {
         try { crossSite = new URL(headers.origin).host.toLowerCase() !== host; } catch { crossSite = true; }
       }
-      const admitted = !crossSite && (names.has(host) || allowed.some(a => a === host || a === name));
+      const copy = new RegExp(`^exact-copy-[1-9]\\d?\\.localhost:${port}$`).test(host);
+      const admitted = !crossSite && (names.has(host) || copy || allowed.some(a => a === host || a === name));
       return { allowed: admitted, local: admitted && !forwarded && loopback.some(u => u.host === host) && peers.has(req.socket?.remoteAddress) };
     },
   };

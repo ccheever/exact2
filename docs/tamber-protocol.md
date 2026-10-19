@@ -1151,6 +1151,14 @@ The tool drives no input into an app; a command changes only what `prefer` would
     ties nothing; a frame of any other name keeps the tab's one id. A framed page posts `{type:
     "exact-build", id}` to its parent each time it registers, so the page framing it finds which
     frame is which build by the message's source (the id grants nothing without the nonce).
+  - The design tool frames each copy at a loopback name of its own,
+    `http://exact-copy-<n>.localhost:<port>/` (theme2's F1 ruling: a browser carries at most six
+    HTTP/1.1 connections a host, and each copy holds a stream). The dev loop admits those names
+    (`n` 1 to 99), never as local. Each copy is then its own origin, with its own storage.
+  - In a copy (a page in an `exact-copy-<n>` frame) that is pinned, the pin holds over the app's
+    own `setScheme`, `setMode` and `setRootFontSize` for the facts it pins (theme2's F2 ruling;
+    elsewhere the app's own wins, LLP 1122 D3). What the app asked instead is kept, takes effect
+    when the pin is handed back, and is said in the copy's `status` as `app`.
   - `plan` is the generation the build runs (the envelope's identity; the JS target, which runs
     no plan, sends none), and `design` its design digest. Before accepting a dev generation,
     Apple reports the digest of its running embedded or cached plan.
@@ -1190,7 +1198,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
     the facts that paint, the `plan` and `design` digests (and `planDigest`, *1.9*, as it moves),
     and the pin `revision` it applied. The web pages also say their `location` (*1.14*, LLP 1122
     T7): the path, query and fragment they show, on their own origin (at most 2 KiB; no scheme or
-    host), reported when it moves.
+    host), reported when it moves. A pinned copy also says `app` (*1.14*): `{scheme?, mode?,
+    rootFontSize?}`, what the app asked instead of its pin (strings; `mode` `{axis: value}`; at
+    most 1 KiB), or nothing.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
     `setRootFontSize` included (at most once a turn). A scrub's frames move the design without a
     status each: the web pages report it once, about 150 ms after the drag rests. A native host

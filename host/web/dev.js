@@ -364,7 +364,7 @@ if (es) {
   // A copy the design tool frames (LLP 1122 T7: same-origin frames share the
   // tab's storage) keeps its own under the frame's name, `exact-copy-<n>`,
   // which the page only reads; any other name is the app's, left alone.
-  const framed = globalThis.parent != null && globalThis.parent !== globalThis, buildKey = framed && /^exact-copy-\d{1,2}$/.test(globalThis.name ?? "") ? `exact.dev.build:${globalThis.name}` : "exact.dev.build";
+  const framed = globalThis.parent != null && globalThis.parent !== globalThis, copy = framed && /^exact-copy-\d{1,2}$/.test(globalThis.name ?? ""), buildKey = copy ? `exact.dev.build:${globalThis.name}` : "exact.dev.build";
   const buildId = (async () => {
     const fresh = () => `web-${crypto.getRandomValues(new Uint32Array(2)).join("")}`;
     let id;
@@ -431,7 +431,32 @@ if (es) {
     const rootStyle = getComputedStyle(document.documentElement), cs = rootStyle.colorScheme;
     const scheme = /dark/.test(cs) && !/light/.test(cs) ? "dark" : /light/.test(cs) && !/dark/.test(cs) ? "light" : globalThis.exact.systemScheme ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     const contrast = matchMedia("(prefers-contrast: more)").matches ? "more" : matchMedia("(prefers-contrast: less)").matches ? "less" : "no-preference";
-    return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision, location: here() };
+    return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision, location: here(), app: appAsked() ?? undefined };
+  };
+  // In a copy the design tool pins (LLP 1122 T7, theme2's F2 ruling), the
+  // pin holds over the app's own setScheme, setMode and setRootFontSize for
+  // the facts it pins (elsewhere the app's own wins, D3): what the app asked
+  // instead is kept, said beside the status (`app`), and takes effect when
+  // the pin is handed back.
+  function appAsked() {
+    const p = channel.held?.pin;
+    if (!copy || !p) return null;
+    const out = {}, own = document.documentElement.style.colorScheme;
+    if (p.scheme && own && own !== p.scheme) out.scheme = own;
+    const size = document.getElementById("exact-root-font-size")?.textContent?.match(/font-size:([^!;}]+)/)?.[1];
+    if (p.rootFontSize && size) out.rootFontSize = size.trim().slice(0, 64);
+    const mode = Object.fromEntries(Object.entries(channel.appMode ?? {}).filter(([a, v]) => p.mode?.[a] !== undefined && p.mode[a] !== v));
+    if (Object.keys(mode).length) out.mode = mode;
+    return Object.keys(out).length ? out : null;
+  }
+  // (The app's own setMode moved a pinned axis: its choice kept, the pin's put back.)
+  const holdPin = async () => {
+    const p = channel.held?.pin;
+    if (!copy || !p?.mode) return;
+    const now = await modes(), moved = Object.keys(p.mode).filter((a) => now?.[a] !== undefined && now[a] !== p.mode[a]);
+    if (!moved.length) return;
+    channel.appMode = { ...(channel.appMode ?? {}), ...Object.fromEntries(moved.map((a) => [a, now[a]])) };
+    await wasmCall("exact_set_mode", globalThis.exact.writeIn(Object.entries({ ...now, ...p.mode }).map(([a, v]) => `${a}=${v}`).join(",")));
   };
   const status = async () => { clearTimeout(statusLater); statusLater = null; const body = await facts(); channel.told = JSON.stringify(body); report(body); };
   // The facts change under the page too, and by the app's own `setScheme`,
@@ -446,6 +471,7 @@ if (es) {
     setTimeout(() => {
       designing = designing.then(async () => {
         due = false;
+        await holdPin();
         const body = await facts();
         if (JSON.stringify(body) !== channel.told) { channel.told = JSON.stringify(body); report(body); }
       }).catch((error) => console.error("exact dev:", String(error)));
@@ -509,16 +535,20 @@ if (es) {
     // the runner's `prefers-color-scheme` reads (navigation.js
     // `preferences`), told as the browser's change is.
     const sheet = document.getElementById("exact-dev-pin") ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: "exact-dev-pin" }));
-    sheet.textContent = p?.scheme ? `:root{color-scheme:${p.scheme}}` : "";
+    sheet.textContent = p?.scheme ? `:root{color-scheme:${p.scheme}${copy ? "!important" : ""}}` : "";
     if ((x.systemScheme ?? null) !== (p?.scheme ?? null)) { x.systemScheme = p?.scheme ?? null; dispatchEvent(new Event("resize")); }
     // The root font size as `prefer` sets it (navigation.js): the size an
     // app's percentage is of, too.
-    root.fontSize = p?.rootFontSize ? `${p.rootFontSize}px` : channel.before.fontSize;
+    // (In a copy, over the app's own: its `!important` rule gives way to the root's own.)
+    root.removeProperty("font-size");
+    if (copy && p?.rootFontSize) root.setProperty("font-size", `${p.rootFontSize}px`, "important");
+    else root.fontSize = p?.rootFontSize ? `${p.rootFontSize}px` : channel.before.fontSize;
     if (p?.rootFontSize) root.setProperty("--exact-host-font-size", root.fontSize);
     else if (channel.before.hostFont) root.setProperty("--exact-host-font-size", channel.before.hostFont);
     else root.removeProperty("--exact-host-font-size");
     await wasmCall("exact_set_root_font_size", hostSize());
-    const mode = pins({ ...(channel.before.mode ?? {}), ...(p?.mode ?? {}) });
+    // (Handed back in a copy, a mode is the app's latest own choice.)
+    const mode = pins({ ...(channel.before.mode ?? {}), ...(p ? {} : channel.appMode ?? {}), ...(p?.mode ?? {}) });
     if (mode) {
       // A mode refused leaves the modes before the first pin, not the last pin's.
       const out = await wasmCall("exact_set_mode", x.writeIn(mode));
@@ -526,7 +556,7 @@ if (es) {
     }
     // A page cannot override the browser's `prefers-contrast`.
     if (p?.contrast) report({ kind: "unsupported", what: "pin.contrast", detail: "a web page cannot pin the browser's contrast", revision: frame.revision });
-    if (!p) channel.before = null;
+    if (!p) { channel.before = null; channel.appMode = null; }
     channel.held = p ? frame : null;
     channel.revision = frame.revision;
     status();

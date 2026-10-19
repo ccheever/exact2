@@ -724,6 +724,10 @@ test('navigate (*1.14*, LLP 1122 T7) routes one build to a location on its own o
   expect(report(channel, { nonce: a.nonce, kind: 'status', location: '/posts/7?tab=replies#top' }).status).toBe(204);
   expect(events.at(-1)).toMatchObject({ event: 'build-status', build: { id: 'web-1', status: { location: '/posts/7?tab=replies#top' } } });
   expect(report(channel, { nonce: a.nonce, kind: 'status', location: 'https://evil.example/' }).status).toBe(400);
+  // A pinned copy says what the app asked instead (theme2's F2 ruling).
+  expect(report(channel, { nonce: a.nonce, kind: 'status', location: '/', app: { mode: { 'dark-style': 'dim' }, scheme: 'light' } }).status).toBe(204);
+  expect(events.at(-1)).toMatchObject({ event: 'build-status', build: { status: { app: { mode: { 'dark-style': 'dim' }, scheme: 'light' } } } });
+  for (const app of [{ other: 1 }, { scheme: 7 }, { mode: { a: 1 } }, 'x', { rootFontSize: 'x'.repeat(65) }]) expect(report(channel, { nonce: a.nonce, kind: 'status', app }).status).toBe(400);
   // A refusal of an earlier one is old news; the last one's is its sender's alone, once.
   const second = channel.navigate('other', 'web-1', '/nowhere');
   expect(report(channel, { nonce: a.nonce, kind: 'unsupported', what: 'navigate', detail: 'no route', revision: first.seq }).status).toBe(204);
