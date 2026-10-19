@@ -57,7 +57,10 @@ let frontBefore = agentActivates ? NSWorkspace.shared.frontmostApplication : nil
 /// exit (the agent's own `exit` at the end of its input, AppKit's quit, an
 /// interrupt), never launching or reopening one that has gone.
 func frontAgain() {
-    if let front = frontBefore, !front.isTerminated, front.processIdentifier != ProcessInfo.processInfo.processIdentifier { front.activate() }
+    guard let front = frontBefore, !front.isTerminated, front.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+    // (Cooperative activation: this app, still in front, yields to it.)
+    if #available(macOS 14.0, *) { NSApp.yieldActivation(to: front) }
+    front.activate()
 }
 if agentActivates {
     atexit { frontAgain() }
