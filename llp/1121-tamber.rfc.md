@@ -5003,9 +5003,11 @@ draws nothing new: stage 11 C draws and conforms on top.
     row's `$tl…` map, which holds them, is never the keyword row's cached one. Where the plan declares none the maps
     are alike and keep their names, so a release that uses no base name is unchanged.
   - **A bound SVG attribute and an alias** (Astra 3). A bound attribute's map holds an alias as its length (an
-    attribute reads no property), so an alias such a row may name is written inline (`measures::inline_tokens`). A
-    development build's edit of it builds, and a scrub refuses it, never a batch that leaves the attribute behind. It
-    covers a length alias with one value; one that varies is no attribute map's, as before. Round 1's literal length
+    attribute reads no property), so every token of one value such a row may name, a length or number its row takes
+    (an alias as its length, a plain constant as its CSS), is written inline (`measures::inline_tokens`). A
+    development build's edit of one builds, and a scrub refuses it, never a batch that leaves the attribute behind.
+    (The constant's case is older than B2; the lead had it widened here.) A token that varies is no attribute map's,
+    as before. Round 1's literal length
     in the attribute and its test stay.
   - **Built values in region frames** (Astra 5). The walk keeps a constructed option's or list's element (`Some(x)`,
     `[12, 16]`), which a `match` or `for` frame then holds, and a bound row returning an option counts its element.
@@ -5021,7 +5023,7 @@ draws nothing new: stage 11 C draws and conforms on top.
         nine.
     - `a_keyword_rows_map_is_not_a_length_rows`: `color-scheme` bound first, then padding; `$tl` holds `space.md` and
       `$tk` doesn't.
-    - `an_alias_a_bound_svg_attribute_may_name_is_written_inline`: `card.pad` inline, `tile` not.
+    - `a_token_a_bound_svg_attribute_may_name_is_written_inline`: `card.pad` and the constant `tile` are both inline.
     - `a_switch_between_base_names_keeps_the_structure`: space.md and space.lg have the same structure; 12px's is
       another.
     - `base-scale-live.test.mjs`, in Chrome:

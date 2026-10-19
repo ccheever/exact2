@@ -124,17 +124,20 @@ pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
             };
             // A static row's: the sentinel projection writes it. A bound
             // value maps through the row's map instead ([`map`]), which
-            // holds an alias to a base name as its length (an attribute
-            // reads no property): such an alias is written inline too, so
-            // an edit of it builds (round 2, Astra 3).
+            // holds each token of one value it may name as its CSS (an
+            // attribute reads no property): a constant, an alias to a base
+            // name as its length. Each is written inline too, so an edit of
+            // it builds (B2 round 2, Astra 3, widened by the lead).
             let Some(literal) = crate::style::literal(plan, plan.code(b.expr)) else {
-                let length =
-                    StyleId::from_bit(u32::from(b.id)).is_some_and(crate::base_scale::reads_length);
-                if writer.contains("SVG") && length {
+                let id = StyleId::from_bit(u32::from(b.id));
+                if writer.contains("SVG") {
                     for r in plan.theme.iter().filter(|r| {
-                        kind(r) == Some(Kind::Length)
-                            && r.slices.len == 0
-                            && exact_kernel::style::scale::is_base(plan.str(r.value).trim())
+                        r.slices.len == 0
+                            && kind(r).is_some_and(|k| {
+                                matches!(k, Kind::Length | Kind::Number)
+                                    && id
+                                        .is_some_and(|id| exact_kernel::style::theme::admits(k, id))
+                            })
                     }) {
                         let name = plan.str(r.name);
                         if !out.iter().any(|(n, _)| n == name) {

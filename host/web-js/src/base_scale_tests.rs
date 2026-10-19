@@ -383,12 +383,12 @@ fn a_keyword_rows_map_is_not_a_length_rows() {
     );
 }
 
-/// Round 2, Astra 3: a bound SVG attribute's map holds an alias as its
-/// length (an attribute reads no property), so the alias is written inline:
-/// a development build's edit of it builds, never a batch that leaves the
-/// attribute's length behind.
+/// Round 2, Astra 3: a bound SVG attribute's map holds each token of one
+/// value it may name as its CSS (an attribute reads no property), an alias as
+/// its length, so each is written inline: a development build's edit of it
+/// builds, never a batch that leaves the attribute behind.
 #[test]
-fn an_alias_a_bound_svg_attribute_may_name_is_written_inline() {
+fn a_token_a_bound_svg_attribute_may_name_is_written_inline() {
     let dir = std::env::temp_dir().join(format!(
         "exact-web-js-base-svg-inline-{}",
         std::process::id()
@@ -422,7 +422,8 @@ fn an_alias_a_bound_svg_attribute_may_name_is_written_inline() {
         "{}",
         row("card.pad")
     );
-    assert_ne!(
+    // Widened (the lead): a plain constant the attribute may name too.
+    assert_eq!(
         row("tile")["inline"],
         serde_json::json!(true),
         "{}",
