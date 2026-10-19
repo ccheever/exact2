@@ -625,15 +625,16 @@ pub(crate) fn visible(
         })
         .map(|(i, _)| i)
         .collect();
+    // Each blended part's decision: the CPU orders and culls them one by one
+    // (skipping a hidden level), apart from the draw groups.
+    let blended: Vec<bool> = (facts.blended.iter())
+        .filter(|(slot, _)| slots.contains(slot))
+        .map(|&(_, kept)| kept)
+        .collect();
     if groups.is_empty() {
-        // Blended models are ordered on the CPU, which skips a hidden level.
         if let Some(word) = lod_hidden {
             return word;
         }
-        let blended: Vec<bool> = (facts.blended.iter())
-            .filter(|(slot, _)| slots.contains(slot))
-            .map(|&(_, kept)| kept)
-            .collect();
         return match (blended.is_empty(), blended.contains(&true)) {
             (true, _) => ("not-drawn".into(), "no draw holds it this frame".into()),
             (false, true) => ("drawn".into(), "a blended model the CPU cull kept".into()),
@@ -643,6 +644,40 @@ pub(crate) fn visible(
             ),
         };
     }
+    // Its opaque parts' word, then every part's: drawn if any part drew.
+    let opaque = group_word(facts, read, &groups, &slots, lod_hidden);
+    let drew = matches!(opaque.0.as_str(), "drawn" | "custom-material")
+        || opaque.0.starts_with("outside-cascade");
+    if drew || blended.is_empty() {
+        return opaque;
+    }
+    if blended.contains(&true) {
+        let reason = format!(
+            "its blended part the CPU cull kept; its opaque parts {}: {}",
+            opaque.0, opaque.1
+        );
+        return ("drawn".into(), reason);
+    }
+    let dropped = blended.len();
+    (
+        opaque.0,
+        format!(
+            "{}; its {dropped} blended part{} the CPU cull dropped too",
+            opaque.1,
+            if dropped == 1 { "" } else { "s" }
+        ),
+    )
+}
+
+/// The word for an entity's parts in the draw groups (`slots` in `groups`):
+/// the GPU cull's lists and account, or a direct frame's whole groups.
+fn group_word(
+    facts: &Facts,
+    read: &Reading,
+    groups: &[usize],
+    slots: &[u32],
+    lod_hidden: Option<(String, String)>,
+) -> (String, String) {
     let custom = (
         "custom-material".into(),
         "never culled: a game's vertex shader may move it".into(),

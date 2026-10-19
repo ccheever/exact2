@@ -430,3 +430,104 @@ fn an_inspection_from_beyond_a_hide_distance_leaves_the_live_levels_as_they_were
     let camera: serde_json::Value = serde_json::from_str(&camera).unwrap();
     assert_eq!(camera["data"], crate::look::base64(&before.data));
 }
+
+/// One model entity with an opaque part 200 m to the side of the view and a
+/// half-transparent part in front of the camera, or, `away`, 200 m to the
+/// other side too.
+struct Mixed;
+impl Game for Mixed {
+    const ID: &'static str = "look-mixed";
+    const ASSETS: &'static [&'static str] = &["mixed.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.insert_resource(Environment {
+            background: Some([0.; 3].into()),
+            fog: None,
+            bloom: None,
+            ..Default::default()
+        });
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(0., 0., 5.).looking_at(Vec3::ZERO, Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        w.spawn_named("mixed", (Transform::default(), Mesh::asset("mixed.model")));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+/// A 2 m square facing the camera, opaque at 200 m along x and blended at
+/// `glass` along x.
+fn mixed_model(glass: f32) -> asset::Model {
+    use asset::{AlphaMode, MaterialData, MeshData, Model, Node};
+    let square = |material| MeshData {
+        positions: vec![-1., -1., 0., 1., -1., 0., 1., 1., 0., -1., 1., 0.],
+        normals: [0., 0., 1.].repeat(4),
+        uvs: [0.; 2].repeat(4),
+        indices: vec![0, 1, 2, 0, 2, 3],
+        bounds: [-1., -1., 0., 1., 1., 0.],
+        material,
+        ..Default::default()
+    };
+    let at = |x: f32| Mat4::from_translation(Vec3::new(x, 0., 0.)).to_cols_array();
+    Model {
+        meshes: vec![square(0), square(1)],
+        materials: vec![
+            MaterialData::default(),
+            MaterialData {
+                base_color: [1., 1., 1., 0.5],
+                alpha_mode: AlphaMode::Blend,
+                ..Default::default()
+            },
+        ],
+        nodes: vec![
+            Node {
+                name: "opaque".into(),
+                mesh: Some(0),
+                transform: at(200.),
+                ..Default::default()
+            },
+            Node {
+                name: "glass".into(),
+                mesh: Some(1),
+                transform: at(glass),
+                ..Default::default()
+            },
+        ],
+        bounds: [-201., -1., 0., 201., 1., 0.],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn an_entity_whose_blended_part_draws_is_drawn_though_its_opaque_part_is_out_of_view() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    for (glass, word) in [(0., "drawn"), (-200., "frustum")] {
+        let mut s = WorldSurface::<Mixed, crate::ModelExecutor, true>::default();
+        s.device_ready(wgpu::Features::empty());
+        s.bind(&[], None).unwrap();
+        s.asset("mixed.model", Ok(&bin::to_vec(&mixed_model(glass))));
+        let mut pixels = None;
+        for ms in [0., 20., 40.] {
+            pixels = Some(fixture::render(&gpu, &mut s, &frame(ms)).unwrap().0);
+        }
+        assert!(s.error().is_none(), "{:?}", s.error());
+        let pixels = pixels.unwrap();
+        let lit = (pixels.data.chunks(4)).filter(|p| p[..3].iter().any(|&c| c > 10));
+        let lit = lit.count();
+        assert_eq!(
+            lit > 1000,
+            glass == 0.,
+            "glass at {glass}: {lit} pixels lit"
+        );
+        let reply = s
+            .agent(r#"{"op":"state","entity":"mixed","visible":true,"width":320,"height":180}"#)
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(value["visible"], word, "glass at {glass}: {reply}");
+    }
+}

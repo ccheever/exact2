@@ -1,9 +1,10 @@
 //! The look oracle's tells (LLP 1127.000 D1): what a frame's own numbers say is
 //! wrong with it. Each is read from a look frame under the agent's clock, never
 //! from a live frame. A tell catches a frame that is near black or clipped,
-//! particles that drew and covered nothing, and a shadowed sun whose shadow pass
-//! kept no caster; it cannot tell a grey meadow from a green one, a model facing
-//! backwards or a panel overflowing its box. Those take a look at the picture.
+//! particles that drew and covered nothing, and a shadowed sun whose shadow maps
+//! hold no texel nearer than their clear depth; it cannot tell a grey meadow
+//! from a green one, a model facing backwards or a panel overflowing its box.
+//! Those take a look at the picture.
 
 /// Every tell, by the name `app.json`'s `game.look.silence` uses for it.
 pub const TELLS: [&str; 5] = [
