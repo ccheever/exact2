@@ -55,6 +55,10 @@
 //! columns with items wider than the line's stretch size. Controls cover
 //! ratios, LTR, fitting items, alignment, explicit widths, padding, borders
 //! and width bounds under both box-sizing modes.
+//! `Chrome 151 ratio max-height minimum` uses that version and date for
+//! wide content in ratio items capped by max-height. Controls cover block,
+//! flex and grid items, columns, definite and automatic heights, specified
+//! widths, bounds, explicit minima, overflow, box sizing and reversed rows.
 //!
 //! `Chrome 151 intrinsic flex basis` uses that version and date for shrink-to-fit
 //! rows, a block wrapper, growth and shrink limits, automatic minima, bounds,

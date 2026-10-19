@@ -1767,6 +1767,37 @@ space. The auto-width 1:1 flex root's ratio item changes from 10×50 to 50×50,
 matching Chrome and `origin/main` at c8f5d6c96. Controls cover a second ratio,
 height bounds, wrapping, alignment, column direction, and flex and grid items.
 
+## Patch 57: preserve the inline content minimum beyond a ratio height cap
+
+A non-replaced container's `ContentSize` probe keeps its authored maximum
+width instead of the width transferred from `max-height`. Block uses the
+same ratio-aware content measurement as flex and grid: a derived width is
+an automatic minimum that wider content can exceed, unless an explicit
+inline minimum or scrolling disables it. Block and flex also keep the
+transferred maximum out of the probe's min/max short circuit.
+
+A row item with a definite height keeps that wider content minimum when
+flex chooses its automatic minimum. Specified widths and maximum widths
+still cap it. Auto-height rows, columns and replaced elements retain the
+transferred cap; the hypothetical-size clamp is unchanged.
+This follows Chrome 151.0.7922.34, measured on 2026-10-19.
+[Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto) defines a
+converted cross-axis maximum for the content suggestion of non-replaced
+elements too; the inline-axis behavior here is the measured browser result.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+50 literal `Chrome 151 ratio max-height minimum` cases. Before the patch,
+28 frames differed. The reported item changes from 60×60 to 120×60; with
+`max-width:90px` it becomes 90×60. Controls cover block, flex and grid items,
+wide and tall column content, minimum heights below and above the maximum,
+ratios 2 and 0.5, explicit minima, hidden overflow, box sizing, flex bases,
+shrinking, wrapping, reversed rows, percentage heights and definite stretch.
+An auto-height row item stays 60×60, as does the column analogue.
+
+`browser_replaced::constraints::ratio_cross_maximum_still_caps_replaced_minima`
+holds eight measurements of canvas and loaded-image items (natural size
+300×150), including 60×60 rows and columns, a width cap and a zero minimum.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested

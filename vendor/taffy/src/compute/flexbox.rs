@@ -246,13 +246,19 @@ pub fn compute_flexbox_layout(
         if style.box_sizing() == BoxSizing::ContentBox { padding_border_sum } else { Size::ZERO };
 
     // EXACT PATCH 12: the container's own size styles through the ratio (`compute::ratio`).
-    let (style_size, min_size, max_size) = sizes_through_ratio(
+    let raw_max_size =
+        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment);
+    let (style_size, min_size, mut max_size) = sizes_through_ratio(
         &style,
         padding_border_sum,
         style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
         style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
-        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        raw_max_size,
     );
+    // EXACT PATCH 57: transferred height bounds must not short-circuit the inline content probe.
+    if inputs.sizing_mode == SizingMode::ContentSize && !style.is_compressible_replaced() {
+        max_size.width = raw_max_size.width;
+    }
     let clamped_style_size = if inputs.sizing_mode == SizingMode::InherentSize {
         style_size.maybe_clamp(min_size, max_size)
     } else {
@@ -1349,8 +1355,17 @@ fn determine_flex_base_size(
 
             // 4.5. Automatic Minimum Size of Flex Items
             // https://www.w3.org/TR/css-flexbox-1/#min-size-auto
+            // EXACT PATCH 57: Chrome 151 lets a non-replaced row item's wider
+            // content minimum exceed the converted max-height when its height
+            // is definite. Columns, replaced items and auto-height rows keep
+            // the transferred cap. This follows the measured browser behavior.
+            let content_max = if dir.is_row() && replaced_ratio.is_none() && child_cross_size_is_definite {
+                child.max_size.main(dir)
+            } else {
+                transferred_max_size.main(dir)
+            };
             let clamped_min_content_size =
-                min_content_main_size.maybe_min(child.size.main(dir)).maybe_min(transferred_max_size.main(dir));
+                min_content_main_size.maybe_min(child.size.main(dir)).maybe_min(content_max);
             clamped_min_content_size.maybe_max(padding_border_axes_sums.main(dir))
         });
 

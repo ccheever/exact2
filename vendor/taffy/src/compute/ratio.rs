@@ -131,7 +131,7 @@ pub(crate) fn sizes_through_ratio(
     }
 }
 
-/// Resolve a flex or grid container's incoming sizes. In a content probe,
+/// Resolve a container's incoming sizes. In a content probe,
 /// a transferred width is a minimum that wider content can exceed.
 pub(crate) fn container_sizes_through_ratio(
     style: &impl CoreStyle,
@@ -141,13 +141,22 @@ pub(crate) fn container_sizes_through_ratio(
     max: Size<Option<f32>>,
     sizing_mode: crate::SizingMode,
 ) -> (Size<Option<f32>>, Size<Option<f32>>, Size<Option<f32>>) {
-    let (mut size, mut min, max) = sizes_through_ratio(style, pb_sum, given, min, max);
+    let authored_max_width = max.width;
+    let (mut size, mut min, mut max) = sizes_through_ratio(style, pb_sum, given, min, max);
     // EXACT PATCH 56: the non-replaced content minimum combines content and
     // the ratio transfer (Flexbox §4.5). A known width would skip content
     // measurement; a floor leaves it independent of the transferred size.
     if sizing_mode == crate::SizingMode::ContentSize && !style.is_compressible_replaced() && given.width.is_none() {
-        if let Some(width) = size.width.take() {
-            min.width = Some(width.maybe_min(max.width).maybe_max(min.width));
+        // EXACT PATCH 57: Chrome 151 preserves a non-replaced box's intrinsic
+        // inline content width beyond max-height's ratio transfer. Only the
+        // authored max-width caps this probe; the parent still applies its
+        // transferred bounds when choosing the box's used size.
+        max.width = authored_max_width;
+        let overflow = style.overflow();
+        if style.min_size().width.is_auto() && !overflow.x.is_scroll_container() && !overflow.y.is_scroll_container() {
+            if let Some(width) = size.width.take() {
+                min.width = Some(width.maybe_min(max.width).maybe_max(min.width));
+            }
         }
     }
     (size, min, max)
