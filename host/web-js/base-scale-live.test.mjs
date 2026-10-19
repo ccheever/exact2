@@ -154,3 +154,48 @@ test('an alias switched between base names goes live; the first base name moves 
     rmSync(dir, { recursive: true, force: true });
   }
 }, 60000);
+
+// Round 3 (Astra): a bound grid track naming a base name, directly or
+// through an alias, keeps its length (grid.js's check admits the scale's
+// properties), in a release build and a development one.
+test('a bound grid track naming a base name or an alias keeps its length', async () => {
+  const root = resolve(import.meta.dir, '../..');
+  const target = resolve(root, 'target');
+  const app = mkdtempSync(resolve(target, 'base-grid-app-'));
+  const bin = resolve(target, 'debug/exact-web-js');
+  let server, browser;
+  const dirs = [];
+  try {
+    writeFileSync(resolve(app, 'app.tamber'), 'tamber t\n\ntheme\n  card.pad: length = space.lg\n');
+    writeFileSync(resolve(app, 'app.contract'), `component App\n  state direct = "space.md"\n  state alias = "card.pad"\n  view\n    column\n      column display="grid" grid-template-columns=direct testId="direct"\n        text "a"\n      column display="grid" grid-template-columns=alias testId="alias"\n        text "b"\n`);
+    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    for (const dev of [false, true]) {
+      const dir = mkdtempSync(resolve(target, 'base-grid-out-'));
+      dirs.push(dir);
+      const built = spawnSync(bin, ['js', resolve(app, 'app.contract'), '-o', dir, ...(dev ? ['--dev-reload'] : [])], { encoding: 'utf8' });
+      expect(built.status, built.stderr).toBe(0);
+      server?.stop(true);
+      server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
+        const path = new URL(request.url).pathname.slice(1);
+        if (!path) return new Response(`<link rel="stylesheet" href="/app.css"><div id="exact-root"></div><script type="module">import app from '/app.js';app();</script>`,
+          { headers: { 'content-type': 'text/html' } });
+        const file = [dir, import.meta.dir, resolve(root, 'host/web')]
+          .map(base => resolve(base, path)).find(existsSync);
+        return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
+      } });
+      const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
+      await page.goto(server.url.href);
+      await page.getByTestId('alias').waitFor({ state: 'attached' });
+      const tracks = id => page.getByTestId(id).evaluate(n => [n.style.gridTemplateColumns, getComputedStyle(n).gridTemplateColumns]);
+      expect(await tracks('direct'), `dev ${dev}`).toEqual(['var(--exact-space-md)', '16px']);
+      // A development build's alias is its own property, whose value is the base's.
+      expect(await tracks('alias'), `dev ${dev}`).toEqual([dev ? 'var(--x-card-pad)' : 'var(--exact-space-lg)', '24px']);
+      await page.close();
+    }
+  } finally {
+    await browser?.close();
+    server?.stop(true);
+    rmSync(app, { recursive: true, force: true });
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  }
+}, 60000);

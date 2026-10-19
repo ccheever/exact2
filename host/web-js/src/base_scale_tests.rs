@@ -474,3 +474,24 @@ fn a_switch_between_base_names_keeps_the_structure() {
         structure("tamber t\n\ntheme\n  card.pad: length = 12px\n")
     );
 }
+
+/// Round 3 (Astra): grid.js's track check admits a base name's property,
+/// exactly the kernel's nine, written there by hand: held to the table.
+#[test]
+fn the_grid_track_check_names_the_scale() {
+    let grid = include_str!("../grid.js");
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for name in scale::names() {
+        let (head, step) = name.split_once('.').unwrap();
+        match groups.iter_mut().find(|(h, _)| *h == head) {
+            Some((_, steps)) => steps.push(step),
+            None => groups.push((head, vec![step])),
+        }
+    }
+    let alternatives: Vec<String> = groups
+        .iter()
+        .map(|(h, s)| format!("{h}-(?:{})", s.join("|")))
+        .collect();
+    let pattern = format!("--exact-(?:{})", alternatives.join("|"));
+    assert!(grid.contains(&pattern), "grid.js should admit {pattern}");
+}

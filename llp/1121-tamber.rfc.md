@@ -5045,3 +5045,22 @@ draws nothing new: stage 11 C draws and conforms on top.
   - **QUEUE:** "A Stretch cell form in the base scale table" (theme2's optional item), to land with the next commit
     that moves the schema digest.
   - Release output against the commit before B2 (`d7671b5263`'s exact-web-js): all 14 apps byte-identical.
+- **After review round 3 (Grok RIGHT; Astra RIGHT WITH CHANGES):**
+  - **A bound grid track reads a base name** (Astra, blocking). A bound `grid-template-columns` or `-rows` naming
+    `space.md`, directly or through an unset-base alias, maps to `var(--exact-space-md)`. grid.js's track check
+    admitted only a design token's `var(--x-…)` and refused it as `unset`, in a release build too. It now admits
+    exactly the scale's nine `--exact-<base>` properties, no other `--exact-` one. The search for the same `--x-`-only
+    assumption found no other validator:
+    - rt.js writes a bound value through the browser, which takes any `var()`;
+    - the corner map's check refuses only a list;
+    - backdrop.js reads no length token;
+    - modes.js, modes.rs, check.js, inspect-dev.js and input-glue.js read a token's property for the live table, the
+      checker or the inspector, and never refuse a value.
+  - **Tests:**
+    - `grid.test.mjs`: the nine and a token's property are tracks; `--exact-accent`, an unknown step and a list
+      aren't. grid.js is loaded from its text, so no module mock leaks into the other files run in that process.
+    - `base_scale_tests.rs` `the_grid_track_check_names_the_scale`: grid.js's nine are the kernel's table.
+    - `base-scale-live.test.mjs`, in Chrome, in a release build and a development one: a bound track naming
+      `space.md` computes to 16px, and one naming the alias `card.pad` (space.lg) to 24px. It fails without the fix,
+      checked by hand.
+    - Release output against the commit before B2: all 14 apps byte-identical.
