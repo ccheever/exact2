@@ -354,6 +354,22 @@ impl<D: DataSource> Host<D> {
                     }
                 }
             }
+            // Where a flex text's lines go down its content box (CSS's
+            // anonymous flex item), which its paragraph is laid out from.
+            let offset = kernel.text_line_offset(&node);
+            let offset = (offset > 0.0).then(|| crate::style::num(offset));
+            if m.props.get("textOffset") != offset.as_ref() {
+                match offset {
+                    Some(value) => {
+                        batch.props(id, &[("textOffset", value.clone())], &[]);
+                        m.props.insert("textOffset".into(), value);
+                    }
+                    None => {
+                        batch.props(id, &[], &["textOffset"]);
+                        m.props.remove("textOffset");
+                    }
+                }
+            }
             let field_content = published_content_box(&node, kernel);
             let field_cell = node.is_cell_field();
             if self.layout_withheld
