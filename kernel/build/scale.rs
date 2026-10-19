@@ -66,6 +66,7 @@ fn scale_cell(
     name: &str,
     column: usize,
     cell: &serde_json::Value,
+    doc: &str,
 ) -> (String, Option<f64>) {
     use serde_json::Value as V;
     let at = format!("{name} ({})", SCALE_COLUMNS[column]);
@@ -153,6 +154,21 @@ fn scale_cell(
                         .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
                 "schema: scale {at}: a source id is kebab-case: {id}"
             );
+            // Its entry in docs/scale-measured.md, binding this step to this value exactly.
+            let entry = doc
+                .split("\n### ")
+                .find(|e| e.starts_with(&format!("`{id}`")))
+                .unwrap_or_else(|| {
+                    panic!("schema: scale {at}: `{id}` has no entry in docs/scale-measured.md")
+                });
+            let binds = entry
+                .lines()
+                .find(|l| l.starts_with("Binds: "))
+                .unwrap_or_default();
+            assert!(
+                binds.contains(&format!("`{name} = {n}`")),
+                "schema: scale {at}: docs/scale-measured.md's `{id}` entry does not bind `{name} = {n}`"
+            );
             (
                 format!(
                     "ScaleCell {{ value: ScaleValue::Px({n:?}), source: ScaleSource::{variant}({id:?}) }}"
@@ -207,6 +223,11 @@ fn write_scale(w: &mut String, scale: &[Vec<serde_json::Value>], metrics: &[Metr
         names, SCALE_NAMES,
         "schema: the scale's rows are the nine base names, in order (ruling 5)"
     );
+    // Every measured or guideline cell's entry, read here; the build reruns
+    // when the page changes (said here, not in build.rs, which the schema
+    // digest hashes).
+    println!("cargo:rerun-if-changed=../docs/scale-measured.md");
+    let doc = fs::read_to_string("../docs/scale-measured.md").expect("read docs/scale-measured.md");
     w.push_str("/// The base scale, in the schema's order.\npub const SCALE: &[ScaleRow] = &[\n");
     for (row, name) in scale.iter().zip(names) {
         assert_eq!(
@@ -216,7 +237,7 @@ fn write_scale(w: &mut String, scale: &[Vec<serde_json::Value>], metrics: &[Metr
         );
         let mut cells: Vec<(String, Option<f64>)> = Vec::new();
         for (column, cell) in row[1..].iter().enumerate() {
-            cells.push(scale_cell(metrics, name, column, cell));
+            cells.push(scale_cell(metrics, name, column, cell, &doc));
         }
         let code: Vec<String> = SCALE_COLUMNS
             .iter()

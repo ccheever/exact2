@@ -5,6 +5,7 @@
 //! keeps nothing for one: the kernel holds every column.
 
 use exact_kernel::style::{metrics::Column, scale};
+use exact_tamber as tamber;
 
 thread_local! {
     /// Every token name the design declares, of any kind, while its styles
@@ -40,4 +41,25 @@ pub(crate) fn values(text: &str) -> Option<Vec<String>> {
         }
     }
     Some(values)
+}
+
+/// `tamber-base-kind`: a base name the design declares as anything but a
+/// length token (a colour, a number, an icon), each `(line, col,
+/// message)`. A base name is a length, app-wide, as the scale's own; an icon
+/// under one would hide it while a row reads the base (round 1).
+pub(crate) fn misnamed(folding: &tamber::Folding) -> Vec<(u32, u32, String)> {
+    let mut out = Vec::new();
+    for (t, declared) in folding.tokens.iter().zip(&folding.design.tokens) {
+        let name = &declared.name;
+        if scale::is_base(&name.value) && t.kind != tamber::Kind::Length {
+            out.push((name.line, name.col, format!("`{0}` is a base length (the scale's `{0}`): an app sets it to a length (`{0} = 12px`), not a {1}", name.value, t.kind.name())));
+        }
+    }
+    // An icon (a dial's name is an identifier, so no dial is one).
+    for name in folding.design.icons.iter().map(|t| &t.name) {
+        if scale::is_base(&name.value) {
+            out.push((name.line, name.col, format!("`{}` is a base length (the scale's): an app sets it as a length token, not an icon", name.value)));
+        }
+    }
+    out
 }

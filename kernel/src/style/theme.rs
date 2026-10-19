@@ -215,6 +215,15 @@ pub fn declared(text: &str) -> Option<Box<str>> {
 /// no entry defines reads the base scale's length in this process's column
 /// ([`super::scale`]), bound theme or none. `None` when it names none.
 pub fn measure(text: &str, takes: impl Fn(Kind, bool) -> bool) -> Option<(Kind, Box<str>)> {
+    measure_at(text, &takes, 0)
+}
+
+/// [`measure`], `depth` aliases in.
+fn measure_at(
+    text: &str,
+    takes: &dyn Fn(Kind, bool) -> bool,
+    depth: u8,
+) -> Option<(Kind, Box<str>)> {
     let text = text.trim();
     if text.is_empty() || text.contains([' ', '(', '#']) {
         return None;
@@ -232,6 +241,18 @@ pub fn measure(text: &str, takes: impl Fn(Kind, bool) -> bool) -> Option<(Kind, 
     });
     if let Some((kind, name, value)) = found {
         note(&name);
+        // A length whose value is a bare base name (an alias, `card.pad =
+        // space.md`; stage 11 B, theme2's (a)): kept unfolded, so it reads
+        // the base here, per host, the design's own definition of it first
+        // (and its edits: the read is recorded). A base name set to itself
+        // reads the scale.
+        let alias = value.trim();
+        if kind == Kind::Length && super::scale::is_base(alias) && depth < 8 {
+            if alias == &*name {
+                return Some((Kind::Length, super::scale::text(alias)?.into()));
+            }
+            return measure_at(alias, takes, depth + 1);
+        }
         return Some((kind, value));
     }
     // A base name no entry defines (LLP 1121 stage 11 B): the scale's length

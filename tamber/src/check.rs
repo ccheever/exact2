@@ -67,6 +67,8 @@ struct Checker<'a> {
     /// Whether a word is a named length the kernel reads (a text style,
     /// `-exact-hairline`).
     named_length: &'a dyn Fn(&str) -> bool,
+    /// The vocabulary's base names (`Vocab::bases`).
+    bases: &'a [String],
     used: Vec<BTreeSet<usize>>,
     /// Per token, the tokens its values named as they folded.
     refs: Vec<BTreeSet<usize>>,
@@ -87,11 +89,19 @@ pub(crate) fn check(
     design: &Design,
     vocab: &Vocab,
 ) -> Result<(Vec<Checked>, usize, Vec<DialValue>), Vec<Diagnostic>> {
+    // A base name the design leaves unset, bare, is a named length too:
+    // kept as written, each host's (stage 11 B). One the design sets is its
+    // token, folded as any is, so its value wins everywhere and its edits
+    // re-fold what reads it.
+    let unset = |w: &str| {
+        vocab.bases.iter().any(|b| b == w) && !design.tokens.iter().any(|t| t.name.value == w)
+    };
     let named_length = |w: &str| {
         vocab
             .named_lengths
             .iter()
             .any(|n| n.eq_ignore_ascii_case(w))
+            || unset(w)
     };
     let mut c = Checker {
         design,
@@ -104,6 +114,7 @@ pub(crate) fn check(
         memo: HashMap::new(),
         kinds: vec![Kind::Color; design.tokens.len()],
         named_length: &named_length,
+        bases: &vocab.bases,
         used: vec![BTreeSet::new(); design.tokens.len()],
         refs: vec![BTreeSet::new(); design.tokens.len()],
         reads: vec![BTreeSet::new(); design.tokens.len()],
@@ -1257,6 +1268,15 @@ struct Scope<'c, 'a> {
 impl Names for Scope<'_, '_> {
     fn named(&mut self, name: &str) -> Result<Named, FoldError> {
         let c = &mut *self.checker;
+        // A base name the design leaves unset, read inside an expression (a
+        // bare one is a named length, which never comes here): its length is
+        // each host's, so nothing folds it. One the design sets is its token.
+        if c.bases.iter().any(|b| b == name) && !c.names.contains_key(name) {
+            return Err(FoldError {
+                id: "tamber-base-expression",
+                message: format!("`{name}` is a base length, each platform's own: a value names it bare (`card.pad = {name}`), never inside an expression (`calc()`, a shadow), unless the design sets it; an expression over a base name is QUEUE's"),
+            });
+        }
         let lower = name.to_ascii_lowercase();
         // Silence: a refused token or dial said so where it is written.
         let quiet = || FoldError {

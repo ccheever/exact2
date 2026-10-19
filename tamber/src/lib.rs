@@ -110,6 +110,13 @@ pub struct Vocab {
     /// Each named length's px at the default root size (16), as text: what
     /// the DTCG export writes a text style or the hairline as.
     pub sizes: Vec<(String, String)>,
+    /// The base names the host resolves per platform (Exact's base scale,
+    /// `space.md`; LLP 1121 stage 11 B), matched exactly. One the design
+    /// leaves unset: a value naming it bare is a named length, kept as
+    /// written and never folded, so each host reads its own; an expression
+    /// over it is refused (`tamber-base-expression`). One the design sets is
+    /// its token, as any.
+    pub bases: Vec<String>,
 }
 
 impl Vocab {

@@ -1,8 +1,9 @@
 # The base scale, measured (LLP 1121 stage 11 B)
 
 Each cell of `kernel/tables/schema.json`'s `scale` that is not a reference to a metrics row names an entry here: what was
-drawn or read, where, how, and the number. `kernel/src/style/scale.rs` holds the table to this page (every `measured` and
-`guideline` id has its entry, with the cell's number in bold), and every cell to its source.
+drawn or read, where, how, and the number. Each entry's `Binds:` line names every step it gives and its value (`space.xs = 4`): the kernel's build refuses a
+`measured` or `guideline` cell whose id has no entry here or whose entry does not bind that step to that value, and
+`kernel/src/style/scale.rs`'s tests hold the same, and every cell to its source.
 
 **Which source a cell takes** (theme2's rulings, 2026-10-19 09:56 and 10:57):
 
@@ -37,59 +38,71 @@ drawn or read, where, how, and the number. `kernel/src/style/scale.rs` holds the
 ## Measured
 
 ### `ios-button-small-inset-top`
+Binds: `space.xs = 5`.
 space.xs on iOS: **5**. `UIButton.Configuration.filled()` with `buttonSize = .small`: its
 `contentInsets.top` (the leading is 10). The tightest spacing UIKit states between a control's edge and its content; no
 UIKit API gives a 4 (system spacing is 8, a list's subtitle gap 0, a grouped header's leading margin 8). theme2 10:57 (3).
 
 ### `ios-button-large-inset-leading`
+Binds: `space.lg = 20`.
 space.lg on iOS: **20**. `UIButton.Configuration.filled()` with `buttonSize = .large`: `contentInsets.leading`.
 The view controller's minimum layout margin is 16 on an iPhone (the same as space.md) and 20 on a regular width, which one
 iPhone simulator cannot show (a trait override left it at 16); 20 is UIKit's stated step above 16. theme2 10:57 (3).
 
 ### `ios-inset-grouped-section-gap`
+Binds: `space.xl = 35`.
 space.xl on iOS: **35**. A `UICollectionView` list, `.insetGrouped`, no headers, two sections of one row:
 from the first card's bottom to the second's top. theme2 10:57 (accepted).
 
 ### `ios-cornerstyle-small-44`
+Binds: `radius.sm = 5.6`.
 radius.sm on iOS: **5.6**. A filled button with `cornerStyle = .small` at 140×44 points measures 5.58.
 iOS 27 has no checkbox or radio mark, so this is UIKit's smallest corner style, recorded as a FIXED length at that 44-point
 height: UIKit's `.small` scales with the button's height (10.09 at 80 points tall), the base does not. theme2 10:57 (3).
 
 ### `ios-button-medium-corner`
+Binds: `radius.md = 17`.
 radius.md on iOS: **17**. A filled button, `buttonSize = .medium`, as UIKit sizes it (34.3 points tall):
 17.04; `.bordered`, `.gray` and `.tinted` the same, and its `.dynamic` corner stays 17.04 at any width. iOS 27's controls
 are capsules: this is that capsule's corner at height 34, recorded as a length, not `full`. theme2 10:57 (4).
 
 ### `mac-grid-spacing`
+Binds: `space.xs = 6`.
 space.xs on the Mac: **6**. `NSGridView()`'s default `rowSpacing` and `columnSpacing`: AppKit's tightest stated spacing
 between controls (`NSBox`'s content margin is 5; system spacing between views 8, which is space.sm).
 
 ### `mac-window-margin`
+Binds: `space.lg = 20`.
 space.lg on the Mac: **20**. A view placed with `equalToSystemSpacingAfter` / `equalToSystemSpacingBelow` the window's
 content view: 20 from the leading and the top edge, AppKit's standard window margin. theme2 10:57 (accepted).
 
 ### `mac-checkbox-corner`
+Binds: `radius.sm = 5`.
 radius.sm on the Mac: **5**. `NSButton(checkboxWithTitle:)`, regular size: its 16-point box's corner measures 5.25 (1×,
 ±0.7), recorded as 5. A mark's corner, the role the neutral look's `mark-radius` has.
 
 ### `mac-push-regular-corner`
+Binds: `radius.md = 6`.
 radius.md on the Mac: **6**. `NSButton`, `.push`, regular size (24 points tall): 6.22 (1×), recorded as 6; a pop-up
 button and a segmented control measure the same. Large and extra-large push buttons are capsules (13.75 on 28, 17.68 on 36).
 
 ## Guidelines
 
 ### `neutral-steps`
+Binds: `space.xs = 4`, `space.lg = 24`, `space.xl = 32`.
 space.xs, space.lg and space.xl in the neutral look: **4**, **24** and **32**. The neutral look is Exact's own (LLP
 1115.000 D4 part B, D17), so its steps are its own definition, chosen to match the look's existing rows (`menu-padding` 4,
 `alert-padding` 24, `alert-margin` 32) without borrowing their roles; they coincide with Material 3's 4-dp spacing steps,
 but the neutral look is not Material. theme2 10:57 (2).
 
 ### `m3-spacing`
+Binds: `space.xs = 4`, `space.lg = 24`, `space.xl = 32`.
 space.xs, space.lg and space.xl in Android's Material look: **4**, **24** and **32**. Material 3, Layout, "Spacing"
 (m3.material.io/foundations/layout/understanding-layout/spacing): spacing in multiples of 4 dp; 4 the smallest step,
 24 dp the margin of a medium window, 32 dp the next larger step on that grid. theme2 10:57 (5) accepted 32.
 
 ### `m3-shape`
+Binds: `radius.sm = 4`, `radius.md = 8`, `radius.lg = 12`.
 radius.sm, radius.md and radius.lg in Android's Material look: **4**, **8** and **12**. Material 3, Styles, "Shape:
 corner radius scale" (m3.material.io/styles/shape/corner-radius-scale): extra-small 4 dp, small 8 dp, medium 12 dp (cards),
 and full; distinct steps in Material's own roles rather than `field-corner` 4 for radius.md, which would equal radius.sm.

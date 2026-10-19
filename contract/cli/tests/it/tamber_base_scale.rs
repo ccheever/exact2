@@ -123,6 +123,12 @@ fn an_app_definition_of_a_base_name_is_a_length() {
     for (name, design) in [
         ("colour", "tamber t\n\ntheme\n  space.md = #ff0000\n"),
         ("number", "tamber t\n\ntheme\n  radius.md: number = 4\n"),
+        // Round 1 (Astra 2): an icon under a base name. (A dial's name is an
+        // identifier, so none can be one.)
+        (
+            "icon",
+            "tamber t\n\ntheme\n  ink = #000000\n\nicons\n  space.md = icon(sf \"star\")\n",
+        ),
     ] {
         let e = contract::compile_path(&app(
             name,
@@ -163,4 +169,58 @@ fn a_base_name_in_an_inherited_row_is_no_axis_refusal_and_a_wrong_row_is_refused
         )]
     ))
     .is_err());
+}
+
+/// Round 1 (theme2's (a)): an expression over a base name the design leaves
+/// unset is refused; over one it sets, it is its token's; a bare one is an alias
+/// (`contract/cli/tests/base_alias.rs`).
+#[test]
+fn an_expression_over_a_base_name_is_refused() {
+    let view = "component App\n  view\n    column padding=\"card.pad\"\n      text \"a\"\n";
+    for (name, design) in [
+        (
+            "calc",
+            "tamber t\n\ntheme\n  card.pad: length = calc(space.md + 4px)\n",
+        ),
+        (
+            "max",
+            "tamber t\n\ntheme\n  card.pad: length = max(space.sm, 4px)\n",
+        ),
+    ] {
+        let e = contract::compile_path(&app(
+            name,
+            &[("app.tamber", design), ("app.contract", view)],
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "tamber-base-expression", "{name}: {e:?}");
+        assert!(
+            e.message.contains("bare") && e.message.contains("QUEUE"),
+            "{}",
+            e.message
+        );
+    }
+    // Over a base name the design sets, it is the design's token's expression, as any.
+    contract::compile_path(&app(
+        "own-calc",
+        &[
+            (
+                "app.tamber",
+                "tamber t\n\ntheme\n  space.md = 12px\n  card.pad: length = calc(space.md * 2)\n",
+            ),
+            ("app.contract", view),
+        ],
+    ))
+    .unwrap();
+    // Bare, it compiles (an alias).
+    contract::compile_path(&app(
+        "bare-alias",
+        &[
+            (
+                "app.tamber",
+                "tamber t\n\ntheme\n  card.pad: length = space.md\n",
+            ),
+            ("app.contract", view),
+        ],
+    ))
+    .unwrap();
 }

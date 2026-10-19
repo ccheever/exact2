@@ -4646,3 +4646,30 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
   own value, the clamped oversized length; an app that wants a pill leaves radius.full unset rather than overriding it.
 - **B2:** the hosts' columns: the JS target's CSS variables (until then a JS-target page does not resolve a base name),
   Linux and Android wiring, and the terminal host's `set_column(Terminal)`, each with its unit tests.
+- **After review round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT):**
+  - **Base names in design values** (Astra 1, BLOCKING; theme2's (a)). A design value or `when` arm may name a base name
+    the design leaves unset bare: `card.pad: length = space.md` is an alias.
+    - The vocabulary passes the nine names to Tamber (`Vocab::bases`). For a base name the design does not set, Tamber
+      reads a bare one as a named length, kept as written and never folded, the way a role reference survives.
+    - The kernel reads a length token whose value is a bare base name as the base in its column, the design's own
+      definition first (`theme::measure`). Both reads are recorded, so an edit of either sets the row again. A base name
+      set to itself reads the scale.
+    - A base name the design sets is its token, folded as any token reference is. Its value wins through the alias, an
+      edit of it re-folds the alias for the design server's batch, and a ranged param naming it keeps its px.
+    - An expression over a base name the design leaves unset (`calc(space.md + 4px)`, a shadow's length) is refused,
+      `tamber-base-expression`, telling the author to name it bare. QUEUE has the later work. Over one the design sets,
+      it is that token's expression.
+    - Tests:
+      - `contract/cli/tests/base_alias.rs`, its own process: the plan's `card.pad` is `space.md` as written; it reads
+        the neutral, Mac and iOS columns' lengths, and its `when tone=wide: space.lg` arm too; an app's `space.md`
+        folds through and re-folds on an edit.
+      - `tamber_base_scale.rs`: the expression refusals.
+      - `style::scale`: the kernel's alias reads.
+  - **An icon named as a base name is refused** (Astra 2). `tamber-base-kind` covers icon declarations as well as tokens
+    (`contract_lower::scale::misnamed`), with a refusal test. A dial's name is an identifier, so none can be one.
+  - **The build checks each source against its entry** (Astra 3): a `measured` or `guideline` id with no entry in
+    `docs/scale-measured.md` stops the build, and the page is a rerun dependency. The rerun is said in
+    `build/scale.rs`, not `build.rs`, which the schema digest hashes, so the digest does not move.
+  - **Each documented value is bound to its step** (Astra 4). Every entry has a `Binds:` line (`space.xs = 4`), and both
+    the build and the provenance test require the cell's exact `name = value` there. A shared entry's other numbers no
+    longer stand in: Material radius.md 8 → 4 now fails the build.

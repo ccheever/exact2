@@ -108,6 +108,9 @@ pub fn vocab() -> tamber::Vocab {
             exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
             exact_kernel::NAMED_LENGTHS.iter().copied(),
         ),
+        bases: exact_kernel::style::scale::names()
+            .map(String::from)
+            .collect(),
         sizes: tamber::Vocab::named_lengths(
             exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
             exact_kernel::NAMED_LENGTHS.iter().copied(),
@@ -423,6 +426,15 @@ impl Lowerer<'_> {
             &exported,
         );
         self.errors.extend(refused);
+        // A base name the app sets is a length (stage 11 B, theme2's (c)).
+        for (line, col, message) in crate::scale::misnamed(&folding) {
+            let span = self.token_span(&origin, line, col);
+            self.push(LowerError {
+                id: "tamber-base-kind",
+                message,
+                span,
+            });
+        }
         let mut entries = Vec::new();
         for (i, t) in folding.tokens.iter().enumerate() {
             let Some(value) = t.values.first() else {
@@ -439,15 +451,8 @@ impl Lowerer<'_> {
             };
             let role = synthetic.is_none().then(|| role_named(&name)).flatten();
             let at = &folding.design.tokens[i].name;
-            // A base name the app sets (LLP 1121 stage 11 B, theme2's (c)): a
-            // length, as the scale's own; every package reads the app's.
             if exact_kernel::style::scale::is_base(&name) && t.kind != tamber::Kind::Length {
-                self.push(LowerError {
-                    id: "tamber-base-kind",
-                    message: format!("`{name}` is a base length (the scale's `{name}`): an app sets it to a length (`{name} = 12px`), not a {}", t.kind.name()),
-                    span: self.token_span(&origin, at.line, at.col),
-                });
-                continue;
+                continue; // refused above (`scale::misnamed`)
             }
             if synthetic.is_none()
                 && value.color().is_some_and(|v| {

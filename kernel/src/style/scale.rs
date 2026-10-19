@@ -193,7 +193,9 @@ mod tests {
     }
 
     // Every measured or guideline id has its entry in docs/scale-measured.md,
-    // with the cell's number in it.
+    // whose `Binds:` line binds this step to this value exactly (a shared
+    // entry's other numbers do not stand in; round 1, Astra 4). The build
+    // refuses the same.
     #[test]
     fn every_measured_and_guideline_id_is_documented_with_its_number() {
         let doc = std::fs::read_to_string(concat!(
@@ -211,10 +213,14 @@ mod tests {
                     .split("\n### ")
                     .find(|s| s.starts_with(&format!("`{id}`")))
                     .unwrap_or_else(|| panic!("{} {column_name}: no `### `{id}`` entry", r.name));
-                let number = exact_num::Shortest(px(c.value)).to_string();
+                let binding = format!("`{} = {}`", r.name, exact_num::Shortest(px(c.value)));
+                let binds = entry
+                    .lines()
+                    .find(|l| l.starts_with("Binds: "))
+                    .unwrap_or_else(|| panic!("`{id}` has no `Binds:` line"));
                 assert!(
-                    entry.contains(&format!("**{number}**")),
-                    "{} {column_name}: `{id}`'s entry says **{number}**",
+                    binds.contains(&binding),
+                    "{} {column_name}: `{id}`'s `Binds:` line has no {binding}: {binds}",
                     r.name
                 );
             }
@@ -261,6 +267,48 @@ mod tests {
         // The read is recorded as a token's, so an edit that defines it later sets the row again.
         let (_, names) = theme::recorded(|| theme::measure("space.xs", length));
         assert_eq!(names, vec![Box::<str>::from("space.xs")]);
+    }
+
+    // An alias (round 1, theme2's (a)): a length whose value is a bare base
+    // name reads the base, the design's own definition first; both reads are
+    // recorded, so an edit of either sets the row again; a base name set to
+    // itself reads the scale.
+    #[test]
+    fn an_alias_reads_the_base_the_designs_own_first() {
+        use crate::style::theme::{self, Kind};
+        let length = |k: Kind, _| k == Kind::Length;
+        let read = |entries: &[(&str, &str)], name: &str| {
+            let table = theme::kinded(
+                entries
+                    .iter()
+                    .map(|(n, v)| (*n, *v, false, Kind::Length, false)),
+            );
+            let _scope = theme::bind(&table);
+            theme::recorded(|| theme::measure(name, length).map(|(_, v)| v.to_string()))
+        };
+        let (value, names) = read(&[("card.pad", "space.md")], "card.pad");
+        assert_eq!(value, text("space.md"));
+        assert_eq!(
+            names,
+            vec![Box::<str>::from("card.pad"), Box::<str>::from("space.md")]
+        );
+        assert_eq!(
+            read(
+                &[("card.pad", "space.md"), ("space.md", "40px")],
+                "card.pad"
+            )
+            .0
+            .as_deref(),
+            Some("40px")
+        );
+        assert_eq!(
+            read(&[("space.md", "space.lg")], "space.md").0,
+            text("space.lg")
+        );
+        assert_eq!(
+            read(&[("space.md", "space.md")], "space.md").0,
+            text("space.md")
+        );
     }
 
     // No web column (theme2): `Column::Web`, a process that says no column
