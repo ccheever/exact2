@@ -104,6 +104,8 @@ const ROWS: &str = "list appearance=\"auto\" listStyle=\"STYLE\" testId=\"list\"
       text \"Flush\" flex=1 testId=\"own-end\"
     button appearance=\"auto\" press=drop(\"n\") testId=\"native\"
       text \"Go\"
+    button appearance=\"auto\" press=drop(\"w\") width=\"100%\" testId=\"native-full\"
+      text \"Wide\"
     if gone == \"n\"
       row testId=\"late\"
         view width=28 height=28 flex-shrink=0 testId=\"late-box\"
@@ -165,6 +167,11 @@ fn custom_rows_follow_the_platforms_cards_and_cell_margins() {
         (native, edges(&r, "native", false)),
         ((32.0, 386.0), (40.0, 402.0)),
         "a native button row starts at the margin and keeps its own padding, so it still ends with the card"
+    );
+    assert_eq!(
+        edges(&r, "native-full", false),
+        (40.0, 402.0),
+        "a native button as wide as its row: its widest moves with its inset, so it ends with the card"
     );
     assert_eq!(
         content(&r, "own-box", "own-end"),

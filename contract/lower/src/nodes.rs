@@ -79,7 +79,9 @@ impl Lowerer<'_> {
         )?;
         let native_button = button.as_ref().is_some_and(|b| b.native);
         if native_button {
-            grouped::native_rows(&mut sheet);
+            let margins = grouped::margins_said(attrs)
+                || expanded.as_deref().is_some_and(grouped::margins_said);
+            grouped::native_rows(&mut sheet, margins);
         }
         // @ref LLP 1084 D7 — the platform's separator under a grouped row; a
         // native button row is the platform's control, under none.

@@ -2,6 +2,8 @@
 use super::*;
 #[path = "closed.rs"]
 pub(super) mod closed;
+#[path = "separator.rs"]
+pub(super) mod separator;
 
 impl<D: DataSource> Host<D> {
     /// Writes `batch` for the presenter; every batch with ops is written

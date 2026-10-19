@@ -14,7 +14,9 @@ impl DataSource for NoData {
     }
 }
 
-const SOURCE: &str = r#"component App
+const SOURCE: &str = r#"style Native
+  appearance="auto"
+component App
   action go
   view
     column testId="root" width=402 height=874
@@ -32,6 +34,10 @@ const SOURCE: &str = r#"component App
             text "Delete"
           row delete=go testId="swiped"
             text "Swiped"
+          button appearance="auto" press=go width="100%" testId="native-full"
+            text "Wide"
+          button class=Native press=go destructive=true width="100%" testId="native-pushed"
+            text "Erase"
           row testId="end"
             text "End"
 "#;
@@ -107,5 +113,13 @@ fn the_macs_rows_keep_their_height_and_their_separator_stands_in_the_gap() {
         swipe.frame.height - 1.0,
         "inside the swipe that clips"
     );
+    // A native button as wide as its row ends with the card, as an unsized
+    // one at its own size may: no wider than the card less its inset.
+    let wide = frame("native-full");
+    assert_eq!((wide.x, wide.width), (30.0, 352.0));
+    // A destructive one a class made native is inset by its push button's
+    // padding, and ends with the card too.
+    let pushed = frame("native-pushed");
+    assert_eq!(pushed.x + pushed.width, 382.0, "{pushed:?}");
     set_column(Column::Web);
 }
