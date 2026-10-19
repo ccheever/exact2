@@ -1,5 +1,11 @@
 # D2 cold-build measurements
 
+Round-1 disposition: the cache is built and unwired. The loaded figures
+below do not satisfy the three-run load-under-5 oracle. The earlier reuse
+trials also need a new acceptance count with the corrected observer; see
+"Registry eligibility and reuse" for the subtraction and observer control.
+
+
 2026-10-18, lane/1132.A2-cold-build. Cold and registry-reuse phase measurements; setup and live-edit results follow below.
 
 Machine: Mac17,6, 18 logical CPUs, 128 GiB RAM; macOS host triple

@@ -265,6 +265,91 @@ The earlier historical guard's "zero rebuilt" claim is therefore limited;
 a quiet admission trial must use the corrected observer and recheck counts.
 
 The cache tests passed after fixing one failure in independent-profile
-retention. The final standalone cache run passed all six tests and 39
-assertions. The required full command, root and game checks, and fresh native
-build results are appended after the runs complete.
+retention. The final cache/observer run passed seven tests and 45 assertions, including
+an occupied host profile missing from the source generation.
+
+Implementation commits: `232f2f0af` (items 1–7 and measurement tools) and
+`0e9ab5850` (keep occupied profiles private even when absent from a generation).
+No push was made.
+
+Round-1 verification (`CARGO_BUILD_JOBS=4` for Cargo and build invocations):
+
+```sh
+bun test --timeout 60000 game/app/crates.test.mjs scripts/exact.test.mjs scripts/app-manifest.test.mjs scripts/app-workspace.test.mjs scripts/app-bake.test.mjs
+# 119 pass, 3 skip, 0 fail; 40 assertions; 414.45 s
+bun test game/app/crates.test.mjs game/bench/cold-build/probe.test.mjs
+# 7 pass, 0 fail; 45 assertions on the final cache source
+cargo test --manifest-path game/Cargo.toml --workspace --locked --lib --bins --tests --no-fail-fast
+# exit 0; 970 passed, 24 ignored, 0 failed; 1506.55 s
+```
+
+The six root checks all exited 0: build, test, Clippy plus format, caps,
+boot, and `cargo check --workspace --all-targets --keep-going`. Root tests
+passed 5,452 tests with 51 ignored and zero failures. Root build/test/Clippy/
+format/boot/workspace took 0.72 / 88.46 / 94.35 / 21.01 / 0.03 / 62.24 s
+under load approximately 46–130. Caps reported all budgets within cap.
+The commands are the same six listed above, with the required keep-going
+and no-fail-fast flags; `.lane/verify-r1/root.json` records every command,
+exit, elapsed time and load average. These loaded times are not budgets.
+
+`bun game/prove.mjs beacons` exited 0 on its first round-1 run:
+
+```text
+| linux | 1 | 6.528 | equal | not requested | PASS |
+PROOF PASS beacons
+```
+
+Fresh consumer commands:
+
+```sh
+bun scripts/exact.mjs new /tmp/exact-1132-a2-r1-unwired --game
+EXACT_GAME_PROOF_PROFILE=gpu-dev bun /tmp/exact-1132-a2-r1-unwired/proof.mjs linux --build-only
+```
+
+Scaffolding exited 0. The first build refused generated directory changes
+after compiling the GPU (exit 1, 280.08 s). The second compiled the host,
+then refused authored-input state changes (exit 1, 546.77 s). No tracked
+source changed during either build; the cause of the second state refusal
+was not isolated while other verification ran. The third unchanged attempt
+exited 0 in 3.57 s, at load 41.95 → 43.08:
+
+```text
+PASS all recorded children exited
+PROOF UNVERIFIED exact-1132-a2-r1-unwired linux: 0 failures; 3.508 s
+```
+
+None of the three attempts opened a game registry cache. Build-only
+UNVERIFIED is expected under the current exit contract; it is compile
+acceptance, not a new baseline. The proof input policy was not changed.
+All attempt commands, loads and results are in `.lane/verify-r1/fresh-build.json`.
+
+Game Clippy and format both exited 0:
+
+```sh
+(cd game && cargo clippy --workspace --all-targets -- -D warnings)
+# exit 0; 209.46 s
+(cd game && cargo fmt --all -- --check)
+# exit 0; 15.27 s
+```
+
+The shell command exited 0 across all 14 game/bench fixtures, with 101
+passed, 9 ignored and zero failed (including their test/doc-test binaries):
+
+```sh
+TMPDIR=/tmp CARGO_BUILD_JOBS=4 \
+CARGO_TARGET_DIR="$PWD/target/game-validation-r1" \
+CARGO_BUILD_BUILD_DIR="$PWD/target/game-validation-r1" \
+  bun game/app/shells.mjs --test
+```
+
+The private target and build directories are inside this worktree. No other
+checkout's target was used. All requested checks passed. Raw outputs and
+result JSONs for this round remain in `.lane/verify-r1/`. The final staged
+caps run also passed before the report commit.
+
+Remaining limits: no three quiet runs or post-fix real-registry transfer
+acceptance trial was performed. Those are prerequisites to enabling reuse;
+the older observer's zero-rebuild counts are not a substitute. The second
+fresh proof input-state refusal was not isolated; the unchanged third run
+passed. The native Linux evidence here exercises the headless host on this
+Mac's native target, not Linux window/KMS/input behavior on a Linux OS.

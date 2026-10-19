@@ -25,7 +25,9 @@ profiles, versioned dependencies, a same-name path/registry pair, and dep-info
 realpath aliases. The real `buildBake` orchestration is exercised up to its
 pre-build boundary with a cache spy: web, release and native `gpu-dev` do
 not open a generation. Setup refuses the removed flag before provisioning.
-The fresh native build-only run and checks are recorded in report.md.
+A fresh native build-only leg exited 0 with zero failures and no game cache
+opened, after the existing directory/input-state refusals. The Beacons
+baseline passed. Full commands, attempts and checks are recorded in report.md.
 
 `game/bench/cold-build/{probe.py,audit.py,README.md}` contains the rerunnable
 measurement tools and exact commands. The audit reproduces the 32.99 s
@@ -41,6 +43,14 @@ The measured Rust-edit watcher already selects `gpu-dev`, runs bindgen and
 skips wasm-opt; its warm restore took 4.800 s at load 107–109. LLP 1127.001
 D1 owns the dev loop's remaining performance work. Linux here is the headless
 host compiled for this Mac's native triple. Three quiet runs remain owed.
+
+Round-1 verification passed: six root checks; the requested five-file Bun
+suite (119 passed, 3 skipped); seven final cache/observer tests; game
+workspace tests (970 passed, 24 ignored), Clippy and format; all 14 shell
+fixtures (101 passed, 9 ignored); and the Beacons baseline. The fresh native
+build-only leg exited 0 after two input-reader refusals; the second refusal's
+cause was not isolated. No quiet oracle or post-fix real-registry transfer
+trial was performed. Implementation commits are `232f2f0af` and `0e9ab5850`.
 
 ## As built
 
