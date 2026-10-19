@@ -51,6 +51,19 @@ final class MIDIMacTests: XCTestCase {
         return id
     }
 
+    /// `seconds` on this thread, on a strict timer: `Thread.sleep` is coalesced
+    /// where the system coalesces timers (a session without a console: 20 ms
+    /// slept 100 to 150 ms), and 48 ticks took past the test's wait.
+    private func pause(_ seconds: Double) {
+        let done = DispatchSemaphore(value: 0)
+        let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .global(qos: .userInteractive))
+        timer.schedule(deadline: .now() + seconds, leeway: .nanoseconds(0))
+        timer.setEventHandler { done.signal() }
+        timer.resume()
+        done.wait()
+        timer.cancel()
+    }
+
     private func wait(_ seconds: Double, until done: () -> Bool = { false }) {
         let end = Date(timeIntervalSinceNow: seconds)
         while Date() < end, !done() { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005)) }
@@ -304,7 +317,7 @@ final class MIDIMacTests: XCTestCase {
                 let at = CACurrentMediaTime()
                 self.system(status, at: at)
                 self.lock.withLock { sent.append((status, at)) }
-                Thread.sleep(forTimeInterval: status == 0xF8 ? 0.5 / 24 : 0.03)
+                self.pause(status == 0xF8 ? 0.5 / 24 : 0.03)
             }
             self.lock.withLock { finished = true }
         }
