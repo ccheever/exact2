@@ -362,10 +362,10 @@ final class MIDIMacTests: XCTestCase {
         var finished = false
         DispatchQueue.global().async {
             self.system(0xF8, at: CACurrentMediaTime())
-            Thread.sleep(forTimeInterval: 0.010)
+            self.pause(0.010)
             self.play()
             for _ in 0..<15 {
-                Thread.sleep(forTimeInterval: 0.020)
+                self.pause(0.020)
                 self.system(0xF8, at: CACurrentMediaTime())
             }
             self.lock.withLock { finished = true }
@@ -376,6 +376,31 @@ final class MIDIMacTests: XCTestCase {
         XCTAssertGreaterThan(ticks.count, 2)
         for d in ticks {
             XCTAssertGreaterThan(d.at - (ExactEnv.t0 + d.list[0].ms / 1000), 0.040, "ticks alone wait their 50 ms")
+        }
+        output.shutdown()
+    }
+
+    /// A lone tick goes out its 50 ms after it came, with nothing else waking
+    /// the main thread meanwhile: the batch's deadline is not coalesced
+    /// (a main-queue `asyncAfter` came 100 to 150 ms late in a session that
+    /// coalesces timers, past a follower's lookahead).
+    func testALoneTickIsDeliveredFiftyMillisecondsAfterItCame() throws {
+        let library = try library()
+        var deliveries: [(at: Double, json: String)] = []
+        let output = MIDIOutput(log: { _ in }, deliver: { deliveries.append((CACurrentMediaTime(), $0)) }, library: { library })
+        let input = String(uid(source))
+        output.apply(["ops": [["op": "open", "inputs": [input], "clock": [input]], ["op": "request"]]])
+        wait(2) { deliveries.contains { $0.json.contains(input) } }
+        wait(0.2)
+        for _ in 0..<3 {
+            deliveries.removeAll()
+            let at = CACurrentMediaTime()
+            system(0xF8, at: at)
+            // One idle sleep of the main run loop, to its next timer.
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.4))
+            let tick = try XCTUnwrap(messages(deliveries).first { $0.list.contains { $0.status == 0xF8 } })
+            XCTAssertGreaterThan(tick.at - at, 0.040, "a lone tick waits for its batch")
+            XCTAssertLessThan(tick.at - at, 0.075, "and goes when its 50 ms are up")
         }
         output.shutdown()
     }
