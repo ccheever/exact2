@@ -146,7 +146,8 @@ impl std::fmt::Display for HostError {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Mirror {
     props: exact_kernel::SortedMap<String, String>,
-    style: String,
+    /// The style the presenter last heard, one allocation per text ([`paragraph::StyleTexts`]).
+    style: std::rc::Rc<str>,
     children: Vec<ViewId>,
     frame: Option<(f32, f32, f32, f32)>,
     content: Option<(f32, f32)>,
@@ -169,6 +170,7 @@ pub struct Host<D: DataSource> {
     language: Option<String>,
     /// Boxed: a mirror is 200 bytes, and the table has up to twice as many slots as views.
     mirror: IdMap<ViewId, Box<Mirror>>,
+    style_texts: paragraph::StyleTexts,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
     /// Hatch words: those journaled as viewless here, and those the plan does not give this platform.
@@ -496,6 +498,7 @@ impl<D: DataSource> Host<D> {
             runner,
             font_hook,
             mirror: IdMap::default(),
+            style_texts: paragraph::StyleTexts::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
             // LLP 1126 D10: watchOS has no Core Animation presenter for box motion or path morphs.
