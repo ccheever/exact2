@@ -675,6 +675,9 @@ component NativeFixture
                   scroll id="list-detail" hatch="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
                     column padding=12 gap=8
                       text ("composed " + composed.toString()) testId="composed-detail"
+                      // Chat over Detail: a route that hides the tablist over one that shows it.
+                      button press=openChat testId="detail-chat" padding=6 background-color="#e5e7eb"
+                        text "Chat"
                       column testId="tall" height=1600 background-color="#f3f4f6"
                 // An "Open in…" at the foot of a card (LLP 1021 §5): its
                 // chooser above it, centred on it (`top span-all`), as a menu

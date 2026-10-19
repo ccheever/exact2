@@ -936,6 +936,49 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(sv.contentInset.bottom, manual, accuracy: 0.5)
     }
 
+    /// The tab bar follows the stack shown, on a phone by UIKit's
+    /// `hidesBottomBarWhenPushed`, on an iPad's floating bar by Exact's
+    /// `setTabBarHidden`: Chat (hiding it) over Detail (showing it) hides it;
+    /// a cancelled interactive pop back to Detail keeps it hidden, a completed
+    /// one shows it; another tab selected while Chat is still being pushed
+    /// shows it there, and Chat hides it again on return.
+    func testTheTabBarFollowsTheStackThroughCancelledPopsAndTabSwitches() throws {
+        let session = try fixture("basics-follow")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        let settled = { nav.transitionCoordinator == nil }
+        try tapNode(session, "detail")
+        until("Detail pushed") { nav.viewControllers.count == 2 && settled() && barShows(tabs) }
+        spin(0.3)
+        // Chat pushed, and another tab selected before the push is over.
+        let tapped = Agent(session: session).tap(["id": Int(try node(session, "detail-chat").id)])
+        XCTAssertNil(tapped["error"], "\(tapped)")
+        until("Chat's push started") { nav.viewControllers.count == 3 }
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        // (Home's push ends here, or, its stack off screen, when it shows again.)
+        spin(0.6)
+        XCTAssertTrue(barShows(tabs), "Second's root shows the bar, Home's late push notwithstanding")
+        tapTab(tabs, 0)
+        until("back on Chat over Detail, hidden") { tabs.selectedIndex == 0 && settled() && nav.viewControllers.count == 3 && !barShows(tabs) }
+        spin(0.3)
+        // A cancelled interactive pop back to Detail keeps it hidden; a completed one shows it.
+        let pop = InteractivePop()
+        session.presenter.navigation.setAppDelegate(nav, pop)
+        pop.interactive = true
+        nav.popViewController(animated: true)
+        spin(0.05)
+        pop.interaction.update(0.4)
+        spin(0.1)
+        pop.interaction.cancel()
+        until("the cancelled pop leaves Chat, the bar hidden") { settled() && nav.viewControllers.count == 3 && !barShows(tabs) }
+        spin(0.3)
+        XCTAssertFalse(barShows(tabs), "still hidden over Chat")
+        pop.interactive = false
+        nav.popViewController(animated: true)
+        until("back on Detail, the bar shows") { settled() && nav.viewControllers.count == 2 && barShows(tabs) }
+    }
+
     /// A real interactive pop from Photo, driven by a percent-driven
     /// transition (UIKit's own coordinator, as a finger's edge swipe has):
     /// the bar comes in with Chat, goes back out on the cancel, and after a

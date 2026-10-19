@@ -544,9 +544,18 @@ extension NavigationHost {
     /// its source again, and so its wish.
     func followFloatingBar(_ nav: UINavigationController, for c: UIViewController, animated: Bool) {
         #if os(iOS)
-        guard #available(iOS 18.0, *), let tabs = tabController else { return }
+        // The selected tab's stack only: another's late transition is not what shows.
+        guard #available(iOS 18.0, *), let tabs = tabController, tabs.selectedViewController === nav else { return }
         // A cancelled pop's source comes back before it is in the stack again.
         let stack = nav.viewControllers.contains { $0 === c } ? nav.viewControllers : nav.viewControllers + [c]
+        // However the transition ends (a custom interactive pop's cancel tells
+        // the delegate nothing), the stack it leaves takes its wish then.
+        if let coordinator = nav.transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { [weak self, weak nav] _ in
+                guard let self, let nav, nav.transitionCoordinator == nil, let top = nav.topViewController else { return }
+                self.followFloatingBar(nav, for: top, animated: false)
+            }
+        }
         guard let at = stack.firstIndex(where: { $0 === c }), at > 0, let hidden = floatingStackHides(nav, through: Array(stack[...at])) else { return }
         if hidden, !tabs.isTabBarHidden {
             tabs.setTabBarHidden(true, animated: animated)
@@ -574,11 +583,18 @@ extension NavigationHost {
     }
 
     /// The selected stack's top takes its wish again where nothing pushed or
-    /// popped: a tab selected, the width becoming regular.
+    /// popped: a tab selected, the width becoming regular (once a resize's
+    /// own transition is over; a push or pop has its own didShow).
     func refollowFloatingBar() {
-        guard let nav = tabController?.selectedViewController as? UINavigationController, let top = nav.topViewController,
-              nav.transitionCoordinator == nil else { return }
-        followFloatingBar(nav, for: top, animated: false)
+        guard let tabs = tabController, let nav = tabs.selectedViewController as? UINavigationController, nav.topViewController != nil else { return }
+        if let resizing = tabs.transitionCoordinator ?? nav.transitionCoordinator {
+            resizing.animate(alongsideTransition: nil) { [weak self, weak nav] _ in
+                guard let self, let nav, nav.transitionCoordinator == nil, let top = nav.topViewController else { return }
+                self.followFloatingBar(nav, for: top, animated: false)
+            }
+            return
+        }
+        followFloatingBar(nav, for: nav.topViewController!, animated: false)
     }
 
     /// A transition settled (`didShow`): the root, if it is on top now,
