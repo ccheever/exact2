@@ -39,16 +39,25 @@ export function canvasFrame(url: string, grant: string, door: string, client: st
   return { frame: `${u.origin}/canvas/${encodeURIComponent(client)}/#g=${grant}`, root: `${u.origin}/`, error: '' };
 }
 
-// The canvas the tool last framed (its frame URL, grant and all), and whether
-// its entry page has said it entered (C2: `{type: 'exact-canvas-entered'}`,
-// posted to this page's origin, from that canvas's origin alone); once it
-// has, the grant leaves the frame's URL and the tool's state.
-let minted = { key: '', frame: '', root: '' }, entered = '';
-const page = globalThis as { addEventListener?: (type: string, listener: (e: { origin?: string; data?: { type?: unknown } }) => void) => void };
+// The canvas the tool last minted (its key: client, server run, tick; its
+// frame URL, grant and all, until it has entered), the newest mint asked,
+// and the key whose entry page has said it entered (C2: `{type:
+// 'exact-canvas-entered'}`, posted to this page's origin, from that canvas's
+// origin and from the frame the tool shows alone); once it has, the grant is
+// dropped from the frame's URL, the tool's state and this memory.
+let minted = { key: '', origin: '', frame: '', root: '' }, asked = '', entered = '';
+type Message = { origin?: string; source?: unknown; data?: { type?: unknown } };
+const page = globalThis as { addEventListener?: (type: string, listener: (e: Message) => void) => void; document?: { querySelector?: (s: string) => { contentWindow?: unknown } | null } };
 page.addEventListener?.('message', e => {
-  if (e?.data?.type !== 'exact-canvas-entered' || !minted.frame) return;
-  if (e.origin === new URL(minted.frame).origin) entered = minted.frame;
+  if (e?.data?.type !== 'exact-canvas-entered' || !minted.frame || e.origin !== minted.origin) return;
+  // (From the frame the tool shows, where the page can say: not a window it opened, nor another.)
+  const shown = page.document?.querySelector?.('iframe[data-testid="canvas-frame"]');
+  if (shown && e.source !== shown.contentWindow) return;
+  entered = minted.key;
+  minted = { ...minted, frame: '' };
 });
+
+const canvasKey = (client: string, epoch: string, tick: number) => JSON.stringify([client, epoch, tick]);
 
 /** The pairing sources, over the tool's one `tamber/1` client; `door` the paired server's origin ("" while local). */
 export function pairingSources(call: Call, pairWith: PairWith, door: () => string): Pick<Sources, 'mintCode' | 'loadClients' | 'revokeClient' | 'pairRemote' | 'loadCanvas' | 'canvasEntered'> {
@@ -64,18 +73,20 @@ export function pairingSources(call: Call, pairWith: PairWith, door: () => strin
     // once it has entered, the grant gone: no new grant, one load of that page.
     loadCanvas: async ([local, client, epoch, tick]) => {
       if (local || !client || !epoch || !door()) return { ok: true, error: '', frame: '', root: '' };
-      const key = JSON.stringify([client, epoch, tick]);
-      if (minted.key === key) return { ok: true, error: '', frame: entered === minted.frame ? minted.root : minted.frame, root: minted.root };
+      const key = canvasKey(client, epoch, tick);
+      if (minted.key === key) return { ok: true, error: '', frame: entered === key ? minted.root : minted.frame, root: minted.root };
+      asked = key;
       const { error, reply } = await call('/__tamber', { method: 'canvas' });
       if (error) return { ok: false, error: `No canvas: ${error}`, frame: '', root: '' };
       const made = canvasFrame(String(reply.ok?.url ?? ''), String(reply.ok?.grant ?? ''), door(), client);
       if (made.error) return { ok: false, error: `No canvas: ${made.error}.`, frame: '', root: '' };
-      minted = { key, frame: made.frame, root: made.root };
+      // (A mint a newer ask has overtaken is not the one shown: kept nowhere.)
+      if (asked === key) minted = { key, origin: new URL(made.root).origin, frame: made.frame, root: made.root };
       return { ok: true, error: '', frame: made.frame, root: made.root };
     },
-    // Whether the canvas minted last has said it entered (asked each second
+    // Whether the canvas of this key has said it entered (asked each second
     // while the frame's URL holds its grant).
-    canvasEntered: async () => ({ entered: !!minted.frame && entered === minted.frame }),
+    canvasEntered: async ([client, epoch, tick]) => ({ entered: entered === canvasKey(client, epoch, tick) }),
     // This tool paired with another machine's server (remote mode): the
     // address it typed and the code that machine showed, its name the
     // person's; the code is sent once, to that door, and kept nowhere.
