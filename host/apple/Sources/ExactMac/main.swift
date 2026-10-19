@@ -60,7 +60,7 @@ func frontAgain() {
     guard let front = frontBefore, !front.isTerminated, front.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
     // (Cooperative activation: this app, still in front, yields to it.)
     if #available(macOS 14.0, *) { NSApp.yieldActivation(to: front) }
-    front.activate()
+    if !front.activate() { fputs("exact: could not put \(front.bundleIdentifier ?? "the app that was in front") back in front\n", stderr) }
 }
 nonisolated(unsafe) var interrupted: DispatchSourceSignal?
 if agentActivates {
