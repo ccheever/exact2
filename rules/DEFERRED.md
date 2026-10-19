@@ -591,13 +591,12 @@ reading. Nothing that isn't HTML is added by it.
   view transitions moved behind the deck lane. LLP 1020 §6. What stays no from
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
-- **Proposed, not admitted (LLP 1020 §11; draft #777):** addressed iframe string
-  replies and host-initiated theme, shortcut and MCP-context updates for interactive
-  T3 Code documents. Daehyeon Mun authorized the consumer work on 2026-10-18 UTC
-  (2026-10-19 KST); that authorization is not Charlie's framework waiver. No
-  doing-list take or named, dated waiver is recorded. Framework expansion remains
-  pending Charlie; LLP 1020 D2r's reply-only boundary remains binding. The draft
-  implementation and its evidence do not move this proposal onto the doing-list.
+- **Expanded (Daehyeon Mun, 2026-10-19; trade):** `postMessage(text, iframeId)` sends
+  ordered strings to one mounted iframe: D2r's replies and host-initiated updates (LLP
+  1020 §11). Unblocks T3 Code's HTML and MCP App documents: live theme, shortcut and
+  `host-context-changed` updates. Take: QUEUE "Shared elements, stage 2" (LLP 1013.000
+  §3) moves to Later. Structured clone, broadcast, a permission broker and Linux
+  delivery stay no.
 - **Expanded (LLP 1096; admitted by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** short sounds an
   action can schedule: a `sound` declaration (a WAV in `assets/`, at most 10

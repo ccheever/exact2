@@ -212,8 +212,8 @@ reply is M3's design (LLP 1020.000): the plausible shape is the data
 seam — a guest `message` lands as an action, the command runs as a
 mutation (LLP 1016) with the client's auth, and the settled result is
 posted back — keeping the token out of the guest and the bridge out of
-the Contract's way. General app→guest messaging beyond replies stays
-cut (§5).
+the Contract's way. Host-initiated string updates to a mounted frame were
+earned back on 2026-10-19 (§5, §11); structured messages stay cut.
 
 **D3 — loading is the GPU-module shape.** The Apple webview arm is a
 separate artifact beside `libexact_gpu.dylib`, `dlopen`ed at the first
@@ -310,8 +310,11 @@ so each return is a measurement or a named consumer, not drift:
 - **App→guest messaging** — the earn-back trigger ("the first deck the
   URL cannot configure") was met the day the survey read the shipped SDK:
   every `castleSdk` deck expects replies in its window. The narrow form
-  — replies to guest messages — is scoped in as D2r; **general**
-  app→guest messaging stays cut.
+  — replies to guest messages — is scoped in as D2r. **Host-initiated
+  string updates — earned back 2026-10-19** by T3 Code's MCP App and HTML
+  documents, which need theme, shortcut and context changes the reply
+  channel cannot carry (§11). Structured clone and broadcast to every frame
+  stay cut until a guest needs one a string to one frame cannot carry.
 - **Navigation policy, verdicts, popups, the 13-op controller** — the
   first product need to intercept guest navigation. Until then: the guest
   navigates itself as any iframe may; popups are denied by `sandbox`
@@ -596,18 +599,13 @@ LLP 1020.001 D4 amends this table for a bundled HTML page under `assets/` or `de
   update of the row.
 
 
-## 11. Proposed addressed string replies and host updates (draft #777)
+## 11. Addressed string replies and host updates (2026-10-19)
 
-Consumer authorization: Daehyeon Mun, 2026-10-18 UTC (2026-10-19 KST),
-authorized the T3 Code consumer work. This does not constitute Charlie's framework
-scope waiver. No named, dated waiver or explicit doing-list trade has been recorded;
-framework expansion remains pending Charlie under `rules/RULES.md`. D2r's reply-only
-boundary and §5's cut remain binding. This section describes the draft implementation
-and evidence, not an accepted scope change.
+Admitted by a doing-list trade (`rules/DEFERRED.md`, section "Features carried over as 'no'").
 
-Draft #777 proposes `postMessage(text, iframeId)` on Apple and both web executors
+`postMessage(text, iframeId)` runs on Apple and both web executors
 for string replies and host-initiated theme, shortcut and MCP-context updates. The
-consumer needs these for interactive HTML and MCP documents. The prototype keeps
+consumer needs these for interactive HTML and MCP documents. It keeps
 the existing canvas form and its ordered pending queue. Its compiler distinguishes
 iframe delivery internally; the public command still has two string arguments, and
 repeated iframe instances may compute their ids.
@@ -621,11 +619,11 @@ Authored source or sandbox changes immediately replace the channel token. On the
 a cross-origin or opaque guest can start self-navigation before its parent observes
 load; its WindowProxy remains stable during that interval. This channel does not
 claim navigation-start revocation there. Apple checks the wrapper generation or a
-direct document's private isolated-world nonce, and revokes at navigation start. A direct native guest receives a synthesized string MessageEvent;
-its own posts continue through the existing guest-to-app bridge.
+direct document's private isolated-world nonce, and revokes at navigation start. A
+direct native guest receives a synthesized string MessageEvent; its own posts continue
+through the existing guest-to-app bridge.
 
-The proposal excludes structured-clone expansion, a permission broker, a navigation
-controller and an app-owned native bridge. The Linux prototype refuses iframe-tagged
-posts explicitly; it keeps its
-existing canvas protocol. The focused compiler/browser tests and native fixture are
+It excludes structured-clone expansion, a permission broker, a navigation controller
+and an app-owned native bridge. Linux refuses iframe-tagged posts explicitly and keeps
+its existing canvas protocol. The focused compiler/browser tests and native fixture are
 `post_message.rs`, `frame-messages.test.mjs` and `IframePostMessageTests.swift`.
