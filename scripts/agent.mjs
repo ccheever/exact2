@@ -992,7 +992,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * `presenter` (seekable native recognition without OS input injection), or `unsupported`. iOS activates and
      * injects; it synthesizes no touch (LLP 1008 §9), so its held contact is recognized (AgentPanIOS.swift), a real one under --touch platform. */
     input: host === 'ios' || host === 'host-ios'
-      ? { contact: true, hold: true, delivery: (kind) => ((kind === 'drag' && carrier.touches || ['press', 'down', 'hold', 'up', 'cancel'].includes(kind) && carrier.touch === 'platform') ? 'platform' : ['contextmenu', 'dblclick', 'hover', 'pinch', 'down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'recognized' : kind === 'drag' ? 'unsupported' : 'activation') }
+      ? { contact: true, hold: true, delivery: (kind) => ((kind === 'drag' && carrier.touches || ['press', 'down', 'hold', 'up', 'cancel'].includes(kind) && carrier.touch === 'platform') ? 'platform' : ['contextmenu', 'dblclick', 'hover', 'pinch', 'wheel', 'down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'recognized' : kind === 'drag' ? 'unsupported' : 'activation') }
       : host === 'linux' || host === 'windows' || host === 'android'
         ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel', 'contextmenu', 'mouse'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },

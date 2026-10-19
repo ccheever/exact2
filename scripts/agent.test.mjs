@@ -619,7 +619,8 @@ test('a tap that opens a menu the agent paints says UIKit presents it, under --t
     // A row that closes it, a dialog, a content popover, the invoker's tap that left it closed, a hover, a contact's phase.
     for (const reply of [tap(5), tap(6), tap(8), tap(3), tap(2, 'recognized'), { tapped: 2, delivery: 'activation', phase: 'down' }]) await notes('tap', reply);
     open = true;
-    await notes('tap', tap(2, 'recognized')); // a hover (or wheel, pinch) while it is open
+    await notes('tap', { tapped: 2, wheel: [0, 40] }); // a wheel while it is open, as iOS replies (AgentIOS.swift)
+    await notes('tap', tap(2, 'recognized')); // a hover or pinch
     assert.deepEqual(said, []);
     await notes('tap', tap(3)); await notes('tap', tap(2));
     assert.deepEqual(said, ["note: the tap opened the popover `patmenu` as the agent paints it, in the page; the app presents it as UIKit's pull-down menu, which a drive shows under --touch platform"]);

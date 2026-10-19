@@ -370,7 +370,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
     if (s.carrier?.axNote) note('ax', s.carrier.axNote); // the simulator's accessibility, which this drive's touches turned on
     // The agent paints a menu where the app presents UIKit's pull-down: the euxy port read it as an app bug.
     // Only a tap that activated (not a hover, wheel, pinch or a contact's phase), and only once.
-    if (op === 'tap' && reply?.tapped != null && ['activation', 'host-activation'].includes(reply.delivery) && reply.phase == null && reply.error == null
+    if (op === 'tap' && reply?.tapped != null && ['activation', 'host-activation'].includes(reply.delivery) && reply.phase == null && reply.wheel == null && reply.error == null
       && ['ios', 'host-ios'].includes(host) && s.carrier?.touch !== 'platform' && !said.has('menu')) {
       const menu = paintedMenu((await bounded(s.tree(), 3000))?.nodes, reply.tapped);
       if (menu) note('menu', `the tap opened the popover \`${menu}\` as the agent paints it, in the page; the app presents it as UIKit's pull-down menu, which a drive shows under --touch platform`);
