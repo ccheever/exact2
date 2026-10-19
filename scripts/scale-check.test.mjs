@@ -219,7 +219,7 @@ test('the terminal: its cells by its reply\'s grid, its corners from its reply, 
   expect(rows.map(r => r.ok)).toEqual([true, false, true, false]);
   expect(rows[0].margins).toEqual({ top: 1, bottom: 0, left: 1, right: 1 });
   expect(rows[0].box.cells).toEqual({ x: 0, y: 0, w: 22, h: 3 });
-  expect(rows[1].why).toContain('not the same on each edge');
+  expect(rows[1].why).toContain('not the same on opposite edges');
   expect(rows[3].why).toContain('radii 8, 8, 8, 8, expected 0');
   // A reply missing what is measured fails: no cells for an even box, radii not four lengths (an elliptical corner's pair).
   const thin = { ...layout, nodes: layout.nodes.map(n => ({ ...n, cells: undefined, radius: n.testId === 'round' ? [[8, 4], 8, 8, 8] : n.radius })) };
@@ -229,6 +229,11 @@ test('the terminal: its cells by its reply\'s grid, its corners from its reply, 
   ] }, base);
   expect(missing.map(r => r.ok)).toEqual([false, false]);
   expect(missing[1].why).toContain('not four lengths');
+  // A host that does not paint in cells (no grid in its reply) is held to an even box's px alone.
+  const pictured = check('linux', { ...layout, cell: undefined, nodes: layout.nodes.map(n => ({ ...n, cells: undefined })) }, drawn(320, 160, { x: 0, y: 0, w: 1, h: 1 }, 0, red), { boxes: [
+    { testId: 'box', child: 'inner', padding: 8, even: true },
+  ] }, base);
+  expect(pictured.map(r => r.ok)).toEqual([true]);
 });
 
 test('a terminal step keeps its text whole', async () => {

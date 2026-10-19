@@ -248,11 +248,12 @@ export function check(host, layout, image, expect, base = () => undefined) {
         // padding), the same whole number of rows above and below, of
         // columns left and right (no half-row drift between edges).
         const whole = r => r && ['x', 'y', 'w', 'h'].every(k => Number.isInteger(r[k]));
-        if (want.even && !(whole(box.cells) && whole(child.cells))) fail('its cells and its child\'s are not in the reply: the rows it paints cannot be read');
+        // (Only a host that paints in cells says them: the terminal.)
+        if (want.even && layout.cell && !(whole(box.cells) && whole(child.cells))) fail('its cells and its child\'s are not whole cells in the reply: the rows it paints cannot be read');
         else if (box.cells && child.cells) {
           const [b, c] = [box.cells, child.cells];
           row.margins = { top: c.y - b.y, bottom: b.y + b.h - (c.y + c.h), left: c.x - b.x, right: b.x + b.w - (c.x + c.w) };
-          if (want.even && (row.margins.top !== row.margins.bottom || row.margins.left !== row.margins.right)) fail(`its padding paints ${row.margins.top}/${row.margins.right}/${row.margins.bottom}/${row.margins.left} cells (top/right/bottom/left): not the same on each edge`);
+          if (want.even && (row.margins.top !== row.margins.bottom || row.margins.left !== row.margins.right)) fail(`its padding paints ${row.margins.top}/${row.margins.right}/${row.margins.bottom}/${row.margins.left} cells (top/right/bottom/left): not the same on opposite edges`);
         }
       }
     }

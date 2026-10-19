@@ -175,10 +175,13 @@ fn layout<D: DataSource>(host: &Host<D>) -> String {
             n.style.border_radius_bottom_left,
         ]
         // As a host sizes a corner: a percentage of the box's width across
-        // and of its height down (`at_basis`), one length where the two agree,
-        // else the pair `[across, down]`.
+        // and of its height down (`at_basis`), none below 0, one length where
+        // the two agree, else the pair `[across, down]`.
         .map(|d| {
-            let (across, down) = (d.at_basis(&env, f.width), d.at_basis(&env, f.height));
+            let (across, down) = (
+                d.at_basis(&env, f.width).max(0.0),
+                d.at_basis(&env, f.height).max(0.0),
+            );
             match across == down {
                 true => num(f64::from(across)),
                 false => format!("[{},{}]", num(f64::from(across)), num(f64::from(down))),
