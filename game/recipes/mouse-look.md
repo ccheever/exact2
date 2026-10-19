@@ -34,5 +34,11 @@ assert!((sim.world().resource::<Aim>().yaw + 0.1).abs() < 0.00001);
 
 - Use `delta`, not differences of absolute positions. Declare `data-pointer-lock`
   in app.json's `data`, and set `data-pointer-lock="true"` on the canvas.
+- A locked pointer's `position` stays put while `delta` keeps coming, so a still
+  position says nothing about lock; read `delta` whether locked or not. A fast flick
+  (press, move, release) can land inside one tick: read the button as an action with
+  `pressed` ([same-tick press](same-tick-press.md)).
+- Third person: the [orbit camera](orbit-camera.md) turns the same `delta` into a
+  camera around the player.
 - [The look tests](../engine/tests/look.rs) measure tick/display rates and latency;
   this fragment is also a doc-test. Register `Aim` for fresh restores.

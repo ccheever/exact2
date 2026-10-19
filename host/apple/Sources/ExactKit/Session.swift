@@ -59,6 +59,8 @@ public enum ExactEnv {
         return (json["inputs"] as? [String: Any])?["trust"] as? String == "production"
     }
     public static let agentMode = environment["EXACT_AGENT"] == "1"
+    /// `EXACT_AGENT_BIND` (`--bind`, LLP 1133.001 D7): extensions answered by their implementations under the agent.
+    static let agentBind = Set((environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))
     /// `EXACT_AGENT_TIMING=platform` (LLP 1035.003 D5, opt-in): under the
     /// agent carrier, UIKit's own transitions, presentations and keyboard
     /// animations keep their natural timing — the ordinary app with a
@@ -696,7 +698,6 @@ public final class ExactSession {
         landFill()
     }
     private func wire() {
-        runtime.on { exact_set_decorated_measure(runtime.rt, DecorationMeasurements.read) }
         runtime.topLayer = { [weak self] in self?.presenter.openTopLayer ?? ([], nil) }
         runtime.setInlineGeometry({ [weak self] id in self?.presenter.inlineFrame(id) },
                                   range: { [weak self] id, start, end in self?.presenter.rangeFrame(id, start: start, end: end) })
@@ -1148,8 +1149,8 @@ public final class ExactSession {
                     continue
                 }
                 if name == "postMessage" {
-                    let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
-                    app.deliver { [weak self] in self?.canvases.post(surface, text) }
+                    let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : "", iframe = args.count > 2 && args[2] as? String == "iframe"
+                    app.deliver { [weak self] in self?.post(text, to: surface, iframe: iframe) }
                     continue
                 }
                 if name == "focus" || name == "selectText" {
@@ -1240,6 +1241,7 @@ public final class ExactSession {
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
             // Prepare before any source calls the module (LLP 1067.000 D8).
             natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
+            restoreKeptDocuments() // before any answer reads a kept document (LLP 1069.010.000 D4)
             let batch = runtime.dataReady()
             if batch.pending {
                 pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
@@ -1260,6 +1262,7 @@ public final class ExactSession {
             drainSurfaceWork()
             frames.run(frames.motion || canvases.wantsFrames)
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
+            Owner.shared.releaseIdleStack() // after the data's batch: the deepest the boot goes
         }
     }
 

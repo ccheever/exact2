@@ -604,6 +604,8 @@ package final class Runtime {
     package func activities(_ json: String) -> Batch { on { read(exact_activities(rt, write(json))) } }
     /// A MIDI message (LLP 1125 D6–D8): the arm's ports or inputs, or the agent's `prefer midi` and `tap midi`.
     package func midi(_ json: String) -> Batch { on { read(exact_midi(rt, write(json))) } }
+    package func preferExtension(_ json: String) -> Batch { on { read(exact_extension(rt, write(json))) } }
+    package func bindExtensions(_ names: [String]) { on { exact_bind_extensions(rt, write(names.joined(separator: "\n"))) } }
     package func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     package func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     package func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) } }
@@ -627,6 +629,12 @@ package final class Runtime {
     package func regions(_ insets: [CGFloat]?) -> Batch {
         let values = (insets ?? []).map(Float.init)
         return on { read(values.withUnsafeBufferPointer { exact_regions(rt, $0.baseAddress, UInt32($0.count)) }) }
+    }
+    /// The title-bar area beside the window's controls (Window Controls
+    /// Overlay): x, y, width, height, or none, when every `titlebar-area-*` is undefined.
+    package func titlebarArea(_ rect: [CGFloat]?) -> Batch {
+        let values = (rect ?? []).map(Float.init)
+        return on { read(values.withUnsafeBufferPointer { exact_titlebar_area(rt, $0.baseAddress, UInt32($0.count)) }) }
     }
     /// What changed of the view at once (`exact_view`): each part given is
     /// told, the window's size (`.some(nil)` clears it), the safe-area

@@ -1,4 +1,4 @@
-import { bundleOptions } from '../../js/bake/src/typescript.mjs';
+import { asyncContext, bundleOptions, lowered, webImplementations } from '../../js/bake/src/typescript.mjs';
 import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
@@ -28,7 +28,12 @@ import { withLook } from '../web/look.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const args = process.argv.slice(2);
-const app = args[0];
+// A path names the app as EXACT_APP_DIR does (scripts/app.mjs resolveApp), so
+// what is made from the name (the module crate under web-js-modules, the
+// default --out) stays out of the app's own directory.
+const given = args[0] && /[\\/]|^\.\.?$/.test(args[0]) ? resolve(args[0]) : null;
+if (given) process.env.EXACT_APP_DIR = given;
+const app = given ? basename(given) : args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
 if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js|none] [--check]'); process.exit(2); }
 // An app outside this repo is where `EXACT_APP_DIR` says (scripts/app.mjs).
@@ -174,7 +179,7 @@ const compiler = webCompiler();
 const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: checkOnly ? ['ignore', 'ignore', 'pipe'] : 'inherit', encoding: 'utf8', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) { if (checkOnly) process.stderr.write(cargo.stderr ?? ''); process.exit(cargo.status ?? 1); }
 compiler.done();
-for (const f of ['rt.js', 'editor.js', 'live-time.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'editor.js', 'live-time.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js', 'said.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The live table's runtime is the dev loop's build's alone.
 if (!devReload) writeFileSync(resolve(gen, 'modes.js'), withoutDev(readFileSync(resolve(here, 'modes.js'), 'utf8')));
 // Inspect mode's hooks in the runtime are the dev loop's build's alone (module.mjs `withInspectHooks`).
@@ -198,8 +203,19 @@ writeFileSync(resolve(gen, 'draw.js'), tsDraws ? "export { drawer } from './ts-d
 // (`advance`, a nested shape) once hid `exactTime` and its app could not boot.
 const sources = JSON.parse(readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=(\{.*?\});export const wait=/)?.[1] ?? '{}');
 const time = Object.hasOwn(sources, 'exactTime');
-// A source a data module answers: not one the runtime reserves (`exact…`).
-const asks = Object.keys(sources).some(name => !/^exact[A-Z]/.test(name));
+// A native module's names and extensions (modules.js, LLP 1133.002 D13): each
+// extension's web implementation is a chunk of its own, `ext-<name>.js`, loaded
+// outside the agent on first use; an extension with none answers by name.
+const moduleFlag = existsSync(resolve(gen, 'modules.flag')) ? JSON.parse(readFileSync(resolve(gen, 'modules.flag'), 'utf8')) : { extensions: [], sources: [] };
+if (moduleFlag.extensions.length) {
+  const bound = webImplementations(appDir);
+  for (const extension of moduleFlag.extensions) {
+    const at = bound.get(extension);
+    writeFileSync(resolve(gen, `ext-${extension}.js`), at ? `export { implementation } from ${JSON.stringify(at)};\n` : 'export const implementation = null;\n');
+  }
+}
+// A source a data module answers: not one the runtime reserves (`exact…`), nor a native module's.
+const asks = Object.keys(sources).some(name => !/^exact[A-Z]/.test(name) && !moduleFlag.sources.includes(name));
 // A file input, `saveFile` or `share` (files.js), registered before any press.
 const files = existsSync(resolve(gen, 'files.flag'));
 // `showNotification` or `closeNotification` (notify.js), linked by use.
@@ -420,7 +436,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ] : ['start();']),
   ...(containerHatches ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers())));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces the runtime loads (glue.mjs).
 stageHostGlue(root, gen);
 // navigation.js's grant admission (between its `grant admission: begin` and `end` lines) becomes a module of its own
@@ -439,6 +455,7 @@ const grantSection = (() => {
 // entry: a module lives in one chunk, so what only the agent reads from
 // navigation.js (the environment and page observations) or names.js
 // (every slot's type) would otherwise ride in every page's entry module.
+cpSync(resolve(root, 'host/web/frame-messages.js'), resolve(gen, 'frame-messages.js'));
 for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(gen, 'agent-' + f));
 writeFileSync(resolve(gen, 'agent.js'), localImports(readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'")));
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
@@ -514,9 +531,15 @@ const how = opt('--render') ?? 'rust';
 // local `fetch` stays local.
 const generatedRoots = [gen, realpathSync(gen)];
 const inside = (path, root) => { const child = relative(root, path); return child === '' || !isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep); };
-const scopedModule = (code, id) => {
+// `lower`: the page's bundle lowers `async` so an answer's context survives
+// its awaits (`asyncContext`, LLP 1133.002 D14); the server render, which
+// runs at build with no device to call, does not.
+// A native module's web implementation is the page's, as an app's own page module is.
+const implementationRoots = [...webImplementations(appDir).values()].map(at => dirname(realpathSync(at)));
+const scopedModule = (code, id, lower = false) => {
   if (!ts || !isAbsolute(id) || !/\.[cm]?[jt]sx?$/.test(id)) return null;
   if (!inside(id, tsStage) && generatedRoots.some(root => inside(id, root))) return null;
+  if (implementationRoots.some(root => inside(id, root) || inside(realpathSync(id), root))) return null;
   // And the clock, timers and Math.random refused by name (LLP 1027.000 D3),
   // and the browser's own I/O, as the wasm target's realm refuses it.
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
@@ -524,7 +547,7 @@ const scopedModule = (code, id) => {
   // The DOM and Node's globals are absent, as on Hermes (js/bake/src/typescript.mjs `packageRefusals`).
   const absent = ['window', 'self', 'frames', 'parent', 'top', 'opener', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage',
     'indexedDB', 'HTMLElement', 'Element', 'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global'];
-  const result = transformSync(id, code, { inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, 'ts-fetch.js'), name]])),
+  const result = transformSync(id, code, { ...(lower ? { ...lowered, helpers: { mode: 'Runtime' } } : {}), inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, 'ts-fetch.js'), name]])),
     ...Object.fromEntries(absent.map(name => [name, [resolve(gen, 'ts-fetch.js'), 'absent']])),
     globalThis: [resolve(gen, 'ts-fetch.js'), 'appGlobal'] } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));
@@ -555,7 +578,7 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => {
+  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: (code, id) => scopedModule(code, id, true) }, asyncContext()], logLevel: 'warn', onLog: (level, log) => {
     if (level === 'warn' && log.code === 'IMPORT_IS_UNDEFINED' && optionalHookWarning(log.id, log.message)) return;
     console.error(log.message);
   } });

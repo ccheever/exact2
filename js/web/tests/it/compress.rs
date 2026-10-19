@@ -325,7 +325,7 @@ try {
   rmSync(profile, { recursive: true, force: true });
 }
 // Firefox and WebKit, through Playwright as conform.mjs and the agent's
-// carriers launch them, when they are installed (bunx playwright@1.63.0
+// carriers launch them, when they are installed (bunx playwright@1.64.1
 // install firefox webkit); else said, not failed.
 try {
   const playwright = await import('playwright-core');

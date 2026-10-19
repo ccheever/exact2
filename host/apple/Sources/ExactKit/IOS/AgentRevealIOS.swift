@@ -116,7 +116,8 @@ extension Agent {
     }
 
     /// The bars UIKit shows over `sv`: the navigation bar and toolbar of each
-    /// navigation controller holding it, and a tab bar controller's tab bar.
+    /// navigation controller holding it, and a tab bar controller's tab bar
+    /// (on an iPad, its floating list of items at the top).
     func bars(over sv: UIScrollView) -> [UIView] {
         var out: [UIView] = []
         for responder in ViewPresentation.controllers(for: sv) {
@@ -126,7 +127,12 @@ extension Agent {
                 if !nav.isToolbarHidden { out.append(nav.toolbar) }
                 #endif
             }
-            if let tabs = responder as? UITabBarController { out.append(tabs.tabBar) }
+            if let tabs = responder as? UITabBarController {
+                out.append(tabs.tabBar)
+                #if os(iOS)
+                if let list = tabs.floatingTabList { out.append(list) }
+                #endif
+            }
         }
         return out.filter { $0.window === sv.window && !$0.isHidden && $0.alpha > 0.01 }
     }

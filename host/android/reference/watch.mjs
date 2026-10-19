@@ -111,7 +111,7 @@ function regression() {
     const body = [`The Material oracle (LLP 1115.001.001) on origin/main ${range}:`, '',
       ...(detectionBroke ? [`**The detection test failed:** ${report.detection}. The oracle is not to be trusted until it passes.`, ''] : []),
       ...(lost.length ? ['**Specimens that passed and now differ:**', ...lost.map((n) => `- ${report.failing.find((f) => f.startsWith(n))}`)] : []),
-      '', 'Thresholds are provisional until calibration (O2): a difference here may be the threshold, not the painter.'].join('\n');
+].join('\n');
     if (dry) log(body);
     else {
       const issue = run('gh', ['issue', 'create', '--repo', 'ccheever/exact2', '--title', `Material oracle: ${lost.length ? `${lost.length} specimen(s) regressed` : 'detection test failed'} at ${tip.slice(0, 9)}`, '--body', body], root);
@@ -122,14 +122,18 @@ function regression() {
   state.checked = tip;
 }
 
-/** What the oracle's report says, by specimen: which pass, which differ (with why), and the detection test. */
+/**
+ * What the oracle's report says, by specimen: which pass, which differ (with why), and the detection test. A specimen
+ * differs where any layer fails, its pixels included, as `oracle.mjs` judges it.
+ */
 function readReport(dir) {
   const file = join(dir, 'host/android/reference/build/oracle/report.json');
   if (!existsSync(file)) return null;
   const r = JSON.parse(readFileSync(file, 'utf8'));
-  const bad = (c) => ['geometry', 'probes', 'text'].some((k) => !c.layers[k].ok);
-  const why = (c) => ['geometry', 'probes', 'text'].filter((k) => !c.layers[k].ok)
-    .map((k) => `${k}: ${c.layers[k].items.filter((i) => !i.ok).map((i) => i.what).slice(0, 4).join(', ')}`).join('; ');
+  const bad = (c) => Object.values(c.layers).some((l) => !l.ok);
+  const why = (c) => Object.entries(c.layers).filter(([, l]) => !l.ok)
+    .map(([k, l]) => (l.items ? `${k}: ${l.items.filter((i) => !i.ok).map((i) => i.what).slice(0, 4).join(', ')}`
+      : `${k} ${(l.share * 100).toFixed(2)}%`)).join('; ');
   const ok = r.detection.filter((d) => d.ok).length;
   return { total: r.comparisons.length, passing: r.comparisons.filter((c) => !bad(c)).map((c) => c.name),
     failing: r.comparisons.filter(bad).map((c) => `${c.name}: ${why(c)}`), detection: `${ok} of ${r.detection.length} as expected` };

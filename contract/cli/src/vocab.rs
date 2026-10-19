@@ -713,7 +713,7 @@ fn function_text(f: &Function) -> String {
 fn command_text(name: &str) -> String {
     let what = match name {
         "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
-        "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText), no undo step by default. The core also accepts a third argument \"undo\" for the current selection or sixth argument \"undo\" after selectionMode; host undo adoption is pending (LLP 1114.007). Markdown, Windows, Android and terminal are not supported yet (LLP 1069.001)",
+        "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement, and on web/macOS/iOS the Markdown editor's, over its source; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText); no undo step on a plain field, one undo step each on the Markdown editor (LLP 1045 D1). Markdown on Linux, Windows, Android and terminal are not supported yet (LLP 1069.001)",
         "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
         "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
         _ => "",
@@ -744,7 +744,7 @@ fn kind(a: &AttrTarget) -> &'static str {
 
 fn prop_type(p: PropId) -> String {
     if p == PropId::Decorations {
-        return "TextDecorations(value, spans, blocks, hidden, atoms)".into();
+        return "TextDecorations(value, spans): the text the spans were computed for, and TextDecorationSpan(name, start, end) in UTF-16 offsets".into();
     }
     format!("{:?}", tags::prop_ty(p)).to_lowercase()
 }
@@ -776,7 +776,7 @@ const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the au
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
     if name == "decorations" {
-        return Some("plain `textarea`; host adoption pending (LLP 1114.007)");
+        return Some("plain `textarea`: paint only, each span's name a `decoration` declaration (color, background-color, text-decoration, text-shadow); the web paints it where `createValueRange` exists, Apple, Linux and Windows all but its text-shadow, Android and the terminal not yet (LLP 1114.007)");
     }
     // `title` is every element's, HTML's tooltip; `head`'s is the document's.
     if tags::HEAD_FIELDS.contains(&name) && name != "title" {

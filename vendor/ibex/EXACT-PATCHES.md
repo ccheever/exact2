@@ -257,6 +257,30 @@ expected write as a `stat`, a comparison and the write, queued together; the
 web glue and Exact's Rust storage do the same. Replay the declarations on a
 refresh.
 
+## Local patch 15, Exact's kept documents: a selected file named as chosen
+
+`stdlib/documents.rs` adds `DocumentLease::selected_file_named(directory,
+leaf, name, guard)`: a selected file the guest path names `name` while its
+leaf in the retained parent is `leaf`. `selected_file` is that with the two
+equal. Exact keeps a chosen file across launches under the name it was
+chosen by (exact2 LLP 1069.010.000 D4), and a Mac bookmark follows the file
+when it is renamed, so the two differ after a rename. The provider still
+decides what the name admits; Ibex still opens only `leaf`, refuses every
+path beneath it, and refuses `rm`, `mkdir` and `readdir` on it. `bindings/storage.d.ts` declares
+`fs.recentDocuments()` and `fs.forgetDocument(path)`, which Exact's prelude
+answers from the host's kept list; no Ibex source runs either. Replay both on
+a refresh.
+
+## Local patch 16, bindings' bytecode read where it is linked
+
+`bindings.rs` links each binding's `.hbc` and `HARDEN_BYTECODE` at a 16-byte
+boundary (`aligned_bytecode!`), and `bindings/install.cc`'s `CompiledBytes`
+lends such a span to Hermes instead of copying it, since Hermes keeps a
+module's buffer for the runtime's life and the statics live as long; a span
+not so aligned is still copied. `include/ibex2_jsi.h` says so at
+`CompiledScript`. In euxy on iOS the copies were 81 KB of malloc at idle.
+Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

@@ -1,6 +1,7 @@
 //! The frame's passes, each reading one resolved frame state.
 //! @ref llp/1046.006.000-render-hooks.rfc.md#d3-optional-services-the-scene-copy
 use super::draw::Resolved;
+use super::probe::{Drew, Probe, Stage};
 use super::*;
 use crate::hooks::CustomMaterial;
 
@@ -52,6 +53,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         view: u32,
         group: usize,
     ) {
+        let began = self.probe_begin(pass, || Drew::Group {
+            group,
+            view,
+            variant: None,
+        });
         if self.cull.direct {
             let mesh = &self.meshes[self.batches[self.cull.groups[group].batch].mesh.0];
             bound.scene(pass, &self.scene_binds[self.current], 0);
@@ -60,11 +66,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 mesh.base_vertex,
                 self.cull.groups[group].range.clone(),
             );
-            return;
+        } else {
+            let (offset, draw) = self.cull.draw(view, group);
+            bound.scene(pass, &self.culled_binds[self.current], offset);
+            pass.draw_indexed_indirect(&self.cull.indirect.raw, draw);
         }
-        let (offset, draw) = self.cull.draw(view, group);
-        bound.scene(pass, &self.culled_binds[self.current], offset);
-        pass.draw_indexed_indirect(&self.cull.indirect.raw, draw);
+        Probe::end(pass, began);
     }
 
     pub(crate) fn draw_outline_group<'a>(
@@ -99,9 +106,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             return 0;
         };
         let mut draws = 0;
-        let cache = shadows.cached.as_ref();
+        // A look frame draws every caster itself and leaves the cache as the
+        // live frames left it (`prepare_shadow_cache`).
+        let cache = shadows.cached.as_ref().filter(|_| self.probe.is_none());
         for i in 0..shadows.count as usize {
             let view = 1 + i as u32;
+            self.probe_stage(Stage::SunShadow(i as u8));
             let stamped = cache.is_some()
                 && timing::encoder_stamp(&self.device, encoder, frame.timestamps, i as u32, false);
             if let Some(cache) = cache {
@@ -208,6 +218,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
         let mut bound = Bound::default();
+        self.probe_stage(Stage::Occluders);
         for &(index, offset) in &occlusion.groups {
             pass.set_bind_group(1, &occlusion.uniforms_bind, &[offset]);
             self.draw_group(&mut pass, &mut bound, 0, index);
@@ -229,26 +240,23 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             if let Some(custom) = custom.iter().find(|c| c.material == material) {
                 let binds = self.custom_bindings.as_ref().unwrap();
                 bound.pipeline(pass, &custom.shadow);
+                self.probe_variant(usize::MAX);
                 bound.group(pass, 2, &custom.resources);
                 bound.group(pass, 3, &binds.instances.as_ref().unwrap().1);
             } else {
                 let material = &self.models.materials[material.0];
                 let opaque = material.alpha == exact_game::asset::AlphaMode::Opaque
                     && !self.batch_fading(group.batch);
-                bound.pipeline(
-                    pass,
-                    self.pipelines.model_variant(
-                        &self.device,
-                        4 * usize::from(material.double_sided)
-                            + 16 * usize::from(group.mirrored)
-                            + 32 * usize::from(opaque),
-                        true,
-                    ),
-                );
+                let key = 4 * usize::from(material.double_sided)
+                    + 16 * usize::from(group.mirrored)
+                    + 32 * usize::from(opaque);
+                self.probe_variant(key);
+                bound.pipeline(pass, self.pipelines.model_variant(&self.device, key, true));
                 bound.group(pass, 2, self.depth_material(material, opaque));
                 bound.group(pass, 3, self.models.bind.as_ref().unwrap());
             }
         } else {
+            self.probe_variant(usize::from(group.mirrored));
             bound.pipeline(pass, &self.pipelines.shadow[usize::from(group.mirrored)]);
         }
         bound.group(pass, 1, camera);
@@ -280,13 +288,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     ) -> Result<(), RenderError> {
         let time = view.time;
         // Soft particles: translucency follows in its own pass over this depth.
-        let split = self.quads.soft_active();
+        let split = self.quads.split();
         let sky = frame
             .environment
             .background
-            .unwrap_or(frame.environment.horizon);
-        // A direct frame draws into the target, through its own MSAA attachment at 4x.
-        let direct = state.direct.then(|| self.direct_targets.as_ref().unwrap());
+            .map_or(frame.environment.horizon, |c| c.0);
+        // A direct frame draws into the target, through its own MSAA attachment at
+        // 4x, which resolves into the target after the frame's last pass.
+        let direct = state.direct.then(|| self.direct_attachments());
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game forward"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -300,17 +309,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     },
                     |d| d.color.as_ref().unwrap_or(target),
                 ),
-                resolve_target: if self.targets.samples == 1 {
+                resolve_target: if self.targets.samples == 1 || split {
                     None
                 } else if direct.is_some() {
                     Some(target)
                 } else {
-                    (!split).then(|| {
+                    Some(
                         self.hook_targets
                             .as_ref()
                             .and_then(|t| t.scene())
-                            .map_or(&self.targets.resolved, |scene| scene.color)
-                    })
+                            .map_or(&self.targets.resolved, |scene| scene.color),
+                    )
                 },
                 depth_slice: None,
                 ops: wgpu::Operations {
@@ -347,12 +356,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 }
                 timing::writes(frame.timestamps, 3)
             },
-            occlusion_query_set: None,
+            occlusion_query_set: self.probe_queries(Stage::Forward),
             multiview_mask: None,
         });
         if state.direct {
             state.draws += self.draw_depth_prepass(&mut pass, state.size, true);
         }
+        self.probe_stage(Stage::Forward);
         self.scene_viewport(&mut pass, state.size, false);
         let mut layer = false;
         let variant = state.variant;
@@ -370,43 +380,38 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 } else {
                     let material = &self.models.materials[material.0];
                     let prepassed = self.prepass_active && !self.batch_skinned(group.batch);
-                    let pipeline = self.pipelines.model_variant(
-                        &self.device,
-                        variant
-                            + crate::pipeline::PREPASS * usize::from(prepassed)
-                            + 64 * usize::from(material.untextured)
-                            + 128
-                                * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
-                            + 4 * usize::from(material.double_sided)
-                            + 16 * usize::from(group.mirrored)
-                            + 32 * usize::from(
-                                material.alpha == exact_game::asset::AlphaMode::Opaque
-                                    && !self.batch_fading(group.batch),
-                            )
-                            + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
-                            + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
-                            + crate::pipeline::MODEL_LIGHTS
-                                * usize::from(self.lights.info[0] != 0. || frame.fill.is_some()),
-                        false,
-                    );
+                    let key = variant
+                        + crate::pipeline::PREPASS * usize::from(prepassed)
+                        + 64 * usize::from(material.untextured)
+                        + 128 * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
+                        + 4 * usize::from(material.double_sided)
+                        + 16 * usize::from(group.mirrored)
+                        + 32 * usize::from(
+                            material.alpha == exact_game::asset::AlphaMode::Opaque
+                                && !self.batch_fading(group.batch),
+                        )
+                        + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
+                        + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
+                        + crate::pipeline::MODEL_LIGHTS
+                            * usize::from(self.lights.info[0] != 0. || frame.fill.is_some());
+                    self.probe_variant(key);
+                    let pipeline = self.pipelines.model_variant(&self.device, key, false);
                     bound.pipeline(&mut pass, pipeline);
                     bound.group(&mut pass, 2, material.bind.as_ref().unwrap());
                     bound.group(&mut pass, 3, self.models.bind.as_ref().unwrap());
                 }
             } else {
-                let pipeline = self.pipelines.forward_variant(
-                    &self.device,
-                    variant
-                        + 4 * usize::from(group.mirrored)
-                        + (state.primitive
-                            & if self.batch_fading(group.batch) {
-                                !crate::pipeline::EARLY
-                            } else {
-                                usize::MAX
-                            })
-                        + crate::pipeline::PREPASS * usize::from(self.prepass_active),
-                );
-                bound.pipeline(&mut pass, pipeline);
+                let key = variant
+                    + 4 * usize::from(group.mirrored)
+                    + (state.primitive
+                        & if self.batch_fading(group.batch) {
+                            !crate::pipeline::EARLY
+                        } else {
+                            usize::MAX
+                        })
+                    + crate::pipeline::PREPASS * usize::from(self.prepass_active);
+                self.probe_variant(key);
+                bound.pipeline(&mut pass, self.pipelines.forward_variant(&self.device, key));
             }
             if group.range.start != self.batches[group.batch].slots.start {
                 state.draws += 1;
@@ -421,14 +426,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if layer {
             self.scene_viewport(&mut pass, state.size, false);
         }
-        for draw in self.quads.draws.iter().filter(|d| self.quads.opaque(d)) {
-            self.quads
-                .draw::<ASSETS>(&mut pass, draw, &self.models.textures, state.direct);
+        for (index, _) in
+            (self.quads.draws.iter().enumerate()).filter(|(_, d)| self.quads.opaque(d))
+        {
+            let pipeline =
+                (self.quads).bind::<ASSETS>(&mut pass, index, &self.models.textures, state.direct);
+            let began = self.probe_begin(&mut pass, || self.quads.record(index, pipeline));
+            self.quads.submit(&mut pass, index);
+            Probe::end(&mut pass, began);
             state.draws += 1;
         }
         if H::ENABLED {
             let start = (!time.seekable).then(crate::perf::Stamp::now);
             timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 18, false);
+            self.probe_note(|| Drew::Summary("hook opaque"));
             hooks
                 .opaque(&mut pass, view)
                 .map_err(|e| hook_error("opaque", e))?;
@@ -439,6 +450,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.scene_viewport(&mut pass, state.size, false);
         }
         let hulls = self.draw_outlines(&mut pass, state.size, state.direct);
+        if hulls.draws > 0 {
+            self.probe_note(|| Drew::Hulls { draws: hulls.draws });
+        }
         state.draws += hulls.draws;
         state.hull_instances += hulls.instances;
         state.hull_triangles += hulls.triangles;
@@ -450,11 +464,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             });
             pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
             pass.draw(0..3, 0..1);
+            self.probe_note(|| Drew::Fixed("sky"));
             state.draws += 1;
         }
         if H::ENABLED {
             let start = (!time.seekable).then(crate::perf::Stamp::now);
             timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 19, false);
+            self.probe_note(|| Drew::Summary("hook background"));
             hooks
                 .background(&mut pass, view)
                 .map_err(|e| hook_error("background", e))?;
@@ -486,18 +502,25 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
 
     /// Translucency over the opaque pass's stored colour, its depth read-only and
-    /// sampled by soft particles.
+    /// sampled by soft particles and a look frame's particle counts: the HDR
+    /// image, or a direct frame's target (`direct_attachments`).
     pub(super) fn encode_translucent(
         &self,
         encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
         state: &mut Resolved,
         frame: &FrameInput<'_>,
     ) {
+        let direct = state.direct.then(|| self.direct_attachments());
+        let (color, depth) = direct.map_or((&self.targets.color, &self.targets.depth), |d| {
+            (d.color.as_ref().unwrap_or(target), &d.depth)
+        });
+        let resolved = direct.map_or(&self.targets.resolved, |_| target);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game translucent"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.targets.color,
-                resolve_target: (self.targets.samples > 1).then_some(&self.targets.resolved),
+                view: color,
+                resolve_target: (self.targets.samples > 1).then_some(resolved),
                 depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
@@ -509,7 +532,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.targets.depth,
+                view: depth,
                 depth_ops: None,
                 stencil_ops: None,
             }),
@@ -519,9 +542,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 }
                 timing::writes(frame.timestamps, timing::TRANSLUCENT)
             },
-            occlusion_query_set: None,
+            occlusion_query_set: self.probe_queries(Stage::Translucent),
             multiview_mask: None,
         });
+        self.probe_stage(Stage::Translucent);
         self.scene_viewport(&mut pass, state.size, false);
         state.draws += self.translucent(&mut pass, frame, state, state.size);
     }
@@ -589,11 +613,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 }
                 timing::writes(frame.timestamps, 20)
             },
-            occlusion_query_set: None,
+            occlusion_query_set: self.probe_queries(Stage::Translucent),
             multiview_mask: None,
         });
+        self.probe_stage(Stage::Translucent);
         self.scene_viewport(&mut pass, state.size, false);
         let start = (!time.seekable).then(crate::perf::Stamp::now);
+        self.probe_note(|| Drew::Summary("hook surface"));
         hooks
             .surface(&mut pass, &targets.scene().unwrap(), view)
             .map_err(|e| hook_error("surface", e))?;
@@ -631,6 +657,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             if let Some(inputs) = targets.post(&self.targets.resolved) {
                 let start = (!time.seekable).then(crate::perf::Stamp::now);
                 timing::encoder_stamp(&self.device, encoder, frame.timestamps, 21, false);
+                self.probe_note(|| Drew::Summary("hook post"));
                 hooks
                     .post(encoder, &inputs, view)
                     .map_err(|e| hook_error("post", e))?;
@@ -640,6 +667,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 state.times[5] = start.map(|s| s.elapsed());
             }
         }
+        if self.bloom.is_some() {
+            self.probe_note(|| Drew::Summary("bloom"));
+        }
+        self.probe_note(|| Drew::Fixed("tone"));
         if let Some(bloom) = &self.bloom {
             let passes = bloom.encode(
                 &self.queue,
@@ -711,7 +742,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let mut layer = false;
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
         let mut draws = 0;
-        for draw in self.quads.draws.iter().filter(|d| !self.quads.opaque(d)) {
+        for (index, draw) in
+            (self.quads.draws.iter().enumerate()).filter(|(_, d)| !self.quads.opaque(d))
+        {
             // Blended viewmodel parts keep the viewmodel layer's depth range.
             let viewmodel = matches!(draw.kind, crate::quads::Kind::Model(index, _)
                 if self.batches[index].viewmodel)
@@ -720,36 +753,43 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.scene_viewport(pass, size, viewmodel);
                 layer = viewmodel;
             }
-            if let crate::quads::Kind::Model(index, slot) = draw.kind {
+            if let crate::quads::Kind::Model(batch_index, slot) = draw.kind {
+                let index = batch_index;
                 assert!(ASSETS, "model in primitive executor");
                 let batch = &self.batches[index];
                 let material = &self.models.materials[self.model_batches[index].unwrap().0];
-                pass.set_pipeline(self.pipelines.model_variant(
-                    &self.device,
-                    variant
-                        + 64 * usize::from(material.untextured)
-                        + 128 * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
-                        + 4 * usize::from(material.double_sided)
-                        + 8
-                        + 16 * usize::from(
-                            self.slot_mirrored(self.slot_list[slot as usize], frame),
-                        )
-                        + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
-                        + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
-                        + crate::pipeline::MODEL_LIGHTS
-                            * usize::from(self.lights.info[0] != 0. || frame.fill.is_some()),
-                    false,
-                ));
+                let mirrored = self.slot_mirrored(self.slot_list[slot as usize], frame);
+                let key = variant
+                    + 64 * usize::from(material.untextured)
+                    + 128 * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
+                    + 4 * usize::from(material.double_sided)
+                    + 8
+                    + 16 * usize::from(mirrored)
+                    + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
+                    + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
+                    + crate::pipeline::MODEL_LIGHTS
+                        * usize::from(self.lights.info[0] != 0. || frame.fill.is_some());
+                self.probe_variant(key);
+                pass.set_pipeline(self.pipelines.model_variant(&self.device, key, false));
                 pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
                 pass.set_bind_group(1, &self.shadow_sample, &[]);
                 pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
                 pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
                 let mesh = &self.meshes[batch.mesh.0];
+                let began = self.probe_begin(pass, || Drew::Blended {
+                    batch: index,
+                    variant: None,
+                    mirrored,
+                });
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
+                Probe::end(pass, began);
             } else {
-                self.quads
-                    .draw::<ASSETS>(pass, draw, &self.models.textures, state.direct);
+                let pipeline =
+                    (self.quads).bind::<ASSETS>(pass, index, &self.models.textures, state.direct);
+                let began = self.probe_begin(pass, || self.quads.record(index, pipeline));
+                self.quads.submit(pass, index);
+                Probe::end(pass, began);
             }
             draws += 1;
         }

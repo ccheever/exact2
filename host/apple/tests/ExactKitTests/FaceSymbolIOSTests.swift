@@ -94,6 +94,11 @@ final class FaceSymbolIOSTests: XCTestCase {
         XCTAssertEqual(image.size.width, FaceSymbol.barItemPoints)
     }
 
+    /// An iPad's traits at `size`, where a tab bar's glyph depends on the width (`FaceSymbol.tabBarPoints`)
+    private func pad(_ size: UIUserInterfaceSizeClass) -> UITraitCollection {
+        UITraitCollection(traitsFrom: [UITraitCollection(userInterfaceIdiom: .pad), UITraitCollection(horizontalSizeClass: size)])
+    }
+
     @MainActor func testARootTabsPathIsItsInstalledTabBarItemImage() throws {
         let session = try fixture("face-symbol-tab")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController, "the fixture's root tabs")
@@ -106,11 +111,22 @@ final class FaceSymbolIOSTests: XCTestCase {
         XCTAssertTrue(home()?.selectedImage?.isSymbolImage == false, "no `.fill` variant: the path in both states")
         XCTAssertEqual(home()?.selectedImage?.size, home()?.image?.size)
         XCTAssertEqual(tabs.viewControllers?.first?.tabBarItem.accessibilityIdentifier, "tab-home", "its test id, not the token")
-        // The size class sizes the glyph: compact, regular, compact again, the faces unchanged.
+        // An iPhone's glyph is 23 points at both widths
+        tabs.tabBar.traitOverrides.userInterfaceIdiom = .phone
+        for size in [UIUserInterfaceSizeClass.compact, .regular] {
+            tabs.tabBar.traitOverrides.horizontalSizeClass = size
+            tabs.tabBar.updateTraitsIfNeeded()
+            until("the root tab's path at 23 for an iPhone at \(size.rawValue)") { home()?.image?.size.width == 23 }
+        }
+        // The idiom alone, at a regular width, sizes it again: an iPad's is 17 points
+        tabs.tabBar.traitOverrides.userInterfaceIdiom = .pad
+        tabs.tabBar.updateTraitsIfNeeded()
+        until("the root tab's path drawn again at 17 for an iPad") { home()?.image?.size.width == 17 }
+        // An iPad's size class sizes the glyph: compact, regular, compact again, the faces unchanged.
         for size in [UIUserInterfaceSizeClass.compact, .regular, .compact] {
             tabs.tabBar.traitOverrides.horizontalSizeClass = size
             tabs.tabBar.updateTraitsIfNeeded()
-            let points = FaceSymbol.tabBarPoints(UITraitCollection(horizontalSizeClass: size))
+            let points = FaceSymbol.tabBarPoints(pad(size))
             until("the root tab's path drawn again at \(points) for \(size.rawValue)") { home()?.image?.size.width == points }
         }
     }
@@ -142,16 +158,28 @@ final class FaceSymbolIOSTests: XCTestCase {
 
     @MainActor func testNativeTabsPathIsTheirTabBarItemsAndSegmentsImage() throws {
         var p = tablist([2: face(token, title: "Reply"), 3: face("tray", title: "Inbox")], selected: true)
-        let items = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UITabBar }.first?.items)
-        XCTAssertTrue(isTemplate(items[0].image), "the tab bar tints it")
-        XCTAssertEqual(items[0].image?.size.width, FaceSymbol.tabBarPoints(UITraitCollection(horizontalSizeClass: .compact)))
-        XCTAssertTrue(items[1].image?.isSymbolImage == true, "an SF Symbol as before")
-        // The size class sizes the glyph: compact, regular, compact again, the faces unchanged.
         let tabBar = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UITabBar }.first)
+        let items = try XCTUnwrap(tabBar.items)
+        XCTAssertTrue(isTemplate(items[0].image), "the tab bar tints it")
+        // Sized for the bar's own traits: a phone's at either width, an iPad's at its size class
+        XCTAssertEqual(items[0].image?.size.width, FaceSymbol.tabBarPoints(tabBar.traitCollection))
+        XCTAssertTrue(items[1].image?.isSymbolImage == true, "an SF Symbol as before")
+        // An iPhone's glyph is 23 points at both widths
+        tabBar.traitOverrides.userInterfaceIdiom = .phone
+        for size in [UIUserInterfaceSizeClass.compact, .regular] {
+            tabBar.traitOverrides.horizontalSizeClass = size
+            tabBar.updateTraitsIfNeeded()
+            XCTAssertEqual(tabBar.items?.first?.image?.size.width, 23, "an iPhone at \(size.rawValue)")
+        }
+        // The idiom alone, at a regular width, sizes it again: an iPad's is 17 points
+        tabBar.traitOverrides.userInterfaceIdiom = .pad
+        tabBar.updateTraitsIfNeeded()
+        XCTAssertEqual(tabBar.items?.first?.image?.size.width, 17, "an iPad at a regular width")
+        // An iPad's size class sizes the glyph: compact, regular, compact again, the faces unchanged.
         for size in [UIUserInterfaceSizeClass.compact, .regular, .compact] {
             tabBar.traitOverrides.horizontalSizeClass = size
             tabBar.updateTraitsIfNeeded()
-            XCTAssertEqual(tabBar.items?.first?.image?.size.width, FaceSymbol.tabBarPoints(UITraitCollection(horizontalSizeClass: size)), "\(size.rawValue)")
+            XCTAssertEqual(tabBar.items?.first?.image?.size.width, FaceSymbol.tabBarPoints(pad(size)), "\(size.rawValue)")
         }
         p = tablist([2: face(token, label: "Reply"), 3: face("map", label: "Map")], selected: false)
         let segments = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
@@ -233,15 +261,22 @@ final class FaceSymbolIOSTests: XCTestCase {
         tabs.items = [UITabBarItem(title: "A", image: square, tag: 0), UITabBarItem(title: "B", image: FaceSymbol.image(token, points: compact), tag: 1)]
         host.addSubview(tabs)
         try measure("tab bar", tabs, expected: compact)
-        // A regular width's tab bar (an iPad's) lays its items out inline, its symbols smaller.
-        let wide = UITabBar(frame: CGRect(x: 0, y: 600, width: 402, height: 50))
-        wide.traitOverrides.horizontalSizeClass = .regular
-        wide.tintColor = .black; wide.unselectedItemTintColor = .black
-        let regular = FaceSymbol.tabBarPoints(UITraitCollection(horizontalSizeClass: .regular))
-        wide.items = [UITabBarItem(title: "A", image: square, tag: 0), UITabBarItem(title: "B", image: FaceSymbol.image(token, points: regular), tag: 1)]
-        host.addSubview(wide)
-        try measure("tab bar (regular width)", wide, expected: regular)
-        wide.removeFromSuperview()
+        // A standalone tab bar given an iPad's idiom and a regular width lays its items out inline, its symbols smaller, as
+        // an iPad's inline items would. Where the system places a vertical bar (the iPhone Duo), UIKit keeps an iPhone's
+        // symbols under those traits, so there is none to measure
+        var verticalBar = false
+        if #available(iOS 27.1, *) { verticalBar = host.traitCollection.verticalBarEdge != .unspecified }
+        if !verticalBar {
+            let wide = UITabBar(frame: CGRect(x: 0, y: 600, width: 402, height: 50))
+            wide.traitOverrides.userInterfaceIdiom = .pad
+            wide.traitOverrides.horizontalSizeClass = .regular
+            wide.tintColor = .black; wide.unselectedItemTintColor = .black
+            let regular = FaceSymbol.tabBarPoints(pad(.regular))
+            wide.items = [UITabBarItem(title: "A", image: square, tag: 0), UITabBarItem(title: "B", image: FaceSymbol.image(token, points: regular), tag: 1)]
+            host.addSubview(wide)
+            try measure("tab bar (an iPad's, regular width)", wide, expected: regular)
+            wide.removeFromSuperview()
+        }
         let bar = UINavigationBar(frame: CGRect(x: 0, y: 50, width: 402, height: 44))
         let item = UINavigationItem(title: "")
         item.rightBarButtonItems = [UIBarButtonItem(image: square, style: .plain, target: nil, action: nil),
@@ -380,25 +415,32 @@ final class FaceSymbolGroupedTests: GroupedListFixture {
 
     /// A path in the accent (`AccentColor`, as GroupedListIOSTests' testASymbolInTheAccentTakesTheCellsTint has
     /// a symbol, its file at its cap): no colour of its own, so the cell's tint, not the label, as it changes.
+    /// The same for an untinted path whose written `color` is `AccentColor`
+    /// (LLP 1121 stage 9 B: the colour it takes is the accent's).
     func testAPathInTheAccentTakesTheCellsTint() throws {
+        let accent: [String: Any] = ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]
+        try assertTheCellsTint(props: [:], style: ["tint_color": accent])
+        try assertTheCellsTint(props: ["symbolColorWritten": "1"], style: ["text_color": accent])
+    }
+    private func assertTheCellsTint(props: [String: Any], style: [String: Any], file: StaticString = #filePath, line: UInt = #line) throws {
         let p = presenter { self.pathModel() }
+        let source: [String: Any] = ["imageSource": "symbol:icon||0 0 24 24|M2 2 L22 2 L22 22 L2 22 Z|icons/x.svg"]
         p.apply(wireBatch([
-            ["op": "create", "id": 31, "kind": "image", "props": ["imageSource": "symbol:icon||0 0 24 24|M2 2 L22 2 L22 22 L2 22 Z|icons/x.svg"],
-             "style": ["tint_color": ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]]],
+            ["op": "create", "id": 31, "kind": "image", "props": source.merging(props) { $1 }, "style": style],
             ["op": "create", "id": 33, "kind": "text", "props": ["text": "Reply"], "style": [:]],
             ["op": "children", "id": 10, "ids": [31, 33]],
         ]))
         let row = try cell(p, 10)
-        XCTAssertNil((row.contentConfiguration as? UIListContentConfiguration)?.imageProperties.tintColor, "the accent is the cell's tint")
+        XCTAssertNil((row.contentConfiguration as? UIListContentConfiguration)?.imageProperties.tintColor, "the accent is the cell's tint", file: file, line: line)
         let light = UITraitCollection(userInterfaceStyle: .light)
         func shown() throws -> UIColor {
             row.layoutIfNeeded()
             func images(_ v: UIView) -> [UIImageView] { ((v as? UIImageView).map { [$0] } ?? []) + v.subviews.flatMap(images) }
-            return try XCTUnwrap(images(row.contentView).first { $0.image?.renderingMode == .alwaysTemplate }, "the path's view").tintColor
+            return try XCTUnwrap(images(row.contentView).first { $0.image?.renderingMode == .alwaysTemplate }, "the path's view", file: file, line: line).tintColor
         }
         for accent in [UIColor.systemTeal, .systemPink] {
             window.tintColor = accent
-            XCTAssertEqual(try shown().resolvedColor(with: light), accent.resolvedColor(with: light), "drawn in the accent as it changes")
+            XCTAssertEqual(try shown().resolvedColor(with: light), accent.resolvedColor(with: light), "drawn in the accent as it changes", file: file, line: line)
         }
     }
 

@@ -22,7 +22,7 @@ const VIEW: &str = "keyframes appear\n  from opacity=0\n  to opacity=1\n\ncompon
 fn a_motion_token_is_written_into_its_transition_and_animation() {
     let path = app("rows", &[("app.tamber", DESIGN), ("app.contract", VIEW)]);
     let plan = contract::compile_path(&path).unwrap();
-    let strings: Vec<&str> = plan.strings.iter().map(String::as_str).collect();
+    let strings: Vec<&str> = plan.strings.iter().collect();
     assert!(
         strings.contains(&"background-color 150ms cubic-bezier(0.2, 0, 0, 1)"),
         "{strings:?}"
@@ -116,7 +116,7 @@ fn a_motion_token_is_written_wherever_it_stands_before_anything_reads_it() {
     let view = "keyframes fast\n  from opacity=0\n  to opacity=1\n\ncomponent App\n  state on = true\n  view\n    column transition=\"1s opacity\"\n      text \"a\" transition=\"duration.fast opacity\"\n      text \"b\" animation=\"fast duration.fast\" animation-fill-mode=\"forwards\"\n      text \"c\" transition=`opacity ${on ? \"1s\" : \"2s\"} duration.fast`\n      text \"d\" animation=\"fast duration.fast easing.standard\"\n      Card(t=\"opacity duration.fast\", d=\"duration.fast\")\n\ncomponent Card\n  props\n    t: string\n    d: string\n  view\n    column transition=t\n      text \"e\" animation-name=\"fast\" animation-duration=d\n";
     let path = app("places", &[("app.tamber", design), ("app.contract", view)]);
     let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
-    let strings: Vec<&str> = plan.strings.iter().map(String::as_str).collect();
+    let strings: Vec<&str> = plan.strings.iter().collect();
     assert!(strings.contains(&"1s opacity"), "{strings:?}");
     assert!(strings.contains(&"150ms opacity"), "{strings:?}");
     // Composed with its longhand: the token's time is the shorthand's.
@@ -215,7 +215,7 @@ fn a_used_files_animation_keeps_its_own_keyframes() {
     )
     .unwrap();
     let plan = contract::compile_path(&path).unwrap();
-    let strings: Vec<&str> = plan.strings.iter().map(String::as_str).collect();
+    let strings: Vec<&str> = plan.strings.iter().collect();
     let used = strings
         .iter()
         .find(|s| s.contains("150ms"))
@@ -233,7 +233,7 @@ fn an_exit_animation_a_layout_transition_and_a_keyframes_timing_take_tokens() {
     let view = "keyframes appear\n  from opacity=0 animation-timing-function=\"easing.standard\"\n  to opacity=1\n\ncomponent App\n  state on = true\n  view\n    column -exact-layout-transition=\"duration.fast easing.standard\"\n      if on\n        text \"a\" -exact-exit-animation=\"appear duration.fast\"\n";
     let path = app("copies", &[("app.tamber", DESIGN), ("app.contract", view)]);
     let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
-    let strings: Vec<&str> = plan.strings.iter().map(String::as_str).collect();
+    let strings: Vec<&str> = plan.strings.iter().collect();
     assert!(
         !strings
             .iter()
@@ -251,7 +251,7 @@ fn an_easing_longhand_a_hole_and_a_folded_keyframe_take_tokens() {
     let view = "keyframes fade\n  from opacity=0 animation-timing-function=curve()\n  to opacity=1\n\nfn curve(): string = \"easing.standard\"\n\ncomponent App\n  state name = \"fade\"\n  state on = true\n  view\n    column animation=`'${name}' duration.fast`\n      text \"a\" animation-name=\"fade\" animation-timing-function=\"easing.standard\"\n      Card(d=\"duration.fast\")\n      text \"c\" transition=`opacity ${on ? \"duration.fast\" : \"1s\"}`\n      text \"d\" transition=\"opacity \" + \"duration.fast\"\n\ncomponent Card\n  props\n    d: string\n  view\n    text \"b\" transition=`opacity ${d}`\n";
     let path = app("round3", &[("app.tamber", DESIGN), ("app.contract", view)]);
     let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
-    let strings: Vec<&str> = plan.strings.iter().map(String::as_str).collect();
+    let strings: Vec<&str> = plan.strings.iter().collect();
     assert!(
         !strings
             .iter()

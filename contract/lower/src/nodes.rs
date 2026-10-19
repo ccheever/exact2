@@ -53,6 +53,7 @@ impl Lowerer<'_> {
         // attribute of the same name replaces the style's (LLP 1017 P6).
         // @ref LLP 1084 D7 — a grouped list's sheet, under its classes.
         let button_context = grouped::button_context(attrs);
+        let separated = grouped::row_separator(attrs);
         let (mut sheet, unmarked) = grouped::split(attrs);
         let attrs = unmarked.as_ref().unwrap_or(attrs);
         // A `delete=` no list row expanded does nothing (`lower-delete-row`).
@@ -76,9 +77,15 @@ impl Lowerer<'_> {
             button_context,
             *span,
         )?;
-        if button.as_ref().is_some_and(|b| b.native) {
-            grouped::native_rows(&mut sheet);
+        let native_button = button.as_ref().is_some_and(|b| b.native);
+        if native_button {
+            let margins = grouped::margins_said(attrs)
+                || expanded.as_deref().is_some_and(grouped::margins_said);
+            grouped::native_rows(&mut sheet, margins);
         }
+        // @ref LLP 1084 D7 — the platform's separator under a grouped row; a
+        // native button row is the platform's control, under none.
+        let separated = separated && !native_button;
         let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
         let expanded = match &mut expanded {
             Some(rows) => {
@@ -342,6 +349,14 @@ impl Lowerer<'_> {
         if cells {
             let rows = self.b.constant(&Value::Bool(true));
             bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
+        }
+        if separated {
+            let on = self.b.constant(&Value::Bool(true));
+            bindings.push(prop_row(
+                exact_kernel::PropId::GroupedRowSeparator,
+                on,
+                IMPLIED,
+            ));
         }
         // @ref LLP 1115.000 D6 — the author's own disabled look: no default dim.
         let styled = states

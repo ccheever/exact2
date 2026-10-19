@@ -241,7 +241,7 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Shape {
     Box,
     Sphere,
@@ -397,7 +397,7 @@ fn offsets(w: &World) -> u64 {
 fn tints(w: &World) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
     for (e, t) in w.query::<&exact_game::Tint>().iter() {
-        let words = (t.color.iter().chain(&t.emissive))
+        let words = (t.color.0.iter().chain(&t.emissive))
             .map(|v| v.to_bits())
             .chain([e.index(), e.generation()]);
         for word in words {
@@ -410,11 +410,11 @@ fn tints(w: &World) -> u64 {
 /// spacing) multiplied, emission added.
 fn tinted(out: &mut [f32], t: &exact_game::Tint) {
     for c in 0..3 {
-        out[c] *= t.color[c];
+        out[c] *= t.color.0[c];
         out[6 + c] += t.emissive[c];
     }
     if out[3] >= 0. {
-        out[3] *= t.color[3];
+        out[3] *= t.color.0[3];
     }
 }
 impl Versions {
@@ -575,6 +575,20 @@ impl Feed {
         renderer: &mut crate::renderer::RendererWithAssets<ASSETS>,
     ) -> Result<(), RenderError> {
         self.feed_to(world, renderer)
+    }
+    /// Each primitive shape's mesh, named, for the look frame's draw listing.
+    pub(crate) fn shape_names(&self) -> Vec<(MeshId, String)> {
+        (self.shapes.iter())
+            .map(|((shape, viewmodel), &group)| {
+                let name = format!("{shape:?}").to_lowercase();
+                let name = if *viewmodel {
+                    name + " (viewmodel)"
+                } else {
+                    name
+                };
+                (self.groups[group].mesh, name)
+            })
+            .collect()
     }
     pub(crate) fn trace_camera(&self, alpha: f32) -> [f64; 3] {
         self.scene.trace_camera(alpha)

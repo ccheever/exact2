@@ -518,7 +518,17 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    let Some(path) = crate::tamber::design(Path::new(&input)) else {
+    // An app whose design is its packages' alone (LLP 1121 D11) has theirs, laid beside an empty one.
+    let alone = || {
+        let dir = Path::new(&input);
+        let contract = dir.join("app.contract");
+        (dir.is_dir()
+            && !contract::tamber_params::params_of(&contract)
+                .packages
+                .is_empty())
+        .then(|| dir.join("app.tamber"))
+    };
+    let Some(path) = crate::tamber::design(Path::new(&input)).or_else(alone) else {
         eprintln!("contract tamber gen: {input} has no design (an app.tamber, or the file app.json's \"tamber\" names)");
         return ExitCode::from(2);
     };
@@ -552,15 +562,22 @@ pub fn run(args: &[String]) -> ExitCode {
     }
     let params = contract::tamber_params::params_of(&contract);
     let folding = match std::fs::read_to_string(&path)
+        .or_else(|e| match path.exists() || params.packages.is_empty() {
+            true => Err(e),
+            false => Ok("tamber app\n".to_string()),
+        })
         .map_err(|e| vec![e.to_string()])
         .and_then(|src| {
-            let checked = exact_tamber::parse(&src).and_then(|mut design| {
-                contract_lower::params::add_to(&mut design, &params.tokens, &params.identities);
-                exact_tamber::check_design(design, &contract_lower::tamber_vocab())
+            // Its params and its packages' tokens laid in, as the build lays them.
+            let checked = exact_tamber::parse(&src).and_then(|design| {
+                exact_tamber::check_design(
+                    contract::tamber_params::laid(&design, &params),
+                    &contract_lower::tamber_vocab(),
+                )
             });
             checked.map_err(|all| {
                 all.iter()
-                    .map(|d| format!("{}:{d}", path.display()))
+                    .map(|d| contract::tamber_params::located(d, &params, &path))
                     .collect()
             })
         }) {

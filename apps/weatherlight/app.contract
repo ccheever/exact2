@@ -3,6 +3,10 @@
 // @ref LLP 1048.003 D5 — the one page renders at build into dist/: revision 0
 // answers the empty forecast, so the document is the page before its data
 // arrives, rendered with no network. The view doesn't branch on the route.
+// @ref LLP 1133.002 §7 — "Use my location": the device's position, approximate,
+// through @exact/geolocation; from then on the forecast follows the person.
+use getCurrentPosition, geolocationStatus, GeolocationPosition, GeolocationStatus from "@exact/geolocation"
+
 routes nav
   tab home "/" render=build
 
@@ -106,11 +110,19 @@ component Weatherlight
   state query = ""
   state submitted = ""
   state animated = true
+  // Following the person's position; `locating` counts asks and choices, so
+  // a position that answers after a city was chosen (`asked` behind it) is
+  // ignored.
+  state following = false
+  state locating = 0
+  state asked = 0
   // Whether hour cards are hidden past the row's left or right edge.
   state hoursLeft = false
   state hoursRight = true
-  resource forecast = forecast(lat, lon, revision) as shape Forecast
-  resource outlook = outlook(forecast, units, selected, lat, lon) as shape Outlook
+  resource forecast = forecast(lat, lon, revision, following) as shape Forecast
+  resource outlook = outlook(forecast, units, selected, lat, lon, following) as shape Outlook
+  resource location = geolocationStatus() as shape GeolocationStatus else empty()
+  mutation located as shape GeolocationPosition then arrived
   resource places = places(submitted) as shape Places
   resource viewport = exactViewport() as shape Viewport
   derive wide = viewport.width >= 1100 and viewport.width > viewport.height
@@ -143,6 +155,28 @@ component Weatherlight
     searching = false
     query = ""
     submitted = ""
+    following = false
+    locating = locating + 1
+  action useLocation
+    locating = locating + 1
+    asked = locating + 1
+    send located = getCurrentPosition(maximumAge=600000, apple.desiredAccuracy="threeKilometers", android.quality="lowPower")
+  // The position answers: follow it, unless a city was chosen since.
+  action arrived
+    if asked == locating
+      match located
+        case some(p)
+          following = true
+          city = "Current location"
+          region = ""
+          lat = p.coords.latitude
+          lon = p.coords.longitude
+          selected = "now"
+        // Never: a `then` runs only after an answer.
+        case none
+          following = following
+  action openSettings
+    openURL("app-settings:")
   action setUnits(value: string)
     units = value
   action explore(id: string)
@@ -175,6 +209,9 @@ component Weatherlight
               text "weatherlight" font-size=(24 * k) font-family="serif" font-weight=600 letter-spacing=-1
               text "A LITTLE CLOSER TO OUTSIDE" font-size=(9 * k) font-weight=600 letter-spacing=2 color="#71818a"
           row align-items="center" gap=8 order=2
+            if location.available and location.state != "denied"
+              button press=useLocation testId="use-location" padding=11 border-radius=22 background-color=(following ? "#dce5dd" : "#e6ebe7")
+                text (following ? "◉  Following you" : "◎  Use my location") font-size=(13 * k) color="#183444"
             button press=openSearch testId="change-city" aria-label="Search for a city" padding=11 border-radius=22 background-color="#e6ebe7"
               text "⌕  Find a city" font-size=(13 * k) color="#183444"
             row padding=3 gap=2 border-radius=22 background-color="#e6ebe7"
@@ -193,6 +230,11 @@ component Weatherlight
               text "Tokyo" font-size=(12 * k) color="#405b69"
             button press=choose("Reykjavík", "Iceland", 64.1466, -21.9426) testId="city-reykjavik" padding=8 border-radius=16 background-color=(city == "Reykjavík" ? "#dce5dd" : "#f4f5f2")
               text "Reykjavík" font-size=(12 * k) color="#405b69"
+        if location.state == "denied"
+          row align-items="center" gap=12 flex-wrap="wrap" padding=14 border-radius=14 background-color="#f7ebe1" testId="location-denied"
+            text "Location is off for Weatherlight. Turn it on in Settings, or choose a city." font-size=(13 * k) color="#825227" flex=1
+            button press=openSettings testId="open-settings" padding=8 border-radius=14 background-color="#efd9c6"
+              text "Open Settings" font-size=(12 * k) color="#825227"
         if searching
           column padding=20 gap=14 background-color="#ffffff" border-radius=18 border-style="solid" border-width=1 border-color="#dce3de" testId="search-panel"
             row justify-content="space-between" align-items="center"

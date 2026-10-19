@@ -105,7 +105,7 @@ fn reads_answer_on_the_clones_design() {
     let dir = app("reads", CLONE);
     let mut s = Serve::start(&dir, &[]);
     let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.12");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.13");
     assert_eq!(hello["ok"]["builds"], json!([]));
     assert_eq!(
         hello["ok"]["files"]["app.tamber"],
@@ -393,7 +393,7 @@ fn requests_are_typed_bounded_and_attributed() {
         assert!(v["error"].is_object(), "{v}");
     }
     let (hello, _) = s.ask(json!({"method": "hello"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.12");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.13");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -794,6 +794,35 @@ fn a_write_that_makes_a_role_vary_by_an_axis_is_refused_as_the_build_would() {
     }
 }
 
+/// A write that sets a base name to anything but a length is refused by
+/// the shared checker before it lands, as the build would (stage 11 B
+/// round 2, Astra 3): not only at lowering.
+#[test]
+fn a_write_that_makes_a_base_name_a_colour_is_refused() {
+    let dir = app("base-kind", "tamber t\n\ntheme\n  ink = #000000\n");
+    let file = dir.join("app.tamber");
+    let before = std::fs::read_to_string(&file).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "add-token", "name": "space.md", "value": "#ff0000"});
+    let (proposed, _) = s.ask(json!({"method": "propose", "ops": [op]}));
+    assert_eq!(
+        proposed["error"]["diagnostics"][0]["id"], "tamber-base-kind",
+        "{proposed}"
+    );
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert_eq!(
+        done["error"]["diagnostics"][0]["id"], "tamber-base-kind",
+        "{done}"
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+    // A length is the app's to set.
+    let length = json!({"op": "add-token", "name": "space.md", "value": "12px"});
+    let (ok, _) = s.ask(json!({"method": "propose", "ops": [length]}));
+    assert!(ok.get("ok").is_some(), "{ok}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `uses` (LLP 1121 stage 4, commit 6): every style row that reads the
 /// token, directly, through a token naming it and through a synthetic
 /// token, each at its source span; a text that happens to hold the name
@@ -971,6 +1000,12 @@ fn export_gives_the_dtcg_text_and_keeps_its_baseline_for_import() {
         planned["ok"]["counted"]["source"],
         planned["ok"]["counted"]["mapped"]
     );
+    // `keep: false` (a client below write): the text, and nothing kept.
+    std::fs::remove_dir_all(dir.join(".exact/tamber-dtcg")).unwrap();
+    let (unkept, _) = s.ask(json!({"method": "export", "kind": "dtcg", "keep": false}));
+    assert_eq!(unkept["ok"]["text"], exported["ok"]["text"], "{unkept}");
+    assert!(unkept["ok"]["baseline"].is_null(), "{unkept}");
+    assert!(!dir.join(".exact/tamber-dtcg").exists());
 }
 
 /// LLP 1121 D10 (stage 6 F): an icon's sources in the IR and from

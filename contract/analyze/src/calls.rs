@@ -165,13 +165,22 @@ impl<'a> Walk<'a> {
     fn stale(&self, slot: &str, at: Span, w: &Write<'_>) -> AnalyzeError {
         let action = shown(self.action);
         let slot = shown(slot);
-        let reader = match self.frame.1 {
-            None => action,
-            Some((callee, _)) => shown(callee),
+        // A call's arguments are read in the callee's frame, but on the
+        // call's own line: the caller wrote that read.
+        let argument = self.frame.1.filter(|(_, call)| call.line == at.line);
+        let reader = match (self.frame.1, argument) {
+            (None, _) => format!("`{action}`"),
+            (_, Some((callee, _))) => format!("the argument of `{}`", shown(callee)),
+            (Some((callee, _)), None) => format!("`{}`", shown(callee)),
         };
-        let reads = match self.frame.1 {
-            None => format!("`{action}` reads `{slot}` at line {}", at.line),
-            Some((callee, call)) => format!(
+        let reads = match (self.frame.1, argument) {
+            (None, _) => format!("`{action}` reads `{slot}` at line {}", at.line),
+            (_, Some((callee, call))) => format!(
+                "an argument of `{}(…)` at line {} reads `{slot}`",
+                shown(callee),
+                call.line
+            ),
+            (Some((callee, call)), None) => format!(
                 "`{}` (called at line {}) reads `{slot}`",
                 shown(callee),
                 call.line
@@ -199,7 +208,7 @@ impl<'a> Walk<'a> {
         AnalyzeError {
             id: "analyze-call-stale-read",
             message: format!(
-                "{reads}, which {assigns}; `{reader}` sees the value `{slot}` had when the action started. Pass the value it should see: a `let` bound before line {} keeps the starting value, and the value assigned at line {} gives the new one",
+                "{reads}, which {assigns}; {reader} sees the value `{slot}` had when the action started. Pass the value it should see: a `let` bound before line {} keeps the starting value, and the value assigned at line {} gives the new one",
                 w.top.line, w.span.line
             ),
             span: at,

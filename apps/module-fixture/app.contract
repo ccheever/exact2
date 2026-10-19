@@ -1,0 +1,23 @@
+// The Rust binding's fixture (LLP 1133.002 stage 3): `here` is the app's Rust
+// data source, which asks @exact/geolocation for a position through the
+// binding generated from this plan (`contract::module_rust`). The Contract's
+// own read of the status is what puts the module in the plan: a module the
+// Contract never calls has no rows, so no binding, and the runner would
+// refuse the call.
+use geolocationStatus, GeolocationStatus from "@exact/geolocation"
+
+shape Spot
+  text: string
+
+component Fixture
+  state asked = 0
+  resource status = geolocationStatus() as shape GeolocationStatus else empty()
+  resource here = here(asked) as shape Spot
+  action locate
+    asked = asked + 1
+  view
+    column gap=8 padding=16
+      text status.state testId="status"
+      text here.text testId="here"
+      button press=locate testId="locate"
+        text "Locate"

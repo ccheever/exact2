@@ -9,7 +9,9 @@ import UIKit
 package final class PlainView: UIView {
     package override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
     package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
+        // The document takes the page's bands too, where its edge scrollers reach (LLP 1130 D3).
+        let m = (superview as? Viewport)?.pageMargins ?? .zero
+        guard !isHidden, isUserInteractionEnabled, bounds.inset(by: UIEdgeInsets(top: -m.top, left: -m.left, bottom: -m.bottom, right: -m.right)).contains(point) else { return nil }
         return NodeView.hitChildren(in: self, at: point, with: event)
     }
     package override var accessibilityElements: [Any]? {
@@ -193,6 +195,7 @@ extension NodeView {
             more.nativeScrollContentInsets = view == nil ? .zero : contentInsets
         }
         guard extras?.nativeScrollView !== view else { return }
+        if pageBand != .zero { setPageBand(.zero) } // the scroll view leaving gives its band back (LLP 1130 D3)
         more.nativeScrollView = view
         more.nativeScrollDelegate = view?.delegate
         if scrollView == nil { presenter?.scrollers.remove(id) }

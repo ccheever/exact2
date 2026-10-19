@@ -222,6 +222,14 @@ extension Agent {
         return (past(origin.x, document.width - visible.width), past(origin.y, document.height - visible.height))
     }
 
+    /// How far `sv`'s offset travels on each axis from one end to the other (LLP 1012 `rx`/`ry`): its document past its
+    /// clip view, the clip view's content insets included.
+    static func range(of sv: NSScrollView) -> [String: Any] {
+        let document = sv.documentView?.frame.size ?? .zero, visible = sv.contentView.bounds.size, i = sv.contentView.contentInsets
+        return ["rx": r2(max(0, document.width + i.left + i.right - visible.width)),
+                "ry": r2(max(0, document.height + i.top + i.bottom - visible.height))]
+    }
+
     /// The same, for a live scroller.
     static func overscroll(of sv: NSScrollView) -> (CGFloat, CGFloat) {
         overscroll(origin: sv.contentView.bounds.origin,
@@ -242,6 +250,7 @@ extension Agent {
                 let o = sv.contentView.bounds.origin
                 n["sx"] = Agent.r2(o.x)
                 n["sy"] = Agent.r2(o.y)
+                n.merge(Agent.range(of: sv)) { _, new in new }
                 // How far past its own ends this scroller currently sits.
                 // A stretched rubber band is a real state a driver could not
                 // otherwise see: the offset alone reads as an ordinary
@@ -258,8 +267,12 @@ extension Agent {
         // The page's environment (LLP 1012 §1): under `viewport-fit=cover`
         // the titlebar is the top inset; a software keyboard is never here.
         let i = presenter.insets
-        let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0].merging(presenter.fold.env) { a, _ in a }
+        var env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0].merging(presenter.fold.env) { a, _ in a }
             .merging(LayoutRegions.env(presenter.regions, safe: (i.top, i.right, i.bottom, i.left), round: Agent.r2)) { a, _ in a }
+        // The title-bar area, only where it is defined, as a browser names it.
+        if let area = presenter.titlebarArea, area.count == 4 {
+            for (name, value) in zip(["x", "y", "width", "height"], area) { env["titlebar-area-" + name] = Agent.r2(value) }
+        }
         // The page scrolls too, and it is the one whose overscroll drags the
         // app's own chrome (LLP 1033 D4).
         let (px, py) = Agent.overscroll(of: presenter.viewport)
@@ -310,14 +323,14 @@ extension Agent {
         var above = host.superview
         while let s = above {
             if let n = s as? NodeView {
-                if let sv = n.scroll { let o = sv.contentView.bounds.origin; chain.append(["id": Int(n.id), "sx": Agent.r2(o.x), "sy": Agent.r2(o.y)]) }
+                if let sv = n.scroll { let o = sv.contentView.bounds.origin; chain.append(["id": Int(n.id), "sx": Agent.r2(o.x), "sy": Agent.r2(o.y)].merging(Agent.range(of: sv)) { a, _ in a }) }
                 if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
             }
             above = s.superview
         }
         let page = clipView.bounds.origin
-        var scroll: [[String: Any]] = [["viewport": true, "sx": Agent.r2(page.x), "sy": Agent.r2(page.y)]]
+        var scroll: [[String: Any]] = [["viewport": true, "sx": Agent.r2(page.x), "sy": Agent.r2(page.y)].merging(Agent.range(of: presenter.viewport)) { a, _ in a }]
         scroll.append(contentsOf: chain.reversed())
         var clip: [[String: Any]] = []
         for (n, kind) in clippers.reversed() {
@@ -363,7 +376,7 @@ extension Agent {
             let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
             let size = leaf.image?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
-            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" ? "empty" : name.isEmpty ? "role" : "os" }
+            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" || source == "symbol:" ? "empty" : name.isEmpty ? "role" : "os" }
             native["symbol"] = symbol
         }
         if v.materialRequest != nil {
@@ -828,7 +841,7 @@ extension Agent {
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {
-            let location = req["text"] as? String ?? ""
+            let location = session.typedLocation(req["text"] as? String ?? "")
             return session.navigate(location) ? ["typed": Int(v.id), "value": location, "delivery": "recognized"] : ["error": "navigate refused"]
         }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }

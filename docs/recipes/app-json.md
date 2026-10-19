@@ -48,5 +48,6 @@ component App
   Contract.
 - **A change to `app.json`, `assets/`, Swift, grants, `appId`, fonts or strings rebuilds** the
   native app (`bun exact.mjs ios`). In an app whose data is `app.ts`, an edit to `.contract`
-  files or what `app.ts` imports reaches a running build in seconds; with a Rust data crate,
-  any edit rebuilds ([ios-driving](ios-driving.md)).
+  files, to `app.ts` itself (short of its grants, `appId` and canvas surfaces) or to what it
+  imports reaches a running build in seconds; with a Rust data crate, a file the build reads
+  rebuilds ([ios-driving](ios-driving.md)).

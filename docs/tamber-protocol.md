@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.12`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.13`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.12"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.13"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -81,10 +81,16 @@ on macOS and Linux.
   a hold named on a node inside it resolved to), each row its `token` (the runner's, as a style
   row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
   press row it lowered to as `row`); LLP 1122 T4 added the selection's state rung (a style's
-  `:active` part row is edited by `set-state`). Stage 9's later wire changes add under the same
+  `:active` part row is edited by `set-state`), and T5 the template and style rungs (a row its
+  author wrote, edited by `set-row`) and the map's `layout` on a written row (D14). Stage 9's later wire changes add under the same
   version: D2's `set-row`, D3's `add-param` and `remove-param`; C1's `explain` of an icon and a
   param, and `describe`'s icon `draws`; C2's `uses` of an icon and a motion token's sites by
   instance.
+- `tamber/1.13` (LLP 1121 stage 10, commit A1) checks every request's scope in one place (see
+  Scopes, under Authentication): `hello` says the client's `scope` and whether its token is the
+  local one (`local`), and a request above its client's scope is 403 naming both (`scope`,
+  `needs`). Stage 10's later wire changes add under the same version: A2's pairing, clients and
+  revoke; `pair-code`'s `remote`, the remote doors open (B).
 
 ## Where it runs
 
@@ -97,7 +103,7 @@ on macOS and Linux.
   `Content-Security-Policy: frame-ancestors 'self' http://127.0.0.1:7740` (*1.3*): the tool's
   origin and the page's own may frame it, no other. `'self'` lets a page the canvas shows frame
   its own pages. No `X-Frame-Options`. Development only; the tool never scripts the frame.
-- **Alone.** `bun exact.mjs tamber serve <app> [--port <n>] [--lan]` runs it with no app running.
+- **Alone.** `bun exact.mjs tamber serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>]` runs it with no app running.
   It binds loopback unless `--lan`, and a client reaching it over the LAN still can't get the token.
 - **One writer per project.** The design process holds `.exact/tamber.lock`. When a second server
   for the same app can't take the lock, its design process exits. Its `POST /__tamber` and
@@ -119,7 +125,7 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
 | `/__tamber` | POST | one request, one reply |
 | `/__tamber/subscribe` | POST | the change stream, as server-sent events on the response |
 | `/__tamber/events` | POST | the change stream as a long poll, for a client whose `fetch` reads a whole body |
-| `/__tamber/tool/…` | GET, HEAD | the design tool's built files, to a local request only (*1.1*) |
+| `/__tamber/tool/…` | GET, HEAD | the design tool's built files, to a local request (*1.1*) and on the remote doors (stage 10 B) |
 
 - **The development gate runs first.** It answers 421 with an empty body to an unknown host, or to
   a browser POST whose `Origin` isn't the server's own (`scripts/install-page.mjs`).
@@ -133,9 +139,12 @@ statuses:
 | Status | When |
 |---|---|
 | 400 | malformed; refused by the checker; an unknown inverse; a `commit` refused |
+| 401 | a paired token revoked or expired, also a request whose client ended while it sent its body (*1.13*) |
+| 403 | above the client's scope (*1.13*): `{message, scope, needs}` in `error`, on a request or a change stream path alike |
 | 404 | an unknown proposal or commit |
-| 409 | a conflict (`conflict: true`); a revert refused; a commit while a write is in flight (no `conflict` field); a commit whose `scope` is stale (`stale: true`) |
+| 409 | a conflict (`conflict: true`); a revert refused; a hold from a client below `write` with 64 held and none its own (*1.13*); a commit while a write is in flight (no `conflict` field); a commit whose `scope` is stale (`stale: true`) |
 | 413 | too large |
+| 429 | too many pairing attempts from one peer (`retry-after`, *1.13*) |
 | 500 | reading git failed (`history`, `revert`, a write's baseline) |
 | 503 | the design server is down |
 | 504 | the design server didn't answer within 120 s |
@@ -156,7 +165,111 @@ statuses:
 - **Every POST** carries the token as `x-exact-tamber-token`, never in a URL. Reads need it too,
   since a design may be unreleased.
 - **A client follows no redirects** when fetching the token.
-- **Remote clients** (pairing, scoped tokens) are LLP 1121 stage 10, not yet built.
+- **Remote clients** pair (*1.13*, LLP 1121 stage 10 A2, below) for a token of their own; the
+  remote listener and its TLS are stage 10 B (below).
+- **No cookie** is ever read for authentication: a token travels only in `x-exact-tamber-token`
+  (canvas page code, the app under development, can set cookies this port receives).
+- **The remote listener** (stage 10 B, `scripts/tamber-remote.mjs`) is off unless asked:
+  `--remote <host:port>` on a dev loop (`bun exact.mjs web`) or on `tamber serve` opens a second
+  listener, bound only where it names, that speaks TLS only.
+  - Its certificate is self-signed, made for the run in memory (ECDSA P-256), never written to
+    disk. Its SHA-256 fingerprint is printed at start-up, for a remote client to pin.
+  - Plain HTTP to it gets no protocol: the handshake fails and the connection closes, the
+    pairing endpoint included.
+  - It serves `/__tamber`, `/__tamber/subscribe`, `/__tamber/events`, `/__tamber/pair`, and the
+    design tool's own static files under `/__tamber/tool/` (no token: they hold no secret). Every
+    other path, `/__tamber/token` and the app's pages included, is not found.
+  - A request there is never `access.local`: it is `{remote: true, tunnel: false, peer}`, the peer
+    its socket's (no forwarding header is read). Its `Cookie` header is removed before the wire
+    sees it, and a request whose `Origin` is not the listener's own is refused (403).
+  - Its answers send no referrer (`referrer-policy: no-referrer`), but for the design tool's own
+    files, which send their origin only (`strict-origin`).
+- **A trusted tunnel** (ssh -L, a VPN's forward; stage 10 B2) arrives on loopback looking local, so
+  it gets a port of its own: `--trust-tunnel <port>` opens a plain listener on `127.0.0.1:<port>`
+  for the tunnel's far end, said loudly at start-up. Its requests are routed as the remote
+  listener's, `{remote: true, tunnel: true, peer}`, answering to loopback names at any port:
+  only a paired token works through it, never the local one. The canvas has no tunnel port in
+  stage 10 (QUEUE). A tunnel with a certificate of its own (cloudflared, Tailscale Funnel) names
+  its public host with `--allow-host <name>` (port 443) or `--allow-host <name>:<port>`: the tunnel
+  door answers to that host and port too (a Host with no port is 443; `name:80` is not), and takes
+  a page of `https://<name>` at that port as its own origin. A port left out of an `Origin` or a
+  `Host` is its own scheme's default, never the other's. Any `forwarded` or `x-forwarded-*` header
+  keeps a request off the main loopback port's sandboxed path, as the dev gate's local test has it.
+- **A sandboxed page** (stage 10b: a Figma plugin's UI is an iframe whose origin is `null`) may call
+  the wire only with `--allow-plugin-origin`, on the tunnel door and on the main loopback port
+  (from this machine, naming a loopback host), never the TLS door. There, `Origin: null` on
+  `/__tamber`, `/__tamber/subscribe`, `/__tamber/events` and `/__tamber/pair` gets CORS
+  (`Access-Control-Allow-Origin: null`; a preflight `OPTIONS` answered 204, `POST` with
+  `content-type` and `x-exact-tamber-token`); every such request is a remote one, so only a
+  paired token works, never the local one. No other path gives a sandboxed page CORS: the token
+  route keeps the dev gate's rule, so such a page cannot read it.
+
+### Pairing (*1.13*)
+
+- **A code:** `pair-code {scope, name?}` (the local token only) answers `{code, scope, expires,
+  remote?}`. `remote` lists the remote doors open (stage 10 B), for the tool to show beside the
+  code: `{origin, fingerprint}` for the TLS listener, whose certificate's SHA-256 the other machine
+  checks before it pairs (the lead's ruling 2), and `{origin, tunnel: true}` for a trusted tunnel's
+  local end. It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
+  read|propose|write [--name <name>]` mints one from this machine and prints them. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,
+  `L` and `O` forgiven), valid two minutes, used once. At most 8 are live: a ninth replaces the
+  oldest.
+- **`POST /__tamber/pair {code, name?}`** needs no token, and is the one request of the protocol a
+  remote request makes without one (the design tool's static files aside). It answers `{token, client, scope, expires}` once. A wrong code is 403,
+  saying nothing of which codes exist. A wrong attempt can't be told from a guess at any one code,
+  so it counts against every live code, and a code with five is burned. A peer gets a burst of
+  five attempts, refilled at five a minute; past them, 429 with `retry-after`, whatever the code,
+  before the request's body is read.
+  A code that is not a string of at most 32 characters is 400. Each burn and the first limit hit
+  of each burst are logged (with the peer, never a code) and told as a `pairing` event.
+- **The token** is 32 random bytes, kept in memory only (a restart revokes every paired client),
+  by its SHA-256. It lives 12 hours (`--pair-ttl <duration>` on `tamber serve` and the dev loops:
+  `90m`, `12h`, `2d`, from a minute to 30 days). It carries the scope its code gave.
+- **The client** is named by the server: `remote:`, the code's or the request's `name`, then `#n`
+  (`remote:laptop#1`). On every request a paired token makes, `client` is that name, whatever the
+  body says, so every event, held proposal, journal entry and conflict's `by` names it. `hello`
+  gives it as `client`, with `local: false`. A local client may not name itself `remote:…` (400),
+  so neither can act as the other.
+- **A revoke or an expiry and requests in flight:** a request still sending its body when its
+  client ends (or its deadline passes) is refused (401) once it has; a scrub release whose client
+  ends while the builds take its preview writes nothing (401), and the builds get the committed
+  design back; one already dispatched (a write sent to the design server) completes, as a local
+  edit in flight would.
+- **The local token** is the local tool's only on a request the development gate calls local: a
+  LAN peer holding it is no one (404).
+- **Off this machine** (stage 10 B's listener, or a tunnel the developer trusts) nothing is local:
+  no token page, and the local token is no one. Without a paired token a request reaches only
+  `POST /__tamber/pair`, and the design tool's own static files (no design is in them).
+- **`clients`** (the local token only) answers `{clients}`: the local token (`{client: "local",
+  local: true, scope: "write"}`), then each paired client's `{client, name, scope, peer, created,
+  expires, lastSeen}`. No token is ever listed.
+- **`revoke {client}`** (the local token only) ends a paired client at once, as its token's expiry
+  does: its subscriptions end, its long polls are answered 401, its scrub ends (the builds get the
+  committed design back), its pins, inspect mode, outlines and holds are handed back, and its next
+  request is 401. Its held proposals stay, marked `revoked: true`, for a `write` client to accept or
+  drop; they never apply themselves. A `revoked` event tells the others.
+
+### Scopes (*1.13*)
+
+Every method has one scope, in `scripts/tamber-pairing.mjs`'s table, which the wire checks
+before any handler runs. A method the table doesn't name is refused (400). A request above its
+client's scope is 403 with `{message, scope, needs}` in `error`, the change stream's paths too.
+
+| Scope | Requests |
+|---|---|
+| `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
+| `propose` | `propose` (held or not), `import`, `revert`, and `drop` of the client's own held proposal |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `scrub`, `scrub-release`, `scrub-cancel` |
+| the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
+
+The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
+`preview`, `outline` and `hold` are `write` because they change what the developer's screens show.
+`inspect` reads: below `write`, `refresh: true` answers `{selections}`, the selection each build
+last reported (as its `selection` event gave it), asking no build again, since a build's answer
+outlines on the developer's screens; turning inspect mode on or off takes the builds' input, and
+is `write`. A client below `write` may not drop another's held proposal, so with 64 held its own
+oldest goes to make room, and with none of its own its hold is refused (409). The local tool's
+token is `write`.
 
 ## Requests
 
@@ -181,6 +294,8 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 
 **`hello`** answers:
 - `protocol` and `format`;
+- `scope` and `local` (*1.13*): the client's scope, and whether its token is the local one; a
+  paired client's `client` too;
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
   capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, hold, held,
   unsupported}` (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode
@@ -605,7 +720,7 @@ pushes.
 ### Held proposals (LLP 1122 D10)
 
 **`propose` with `hold: true`** and a `client` keeps the plan for 15 minutes, 64 at most (the
-oldest goes), and announces it.
+oldest goes; below `write`, only the client's own, else 409: see Scopes), and announces it.
 - **The reply** is the plan (as `propose`) plus `{proposal, client, expires, ops: [{index, op}],
   review?}`. `expires` is an ISO-8601 UTC time.
 - **`review`** is free-form for the tool, except that its `offers[].items` must be operation
@@ -734,7 +849,9 @@ Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the 
 - **The reply** is `{kind, text, baseline}`: `text` is the file, `baseline` where it is kept, by
   path from the app (`.exact/tamber-dtcg/<digest>.json`, the design's digest). Each export keeps
   what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
-  every commit. A link in a baseline's place is replaced, never written through.
+  every commit. A link in a baseline's place is replaced, never written through. Below `write`
+  scope (*1.13*), or with `keep: false`, no baseline is kept (`baseline: null`): keeping one prunes
+  the oldest, which another client's import may compare against.
 - **The document.** One modifier, `mode`, whose contexts are the full tuples (every app-axis tuple,
   then `light` and `dark`, named `axis=value, …, light`), each a complete set of the design's
   tokens (every kind since stage 6 G, under *1.9*), a colour checked to read back as the colour a
@@ -809,9 +926,12 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 |---|---|
 | `changed` | `files` (every digest now), `edited` (paths whose digest moved, and paths gone, which `files` no longer lists), `changed: [{file, token}]` (null for a hand edit), `client`, `write?` (the write's number, *1.1*), `acceptedBy?`, `proposal?` |
 | `committed` | `client`, `commit`, `files: [path]`, `edits` (the commit's reply's, *1.1*) |
-| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?` |
+| `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?`, `revoked?` (*1.13*: its client was revoked) |
 | `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
 | `down` | `message`: the design server stopped or never started |
+| `paired` | `client`, `scope` (*1.13*: a client paired) |
+| `revoked` | `client`, `reason`: `revoked` or `expired` (*1.13*) |
+| `pairing` | `what`: `burned` (a code had five wrong attempts), `limited` (a peer had too many) or `replaced` (a ninth code) (*1.13*) |
 | `builds` | `builds`: the registered builds, as `hello` lists them, after one registers, goes, or its pins change |
 | `build-status` | `build`: one build, after its `status` report (one that moves only the design, up to 150 ms after: see the build channel's reports) |
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
@@ -1079,7 +1199,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   event: `source` `{file, line, col, end_col, component, chain}` (the component call sites above
   it), and each row with its map `origin` (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
   "token", token, modes}` only for a row the node itself sets (`authored`, `own`) whose whole
-  value is one token; `{rung: "param", param, short, token?, modes}` (*1.11*, LLP 1122 T3) for
+  value is one token; `{rung: "param", param, short, token?, modes, template?}` (*1.11*, LLP 1122 T3; `template` *1.12*, T5: the template rung's fields where the map places the row, which a detach writes at) for
   such a row whose whole value is one component param: `param` its full name, `short` its short
   one (null where two components share it), `token` the token it aliases directly (its value as
   the app has it, the line's or the default, when that names one declared token, a role override
@@ -1096,21 +1216,47 @@ The tool drives no input into an app; a command changes only what `prefer` would
   (*1.12*, LLP 1122 T4), the default: the style by the name its file declares it with, the state,
   the row as its author wrote it under the state (`background-color`, not the press paint's
   `press_background_color`), the style's file relative to the app (what `set-state` takes), the
-  row's value as written there, and the token its whole value is, offered beside it, never the
+  row's value as written there where it is one plain value (as the template rung's `text`, below;
+  else none, and an editor starts empty), and the token its whole value is, offered beside it, never the
   default (D6). A style outside the app's own Contract sources as the server counts them (a
   package's, a vendored or linked one included) answers a reason. A held state's rows carry the
   same where the build names the held node (its `held.site`), whose parts' files count toward
-  `readOnly` too; with none named they are shown, not offered. A state row a node writes itself (no style) is read-only, pointing at
-  `set-row`, unless its whole value is a token, which the token rung offers. Only an `:active`
+  `readOnly` too; with none named they are shown, not offered. A row its author wrote (the map's
+  `at` and `attr`, D1's address) answers, unless it reads a param (the param rung, above), the
+  **template** rung (origin `own`) `{rung: "template", file, at: {line, col}, sha256, row, state?,
+  instances, text, component?, token?, modes?}` (*1.12*, LLP 1122 T5; `component` the one whose
+  view it is in, by the name its file declares it with; a held state's row too, where it is
+  written under the node in that state and the build names the held node: its `instances` that
+  node's) or the **style** rung (origin a single
+  `class:<Name>`; a conditional class, `class:A/B`, is refused) `{rung: "style", style, row, file,
+  text, token?, modes?}`, the default (D6), for an `authored` row of that one origin only:
+  `set-row`'s address (at the place: the file relative to the app, the attribute's line and
+  column and the file's digest as compiled; on a style: the style by the name its file declares
+  it with, and its file), `row` the attribute as written (a shorthand's, for a longhand of it:
+  `set-row` edits the shorthand whole), `state` for a state row written under the node (its `row`
+  the attribute its author wrote under the state, which the map does not name), `instances` the
+  copies of this source node in the map, one a call-site chain (a template edit is every one's; a
+  `button "…"`'s label is no second copy), `text` the value as written, and the token its whole
+  value is, offered beside it, never the default. Only a plain value is offered, as `set-row`'s
+  `plain` takes one: a string (its escapes decoded) or a bare `#…` colour, a number (an exponent
+  and a minus included), inside any parentheses, then the line's end, a comment, another
+  attribute or a positional argument (a string, a template, one in parentheses or a name; read at the
+  map's UTF-8 byte column, the attribute's name checked there): an
+  expression or a name in scope answers a reason, as does a file outside the app's own Contract
+  sources, and a layout row (its `layout`, D14: `set-row`'s reason, up front; the selection's row
+  carries `layout` too); any of these offers the token rung where its whole value is one token. A row the map gives no place answers a reason (the source's to edit), or, a whole
+  token, the token rung. Only an `:active`
   part's rows (lowered to the press paint) carry their part's place in the map: a `:hover`,
   `:focus-visible`, `:disabled` or `:checked` part's are offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
-  expression, a boundary, or an expression over tokens links its token, never this node's edit;
-  a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
+  expression, a boundary, or an expression over tokens links its token, never this node's edit).
+  A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place (its edit, the state rung
-  above). A row its author wrote on the node or in its class's `style` (*1.12*)
+  above for a style's part, the template rung with `state` for one written under the node). A row its author wrote on the node or in its class's `style` (*1.12*)
   carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
-  `padding` for `padding_top`. A tag's row, one the compiler derived, a conditional class's, a
+  `padding` for `padding_top`; and `layout: true` where that attribute writes a layout row (LLP
+  1122 D14: `set-row` refuses it, by the same test), so a client offers it no `set-row` edit (a
+  param or token it reads whole is still offered). A tag's row, one the compiler derived, a conditional class's, a
   folded `:disabled` or `:checked` row, and one the compiler composed or renamed (an animation's
   longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, node?, site?, instance?, rows}`
   (*1.11*; `node`, `site`, `instance` and a row's `token` *1.12*): the node the state is held on
@@ -1136,7 +1282,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   says no plan). Answered `{sites, builds}`: the running plan's sites, and the builds sent one. A
   build whose map is missing, or compiled a file that has changed since (a fresh span would land
   on another node), is sent none; refused (409, or 503 with no map) only when no build could be.
-- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, write scope and a present client)
+- **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, a present client; `on`, and `refresh` sent to the builds, need write scope; below it `refresh` reads the last selections, *1.13*)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
   it went to, and those that can't inspect. Inspect mode is its client's: when the client stops
@@ -1179,8 +1325,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
 
 ## The design tool's files (*1.1*)
 
-- **`GET /__tamber/tool/…`** serves the built tool (`target/design-tool-web`) to local requests
-  only. It serves no dot file, and follows no symlink out of the build.
+- **`GET /__tamber/tool/…`** serves the built tool (`target/design-tool-web`) to local requests,
+  and on stage 10 B's remote doors (no design is in it; it pairs before it reads one). It serves no
+  dot file, and follows no symlink out of the build.
 - **`bun exact.mjs tamber tool [<app>] [--via <dev url>]`** serves the tool at the fixed origin
   `http://127.0.0.1:7740`, which the tool's grant names. So one tool runs per machine, on one
   project. With `--via`, port 7740 forwards `/__tamber` to the dev loop that holds the design.
@@ -1192,5 +1339,5 @@ The tool drives no input into an app; a command changes only what `prefer` would
   candidate).
 - **LLP 1121 stage 4's gate also names `resolve-on`.** LLP 1122 defers it to T2b, where a build's
   `selected` report carries the value it resolved.
-- **Later stages:**
-  - pairing and remote clients (stage 10).
+- **Later stages:** stage 10's canvas gateway (C) and the design tool's remote mode (D, LLP 1122
+  T6); a hosted relay (stage 10c).

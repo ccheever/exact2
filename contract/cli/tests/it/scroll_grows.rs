@@ -112,6 +112,10 @@ fn what_the_walk_cannot_be_sure_of_is_not_named() {
         // Out of flow, or computed.
         "column flex=1 position=\"absolute\" top=0 bottom=0\n  scroll id=\"s\" flex=1",
         "column flex=1 min-height=(true ? 0 : 10)\n  scroll id=\"s\" flex=1",
+        // A computed minimum mid-run ends the run: the wrapper above it is
+        // not named for a repair the computed one may block.
+        "column flex=1\n  column flex=1 min-height=(true ? 0 : 10)\n    scroll id=\"s\" flex=1",
+        "column\n  column flex=1 min-height=(true ? 0 : 10)\n    scroll id=\"s\" flex=1",
         "column flex=1 display=(true ? \"flex\" : \"none\")\n  scroll id=\"s\" flex=1",
         // A row's items stretch on the cross axis: not this warning's.
         "row flex=1\n  scroll id=\"s\" flex=1",
@@ -206,6 +210,21 @@ fn a_navigation_key_alone_bounds_nothing() {
     // A route with no insets is as tall as its content.
     let bare = "column navigationKey=`${e.id}`";
     assert_eq!(flagged_route(ROOT, bare), Vec::<u32>::new());
+}
+
+#[test]
+fn a_scroller_that_cannot_shrink_is_content_tall_whatever_its_wrapper_does() {
+    // `min-height=0` on the wrapper frees nothing: the scroller keeps its
+    // content's height either way, so the wrapper is not named.
+    for body in [
+        "column flex=1\n  scroll id=\"s\" flex=\"1 0 auto\"",
+        "column flex=1 min-height=0\n  scroll id=\"s\" flex=\"1 0 auto\"",
+        "column flex=1\n  scroll id=\"s\" flex=1 flex-shrink=0",
+    ] {
+        assert_eq!(flagged(body), Vec::<u32>::new(), "{body}");
+        let height = scroller_height(&app(body));
+        assert_eq!(height, 1500.0, "{body}: the scroller is {height} tall");
+    }
 }
 
 #[test]

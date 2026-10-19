@@ -63,9 +63,9 @@ impl Game for Garden {
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
         w.insert_resource(Environment {
-            background: Some([0.55, 0.75, 0.9]),
+            background: Some(Color([0.55, 0.75, 0.9])),
             fog: Some(Fog {
-                color: Some([0.55, 0.75, 0.9]),
+                color: Some(Color([0.55, 0.75, 0.9])),
                 ..Fog::new(0.004, 0.02)
             }),
             ..Environment::default()

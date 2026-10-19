@@ -1,7 +1,7 @@
 # Recipe: driving iOS
 
 **Check a screen against a reference** (the original's screenshot) with compare,
-not by viewing pictures: `bun exact.mjs agent ios --touch platform … "clock settle" "screenshot
+not by eye: `bun exact.mjs agent ios --touch platform … "clock settle" "screenshot
 .exact/x.png compare ref/x.png"` captures as a device does, the keyboard too on a simulator it
 booted (status bar: `xcrun simctl status_bar <udid> override --time 9:41`), and says where they
 differ: each region by node, where its content moved, a box measured in both (`x.diff.png`:
@@ -11,11 +11,11 @@ menu and an alert's buttons take a drive without the flag.
 
 Edit and check on the web (`verify`); run `verify ios` once, at the end: the tests with
 UIKit's bars, `check` light and dark, and a relaunch ([tests](tests.md#before-you-call-it-done)).
-A clean `verify ios` is done. Drives build first when stale (log
-`.exact/ios-build.log`); `--prebuild` starts the first early. With an `app.ts` data module, an
-edit to `.contract` files or what `app.ts` imports reaches iOS in seconds, its plan baked
-into your build (log `.exact/ios-plan.log`). `app.json`, assets, fonts, new grants and,
-with a Rust data crate, any edit rebuild. Before done: `bun exact.mjs ios`, then `verify ios`.
+Drives build first when stale (log `.exact/ios-build.log`); `--prebuild` starts the first
+early. With an `app.ts` data module, an edit to `.contract` files, `app.ts` or what it imports
+reaches iOS in seconds as a baked plan (log `.exact/ios-plan.log`); `app.json`,
+assets, fonts, `app.ts`'s grants, `appId` or canvas surfaces and, with a Rust data crate, a file
+the build reads rebuild. Before done: `bun exact.mjs ios`, then `verify ios`.
 
 ```sh
 bun exact.mjs ios --prebuild

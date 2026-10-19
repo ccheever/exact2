@@ -145,6 +145,18 @@ pub(super) fn align_and_position_item(
 
     // EXACT PATCH 12: the size styles through the ratio (`compute::ratio`).
     let size_style = style.size();
+    // All percentage margins resolve against the grid area's inline size.
+    let margin =
+        style.margin().map(|margin| margin.resolve_to_option(grid_area_size.width, |val, basis| tree.calc(val, basis)));
+    // EXACT PATCH 58: explicit stretch supplies an independent inline size;
+    // neither the ratio's inline minimum nor its transferred bounds apply.
+    // Auto margins cancel stretch.
+    let stretch_width = (size_style.width.is_auto()
+        && justify_self.or(container_alignment_styles.horizontal) == Some(AlignSelf::STRETCH)
+        && position != Position::Absolute
+        && margin.left.is_some()
+        && margin.right.is_some())
+        .then(|| f32_max(grid_area_size.width.maybe_sub(margin.left).maybe_sub(margin.right), 0.0));
     let ratio = Ratio::of(&style, padding_border_size);
     let raw_min_size = style
         .min_size()
@@ -153,7 +165,8 @@ pub(super) fn align_and_position_item(
     let floors = floors_height(&style, raw_min_size.height);
     let (inherent_size, min_size, max_size) = resolve_through(
         ratio,
-        size_style.maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        size_style.maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis))
+            .maybe_add(box_sizing_adjustment).map_width(|width| stretch_width.or(width)),
         raw_min_size,
         style.max_size().maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
         floors,
@@ -183,11 +196,6 @@ pub(super) fn align_and_position_item(
             }
         }),
     };
-
-    // Note: This is not a bug. It is part of the CSS spec that both horizontal and vertical margins
-    // resolve against the WIDTH of the grid area.
-    let margin =
-        style.margin().map(|margin| margin.resolve_to_option(grid_area_size.width, |val, basis| tree.calc(val, basis)));
 
     drop(style);
 
@@ -358,7 +366,14 @@ pub(super) fn align_and_position_item(
         Size { width, height }
     };
 
-    let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, node, grid_area_size.map(Some), None);
+    let ratio_min = if stretch_width.is_none() {
+        crate::compute::ratio::minimum_ratio_width(tree, node, grid_area_size.map(Some), None)
+    } else {
+        None
+    };
+    // EXACT PATCH 58: the shared content minimum already respects authored
+    // max-width; keep it above max-height's transfer in the final clamp too.
+    let min_size = min_size.map_width(|width| width.maybe_max(ratio_min));
     let size = size.map_width(|width| width.maybe_max(ratio_min));
     let layout_output = tree.perform_child_layout(
         node,

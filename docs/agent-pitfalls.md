@@ -259,13 +259,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (`prefer visibility-state hidden` then `visible` with no clock step between).
   (Web and iOS simulator, 2026-10-06.)
 
-- **A custom row in a grouped list overflows its card on the right.** Cause:
-  the sheet already gives each row the cell's margin at both ends (on iOS
-  UIKit's: 16 pt on an iPhone, 20 on the iPhone Duo; 40 more after an icon).
-  A custom row with `width="100%"` adds the margin on top and runs past the
-  card. Fix: leave custom row content at its natural width (`flex-grow=1` on
-  the part that should stretch), not `width="100%"`. (Signal Clone, build 15.)
-
 - **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
   a Rust source loaded on the wasm web host and on Linux, and on the JS target
   the resource failed (`Rust module rejected the call`). Cause: the JS target's
@@ -477,7 +470,7 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
 | `paddingHorizontal=16` | `lower-unknown-attr` | `padding-left=16 padding-right=16`, or `padding="0px 16px"` |
 | `marginVertical=8` | `lower-unknown-attr` | `margin-top=8 margin-bottom=8`, or `margin="8px 0px"` |
-| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below) |
+| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below); nothing when the same style has `overflow: "hidden"`, which iOS draws without its shadow |
 | `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
 | `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
 | a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
@@ -558,6 +551,14 @@ screen, 2026-10-16.)
   a CSS blur radius is twice the Gaussian's deviation, and Core Animation's
   `shadowRadius` is about the deviation. Mind a scale transform over the view (euxy's
   capsule was laid out at twice its size and scaled by ½), which scales its shadow too.
+- **A capsule with a rim is a few points larger than the original's, and grows when the
+  rim thickens.** euxy's was 184 × 68 points where the original's was 180 × 64, its keys
+  2 points further in. Cause: the original drew the rim as `borderWidth` on a fixed-size
+  shell and gave the keys' padding to a child row as wide as the shell, so the rim lay
+  over the padding; its thicker armed rim was an overlay. A box with `padding=8` and
+  `border="2px solid …"` puts its content 10 points in, as CSS does, and a border whose
+  width changes with state moves the content. Fix: a rim that takes no room,
+  `box-shadow="inset 0 0 0 2px <colour>"`, with the original's padding.
 - **A glow on a tiny LED is barely there.** Cause: a blur spreads a small source thin, so
   `box-shadow="0 0 7px …"` on a 5-pt dot is at most an eighth of its colour beside the
   dot, in Chrome and on every host alike; the original's halo was a larger disc blurred
@@ -1006,8 +1007,9 @@ screen, 2026-10-16.)
   taps the dimmed screen just above the 45 % `navigationPresentation="modal"` route
   the link presented, and UIKit dismisses that sheet and pops the route, as it would
   for a person (a `dialog` sheet closes on that tap only with `closedby="any"`). Fix: check for the confirmation with
-  `axe describe-ui` and tap Open by its label only when it is there. (euxy port's
-  "Added to Library" sheet, Release build, 2026-10-18.)
+  `axe describe-ui` and tap Open by its label only when it is there; in a drive,
+  `"type <root> euxy://p/…"` delivers the link with no confirmation at all. (euxy
+  port's "Added to Library" sheet, Release build, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
   driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
   as the drive's first operation. (Shelf recipe, 2026-10-10.)
@@ -1495,43 +1497,9 @@ screen, 2026-10-16.)
 
 ## Games
 
-- **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
-  is the fallback when the socket cannot resolve; rotating that fallback does not
-  rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local
-  rotation on a working socket.
-- **Entity verbs require an entity handle.** Use `World::get_mut`, `require_mut` or
-  `nearest_xz_mut`. Consuming query rows and resource guards have no entity identity;
-  their verbs report `entity-handle-required`. Borrowed query iteration yields plain
-  references, which do not expose these verbs.
-- **Append new `Data` enum variants when existing values must keep their hashes.**
-  Saves name variants, but the simulation hash includes their declaration ordinals.
-  Keep existing ordinals, including `Mesh::Asset` at five, to preserve model-world
-  pins when adding primitives.
-- **A handle's `tint` and `offset` change simulation state.** They write the entity's
-  `Material` and local `Transform`; they save and hash. For a cosmetic flash or bob,
-  derive `Tint` or `Offset` in `Game::present` instead. `glow_to` retargets the saved
-  `Glow`; keep authored material emission constant or the intensity is applied twice.
-  [Game pickup recipe](../game/recipes/pickup.md).
-- **Builder hex colours are sRGB; `Material::rgb` is linear.**
-  `prop(...).color("#808080")` converts the channels to about 0.216, not 0.502.
-  [Literal builders](../game/recipes/literal-builders.md) and the builder hash test
-  use the same conversion as the CSS colour library.
+A game's pitfalls (the world and its saves, game input, its tests, proof and setup)
+are in [game-pitfalls.md](game-pitfalls.md).
 
-- **Older saves refuse to restore after adding a generated model.** `restore` names it:
-  ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`
-  at setup is part of every later save's identity (`game/engine/README.md`, "Saves and
-  assets"), even one that only changes how a unit looks. Fix: a model that is only
-  appearance belongs in the bake, under `art/` (`Game::STREAMED` if setup need not wait
-  for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
-  1046.012 F5, 2026-10-07.)
-
-- **`exact setup` keeps reporting `MISSING wasm-bindgen` after installing it, and `test web`
-  fails with "wasm-bindgen not on PATH".** Cause: setup installs it with `cargo install`,
-  whose binaries land in `~/.cargo/bin`, and then looks for it on PATH; a rustup from
-  Homebrew puts only `/opt/homebrew/opt/rustup/bin` there, so the install succeeds and the
-  check never sees it. Fix: put `~/.cargo/bin` on PATH (`.zprofile`), or symlink
-  `~/.cargo/bin/wasm-bindgen` beside `cargo`. **Candidate diagnostic:** setup could check
-  `~/.cargo/bin` and say the PATH is the problem. (Fishslop bench setup, 2026-10-17.)
 
 ## Access hatches
 
@@ -1649,3 +1617,22 @@ its valid bindings disappear and return. Read it with
 - The root file's first component is the app root. A fixture component placed
   above it changes which component receives routes and may declare resources.
   Keep resources on the root and pass their values to child components.
+
+- **A game proof needs a stable source tree through its last assertion.** Do not
+  create scratch directories or run fixture-generating tests alongside it, even
+  under an ignored directory: the input reader observes directory metadata.
+  Prepare evidence paths first and keep fixture generation separate from proofs.
+
+- **A game agent page freezes its primary GPU module.** A successful dev side-module
+  rebuild does not replace that artifact for a new agent drive. Build the primary
+  module and restart the dev server before using a drive to verify Rust changes.
+
+- **Read the operation's receipt before assuming its shape.** A targeted `layout`
+  returns `node.space.viewport`. A delivered input can return `landError` when
+  settling its effects fails; it need not reject the call. Keep that receipt so a
+  proof checks the failure without sending the input twice.
+
+- Reloading a wasm-bindgen validator through a new file-URL query can reuse Bun's cached
+  JavaScript module. Load a fresh module instance and its matching wasm together; verify a
+  declaration added during the dev session without another JSON edit. The table watcher
+  uses a unique data URL for each primary build.

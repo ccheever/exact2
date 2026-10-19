@@ -3,10 +3,11 @@
 use exact_kernel::StyleId;
 use exact_plan::BindingsRow;
 
-/// LLP 1115.000 D12.2's one switch (the lead's provisional ruling,
-/// 2026-10-17, for Charlie): a heading whose style is a title, regular on
-/// every platform, keeps the heading's bold as an implied row; `false` gives
-/// every heading its style's own weight, platform-strict.
+/// LLP 1115.000 D12.2's one switch (final, Charlie 2026-10-19): a heading
+/// whose style is a title, regular on every platform, keeps an emphasized
+/// weight as an implied row (bold for levels 1 and 2, semibold for 3, as
+/// Apple's emphasized title styles are); `false` gives every heading its
+/// style's own weight, platform-strict.
 pub(crate) const HEADING_BOLD: bool = true;
 
 impl crate::Lowerer<'_> {
@@ -14,8 +15,9 @@ impl crate::Lowerer<'_> {
     /// level, as a hand-built screen's would be: 1 `title1`, 2 `title2`, 3
     /// `title3`, 4 and on `headline` (ARIA's default level is 2), at the
     /// style's size for the root font size and its emphasized weight (LLP
-    /// 1116 D7): bold for a title, whose own weight is regular, as Apple's
-    /// emphasized title styles and the web's headings are ([`HEADING_BOLD`]);
+    /// 1116 D7): for a title, whose own weight is regular, Apple's emphasized
+    /// one ([`HEADING_BOLD`]): bold for `title1` and `title2`, semibold for
+    /// `title3`;
     /// `headline`'s own, per platform (semibold on iOS, bold on the Mac), and
     /// the style's leading, which the kernel gives as for a `font` shorthand
     /// (LLP 1115.000 D12.2). A level chosen
@@ -50,9 +52,11 @@ impl crate::Lowerer<'_> {
                 id.expect("a schema text style"),
                 exact_kernel::style::metrics::Column::Ios,
             );
-            // A title, whose own weight is regular, takes the heading's bold
-            // (`HEADING_BOLD`); any other style its own, per platform.
-            (name, (HEADING_BOLD && weight == 400).then_some(700))
+            // A title, whose own weight is regular, takes its emphasized
+            // weight (`HEADING_BOLD`): Apple's emphasized Title 3 is
+            // semibold, Titles 1 and 2 bold; any other style its own.
+            let emphasized = if name == "title3" { 600 } else { 700 };
+            (name, (HEADING_BOLD && weight == 400).then_some(emphasized))
         };
         // The level's literal leaves, each mapped; `None` when one is computed.
         fn leaves(e: &Expr, f: &dyn Fn(f64) -> Expr) -> Option<Expr> {

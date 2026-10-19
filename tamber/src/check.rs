@@ -26,6 +26,10 @@ pub struct Checked {
     pub values: Vec<Value>,
     /// The dials it depends on, in declaration order.
     pub dials: Vec<String>,
+    /// The dials its own values name, in declaration order: what it reads
+    /// itself, where `dials` is every dial its value moves with, through
+    /// the tokens it names too.
+    pub reads: Vec<String>,
     /// The tokens its values name, the default's and every `when` line's,
     /// by their names here, in declaration order.
     pub names: Vec<String>,
@@ -63,9 +67,13 @@ struct Checker<'a> {
     /// Whether a word is a named length the kernel reads (a text style,
     /// `-exact-hairline`).
     named_length: &'a dyn Fn(&str) -> bool,
+    /// The vocabulary's base names (`Vocab::bases`).
+    bases: &'a [String],
     used: Vec<BTreeSet<usize>>,
     /// Per token, the tokens its values named as they folded.
     refs: Vec<BTreeSet<usize>>,
+    /// Each token's dials its own values name, by index.
+    reads: Vec<BTreeSet<usize>>,
     stack: Vec<usize>,
     /// Tokens refused as declared, which are not folded.
     refused: Vec<bool>,
@@ -76,16 +84,24 @@ struct Checker<'a> {
     selected: Vec<BTreeSet<Option<usize>>>,
 }
 
+/// The checked tokens, the tuple count and the dials' values, or the diagnostics.
+type CheckResult = Result<(Vec<Checked>, usize, Vec<DialValue>), (Vec<Diagnostic>, Vec<Kind>)>;
+
 /// Check `design` against the schema's vocabulary.
-pub(crate) fn check(
-    design: &Design,
-    vocab: &Vocab,
-) -> Result<(Vec<Checked>, usize, Vec<DialValue>), Vec<Diagnostic>> {
+pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
+    // A base name the design leaves unset, bare, is a named length too:
+    // kept as written, each host's (stage 11 B). One the design sets is its
+    // token, folded as any is, so its value wins everywhere and its edits
+    // re-fold what reads it.
+    let unset = |w: &str| {
+        vocab.bases.iter().any(|b| b == w) && !design.tokens.iter().any(|t| t.name.value == w)
+    };
     let named_length = |w: &str| {
         vocab
             .named_lengths
             .iter()
             .any(|n| n.eq_ignore_ascii_case(w))
+            || unset(w)
     };
     let mut c = Checker {
         design,
@@ -98,8 +114,10 @@ pub(crate) fn check(
         memo: HashMap::new(),
         kinds: vec![Kind::Color; design.tokens.len()],
         named_length: &named_length,
+        bases: &vocab.bases,
         used: vec![BTreeSet::new(); design.tokens.len()],
         refs: vec![BTreeSet::new(); design.tokens.len()],
+        reads: vec![BTreeSet::new(); design.tokens.len()],
         stack: Vec::new(),
         refused: vec![false; design.tokens.len()],
         refused_names: HashSet::new(),
@@ -119,7 +137,8 @@ pub(crate) fn check(
     c.declare();
     c.kinds();
     let Some(tuples) = tuples else {
-        return Err(c.finish());
+        let kinds = c.kinds.clone();
+        return Err((c.finish(), kinds));
     };
     let mut out = Vec::new();
     for (i, t) in design.tokens.iter().enumerate() {
@@ -147,6 +166,7 @@ pub(crate) fn check(
                 kind: c.kinds[i],
                 values,
                 dials: Vec::new(),
+                reads: Vec::new(),
                 names: Vec::new(),
                 fixed,
                 pairs,
@@ -163,6 +183,10 @@ pub(crate) fn check(
         .into_iter()
         .map(|(i, mut token)| {
             token.dials = c.used[i]
+                .iter()
+                .map(|&d| design.dials[d].name.value.clone())
+                .collect();
+            token.reads = c.reads[i]
                 .iter()
                 .map(|&d| design.dials[d].name.value.clone())
                 .collect();
@@ -185,10 +209,13 @@ pub(crate) fn check(
         .iter()
         .map(|d| c.dials.get(d.name.value.as_str()).map(|(_, v)| v.clone()))
         .collect::<Option<Vec<_>>>();
+    // A refusal carries each token's kind, written or inferred, so the
+    // caller can say what else is wrong (`tamber-base-kind`).
+    let kinds = c.kinds.clone();
     let errors = c.finish();
     match dials {
         Some(dials) if errors.is_empty() => Ok((out, tuples, dials)),
-        _ => Err(errors),
+        _ => Err((errors, kinds)),
     }
 }
 
@@ -1245,6 +1272,15 @@ struct Scope<'c, 'a> {
 impl Names for Scope<'_, '_> {
     fn named(&mut self, name: &str) -> Result<Named, FoldError> {
         let c = &mut *self.checker;
+        // A base name the design leaves unset, read inside an expression (a
+        // bare one is a named length, which never comes here): its length is
+        // each host's, so nothing folds it. One the design sets is its token.
+        if c.bases.iter().any(|b| b == name) && !c.names.contains_key(name) {
+            return Err(FoldError {
+                id: "tamber-base-expression",
+                message: format!("`{name}` is a base length, each platform's own: a value names it bare (`card.pad = {name}`), never inside an expression (`calc()`, a shadow), unless the design sets it; an expression over a base name is QUEUE's"),
+            });
+        }
         let lower = name.to_ascii_lowercase();
         // Silence: a refused token or dial said so where it is written.
         let quiet = || FoldError {
@@ -1275,7 +1311,10 @@ impl Names for Scope<'_, '_> {
                 })
                 .ok_or_else(quiet);
         }
-        if let Some((_, value)) = c.dials.get(name) {
+        if let Some((d, value)) = c.dials.get(name) {
+            if let Some(&i) = c.stack.last() {
+                c.reads[i].insert(*d);
+            }
             return Ok(match value {
                 DialValue::Color(f) => Named::Color(f.clone()),
                 DialValue::Number(n) => Named::Number(*n),

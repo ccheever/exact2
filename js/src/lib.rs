@@ -72,7 +72,7 @@ pub use exact_data::Placed;
 pub use exact_js_value::{from_json, to_json, Shape};
 pub use exact_runner::Placement;
 pub use native::{Changed, LaterHandler, NativeModule, NativeReply};
-pub use paired::Paired;
+pub use paired::{Bytecode, Paired};
 
 use door::{c_string, host_door};
 use engine::{Engine, HostFn};
@@ -207,6 +207,9 @@ struct HostState {
     /// The engine reaches the documents the person chose (`doc:`), with or
     /// without app storage: the grants name them (LLP 1069.010 D1).
     documents: bool,
+    /// The document owner, when the grants keep documents (`doc.keep`, LLP
+    /// 1069.010.000 D5): `storage.fs.recentDocuments()` reads its app's list.
+    kept: Option<u64>,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
     /// A replacement candidate must answer successfully before it can be installed.
@@ -222,7 +225,7 @@ struct HostState {
 /// A TypeScript data source: bytecode, its bake-time identity, and the
 /// engine that runs it once loaded.
 pub struct Module {
-    bytecode: Arc<[u8]>,
+    bytecode: Bytecode,
     snapshot: bool,
     snapshot_deadline: Option<Instant>,
     app_id: String,
@@ -300,7 +303,7 @@ impl Module {
     /// at [`Module::load`]. Under the agent (`EXACT_AGENT=1`) its `crypto`
     /// draws the agent's repeatable stream (LLP 1069.005 D2b).
     pub fn new(
-        bytecode: impl Into<Arc<[u8]>>,
+        bytecode: impl Into<Bytecode>,
         app_id: impl Into<String>,
         grants: impl Into<String>,
     ) -> Module {
@@ -525,6 +528,8 @@ impl Module {
             io
         };
         self.host.documents = storage::reaches_documents(&io);
+        let keeps = !self.snapshot && self.grants.lines().any(|line| line.trim() == "doc.keep");
+        self.host.kept = keeps.then_some(self.document_owner);
         // The bindings Context must precede the engine and outlive its
         // adapter. Module declares `engine` before `storage`, and unload takes
         // the engine first, preserving that order on every path.
@@ -599,9 +604,11 @@ impl Module {
         engine
             .harden()
             .map_err(|e| format!("exact-js: hardening failed: {e}"))?;
-        engine
-            .load_shared(self.bytecode.clone())
-            .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
+        match &self.bytecode {
+            Bytecode::Linked(bytes) => engine.load_static(bytes),
+            Bytecode::Owned(bytes) => engine.load_shared(bytes.clone()),
+        }
+        .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
         let abi = engine.string("abi")?;
         if !abi_supported(&abi) {
             return Err(format!(

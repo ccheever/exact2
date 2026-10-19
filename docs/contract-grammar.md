@@ -160,7 +160,8 @@ The node's block wins over its class's, row by row.
 
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,
-`env(safe-area-inset-*)`, `env(viewport-segment-* x y)`, a layout region's
+`env(safe-area-inset-*)`, `env(viewport-segment-* x y)`,
+`env(titlebar-area-x|y|width|height)`, a layout region's
 `env(-exact-<region>-inset-*)`, or a `calc()`, `min()`, `max()` or `clamp()` of
 these (`clamp(15px, env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything
 else is `lower-attr-value`, with the kernel's reason.
@@ -172,6 +173,15 @@ the layout viewport, inside the safe area by default: `layout-margins` (UIKit's
 the same kept clear of rounded corners. `padding-left="env(-exact-layout-margins-inset-left)"`
 puts a header where a UIKit screen's would be. On a host without them (the web,
 Linux, Windows) each is the safe area.
+
+The title-bar area is
+[Window Controls Overlay](https://wicg.github.io/window-controls-overlay/)'s: the part
+of the title bar beside the window's controls. On the Mac, under `viewport-fit="cover"`,
+it is AppKit's title bar less the traffic lights and their margins (`78 0 822×32` in a
+900-point window); all zero in full screen and while a toolbar fills the title bar (an
+app with routes has one, LLP 1115.002 D2). Everywhere else it is undefined, as in a browser
+tab: `env(titlebar-area-height, 0px)` takes its fallback, and without one the row takes
+its initial value.
 
 `-exact-fit="shrink"` on a `text` (CSS has no such property; LLP 1116.001 D1.4) draws
 a line too wide for its content box at the scale that fits: its whole line under
@@ -211,6 +221,17 @@ a computed value, a word is renamed when it is the name whatever the value is;
 one that is the name for some values and a keyword for others (`${x} linear
 1s`), when it is also keyframes another file's of its name renamed, is refused
 (`contract-animation-ambiguous`): quote the name (`'linear'`).
+A package's export may be its module declaration, `exact.json` (LLP 1133.001
+D1): `use getCurrentPosition, GeolocationPosition from "@exact/geolocation"`
+brings the module's sources and sends and its shapes. A module's source is read
+by a `resource` and its send by a `send`, each `as shape` what it answers
+(`contract-module-kind`, `contract-module-answers`), with keyword arguments
+only: the module's options (`maximumAge=600000`), each omitted one left to the
+platform, and each platform's words as dotted keywords
+(`apple.desiredAccuracy="threeKilometers"`), checked against the words that
+platform's implementation declares (`contract-module-positional`,
+`contract-module-argument`, `call-argument-twice`). The device answers it, never
+the build: its placeholder is `else empty()` (`contract-module-placeholder`).
 Fonts are app-wide. A used file cannot declare routes. The root file's first
 component remains the root. A name both declared and used
 (`contract-use-shadows`), one name used from two declarations
@@ -508,7 +529,7 @@ primary       = NUMBER | STRING | TEMPLATE | "true" | "false" | "none"
               | "(" expr ")" | inline-match ;
 list          = "[" [ expr { "," expr } [ "," ] ] "]" ;
 arguments     = argument { "," argument } [ "," ] ;
-argument      = expr | arrow | FIELD "=" expr ;
+argument      = expr | arrow | FIELD { "." FIELD } "=" expr ;
 arrow         = ( IDENT | "(" [ IDENT { "," IDENT } ] ")" ) "=>" expr ;
 inline-match  = "match" expr "{" "case" "some" "(" IDENT ")" "=>" expr
                 "," "case" "none" "=>" expr [ "," ] "}" ;
@@ -534,7 +555,8 @@ comparison semantics. Logical operators short-circuit; ternary/match evaluates
 only its selected arm. Conditions require booleans.
 
 Named arguments are accepted only by the corresponding constructs: component
-uses, record construction/copy, localization (`t`), placeholders (`empty`),
+uses, a native module's sources and sends (the only place a dotted name,
+`apple.desiredAccuracy=`, is one), record construction/copy, localization (`t`), placeholders (`empty`),
 canvas `surface=` bindings, and specialized host commands (`share`,
 `scrollIntoView`). Ordinary function calls are positional. Arrow expressions are admitted
 as the callbacks to `map` and `filter`, with at most item and index parameters;
@@ -843,7 +865,7 @@ says. Every roster function has a row and an example, and each example written
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
-| `rangeFrame(id, start, end)` | `Geometry`, actions only; UTF-16 source range in a field, in viewport coordinates; unavailable until its host supplies a range reader (LLP 1114.007) | `rangeFrame("composer", 0, 6).height`, in an action, is the range's drawn height |
+| `rangeFrame(id, start, end)` | `Geometry`, actions only; a textarea's UTF-16 range as `Range.getBoundingClientRect()`: collapsed, the caret's rectangle; unavailable past the text, while composing, or with no host reader ([decorations](#plain-textarea-decorations), LLP 1114.007) | `rangeFrame("composer", caret, caret)`, in an action, is where a mention popover goes |
 | `measure("id")` | `Geometry`, actions only; literal id, the border box as if `height` were `auto`, other styles kept (padding, border, `min-height`, `max-height`, insets): 0 for a bare box whose children are all absolutely positioned (a navigation root); `frame` is the laid-out box | `measure("note").height`, in an action, is the note's natural height |
 | `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over | `elementFromPoint(x, y)`, in a pointer action, is `some("card-3")` over that card |
 | `elementsFromPoint(x, y)` | `string[]`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
@@ -1068,41 +1090,47 @@ expression grammar. Platform looks and stand-ins are documented in
 
 ### Plain textarea decorations
 
-`decoration` declares literal CSS appearance for app-computed UTF-16 ranges. The field's
-value stays a plain string. Both web targets render these records, preserve source
-selections and composition, and support undoable replacements. Other host acceptance
-is tracked separately.
+`decorations` colours ranges of a plain `textarea`'s text that the app computes, as a
+Bluesky composer colours @mentions, links and #tags: CSS's Custom Highlight API
+([LLP 1114.007](../llp/1114.007-highlights-in-a-text-field.rfc.md)). Each range names a
+`decoration` declaration, the app's `::highlight(name)` rule. The value stays a plain
+string, and a decoration paints only: the field measures, wraps, edits and undoes exactly
+as it does without one, so a declaration takes only what `::highlight()` admits, `color`,
+`background-color`, `text-decoration` (`text-decoration-line`) and `text-shadow`; any other
+property is a compile error. Declarations are scoped and imported like styles.
 
 ```text
-decoration mention color="#1083fe"
+decoration mention color="light-dark(#1083fe, #208bfe)"
 component Composer
   state draft = "hello @alice"
-  derive marks = TextDecorations(value=draft, spans=[TextDecorationSpan(name="mention", start=6, end=12)], blocks=[], hidden=[], atoms=[])
+  derive marks = TextDecorations(value=draft, spans=[TextDecorationSpan(name="mention", start=6, end=12)])
   action edit(value: string)
     draft = value
   view
     textarea id="composer" value=draft decorations=marks input=edit
 ```
 
-Declarations use CSS font, colour and text-decoration properties, plus block margins,
-left padding/border, radius and line-height. They are scoped and imported like styles.
-`decorations` takes `TextDecorations(value, spans, blocks, hidden, atoms)`; constructor
-arguments are named. Its other record types and freshness rules are in
-[LLP 1114.007](../llp/1114.007-highlights-in-a-text-field.rfc.md). `input` and
-`textarea markup="markdown"` refuse this binding.
+`TextDecorations(value, spans)` names the text its spans were computed for, so an equal
+span list for new text (`@alice` replaced by `@carol`) is still a new record. Spans are
+UTF-16 offsets, clamped to `value`; where two overlap the later paints over the earlier.
+Until the app's record for the field's current text arrives, as a person types, the host
+paints the last record's spans moved across the edit as a DOM `Range` is (provisional).
+Nothing is repainted while an input method composes. The web paints with
+`createValueRange()` and `CSS.highlights` and leaves the `<textarea>` in place; a browser
+without `createValueRange` paints nothing. macOS, iOS and tvOS paint TextKit 2 rendering
+attributes; Linux and Windows paint colour runs with unchanged advances; Android and the
+terminal paint nothing yet. Only the web paints `text-shadow`. `input` and
+`textarea markup="markdown"` refuse `decorations`.
 
-An action may call `rangeFrame(id, start, end)` for viewport `Geometry` of a source range;
-a host without a range reader returns unavailable. Both web targets measure decorated
-source editors; plain fields and paint-only textareas require the browser's native
-value-range API. Browsers without that API return unavailable for plain fields.
-`setRangeText(id, text, "undo")`, or
-`setRangeText(id, text, start, end, selectionMode, "undo")`, requests one undo step once
-its host adopts that mode. The web supports it on plain fields and decorated
-textareas; each replacement emits one input event and can be undone independently
-of preceding typing. Existing calls keep their behaviour. Paint-only declarations
-retain the browser's native textarea when value ranges and custom highlights are
-available; font/layout changes, hidden ranges and chips use the optional source
-editor. Copying from that editor preserves the selected source, including markers.
+An action may call `rangeFrame(id, start, end)` for the `Geometry` of a textarea's UTF-16
+range, plain or `markup="markdown"` (source offsets), as DOM's
+`Range.getBoundingClientRect()` gives it: a collapsed range is the caret's rectangle (width
+0, the line's height), a wider one the union of its lines, in viewport coordinates and not
+trimmed by scrolling or the field's clip. Offsets are truncated toward zero; a non-finite or
+negative offset, a start past the end, an end past the text, a missing or hidden field,
+composition, and a host with no reader (Linux, Windows, Android, the terminal, a browser
+without `createValueRange` for a plain textarea) give `unavailable`. It reads the layout
+last drawn, so a `setRangeText` earlier in the same action is not yet measured.
 
 ### Markdown: `markup`, `format`, `select`
 
@@ -1134,10 +1162,21 @@ or the source changes: `formats`, space-separated (the inline command names,
 `heading1` to `heading6`, `bullet`, `ordered`, `task`, `quote`, `codeblock`);
 `mixed`, true when the selection spans different formats or links; `link`, the
 common link target or `""`; and `unavailable`, the commands that cannot apply
-there, space-separated (most of them, inside a code block). No offsets cross.
-A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
+there, space-separated (most of them, inside a code block). It carries no
+offsets. A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
 [Markdown Stress](../apps/markdown-stress/app.contract) is a whole toolbar and
 link sheet.
+
+The editor's `input`, `selectionchange` and `beforeinput` are a text field's
+([form controls](#form-controls-radio-inputevent-setselectionrange)): their
+`InputEvent` carries the source and its selection, in UTF-16 offsets into the
+source, with the edit's `inputType`, `data` and `isComposing`. `beforeinput`
+comes before the editor's own handling: a Return it cancels continues no list.
+`setSelectionRange` and `setRangeText` take the same source offsets on the web,
+macOS and iOS; each `setRangeText` is one undo step, as a `format` is, and
+both are refused while an input method composes. On the web, where hidden
+syntax is not drawn, a caret put inside it is drawn at its visible edge and
+reads back there ([LLP 1045](../llp/1045-markdown-editor.rfc.md) D6).
 
 ### Keep-awake: `wakelock`
 
@@ -1659,8 +1698,10 @@ replaces the given UTF-16 range. `selectionMode` is `preserve` by default,
 or `select`, `start`, `end`, following HTML. It does not focus the field,
 apply `maxlength`, or create an undo step. Apple clears the edited field's
 existing undo history when its value changes. Invalid ranges, modes, unsupported
-input types and missing ids log a refusal without editing. The Markdown
-editor, Windows, Android and terminal do not support this command yet.
+input types and missing ids log a refusal without editing. On the Markdown
+editor (web, macOS and iOS) the offsets are the source's and each call is one
+undo step ([Markdown](#markdown-markup-format-select)); Linux refuses it there.
+Windows, Android and terminal do not support this command yet.
 
 **Deliberate deviation (Charlie, 2026-10-12):** unlike the DOM method,
 Exact fires one noncancelable `input` after a successful replacement, even
@@ -1688,7 +1729,8 @@ The web forwards the browser's metadata. AppKit and Linux intercept ordinary
 field edits and paste before applying them; AppKit's undo/redo responder
 commands are cancelable too. UIKit's delegate observes ordinary edits,
 but undo operations that bypass its delegate remain a host limit. Linux
-has no native field undo history. These events exclude Markdown editors.
+has no native field undo history. The Markdown editor's events are these,
+over its source ([Markdown](#markdown-markup-format-select)).
 
 ```text
 action edited(text: string, e: InputEvent)
@@ -1969,12 +2011,13 @@ argument validation. Use the working implementation when selecting arguments:
 
 | Operation | Starting point |
 | --- | --- |
+| `postMessage(text, target)`: ordered messages to a canvas by literal surface name, or string replies and host updates to a live iframe by `id` on Apple and both web executors; iframe targets may compute. Missing, ambiguous, replaced or navigation-revoked iframe targets are dropped without entering the canvas queue. | [LLP 1020 §11](../llp/1020-webview.rfc.md#11-addressed-string-replies-and-host-updates-2026-10-19), [iframe fixture](../scripts/fixtures/iframe-post-messages.contract), [compiler tests](../contract/cli/tests/it/post_message.rs) |
 | `focus(id)` | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
 | `setSelectionRange(id, start, end[, direction])`: a text field's or text's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
-| `setRangeText(id, text[, start, end[, selectionMode]])`: plain-field range replacement, one `input`, preserve selection by default, no undo step ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
+| `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; no undo step on a plain field, one on the Markdown editor ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
@@ -1987,7 +2030,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
 | `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=, offset=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). macOS, iOS and tvOS animate the element form with the platform's scroll animation unless `behavior="instant"` (LLP 1115.000 D8.4), landing immediately under reduced motion; `scrollend` comes once the animation ends. Linux lands element jumps at once, including smooth requests (LLP 1070.000 §14) | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `scrollBy(id, x, y)`: `Element.scrollBy(x, y)` on a scroll container by its `id`, in pixels (a terminal's row is 16, its column 8), clamped to its travel; an element that does not scroll does not move. A reader's `j` and `k`. The terminal, Linux and the web's JS target take it; Apple and the wasm web host do not yet | [the LLP terminal reader](../apps/llp/terminal.contract), [`reading.rs`](../host/terminal/tests/it/reading.rs) |
-| `showPopover(id, source="trigger")`, `hidePopover(id)`, `togglePopover(id, source="trigger")`: HTML's methods by element id. `source=` is optional and explicit; it need not carry `popovertarget`, and the key handler's node is not inferred. Repeated show/hide is a no-op. Visibility changes immediately in command order, including hide then show during native dismissal. Bad targets or sources are refused in the journal. A popover's `toggle=changed` action may take `e: ToggleEvent`, with `oldState` and `newState` (`"open"` or `"closed"`); events follow logical visibility, coalescing changes in one turn. Without a source the popover has no invoker. A following `focus(id)` in the opening action selects a native menu row on macOS and windowed Linux; AppKit refuses changing the highlight once native tracking begins. UIKit navigation-bar menus still lack command dismissal and toggle observation (issue #319 remaining work). Desktop/headless Linux reports unsupported; windowed Linux uses its existing supported menu/alert shapes. | [menus](../llp/1021-menus.rfc.md) |
+| `showPopover(id, source="trigger")`, `hidePopover(id)`, `togglePopover(id, source="trigger")`: HTML's methods by element id. `popover=(expanded ? some("manual") : none)` adds or removes that property on the same node; removing it closes the top layer and restores inline placement. `source=` is optional and explicit; it need not carry `popovertarget`, and the key handler's node is not inferred. Repeated show/hide is a no-op. Visibility changes immediately in command order, including hide then show during native dismissal. Bad targets or sources are refused in the journal. A popover's `toggle=changed` action may take `e: ToggleEvent`, with `oldState` and `newState` (`"open"` or `"closed"`); events follow logical visibility, coalescing changes in one turn. Without a source the popover has no invoker. A following `focus(id)` in the opening action selects a native menu row on macOS and windowed Linux; AppKit refuses changing the highlight once native tracking begins. UIKit navigation-bar menus still lack command dismissal and toggle observation (issue #319 remaining work). Desktop/headless Linux reports unsupported; windowed Linux uses its existing supported menu/alert shapes. | [menus](../llp/1021-menus.rfc.md) |
 | `showModal(id)`, `close(id)`: `HTMLDialogElement.showModal()` and `close()` on a dialog by its `id`, from an action (bare `close()` is the window's). The terminal takes them (LLP 1101.001 P5); iOS presents a `dialog` or `role="alertdialog"` popover by its id as its confirmation (an alert or action sheet, with no invoker) and any other `dialog` as a sheet as tall as its content (LLP 1115.000 D11.5), the web shows the dialog (or the alertdialog popover), macOS the dialog in its top layer, or a `role="alertdialog"` one in the alert's shape as `NSAlert`, a sheet on the window (LLP 1115 D6, LLP 1115.000 D7.6) | [the harness](../apps/harness/terminal.contract), [the native fixture](../apps/native-fixture/app.contract) (`askClear`) |
 | `fastSeek(id, seconds)`, `load(id)`: a `video` or `audio`, by HTML's method names (LLP 1042 §3). `fastSeek` seeks each time it runs, where a bound `currentTime` seeks only when its value changes; every host seeks to the exact time, which HTML's approximate-for-speed allows. `load` loads the source again, as a changed `src` does: the bound `currentTime` waits for its metadata and a bound `paused` false plays | [media tests](../contract/cli/tests/it/media.rs), [media conformance plan](../host/web-js/conformance/media.contract) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |

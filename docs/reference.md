@@ -1500,7 +1500,7 @@ on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
 and iOS they are security-scoped URLs held for the session; Linux opens no
 picker panel (a drive's held pickers still answer), so outside a drive only
 `open-file` delivers one there. The handles end with the
-session: nothing about a document is remembered across launches.
+session, unless the app keeps what the person chose (below).
 
 **A change on disk asks the answer again** (LLP 1069.010.000 D1). An answer
 that calls `storage.fs.watch(path)` is asked again when the file, a folder's
@@ -1529,6 +1529,34 @@ is refused with code `ECHANGED` and nothing is written (a file that is gone
 refuses `ENOENT`). The comparison and the write are queued together but are
 not one atomic step; what they close is the time an editor spends editing.
 Read the new file and let the person choose.
+
+**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS). An
+app granted `doc.keep` keeps exactly what the person chose — a file or folder
+from a picker, Finder, ⌘O, Open Recent, the command line or a drop; never a
+typed path, a followed link, or a route's folder — and its `doc:/<n>/<name>`
+reads again after a relaunch, in any of the app's windows, with no panel.
+The kept set is File ▸ Open Recent's: Clear Menu, or an entry falling off
+the end of the list, ends its reopening (a window that has it open keeps it
+until the app quits).
+
+```ts
+export const grants = ['fs.read doc:/', 'doc.keep'].join('\n');
+storage.fs.watch('doc:/');                       // asked again when the list changes
+const recent = await storage.fs.recentDocuments();
+// [{ path: 'doc:/12/notes', name: 'notes', kind: 'directory', mode: 'readwrite', opened: 1760572800000 }, …]
+await storage.fs.forgetDocument(recent[0].path); // off the list and Open Recent; ENOENT if not kept
+```
+
+A Rust source sends `fs.recentDocuments` and `fs.forgetDocument` storage
+requests (`apps/markdown/data`). A kept item is the object chosen: a move
+or rename is followed and keeps its path (`<name>` is the name it was
+chosen by); a file another program replaced at its name is not the
+document, and the app's own `atomicWriteFile` carries the entry to the file
+it wrote (from Rust; not yet from TypeScript). A path whose entry is gone
+refuses `ENOENT`: ask the person to choose again. Without `doc.keep`
+both calls are refused. Under the agent the kept set is the drive's scratch
+store (`--storage`), never the person's. Linux and iOS keep nothing yet and
+list nothing; the web has neither call yet.
 
 ### Bake and deliver a TypeScript module
 
@@ -1573,8 +1601,9 @@ For a module client's `build.rs`, depend on `exact-js-bake` and call
 paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
 `REVISION`) into `OUT_DIR`, and on Apple `host.rs`, the host entry its `deploy.store`
 names, which includes `baked.rs`: `exact_plan()` and `exact_compat()`. An Apple build
-(`host/apple/build.mjs`) bakes before Cargo and links the plan and `compat.json` into
-the executable, so an edit that changes only the plan compiles no Rust. With a store (`"A"`), a signed update carries the module pair under
+(`host/apple/build.mjs`) bakes before Cargo and links the plan, `compat.json` and the
+module's bytecode into the executable, so an edit to the Contract or the TypeScript alone
+compiles no Rust; there `module.rs` has no `REVISION`. With a store (`"A"`), a signed update carries the module pair under
 `typescript/` (`app.module.json`, `app.hbc`); it needs the binary's TypeScript runtime
 and exactly its grants. An app with both a TypeScript and a Rust module still sets its
 `deploy.store` entries to `"0"`: signed delivery of both is not implemented.

@@ -314,6 +314,17 @@ pub fn project(
                 }
             }
         }
+        // @ref LLP 1084 D7 — a grouped row (a native button's too) its
+        // author hid is no row the page's sheet counts (index.html); a bound
+        // `display` says so as it runs (rows.rs).
+        if (parts.props.contains_key("data-groupedrowseparator")
+            || parts.props.contains_key("data-native"))
+            && parts.css.split(';').any(|d| d.trim() == "display:none")
+        {
+            parts
+                .props
+                .insert("data-exact-hidden".into(), String::new());
+        }
         for (row, reason) in &parts.skipped {
             warnings.push(format!(
                 "node {i}: style row {row} skipped by the web host: {reason}"
@@ -357,10 +368,133 @@ pub fn project(
             parts.css.push_str(&format!("justify-self:{justify};"));
         }
     }
+    symbol_marks(plan, &kernel, &parents, &mut out);
     Ok(out)
 }
 
 pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-justify,start)";
+
+/// Whether image `i` draws a symbol in its author's `color` (LLP 1121 stage
+/// 9 B; `NodeRef::symbol_color_said`), as far as the static tree says:
+/// `None` where it can't be a symbol (a literal source that is none) or is
+/// a native button's face; else the nodes between it and the nearest node
+/// whose static rows decide that decide at run time ([`Ink`]: a bound
+/// `color`, a mode boundary's implied row), and that decision. A bound source may be a symbol whatever
+/// its code names (a state's or a data's role), and the sheet asks for a
+/// symbol's path, so a photo's mark draws nothing. A bound `color` decides
+/// while it has a value: written as its binding is, a CSS-wide clear
+/// included; `none` takes it away, as the runner clears the written bit,
+/// and the next node up decides (symbols.js `inked`). A colour only a state
+/// look sets (`:hover`) does not count.
+fn symbol_color(
+    plan: &Plan,
+    kernel: &Kernel,
+    parents: &[Option<usize>],
+    i: usize,
+) -> Option<(Vec<(usize, Ink)>, bool)> {
+    let view = |i: usize| -> ViewId { i as u32 + 1 };
+    let rows = |i: usize| plan.nodes[i].bindings.iter().map(|b| plan.binding(b));
+    let bound = |i: usize, kind: BindingKind, id: u16| {
+        rows(i).find(|b| b.kind == kind && b.id == id && literal(plan, plan.code(b.expr)).is_none())
+    };
+    let node = kernel.node(view(i)).expect("template node");
+    let symbol = node
+        .props
+        .str(PropId::ImageSource)
+        .is_some_and(|s| s.starts_with("symbol:"))
+        || bound(i, BindingKind::Prop, PropId::ImageSource as u16).is_some();
+    let face = parents[i].is_some_and(|p| {
+        kernel
+            .node(view(p))
+            .is_some_and(|p| p.node_type == NodeType::Control)
+    });
+    if !symbol || face {
+        return None;
+    }
+    // A mode boundary (a pin or a scheme, LLP 1121 D7) writes again a row
+    // it does not set when the one around read a token: an implied row, no
+    // author's, which `says` stops at (modes.js `apply`, `$xs`).
+    let modes = crate::modes::active(plan);
+    let mut writers = Vec::new();
+    let mut at = Some(i);
+    while let Some(j) = at {
+        let node = kernel.node(view(j)).expect("template node");
+        let boundary = modes
+            && !node.style.mask.has(StyleId::TextColor)
+            && [StyleId::Mode, StyleId::ColorScheme]
+                .iter()
+                .any(|id| rows(j).any(|b| b.kind == BindingKind::Style && b.id == *id as u16));
+        let row = bound(j, BindingKind::Style, StyleId::TextColor as u16);
+        match (row, boundary) {
+            (Some(row), _) => writers.push((j, Ink::Bound(row.written, boundary))),
+            (None, true) => writers.push((j, Ink::Boundary)),
+            (None, false) => {}
+        }
+        if node.style.written.has(StyleId::TextColor) {
+            return Some((writers, true));
+        }
+        if node.style.mask.has(StyleId::TextColor) || node.starts(StyleId::TextColor) {
+            return Some((writers, false));
+        }
+        at = parents[j];
+    }
+    Some((writers, false))
+}
+
+/// A node between a symbol and what decides its ink statically, which
+/// decides it at run time.
+#[derive(Clone, Copy)]
+enum Ink {
+    /// A bound `color` (its author wrote it, and whether the node is also a
+    /// mode boundary, whose implied row stands when the binding has none).
+    Bound(bool, bool),
+    /// A mode boundary that sets no `color` of its own.
+    Boundary,
+}
+
+/// The marks of [`symbol_color`]: `data-symbol-color` on an image the
+/// static tree decides; else `data-symbol-ink` (how many bound colours up,
+/// then the decision past them, `1` or `0`) for symbols.js to decide after
+/// each commit, and `data-exact-ink` (written, `1` or `0`) on each node a
+/// bound `color` makes one of those.
+fn symbol_marks(
+    plan: &Plan,
+    kernel: &Kernel,
+    parents: &[Option<usize>],
+    out: &mut [Option<Parts>],
+) {
+    let mut writers = Vec::new();
+    for (i, parts) in out.iter_mut().enumerate() {
+        let Some(parts) = parts.as_mut().filter(|p| p.tag == "img") else {
+            continue;
+        };
+        parts.props.remove("data-symbol-color");
+        match symbol_color(plan, kernel, parents, i) {
+            Some((up, true)) if up.is_empty() => {
+                parts
+                    .props
+                    .insert("data-symbol-color".into(), String::new());
+            }
+            Some((up, said)) if !up.is_empty() => {
+                let ink = format!("{}{}", up.len(), u8::from(said));
+                parts.props.insert("data-symbol-ink".into(), ink);
+                writers.extend(up);
+            }
+            _ => {}
+        }
+    }
+    for (j, ink) in writers {
+        if let Some(parts) = out[j].as_mut() {
+            let ink = match ink {
+                Ink::Bound(written, boundary) => {
+                    format!("{}{}", u8::from(written), if boundary { "b" } else { "" })
+                }
+                Ink::Boundary => "b".into(),
+            };
+            parts.props.insert("data-exact-ink".into(), ink);
+        }
+    }
+}
 
 /// Every `for` row's roots, through any region at its top.
 fn each_rows(plan: &Plan, sites: &crate::emit::Sites) -> Vec<usize> {

@@ -9,6 +9,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { API } from '../app.ts';
 import { scrubSessions } from '../../../scripts/tamber-scrub.mjs';
+import { allows, needs, refusal } from '../../../scripts/tamber-pairing.mjs';
 import DIALS from './dials.json';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
@@ -41,7 +42,18 @@ const REBUILDS = new Set(['warmth', 'duration.fast', 'easing.standard', 'app.con
 // build runs, as the serving loop says (LLP 1121 stage 6).
 const INLINE = new Set(['opacity.muted']);
 // A state part's edit (`set-state`) rebuilds, as the server says.
-const classOf = (ops: { name?: string; op?: string }[]) => ops.some(o => o.op === 'set-state' || REBUILDS.has(o.name ?? '') || (INLINE.has(o.name ?? '') && BUILDS.some(b => b.host === 'web-js'))) ? 'rebuild' : 'live';
+// Why the server would refuse a `set-row` (LLP 1121 stage 9 D2), for the tests that ask.
+const rowRefusal = (o: Record<string, unknown>) => o.op !== 'set-row' ? '' : o.sha256 === 'stale' ? `card.contract changed since it was compiled (sha256): select the view again` : o.value === 'not-a-colour' ? 'the app does not build with that: card.contract:3:9: `not-a-colour` is not a colour' : '';
+// A move the server refuses (T5): a new param a component has already ("taken"), or a detach of
+// Card.fill that leaves Card.fade unread, said by its diagnostic, as the compile says it.
+const moveRefusal = (ops: Record<string, unknown>[]) => {
+  if (ops.some(o => o.op === 'add-param' && o.name === 'taken')) return 'a param `taken` exists on `Card` already: give it another name';
+  const gone = ops.filter(o => o.op === 'remove-param' && o.component === 'Card').map(o => o.name);
+  // (Card.fade is read by another row too: removed alone, that row names no param, as the compile says it.)
+  if (gone.includes('fade') && !gone.includes('fill')) return { message: 'refused', diagnostics: [{ file: 'app.contract', line: 14, id: 'tamber-param-unknown', message: '`param.fade`: `Card` declares no param `fade`' }] };
+  return gone.includes('fill') && !gone.includes('fade') ? { message: 'refused', diagnostics: [{ file: 'app.contract', line: 12, id: 'tamber-param-unused', message: 'param `app.contract#Card.fade` is read by no row of `Card` (`param.fade`)' }] } : null;
+};
+const classOf = (ops: { name?: string; op?: string }[]) => ops.some(o => o.op === 'set-state' || o.op === 'set-row' || o.op === 'add-param' || o.op === 'remove-param' || REBUILDS.has(o.name ?? '') || (INLINE.has(o.name ?? '') && BUILDS.some(b => b.host === 'web-js'))) ? 'rebuild' : 'live';
 // The design's axes in the other order, as a test reorders them
 // (`/__stub/reverse-axes`): describe says so from then on. `describe`
 // refused (an event's `refuseDescribe`), so a test sees whether the tool
@@ -65,6 +77,8 @@ const sessions = () => scrubSessions({
   restore: () => {},
   opened: (e: Record<string, unknown>) => { log.push({ event: 'scrub', epoch: EPOCH, ...e, reason: 'opened', seq: seq() + 1 }); save(); },
   ended: (e: Record<string, unknown>) => { log.push({ event: 'scrub', epoch: EPOCH, ...e, seq: seq() + 1 }); save(); },
+  // (A paired client ended has no write left, a release waiting on its preview included.)
+  allowed: (client: string) => !client.startsWith('remote:') || paired.some(p => p.client === client && Date.parse(p.expires) > Date.now()),
 });
 let scrubs = sessions();
 const answered = (r: { status?: number; ok?: unknown; error?: unknown }) => r.ok ? send({ ok: r.ok }) : send({ error: r.error }, r.status ?? 409);
@@ -96,10 +110,61 @@ function take(e: Record<string, any>) {
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-exact-tamber-token, authorization', 'access-control-allow-methods': 'GET, POST' };
 const send = (body: unknown, status = 200) => Response.json(body, { status, headers: CORS });
 const preflight = () => new Response(null, { status: 204, headers: CORS });
-const authorized = (req: Request) => req.headers.get('x-exact-tamber-token') === TOKEN;
 // The test driver, as `request … as ada` sends it; no page can.
 const driver = (req: Request) => req.headers.get('authorization') === 'Bearer ada';
 const seq = () => log.at(-1)?.seq ?? 0;
+
+// Pairing (LLP 1121 stage 10 A2, tamber/1.13), as the server answers it: the local token mints a
+// code (`pair-code`), lists the clients (`clients`) and revokes one (`revoke`); a code presented at
+// `/__tamber/pair` gives a client its own token, random each time and kept in memory only, at the
+// code's scope, which A1's table checks on every request (scripts/tamber-pairing.mjs). A code is
+// the next of a fixed series, so a test can type it. The remote doors a test opens
+// (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
+type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
+let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
+const GONE = 'this paired client was revoked or its token expired';
+const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
+// A code as the server reads it: case, spaces, hyphens, I, L and O forgiven.
+const normal = (c: unknown) => String(c ?? '').toUpperCase().replace(/[\s-]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0');
+/** Who a request is: the local client, a paired one (its token past its expiry ends it, as revoked), or no one (null). */
+function who(req: Request) {
+  // (Every token past its expiry ends, whoever asks, as the server's sweep ends it.)
+  for (const p of paired.filter(c => Date.parse(c.expires) <= Date.now())) revoke(p.client, 'expired');
+  if (tokenIn(req) === TOKEN) return { local: true, scope: 'write', client: null as string | null };
+  const p = paired.find(c => c.token === tokenIn(req));
+  if (p) p.lastSeen = new Date().toISOString();
+  return p ? { local: false, scope: p.scope, client: p.client } : null;
+}
+/** A request no live token sent: told it was revoked if its token was, else not found. */
+const nobody = (req: Request) => gone.has(tokenIn(req)) ? send({ error: { message: GONE } }, 401) : send({ message: 'Not found.' }, 404);
+/** A code, as `pair-code` mints one (the next of the series). */
+function mint(request: { scope?: unknown; name?: unknown }) {
+  if (!['read', 'propose', 'write'].includes(String(request.scope))) return send({ error: { message: 'pair-code names its `scope`: read, propose or write' } }, 400);
+  const n = ++minted, code = `7Q2KD-M4X${String(n % 100).padStart(2, '0')}`, expires = Date.now() + 120_000;
+  codes.set(normal(code), { scope: String(request.scope), name: typeof request.name === 'string' ? request.name : '', expires });
+  return send({ ok: { code, scope: request.scope, expires: new Date(expires).toISOString(), ...(remote.length ? { remote } : {}) } });
+}
+/** A paired client ended (revoked, or its token expired), as the server ends one: its token refused
+ * from then on (401), its presence, inspect mode, pins and holds handed back, its held proposals kept
+ * marked `revoked`, and a `revoked` event. */
+function revoke(client: string, reason = 'revoked') {
+  const p = paired.find(c => c.client === client);
+  if (!p) return false;
+  paired = paired.filter(c => c !== p);
+  gone.add(p.token);
+  present.delete(client);
+  scrubs.absent((c: string) => present.has(c));
+  held = held.map(h => h.client === client ? { ...h, revoked: true } : h);
+  const inspected = BUILDS.filter(b => b.inspector === client).map(b => b.id);
+  if (BUILDS.some(b => b.inspector === client || b.pinBy === client || b.holdBy === client)) {
+    BUILDS = BUILDS.map(b => ({ ...b, ...(b.inspector === client ? { inspector: null } : {}), ...(b.pinBy === client ? { pin: null, pinBy: null } : {}), ...(b.holdBy === client ? { hold: null, holdBy: null } : {}) }));
+    if (inspected.length) log.push({ event: 'inspect', epoch: EPOCH, client, on: false, builds: inspected, to: null, seq: seq() + 1 });
+    log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+  }
+  take({ event: 'revoked', client, reason });
+  save();
+  return true;
+}
 
 const { hostname, port } = new URL(API);
 Bun.serve({ hostname, port: Number(port), routes: {
@@ -108,9 +173,27 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__tamber': {
     OPTIONS: preflight,
     POST: async (req) => {
-      if (!authorized(req)) return send({ message: 'Not found.' }, 404);
+      const asker = who(req);
+      if (!asker) return nobody(req);
       const request = await req.json().catch(() => ({}));
-      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: PAGE, live: LIVE } });
+      // Revoked or expired while its body came: refused before anything it asks runs.
+      if (asker.client && !who(req)) return nobody(req);
+      // A paired client is the client its token names; its scope is checked first.
+      if (asker.client) request.client = asker.client;
+      const need = needs(request, (id: string) => (held.find(h => h.proposal === id)?.client as string | undefined) ?? null);
+      if (need === null) return send({ error: { message: `\`${request.method}\` has no scope on this wire` } }, 400);
+      if (!allows(asker.scope, need, asker.local)) { const r = refusal(request.method, asker.scope, need); return send({ error: r.error }, r.status); }
+      // (A server that lies to a paired client, saying it is local with a page, as a test asks: `/__stub/forge-local`.)
+      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
+      // (Refused once each, as a test asks: `/__stub/refuse-pairing`.)
+      if ((request.method === 'pair-code' || request.method === 'clients') && refusePairing.delete(request.method)) return send({ error: { message: `${request.method}: refused, as the test asked` } }, 500);
+      if (request.method === 'pair-code') return mint(request);
+      // The gateway's grant (stage 10 C), for a paired client; its URL this stub's own, which has no gateway page.
+      // (A test names the canvas origin a gateway would have, `/__stub/canvas`; by default the stub's host over
+      // https, another port, which nothing serves: the frame is there, entered by nothing.)
+      if (request.method === 'canvas') return asker.client ? send({ ok: { url: `${canvasAt || `https://${new URL(API).hostname}:${Number(new URL(API).port) + 1}`}/canvas/${encodeURIComponent(asker.client)}/`, grant: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url'), expires: Date.now() + 30_000 } }) : send({ error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } }, 400);
+      if (request.method === 'clients') return send({ ok: { clients: [{ client: 'local', local: true, scope: 'write' }, ...paired.map(({ token: _, ...c }) => c)] } });
+      if (request.method === 'revoke') return revoke(request.client) ? send({ ok: { revoked: request.client } }) : send({ error: { message: `no paired client \`${request.client}\`` } }, 404);
       // Scrubs, as the server takes them: a dev loop and a present client.
       if (request.method?.startsWith('scrub')) {
         if (!LIVE) return send({ error: { message: 'no builds preview here: a scrub needs the dev loop\'s design server' } }, 501);
@@ -128,12 +211,15 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'hold') {
         const b = BUILDS.find(x => x.id === request.build);
         if (!b || !(b.capabilities ?? []).includes('hold')) return send({ error: { message: `hold: no build \`${request.build}\` that holds states` } }, 409);
-        BUILDS = BUILDS.map(x => x.id === request.build ? { ...x, hold: request.state ? { site: request.site, instance: request.instance ?? [], state: request.state } : null, held: null } : x);
+        BUILDS = BUILDS.map(x => x.id === request.build ? { ...x, hold: request.state ? { site: request.site, instance: request.instance ?? [], state: request.state } : null, held: null, holdBy: request.client } : x);
         log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
         save();
         return send({ ok: { build: request.build } });
       }
       if (request.method === 'inspect') {
+        // Below write a refresh reads the selection each build last reported, asking no build again
+        // and moving no inspect mode (ruling 5), as the server answers it.
+        if (request.refresh === true && asker.scope !== 'write') return send({ ok: { selections: BUILDS.map(b => log.findLast(e => e.event === 'selection' && e.build === b.id)).filter(Boolean) } });
         if (!present.has(request.client)) return send({ error: { message: `inspect: \`${request.client}\` is not present` } }, 409);
         // A refresh asks a build's page to report again, inspect mode as it is:
         // its last selection again, with the held look a test set (`/__stub/held-answer`).
@@ -166,7 +252,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
         pins += 1;
         // Each record replaced, never edited: an event logged before keeps
         // what it said.
-        BUILDS = BUILDS.map(b => ids.includes(b.id) ? { ...b, pin: request.method === 'preview' ? { mode: { [request.axis]: request.value } } : request.pin, pinRevision: pins } : b);
+        BUILDS = BUILDS.map(b => ids.includes(b.id) ? { ...b, pin: request.method === 'preview' ? { mode: { [request.axis]: request.value } } : request.pin, pinRevision: pins, pinBy: request.client } : b);
         log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
         save();
         return send({ ok: { builds: ids, revision: pins } });
@@ -198,6 +284,10 @@ Bun.serve({ hostname, port: Number(port), routes: {
         held.push({ proposal: id, client: request.client, diff: '', changed: [], ops: request.ops.map((op: unknown, index: number) => ({ index, op })), review: request.review });
         return send({ ok: { proposal: id, client: request.client } });
       }
+      // A `set-row` the server refuses (T5), as a test names it: a file moved since the selection
+      // (`sha256` "stale"), or a value the app does not build with ("not-a-colour").
+      const refusedRow = ['propose', 'transaction'].includes(request.method) && ((request.ops ?? []).map(rowRefusal).find(Boolean) || moveRefusal(request.ops ?? []));
+      if (refusedRow) return send({ error: typeof refusedRow === 'string' ? { message: refusedRow } : refusedRow }, 409);
       if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
@@ -233,12 +323,50 @@ Bun.serve({ hostname, port: Number(port), routes: {
       return send({ error: { message: `the stub answers no ${request.method}` } }, 400);
     },
   },
+  // A code for a client's own token, once; a wrong one is 403, saying nothing of which exist.
+  '/__tamber/pair': {
+    OPTIONS: preflight,
+    POST: async (req) => {
+      const { code, name } = await req.json().catch(() => ({}));
+      if (typeof code !== 'string' || code.length > 32) return send({ error: { message: '`code` is the pairing code, a string' } }, 400);
+      if (name !== undefined && (typeof name !== 'string' || name.length > 40)) return send({ error: { message: '`name` is a string of up to 40 characters' } }, 400);
+      const at = codes.get(normal(code));
+      if (!at || at.expires <= Date.now()) return send({ error: { message: 'no such pairing code: it may have expired, been used, or been burned by failed attempts' } }, 403);
+      codes.delete(normal(code));
+      const label = (typeof name === 'string' && name) || at.name || 'client', now = new Date();
+      const p: Paired = { client: `remote:${label}#${paired.length + gone.size + 1}`, name: label, scope: at.scope, peer: '127.0.0.1', created: now.toISOString(), expires: new Date(now.getTime() + 12 * 3600_000).toISOString(), lastSeen: now.toISOString(), token: crypto.randomUUID() };
+      paired.push(p);
+      take({ event: 'paired', client: p.client, scope: p.scope });
+      save();
+      return send({ ok: { token: p.token, client: p.client, scope: p.scope, expires: p.expires } });
+    },
+  },
+  // The origin the next canvas grants name (a test's: another host refused by the tool).
+  '/__stub/canvas': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasAt = (await req.json().catch(() => ({}))).origin ?? ''; return send({ ok: true }); } },
+  '/__stub/forge-local': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); forgeLocal = true; return send({ ok: true }); } },
+  // The next pair-code and clients refused, once each.
+  '/__stub/refuse-pairing': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refusePairing = new Set(['pair-code', 'clients']); return send({ ok: true }); } },
+  // A code or a revoke as the local tool would ask it, for a test whose tool is the paired one.
+  '/__stub/pair-code': { POST: async (req) => (driver(req) ? mint(await req.json().catch(() => ({}))) : send({ message: 'Not found.' }, 404)) },
+  '/__stub/revoke': { POST: async (req) => (!driver(req) ? send({ message: 'Not found.' }, 404) : revoke((await req.json().catch(() => ({}))).client) ? send({ ok: true }) : send({ error: { message: 'no such client' } }, 404)) },
+  // The remote doors the next codes name (`{remote: [{origin, fingerprint}]}`), as `--remote` opens one.
+  '/__stub/remote': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      remote = (await req.json().catch(() => ({}))).remote ?? [];
+      return send({ ok: true });
+    },
+  },
   // Never held: the stub answers at once, so `clock data` lands it.
   '/__tamber/events': {
     OPTIONS: preflight,
     POST: async (req) => {
-      if (!authorized(req)) return send({ message: 'Not found.' }, 404);
-      const { after = 0, epoch, client } = await req.json().catch(() => ({}));
+      const asker = who(req);
+      if (!asker) return nobody(req);
+      const { after = 0, epoch, client: named } = await req.json().catch(() => ({}));
+      if (asker.client && !who(req)) return nobody(req);
+      if (!allows(asker.scope, needs({ method: 'events' })!, asker.local)) { const r = refusal('events', asker.scope, 'read'); return send({ error: r.error }, r.status); }
+      const client = asker.client ?? named;
       if (typeof client === 'string') present.add(client);
       const missed = (epoch !== undefined && epoch !== EPOCH) || miss;
       miss = false;
@@ -260,6 +388,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       refuseDescribe = '';
       pins = 0;
       present.clear();
+      // (A restart revokes every paired client: the tokens were in memory.)
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false;
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;

@@ -43,6 +43,7 @@ fn raw_symbols_prerender_as_nonfetching_decorative_images() {
     row font-size=28
       image "symbol:sf/airpodsmax" testId="raw"
       image "symbol:sf/" width=40 testId="empty"
+      image "symbol:" width=40 testId="none"
 "#,
     );
     assert!(
@@ -50,11 +51,13 @@ fn raw_symbols_prerender_as_nonfetching_decorative_images() {
         "{doc}"
     );
     assert!(doc.contains("data-symbol-source=\"symbol:sf/\""), "{doc}");
-    assert_eq!(doc.matches("src=\"data:image/svg+xml,").count(), 2, "{doc}");
+    // An empty name, as an empty `sf/` one (stage 9 H).
+    assert!(doc.contains("data-symbol-source=\"symbol:\""), "{doc}");
+    assert_eq!(doc.matches("src=\"data:image/svg+xml,").count(), 3, "{doc}");
     assert!(!doc.contains("src=\"symbol:"), "{doc}");
-    assert_eq!(doc.matches("width='28' height='28'").count(), 2, "{doc}");
-    assert_eq!(doc.matches("data-symbol-path=\"\"").count(), 2, "{doc}");
-    assert_eq!(doc.matches("alt=\"\"").count(), 2, "{doc}");
+    assert_eq!(doc.matches("width='28' height='28'").count(), 3, "{doc}");
+    assert_eq!(doc.matches("data-symbol-path=\"\"").count(), 3, "{doc}");
+    assert_eq!(doc.matches("alt=\"\"").count(), 3, "{doc}");
 }
 
 fn caltrain() -> (Host<caltrain_data::Caltrain>, String) {

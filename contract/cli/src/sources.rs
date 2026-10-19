@@ -1,6 +1,7 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+mod packages;
 mod refused;
 mod uses;
 
@@ -213,6 +214,8 @@ impl Loader<'_> {
         // The design, read before scoping: its motion tokens, and the params of
         // those kinds, are written into the views first (`contract_lower::motion`).
         let design = design(path, &mut self.sources).map_err(|e| vec![e])?;
+        let package_designs =
+            packages::designs(&mut self.sources, code_beside(path)).map_err(|e| vec![e])?;
         // The design's components that aren't Contract, named and checked as
         // Contract params are (D15).
         if let Some(d) = &design {
@@ -233,12 +236,15 @@ impl Loader<'_> {
             .collect();
         self.motion = contract_lower::motion::tokens(
             design.as_ref().map(|d| d.text.as_str()),
+            &package_designs,
             &params,
             &identities,
         );
         match self.scope() {
             Ok(mut file) => {
                 file.design = design;
+                file.package_designs = package_designs;
+                crate::modules::desugar(&mut file).map_err(|all| resolve(&self.sources, all))?;
                 Ok(file)
             }
             Err(all) => Err(resolve(&self.sources, all)),
@@ -415,6 +421,7 @@ fn design(
         text,
         source_id: (sources.paths.len() - 1) as u32,
         bindable: code_beside(root),
+        package: None,
     }))
 }
 
@@ -600,8 +607,15 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         Some(text) => Some(text),
         None => (!params.is_empty()).then(|| "tamber app\n".to_string()),
     };
+    // With its packages' tokens, which an app token may name (D11).
+    let package_designs: Vec<_> = packages::read(&loader.sources, false)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(d, _)| d)
+        .collect();
     let icons: Vec<PathBuf> = text
         .and_then(|text| exact_tamber::parse(&text).ok())
+        .and_then(|d| contract_lower::with_package_designs(Some(d), &package_designs))
         .and_then(|mut d| {
             let identities: Vec<String> = loader
                 .units
@@ -628,6 +642,11 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         path,
         origin: Origin::App,
     }));
+    // Each linked package's design too (D11); one not there yet is looked
+    // for, so adding it rebuilds.
+    let (designs, unmade) = packages::sources(&loader.sources);
+    sources.extend(designs);
+    let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
     sources.extend(icons.into_iter().map(|path| Source {
         path,
         origin: Origin::App,
@@ -713,12 +732,16 @@ impl Loader<'_> {
         }
         contract_analyze::check_routes_root(&file, self.active.len() == 1)
             .map_err(|e| vec![CompileError::from(e)])?;
-        let uses = file.uses.clone();
-        let index = source_id as usize;
         self.units.push(Unit {
             file,
             targets: Vec::new(),
         });
+        self.link(path, source_id as usize)
+    }
+
+    /// Load each file unit `index`'s `use` lines name, depth first.
+    fn link(&mut self, path: &Path, index: usize) -> Result<(), Vec<CompileError>> {
+        let uses = self.units[index].file.uses.clone();
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         let from = self.sources.origins[index].clone();
         for u in &uses {
@@ -778,7 +801,22 @@ impl Loader<'_> {
                     self.sources.digests.push(digest(&used_src));
                     self.sources.texts.push(used_src.as_str().into());
                     self.active.push(key.clone());
-                    self.load_source(&key, &used_src, used as u32)?;
+                    if key.file_name().is_some_and(|f| f == "exact.json") {
+                        // A package's module declaration (LLP 1133.001), whose
+                        // `use`s name its implementations' files.
+                        let file = crate::declaration::read(&key, &used_src, used as u32).map_err(
+                            |(id, message)| {
+                                vec![use_error(id, format!("{}: {message}", described(u)), u)]
+                            },
+                        )?;
+                        self.units.push(Unit {
+                            file,
+                            targets: Vec::new(),
+                        });
+                        self.link(&key, used)?;
+                    } else {
+                        self.load_source(&key, &used_src, used as u32)?;
+                    }
                     self.active.pop();
                     self.cache.insert(key, used);
                     used
@@ -1142,6 +1180,18 @@ impl Loader<'_> {
                 })
                 .cloned()
                 .collect(),
+            modules: self
+                .units
+                .iter()
+                .enumerate()
+                .flat_map(|(u, unit)| {
+                    unit.file
+                        .modules
+                        .iter()
+                        .filter_map(move |m| unique[u].get(&(Kind::Call, m.name.clone())))
+                })
+                .cloned()
+                .collect(),
             ..Scope::default()
         });
         Ok(())
@@ -1257,7 +1307,9 @@ impl Loader<'_> {
             theme: files[0].theme.take(),
             // The design is the app's, read beside its root (`design`).
             design: None,
+            package_designs: Vec::new(),
             fns: all!(fns),
+            modules: all!(modules),
             components: all!(components),
         }
     }
@@ -1283,6 +1335,7 @@ fn declarations(file: &File) -> impl Iterator<Item = (Kind, &str)> {
     (file.components.iter().map(|c| (Kind::Component, &*c.name)))
         .chain(file.shapes.iter().map(|s| (Kind::Call, &*s.name)))
         .chain(file.fns.iter().map(|f| (Kind::Call, &*f.name)))
+        .chain(file.modules.iter().map(|m| (Kind::Call, &*m.name)))
         .chain(file.styles.iter().map(|s| (Kind::Style, &*s.name)))
         .chain(
             file.decorations

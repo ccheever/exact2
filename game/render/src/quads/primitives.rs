@@ -102,7 +102,7 @@ impl Primitives {
             p.material = *material;
             if let Some(tint) = w.get::<exact_game::Tint>(item.entity) {
                 for i in 0..4 {
-                    p.material.color[i] *= tint.color[i];
+                    p.material.color[i] *= tint.color.0[i];
                 }
                 for i in 0..3 {
                     p.material.emissive[i] += tint.emissive[i];

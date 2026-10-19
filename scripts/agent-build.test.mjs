@@ -391,3 +391,37 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A drive's compiler warnings keep the compiler's order, the symbols only the web draws blank one line at the end;
+// the file beside the app lists each (the euxy port's header warning was one of 43, behind 21 of them).
+test('a drive says the web-only symbol warnings in one line and lists each in its file', async () => {
+  const { warningLines } = await import('./app-cli.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-warning-lines-')));
+  try {
+    const header = 'app.contract:9:3 warning [lower-header-unplaced] this `button` in this route\'s `header` is not shown on iOS';
+    const first = 'app.contract:4:5 warning [lower-symbol-platform] symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token';
+    const later = 'app.contract:5:5 warning [lower-symbol-platform] symbol `sf/b` is blank on web too: write `symbol:add`, the role, which draws on every host';
+    const native = 'app.contract:6:5 warning [lower-symbol-platform] symbol `sf/c` is blank on linux and web too: write `symbol:add`, the role, which draws on every host';
+    const said = warningLines(dir, 'ios', [header, native, first, later]);
+    assert.deepEqual(said.slice(0, 2), [header, native]);
+    assert.match(said[2], /^app\.contract:4:5 warning \[lower-symbol-platform\] 2 SF Symbol uses draw blank on the web, here first: .*\.exact\/warnings-ios\.txt lists each, and how\)$/);
+    assert.match(said[3], /^compiler: 4 warnings; /);
+    assert.equal(readFileSync(resolve(dir, '.exact', 'warnings-ios.txt'), 'utf8'), [header, native, first, later].map((w) => `${w}\n`).join(''));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// An Apple build's bake says its warnings on every build: the SF Symbols only the web draws blank one line where the
+// first was (euxy's 18, every Release build), the rest each.
+test('an Apple bake says the web-only symbol warnings in one line', async () => {
+  const { bakeWarnings } = await import('./linked-plan.mjs');
+  const alias = 'app.contract:2:5 warning [lower-symbol-alias] symbol `sf/arrow.up.arrow.down` is the role `sort`: write `symbol:sort`';
+  const first = 'app.contract:4:5 warning [lower-symbol-platform] symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token';
+  const later = 'app.contract:5:5 warning [lower-symbol-platform] symbol `sf/b` is blank on web too: write `symbol:add`, the role, which draws on every host';
+  assert.deepEqual(bakeWarnings('euxy', [alias, first, later]), [
+    `warning: euxy: ${alias}`,
+    'warning: euxy: app.contract:4:5 warning [lower-symbol-platform] 2 SF Symbol uses draw blank on the web, here first: an icon token or a role draws on every host (`bun exact.mjs contract build --json` says each, and how)',
+  ]);
+  assert.deepEqual(bakeWarnings('euxy', [alias]), [`warning: euxy: ${alias}`]);
+});

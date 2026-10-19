@@ -1,7 +1,7 @@
 // `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a state, derive or resource (or a field of the record)
 // reads by name, down a dotted path, as `expect state` does, even where a view carries the name; a plain view's is the record.
 import { test, expect } from 'bun:test';
-import { render, renderTrace, stateOp } from './agent-inspect.mjs';
+import { render, renderTrace, stateOp, tapRefusal } from './agent-inspect.mjs';
 
 test('log rendering skips canvas error rows and preserves journal order', () => {
   const error = { canvas: 7, error: 'journal unavailable' };
@@ -9,6 +9,11 @@ test('log rendering skips canvas error rows and preserves journal order', () => 
   expect(render('logs', { lines: ['host entry'], world: [error, row(['first']), error, row(['second']), { canvas: 8, lines: null }] }))
     .toBe('host entry\nworld first\nworld second');
   expect(render('logs', { lines: [], world: [error] })).toBe('(nothing new)');
+});
+
+test('a screenshot says what it shows that the app does not on lines of their own', () => {
+  const text = render('screenshot', { screenshot: 'a.png', w: 402, h: 874, painted: [{ id: 9, testId: 'menu' }], paintedNote: 'the agent painted it' });
+  expect(text).toBe('screenshot a.png · 402×874 · painted=[{"id":9,"testId":"menu"}]\n  NOTE: the agent painted it');
 });
 
 const record = { slots: { liked: true, draft: '' }, derives: { left: 2 }, resources: { groceries: [{ title: 'Eggs', done: false }, { title: 'Milk', done: true }], weather: { temp: 21 } }, mediaSession: { owner: null }, transport: { state: 'stopped' }, clock: 0 };
@@ -71,4 +76,13 @@ test('state world events uses the world seam and an optional type filter', async
   expect(calls[0][4]).toEqual({world:true, events:true, event_type:'Hit'});
   await stateOp(s, ['world','events']);
   expect(calls[1][4]).toEqual({world:true, events:true});
+});
+
+// A target covered by what may leave on a timer the frozen clock never reaches (euxy FRICTION 9): the refusal names the
+// tasks still waiting and the step that runs them; with none waiting it is as it was.
+test('a covered target\'s refusal names the tasks waiting on the clock', async () => {
+  const covered = (tasks, clock = 0) => tapRefusal({ state: async () => ({ clock, tasks }), tree: async () => ({ nodes: [] }) }, 'go', new Error('tap #333: node #6 covers its middle'));
+  expect((await covered({ boot: 1, splash: 900, charge: null })).message).toBe('tap #333: node #6 covers its middle; the agent\'s clock stands at 0 ms, and the app\'s tasks wait on it (`boot` at 1 ms, `splash` at 900 ms): if what covers it leaves on a timer, `clock +900` runs them');
+  expect((await covered({ splash: 900 }, 1000)).message).toBe('tap #333: node #6 covers its middle');
+  expect((await covered({})).message).toBe('tap #333: node #6 covers its middle');
 });

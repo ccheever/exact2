@@ -829,6 +829,17 @@ No spacing or radius scale ships in the base yet: the platform's metrics are alr
 rows. A base scale, with platform values rather than a brand's 4 px grid, is wanted later
 (Charlie, 2026-10-13) and is stage 11.
 
+*Amended 2026-10-19 (stage 11 B; theme2):* the base scale ships as nine base names (`space.xs`
+to `space.xl`, `radius.sm` to `radius.full`), each a length in each host's column of the
+kernel's table. A design value or a `when` arm may name one bare (`card.pad: length = space.md`,
+an alias), and what it means depends on the app's design:
+- **the base name is unset:** the alias is a per-host reference, kept as written and never
+  folded, so each host reads its own column; an expression over it (`calc(space.md + 4px)`) is
+  refused until QUEUE's entry lands;
+- **the app's design sets it:** it is the app's own token, and every reader folds through it as
+  through any token reference, so the app's value wins everywhere, an edit of it re-folds the
+  alias, and a ranged param naming it keeps its px.
+
 **Packages.** A package (`packages/reading`) may ship `<package>.tamber` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
 may set any of them by full name. Two definitions of one name from different files are a
@@ -836,6 +847,29 @@ compile error, unless the app's design sets it. Dials and axes are the app's alo
 may not declare them, and a package token's `when` lines may name only the app's axes, which
 the app must declare or the package's token is refused. What a build keeps of a package's
 tokens is D7's one retention rule.
+
+As built (stage 11 A1, theme2's rulings Q1–Q8 and 13:06): the file is `<name>.tamber` beside
+the package's entry (what its `package.json` `exports` maps `.` to, else `index.contract`), or
+the file its `package.json` `"tamber"` names inside the package (missing, or leading out of it:
+`tamber-unreadable`), for every package the app's sources link, transitively (a package vendored
+inside one and reached by a relative `use` included). `<name>` is the last part of the package's
+own name (`@exact/reading` → `reading`, whatever name a `use` installed it under); the file's
+header is `tamber <name>` and every token is `<name>.…` (`tamber-package-name`). Two linked
+packages taking one namespace that both ship a design are refused, naming both: no line of the
+app's can tell their tokens apart (the one-name rule above is then the app's and a package's: the
+app's definition wins). A token keeps its name in the one table; its source is
+`<package>/<file>` (`@exact/reading/reading.tamber`), and the design server names it
+`<package>/<file>#<token>` (stage 11 A2), as D15 names components. A package's design holds a
+`theme` block only: axes, dials, components' params, `params` lines, icon tokens and `exports`
+are refused (`tamber-package-block`; components are stage 12's, icons QUEUE). Its tokens join the
+app's design in the one fold; a token the app's design defines is the app's, whole (all its
+`when` lines). What a package token names, as the fold resolves it (its values and its `pair=`),
+is a token its own design declares, a role or one of the base scale's nine names (`space.xs`,
+`space.sm`, `space.md`, `space.lg`, `space.xl`, `radius.sm`, `radius.md`, `radius.lg`,
+`radius.full`, whose values are the app's until stage 11 B's; a package may not declare them),
+and no dial its values read (`tamber-unknown-token`; references across packages are QUEUE).
+A refusal in a package's design points at its line there (a token's, a `when`'s, a refused
+block's); one about the file (unreadable, a namespace taken twice) names the file.
 
 ### D12 — Every language gets generated names over the one table
 
@@ -1460,13 +1494,51 @@ Android's reader and the terminal.
    node names its rows' tokens; an authored transition does not time a look on the web; an
    iPad pointer shows a `:hover` look; no regressions (release unchanged where unused, conform
    clean, LLP 1061's press corpus unchanged).
-10. **External clients and remote authentication** (D13, D14). A Figma plugin bridge, a Paper
-    or Pencil client, pairing. Waits on §9 Q4. **Gate:** a changed accent in Figma Variables
-    is proposed as a dial change and a changed folded value as a pinned override; a paired
-    client with `propose` scope cannot write; revoking a client cuts it off at once.
+10. **Remote authentication: pairing** (D13; with LLP 1122 T6, D12). Split 2026-10-19 (the
+    lead's acceptance of theme2's stage 10 brief): pairing codes and scoped, in-memory tokens
+    (12 h, revocable at once; `inspect` needs `read`, `hold`/`pin`/`outline` need `write`), a
+    TLS-only remote listener with a per-run self-signed certificate whose fingerprint the paired
+    client pins (or an explicit `--trust-tunnel`), and the canvas gateway; local and LAN only, no
+    hosted relay (§9 Q4's default). Wire: `tamber/1.13`. **Gate:** a paired `propose` client
+    cannot write or send commands; revocation cuts off its socket and, separately, its canvas
+    through the gateway; an unencrypted remote connection is refused.
+    **10b. External clients** (D14): a Figma Variables bridge, a Paper or Pencil client, as
+    clients of stage 10. Wire: its additions land after stage 10 closed (2026-10-19), so they
+    are the first of `tamber/1.14`, the window stage 11 shares. **Gate:** a changed accent in
+    Figma Variables is proposed as a dial change and a changed folded value as a pinned override.
+    **10c. A hosted relay** (Charlie, 2026-10-19: "We will prob need one yes"; design to
+    follow, its own plan): remote pairing for a team that shares no machine or LAN. What
+    stage 10 already fixes, and the relay must keep (theme2's check, 2026-10-19):
+    - **End to end, not terminated.** The relay forwards the client's TLS to the developer's
+      server unopened (a blind pass-through), so the per-run certificate's fingerprint, shown
+      with the pairing code and pinned by the client, still authenticates the developer's
+      server, and the relay never sees a token, a design or a canvas. A relay that terminated
+      TLS would break pinning and see every secret: ruled out.
+    - **The developer's server dials out.** Stage 10's listener only accepts; behind a NAT the
+      server must hold an outbound connection to the relay that the relay hands client streams
+      down. A new connector beside `--remote`, with the same routing and the same
+      `access.remote`.
+    - **Peers are the relay's.** The socket's peer is the relay for every relayed client, so
+      stage 10's per-peer pairing limit would lump them together: relayed pairing leans on the
+      per-code burn rule and a per-relay-session limit; a peer address the relay reports is
+      never trusted for anything but display.
+    - **Origins.** The relay's public host names become the tool's and the canvas's origins
+      (two, as stage 10's two ports; the canvas stays a different origin from the tool and the
+      cookie stays server-bound), and the Origin check and `remote.info()` name them.
+    - **Tokens unchanged.** Pairing codes, scoped in-memory tokens, revoke and the method table
+      work as in stage 10; the relay adds no credential of its own to the protocol (it may
+      have an account for the developer's server to connect, outside `tamber/1`).
+    **Gate:** set by its plan; at least stage 10's three lines through the relay, and the relay
+    shown unable to read a token or a design.
 11. **A base spacing and radius scale** (D11), when packages need a shared vocabulary:
     `space.*` and `radius.*` with values taken from each platform's metrics, not a brand's
     4 px grid. **Gate:** two packages restyle together from one app value.
+    *As accepted (the lead, 2026-10-19, theme2's stage 11 brief):* started now, with two fixture
+    packages as the consumer; it first builds D11's package designs (no package shipped a
+    `.tamber`, and only the app's design was read); names `space.xs…xl` and
+    `radius.sm/md/lg/full`, each base value from an existing metric or measured, never a
+    multiplier, in px/points with no Dynamic Type scaling; an app may override a base name, a
+    package may not; only the listed names are reserved; package components stay stage 12's.
 12. **A component library**: `.contract` packages over Tamber, with params (D15) as their
     tweakable surface and anatomy as checked data, keeping exact1 Facet's rule, "a recipe
     styles parts; it never forecloses slots". Its own RFC. **Gate:** set by that RFC; its
@@ -1541,6 +1613,9 @@ the implementation follows until Charlie rules otherwise.
    attributed tokens, and leaves a hosted relay out. Is that the model, and does a team
    relay belong in this program? *Provisional default:* local clients only; pairing as D13
    proposes when stage 10 comes; no relay.
+   **Answered (Charlie, 2026-10-19):** pairing as D13 is the model (stage 10, local and LAN);
+   a hosted relay is wanted ("We will prob need one yes"), design to follow: §5 stage 10c,
+   end to end through the relay, the developer's server dialing out.
 5. **Persistence and contrast.** Should `setMode` and the root-size percentage persist and
    apply before the first frame (so Dim never flashes Black)? Is an authored contrast
    variant for app colours wanted (D5)? *Provisional default:* neither persists, as
@@ -2852,7 +2927,8 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   So the `font` shorthand lowers to only `font-style` and `font-size`. That is what lets C's type
   tokens write only the longhands they name.
 - **`layout` and inspect** name a row's source `style` or `heading`.
-- **Headings** keep an implied bold through one switch, `HEADING_BOLD`, pending Charlie.
+- **Headings** keep an implied emphasized weight through one switch, `HEADING_BOLD` (final,
+  Charlie 2026-10-19: 700 for levels 1 and 2, 600 for level 3).
 - **Bold Text** weights the system font by UIKit's measured step (400→600, 600→800, 700 and above
   →900), and leaves a bundled family alone. iOS and Android read the setting; the Mac and the web
   have none. Android's toggle is compiled and unit-tested but not observed on the emulator.
@@ -3989,3 +4065,710 @@ site is located as the map has it (`sitesAt` outlines by it) and a component use
   over two lines is; an icon param asked about; a motion literal in a component used twice (two
   sites, the literal kept), an animation longhand's instance at its node, one in an unused
   component (`site: null`); a design the app doesn't build has no sites.
+
+### Stage 9, commit B: symbol images take their written colour (draft for theme2)
+
+theme2's ruling (2026-10-18 17:32) on every host but Linux and the reader, which keep their own
+rule (the tint, else the text colour). An untinted symbol **image** draws in:
+
+1. its `-exact-tint-color`, where written;
+2. else a `color` its author wrote on it, or on the nearest ancestor that sets one. A token or a role counts. The inherited default label colour and a sheet's colour don't.
+3. else the platform's unsaid symbol colour: the accent on the web and iOS, `secondaryLabelColor` on the Mac.
+
+This is D10's "colour from `-exact-tint-color` and `color`". It applies to page images only: a symbol
+on a native control's face (a bar item, a tab, a segment, a button) keeps the control's tint (D9,
+LLP 1115 D4).
+
+- **The kernel** (`NodeRef::symbol_color_said`, kernel/src/node.rs). An image with a `symbol:`
+  source, not a native button's face (a `Control`'s child), for which `says(TextColor)` is true.
+  `says` walks up to the first node that sets `color`: true where its author wrote it, false where only
+  a sheet did. A platform start (the neutral sheet's route header) stops the walk. A change of an
+  ancestor's colour, or of whether it was written, already touches every descendant that inherits it
+  (`propagate_inherited`), so each host re-sends the image. `NodeFacts` carries the answer
+  (`symbol_color`, false for any other node), so `props_of` writes it for live batches and server
+  documents alike. `DocTree::facts` computes it the same way for a document written without a kernel,
+  and also stops at the neutral route header.
+- **The web.** The image is marked `data-symbol-color` (element.rs). The glue's symbol sheet adds
+  `:where(img[data-symbol-path][data-symbol-color]){--exact-tint:currentcolor}`. That rule has zero
+  specificity, so an authored tint still wins. In Chrome, the registered `<color>` `--exact-tint`
+  resolves `currentcolor` on the image to the image's own `color`: a `light-dark()` colour by its
+  scheme, and a later colour at once.
+- **The JS target.** The same mark and the same sheet (symbols.js). `style::symbol_marks` marks what
+  the static tree can't decide alone:
+  - any bound source, whatever names its role (a state's, a data's): the sheet asks for a symbol's path, so a photo's mark draws nothing;
+  - under a bound `color` or a mode boundary, the image carries `data-symbol-ink` (how many such nodes are above it, and the decision past them), and each such node `data-exact-ink` (a bound colour written or not, `b` a boundary). After each commit symbols.js (`inked`) takes the nearest that sets the row: a boundary's implied row (modes.js `$xs`), no author's, which stands where the boundary's own binding clears or is refused, as the runner installs it; else a bound colour while its binding has a value, a clear included (`$ink`, which rows.rs records from the binding itself, not from what a boundary leaves inline). A `none` takes a bound colour away, as the runner clears the written bit, and the next one up decides.
+
+  Not marked: a colour that only a state look sets (`:hover`).
+- **Apple.** `props_for` sends `symbolColorWritten: "1"`, priced in `content_region.rs` as
+  `symbolName` is. `NodeView.symbolInk` (Affordances.swift) is the node's `text_color` where nobody
+  tinted it and the prop is set:
+  - on iOS, `tintColor = symbolTint ?? symbolInk`. A colour that names the accent is `nil`, so UIKit's live tint is inherited as before;
+  - on the Mac, `contentTintColor = symbolTint ?? symbolInk ?? unsaidSymbolTint`. The accent is `inheritedTint`;
+  - a hierarchical configuration takes the same colour, and `symbolLookKey` holds it when the glyph bakes it.
+
+  Only the page image's `updateSymbol` reads it; bar items, tab faces, segments and button faces
+  don't. Where iOS or the Mac shows a tab's or a radio's one image as a segment, the segment's
+  image is made at that point in the control's tint (`NodeView.faceImage`), never in the page's ink. A props change of the word re-runs `updateSymbol`. An unwritten symbol is unchanged, and
+  `PlatformDefaultsMacTests` is unchanged.
+- **Movers** (condition 1). Each app's static tree (the JS target's, every site with its arms
+  flattened, a component per use) was walked for symbol images with no tint and a written colour:
+  - **Shelf: none.** Its stars write no colour ("in the tint"), so they stay the accent on the web and iOS and `secondaryLabelColor` on the Mac. Its tab and header symbols are control faces.
+  - **The clone (`95d7d41`): 8 sites** of 1,968 symbol and photo images (683 symbols):
+    - the chat message menu's Translate, Copy, Delete and Report (chat.contract:1272, 1287, 1302, 1318);
+    - the lightbox's Share (viewer.contract:453, used 4 times).
+
+    Their colour and their accent both come from the root's `color="text"` and `accent-color="text"`. So on the web and iOS they look the same as before (the accent, now the colour: both `text`). On the Mac they move from `secondaryLabelColor` to `text`, the colour of the menu's labels. Every other clone symbol writes its own tint or is a control face.
+- **Tests:**
+  - the kernel's `symbol_color.rs`:
+    - no colour;
+    - an ancestor's written colour, its token form, and its clear touching the image;
+    - a nearer colour no author wrote;
+    - a nearer tint not deciding it;
+    - its own colour;
+    - not on a native button's face;
+  - the web's `tint.rs`: batch, server document and kernel-free document agree;
+  - Chrome's `a symbol draws in its written colour` (`document.test.mjs`, both sheets): the written colour, `light-dark()`, a live change, an authored tint winning, an unmarked symbol staying the accent;
+  - the JS target's `a_symbol_under_a_written_colour_is_marked`;
+  - Apple's `inherited.rs` (the prop, the colour beside it);
+  - `SymbolColorMacTests`: Shelf's star under `color="AccentColor"` is the accent, a token colour, unwritten unchanged, a written tint wins, the word and the colour followed live, a hierarchical glyph remade;
+  - `SymbolColorIOSTests`: the same on iOS.
+- **After review round 1 (Astra, Grok):**
+  - The JS target marks a symbol under a written colour whatever names its source, and decides a bound `color` after each commit (`data-symbol-ink`, `data-exact-ink`, symbols.js `inked`): a conditional colour that goes gives the symbol back to what is past it, and one that comes back takes it again (Astra 1, 2; `emit_tests.rs`, `js-symbols.test.mjs` in Chrome).
+  - A document written without a kernel keeps an authored CSS-wide clear's written bit (`color="inherit"`), `none` unwritten, as a kernel's `ClearStyle` does (Astra 3).
+  - Its walk stops where `says` does: at the neutral route header, a neutral alert and its children but its buttons; a field holds no image (Grok 1; `tint.rs` adds the clear and an alert, and fails without either).
+  - A tab's whole face takes no page ink on Apple, so a projected segment's image keeps the control's tint (Astra 4; `inherited.rs`). Replaced in round 2.
+  - A move that changes whether the colour is said, or takes an image off a native button's face, with the colour equal, sends the moved subtree's symbol images again (`DefaultContext.ink_said`; Astra 5, Grok 4; `symbol_color.rs`, both ways).
+  - A standard grouped row on iOS tints its symbol with a written colour where nobody tinted it, destructive and disabled still over it, and reconfigures when it changes (Grok 2; `SymbolColorGroupedIOSTests`).
+  - The Mac's emphasized table row keeps a fixed written colour, as it keeps a fixed tint (Grok 3; `SymbolColorMacTests`).
+- **After review round 2 (Astra, Grok):**
+  - The kernel's tab-face guess is gone (`is_tab_face`, its props gate and what it would have needed invalidated): it missed tabs kept as authored (`appearance="none"`, one tab, a face a segment can't show), radio segments and sibling changes. A segment's image is made where iOS and the Mac project it, in the control's tint (`faceImage`); the page image keeps the written colour wherever it is shown as one, an `aria-hidden` tab's glyph included (Astra 1, 4; Grok 1, 2, 4; `SymbolColorIOSTests`, `SymbolColorMacTests`: two image tabs and two image radios as segments with no written ink, a one-tab tablist and a page symbol beside them in it).
+  - The JS target reads a bound colour's provenance from its binding (`$ink`), not from the inline colour, and a mode boundary as an implied setter, as the runner's (`theme.rs`): a symbol under a written token and a boundary is the accent, as on the kernel (Astra 2, 3; Grok 3; `modes_tests.rs` against the kernel, and `js-symbols.test.mjs` in Chrome with `Sx` on `data-x-b`: a clear said, `none`, a value).
+  - The Mac's symbol cell is drawn `.normal` whenever a fixed tint or written colour keeps its ink, set again with each look, so a fixed colour that comes while the row is selected keeps its ink at once (Astra 5).
+  - A document written without a kernel keeps a refused bound colour's written bit, as the runner's `ClearStyle` does (Astra 6; `tint.rs`, which fails without it).
+  - After the re-check: on a boundary under a token colour, an implied row the boundary writes because its own bound colour clears or is refused stands over that binding, as the kernel's unwritten implied row does (`inked` reads `$xs` first; `modes_tests.rs` against the kernel, a clear and then a written value; `js-symbols.test.mjs`, a clear and a refused value).
+  - After re-check 2: a boundary's bound colour that clears or is refused again, with nothing implied changed (`inherit` then `unset`), had its implied row cleared and not set back, so the kernel said written where the JS target did not; the runner now sets it again, unwritten, after each such clear (`NodeInst::unimply`, theme.rs). `modes_tests.rs` steps the kernel through inherit, unset, currentcolor, two refused values, a value, inherit, a value and unset against symbols.js's rule, and `js-symbols.test.mjs` the same in Chrome; iOS's segment test reads the image the installed segment was drawn from (`SegmentHost.drawn`).
+  - On main with stage 9 A (the rebase): a path icon keeps A's rule (its tint, else its colour) and an SF Symbol takes B's; a path icon never takes the hierarchical face image (`faceImage`). So an untinted path icon with no written colour draws in its inherited colour where an untinted SF Symbol takes the platform's unsaid colour: both rulings, not a defect (theme2).
+
+### Stage 9's gate: met, with one deviation (2026-10-19; the run is `~/x2theme/stage9-gate-run.txt`)
+
+The clone at `3d3a4db` (H) on exact2 main: the server and web lines at `aa5cb16b1e`, H at
+`02dd4316e2`, the icon lines and the regression reruns at `188517d645` (B landed). Stage 9's commits: D1 `f1ac0f4df2`, D2 `12846f3be3`, D3 `08475ffeb5`, E
+`d731252e8d`..`7b4c2e4b2a`, A1 `6f5dd9004f`..`70f2a42327`, A2 `fcea1ec266`..`65d06ab882`, G1
+`1d7e20015`..`60fccd36b`, G2 `697ac7206`..`69c770245`, G3 `ad166145d`..`6fb914c35`, G4
+`c13fcdcde`..`b28c0c1a6`, F1 `44e834bfd`..`c11ac9f66`, F2 `419f6220f`..`f1ae334a2`, C
+`e8089e1e86`..`558b8a0638`, the icon-alias fix `abb270eb5e`, H's empty `symbol:` name `3f3d5459d0`, B
+`f7ed121e6b`..`188517d645`.
+
+| Gate line | Result |
+|---|---|
+| An svg-only icon token draws on iOS and the Mac, tinted by a colour token, and follows a live retheme; `tamber-icon-missing` no longer asks Apple targets for an `sf` | **Met** (x2-perf4, on `188517d645`): an svg-only icon with no `sf` builds for iOS and macOS with no `tamber-icon-missing`, draws on both, tinted by the token through `-exact-tint-color` or `color`, and follows a live mode change of the token (#0a7f2e → #1a4fd6) with no rebuild. |
+| Mac symbol images take their `color` and colour tokens | **Met** (x2-perf4): a Mac SF Symbol image takes its written `color` and the colour token, and follows the retheme; an unwritten one keeps the platform's colour. |
+| `explain` answers an icon and a param; `uses` lists an icon's image sites | **Met** on a copy of the clone: an icon's sources and `draws` per shipped target, a param's place and default; `uses` of an icon written twice, once in a component used twice, gives three sites, each with its chain. |
+| `set-row` edits a template colour in one line and hot-reloads; a stale digest is refused; a failing candidate writes nothing; promote to param and to token are each one transaction with one undo; a `class:` row's edit lands in the style's own file (T5) | **Met** on a copy of the clone, by the bytes: a one-line diff and undo gives them back; both stale digests (the op's and the files') refused; an unknown token and a wrong-kind value write nothing; each promotion is one transaction with one undo (the token's across two files); a style edit lands in its own file, and names the file to use where three files declare the style. Hot reload: on the JS dev loop, a `set-row` through the loop's own design server shows on the open page 303 ms later. |
+| Inspect on a held node names its rows' tokens and the state part's spans (T4) | **Met**: LLP 1122 T4's run (`~/x2theme/t4-gate-run.txt`) after E: the held row reads `:active background-color var(--x-primary_600)` at the part's span. |
+| On the web, an authored transition doesn't time a look; an iPad pointer shows a `:hover` look | **Met**: `looks.test.mjs` (a look snaps through an authored transition, entering and leaving); on an iPad simulator, `HeldStateTests.testIOSHoverLookAndHold`. **Deviation**: the iPad line is shown by that test, which drives the hover recognizer's callback; no real pointer was moved. |
+| No regressions: release output unchanged where none of this is used; conform clean; LLP 1061's press corpus unchanged | **Met**, through B. Release output: caltrain, theme-fixture, shelf, realworld, tamber-host and the press corpus, built before and after each of 22 runs of stage 9 commits (176 comparisons), are byte-identical, but for F2's re-measured control-role cells moving the schema digest (8 header bytes, every plan). Conform (rt1, post-B): `--synthetic --strict` 0 failures in 98 targets; of the apps, native-fixture and interaction-gallery fail as before stage 9, line for line (QUEUE; accepted as unchanged). The press corpus's plans are unchanged by B. |
+
+**H, the clone's icons:** the clone wrote no bare `symbol:sf/…`. Its settings rows' five computed
+sources (`symbol:sf/${symbol}`) take icon tokens and role names now: 34 of their 55 SF names are
+the same icon and 17 the same role, by the runner's rule. Four notification rows, whose names come
+from data at run time, were no icon and no role and drew nothing off Apple; they are icon tokens
+now. That needed one exact2 fix: an empty `symbol:` name is no symbol, as an empty `sf/` one is
+(the principled fix, checking no value in an `if` arm that folds false, is in QUEUE).
+**Also found and fixed in stage 9:** an icon naming another was refused by every fold but the
+build's; in an app with params that let a write's role-axis check skip the design (`abb270eb5e`).
+**B's movers:** B changes how hosts render, not any plan. On the Mac the clone's 8 menu and lightbox
+icons under `color="text"` now draw in the text colour where they drew the unsaid symbol grey
+(accepted by theme2).
+**Not gate lines:** 8 Swift tests fail on an iPad simulator only, and one sheet-timing test is flaky
+on iPhone (QUEUE). Also in stage 9: F1 and F2 (rt1), the native control follow-ups.
+
+**Stage 9 is closed.**
+
+### Stage 10, commit A1: one method→scope table (draft for theme2)
+
+`scripts/tamber-pairing.mjs`'s `METHOD_SCOPE` gives every method of the wire one scope, checked in the
+dispatcher before any handler. A method with no entry is refused (fail closed), and the change stream's
+two paths go through the same table.
+- `read`: hello, describe, resolve, explain, uses, history, export, inspect, and the streams.
+- `propose`: propose (held or not), import, revert, and drop of the client's own held proposal.
+- `write`: transaction, undo, commit, accept, drop of another client's proposal, pin, preview, outline,
+  hold, and the three scrub methods (ruling 5).
+- `local`, the local token only: pair-code, clients, revoke.
+A request above its scope is 403 `{message, scope, needs}`. Opens `tamber/1.13`.
+- **Read-only, below write:**
+  - `inspect` `refresh` reads each build's last published selection and asks no build (a build's answer
+    outlines on the developer's screens).
+  - `export` keeps no DTCG baseline (keeping one prunes another client's).
+  - `history`'s git runs with `--no-textconv`, `--no-show-signature` and `GIT_NO_LAZY_FETCH=1`.
+  - The JS loop's live `propose` class reads the design with the built reader only: no build and no
+    `cargo run`.
+- **The held-proposal cap:** a client below write may not drop another's proposal, so at the 64-proposal
+  cap its own oldest goes, else its hold is 409. This is decided in the same turn as the insert.
+- **Review:** 3 rounds with security passes and three quick re-checks; the last found nothing blocking.
+
+### Stage 10, commit A2: pairing, scoped tokens, clients and revoke (draft for theme2)
+
+To the brief and theme2's approval: (a) drop-own is propose; (b) a revoked client's held proposals
+stay, marked `revoked`; (c) 8 live codes, and 5 attempts a minute per peer.
+- **Codes:** 50 CSPRNG bits (`XXXXX-XXXXX`), 2 minutes, single use, compared in constant time.
+  - A failure counts against every live code, burned at 5.
+  - A peer gets a burst of 5 attempts, refilled at 5 a minute, limited before its body is read.
+  - Each burn and limit hit is logged with the peer, never a code.
+- **Tokens:** 32 bytes, in memory only, kept by SHA-256, 12 h (`--pair-ttl`).
+- **Clients:** named `remote:<name>#n` by the server, on every request and stream. A local client may not
+  take a `remote:` name.
+- **Local tool only:** `pair-code`, `clients`, `revoke`, and `bun exact.mjs tamber pair`.
+- **No cookie** is ever read.
+- **The local token** works only on a request the gate calls local. Through B's remote listener or a
+  trusted tunnel nothing is local, and only `POST /__tamber/pair` answers without a paired token.
+- **A revoke or an expiry:**
+  - ends the client's subscriptions, long polls (401), scrub (restored), pins, inspect, outlines and
+    holds, and the gateway's streams (`onEnd`);
+  - makes a request still sending its body 401, and a scrub release mid-preview writes nothing;
+  - lets a write already sent to the design server complete, as a local edit in flight would.
+- **Deadlines are facts at once:** every read treats a client past its deadline as gone. Its end, and
+  the callbacks, come from its timer or a sweep at each request and build report, never from inside
+  another event's send.
+- **The interface for C** (`lookup`, `onEnd`, `live`, `limiter`, `allows`, the table) **and for B**
+  (`access.remote`, `tunnel`, `peer`) is the module's doc comment.
+- **Review:** 3 rounds with security passes and six quick re-checks. Round 3's Grok and the last re-check
+  found nothing.
+- **Known limit (accepted, theme2):** five unauthenticated misses burn every live code, by the burn rule:
+  a LAN peer can deny pairing, never gain it (rate-limited per peer; pairing is LAN-only, ruling 1).
+
+
+### Stage 10, commit C1: the canvas gateway (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions after approval) as a module on its own,
+`scripts/tamber-canvas.mjs`, with A's interface and B's listener injected; under `tamber/1.13`.
+
+- **The origin (theme2's ruling on C (a), the lead agreeing).** The canvas has its own origin: a second TLS port on
+  B's remote listener, the same per-run certificate. It is the same site as the tool's port and a different origin,
+  as the local tool (`127.0.0.1:7740`) and the framed page (`localhost:<port>`) are today, so `pageOf`'s guard
+  holds: the framed page can't lift its sandbox or reach the tool's DOM, storage or token. D12's "same-origin" reads
+  "served by the Tamber server under the paired token, never the app's dev URL handed out" (recorded in D12 by
+  theme2). `/canvas/<client>/` is only the entry; the page is then served at its own root, so no path in the dev
+  glue is rewritten and history URLs stay on the canvas.
+- **The `canvas` method** (`read`; A's METHOD_SCOPE takes `canvas: 'read'`): `{url, grant, expires}`.
+  - The grant: 256 bits from the CSPRNG, single use, valid 30 s, bound to the client. It is rate-limited per client
+    by one A `limiter({rate: 6, per: 60 s})` the gateway makes, `take('canvas:<client>')` (a burst of 6, refilled at
+    6 a minute).
+  - The url: `<canvas origin>/canvas/<client>/`, never a loopback URL.
+- **The entry**, `POST /canvas/<client>/`, with `grant` in a form or JSON body:
+  - A query string, a GET, no Origin or one other than the canvas's or the tool's (`null` included), a wrong, used
+    or expired grant, or another client's: not-found.
+  - The grant is compared timing-safe (by its SHA-256) and burned on any try.
+  - A session id (256 bits) is bound server-side to the client, its token and that grant.
+  - The answer is a 303 to `/`.
+- **The cookie rules:**
+  - `__Host-exact-canvas=<session>; Secure; HttpOnly; SameSite=Strict; Path=/`, with no Domain.
+  - A session is valid only by the gateway's map: a value it didn't mint is an unknown session.
+  - A token is never read from a cookie, and no tool or design-server path reads `Cookie` (A's rule).
+  - Cookies aren't port-scoped, and the canvas's page code is untrusted. Page code can set a cookie of that name on
+    the host (the `__Host-` prefix only makes it Secure, host-only and `Path=/`), and it grants nothing on either
+    port (a test sends one). At worst it overwrites or deletes the real cookie, which forces a fresh grant from the
+    tool. A page-set value sent beside the real one doesn't hide it: each value is tried.
+- **Every other request:**
+  - It needs the session, then its client's token through A's `lookup` (a revoked or expired token fails at once,
+    as does one whose `expires` has passed), then the route's scope through A's `allows(scope, needs, false)`: a
+    canvas request is never local.
+  - An unknown, missing, revoked or expired session: not-found, the same answer for each. A scope refused: 403
+    `{message, scope, needs}`.
+  - An allowed POST also needs `Origin` to be the canvas's, on top of SameSite=Strict.
+  - No CORS header is ever sent.
+- **The scope table** (everything else is not-found):
+
+  | scope | routes |
+  |---|---|
+  | `read` | GET/HEAD of the page and its assets (any path outside `/__…`, `/.exact/` and the entry); `/__dev` and `/__dev/page` (SSE), `/__dev/hello`, `/__dev/commands` (its query kept), `/__dev/generation/*`, `/__dev/map/*`, `/__dev/inspect.js`, `/dev-inspect.json`, `/exact.json`, `/modules/*`; GET `/__dev/design`; the page's beacons POST `/__dev/reloaded`, `/__dev/painted`, `/__dev/gpu` (the wasm page's), `/__dev/report` |
+  | `write` (theme2's ruling) | POST `/__dev/design`, `/__dev/checkpoint`, `/__dev/open`; GET `/__dev/open` (the opening page) |
+  | never | `/__tamber` and `/__tamber/*` (through the proxy the loop would see a local request and hand out its write token), `/__dev/install/ios`, `/__exact/*`, `/.exact/*` |
+
+  `/__dev/report` carries hold and held reports. Holding is a `write` command sent down the build channel, so a
+  `read` or `propose` client's page reports only holds the server asked for (A's table, ruling 5).
+- **Upstream:**
+  - The request goes over loopback to the loop as the gateway itself, with `redirect: 'manual'` and the query kept.
+  - Host is the loop's, and an allowed POST's Origin is the loop's origin.
+  - Cookie, `x-exact-tamber-token`, Referer, the client's `forwarded` and `x-forwarded-*`, and hop-by-hop headers
+    (and any the Connection header names) are dropped.
+  - The gateway adds one marker of its own, fixed and naming no peer: `forwarded: for="_exact-canvas"`. Why: the
+    gateway reaches the loop from loopback with a loopback Host, which the dev gate (`access.local`) would call
+    local, and a local request is given the install token (the install pages) and the tamber token
+    (`/__tamber/token`). With the marker the gate, unchanged, admits the request but never calls it local, so no
+    route the allow list passes, now or later, can hand either token to a remote client. The gate never sees a
+    paired credential.
+  - The body limit is `forward()`'s (1 MiB less 64 bytes), but for `/__dev/checkpoint` (`write` only), which takes
+    the loop's own cap (16 MiB, the JS loop's `CHECKPOINT_BYTES`, mirrored and checked by a test). Over it is a 413,
+    then the connection closed.
+- **Downstream:**
+  - Set-Cookie, CORS, HSTS and hop-by-hop headers are dropped, with `cache-control: no-store`.
+  - Loopback addresses are rewritten (theme2's ruling: D12's "no loopback URL handed out" is functional, not a
+    security boundary). A candidate is a web or scheme-relative URL, or a bare `host:port` standing alone.
+    - A URL's authority runs to the first `/`, `?`, `#`, `\`, whitespace, quote, `<` or `>`, so userinfo punctuation
+      (`;`, `,`, `(`, `)`) stays in it. Only an authority that doesn't parse at all with a trailing `;`, `,`, `)` or
+      `}` (a CSP's or a list's separator, a sentence's bracket) is read again without that punctuation, which stays
+      in the text.
+    - WHATWG URL's parse of it decides, nothing decoded first: a host that parses as loopback (127/8, localhost and
+      `*.localhost`, [::1], one trailing dot dropped) at any port, the default included.
+    - The loop's own origin (a loopback host at its port) maps to the canvas origin, in headers and in every body,
+      text ones included. theme2's ruling point 2 blanks only OTHER loopback URLs: any other loopback authority
+      becomes `loopback.invalid`, which never resolves.
+    - No other host is ever touched: `http://127.0.0.1%2F@evil.test/a` and `http://127.0.0.1;@evil.test/a` are
+      evil.test's and pass byte for byte.
+    - Headers (Location, Link, CSP) and text bodies (HTML, JS, CSS, plain) by those candidates; JSON bodies (an
+      envelope's type too) by parsing and rewriting each string, keys included, the bytes unchanged when nothing
+      is; SSE a line at a time, a `data:` line that is JSON as JSON.
+    - **A known limit:** escaped spellings in text (HTML character references, JSON `\u` escapes outside a JSON
+      body, a percent-encoded URL) and spellings WHATWG URL doesn't map pass as they came. A missed one only breaks
+      a link on the remote browser's own machine.
+  - `frame-ancestors` names the canvas (`'self'`) and the tool's remote origin, with no loopback source.
+  - Bodies are streamed with backpressure, as `forward()` streams them.
+- **Revoke and expiry (A's `onEnd`):**
+  - Each client's live proxied responses (SSE, long polls, in-flight requests) are kept, each with the
+    AbortController of its upstream fetch.
+  - On `onEnd(client, reason)` (`'revoked'` or `'expired'`, which end the same way; the reason goes to the log
+    with the client's name, never a secret) all of them are aborted, so the client's streams close and the loop's long poll ends. The
+    client's sessions and grants are deleted, and its next request is not-found.
+  - `close()` unsubscribes.
+- **The server:** `tamberServer({canvas: pairing => canvasGateway({loop, pairing, origin, toolOrigin})})` makes the
+  gateway from the run's pairing and returns it (`canvas`, for B's canvas port to call `handle`); `close()` closes
+  it. `canvas` is in A's METHOD_SCOPE as `read`, so A's dispatcher checks its scope like any method's. It then mints
+  for the paired token the request came with. The local token passes the table but has no paired token, so it is
+  answered 400 (the local tool frames the dev loop itself). With no gateway, the answer is 404.
+- **Tests** (`tamber-canvas.test.mjs`, a fake pairing and a fake loop on loopback, plain HTTP):
+  - the route table;
+  - mint, entry, the cookie's exact attributes, 303, the page proxied;
+  - the upstream sees no Cookie, token or client forwarding headers, and the loop's Host;
+  - the client sees no upstream Set-Cookie or CORS header, and no loopback origin of the loop's in any header or
+    passed body;
+  - the query kept on `/__dev/commands`;
+  - a grant reused, expired (an injected clock), wrong, another client's or in a query string is refused;
+  - another client's, an unknown, a page-set or no cookie is refused, and a real one beside a tossed one still works;
+  - `/__tamber`, `/__tamber/token` and the install routes are not-found and never reach the loop;
+  - a cross-origin POST is refused;
+  - `read` and `propose` are refused the `write` routes, and `write` passes;
+  - revoke, then expiry: an open SSE stream and a held long poll close at once, the fake loop sees both upstream
+    requests end, the next request is refused, and another client's stream is untouched;
+  - the mint rate limit, and `close()` unsubscribing;
+  - a `write` client's checkpoint between 1 MiB and the cap passes and one over it is 413, as is any other body over
+    1 MiB, none reaching the loop;
+  - with A's real pairing and dispatcher (a stand-in design server, the real wire): `canvas` minted by a remote
+    paired client, entry, a proxied page and SSE stream, A's `revoke` ending the stream and the loop's request at
+    once, the next request not-found and the token's next `canvas` 401; a `propose` client minting but refused the
+    `write` routes while a `write` client passes; the local token 400, no or an unknown token not-found, the local
+    token through B's listener not-found, a server with no gateway 404.
+- **What waits on A and B:**
+  - **A (reload1): landed.** The gateway runs on the run's pairing (`tamberServer(...).pairing`: each request acts
+    as `lookup`'s client, and `onEnd`, at once for a client already ended, ends its streams). `limiter` and
+    `allows` default to `scripts/tamber-pairing.mjs`'s. `canvas: 'read'` is in METHOD_SCOPE, and the method is
+    answered in A's dispatcher (the early seam is gone).
+  - **B (rt1):** the canvas's second TLS port gives `handle` its requests and the gateway its `origin`; the tool's
+    remote origin is `toolOrigin`. The real-Chrome checks wait on B: the SameSite=Strict cookie reaching the framed
+    canvas (the two origins differ only by port), the framed canvas unable to read the tool's origin, revoke closing
+    both ports, and a page-set cookie granting nothing on either port.
+  - **Then:** the test through the real dev loops (`devLoop`), a JS-target and a wasm page loading through the
+    gateway and a live edit reaching each.
+- **After review round 1 (Astra, Grok):**
+  - The raw request target is checked, and the path forwarded is exactly the path authorized (`canonical`). A target
+    the loop could read as another path is not-found: one not in origin form, an empty segment (a leading `//`
+    too), a `.` or `..` segment, a backslash, NUL or other control character, an encoded `/`, `\`, NUL or `.`, a
+    percent-encoded unreserved character, or a malformed escape. `/__` and `/.exact` compare without case.
+    `//a//b/__dev/open`, `//127.0.0.1/__tamber/token` and `/%2eexact/install/` reach nothing (Astra 1, Grok 1).
+  - Revoke ends every proxied request at once: its upstream fetch is aborted, and its request and response are
+    destroyed, so a stalled upload and a download whose client never reads end too. The body read and the
+    backpressure wait both observe the abort. A response stays tracked until it closes, not until `end()`. Requests
+    are tracked per session, so a session evicted past the cap of 16 ends its own streams, and a client has at most
+    32 requests in flight (503 past that) (Astra 2, Grok 6).
+  - `/__dev/open` no longer hands a native client's admission token to anyone but a local request:
+    `developmentLinks(app, page, access)` (host/apple/build.mjs) gives no links unless `access.local`. That covers
+    the wasm loop and the resident loop behind the JS loop (the same code, its gate given the gateway's
+    `forwarded` mark as it came). Local native clients keep their links (Astra 3, Grok 3).
+  - The rewriter covers every loopback authority at any port, and the default port with none written, in
+    percent-encoded host forms (`%6cocalhost`, `0x7f.1`, as WHATWG URL canonicalizes them). The loop's own origin
+    maps to the canvas's; any other loopback authority becomes `loopback.invalid`. A bare `host:port` is rewritten
+    only standing alone, so `https://example.test/localhost:9000.png` and `notlocalhost:9000` are untouched. One
+    pass, so nothing it writes is read again. A loopback `toolOrigin` is refused (Astra 4, Grok 2).
+  - The entry needs an explicit Origin, the canvas's or the tool's: a missing, `null` or malformed one is refused
+    (Astra 5).
+  - A `read` or `propose` canvas is refused `/__dev/checkpoint` (it stays `write`), so after a JS rebuild the JS
+    loop's page now reloads afresh on that 403 instead of keeping the old page (Astra 6).
+  - A session is looked up by its SHA-256 and the hash compared timing-safe, as a grant is (Grok 5).
+  - The dev gate (install-page.mjs) treats `forwarded` and any `x-forwarded-*` header as forwarding (Grok 7).
+  - Grok 4 (A's shapes) is settled in the plan.
+  - Tests: the canonical table, and the same targets through the gateway reaching nothing; the address cases in
+    headers, HTML, JSON and SSE; a stalled upload and a client that never reads, both closed at once on revoke with
+    the upstream request ended; session eviction and the 32-request cap; the entry's Origin cases; the JS loop's
+    client script parsing with the 403 fallback before the failure path; `install-page.test.mjs`, a later
+    `x-forwarded-*` and the gateway's mark not local, with no admission links for it; `development.rs`, no links
+    for a request that isn't local.
+- **After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT with two nits; theme2's ruling on the rewriter):**
+  - The rewriter decides each candidate by WHATWG URL's parse with nothing decoded first, and never touches a host
+    that isn't loopback: `http://127.0.0.1%2F@evil.test/a` passes byte for byte, in headers, text, JSON and SSE
+    (Astra 1). A trailing dot (`localhost.`) is dropped in the loopback test. A bare `host:port` goes through the
+    same parse, so `127.1:port`, `foo.localhost:port` and `[::ffff:127.0.0.1]:port` are caught (Grok 1).
+  - JSON bodies are parsed and each string rewritten, so a `\u` escape in a JSON body is caught; a body with
+    nothing to rewrite keeps its bytes; one that doesn't parse is text. SSE `data:` lines that are JSON likewise.
+  - JS, CSS and plain text bodies are rewritten as HTML is; the URL-encoded and JSON-escaped text rules are gone,
+    and escaped spellings in text are the known limit above (theme2).
+  - `Range` and `If-Range` are not passed on, so a rewritten body is never a slice (Grok 2).
+  - Astra's EADDRINUSE at fixture start: each test server binds 127.0.0.1:0 once and is never rebound; three
+    concurrent runs here pass. A refused bind now fails with a message naming it (a sandbox that forbids
+    listening).
+  - Tests: the address cases in headers, HTML, JS, CSS, JSON and SSE, the evil.test URL untouched in each; a JSON
+    body with no loopback byte for byte; a JSON key and a `\u`-escaped value rewritten; the known limits passing as
+    they came; Range and If-Range not reaching the loop.
+- **After review round 3 (Astra, Grok):**
+  - A URL's authority now runs to the first `/`, `?`, `#`, `\`, whitespace, quote, `<` or `>` before WHATWG URL decides
+    (theme2's ruling). `http://127.0.0.1;@evil.test/a` (evil.test's) passes byte for byte, and
+    `http://user;name@localhost:<port>/a` is the loop's and is rewritten. Trailing `;`, `,`, `)` or `}` is set aside
+    only when the authority doesn't parse with it, so a CSP's `http://127.0.0.1:<port>;` and a sentence's
+    `(at http://localhost:<port>)` are still caught (Astra 1).
+  - Astra 2 is answered by theme2: the loop's own origin keeps mapping to the canvas origin in text bodies, and ruling
+    point 2 blanks only other loopback URLs (the downstream bullet says so).
+  - Tests: `;`, `,`, `(` and `)` in userinfo, both a non-loopback host (byte for byte) and a loopback one (rewritten),
+    in a header, HTML, JS, CSS, JSON and SSE; a CSP's and a list's separator and a sentence's bracket after a
+    loopback authority.
+
+  - Grok's nits: an https loop on its default port (no port written) is the loop's own origin, not another loopback (the port defaults from the scheme); addPort's same-origin check on the canvas port is C2's (its `origins`)
+  - After the re-check (Astra): an authority that doesn't parse is read up to its FIRST `;`, `,`, `)` or `}` and the scan goes on from there, so a compact CSP (`default-src http://127.0.0.1:9000;img-src 'self'`) and a list of sources (`a,b`) are each rewritten; a userinfo `;@` still parses whole and is never cut.
+  - After re-check 2 (Astra): that cut is made only past any userinfo (after the last `@`), so `(http://127.0.0.1;@evil.test:9000)` stays evil.test's, untouched, and `(http://user;name@localhost:9000)` is the loop's.
+  - After re-check 3 (Astra): the cut is the LONGEST prefix that parses (still past any userinfo), so a host WHATWG reads whole, such as `localhost;evil.test`, is never cut into a loopback one. Other missed loopback spellings stay the known limit above (the lead: only a changed non-loopback host blocks)..
+
+### Stage 10, commit C2: the canvas port (draft for theme2)
+
+C1's gateway on B's remote doors, in both dev loops, under `tamber/1.13`.
+
+- **The port:** with `--remote`, each dev loop (host/web/dev.mjs, host/web-js/dev.mjs) opens B's doors and then the canvas
+  port: `openRemoteCanvas(tamber, asked, loop)` (scripts/tamber-canvas.mjs).
+  - The port is another TLS listener from B's `addPort`, on the `--remote` host at a port the system picks. It uses the
+    same per-run certificate, so the fingerprint the client pinned at pairing covers it. B's Host check (the
+    certificate's names) and target check stand in front of it.
+  - Its origin is `https://<the name B shows>:<its port>`, the same site as the remote tool and a different origin.
+  - It is printed at start-up beneath B's lines. With no `--remote`, or with only `--trust-tunnel`, there is no canvas
+    port and nothing changes.
+  - A canvas port that cannot bind closes B's doors, and the loop says so and exits, as B's own failures do.
+- **The origin is known only after the bind.** The gateway is the design server's own (`tamberServer`'s default
+  `canvas`, made from the run's pairing), and it is dormant until `serve({loop, origin, toolOrigin})`. Of the three
+  ways x2-perf4 listed, this takes the settable origin before first use. The port is bound with a handler that defers
+  to the gateway, and the gateway answers nothing (not-found) and mints nothing (`canvas` answers 404, "this server has
+  no canvas port") until it is served. So no request can see a half-made gateway. `loop` is the dev loop's own
+  loopback origin, and `toolOrigin` is B's door (`info().origin`).
+- **The fragment entry** (theme2's approval of dtool2's entry, SIGNOFFS.md). It replaces C1's grant POST from the
+  tool's page.
+  - The tool sets the frame's src to `<canvas origin>/canvas/<client>/#g=<grant>`.
+  - `GET /canvas/<client>/` (no query) serves a static entry page: `no-store`, `referrer-policy: no-referrer`,
+    `nosniff`. Its CSP is `default-src 'none'; script-src '<its one inline script's sha256>'; connect-src 'self';
+    base-uri 'none'; form-action 'none'; frame-ancestors <the tool's origin>`. Nothing third-party, and no secret in
+    it: the same page for every client.
+  - Its script reads the grant from `location.hash`, then calls `history.replaceState(null, '', location.pathname)`
+    before any request, so neither the address nor its history entry keeps the fragment.
+  - It then POSTs `{grant}` as JSON, same-origin, with its own `referrerPolicy: 'same-origin'`. Under the page's
+    `no-referrer` a POST would otherwise say `Origin: null`. On 204 (the cookie set) it does `location.replace('/')`.
+  - Refused, it shows "This canvas link has expired; ask for a new one." and makes no further request; with no grant
+    in the fragment, it makes no request at all.
+  - Entered, and just before `location.replace('/')`, it tells the tool: `parent.postMessage({type:
+    'exact-canvas-entered'}, <the tool's origin>)`, to that origin alone, with no secret and no client name (review2's
+    T6 note, the lead). The origin rides in the page as `data-tool`, so the one script, and its CSP hash, stay the same
+    for every gateway and client; with no remote tool there is no `data-tool` and no message. Tested: the call order
+    (replaceState, fetch, postMessage to exactly the tool's origin, replace), no message on a refusal or without a
+    tool, and the hash of the served script.
+  - **A bounded exception to "no secrets in URLs":** the fragment carries only the grant: single use, 30 s, bound to
+    one client, burned on any try, and never the token. A fragment is never sent to a server, a Referer or a log
+    line, and the page removes it before its first request.
+  - **theme2's conditions, each tested:**
+    1. A grant is accepted only in that POST's JSON body, never from a query, a path or a form. A grant in any of
+       those is never read, so it is not burned.
+    2. Replay, expiry, another client's grant, and a POST from any Origin but the canvas's own (the tool's, none,
+       `null`, malformed, a lookalike) are each refused.
+    3. The real-Chrome gate shows that after entry the frame's `location.href` and `location.hash` carry no fragment,
+       and that going back in the frame never shows it (gate lines (a0) and (a0, history)).
+    4. The tool-origin POST path is gone: the entry admits only the canvas's own Origin. C2's draft `origins` on B's
+       `addPort` is reverted, so `scripts/tamber-remote.mjs` is as B landed it, and the port refuses every other
+       Origin, the tool's included.
+- **`toolOrigin` must be https:** C1 refused a loopback `toolOrigin`. With B bound on loopback (a test, or a developer
+  on one machine), the tool is `https://127.0.0.1:<port>`. The rule is now that `toolOrigin` is an https origin (B's
+  door), never a plain one such as the local tool's `http://127.0.0.1:7740`.
+- **Never plain HTTP from a LAN peer** (theme2's condition, with reload1's plain-LAN fix on the wire). A canvas session,
+  grant or entry page is honoured only through the canvas's TLS door (`access.remote`, which B's `addPort` gives) or
+  from this machine (`access.local`). The gateway's `handle` answers not-found to anything else, a plain request
+  through a `--lan` bind included, and reads no grant, so none is burned. `canvas` is not minted for a caller that is
+  neither local, remote nor tunnelled (404, the same as no gateway), whether or not reload1's earlier refusal on the
+  wire is there. Tested: a valid session, the entry page and a valid grant through a plain-LAN door are each
+  not-found and the grant then still enters through the TLS door; `canvas` from a plain-LAN peer is 404 and through
+  B's door 200.
+- **Revoke on both ports:** A's revoke ends the wire's streams and long polls, and through `onEnd` the canvas's
+  proxied streams. The next request on either port is refused: 401 on the wire, not-found on the canvas.
+- **Tests** (`tamber-canvas.test.mjs`, pinned TLS on loopback):
+  - The server's default gateway is dormant before its port opens.
+  - `openRemoteCanvas` on `127.0.0.1:0`: the canvas origin is printed, and a grant is minted over B's TLS wire door.
+    The tool's Origin is refused at the port (403). The entry page is framed by the tool alone, and its POST from the
+    canvas's own origin enters.
+  - The proxied page carries the canvas origin, and another Origin, the tool's too, is 403 at the port.
+  - The entry page: its headers and CSP, its one script by hash, no address in it. Its script, run in a stand-in
+    page, calls `replaceState`, then the POST (the address already clean), then `location.replace('/')`. Refused or
+    failing, it shows the message and makes no further request; with no grant, it makes no request.
+  - The grant only in the POST's JSON body: replay, expiry, wrong, another client's, a query, a path, a form, and
+    each foreign or missing Origin refused, none of them burning it.
+  - A's revoke: the canvas port's next request is not-found and the wire door's 401.
+  - No `--remote` gives no doors, and a tunnel alone gives no canvas port.
+- **The gate in a real Chrome** (`/tmp/x2p4/s10c-gate/gate.mjs`, its run in `run.txt`):
+  - A JS dev loop runs on apps/theme-fixture (by name; its design put back after) with `--remote 127.0.0.1:0`, loopback
+    only.
+  - A client is paired with a local code and then `/__tamber/pair` over TLS.
+  - Chrome gets a fresh profile per run and trusts this run's certificate only by its SPKI pin
+    (`--ignore-certificate-errors-spki-list`, read from the listener after its fingerprint is checked against the one
+    printed). Everything is torn down after, on failure too; only the processes it started are stopped.
+  - (a0) The frame's src is the entry with the grant in its fragment, as the tool will set it. After entry, the frame's
+    `location.href` and `location.hash` carry no fragment, and no request URL but the src as set holds the grant. The
+    joint session history has as many entries after entry as before the frame (2 and 2): the entry's address was
+    replaced, so no entry holds the fragment. At
+    the end, `history.back()` inside the frame never shows the fragment: the entry's history entry was replaced.
+  - (a) The `__Host-` cookie is set (Secure, HttpOnly,
+    SameSite=Strict, host-only) and sent to the framed canvas, same site and another port. The page loads, and a live
+    edit of the design reaches the frame's stream.
+  - (b) From inside the frame, `window.parent.document` and `window.parent.localStorage` throw, and fetches of the
+    tool's and the loop's `/__tamber/token` fail.
+  - (c) A's revoke ends the wire's subscription and the frame's EventSource, and the next request on both ports is
+    refused.
+  - (d) Page code's `document.cookie` cannot overwrite the HttpOnly `__Host-` cookie. After revoke, a request with only
+    a forged value, a session-shaped forgery or the old real value is not-found. The wire answers not-found to a valid
+    token or session carried only in a Cookie.
+- **What the gate found, and fixed or names:**
+  - **The tool's page sent `Origin: null`** (B's pages are `no-referrer`), which the port refused, as it should. The
+    fragment entry settles it: the grant is posted by the canvas's own entry page, whose fetch sets its own referrer
+    policy, and nothing depends on B's.
+  - **`frame-ancestors` with B on loopback:** the CSP was rewritten after the remote tool's origin was added, so a
+    loopback tool origin (`https://127.0.0.1:<port>`) became `loopback.invalid` and Chrome refused to frame the
+    canvas. Now the addresses are rewritten first and `frame-ancestors` is fixed after: other loopback sources (the
+    placeholder by then) go, and the tool's origin is added. Tested in `tamber-canvas.test.mjs`.
+  - **The live edit's evidence:** a design edit the JS loop rebuilds for reaches the frame as its reload, and the
+    framed page reloads through the gateway. That is what the gate records.
+  - **Two observations outside C.** `--app <a path>` makes the JS loop write its module's crate into the app's
+    directory (`buildModule`'s `out`); the harness passes the name. An edit of the fixture's `surface.page` (a
+    token with a `when`) made the JS rebuild fail with "this app's design declares no axes"; the gate edits
+    `accent.fill` instead. Both are QUEUE candidates, not C2's.
+- **After review round 1 (Astra, Grok):** Grok RIGHT, no findings; Astra's one should-fix (proxied pages keep `'self'` in `frame-ancestors`) answered by the lead: `'self'` stays, since code on the canvas origin already is that origin and can do anything a frame of its own page could, and apps frame their own routes. The gateway's `frame-ancestors` is now exactly `'self'` and the tool's remote origin: any other source a page names (a foreign origin, the local tool's) is dropped, so no other origin frames a canvas page (tested with a page naming `https://evil.test`).
+- **On main with the plain-LAN fix (81f2d32e8f):** the rule that a paired credential is taken only from this machine or through one of B's doors is one helper, `viaDoor(access)` in scripts/tamber-request.mjs, which the wire's check and the canvas gateway both call; dispatch's own `plain` flag is gone (the wire refuses such a request before dispatch).
+- **After the re-check (Astra):** the tool origin is written into the entry page as an escaped attribute value, and `serve()` refuses a `toolOrigin` that isn't a plain https origin (a host name or address and a port), so neither the attribute nor the CSP header can be misread.
+
+### Stage 10's gate: met (2026-10-19; the run is `~/x2theme/stage10-gate-run.txt`)
+
+exact2 main at `29ec5ae613`, the clone at `baf8b6b` (a signed-out copy), a second Chrome profile as the remote
+client trusting only the listener's certificate. Stage 10's commits: B `e85fb5c4d1`, `8f44ea2b8c` (and
+pair-code's doors, `250ce13108`..`417d8c48f7`); A1 `98d26391ca`, A2 `1dbf03d789`; the plain-HTTP fix
+`ae9e86e1ca`; C1 `f7ffce5644`..`78a7202c2b`; C2 `ec5c69fb0f`..`c92dace86a`; D (LLP 1122 T6)
+`cd6300a22a`..`2ca911ea7f`. Wire: `tamber/1.13`.
+
+| Gate line | Result |
+|---|---|
+| A second browser pairs over TLS, the fingerprint checked before anything is sent; a used code is refused and five misses burn the live codes | **Met** (1), both by the server and by the tool's own pair panel (1, D). |
+| A paired `propose` client reads, inspects read-only and proposes; writes and commands are refused with its scope named; a `write` client writes and the event names it | **Met** (2); the tool greys what writes for a `propose` client and says why (2, D). |
+| Revoke closes the client's subscription and held long poll at once and refuses its next request; separately, its canvas through the gateway, on both ports | **Met** (3), (3, C); the running tool says Revoked, its canvas goes, and it sends no more (3, D). |
+| No wire auth reads a cookie; a cookie page code sets with the gateway's name grants nothing on either port | **Met** (4), (4, C). |
+| The canvas on its own origin: entered through the gateway by the `#g=` fragment, which leaves the frame's address before any request and is in no URL or history entry; framed script can't read the tool origin's DOM, storage or token | **Met** (3, C), (5, C) ×3, and the tool frames it so and drops the grant once entered (5, D). |
+| An unencrypted remote connection is refused, pairing included; the trusted tunnel takes paired tokens and pairing, never the local token; no non-loopback peer reaches the loopback-bound listener | **Met** (6) ×3. |
+| Local clients unchanged; a release build has no Tamber endpoint; the server and tool suites green | **Met** (7) ×3: pairing 15, pairing-server 14, remote 27, canvas 31, tamber-server 30, dev-builds 3, design-tool 18. |
+
+**Found by the gate's dry run and fixed in stage 10:** with `--lan`, a plain-HTTP LAN peer could pair. A paired
+credential is now honoured only from this machine or through one of B's doors (`ae9e86e1ca`; one helper since C2).
+**First final run:** 21 of 22; (5, D) read the frame's first `src` after the entry word had already dropped the
+grant, a timing fault in the gate's check, not the tool. The check records each `src` as the tool sets it, and
+the re-run met every line.
+**Rulings written into LLP 1122 D12 with this close:** the canvas is on its own origin; `inspect` needs `read`;
+the loopback rewrite is functional, not a security boundary; the hosted relay is stage 10c.
+
+**Stage 10 is closed.** The `tamber/1.13` window is closed; the next wire change takes `tamber/1.14` (stage 11).
+
+### Stage 11, commit B1: the base scale table (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s11b-plan.md`, theme2's 09:56 approval and its conditions) and theme2's 10:57
+ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
+
+- **Nine base names** (ruling 5): `space.xs`, `space.sm`, `space.md`, `space.lg`, `space.xl`, `radius.sm`, `radius.md`,
+  `radius.lg` and `radius.full`. A view reads one with no design defining it. An app may set any of them in its design
+  (ruling 4), and its value wins app-wide, as any token's does. No other name is reserved, so the clone's `space.header`
+  keeps its meaning.
+- **The table:** `scale` in `kernel/tables/schema.json`, a row per name: `[name, ios, mac, neutral, material,
+  terminal]`, px (points), never scaled by Dynamic Type (ruling 6).
+
+  | name | iOS | Mac | neutral | Material | terminal |
+  |---|---|---|---|---|---|
+  | space.xs | 5 M | 6 M | 4 neutral | 4 G | 0 |
+  | space.sm | 8 =grouped-row-gap | 8 = | 8 = | 8 = | 1 cell |
+  | space.md | 16 =grouped-row-inset | 10 = | 16 = | 16 = | 1 cell |
+  | space.lg | 20 M | 20 M | 24 neutral | 24 G | 2 cells |
+  | space.xl | 35 M | 30 =grouped-label-inset (stretch) | 32 neutral | 32 G | 2 cells |
+  | radius.sm | 5.6 M | 5 M | 4 =mark-radius | 4 G | 0 |
+  | radius.md | 17 M | 6 M | 8 =control-radius | 8 G | 0 |
+  | radius.lg | 26 =grouped-card-radius | 10 = | 12 =surface-radius | 12 G | 0 |
+  | radius.full | full | full | full | full | 0 |
+
+  **No web column** (theme2, 2026-10-19): every web build (the wasm host and the JS target) throws the neutral switch,
+  so the browser reads the neutral column (LLP 1115.000 D17 as corrected). `Column::Web` is read only by a process that
+  says no column, and as Material's fallback; for the scale it reads the neutral cell (`style::scale::cell`, held by a
+  test for every name). The draft's `@ios` cell form is withdrawn with it.
+
+  Material's G cells are Material 3's spacing and shape scales. The neutral look's own steps (4, 24, 32) are its
+  definition (LLP 1115.000 D17), not Material's, though they coincide. Each look's steps are in order.
+- **The cell forms** (theme2 (a)). A cell is never a bare number, and the build (`kernel/build/scale.rs`) refuses
+  anything else: arithmetic, a missing source, a dangling metric or one with no px in that column, a reference to another
+  column (`@…`), and `full` outside radius.full or in the terminal.
+  - `=<metric>`: that metrics row's value in the same column, read when the kernel builds, so the cell cannot drift.
+    Used only where the metric names the same role (theme2 (b)): an inset is space.md, a row gap space.sm, a control's
+    corner radius.md, a card's or surface's corner radius.lg, a mark's corner radius.sm. The one exception is a role
+    stretch theme2 ruled, recorded with its reason (the Mac's space.xl, below).
+  - `{px, measured: id}` and `{px, guideline: id}`: `id` is an entry of `docs/scale-measured.md` with what was measured
+    and how (or the citation), the number, and the reason for the choice.
+  - `full` (radius.full): one oversized length, `style::scale::RADIUS_FULL` (9999), named once in the kernel crate.
+    Every host clamps it into a pill by CSS's corner-overlap rule (stage 11 C), never `50%` (theme2's C ruling).
+  - The terminal: `{cells: n}` for a spacing (`n ch`), `0` for a radius (it draws none).
+- **Measured** (`bun scripts/measure-scale.mjs mac | ios --udid <sim>`, `scripts/measure-scale/{ios,mac}.swift`; raw
+  output in `~/x2theme/s11b/`):
+  - iOS 27.0 simulator: UIKit's own values where its API states them; otherwise the inked corner at 3×, read as the
+    equivalent circular radius along the 45° diagonal. Check: the inset-grouped card measures 26.07 against the table's
+    26.
+  - macOS 27.0: AppKit's API on alignment rects; corners from the window server's composite of the tool's own window
+    (AppKit 27 bezels reach no in-process capture), at 1× on this display (±0.7 pt, recorded as whole points).
+  - Choices theme2 ruled (10:57):
+    - iOS space.xs is a small button's top inset, 5 (UIKit states no 4).
+    - iOS space.lg is a large button's leading inset, 20 (an iPhone's margin is 16, space.md's).
+    - iOS radius.sm is `cornerStyle .small` at 44 points, 5.6, a fixed length recorded with that height. UIKit's
+      `.small` scales with height; iOS 27 has no mark.
+    - iOS radius.md is the medium button's measured corner, 17: iOS 27's controls are capsules, and 17 is a length,
+      not `full`.
+  - **space.xl is the gap between grouped sections without a header, on every look.** iOS's 35 was measured without a
+    header (`.insetGrouped`, no headers), and theme2 then ruled xl headerless on every look. The Mac's headerless gap
+    between a SwiftUI `.grouped` Form's sections measures 10, below its space.lg (20). So the Mac's space.xl is a ruled
+    role stretch: 30, `=grouped-label-inset` (a grouped section label's inset, the Mac's largest grouped spacing in the
+    table), with its reason in `docs/scale-measured.md`. A gap measured with a header (56) was withdrawn, since a header
+    mixes a text height into a spacing.
+- **The fallback** (theme2 (c)): `theme::measure` reads a base name no entry defines as the scale's length in the
+  process's column, bound theme or none.
+  - A name the design defines is the design's, even in a row that can't take it, so the base never stands in silently.
+  - The read is recorded as a token's, so an edit that defines the name later sets the row again.
+  - The column is the host's (`metrics::set_column`). This commit adds `Column::Terminal`: the `web` column's value
+    in every metric (the terminal read it before) and the terminal's own in the scale. The hosts set their
+    columns in B2.
+- **theme2's conditions, and where each is held:**
+  - **The compiler knows the nine names** (`contract/lower/src/scale.rs`, `theme::measure_values`). A view reading one
+    compiles with no design. Its values are the px columns', which a row checks as a token's. It varies by column, never
+    by an app axis, so an inherited row reading it is no `tamber-inherited-axis`.
+  - **An app definition must be a length.** `tamber-base-kind` refuses a base name set to a colour, a number or any
+    other kind. A length that varies by an app axis is the app's.
+  - **One table, which describe, resolve and explain read** (`exact_kernel::style::scale`, public, every cell with its
+    source). The wire's half is split out of this commit: the design server's `describe`, `resolve` and `explain` of
+    the base names move to rt1's stage 10 D under `tamber/1.14`, reading this table, never a copy. B1 touches no wire,
+    and `tamber/1.13` is unchanged.
+  - **Retention keeps nothing for an unread base name.** The plan's theme carries no entry for a base name the design
+    leaves unset, since the kernel holds every column. One the design sets is kept only when read, as any token is.
+  - **The monotonic test** (`style::scale` tests): within each look xs ≤ sm ≤ md ≤ lg ≤ xl and radius sm ≤ md ≤ lg,
+    with radius.full left out.
+- **SCHEMA_DIGEST** moves once, in the stage's window: `0xd348_8e13_baf4_12bd` (main, after 7ce6cb98db) → `0xc76c_20d0_6202_3b03` (on the branch's base before that rebase, `0xad42_cc2d_c5b5_26f3` → `0x45a9_8459_9339_c7bf`)
+  (`kernel/src/wire/codec.rs`; the `scale` table, the metrics' terminal column and theme2's unit flag, `style length`.
+  Rounds 1 and 2 pinned `0x374f_477d_d305_5b7e` before the flag, round 3 `0x1360_51a6_5170_bf6a` before the `calc()` guard, as `codec.rs` is hashed). Nothing else pins it.
+- **QUEUE:** "A Dynamic Type opt-in for the base scale" (ruling 6, the lead's assignment to this commit).
+- **Tests:**
+  - `kernel/src/style/scale.rs`:
+    - the nine names;
+    - every cell equals its source, re-read from the metrics table;
+    - `Column::Web` reads the neutral cell for every name;
+    - each look in order;
+    - every measured and guideline id has its entry with the number;
+    - the fallback: unbound, a design's own value winning, a defined name a row can't take not falling back, the read
+      recorded.
+  - Every build refusal was checked by hand on a mutated schema.
+  - `contract/cli/tests/it/tamber_base_scale.rs`:
+    - a bare app compiles with no plan entry, and the runner reads the kernel's values;
+    - an app's own `space.md` wins and an unread `space.lg` is not kept;
+    - a colour or number definition is refused, and an axis-varying length accepted;
+    - an inherited row is no axis refusal, a number row is `tamber-kind`, and a name that is no base fails.
+- **radius.full** (theme2): an app that sets `radius.full` sets a length, as for every base name. `full` is the base's
+  own value, the clamped oversized length; an app that wants a pill leaves radius.full unset rather than overriding it.
+- **B2:** the hosts' columns: the JS target's CSS variables (until then a JS-target page does not resolve a base name),
+  Linux and Android wiring, and the terminal host's `set_column(Terminal)`, each with its unit tests.
+- **After review round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT):**
+  - **Base names in design values** (Astra 1, BLOCKING; theme2's (a)). A design value or `when` arm may name a base name
+    the design leaves unset bare: `card.pad: length = space.md` is an alias.
+    - The vocabulary passes the nine names to Tamber (`Vocab::bases`). For a base name the design does not set, Tamber
+      reads a bare one as a named length, kept as written and never folded, the way a role reference survives.
+    - The kernel reads a length token whose value is a bare base name as the base in its column, the design's own
+      definition first (`theme::measure`). Both reads are recorded, so an edit of either sets the row again. A base name
+      set to itself reads the scale.
+    - A base name the design sets is its token, folded as any token reference is. Its value wins through the alias, an
+      edit of it re-folds the alias for the design server's batch, and a ranged param naming it keeps its px. theme2
+      accepted this (2026-10-19): "never folded" applies to an unset base name only. D11 is amended with both cases:
+      unset, a per-host reference never folded; set, the app's token, folded as any reference.
+    - An expression over a base name the design leaves unset (`calc(space.md + 4px)`, a shadow's length) is refused,
+      `tamber-base-expression`, telling the author to name it bare. QUEUE has the later work. Over one the design sets,
+      it is that token's expression.
+    - Tests:
+      - `contract/cli/tests/base_alias.rs`, its own process: the plan's `card.pad` is `space.md` as written; it reads
+        the neutral, Mac and iOS columns' lengths, and its `when tone=wide: space.lg` arm too; an app's `space.md`
+        folds through and re-folds on an edit.
+      - `tamber_base_scale.rs`: the expression refusals.
+      - `style::scale`: the kernel's alias reads.
+  - **An icon named as a base name is refused** (Astra 2). `tamber-base-kind` covers icon declarations as well as tokens
+    (at lowering then; round 2 moves it into the shared checker), with a refusal test. A dial's name is an identifier, so none can be one.
+  - **The build checks each source against its entry** (Astra 3): a `measured` or `guideline` id with no entry in
+    `docs/scale-measured.md` stops the build, and the page is a rerun dependency. The rerun is said in
+    `build/scale.rs`, not `build.rs`, which the schema digest hashes, so the digest does not move.
+  - **Each documented value is bound to its step** (Astra 4). Every entry has a `Binds:` line (`space.xs = 4`), and both
+    the build and the provenance test require the cell's exact `name = value` there. A shared entry's other numbers no
+    longer stand in: Material radius.md 8 → 4 now fails the build.
+- **After review round 2:**
+  - **The runner's length binding reads an alias** (fix 1). `Tamber::length` reads its token through `theme::measure`
+    at the binding's tuple, so `card.pad = space.md` resolves through the kernel's scale in the process's column, as a
+    style row's does. `base_alias.rs` binds `Token<Length>` reads of `card.pad` and `space.xl` in each column, after a
+    mode change and after an edit to `space.lg`.
+  - **The DTCG export of an alias to an unset base** (fix 2). It wrote 1px; now it writes the neutral column's px from
+    the kernel's table (the web's look; radius.full its 9999), the name kept in `lossy`. The export's conversions say
+    so. `contract_lower::theme::vocab` lists the base names' lengths in `sizes`, which `tamber gen`'s CSS reads too, so
+    neither writes a bare `space.md` outside Exact. Test: `tamber_base_scale.rs`.
+  - **`tamber-base-kind` is the shared checker's** (fix 3). `check_design` refuses a base name declared as an icon or
+    as any token but a length, by `Vocab::bases`, so a write's plan refuses it before it lands, as the build does; the
+    lowering's copy is gone. Test: `tamber_serve.rs` (`propose` and `transaction` refused, file unchanged, a length
+    accepted).
+  - **A scale cell names a metric that holds a length** (fix 4). A `style` row's bare number may be a weight or a flex
+    factor, which the table didn't mark. Round 2 asked the name's ending; theme2 ruled for a per-row unit flag
+    instead (below).
+- **theme2's unit flag** (ruling after round 2, in place of fix 4's name endings):
+  - **The marker.** A `style` metric written on a length property says so in the schema: its kind is `style length`.
+    It applies to a gap, an inset, a corner, a width or height, a padding, a margin or an offset: 59 of the 83 `style`
+    rows. Its number is px; its other cells are `unset`, `auto`, a percentage, an `em`, `rem`, `px`, `vw` or `vh`
+    length, or a `calc()`. The generated `Metric` carries it as `length`, true for a `length` row too, and its kind
+    stays `Style`, so every reader of a style row reads it as before.
+  - **The build holds the marker to the row both ways** (`codec.rs`, `style_length_marker`):
+    - a `style` row whose name says a length property (every name but a colour's, a line style's, a position's, a
+      font's, a weight's, a switch size's, an alignment's, an appearance's, a box model's or a flex factor's, as the
+      row test reads names) is refused without the marker;
+    - a marked row is refused where its name says no length, or where a cell holds no length.
+  - **A scale cell may name only a `length` or `style length` metric** (`build/scale.rs`); the name endings are gone
+    from it.
+  - **The kernel's row test reads the marker** (`style::metrics`): `every_value_is_one_a_row_takes` takes a row's being
+    a length from the marker, and only which property it is written on from its name. A new test,
+    `the_length_marker_is_the_names_length_rows`, holds the marked set to the set the names gave before the flag,
+    exactly (59 rows), so nothing the kernel reads moves.
+  - **Checked by hand on a mutated schema, each refused with its message:**
+    - `grouped-row-gap` unmarked;
+    - `grouped-header-weight` marked;
+    - a marked row with a keyword cell;
+    - `=grouped-header-weight` in a scale cell.
+  - **The digest moves within B1** (above): `0x374f_477d_d305_5b7e` → `0x45a9_8459_9339_c7bf`.
+- **After review round 3 (Astra RIGHT, Grok RIGHT WITH CHANGES):**
+  - **A binding reads the terminal's cells** (Grok, should-fix). Under `Column::Terminal` the scale's spacings are
+    cells (`1ch`, `2ch`), which `Tamber::length`'s points read as no length. It now reads a cell as its px
+    (`style::cells::parse`). `base_alias.rs` checks the terminal column: space.sm 8, space.lg 16, radius.md 0, and
+    `card.pad` 8, then 16 under `tone=wide`.
+  - **A host's length read is read aside** (Grok, nit). `Tamber::length` wraps its `theme::measure` in
+    `theme::recorded`, as `color` does, so its read joins no style parse's names.
+  - **Every misdeclared base name is said at once** (Grok, nit). Beside an icon's refusal, `check_design` appends
+    `misnamed` too. Where the checker refused another token, it still has every token's kind, written or inferred
+    (`check::check`'s refusal carries them), so `space.lg = #ffffff` is said beside it too (the re-check's nit). Test: `tamber_base_scale.rs`
+    `every_misdeclared_base_name_is_said_beside_other_refusals`.
+  - **A marked row's `calc()` is a length** (the re-check, Astra). The marker's guard parsed any `calc(…)`. It now
+    reads CSS's typed grammar: numbers and lengths (`px`, `em`, `rem`, `vw`, `vh`, a percentage), `+` and `-` between
+    two of one type and spaced, `*` by a number, `/` by a number, and parentheses; the result must be a length
+    (`codec.rs`, `calc_length`). Checked by hand on a mutated cell:
+    - refused: `calc(1deg)`, `calc(garbage)`, `calc(2 * 3)`, `calc(100%-16px)` and `calc(100% - 16)`;
+    - accepted: `calc((100% - 16px) / 2 + 1em * 2)`.

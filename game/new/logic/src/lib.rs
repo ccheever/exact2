@@ -26,10 +26,12 @@ impl Game for SmallGame {
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
+        // Colours are CSS, as in app.contract; the renderer decodes them to linear light.
+        let sky = Color::hex("#bad6d1");
         w.insert_resource(Environment {
-            background: Some([0.49, 0.67, 0.64]),
+            background: Some(sky),
             fog: Some(Fog {
-                color: Some([0.49, 0.67, 0.64]),
+                color: Some(sky),
                 ..Fog::new(0.02, 0.08)
             }),
             ..Environment::default()
@@ -37,14 +39,14 @@ impl Game for SmallGame {
         w.spawn((
             Transform::default(),
             Mesh::plane(40.0, 40.0),
-            Material::grid([0.16, 0.23, 0.24], 1.0),
+            Material::grid(Color::hex("#6f8486"), 1.0),
         ));
         let player = w.spawn_named(
             "player",
             (
                 Transform::at(0.0, 0.9, 0.0),
                 Mesh::capsule(0.4, 1.8),
-                Material::rgb(0.8, 0.4, 0.1),
+                Material::hex("#e7aa59"),
                 Character::new().ground(0.9).bounds_xz(-19.6..=19.6),
             ),
         );
@@ -69,7 +71,7 @@ impl Game for SmallGame {
                 (
                     Transform::at(x, 0.1, 0.0),
                     Mesh::cylinder(0.9, 0.2),
-                    Material::rgb(0.3, 0.4, 0.42),
+                    Material::hex("#95aaad"),
                 ),
             );
             w.spawn_named(
@@ -77,10 +79,8 @@ impl Game for SmallGame {
                 (
                     Transform::at(x, 0.7, 0.0),
                     Mesh::sphere(0.5),
-                    Material {
-                        color: [0.22, 0.68, 0.74, 1.],
-                        ..Material::glow([3., 0.45, 0.025])
-                    },
+                    // Emission is linear light and may exceed 1: it blooms.
+                    Material::hex("#81d7df").emissive(3., 0.45, 0.025),
                     Glow::default(),
                     Beacon::default(),
                 ),

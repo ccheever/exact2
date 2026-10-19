@@ -281,6 +281,15 @@ extension Agent {
         return CGRect(x: r.origin.x - o.x, y: r.origin.y - o.y, width: r.width, height: r.height)
     }
 
+    /// How far `sv`'s offset travels on each axis from one end to the other (LLP 1012 `rx`/`ry`): the ends the wheel
+    /// routes by and `ox`/`oy` measure from, its adjusted insets included, whether or not a wheel or a drag may move it
+    /// that way.
+    static func range(of sv: UIScrollView) -> [String: Any] {
+        let i = sv.adjustedContentInset
+        return ["rx": r2(max(0, sv.contentSize.width + i.left + i.right - sv.bounds.width)),
+                "ry": r2(max(0, sv.contentSize.height + i.top + i.bottom - sv.bounds.height))]
+    }
+
     func layout() -> [String: Any] {
         let vp = presenter.viewport
         var nodes: [[String: Any]] = []
@@ -291,14 +300,19 @@ extension Agent {
             }
             let nativeAction = presenter.swipeActions.ownsAction(id)
             let actionView = presenter.swipeActions.actionView(id)
-            let r = nativeAction ? actionView.map { box($0) } ?? .zero : box(v)
+            // A search's scope segment is where UIKit draws it (LLP 1134 D4).
+            let scope = (v as? NodeView).flatMap { presenter.navigation.scopeSegment($0) }.map { s in
+                s.control.convert(s.segment, to: vp).offsetBy(dx: -vp.pageOrigin.x, dy: -vp.pageOrigin.y)
+            }
+            let r = nativeAction ? actionView.map { box($0) } ?? .zero : scope ?? box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
             if nativeAction { n["presentation"] = "native-swipe-action"; n["visible"] = actionView != nil }
-            // A waiting scroll (a closed swipe row's) is at its start.
-            if v.scrollDormant { n["sx"] = 0.0; n["sy"] = 0.0 }
+            // A waiting scroll (a closed swipe row's) is at its start, with no range until it scrolls.
+            if v.scrollDormant { n["sx"] = 0.0; n["sy"] = 0.0; n["rx"] = 0.0; n["ry"] = 0.0 }
             if let sv = v.scrollView {
                 n["sx"] = Agent.r2(sv.contentOffset.x)
                 n["sy"] = Agent.r2(sv.contentOffset.y + v.scrollTopInset(sv))
+                n.merge(Agent.range(of: sv)) { _, new in new }
                 // How far past its own ends it sits: a stretched bounce is a
                 // state a driver cannot read from the offset alone.
                 let past = { (value: CGFloat, start: CGFloat, end: CGFloat) -> CGFloat in
@@ -354,7 +368,7 @@ extension Agent {
     func layout(_ req: [String: Any]) -> [String: Any] {
         var reply = layout()
         guard let id = req["id"] as? Int else { return reply }
-        // A flat leaf (FlatLeavesIOS) is a layer in its parent's view: answered as one, its own id kept.
+        // A flat leaf (FlatLeavesIOS) is a layer in the view it is drawn in: answered as one, its own id kept.
         let leaf = presenter.textHost(UInt32(id)) == nil ? presenter.flats.leaves[UInt32(id)] : nil
         guard presenter.textHost(UInt32(id)) != nil || leaf != nil else { return ["error": "stale node #\(id)"] }
         let includePlan = req["plan"] as? Bool == true
@@ -362,8 +376,8 @@ extension Agent {
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
         MainActor.assumeIsolated { if let held = HeldState.rows(for: UInt32(id), in: presenter) { node["held"] = held } } // what is held on it (LLP 1122 D8)
-        if let leaf, let parent = leaf.parent.flatMap({ presenter.views[$0] }) {
-            let b = box(parent, region: leaf.frame)
+        if let leaf, let parent = presenter.flats.host(of: leaf.id), let frame = presenter.flats.frameInHost(leaf.id) {
+            let b = box(parent, region: frame)
             node["space"] = ["viewport": ["x": Agent.r2(b.minX), "y": Agent.r2(b.minY), "w": Agent.r2(b.width), "h": Agent.r2(b.height)],
                              "local": ["w": Agent.r2(leaf.frame.width), "h": Agent.r2(leaf.frame.height)]]
             node["visible"] = ["hidden": leaf.layer.isHidden || leaf.opacity == 0, "inert": false, "inViewport": b.intersects(presenter.reach(of: parent)), "clipped": b.isEmpty]
@@ -377,6 +391,19 @@ extension Agent {
             node["space"] = ["unavailable": "UIAlertAction exposes no public action geometry"]
             node["native"] = ["presentation": "confirmation"]
             node["visible"] = ["unavailable": "use the native presentation observation and a window capture"]
+            reply["node"] = node
+            return reply
+        }
+        // A search's scope segment is answered where UIKit draws it (LLP 1134 D4).
+        if let scope = presenter.navigation.scopeSegment(v), let window = scope.control.window {
+            func rect(_ r: CGRect) -> [String: Any] { ["x": Agent.r2(r.minX), "y": Agent.r2(r.minY), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
+            let vp = presenter.viewport, frame = scope.control.convert(scope.segment, to: window)
+            node["space"] = ["viewport": rect(scope.control.convert(scope.segment, to: vp).offsetBy(dx: -vp.pageOrigin.x, dy: -vp.pageOrigin.y)), "window": rect(frame),
+                             "screen": rect(window.convert(frame, to: window.screen.coordinateSpace)), "local": ["w": Agent.r2(scope.segment.width), "h": Agent.r2(scope.segment.height)],
+                             "capture": ["scale": Agent.r2(window.screen.scale)]]
+            node["visible"] = ["hidden": false, "inert": v.disabled, "inViewport": true, "clipped": false]
+            node["native"] = ["view": "UISearchBar scope segment", "accessibilityLabel": v.accessibleName]
+            node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
             reply["node"] = node
             return reply
         }
@@ -443,8 +470,8 @@ extension Agent {
             if hiddenBy == nil, s.isHidden || (s.alpha == 0 && (s as? NodeView)?.placement == nil) { hiddenBy = describe(s) }
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
             if let n = s as? NodeView {
-                if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y)]) }
-                else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0]) }
+                if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y + n.scrollTopInset(sv))].merging(Agent.range(of: sv)) { a, _ in a }) } // CSS scrollTop, as `tree` reads it
+                else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]) }
                 if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
             }
@@ -453,8 +480,8 @@ extension Agent {
         // The viewport's scrolling, or none: a presentation's mount does not scroll (LLP 1123 D2)
         let popoverLayer = PopoverLayer.containing(host)
         let inViewport = popoverLayer.map { $0.isDescendant(of: vp) } ?? (presenter.port(of: host) === vp)
-        var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)]
-                                                  : ["presentation": true, "sx": 0.0, "sy": 0.0]]
+        var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)].merging(Agent.range(of: vp)) { a, _ in a }
+                                                  : ["presentation": true, "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]]
         scroll.append(contentsOf: chain.reversed())
         var clip: [[String: Any]] = []
         for (n, kind) in clippers.reversed() {
@@ -492,7 +519,7 @@ extension Agent {
             let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
             let size = leaf.image?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
-            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" ? "empty" : name.isEmpty ? "role" : "os" }
+            if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" || source == "symbol:" ? "empty" : name.isEmpty ? "role" : "os" }
             native["symbol"] = symbol
         }
         node["native"] = native
@@ -997,7 +1024,8 @@ extension Agent {
         }
         #if os(iOS)
         if let node = presenter.shortcut(key: device.key, held: held, focus: v) {
-            presenter.press(node.id)
+            // A repeat is not a press, as on every host.
+            if req["repeat"] as? Bool != true { presenter.pressShortcut(node) }
             reply["shortcut"] = Int(node.id)
             return taken()
         }
@@ -1039,7 +1067,7 @@ extension Agent {
         if v.props["editable"] == "false", req["key"] == nil || ["Enter", "Backspace"].contains(req["key"] as? String ?? "") { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {
-            let location = req["text"] as? String ?? ""
+            let location = session.typedLocation(req["text"] as? String ?? "")
             return session.navigate(location) ? ["typed": Int(v.id), "value": location, "delivery": "recognized"] : ["error": "navigate refused"]
         }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
@@ -1113,7 +1141,7 @@ extension Agent {
             #if os(iOS)
             if phase != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
                 presenter.supersedePress() // a key, as `keyDown` and `performShortcut` take it
-                presenter.press(node.id)
+                if req["repeat"] as? Bool != true { presenter.pressShortcut(node) }
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
             #endif
@@ -1295,7 +1323,7 @@ extension Agent {
         let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
         if !painted.isEmpty, ExactEnv.agentPaints {
             r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
-            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview; to picture UIKit's menu, drive with --touch platform, where a screenshot with a menu up is the window's, the menu in it"
+            r["paintedNote"] = "the agent, not the app, painted the open popover in this picture, in the page (LLP 1021 D4): the app shows a menu as UIKit's menu at its button (a context menu's with its preview). To see the real one, drive with --touch platform: a screenshot with the menu up is then the window's, the menu in it"
         }
         let bars = presenter.navigation.paintedForBars()
         if !bars.isEmpty {

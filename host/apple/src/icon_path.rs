@@ -70,7 +70,7 @@ pub(crate) fn push_json(source: Option<&str>, json: &mut String) {
 /// source form or the plan (theme2's to rule). `None` for no icon or no row.
 pub(crate) fn icon_name<'a>(plan: &'a exact_plan::Plan, source: &str) -> Option<&'a str> {
     let icon = exact_kernel::Icon::parse(source)?;
-    let s = |id| plan.strings.get(id as usize).map_or("", String::as_str);
+    let s = |id| plan.strings.get(id as usize).unwrap_or("");
     plan.icons
         .iter()
         .find(|i| {

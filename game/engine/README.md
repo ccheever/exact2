@@ -336,7 +336,9 @@ consume input.
 
 `sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies, including
 declared `.sound` assets, which the primitive module also decodes; a save records
-their content identity, as it does a level's.
+their content identity, as it does a level's (a delivered model records none).
+A game's own tests use `exact_game::sim_with_art!(args)`: the game's `art/` baked in
+memory and passed to `Sim::with_assets`.
 `sim.save()?` checks current mesh roots even before requests are drained and
 reports pending or failed declarations by name. Failed cosmetics do not block saves.
 Declared (`Game::ASSETS`) and streamed (`Game::STREAMED`) assets stay resident
@@ -471,7 +473,7 @@ NaNs canonicalize and negative zero survives. Their JSON output is a bytes/hash
 summary, while input accepts numeric arrays. Summaries cannot be loaded as data.
 Other vectors remain structural sequences.
 
-World saves (EXGAME v5) are columnar: the entity table and each component
+World saves (EXGAME v6) are columnar: the entity table and each component
 storage store their rows' shape (tags, field and variant names, sequence lengths)
 once and their scalars as run-length or dictionary-coded columns, so repeated
 values cost nothing per entity and no name or entity key is repeated per row.

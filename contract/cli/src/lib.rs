@@ -13,6 +13,15 @@
 mod activities;
 mod excerpt;
 pub use excerpt::excerpt;
+
+/// Whether an attribute writes paint rows alone (LLP 1122 D14): `set-row`
+/// edits one; a layout row, a prop or a handler is the author's. The source
+/// map marks a written row that is not (`layout`).
+pub fn paint_row(a: &contract_syntax::Attr) -> bool {
+    let rows = contract_lower::tags::rows(a);
+    !rows.is_empty() && !rows.iter().any(|r| r.affects_layout())
+}
+mod declaration;
 pub mod functions;
 mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
@@ -22,6 +31,8 @@ mod logic;
 mod manifest;
 mod map;
 mod midi;
+mod module_rust;
+mod modules;
 pub mod native;
 pub mod picker;
 mod resolve;
@@ -46,6 +57,7 @@ pub use exact_runner::DataSource;
 pub use logic::{apple_linked, rust_entry, web_linked, web_rust_mode};
 pub use manifest::{Activity, Manifest, Widget};
 pub use map::{plan_digest, SourceMap};
+pub use module_rust::module_rust;
 pub use resolve::Origin;
 pub use rust::rust;
 pub use sources::{
@@ -495,6 +507,14 @@ pub fn rerun_if_changed(path: &Path) {
     // A nearer `node_modules` an install could create or fill: installing
     // edits the `package.json` and lockfile beside it, which exist.
     for consulted in graph.consulted.iter().filter(|path| !path.exists()) {
+        // A package's design not there yet (LLP 1121 D11): its directory,
+        // which making it changes.
+        if consulted.extension().is_some_and(|e| e == "tamber") {
+            if let Some(dir) = consulted.parent().filter(|d| d.is_dir()) {
+                println!("cargo:rerun-if-changed={}", dir.display());
+            }
+            continue;
+        }
         let Some(modules) = consulted
             .ancestors()
             .find(|a| a.file_name().is_some_and(|n| n == "node_modules"))
@@ -571,6 +591,61 @@ pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
         .map(|(plan, _)| plan)
 }
 
+/// The buttons whose `aria-keyshortcuts` chord types a key the game's
+/// `Actions` also bind (LLP 1132 D11), as warnings: on every host the
+/// shortcut takes that press, the key with exactly the chord's modifiers,
+/// first, so the world does not hear it while the button shows; the key
+/// with other modifiers still reaches the world. With a stale or missing
+/// `.shells/keys.json`, a warning saying so. Empty for an app that declares
+/// no shortcut.
+pub fn shortcut_findings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    let app_root = app_root(path)?;
+    let (file, sources) = sources::load(path, &src, &app_root)?;
+    Ok(shortcut_warnings(&file, &app_root)
+        .into_iter()
+        .map(|e| sources.resolve(e))
+        .collect())
+}
+
+fn shortcut_warnings(file: &contract_syntax::File, app_root: &Path) -> Vec<CompileError> {
+    let keys = app_root.join(".shells/keys.json");
+    let stale = |message: String| CompileError {
+        pass: "warning",
+        id: "analyze-shortcut-keys-stale".into(),
+        message,
+        span: Span::default(),
+        file: Some(keys.as_path().into()),
+        related: Box::new([]),
+    };
+    if !contract_analyze::declares_shortcuts(file) {
+        return Vec::new();
+    }
+    // A game built before its GPU build wrote the keys: say so, rather
+    // than check against none.
+    if !keys.is_file() {
+        return match app_root.join(".shells/surfaces.json").is_file() {
+            true => vec![stale("no .shells/keys.json, so button shortcuts are not checked against the game's `Actions`; a web or native build writes it".into())],
+            false => Vec::new(),
+        };
+    }
+    let mut out: Vec<CompileError> =
+        contract_analyze::check_shortcut_keys(file, &surface::keys(app_root))
+            .into_iter()
+            .map(|e| CompileError {
+                pass: "warning",
+                ..e.into()
+            })
+            .collect();
+    if let Some(newer) = surface::newer_rust_than(app_root, ".shells/keys.json") {
+        out.push(stale(format!(
+            ".shells/keys.json is older than {}: it names the keys of the game's last GPU build; a web or native build rewrites it",
+            newer.display()
+        )));
+    }
+    out
+}
+
 /// [`compile_path_all`] without the surface-argument check, which the
 /// author's commands make apart ([`surface_findings`]).
 pub fn compile_path_all_unchecked(
@@ -615,7 +690,56 @@ fn compile_path_all_warned_with(path: &Path, mapped: bool, surfaces: bool) -> Wa
             Some(&mut warned),
         )
     });
+    warned.sort_by_key(warning_rank);
     (result, warned)
+}
+
+/// Where a warning stands among a build's, source order kept within a rank:
+/// first what changes what the app shows, or how a person reaches it, on its
+/// native targets (a header item the bar leaves out, a button VoiceOver
+/// cannot name, a scroller that grows); then the rest; then naming advice
+/// that changes nothing shown; last a symbol blank on the web alone. The
+/// euxy port's `lower-header-unplaced` was one of 43, after 13 aliases.
+pub fn warning_rank(warning: &CompileError) -> u8 {
+    if web_only(warning) {
+        return 3;
+    }
+    match warning.id.as_str() {
+        "lower-header-unplaced"
+        | "lower-header-nested"
+        | "lower-header-no-bar"
+        | "lower-navigation-key"
+        | "lower-screen-by-state"
+        | "lower-button-unlabelled"
+        | "lower-round-button-label"
+        | "lower-dialog-role"
+        | "lower-level-without-heading"
+        | "lower-scroll-grows"
+        | "lower-width-padding"
+        | "lower-swipe-wiring"
+        | "lower-row-delete-button"
+        | "lower-delete-row" => 0,
+        "lower-symbol-alias" => 2,
+        _ => 1,
+    }
+}
+
+/// A warning only the web's picture shows: an SF Symbol drawn blank where
+/// the web is the one target besides Apple's (with Linux too, it is blank on
+/// a native host). A build's text says these in one line.
+pub fn web_only(warning: &CompileError) -> bool {
+    // Its first use names the targets, `ships web (…) and linux (…), where
+    // it is blank`; a later one, `blank on web too`.
+    let shipped = warning
+        .message
+        .split_once(" ships ")
+        .and_then(|(_, rest)| rest.split_once(", where it is blank"))
+        .map(|(targets, _)| targets);
+    warning.id == "lower-symbol-platform"
+        && match shipped {
+            Some(targets) => targets.starts_with("web (") && !targets.contains(") and "),
+            None => warning.message.contains(" blank on web too"),
+        }
 }
 
 pub(crate) fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
@@ -726,6 +850,9 @@ fn compile_loaded(
         Some(_) => grants::check(&file, &app_root, strings.as_deref()),
         None => Vec::new(),
     };
+    if warned.is_some() {
+        own.extend(shortcut_warnings(&file, &app_root));
+    }
     let compiled = compile_file_warned(
         &file,
         Some(&app_root),
@@ -747,7 +874,7 @@ fn compile_loaded(
     if !surface.is_empty() {
         return Err(surface);
     }
-    if app_root.join("app.json").is_file() {
+    if app_root.join("app.json").is_file() || app_root.join(".shells/app.json").is_file() {
         let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
             pass: "app",
             id: "app-manifest".into(),

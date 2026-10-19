@@ -36,20 +36,27 @@ import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { BINARYEN } from '../host/web/stages.mjs';
+if (import.meta.main && process.argv[2] === 'status' && !process.argv.includes('--help')) {
+  const {readStatus, formatStatus} = await import('../game/status.mjs');
+  const {resolve} = await import('node:path');
+  console.log(formatStatus(readStatus(resolve(process.argv[3] ?? '.'))));
+  process.exit(0);
+}
+const { BINARYEN } = await import('../host/web/stages.mjs');
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
-import { applyPattern, createApp, createGame, patternList, wireSnapback } from '../game/new.mjs';
-import { sdkFetch } from '../game/app/shells.mjs';
-import { appleArtifacts, assertAppleIdentity, stripForDistribution } from '../host/apple/build.mjs';
-import { closeFilesystemReader } from './filesystem.mjs';
-import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
-import { signRelease } from '../host/apple/assets.mjs';
-import { chromium } from './agent-launch.mjs';
-import { guardFlags, helpText } from './help.mjs';
-import { backendOrigin } from '../js/bake/src/typescript.mjs';
-import { devicePreflight } from '../snapback4/web/device-build.mjs';
+const { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
+const { applyPattern, createApp, createGame, patternList, wireSnapback } = await import('../game/new.mjs');
+const { sdkFetch } = await import('../game/app/shells.mjs');
+const { appleArtifacts, assertAppleIdentity, stripForDistribution } = await import('../host/apple/build.mjs');
+const { closeFilesystemReader } = await import('./filesystem.mjs');
+const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
+const { signRelease } = await import('../host/apple/assets.mjs');
+const { chromium } = await import('./agent-launch.mjs');
+const { guardFlags, helpText } = await import('./help.mjs');
+const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
+const { devicePreflight } = await import('../snapback4/web/device-build.mjs');
+const { generate: gameVocabulary } = await import('../game/vocab.mjs');
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const APPLICATIONS = resolve(homedir(), 'Applications');
@@ -364,6 +371,7 @@ export function binaryenArchive(version, os = process.platform, cpu = process.ar
 
 /** Install the versions declared by the SDK, once per machine. */
 export function setup({check = false} = {}) {
+  let vocabFailure = null;
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
   const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
   const version = BINARYEN.replace(' ', '_');
@@ -419,11 +427,16 @@ export function setup({check = false} = {}) {
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
     const fetched = sdkFetch();
     if (!fetched.ok) throw new Error(`cargo fetch of the game SDK lock failed${fetched.message ? `: ${fetched.message}` : ''}`);
+    // `game vocab` reads the engine's rustdoc; built here, a first lookup skips the cold build.
+    console.log('cargo rustdoc -p exact-game (for exact game vocab)');
+    try { gameVocabulary(); }
+    catch (error) { vocabFailure = error.message.trim().split('\n').slice(-3).join('\n'); }
   }
   const report = sdkReport();
   printReport(report);
   const missing = report.filter(row => row.required && !row.ok);
   if (missing.length) throw new Error(`${missing.map(row => row.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing or differ; run exact setup (it installs what it can and names the rest)`);
+  if (vocabFailure) throw new Error(`the engine rustdoc for game vocab did not build:\n${vocabFailure}`);
   // "Ready" is said only of what is: a row some apps need is named with the apps it holds back.
   const needed = report.filter(row => !row.ok);
   console.log(needed.length
@@ -644,9 +657,11 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact install <app>          put it in ~/Applications and its name on PATH
   exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
-  exact setup [--check]        install pinned Rust, wasm-bindgen, Binaryen and
+  exact setup [--check]       install pinned Rust, wasm-bindgen, Binaryen and
                                this machine's host/iOS/tvOS Hermes bundles;
-                               fetch the crates every bake reads offline
+                               fetch the crates every bake reads offline;
+                               build the engine rustdoc that game vocab reads
+  exact add <module> [<app>]   a standard module (geolocation): its dependency, installed
   exact hatch <word> [<app>]   an access hatch: a stub for each target the app builds (Kotlin for android/)
                                (--app, --window for those scopes), and app.json's entry
   exact list                   the apps in this repo
@@ -675,6 +690,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
                                its IR, tamber.json (ir -o <file>), or its layout (fmt)
   exact tamber serve <app>     the design server alone (development only): /__tamber
   exact tamber op <url> <request JSON>|subscribe  its scripted client
+  exact tamber pair <url> --scope read|propose|write [--name <n>]  a pairing code for a remote client
   exact tamber tool [<app>] [--via <dev url>]  the design tool, at http://127.0.0.1:7740/__tamber/tool/
   exact tamber import shadcn|tailwind|dtcg|astryx <source> <url> --app <app>  a theme as held proposals
                                (astryx: bun scripts/astryx-tokens.mjs resolves its pinned package first)
@@ -687,6 +703,23 @@ EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
 release needs a "Developer ID Application" certificate and notarytool
 credentials in the keychain; it says how to get each if one is missing.
 EXACT_DEVELOPER_ID and EXACT_NOTARY_PROFILE name them explicitly.`;
+
+/** `exact add <module> [<app>]` (LLP 1133.001 D8): the app depends on one of exact2's standard modules by a path into
+ *  this checkout, as an app consumes exact2 by path, so the module never differs from the SDK it compiles against. */
+export function add(args, say = console.log) {
+  const [module, name] = args, short = String(module ?? '').replace(/^@exact\//, '');
+  const read = (path) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
+  const standard = readdirSync(resolve(ROOT, 'packages')).filter((p) => read(resolve(ROOT, 'packages', p, 'exact.json'))?.kind === 'interface');
+  if (!standard.includes(short)) throw new Error(`add: ${module ? `no standard module ${module}` : 'name a module'}; exact2's are ${standard.join(', ')} (exact add geolocation)`);
+  if (!name && !process.env.EXACT_APP_DIR) throw new Error('add: name the app (exact add geolocation <app>), or run bun exact.mjs add in it');
+  const app = resolveApp(name), at = resolve(app.dir, 'package.json'), manifest = read(at);
+  if (!manifest) throw new Error(`add: ${app.dir} has no package.json; an app exact new made has one`);
+  const key = `@exact/${short}`, spec = `file:${resolve(ROOT, 'packages', short)}`;
+  if (manifest.dependencies?.[key] !== spec) writeFileSync(at, JSON.stringify({ ...manifest, dependencies: { ...manifest.dependencies, [key]: spec } }, null, 2) + '\n');
+  if (spawnSync(process.execPath, ['install'], { cwd: app.dir, stdio: 'inherit' }).status !== 0) throw new Error(`add: bun install failed in ${app.dir}`);
+  const grants = read(resolve(ROOT, 'packages', short, 'exact.json'))?.grants ?? [];
+  say(`add: ${key} is ${spec}. Name what you use: use … from "${key}" in app.contract, or import from it in app.ts${grants.length ? `; and grant one of ${grants.join(', ')} with its purpose's strings key in app.ts (exact docs a capability that asks permission)` : ''}.`);
+}
 
 /** `exact hatch <word> [<app>]`, `exact hatch --app [<app>]`, `exact hatch --window [<app>]` (LLP 1075.003.000.001 §5):
  *  an access hatch's stub for each target the app builds. A word is added to app.json `hatches` with the platforms
@@ -1016,7 +1049,7 @@ export function pattern(args, say = console.log) {
 }
 
 /** The guides `docs` reads, in the order a tie is settled: what a builder looks a section up in. */
-const GUIDES = ['docs/start-here.md', 'docs/contract-for-agents.md', 'docs/contract-grammar.md', 'docs/agent-pitfalls.md', 'docs/reference.md'];
+const GUIDES = ['docs/start-here.md', 'docs/contract-for-agents.md', 'docs/contract-grammar.md', 'docs/agent-pitfalls.md', 'docs/game-pitfalls.md', 'docs/reference.md'];
 const SECTION_LINES = 120;
 
 /** Whether a line opens or closes a code fence (CommonMark: an opening fence's info string has no backtick). */
@@ -1041,24 +1074,32 @@ function sections(text) {
   return { lines, kinds, heads };
 }
 
-/** A word whose section ranking alone misses, because it is said in passing more densely elsewhere, and its section. */
-const TOPICS = { log: 'Inspection and testing', sheet: 'Recipe: a navigation stack' };
+/** A query (its words singular, by one space) whose section ranking alone misses, because it is said in passing more
+ *  densely elsewhere or its section says it in other words ("dark mode": light and dark), and its section's heading. */
+const TOPICS = {
+  log: 'Inspection and testing', sheet: 'Recipe: a navigation stack', push: 'Recipe: a navigation stack',
+  'tab bar': 'Recipe: tabs', 'back button': 'Recipe: a navigation stack', share: 'Host commands',
+  'dark mode': 'Recipe: theme: colours, light and dark, icons',
+  font: 'Recipe: app.json, assets and modules', image: 'Recipe: app.json, assets and modules',
+  deploy: 'Recipe: porting an app, a release build, splitting the work',
+};
 
 const STOP = new Set(['a', 'an', 'and', 'by', 'for', 'in', 'it', 'its', 'of', 'on', 'or', 'the', 'to', 'you']);
+/** Type keywords (contract-grammar.md, "Expressions and types"): `strings` is app.json's key, never stemmed onto `: string`. */
+const TYPES = new Set(['number', 'string', 'bool', 'unit', 'action', 'option']);
 
 /** Words as whole words, one after another by spaces or hyphens, singular or plural (`sheets` finds `sheet`): `logs` is
- *  not in "catalogs"; `-exact-exit-animation` holds `exit`, and `exit animation` together. */
-const singular = w => w.length > 3 && /[^s]s$/i.test(w) ? w.slice(0, -1) : w;
+ *  not in "catalogs". */
+const singular = w => w.length > 3 && /[^s]s$/i.test(w) && !TYPES.has(w.slice(0, -1).toLowerCase()) ? w.slice(0, -1) : w;
 const wholeWords = (...words) => new RegExp(`(?<![a-z0-9_])${words.map(w => singular(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s-]+')}s?(?![a-z0-9_])`, 'gi');
 
-/** A line's weighted mentions of a word: code (in a fence or backticks) defines it, prose, or a part of a hyphenated
- *  name (`syntax-call-cycle` for `call`), mentions it. */
+/** A line's weighted mentions of a word: code (in a fence or backticks) defines it, prose mentions it, and a piece of a
+ *  longer hyphenated name (`font-variant-numeric` for `font`, `syntax-call-cycle` for `call`) is not the word. */
 function mentions(line, kind, re) {
   let n = 0;
   for (const m of line.matchAll(re)) {
-    const code = kind === 'code' || line.slice(0, m.index).split('`').length % 2 === 0;
-    const part = line[m.index - 1] === '-' || line[m.index + m[0].length] === '-';
-    n += code && !part ? 3 : 1;
+    if (line[m.index - 1] === '-' || line[m.index + m[0].length] === '-') continue;
+    n += kind === 'code' || line.slice(0, m.index).split('`').length % 2 === 0 ? 3 : 1;
   }
   return n;
 }
@@ -1072,12 +1113,16 @@ export function docs(words, say = console.log) {
   // Each word, and several written together, which count again.
   const res = words.map(w => wholeWords(w)), together = words.length > 1 ? wholeWords(...words) : null;
   const recipes = readdirSync(resolve(ROOT, 'docs/recipes')).filter(f => f.endsWith('.md')).sort().map(f => `docs/recipes/${f}`);
-  const units = [];
+  const units = [], topic = TOPICS[words.map(w => singular(w).toLowerCase()).join(' ')];
   for (const path of [...GUIDES, ...recipes]) {
     const f = { path, shown: relative(process.cwd(), resolve(ROOT, path)), ...sections(readFileSync(resolve(ROOT, path), 'utf8')) };
     for (const h of f.heads) {
       const counts = res.map(re => { let n = 0; for (let i = h.from; i < h.own; i++) n += mentions(f.lines[i], f.kinds[i], re); return n; });
-      if (counts.some(n => n === 0)) continue;
+      // The words written together are the phrase, a CSS name's hyphens included (`text overflow` is `text-overflow`,
+      // whose pieces alone are not the words); the query's own section (TOPICS) is a match however it says the words.
+      let joined = 0;
+      if (together) for (let i = h.from; i < h.own; i++) joined += mentions(f.lines[i], f.kinds[i], together);
+      if (counts.some(n => n === 0) && !joined && topic !== h.title) continue;
       // A heading is on the words when they are half its own words or more ("Tabular numbers", "Recipe: motion"), or
       // when it is a recipe's title that holds them all ("Recipe: files, SQLite and grants"); not when a section's
       // heading only says one ("Before you call it done").
@@ -1089,13 +1134,10 @@ export function docs(words, say = console.log) {
       let last = first;
       while (last < h.own && !(f.kinds[last] === 'text' && f.lines[last].trim() === '')) last++;
       const opens = res.every(re => f.lines.slice(first, last).some((line, i) => mentions(line, f.kinds[first + i], re)));
-      let joined = 0;
-      if (together) for (let i = h.from; i < h.own; i++) joined += mentions(f.lines[i], f.kinds[i], together);
       const density = (counts.reduce((a, b) => a + b, 0) + 2 * joined) / (h.own - h.from + 8);
-      // A heading that is the words ("Tabular numbers") weighs more again; a word's own section (TOPICS) comes first.
+      // A heading that is the words ("Tabular numbers") weighs more again; the query's own section comes first.
       const exact = own.map(singular).join(' ') === words.map(w => singular(w).toLowerCase()).join(' ');
-      const topic = words.length === 1 && TOPICS[singular(words[0]).toLowerCase()] === h.title;
-      units.push({ f, h, titled, score: topic ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 2 : 1) * (opens ? 1.5 : 1) });
+      units.push({ f, h, titled, score: topic === h.title ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 2 : 1) * (opens ? 1.5 : 1) * (joined ? 3 : 1) });
     }
   }
   if (!units.length) return say(`docs: no section of the guides holds ${words.map(w => `"${w}"`).join(' and ')} as words; try fewer, or bun exact.mjs contract vocab <name>`);
@@ -1125,7 +1167,18 @@ async function main(argv) {
   // Help before any work (`setup --help` installed, `new --help` wrote an app); the compiler answers its own.
   if (verb !== 'contract' && argv.some(arg => arg === '--help' || arg === '-h')) return console.log(helpText(verb) ?? USAGE);
   if (verb === 'game' && name === 'vocab') return import('../game/vocab.mjs').then(m => m.main(rest));
-  if (verb === 'setup') return setup({check: name === '--check'});
+  if (verb === 'status' || verb === 'web' && rest.includes('--ready')) {
+    const {readStatus, formatStatus, waitReady} = await import('../game/status.mjs');
+    const dir = name ? resolve(name) : process.cwd();
+    if (verb === 'status') return console.log(formatStatus(readStatus(dir)));
+    const row = await waitReady(dir, {timeout:Number(rest.includes('--timeout') ? rest[rest.indexOf('--timeout') + 1] : 600)});
+    return console.log(`READY ${row.url}`);
+  }
+  if (verb === 'setup') {
+    const flags = argv.slice(1);
+    if (flags.some(flag => !['--check'].includes(flag))) throw new Error('Usage: exact setup [--check]');
+    return setup({check:flags.includes('--check')});
+  }
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
   if (verb === 'contract') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('contract')), 0) : contract(argv.slice(1)));
@@ -1135,9 +1188,11 @@ async function main(argv) {
   if (verb === 'tamber' && name === 'serve') return import('./tamber-server.mjs').then(m => m.serveAlone(rest)).then(code => process.exit(code));
   if (verb === 'tamber' && name === 'import') return import('./tamber-server.mjs').then(m => m.importTheme(rest)).then(code => process.exit(code));
   if (verb === 'tamber' && name === 'op') return import('./tamber-server.mjs').then(m => m.op(rest)).then(code => process.exit(code));
+  if (verb === 'tamber' && name === 'pair') return import('./tamber-pairing.mjs').then(m => m.pairCode(rest)).then(code => process.exit(code));
   if (verb === 'tamber' && name === 'tool') return import('./tamber-server.mjs').then(m => m.toolCommand(rest)).then(code => process.exit(code));
   if (verb === 'tamber') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
+  if (verb === 'add') return add(guardFlags('add', argv.slice(1)));
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   // Words, never flags: a CSS name (`-exact-exit-animation`) is one, and --help was answered above.
   if (verb === 'docs') return docs(argv.slice(1));

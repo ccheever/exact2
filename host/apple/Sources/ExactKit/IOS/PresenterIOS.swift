@@ -11,6 +11,7 @@ package final class Presenter {
     var documentDirection = "ltr"
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    weak var autofocusedThisTurn: NodeView? // taken out of the window this turn, it has not had its autofocus (NodeViewIOS)
     var pressHandoff: PressHandoff? // the press whose work may hand its control's focus on (PressHandoffIOS)
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
@@ -402,14 +403,14 @@ package final class Presenter {
         videoVisibility?.reset()
     }
 
-    /// Size the document to its roots, never smaller than the page's area,
-    /// at the area's origin inside the viewport's page margins.
+    /// Size the document to its roots and what overflows one that does not clip (`content`), never smaller
+    /// than the page's area, at the area's origin inside the viewport's page margins.
     func fitDocument() {
-        let m = pageMargins
-        var size = viewportSize
+        let m = pageMargins; var size = viewportSize
         for r in root.subviews {
-            size.width = max(size.width, r.frame.maxX)
-            size.height = max(size.height, r.frame.maxY)
+            let v = r as? NodeView, extent = v.flatMap { $0.scrollView == nil && !$0.overflowClips && !$0.isHidden ? $0.content : nil }
+            let reach = extent.map { r.convert(CGRect(origin: .zero, size: $0), to: root) } ?? .zero // through the root's transform
+            size = CGSize(width: max(size.width, r.frame.maxX, reach.maxX), height: max(size.height, r.frame.maxY, reach.maxY))
         }
         let frame = CGRect(origin: CGPoint(x: m.left, y: m.top), size: size)
         if root.frame != frame { root.frame = frame }
@@ -890,7 +891,7 @@ package final class Presenter {
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
-                if flats.isFlat(id) { if FlatLeaves.onlyData(op) { continue }; flats.promote(id) }
+                if flats.isFlat(id) { if flats.props(id, op) { continue }; flats.promote(id) }
                 views[id]?.applyProps(set: op.props, clear: op.clear)
                 elements.propsChanged(id)
             case .flow:
@@ -913,7 +914,7 @@ package final class Presenter {
                     session?.noteAppearance(v)
                 }
             case .children:
-                if flats.isFlat(id) { if op.ids.isEmpty { continue }; flats.promote(id) }
+                if flats.isFlat(id) { if flats.adopt(id, op.ids) { continue }; flats.promote(id) }
                 guard let parent = views[id] else { continue }
                 placeChildren(parent, op.ids)
             case .surface:
@@ -1005,7 +1006,7 @@ package final class Presenter {
         let changed = touchedAndAbove(touchedIDs + geometryApplied)
         geometryApplied = []
         swipeActions.sync(changed: changed); rowCells.sync(changed: changed)
-        groupedLists?.sync(changed: changed)
+        groupedLists?.sync(changed: changed); reachPageEdges() // a list mounted now reaches its bands too
         if !flights.isEmpty { flightsBatchApplied() }
         #if os(tvOS)
         menuKey.sync()

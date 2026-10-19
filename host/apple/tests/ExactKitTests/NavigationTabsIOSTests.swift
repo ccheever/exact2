@@ -32,6 +32,14 @@ final class NavigationTabsIOSTests: XCTestCase {
 
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
+    /// Whether the tab bar is hidden as the host hides it: `setTabBarHidden`
+    /// on iOS 18, which on an iPad hides the floating bar and leaves
+    /// `tabBar.isHidden` alone.
+    private func tabBarHidden(_ tabs: UITabBarController) -> Bool {
+        if #available(iOS 18.0, *) { return tabs.isTabBarHidden }
+        return tabs.tabBar.isHidden
+    }
+
     private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
         while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
@@ -107,7 +115,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         try authoredTabs(session, true)
         XCTAssertFalse(navigation.adopts(tablist: list))
         XCTAssertFalse(list.isHidden)
-        XCTAssertTrue(tabs.tabBar.isHidden)
+        XCTAssertTrue(tabBarHidden(tabs))
         navigation.reportCovers()
         until("the shown authored tablist has safe-area protection") { navigation.covers[list.id] != nil }
         XCTAssertFalse(list.subviews.contains { $0 is UITabBar || $0 is UISegmentedControl })
@@ -118,7 +126,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         try authoredTabs(session, false)
         XCTAssertTrue(navigation.adopts(tablist: list))
         XCTAssertTrue(list.isHidden)
-        XCTAssertFalse(tabs.tabBar.isHidden)
+        XCTAssertFalse(tabBarHidden(tabs))
         XCTAssertEqual(tabs.selectedIndex, 1)
         XCTAssertTrue(tabs.viewControllers?[0] === stacks[0])
     }
@@ -700,6 +708,10 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Second selected") { tabs.selectedIndex == 1 }
         spin(0.3)
         let nav = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
+        // UIKit shows no large title where it places a vertical bar: the iPhone Duo upright or closed
+        // holds a 28-point title in a fixed 58-point bar
+        var large = true
+        if #available(iOS 27.1, *) { large = nav.traitCollection.verticalBarEdge == .unspecified }
         let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
         let css = { sv.contentOffset.y + sv.adjustedContentInset.top }
         let expanded = nav.navigationBar.frame.height
@@ -707,7 +719,11 @@ final class NavigationTabsIOSTests: XCTestCase {
         list.applyPendingScroll()
         spin(0.3)
         XCTAssertEqual(css(), 600, accuracy: 0.5, "scrolled down")
-        XCTAssertLessThan(nav.navigationBar.frame.height, expanded, "the large title collapsed")
+        if large {
+            XCTAssertLessThan(nav.navigationBar.frame.height, expanded, "the large title collapsed")
+        } else {
+            XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, "the bar kept its height")
+        }
         // The other tab, then back: selecting a tab keeps its scroll.
         tapTab(tabs, 0)
         until("Home selected") { tabs.selectedIndex == 0 }
@@ -720,7 +736,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("its content scrolled to the top") { abs(css()) < 0.5 && !sv.isDecelerating }
         spin(0.5)
         XCTAssertEqual(css(), 0, accuracy: 0.5)
-        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, "and the large title expanded")
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, large ? "and the large title expanded" : "and the bar kept its height")
         XCTAssertEqual(nav.viewControllers.count, 1)
     }
 

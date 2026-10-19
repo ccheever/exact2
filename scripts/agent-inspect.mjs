@@ -1,10 +1,10 @@
 import { MalformedOperation, inputJSON } from './agent-keys.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { renderAx } from './agent-ax.mjs';
-import { decodePng, shrink } from './png.mjs';
+import { decodePng, encodePng, shrink } from './png.mjs';
 
 /** Film's bounds (LLP 1012.001.000 D2): a drive's pictures, not a recording, decoded in memory at once. */
 export const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
@@ -181,7 +181,7 @@ export function identifyInspectedNode(reply, target) {
  *           {"  " × depth}{Type}#{id} [{testId}] hatch="…" "{text}" value="…" label="…" checked=true|false ({handlers, comma-separated})
  *           an iframe adds url="…" loading=true|false and `[guest]` outline lines
  *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] [· status bar light-content|dark-content (#id), iOS] · clock C ms
- *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} [overscroll {ox},{oy}]
+ *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} of {rx},{ry} [overscroll {ox},{oy}]
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
  *           the host's lines indented two spaces; on an iOS simulator, the newest crash report of the build
  *           on that simulator since the last `logs` (its path, how it ended, the crashing thread's top
@@ -241,7 +241,9 @@ export function render(op, r, how = {}) {
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
       // The status bar's style Exact asks for (LLP 1105 D7, iOS), when it is not the default.
       const bar = r.statusBar && r.statusBar.style !== 'default' ? ` · status bar ${r.statusBar.style} (#${r.statusBar.source})` : '';
-      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''}${n.bare_reason ? ` · bare: \`${n.bare_reason}\`` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
+      // The title-bar area beside the window's controls, where the host defines it.
+      const titlebar = e && e['titlebar-area-width'] != null ? ` · titlebar-area ${e['titlebar-area-x']},${e['titlebar-area-y']} ${e['titlebar-area-width']}×${e['titlebar-area-height']}` : '';
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${titlebar}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''}${n.bare_reason ? ` · bare: \`${n.bare_reason}\`` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}${rangeOf(n)}` : ''}${past(n)}`}`));
       lines.splice(1, 0, ...scaledLines(r));
       if (r.node) lines.push(...renderNode(r.node));
       return lines.join('\n');
@@ -251,6 +253,7 @@ export function render(op, r, how = {}) {
     case 'state': {
       if (!r || typeof r !== 'object') return q(r);
       if (Array.isArray(r)) return stateCap(q(r), r, how);
+      if (r.draws || r.visible || r.look) return renderLook(r);
       // One line a section: pretty-printing cost an app's state more than half again its JSON (Caltrain, 2026-10-09).
       const { epoch, incarnation, clock, ...rest } = r, app = 'slots' in r;
       const head = [epoch != null && `epoch ${epoch}`, incarnation != null && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`].filter(Boolean).join(' · ');
@@ -297,8 +300,13 @@ function renderLine(op, r) {
     if (rest.w != null && rest.h != null) lead.push(`${rest.w}×${rest.h}`);
     delete rest.screenshot; delete rest.w; delete rest.h;
   }
+  // What a picture shows that the app does not (a menu the agent painted, the authored bars), each on a line of its
+  // own: in the run of key=values it read as one more field, and a painted menu as an app bug (euxy port).
+  const notes = op === 'screenshot' ? ['paintedNote', 'chromeNote', 'unshownNote', 'note'].filter((k) => typeof rest[k] === 'string').map((k) => {
+    const said = rest[k]; delete rest[k]; return `\n  NOTE: ${said}`;
+  }) : [];
   return [...lead, epoch != null && `epoch ${epoch}`, incarnation != null && incarnation !== 1 && `incarnation ${incarnation}`, op !== 'clock' && clock != null && `clock ${clock} ms`,
-    ...Object.entries(rest).map(([k, v]) => `${k}=${JSON.stringify(v)}`)].filter(Boolean).join(' · ');
+    ...Object.entries(rest).map(([k, v]) => `${k}=${JSON.stringify(v)}`)].filter(Boolean).join(' · ') + notes.join('');
 }
 
 /** The most of a `state` reply its transcript prints whole (`state … --full` prints it all, `--json` every reply):
@@ -339,6 +347,10 @@ export function emptySection(v) {
   return v === null || (typeof v === 'object' && (Array.isArray(v) ? !v.length : !Object.keys(v).length));
 }
 
+function rangeOf(scroller) {
+  return scroller.rx != null ? ` of ${scroller.rx},${scroller.ry}` : '';
+}
+
 /**
  * The block `layout <target>` adds under the listing (LLP 1035.002 D1): the
  * node's identity and site, one line per row with its source, its spaces,
@@ -349,7 +361,7 @@ export function emptySection(v) {
  *   node #{id} [{testId}] {Type} · site {n} · instance {keys} · epoch E · incarnation I
  *     {row} = {value} ({authored | inherited from #id | initial}[, applied {…}])
  *     space viewport X,Y W×H · frame X,Y W×H (kernel, in the parent) · window X,Y W×H · screen X,Y W×H · scale S
- *     scroll [viewport | #id] sx,sy · … (outermost first)   clip #id overflow|clip-path · …
+ *     scroll [viewport | #id] sx,sy of rx,ry · … (outermost first)   clip #id overflow|clip-path · …
  *     visible hidden=… inert=… inViewport=… clipped=…       native key=value …
  *     browser {row}="{the browser's computed value}" …      (the web's oracle beside the kernel's answer)
  */
@@ -382,7 +394,7 @@ function renderNode(n) {
   if (n.fragment_skipped) out.push(`  kept whole in its column: ${n.fragment_skipped}`);
   const sp = n.space ?? {};
   out.push(`  space viewport ${box(sp.viewport)}${n.frame ? ` · frame ${box(n.frame)} (kernel, in the parent)` : ''}${sp.window ? ` · window ${box(sp.window)}` : ''}${sp.screen ? ` · screen ${box(sp.screen)}` : ''}${sp.capture?.scale != null ? ` · scale ${sp.capture.scale}` : ''}`);
-  if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}`).join(' · ')}`);
+  if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}${rangeOf(c)}`).join(' · ')}`);
   if (n.clip?.length) out.push(`  clip ${n.clip.map((c) => `#${c.id} ${c.kind}`).join(' · ')}`);
   if (n.visible) out.push(`  visible ${sorted(n.visible).map(([k, v]) => `${k}=${v}`).join(' ')}`);
   if (n.native) out.push(`  native ${sorted(n.native).filter(([k]) => k !== 'subviews').map(([k, v]) => `${k}=${typeof v === 'string' ? v : q(v)}`).join(' ')}`);
@@ -673,7 +685,9 @@ function renderAgreement(a) {
  * view answers with the whole record, so a name the record holds reads that even when a view carries it as its testId
  * or text (a sequencer's `transport` bar and the record's `transport`). */
 export async function stateOp(s, args) {
-  const page = { ...(args[1] === 'events' ? {world:true, events:true, ...(args[2] ? {event_type:args[2]} : {})} : {}), ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
+  // `state <canvas> draws`, `state <canvas>:<entity> visible` and `state <canvas> look` are a world's look frame (LLP 1127.000 D1, D4).
+  const look = ['draws', 'visible', 'look'].includes(args[1]) ? { [args[1]]: true, world: true } : {};
+  const page = { ...look, ...(args[1] === 'events' ? {world:true, events:true, ...(args[2] ? {event_type:args[2]} : {})} : {}), ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
   const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
   if (args[0] == null) return read();
   const has = (o, k) => o !== null && typeof o === 'object' && Object.hasOwn(o, k);
@@ -702,6 +716,16 @@ export async function stateOp(s, args) {
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
   if (error.transport || error.malformed) return error; // App state cannot explain malformed input or a failed transport.
+  // What covers a target may leave on one of the app's timers, which the agent's frozen clock never reaches (a boot
+  // overlay's `after(900, …)`, euxy FRICTION 9): the tasks still waiting, and the step that runs them.
+  if (/covers its middle/.test(error.message ?? '')) try {
+    const r = await session.state(), now = r?.clock;
+    const due = Object.entries(r?.tasks ?? {}).filter(([, at]) => Number.isFinite(at) && at > now).sort((a, b) => a[1] - b[1]);
+    if (Number.isFinite(now) && due.length) {
+      const shown = due.slice(0, 3).map(([name, at]) => `\`${name}\` at ${at} ms`).join(', ') + (due.length > 3 ? `, and ${due.length - 3} more` : '');
+      error.message += `; the agent's clock stands at ${now} ms, and the app's tasks wait on it (${shown}): if what covers it leaves on a timer, \`clock +${Math.ceil(due[Math.min(2, due.length - 1)][1] - now)}\` runs ${due.length > 1 ? 'them' : 'it'}`;
+    }
+  } catch { /* the refusal as it was */ }
   try {
     for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
       const canvasName = canvas.props?.testId ?? canvas.id;
@@ -729,10 +753,10 @@ export function worldView(session, name) {
       const {tick, hash} = first, entities = [...first.entities];
       for (let r = first; all && r.truncated;) {
         r = await session.state(`${name}:*`, undefined, false, false, {...page, from:r.next});
-        if (r.tick !== tick || r.hash !== hash) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
+        if (r.tick !== tick || r.hash !== hash || r.tableEdits !== first.tableEdits) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
         entities.push(...r.entities);
       }
-      return {tick, hash, entities, truncated: all ? false : first.truncated, ...Object.fromEntries(["developmentEdits", "sessionDevelopmentEdits", "queuedSets"].filter(k => first[k] !== undefined).map(k => [k, first[k]]))};
+      return {tick, hash, entities, truncated: all ? false : first.truncated, ...Object.fromEntries(["tableEdits", "developmentEdits", "sessionDevelopmentEdits", "queuedSets"].filter(k => first[k] !== undefined).map(k => [k, first[k]]))};
     },
     /** Every resource's value, as `state world:* resources` reads them. */
     async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },
@@ -775,4 +799,87 @@ export function withRegions(env) {
   if (!env || typeof env !== 'object') return env;
   for (const region of REGIONS) for (const edge of ['top', 'right', 'bottom', 'left']) env[`-exact-${region}-inset-${edge}`] ??= env[`safe-area-inset-${edge}`] ?? 0;
   return env;
+}
+
+/** A world's look frame as text (LLP 1127.000): its tells, its draws, or why an entity is or is not drawn. */
+export function renderLook(r) {
+  const q = JSON.stringify, head = `tick ${r.tick} · hash ${r.hash}`;
+  if (r.visible) return `${head}\n${r.entity?.name ?? '#' + r.entity?.id}: ${r.visible} (${r.reason})`;
+  if (r.draws) return [head, ...r.draws.map((d) => [d.pass.padEnd(13), d.draw, d.winding, d.submitted != null && `submitted ${d.submitted}`, d.kept != null && `kept ${d.kept}`, d.variant != null && `variant ${d.variant}`, 'fragments' in d && `fragments ${d.fragments ?? 'not measured'}`, 'covered' in d && (d.covered == null ? 'coverage not measured' : d.covered ? 'covered' : 'COVERED NOTHING'), d.draws != null && `${d.draws} draws`, d.summary && 'one entry for all its draws', `writes ${d.writes}`].filter(Boolean).join(' · '))].join('\n');
+  return [head, ...lookLines(r.look)].join('\n');
+}
+function lookLines(look) {
+  if (!look) return [];
+  const measured = (m, taken) => m == null ? '' : m.unmeasured != null ? `not measured (${m.unmeasured})` : taken(m);
+  const particles = look.particles ? ` · particles ${measured(look.particles, (draws) => draws.map((d) => `${d.batch}: ${d.live} live, ${d.covered} px`).join('; '))}` : '';
+  const casters = look.sunTexels != null ? ` · sun shadow texels ${measured(look.sunTexels, (n) => n)}${look.sunCasters != null ? ` (casters ${look.sunCasters})` : ''}` : '';
+  return [`mean luminance ${look.mean} · clipped ${(look.clipped * 100).toFixed(1)}%${particles}${casters} · readback ${look.readbackBytes} B${look.reduced ? ' · reduced, not judged' : ''}`, ...look.tells.map((t) => t.line), ...(look.gaps ?? []).map((g) => `look: ${g}`)];
+}
+
+/** `screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>]`
+ * (LLP 1127.000 D3): the world's look frame, the tick the agent's clock has reached drawn offscreen from that view and
+ * written as a PNG, with its tells; `over … every` films it on the clock. A form of `screenshot`, never a new operation:
+ * presentation only, the hash does not move. A device-less host draws it where the machine has a GPU. */
+export async function worldLook(s, args) {
+  const [path, target, , ...from] = args;
+  const usage = 'screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>]';
+  const [view, rest] = from[0] === 'camera' ? [{}, from.slice(1)] : from[0] === 'top' ? [{ top: Number(from[1]) }, from.slice(2)]
+    : [{ yaw: Number(from[0]), pitch: Number(from[1]), distance: Number(from[2]) }, from.slice(3)];
+  if (Object.values(view).some((v) => !Number.isFinite(v))) throw new MalformedOperation(usage);
+  const shoot = (file) => lookPicture(s, file, target, view);
+  if (rest.length === 4 && rest[0] === 'over' && rest[2] === 'every') return s.film(path, { over: Number(rest[1]), every: Number(rest[3]), window: shoot });
+  if (rest.length) throw new MalformedOperation(usage);
+  return s.tagged(await shoot(resolve(path)));
+}
+
+/** After `clock settle` (`r` its reply) and every pixel `screenshot`, each shown world's tells where its canvas draws (LLP
+ * 1127.000 D1): a look frame of the tick the clock reached, whose `look: …` lines reach the world's `logs`. The reply
+ * carries them as `look`, the canvases looked at as `lookSeen`, what a frame could not measure, or a drawing canvas's "no
+ * picture", as `lookGaps`, and a look frame that failed as `lookFailed`. The worlds are the ones shown now (a settle's
+ * reply lists them; otherwise `state` does). A canvas that draws no frames (the GPU-less host) answers at once and adds
+ * none. */
+export async function worldTells(s, r) {
+  if (r == null || r.error != null) return r;
+  const lines = [], gaps = [], failed = [], seen = [];
+  const shown = Array.isArray(r.world) ? r.world : await s.op({ op: 'state' }).then((st) => st.world ?? [], (error) => (failed.push(`worlds: ${error.message}`), []));
+  for (const id of shown.map((w) => w.canvas).filter((c) => c != null)) {
+    const reply = await s.op({ op: 'state', id, world: true, look: true, drawing: true }).catch((error) => ({ error: error.message }));
+    if (reply.unavailable) { if (reply.drawing !== false) gaps.push(`canvas ${id}: ${reply.unavailable}`); continue; }
+    if (reply.error != null || !reply.look) { failed.push(`canvas ${id}: ${reply.error ?? 'no look in the reply'}`); continue; }
+    seen.push(id);
+    lines.push(...reply.look.tells.map((t) => t.line));
+    gaps.push(...(reply.look.gaps ?? []).map((g) => `canvas ${id}: ${g}`));
+  }
+  const tags = [['look', lines], ['lookSeen', seen], ['lookGaps', gaps], ['lookFailed', failed]];
+  return { ...r, ...Object.fromEntries(tags.filter(([, v]) => v.length)) };
+}
+
+/** A film's frames together (`s.film`): each judged frame's tells as one entry of `lookFrames` (a live frame's lines, or
+ * a look frame from the game's camera at full resolution; a reduced or other view's frame is a picture), all of them as
+ * `look`, and every frame's gaps, failures and canvases looked at. */
+export function lookAcross(replies) {
+  const frames = [], gaps = [], failed = [], seen = [];
+  for (const r of replies) {
+    const own = r?.look && !Array.isArray(r.look) && !r.look.reduced && !r.view ? r.look : null;
+    const judged = Array.isArray(r?.look) ? r.look : own ? (own.tells ?? []).map((t) => t.line) : null;
+    if (judged) frames.push(judged);
+    gaps.push(...(r?.lookGaps ?? []), ...(own?.gaps ?? []));
+    failed.push(...(r?.lookFailed ?? []));
+    seen.push(...(r?.lookSeen ?? []));
+  }
+  const tags = [['look', frames.flat()], ['lookFrames', frames.some((f) => f.length) ? frames : []], ['lookGaps', gaps], ['lookFailed', failed], ['lookSeen', [...new Set(seen)]]];
+  return Object.fromEntries(tags.filter(([, v]) => v.length));
+}
+
+/** One look frame of `target` from `view` ({} the game's camera, {top}, or {yaw, pitch, distance}) written to `path`. */
+export async function lookPicture(s, path, target, view = {}) {
+  mkdirSync(dirname(resolve(path)), { recursive: true });
+  const at = await s.target(target);
+  const reply = await s.op({ op: 'screenshot', ...at, world: true, form: 'look', ...view });
+  if (reply.unavailable) throw Object.assign(new Error(`look ${target}: ${reply.unavailable}`), { reply, unavailable: reply.unavailable });
+  if (reply.error || typeof reply.data !== 'string') throw Object.assign(new Error(`look ${target}: ${reply.error ?? 'no pixels in the reply'}`), { reply });
+  writeFileSync(resolve(path), encodePng({ width: reply.width, height: reply.height, data: Buffer.from(reply.data, 'base64') }));
+  const { tick, hash, w, h, look, bounds } = reply, from = Object.fromEntries(Object.entries(view).filter(([k]) => k !== 'resolution'));
+  // `bounds`: the scene's centre and radius an orbit or plan view was drawn within.
+  return { screenshot: resolve(path), w, h, tick, hash, canvas: at.id, look, ...(bounds ? { bounds } : {}), ...(Object.keys(from).length ? { view: from } : {}) };
 }

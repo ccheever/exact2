@@ -3,50 +3,67 @@ use super::*;
 use exact_runner::{FieldSelection, SelectionDirection};
 
 #[test]
-fn decorations_share_intrinsic_measurement_paint_and_source_geometry() {
-    let source = r##"decoration large font-size=32 color="#0000ff" background-color="#ffff00" text-decoration="underline"
+fn decorations_paint_runs_without_moving_the_fields_layout() {
+    let source = r##"decoration mention color="#0000ff" background-color="#ffff00" text-decoration="underline"
 component Fields
   view
     column width=400 height=600
-      textarea id="field" testId="field" value="a😀c" decorations=TextDecorations(value="a😀c",spans=[TextDecorationSpan(name="large",start=1,end=3)],blocks=[],hidden=[],atoms=[]) appearance="none" width=180 field-sizing="content" font-size=16
-      textarea testId="plain" value="a😀c" appearance="none" width=180 field-sizing="content" font-size=16
+      textarea id="field" testId="field" value="a😀c @alice end" decorations=TextDecorations(value="a😀c @alice end",spans=[TextDecorationSpan(name="mention",start=1,end=3),TextDecorationSpan(name="mention",start=5,end=11)]) appearance="none" width=180 field-sizing="content" font-size=16
+      textarea testId="plain" value="a😀c @alice end" appearance="none" width=180 field-sizing="content" font-size=16
 "##;
     let (mut presenter, id) = boot_source(source);
+    let plain = presenter.host.kernel().find_by_test_id("plain")[0];
+    let plain = presenter.host.kernel().node_by_key(plain).unwrap().id;
     let paragraph = presenter.paragraph(id).unwrap();
     assert_eq!(
         paragraph
             .runs()
             .iter()
             .map(|run| run.text.as_str())
-            .collect::<String>(),
-        "a😀c"
-    );
-    assert_eq!(
-        paragraph
-            .runs()
-            .iter()
-            .map(|run| run.size)
             .collect::<Vec<_>>(),
-        [16., 32., 16.]
+        ["a", "😀", "c ", "@alice", " end"]
     );
-    let line = paragraph.layout_runs().next().unwrap();
-    let glyph = line.glyphs.iter().find(|glyph| glyph.start == 1).unwrap();
-    let point = (
-        glyph.x + glyph.w * 0.1,
-        line.line_top + line.line_height * 0.5,
+    let glyphs = |presenter: &Presenter<()>, id| {
+        presenter
+            .paragraph(id)
+            .unwrap()
+            .layout_runs()
+            .flat_map(|line| {
+                line.glyphs
+                    .iter()
+                    .map(|g| (g.start, g.x, g.w))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        glyphs(&presenter, id),
+        glyphs(&presenter, plain),
+        "the same advances as the plain field"
     );
-    let field = presenter.rect_of(id).unwrap();
-    let plain = presenter.host.kernel().find_by_test_id("plain")[0];
-    let plain = presenter.host.kernel().node_by_key(plain).unwrap().id;
-    assert!(
-        field.3 > presenter.rect_of(plain).unwrap().3 * 1.5,
-        "decorated font metrics size the intrinsic field"
+    let (field, other) = (
+        presenter.rect_of(id).unwrap(),
+        presenter.rect_of(plain).unwrap(),
     );
-    assert_eq!(presenter.field_value(id), "a😀c");
-    presenter.press_at(field.0 + point.0, field.1 + point.1, 0.);
+    assert_eq!((field.2, field.3), (other.2, other.3), "the same size");
+    let point = {
+        let line = presenter
+            .paragraph(id)
+            .unwrap()
+            .layout_runs()
+            .next()
+            .unwrap();
+        let glyph = line.glyphs.iter().find(|glyph| glyph.start == 1).unwrap();
+        (
+            field.0 + glyph.x + glyph.w * 0.1,
+            field.1 + line.line_top + line.line_height * 0.5,
+        )
+    };
+    presenter.press_at(point.0, point.1, 0.);
     assert_eq!(presenter.field_selection(id).start, 1);
     key(&mut presenter, id, "ArrowRight");
     assert_eq!(presenter.field_selection(id).start, 3);
+    assert_eq!(presenter.field_value(id), "a😀c @alice end");
 }
 
 fn boot(tag: &str, value: &str, extra: &str) -> (Presenter<()>, ViewId) {
@@ -161,8 +178,7 @@ fn second_character(p: &mut Presenter<()>, id: ViewId, multiline: bool) -> (f32,
         .layout_runs()
         .next()
         .unwrap()
-        .glyphs[1]
-        .clone();
+        .glyphs[1];
     (ox + glyph.x + glyph.w * 0.1, oy + 12.)
 }
 
@@ -256,6 +272,43 @@ fn field_down_revalidates_after_authored_pointerdown() {
             p.pointer_up(x, y, 2.).unwrap();
             assert_eq!(p.focus, None, "{down} {feedback}: up");
             assert_eq!(contact_log(&p), "down ", "{down} {feedback}: up");
+        }
+    }
+}
+
+#[test]
+fn mouse_click_on_a_common_ancestor_keeps_down_focus_and_caret() {
+    for feedback in ["", "-exact-press-scale=0.9"] {
+        for release in [(140., 20.), (250., 160.)] {
+            let (mut p, field) = boot_source(&format!(
+                r#"component App
+  state seen = ""
+  action record(name: string)
+    seen = `${{seen}}${{name}} `
+  view
+    box width=400 height=600 tabindex=0 press=record("root")
+      box width=220 height=100 tabindex=0 press=record("parent")
+        input testId="field" value="abcd" width=100 height=60 appearance="none" font-size=16 focus=record("focus") press=record("field") {feedback}
+        input width=100 height=60 position="absolute" left=120 top=0 press=record("sibling")
+      text seen testId="log"
+"#
+            ));
+            p.pointer_down(20., 20., 1.).unwrap();
+            assert_eq!(p.focus(), Some(field));
+            let caret = p.field_selection(field);
+            p.pointer_move(release.0, release.1, 2.).unwrap();
+            p.pointer_up(release.0, release.1, 3.).unwrap();
+            assert_eq!(p.focus(), Some(field), "{feedback} {release:?}");
+            assert_eq!(p.field_selection(field), caret);
+            assert_eq!(
+                contact_log(&p),
+                if release.0 == 140. {
+                    "focus parent "
+                } else {
+                    "focus root "
+                },
+                "{feedback} {release:?}"
+            );
         }
     }
 }
@@ -1038,4 +1091,96 @@ fn field_texts_name_where_the_label_and_the_value_were_painted() {
     let (_, empty) = field("");
     assert_eq!(empty.value, None);
     assert!(empty.label.unwrap().rect.1 > label.rect.1, "{empty:?}");
+}
+
+#[test]
+fn mouse_common_ancestor_click_focuses_the_down_targets_focusable_node() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for child_focus in ["tabindex=0", ""] {
+        for feedback in ["", "-exact-press-scale=0.9"] {
+            let (mut p, other) = boot_source(&format!(
+                r#"component App
+  state seen = ""
+  action pressed
+    seen = `${{seen}}press `
+  view
+    box width=400 height=600
+      input testId="field" value="other" width=100 height=40
+      box testId="parent" tabindex=0 position="absolute" top=60 width=220 height=100 press=pressed {feedback}
+        box testId="a" width=100 height=60 {child_focus}
+        box testId="b" position="absolute" left=120 top=0 width=100 height=60 {child_focus}
+      text seen testId="log" position="absolute" top=200
+"#
+            ));
+            let wanted = if child_focus.is_empty() {
+                "parent"
+            } else {
+                "a"
+            };
+            let k = p.host.kernel();
+            let wanted = k.node_by_key(k.find_by_test_id(wanted)[0]).unwrap().id;
+            p.set_focus(Some(other), 0.);
+            p.pointer_down(20., 80., 1.).unwrap();
+            let down = p.focus();
+            p.pointer_move(140., 80., 2.).unwrap();
+            p.pointer_up(140., 80., 3.).unwrap();
+            actual.push((
+                child_focus,
+                feedback,
+                down,
+                p.focus(),
+                contact_log(&p).to_string(),
+            ));
+            expected.push((
+                child_focus,
+                feedback,
+                Some(wanted),
+                Some(wanted),
+                "press ".to_string(),
+            ));
+        }
+    }
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn mouse_hidden_down_target_focuses_its_ancestor_unless_it_is_a_field() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for child in ["box", "box tabindex=0", "input"] {
+        for hidden in ["display", "visibility"] {
+            for parent in ["tabindex=0", "press=pressed"] {
+                let value = if hidden == "display" {
+                    "none"
+                } else {
+                    "hidden"
+                };
+                let (mut p, other) = boot_source(&format!(
+                    r#"component App
+  state hidden = "inherit"
+  action down
+    hidden = "{value}"
+  action pressed
+    hidden = hidden
+  view
+    box width=400 height=600
+      input testId="field" value="old" width=100 height=40
+      box testId="parent" position="absolute" top=60 width=200 height=100 {parent}
+        {child} testId="child" width=100 height=60 {hidden}=hidden pointerdown=down
+"#
+                ));
+                let k = p.host.kernel();
+                let parent_id = k.node_by_key(k.find_by_test_id("parent")[0]).unwrap().id;
+                p.set_focus(Some(other), 0.);
+                p.pointer_down(20., 80., 1.).unwrap();
+                let down = p.focus();
+                p.pointer_up(20., 80., 2.).unwrap();
+                actual.push((child, hidden, parent, down, p.focus()));
+                let wanted = (child != "input").then_some(parent_id);
+                expected.push((child, hidden, parent, wanted, wanted));
+            }
+        }
+    }
+    assert_eq!(actual, expected);
 }

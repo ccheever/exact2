@@ -10,6 +10,38 @@ macro_rules! piece {
     };
 }
 const FRAME: &str = piece!("frame");
+/// A quad module as build.rs assembled and validated it (quads.rs): `base`
+/// `particle` (dots) or `sprite` (textured quads), `kind` `plain`, `soft`,
+/// `count` or `soft_count` (a look frame's probe variants), at `samples` 1 or 4.
+pub(crate) fn quad_module(base: &str, kind: &str, samples: u32) -> &'static str {
+    macro_rules! quads {
+        ($($name:literal)*) => {
+            match format!("{base}_{kind}_{samples}").as_str() {
+                $($name => include_str!(concat!(env!("OUT_DIR"), "/quad/", $name, ".wgsl")),)*
+                other => unreachable!("no quad module {other}"),
+            }
+        };
+    }
+    quads!(
+        "particle_plain_1" "particle_soft_1" "particle_count_1" "particle_soft_count_1"
+        "sprite_plain_1" "sprite_soft_1" "sprite_count_1" "sprite_soft_count_1"
+        "particle_plain_4" "particle_soft_4" "particle_count_4" "particle_soft_count_4"
+        "sprite_plain_4" "sprite_soft_4" "sprite_count_4" "sprite_soft_count_4"
+    )
+}
+/// Every quad module, as the renderer compiles it.
+#[cfg(test)]
+fn quad_sources() -> Vec<String> {
+    let mut out = Vec::new();
+    for samples in [1, 4] {
+        for base in ["particle", "sprite"] {
+            for kind in ["plain", "soft", "count", "soft_count"] {
+                out.push(quad_module(base, kind, samples).to_string());
+            }
+        }
+    }
+    out
+}
 pub(crate) const OCCLUSION: &str = piece!("occlusion");
 pub(crate) const SHADOW_SEED: &str = piece!("shadow_seed");
 
@@ -79,11 +111,11 @@ pub(crate) fn primitive_forward_source(early: bool) -> String {
 }
 
 #[cfg(test)]
-pub(crate) fn shader_sources() -> [String; 11] {
+pub(crate) fn shader_sources() -> Vec<String> {
     let [a, b, c, d, e] = primitive_sources(false);
     let models = [model_source(false), model_source(true)];
     let [f, g] = models;
-    [
+    let mut all = vec![
         a,
         b,
         c,
@@ -95,7 +127,9 @@ pub(crate) fn shader_sources() -> [String; 11] {
         ENVIRONMENT.into(),
         outline_source(),
         SHADOW_SEED.into(),
-    ]
+    ];
+    all.extend(quad_sources());
+    all
 }
 
 /// Frustum culling reuses the scene's transform bindings (0-5) in compute.

@@ -1,17 +1,25 @@
+export const proofSDK = import.meta.dir + "/..";
+import {refusalMessage} from '../scripts/agent-keys.mjs';
+import {proofInputFiles, proofInputExcluded, executionInputFiles} from './inputs.mjs';
+export {proofInputFiles, proofInputExcluded} from './inputs.mjs';
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
-import { open as openSession, render } from '../scripts/agent.mjs';
-import { cdpFailureContext, gameNonInput } from '../scripts/agent-launch.mjs';
+import { open as openSession, render, lookPicture } from '../scripts/agent.mjs';
+import { cdpFailureContext } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, executableName, resolveApp } from '../scripts/app.mjs';
-import { closeFilesystemReader } from '../scripts/filesystem.mjs';
+import { prepareProofTree } from './app/shells.mjs';
+import { closeFilesystemReader, filesystemLock } from '../scripts/filesystem.mjs';
+import { decodePng } from '../scripts/png.mjs';
 
 /** Some runtime-created stacks omit the informative Error message. */
 export function formatProofError(error) {
+  const refusal = refusalMessage(error?.reply);
+  if (refusal && !process.env.EXACT_AGENT_DEBUG && !process.argv.includes('--json')) return refusal;
   const message = String(error), stack = error?.stack;
   const rendered = typeof stack === 'string' && stack.length
     ? stack.includes(message) ? stack : `${message}\n${stack}`
@@ -192,7 +200,7 @@ export function buildInputHash(host, target, mode = '0', profile = process.env.E
   // Receipts made before complete directory checks may describe stale artifacts.
   const hash = createHash('sha256').update('exact game proof receipt v4\0').update(host).update(target);
   if (host === 'web') hash.update(mode);
-  if (host === 'linux' || host === 'windows') hash.update(profile);
+  if (host === 'linux' || host === 'windows' || host === 'web') hash.update(profile);
   return hash;
 }
 export async function ensureBuildReceipt({receipt, inputs, artifact, build}) {
@@ -261,9 +269,11 @@ export function agreePins(rows, previous, hosts, app) {
     }
     reference ??= row;
   }
-  const release = rows.filter(row => row.host === native && row.mode === '0' && row.profile === 'release');
-  if (release.length !== 1 || release[0].failures?.length || !equal(release[0].pins, reference.pins))
-    throw new Error(`repin refused: ${native} release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged`);
+  for (const host of [native, ...hosts.includes('web') ? ['web'] : []]) {
+    const release = rows.filter(row => row.host === host && row.mode === '0' && row.profile === 'release');
+    if (release.length !== 1 || release[0].failures?.length || !equal(release[0].pins, reference.pins))
+      throw new Error(`repin refused: ${host} release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged`);
+  }
   return {...reference.pins, hosts};
 }
 export function pinInputs(rows) {
@@ -329,7 +339,7 @@ export function editProvenance() {
 // Read only provenance fields; walk skipped values to preserve the binary name table.
 // Tags and bounds follow engine/src/data/bin.rs. This does not restore gameplay.
 function savedFields(bytes, magic, fields) {
-  const fail = reason => { throw new Error(`pinSave refused: invalid ${magic.startsWith('EXSIM') ? 'EXSIM v7' : 'EXGAME v5'} save: ${reason}`); };
+  const fail = reason => { throw new Error(`pinSave refused: invalid ${magic.startsWith('EXSIM') ? 'EXSIM v7' : 'EXGAME v6'} save: ${reason}`); };
   if (!bytes.subarray(0, magic.length).equals(Buffer.from(magic, 'binary'))) fail('unsupported format');
   if (bytes.length > 2 * 1024 ** 3) fail('load size limit');
   let pos = magic.length;
@@ -409,7 +419,7 @@ function assertSaveEdits(bytes) {
   const saved = savedFields(bytes, 'EXSIM\0\x07', ['world', 'queue']);
   if (!Buffer.isBuffer(saved.world) || !Array.isArray(saved.queue))
     throw new Error('pinSave refused: invalid EXSIM v7 world or queue');
-  const world = savedFields(saved.world, 'EXGAME\0\x05', ['developmentEdits']);
+  const world = savedFields(saved.world, 'EXGAME\0\x06', ['developmentEdits']);
   if (world.developmentEdits !== undefined && typeof world.developmentEdits !== 'boolean')
     throw new Error('pinSave refused: invalid developmentEdits marker');
   if (world.developmentEdits) throw new Error('pinSave refused: save contains a set development edit');
@@ -434,6 +444,7 @@ export function pinRecorder(previous, app, check, collecting = false, provenance
   };
   return {pins,
     pin(tick, state) {
+      if (state?.tableEdits) check(`pin ${tick} refused: development table edits are in the journal`, false);
       provenance.assert();
       provenance.observe([state]);
       provenance.assert();
@@ -455,6 +466,14 @@ export function proofStatus({failures, expected, pins, collecting = false, parti
     !Object.keys(expected[section] ?? {}).length || !equal(expected[section], pins[section]))) return 'UNVERIFIED';
   return 'PASS';
 }
+export function proofVerdict(options, args = []) {
+  const status = proofStatus({...options, partial:args.some(a => ['--build-only','--screenshot-only','--capture40'].includes(a))});
+  const reason = status === 'FAIL' ? 'assertions failed' : status === 'PASS' ? 'complete baseline checked'
+    : args.includes('--build-only') ? 'build only' : args.includes('--screenshot-only') || args.includes('--capture40') ? 'pixels only'
+    : options.collecting ? 'collecting baseline' : !Object.keys(options.expected.ticks ?? {}).length || !Object.keys(options.expected.saves ?? {}).length
+      ? 'no baseline yet (expected before the first prove)' : 'incomplete baseline observations';
+  return {status, reason, code:status === 'PASS' ? 0 : status === 'FAIL' ? 1 : 3};
+}
 // A report describes only recorded failures/stalls, never guesses from successful calls.
 export function facilityReport(replies) {
   const success = (r, method) => r.method === method && r.reply != null && !r.error && !r.reply.error;
@@ -473,54 +492,6 @@ export function facilityReport(replies) {
   return hints;
 }
 
-/// Whether a repository file is outside a game's deterministic build inputs:
-/// other games, the bench and its probes, the twins, diaries, LLPs, apps, build
-/// outputs. Source extensions, app assets, and Apple module inputs are admitted.
-/// A game's own scripts (bench.mjs, a proxy, a probe) are tools, not bake inputs:
-/// no bake reads a .mjs/.js outside its logic, data, gpu, render and asset folders.
-export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`, root = resolve(import.meta.dir, '..')) {
-  const gamePrefix = file.startsWith(appPrefix) ? appPrefix : file.startsWith('game/') ? 'game/' : null;
-  const gameParts = gamePrefix === null ? [] : file.slice(gamePrefix.length).split('/').slice(0, -1);
-  return (/^(issues|\.claude)\//.test(file) && !file.startsWith(appPrefix))
-    || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
-    || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
-    || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css|modulemap)$/.test(file)
-      && !(file.startsWith('host/apple/') && !basename(file).includes('.'))
-      && !['art/', 'assets/', 'deck/'].some(dir => file.startsWith(appPrefix + dir)))
-    || (/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file) && !file.startsWith(appPrefix))
-    || (file.startsWith('game/games/') && !file.startsWith(appPrefix))
-    || ['node_modules/', 'target/', '.shells/', 'dist/', 'dist.previous/', 'dist-windows/', 'artifacts/'].some(output => file.startsWith(output) || file.startsWith('game/' + output) || file.startsWith(appPrefix + output))
-    || /^(host\/web\/dist(?:\.previous)?|host\/apple\/\.build|game\/render\/target)\//.test(file)
-    || (file.startsWith('apps/') && !file.startsWith(appPrefix))
-    || gameParts.some((part, i) => ['tests', 'examples'].includes(part)
-      && existsSync(resolve(root, gamePrefix, ...gameParts.slice(0, i), 'Cargo.toml')));
-}
-export function proofInputFiles(root, app, inventory, ignoredDirectories = new Set()) {
-  const top = inventory ? {status:0, stdout:root} : spawnSync('git', ['rev-parse','--show-toplevel'], {cwd:root, encoding:'utf8'});
-  const repository = top.status === 0 ? top.stdout.trim() : root;
-  const files = inventory ?? spawnSync('git', ['ls-files','-z','--cached','--others','--exclude-standard'], {cwd:repository, encoding:'utf8'});
-  const walk = (dir, prefix = '') => ignoredDirectories.has(resolve(dir)) ? [] : readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
-    if (['.git','node_modules'].includes(entry.name) || (!prefix && ['target','.build','.shells','dist','dist.previous','dist-windows','artifacts'].includes(entry.name))) return [];
-    const path = prefix + entry.name;
-    return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
-  });
-  // Fleet exports have no Git index; external games are outside exact2's index.
-  // Git-ignored files are outputs or private apparatus, never authored inputs.
-  const sources = files.status === 0 ? files.stdout.split('\0').filter(Boolean) : walk(repository);
-  const excluded = new Set();
-  for (const cwd of new Set([repository, app])) {
-    const ignored = spawnSync('git', ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], {cwd, encoding:'utf8'});
-    if (ignored.status === 0) for (const file of ignored.stdout.split('\0').filter(Boolean)) {
-      if (file.endsWith('/')) ignoredDirectories.add(resolve(cwd, file));
-      else excluded.add(relative(repository, resolve(cwd, file)).replaceAll('\\', '/'));
-    }
-  }
-  sources.push(...walk(app).map(file => relative(repository, resolve(app, file)).replaceAll('\\', '/')));
-  const prefix = relative(repository, app).replaceAll('\\', '/') + '/';
-  return [...new Set(sources)].sort().filter(file => !excluded.has(file) &&
-    ![...ignoredDirectories].some(dir => resolve(repository, file).startsWith(dir + '/')) &&
-    !proofInputExcluded(file, basename(app), prefix, repository) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
-}
 // Clean tracked bytes are identified by Git blobs. Dirty app inputs and
 // products reuse their digest only while their full stat tuple is unchanged.
 // Nanosecond timestamps and inode identity catch edits restored before the next scan.
@@ -539,10 +510,11 @@ export function proofInputs(root, app, cachePath) {
   let cache={}; try {cache=JSON.parse(readFileSync(cachePath,'utf8'));} catch { /* First proof. */ }
   const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[],authored:[]}, authoredState=[], assetState=[]; let reads=0;
   const manifest = resolve(app, '.baked-assets.json');
-  const generated = new Set(existsSync(manifest)
-    ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : []);
+  const generated = new Set([prefix + 'assets/exact-tables.json', ...(existsSync(manifest)
+    ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : [])]);
   const ignoredDirectories = new Set();
-  const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined, ignoredDirectories);
+  const authoredFiles = new Set(proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined, ignoredDirectories));
+  const files=executionInputFiles(root,app,undefined,ignoredDirectories,authoredFiles);
   // File stats miss sources created, consumed and removed between scans. Walk
   // shared and app source directories, including empty ones, to retain edits.
   const directories = new Set();
@@ -551,7 +523,7 @@ export function proofInputs(root, app, cachePath) {
     const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
     if (proofInputExcluded(file + 'input.rs', basename(app), prefix, root)) return;
     directories.add(dir);
-    for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name.localeCompare(b.name)))
+    for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
       if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name));
   };
   for(const file of files) {
@@ -564,8 +536,8 @@ export function proofInputs(root, app, cachePath) {
     rows.push([file,digest,key]);
   }
   for(const row of rows) {
-    const [file,digest,key]=row, input=[file,digest]; groups.all.push(input);
-    if (file !== prefix + '.baked-assets.json' && !generated.has(file)) {
+    const [file,digest,key]=row, input=[file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file,digest]; groups.all.push(input);
+    if (authoredFiles.has(file) && file !== prefix + '.baked-assets.json' && !generated.has(file)) {
       // Source provenance survives moving the app relative to the SDK. Keep
       // execution paths and the in-flight file/directory checks unchanged.
       groups.authored.push([file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file, digest]);
@@ -604,7 +576,7 @@ export function proofInputs(root, app, cachePath) {
     state.push([file, ignoredMixed.has(dir) ? key.split(':').slice(0, 2).join(':') : key]);
   }
   groups.authored.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
+  return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads,assetRows:assetState};
 }
 // One reader per proof. Directory changes require a rerun, even for baked assets.
 export function proofInputReader(root, app, cachePath) {
@@ -614,18 +586,109 @@ export function proofInputReader(root, app, cachePath) {
     // Content identity alone misses an edit that is reverted while the build reads it.
     if (previous && previous.authoredState !== inputs.authoredState)
       throw new Error('authored proof inputs changed during build; rerun the proof');
-    if (previous && previous.assetState !== inputs.assetState)
-      throw new Error('app or asset directories changed during build; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)');
+    if (previous && previous.assetState !== inputs.assetState) {
+      const before = new Map(previous.assetRows), after = new Map(inputs.assetRows);
+      const changed = [...new Set([...before.keys(), ...after.keys()])].filter(dir => before.get(dir) !== after.get(dir));
+      throw new Error(`app or asset directories changed during build: ${changed.join(', ')}; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)`);
+    }
     previous = inputs;
     return inputs;
   };
 }
-export async function ensureLinuxReceipts({directory,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
-  const gpu=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-gpu.sha256'),inputs:gpuInputs,artifact:gpuArtifact,build:()=>build('gpu')});
+export async function ensureLinuxReceipts({directory,app,surface,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
+  if (surface) mkdirSync(dirname(surface),{recursive:true});
+  const declaration = resolve(directory,'build-linux-surfaces.json'), assets = resolve(directory,'build-linux-assets');
+  // The keys `Actions` bind travel with the declaration (the bake's shortcut warning reads them).
+  const keys = surface && resolve(dirname(surface),'keys.json'), keysCache = resolve(directory,'build-linux-keys.json');
+  let cachedAssets = !app;
+  // No cache is an ordinary miss; a cached file that would overwrite an authored one is a refusal.
+  if (app && existsSync(resolve(assets,'files.json'))) { restoreBakedAssets(assets, app); cachedAssets = true; }
+  const artifact = () => {
+    const product = gpuArtifact();
+    if (!surface) return product;
+    if (!product || !existsSync(declaration) || !cachedAssets) return null;
+    return createHash('sha256').update(product).update(readFileSync(declaration)).update(app ? bakedAssetDigest(assets) : '').digest('hex');
+  };
+  const gpu=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-gpu.sha256'),inputs:gpuInputs,artifact,build:async () => {
+    await build('gpu');
+    if (surface) copyFileSync(surface,declaration);
+    if (keys && existsSync(keys)) copyFileSync(keys,keysCache);
+    if (app) { cacheBakedAssets(app,assets); cachedAssets = true; }
+  }});
+  // A fresh snapshot needs the declaration even when the GPU product is reused.
+  if (surface) copyFileSync(declaration,surface);
+  if (keys && existsSync(keysCache)) copyFileSync(keysCache,keys);
   completeGpu();
   // The GPU build may have changed surfaces.json; observe it only afterwards.
   const host=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-host.sha256'),inputs:hostInputs,artifact:hostArtifact,build:()=>build('host')});
   return gpu || host;
+}
+function bakedAssetDigest(cache) {
+  const hash = createHash('sha256'), files = JSON.parse(readFileSync(resolve(cache,'files.json')));
+  hash.update(JSON.stringify(files));
+  for (const name of files) hash.update(name).update(readFileSync(resolve(cache,name)));
+  return hash.digest('hex');
+}
+function cacheBakedAssets(app, cache) {
+  const root = resolve(import.meta.dir,'..'), authored = new Set(proofInputFiles(root,app));
+  const manifest = resolve(app,'.baked-assets.json');
+  const owned = new Set(existsSync(manifest) ? Object.keys(JSON.parse(readFileSync(manifest))).map(name=>'assets/'+name) : []);
+  const files = executionInputFiles(root,app,undefined,undefined,authored).filter(file => {
+    const name = relative(app,resolve(root,file));
+    return name === '.baked-assets.json' || name.startsWith('assets/') && (!authored.has(file) || owned.has(name));
+  }).map(file=>relative(app,resolve(root,file))).sort();
+  rmSync(cache,{recursive:true,force:true}); mkdirSync(cache,{recursive:true});
+  for (const name of files) { mkdirSync(dirname(resolve(cache,name)),{recursive:true}); copyFileSync(resolve(app,name),resolve(cache,name)); }
+  writeFileSync(resolve(cache,'files.json'),JSON.stringify(files));
+}
+// A cached file lands only where the app's own bake manifest says a generated file of that
+// digest is (or where nothing is): a file the author put there is refused by name, as the baker
+// refuses the same collision (game/bake, "collides with an authored asset"). Every destination is
+// checked before any is written.
+function restoreBakedAssets(cache, app) {
+  const files = JSON.parse(readFileSync(resolve(cache,'files.json')));
+  const manifest = resolve(app,'.baked-assets.json');
+  const generated = existsSync(manifest) ? JSON.parse(readFileSync(manifest)) : {};
+  const writes = [];
+  for (const name of files) {
+    if (name !== '.baked-assets.json' && (!name.startsWith('assets/') || !resolve(app,name).startsWith(resolve(app,'assets')+'/'))) throw new Error(`invalid baked asset path: ${name}`);
+    const destination = resolve(app,name), bytes = readFileSync(resolve(cache,name));
+    if (!existsSync(destination)) { writes.push([destination,bytes]); continue; }
+    const current = readFileSync(destination);
+    if (current.equals(bytes)) continue;
+    const recorded = name === '.baked-assets.json' ? undefined : generated[name.slice('assets/'.length)];
+    const ownedDigest = recorded && (typeof recorded === 'string' ? recorded : recorded.digest ?? recorded.sha256);
+    const currentDigest = createHash('sha256').update(current).digest('hex');
+    if (name !== '.baked-assets.json' && ownedDigest !== currentDigest)
+      throw new Error(`cached asset \`${name}\` would overwrite a file the bake does not own; move the authored file or delete the cached build (artifacts/build)`);
+    writes.push([destination,bytes]);
+  }
+  for (const [destination,bytes] of writes) { mkdirSync(dirname(destination),{recursive:true}); writeFileSync(destination,bytes); }
+}
+export async function withProofBuild(target, build) {
+  for (;;) {
+    let entered = false;
+    try { return await filesystemLock(target, 'proof-products/.lock', async () => { entered = true; return await build(); }); }
+    catch (error) { if (entered || !error.message.includes('stream is locked by another publisher')) throw error; }
+    await new Promise(ok => setTimeout(ok,100));
+  }
+}
+export function copyProofProducts(root, app, artifacts, destination, expected = {}) {
+  mkdirSync(destination,{recursive:true});
+  const products = {}, copied = {};
+  for (const [kind,path] of Object.entries(artifacts)) {
+    const to = resolve(destination,basename(path)), bytes = readFileSync(path);
+    copyFileSync(path,to);
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    if (createHash('sha256').update(readFileSync(to)).digest('hex') !== hash) throw new Error(`proof product changed while copying: ${path}`);
+    if (expected[kind] && expected[kind] !== hash) throw new Error(`proof product changed after validation: ${path}`);
+    copied[kind] = to; products[to] = hash;
+    if (existsSync(path+'.proof.json')) { copyFileSync(path+'.proof.json',to+'.proof.json'); products[to+'.proof.json'] = createHash('sha256').update(readFileSync(to+'.proof.json')).digest('hex'); }
+  }
+  const inputs = Object.fromEntries(executionInputFiles(root,app).map(file => [file,createHash('sha256').update(readFileSync(resolve(root,file))).digest('hex')]));
+  const receipt = resolve(destination,'products.json');
+  writeFileSync(receipt,JSON.stringify({binary:copied.binary,inputs,products}));
+  return {...copied,receipt};
 }
 export function productDigest(path, cachePath) {
   try {
@@ -647,8 +710,125 @@ export async function paranoidRuns(run, restore = async () => 0, host = 'web') {
   return failed;
 }
 
+// The look oracle's tells (LLP 1127.000 D1; game/render/src/tells.rs), by the
+// words of their `look:` lines, and the ones a game's app.json silences.
+export const TELLS = {'near-black':/near black$/, 'near-white':/near white$/, 'clipped':/% of pixels clipped$/,
+  'particles-uncovered':/particles live, 0 pixels covered \(.*\)$/, 'no-shadow-casters':/sun shadow maps hold no texel nearer than their clear depth$/};
+export function tellOf(line) {
+  const at = typeof line === 'string' ? line.indexOf('look: ') : -1;
+  if (at < 0) return null;
+  const text = line.slice(at), name = Object.keys(TELLS).find(n => TELLS[n].test(text));
+  return name ? {name, line:text} : null;
+}
+export function lookSilence(app) {
+  const path = resolve(app, 'app.json');
+  const silence = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')).game?.look?.silence ?? [] : [];
+  const unknown = silence.filter(name => !(name in TELLS));
+  if (unknown.length) throw new Error(`${path}: game.look.silence names ${unknown.join(', ')}; the tells are ${Object.keys(TELLS).join(', ')}`);
+  return new Set(silence);
+}
+// A world's own `logs` line that a look frame added (`tick=N look: …`,
+// surface/look.rs): presentation, which no save or fresh game reproduces.
+export const isTellLine = line => typeof line === 'string' && /^tick=\d+ look: /.test(line);
+// A world's journal chunks as the paranoid comparison reads them: without tell lines.
+export function worldJournal(chunks) {
+  return chunks.map(({from, next, lines, tick}) => Object.fromEntries(
+    Object.entries({from, next, lines:lines?.filter(line => !isTellLine(line)), tick}).filter(([,value]) => value !== undefined)));
+}
+// The frames one reply judged and their tells: a settle's or a screenshot's
+// lines, a film's frames (`lookFrames`), or a look frame's own. A reduced
+// (contact-sheet) frame and a look frame from another view than the game's
+// camera are pictures, and judge nothing. With them, every gap and failed look
+// frame the reply names.
+export function frameTells(reply) {
+  const look = reply?.look, own = look && !Array.isArray(look) && !look.reduced && !reply.view ? look : null;
+  const frames = reply?.lookFrames ?? (Array.isArray(look) ? [look] : own ? [(own.tells ?? []).map(t => t.line)] : []);
+  return {frames:frames.map(lines => lines.map(tellOf).filter(Boolean)),
+    gaps:[...own?.gaps ?? [], ...reply?.lookGaps ?? [], ...reply?.lookFailed ?? []]};
+}
+// The look result beside the simulation result (LLP 1127.000 D5). `worlds` is
+// each world every session showed at its close, with its picture or why it has
+// none; `tells` one entry a judged frame told; `gaps` what a judged frame could
+// not measure. A tell no silence names fails it; it passes only when every
+// world was seen and every measurement taken, and is otherwise unverified.
+export function lookResult({worlds, tells, gaps = []}, silence) {
+  // One entry a tell: its first line and how many distinct frames told it.
+  const byName = list => [...Map.groupBy(list, t => t.name).values()]
+    .map(all => ({...all[0], times:new Set(all.map((t, i) => t.frame ?? `entry ${i}`)).size}));
+  const loud = byName(tells.filter(t => !silence.has(t.name))), quiet = byName(tells.filter(t => silence.has(t.name)));
+  // Worlds without a picture, one line a canvas and reason: `sessions 1, 2 world: no picture on this host: …`.
+  const unseen = Map.groupBy(worlds.filter(w => !w.picture), w => `${w.canvas}: ${w.unavailable ?? w.error ?? 'no picture'}`);
+  const missing = [...[...unseen].map(([why, all]) => `session${all.length > 1 ? 's' : ''} ${all.map(w => w.session).join(', ')} ${why}`), ...new Set(gaps)];
+  const status = loud.length ? 'FAIL' : worlds.length && !missing.length ? 'PASS' : 'UNVERIFIED';
+  const detail = loud.length ? [...new Set(loud.map(t => t.name))].join(', ')
+    : !worlds.length ? 'no world was shown' : missing.length ? missing.join('; ')
+    : `${quiet.length} tells${quiet.length ? ' silenced' : ''}`;
+  return {status, detail, loud, quiet, missing};
+}
+// One proof's look accounting (LLP 1127.000 D5): the pictures and judged
+// frames, every world a session showed (by session and canvas id), and the
+// ones a closing look frame, a judged settle or screenshot, or an explicit
+// look(…) looked at. `idOf(session)` names a session; `out` the artifacts.
+export function lookAccount(out, idOf) {
+  const looks = {closing:new Map(), pictures:[], pages:[], sheets:[], tells:[], gaps:[], frames:0};
+  const shown = new Map(), lookedAt = new Set();
+  // Each judged frame's tells, marked with the frame (a tell several frames told counts each), and its gaps.
+  const noteFrame = ({frames, gaps}) => {
+    for (const tells of frames) { looks.frames += 1; looks.tells.push(...tells.map(t => ({...t, frame:looks.frames}))); }
+    looks.gaps.push(...gaps);
+  };
+  const show = (session, id, canvas = id) => { if (!shown.has(`${session}:${id}`)) shown.set(`${session}:${id}`, {session, id, canvas}); };
+  return {
+    looks, show,
+    // One look frame of a session's world, from `view` ({}, {top}, {yaw, pitch, distance}), into the artifacts. Only
+    // the game's own camera is judged, and a judged one looked at its canvas; another view is a picture.
+    async look(session, view = {}, label = 'look', canvas = 'world') {
+      const frame = await lookPicture(session, resolve(out, `${label}.png`), canvas, view);
+      looks.pictures.push(frame.screenshot);
+      const judged = frameTells(frame);
+      noteFrame(judged);
+      const sid = idOf(session);
+      if (sid != null && frame.canvas != null) {
+        show(sid, frame.canvas, canvas);
+        if (judged.frames.length) lookedAt.add(`${sid}:${frame.canvas}`);
+      }
+      return {picture:frame.screenshot, look:frame.look};
+    },
+    // A recorded reply ({session, method, reply}): the frames it judged, the worlds it showed (a settle's or a
+    // state's world list, a tree's canvases) and the canvases its tells looked at.
+    replied({session, method, reply}) {
+      if (['clock', 'screenshot', 'state'].includes(method)) noteFrame(frameTells(reply));
+      for (const w of Array.isArray(reply?.world) ? reply.world : []) if (w?.canvas != null) show(session, w.canvas);
+      if (method === 'tree') for (const n of reply?.nodes ?? []) if (n.world) show(session, n.id, n.props?.testId ?? n.id);
+      for (const id of reply?.lookSeen ?? []) lookedAt.add(`${session}:${id}`);
+    },
+    // Every world shown: its closing look frame's record, or seen by a judged frame, or a gap.
+    worlds() {
+      return [...shown].map(([key, w]) => looks.closing.get(key)
+        ?? (lookedAt.has(key) ? {...w, picture:'a judged frame'} : {...w, error:'shown, and never looked at'}));
+    },
+  };
+}
+// The look result across hosts and runs (prove.mjs): a FAIL anywhere fails
+// it; it passes only when every expected run ({host, repeat}) has a summary
+// whose look passed, and a run with none, or none with a look, is a named gap.
+export function lookAcrossRuns(rows, expected = rows.map(r => ({host:r.host, repeat:r.repeat}))) {
+  const gaps = expected.filter(e => !rows.some(r => r.host === e.host && r.repeat === e.repeat && r.look))
+    .map(e => `${e.host} run ${e.repeat}: no look result`);
+  const looks = rows.map(r => r.look).filter(Boolean);
+  const status = looks.some(l => l.status === 'FAIL') ? 'FAIL'
+    : looks.length && !gaps.length && looks.every(l => l.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
+  return {status, gaps};
+}
+// A run that failed by its look alone: no simulation assertion failed, whether
+// its simulation passed or was collecting a baseline (UNVERIFIED).
+export const lookOnlyFailure = summary => summary?.look?.status === 'FAIL'
+  && summary.simulation !== 'FAIL' && !(summary.failures ?? []).length;
+
 export function proofCommand(script, ...args) {
-  return ['bun', relative(process.cwd(), script), ...args]
+  // From the filesystem root a relative path would read as a bare name (`Users/…`).
+  const cwd = process.cwd(), path = dirname(cwd) === cwd ? script : relative(cwd, script);
+  return ['bun', path, ...args]
     .map(value => /^[a-zA-Z0-9_./-]+$/.test(value) ? value : "'"+value.replaceAll("'", "'\\''")+"'").join(' ');
 }
 // Both whole-app state and targeted world snapshots are observations.
@@ -660,17 +840,89 @@ export function worldObservations(observations, session) {
   };
 }
 
+/** What a screenshot shows of a world canvas: the canvas's box from `layout()`, less
+ * the boxes of every node inside the canvas's subtree in `tree()` (its HUD, masked
+ * whatever its size or overflow; a sibling or ancestor is not masked), and the share of
+ * the rest further than `tolerance` (per channel, 0–255) from its most common colour,
+ * which a cleared canvas is everywhere. `shot` is the screenshot's reply, whose `w`
+ * scales points to pixels. `pixels` is 0 when the HUD covers the whole canvas. */
+export function worldPixels(png, shot, layout, tree, canvas = 'world', tolerance = 8) {
+  const {width, height, data} = decodePng(png), scale = width / (shot?.w || layout.viewport.w);
+  const owner = tree.nodes.find(n => n.props?.testId === canvas);
+  const world = owner && layout.nodes.find(n => n.id === owner.id);
+  if (!world) throw new Error(`no canvas ${canvas} in tree and layout`);
+  const parents = new Map(tree.nodes.map(n => [n.id, n.parent]));
+  const inside = id => { for (let p = parents.get(id); p != null; p = parents.get(p)) if (p === owner.id) return true; return false; };
+  const hud = layout.nodes.filter(n => inside(n.id) && n.w > 0 && n.h > 0);
+  const covered = (b, x, y) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
+  const pixels = [];
+  for (let py = Math.max(0, Math.floor(world.y * scale)); py < Math.min(height, Math.ceil((world.y + world.h) * scale)); py++) {
+    for (let px = Math.max(0, Math.floor(world.x * scale)); px < Math.min(width, Math.ceil((world.x + world.w) * scale)); px++) {
+      const [x, y] = [(px + 0.5) / scale, (py + 0.5) / scale];
+      if (hud.some(b => covered(b, x, y))) continue;
+      pixels.push((py * width + px) * 4);
+    }
+  }
+  const counts = new Map();
+  for (const i of pixels) {
+    const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let clear = 0, most = -1;
+  for (const [key, n] of counts) if (n > most) { most = n; clear = key; }
+  const [r, g, b] = [clear >> 16, (clear >> 8) & 255, clear & 255];
+  const drawn = pixels.filter(i => Math.max(Math.abs(data[i] - r), Math.abs(data[i + 1] - g), Math.abs(data[i + 2] - b)) > tolerance).length;
+  return {pixels:pixels.length, drawn, share:pixels.length ? drawn / pixels.length : 0, hud:hud.length};
+}
+
+/** The engine fact a proof checks on a GPU host: the renderer reports itself `ready`
+ * and the canvas, outside its HUD, is not one cleared colour. When the HUD covers the
+ * whole canvas no pixel can speak, so it rests on `ready` and the host's first-draw
+ * report (`perf.firstFrameMs`, where the host gives one) and says so. */
+export function completedWorldFrame(shown, world) {
+  const ready = world?.ready === true, firstDraw = world?.perf?.firstFrameMs;
+  if (shown.pixels > 0) return {ok:ready && shown.drawn > 0, fallback:false, ready, ...shown};
+  return {ok:ready && (firstDraw === undefined || Number.isFinite(firstDraw)), fallback:true, ready, firstDraw, ...shown};
+}
+
+/** The game a proof script checks: `--app <dir>`, else the nearest directory at or
+ * above the script's own that holds `app.json` or `logic/src/lib.rs`, so a script
+ * under `tools/` proves the game around it. */
+export function proofGame(scriptDir, args) {
+  const isGame = dir => existsSync(resolve(dir, 'app.json')) || existsSync(resolve(dir, 'logic/src/lib.rs'));
+  const at = args.indexOf('--app');
+  if (at >= 0) {
+    const named = args[at + 1];
+    if (!named || named.startsWith('--')) throw new Error('--app requires the game\'s directory');
+    if (!isGame(resolve(named))) throw new Error(`--app ${named}: not a game (no app.json or logic/src/lib.rs there)`);
+    return resolve(named);
+  }
+  for (let dir = resolve(scriptDir);; dir = dirname(dir)) {
+    if (isGame(dir)) return dir;
+    if (dirname(dir) === dir) throw new Error(`${resolve(scriptDir)}: no game at or above this script (no app.json or logic/src/lib.rs); pass --app <game directory>`);
+  }
+}
+
 export async function proof(meta, script) {
-  const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
-  const root = fileURLToPath(new URL('..', import.meta.url));
+  try { await runProof(meta, script); }
+  catch (error) {
+    console.error(`PROOF FAIL: ${formatProofError(error)}`);
+    process.exitCode = 1;
+  }
+}
+async function runProof(meta, script) {
   const args = process.argv.slice(2), device = args.includes('--device');
+  const named = args.includes('--app') ? args[args.indexOf('--app') + 1] : undefined;
+  const app = proofGame(fileURLToPath(new URL('.', meta.url)), args) + sep, name = process.env.EXACT_PROOF_NAME ?? basename(app);
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const phone = args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined;
-  const host = args.find(arg => !arg.startsWith('--') && arg !== phone) ?? 'linux';
+  const host = args.find(arg => !arg.startsWith('--') && arg !== phone && arg !== named) ?? 'linux';
+  const appFlag = named === undefined ? [] : ['--app', app];
   if (device && host !== 'ios') throw new Error('--device requires the ios proof host');
   if (args.includes('--phone') && (!device || !phone || phone.startsWith('--'))) throw new Error('--phone requires --device and a device name or identifier');
   const destination = device ? 'ios-device' : host;
   const out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts', destination));
-  const buildOut = resolve(app, 'artifacts');
+  const buildOut = resolve(process.env.EXACT_PROOF_BUILD_OUT ?? resolve(app, 'artifacts'));
   mkdirSync(buildOut, {recursive:true});
   // Web builds replace dist atomically on every invocation. Keep that churn
   // inside the excluded artifact tree, away from monitored source directories.
@@ -679,21 +931,25 @@ export async function proof(meta, script) {
   // Re-execute the actual proof, comparing every session's final simulation state.
   if (process.argv.includes('--paranoid')) {
     if (!['web', 'linux', 'windows'].includes(host)) throw new Error('--paranoid supports web, linux and windows');
+    let unverified = false;
     const failed = await paranoidRuns(async mode => {
       const started = performance.now();
-      const child = spawn(process.execPath, [fileURLToPath(meta.url), host], {
+      const child = spawn(process.execPath, [fileURLToPath(meta.url), host, ...appFlag], {
         env:{...process.env, EXACT_GAME_PARANOID:mode, EXACT_GAME_PARANOID_COMPARE:'1'}, stdio:'inherit',
       });
       const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
+      unverified ||= code === 3;
       console.log(`PARANOID ${name} ${host} ${mode}: ${((performance.now()-started)/1000).toFixed(3)} s (including build)`);
-      return code;
+      return code === 3 ? 0 : code;
     }, async () => {
-      const child = spawn(process.execPath, [fileURLToPath(meta.url), host, '--build-only'], {
+      const child = spawn(process.execPath, [fileURLToPath(meta.url), host, ...appFlag, '--build-only'], {
         env:{...process.env, EXACT_GAME_PARANOID:'0'}, stdio:'inherit',
       });
-      return await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
+      const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
+      return code === 3 ? 0 : code;
     }, host);
-    process.exit(failed ? 1 : 0);
+    console.log(`PROOF ${failed ? 'FAIL' : unverified ? 'UNVERIFIED' : 'PASS'} ${name}: paranoid modes ${failed ? 'failed' : unverified ? 'completed without a complete baseline' : 'checked the baseline'}`);
+    process.exit(failed ? 1 : unverified ? 3 : 0);
   }
   const finalWorlds = [], paranoidSamples = [], observations = new Map();
   const previousPins = JSON.parse(readFileSync(resolve(app, 'pins.json'), 'utf8'));
@@ -710,6 +966,30 @@ export async function proof(meta, script) {
   };
   const provenance = editProvenance();
   const {pins, pin, pinSave} = pinRecorder(previousPins, app, check, collecting, provenance);
+  // The look step runs once per proof mode 0: the paranoid modes check the simulation.
+  const silence = lookSilence(app), looking = (process.env.EXACT_GAME_PARANOID ?? '0') === '0';
+  const sessionIds = new WeakMap(), account = lookAccount(out, session => sessionIds.get(session));
+  const {looks, show} = account, look = (...args) => account.look(...args);
+  // At a session's close: each world's look frame from its own camera at the held tick, which is judged; the page
+  // as composited where the canvas draws; and a contact sheet over 600 ms at half resolution, which is a picture.
+  const lookStep = async (raw, id) => {
+    const nodes = ((await raw.tree()).nodes ?? []).filter(n => n.world);
+    for (const node of nodes) {
+      const canvas = node.props?.testId ?? node.id;
+      const label = `look-${id}${nodes.length > 1 ? `-${canvas}` : ''}`, world = {session:id, id:node.id, canvas};
+      show(id, node.id, canvas);
+      looks.closing.set(`${id}:${node.id}`, world);
+      try {
+        world.picture = (await look(raw, {}, label, canvas)).picture;
+        if (!['linux', 'windows'].includes(host)) looks.pages.push((await raw.screenshot(resolve(out, `${label}-page.png`))).screenshot);
+        looks.sheets.push((await raw.screenshot(resolve(out, `${label}-sheet.png`), {over:600, every:50, window:file => lookPicture(raw, file, canvas, {resolution:0.5})})).screenshot);
+      } catch (error) {
+        if (error.unavailable) world.unavailable = error.unavailable;
+        else if (!world.picture) world.error = `look frame failed: ${error.message}`;
+        else looks.gaps.push(`session ${id} ${canvas}: ${error.message}`);
+      }
+    }
+  };
   // The GPU-less host has no process tree to discover: retain the process
   // handles from the carrier and await them. Global ps can block indefinitely
   // on this Mac; an optional web descendant audit is bounded and never delays
@@ -768,13 +1048,13 @@ export async function proof(meta, script) {
             published:world?.published,
             // Native hosts own incremental journal cursors, even for since:0.
             // Include the chunks this script already read as well as the tail.
-            journal:[...replies.filter(r => r.session === id && r.method === 'logs')
-              .flatMap(r => r.reply?.world ?? []), ...logs]
-              .map(({from, next, lines, tick}) => Object.fromEntries(
-                Object.entries({from, next, lines, tick}).filter(([,value]) => value !== undefined)))});
+            // A look frame's tell lines are presentation: out of the comparison.
+            journal:worldJournal([...replies.filter(r => r.session === id && r.method === 'logs')
+              .flatMap(r => r.reply?.world ?? []), ...logs])});
           if (!world?.hash) throw new Error('paranoid comparison: final world hash missing');
           if (world.paranoid) paranoidSamples.push({session:id, ...world.paranoid});
         }
+        if (looking) await lookStep(raw, id);
         sample();
       } finally {
         if (host === 'web' && !options.fresh && !options.world && !options.plan && !reusableWeb) { reusableWeb = raw.carrier; reusableOptions = signature; }
@@ -784,7 +1064,8 @@ export async function proof(meta, script) {
     } };
     sessions.add({close});
     const id = sessions.size;
-    return new Proxy(raw, {get(target, method) {
+    sessionIds.set(raw, id);
+    const session = new Proxy(raw, {get(target, method) {
       if (method === 'close') return close;
       // world(name) runs with the proxy as its receiver: its operations stay recorded.
       if (!['op','tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
@@ -801,11 +1082,18 @@ export async function proof(meta, script) {
         }
       };
     }});
+    sessionIds.set(session, id);
+    return session;
   };
-  let inputDigest, sourceInputDigest;
+  let inputDigest, sourceInputDigest, lookFailed = false;
   try {
     if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
+    // Make what the build would create in the game's directory before the first input
+    // inventory (its Cargo target, .shells/, the baked assets/): the build then rewrites
+    // the same files and creates no entry, so a fresh game's first proof completes.
+    mkdirSync(appInfo.target, {recursive:true});
+    if (prepareProofTree(app, {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(app, 'target')})) say(`BAKE ${name} art/ into assets/`);
     let inputs;
     const scanInputs = proofInputReader(root, app, resolve(buildOut, 'input-digests.json'));
     const readInputs = () => inputs = scanInputs();
@@ -818,18 +1106,24 @@ export async function proof(meta, script) {
       : host === 'linux' ? {binary:resolve(appInfo.target, linuxTarget, `${profile}/${appInfo.crate('linux')}`), module:resolve(appInfo.target, linuxTarget, `${profile}/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : device ? 'ios' : 'ios-simulator'});
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
     if (host === 'windows') process.env.EXACT_WINDOWS_BIN = artifacts.binary;
-    const built = host === 'linux' && profile === 'gpu-dev' ? await ensureLinuxReceipts({
-      directory:buildOut, gpuInputs:() => inputHash(readInputs().gpu),
-      completeGpu:() => writeFileSync(artifacts.module + '.proof.json',readFileSync(resolve(buildOut,'build-linux-gpu.sha256'))),
-      hostInputs:() => inputHash(readInputs().host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8')),
-      gpuArtifact:() => productDigest(artifacts.module,resolve(buildOut,'product-linux-gpu.json')),
-      hostArtifact:() => productDigest(artifacts.binary,resolve(buildOut,'product-linux-host.json')),
+    const validatedProducts = {};
+    const validatedProduct = kind => validatedProducts[kind] = productDigest(artifacts[kind],resolve(buildOut,`product-${host}-${kind}.json`));
+    const built = await withProofBuild(appInfo.target, async () => {
+    const rebuilt = host === 'linux' && profile === 'gpu-dev' ? await ensureLinuxReceipts({
+      directory:buildOut, app, surface:resolve(appInfo.workspace,'surfaces.json'), gpuInputs:() => inputHash(readInputs().gpu),
+      completeGpu:() => {
+        const receipt = JSON.parse(readFileSync(resolve(buildOut,'build-linux-gpu.sha256')));
+        writeFileSync(artifacts.module + '.proof.json',JSON.stringify({...receipt,artifact:productDigest(artifacts.module,resolve(buildOut,'product-linux-gpu.json'))}));
+      },
+      hostInputs:() => inputHash(readInputs().host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8') + (existsSync(resolve(appInfo.workspace,'keys.json')) ? readFileSync(resolve(appInfo.workspace,'keys.json'),'utf8') : '')),
+      gpuArtifact:() => validatedProduct('module'),
+      hostArtifact:() => validatedProduct('binary'),
       build:async part => {
         say(`BUILD ${part} stale or missing receipt`);
         buildBake(appInfo,'linux',linuxTarget,{profile,part,env:{EXACT_GAME_PARANOID:'0'}});
       },
     }) : await ensureBuildReceipt({receipt, inputs:() => inputHash(readInputs().all),
-      artifact:() => artifactDigest(host, dist, artifacts), build:async () => {
+      artifact:() => { const digest = artifactDigest(host, dist, artifacts); if (host === 'linux' || host === 'windows') { validatedProduct('binary'); validatedProduct('module'); } return digest; }, build:async () => {
       say(`BUILD stale or missing receipt ${receipt}; rebuilding: bun ${fileURLToPath(meta.url)} ${host}${device ? ' --device' : ''} --build-only`);
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
@@ -838,18 +1132,25 @@ export async function proof(meta, script) {
       } else {
         const script = host === 'windows' ? 'host/windows/build.mjs' : host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs';
         const flags = host === 'windows' ? (profile === 'release' ? ['--release'] : []) : host === 'web' ? ['--wasm'] : device ? ['--device', ...(phone ? ['--phone', phone] : [])] : host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [];
-        const child = spawn('bun', [resolve(root,script), ...flags], {cwd:root, env:process.env, stdio:'inherit', windowsHide:true});
+        const child = spawn('bun', [resolve(root,script), ...flags], {cwd:root, env:{...process.env, EXACT_GAME_PROOF_PROFILE:profile}, stdio:'inherit', windowsHide:true});
         sample();
         const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
         if (code !== 0) throw new Error(`app build exited ${code}`);
       }
     }});
+    if (host === 'linux') {
+      const privateProducts = copyProofProducts(root, app, artifacts, resolve(app,'artifacts/build',`${host}-${profile}`), validatedProducts);
+      process.env.EXACT_LINUX_BIN = privateProducts.binary;
+      process.env.EXACT_PROOF_PRODUCTS = privateProducts.receipt;
+    }
+    return rebuilt;
+    });
     // The proof reports the same post-build input tree that its receipts bind.
     inputDigest = inputs.all;
     sourceInputDigest = inputs.authored;
     if (!built) say(`BUILD cached ${name} ${destination}`);
     if (!process.argv.includes('--build-only')) {
-      await script({open, check, equal, out, host, say, pin, pinSave});
+      await script({open, check, equal, out, host, say, pin, pinSave, look});
       if (!process.argv.some(arg => ['--screenshot-only','--capture40'].includes(arg)))
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
@@ -895,17 +1196,38 @@ export async function proof(meta, script) {
       const name = basename(path), bytes = readFileSync(path);
       return {name, bytes:bytes.length, sha256:createHash('sha256').update(bytes).digest('hex')};
     });
-    const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg));
-    const status = proofStatus({failures, expected:previousPins, pins, collecting, partial});
+    const verdict = proofVerdict({failures, expected:previousPins, pins, collecting}, process.argv);
+    const simulation = verdict.status;
+    // The frames the script's settles, screenshots and look requests judged (agent-inspect.mjs worldTells), and the
+    // worlds every reply showed; a world shown and never looked at is a gap.
+    for (const r of replies) account.replied(r);
+    const worlds = account.worlds();
+    const seen = lookResult({...looks, worlds}, silence), lookFailures = [];
+    // A tell fails the look, never the simulation: its own list, its own line.
+    for (const tell of seen.loud) {
+      const label = `${tell.line}${tell.times > 1 ? ` (and ${tell.times - 1} more frames)` : ''}; silence ${tell.name} in app.json's game.look.silence only if the look is intended`;
+      if (looking) { say(`FAIL ${label}`); lookFailures.push(label); }
+    }
+    lookFailed = looking && seen.status === 'FAIL';
+    const status = lookFailed ? 'FAIL' : simulation;
+    const reason = lookFailed ? `${verdict.reason}; the look failed` : verdict.reason;
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable, simulation, ...(looking ? {look:{status:seen.status, detail:seen.detail, failures:lookFailures, tells:looks.tells, silenced:seen.quiet.map(t => t.name), missing:seen.missing, frames:looks.frames, worlds, pictures:looks.pictures, pages:looks.pages, sheets:looks.sheets}} : {})}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
-    say(`PROOF ${status} ${name} ${destination}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
+    if (looking) {
+      say(`simulation: ${simulation} · look: ${seen.status}, ${seen.detail}`);
+      for (const tell of seen.quiet) say(`look: silenced ${tell.name} by app.json (${tell.line}${tell.times > 1 ? `, and ${tell.times - 1} more frames` : ''})`);
+      for (const missing of seen.missing) say(`look: unverified, ${missing}`);
+      for (const picture of [...looks.pages, ...looks.pictures]) say(`LOOK ${picture}`);
+      for (const sheet of looks.sheets) say(`LOOK sheet ${sheet}`);
+      if (looks.pictures.length) say('LOOK: open one of these once and check it reads as designed before you report; the tells see brightness and coverage, not colour, facing or layout.');
+    }
+    say(`PROOF ${status} ${name} ${destination}: ${failures.length} failures; ${reason}; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'PASS' && host === 'linux') say(`Capture the PNG: ${proofCommand(fileURLToPath(meta.url), 'web')}`);
-    if (status === 'UNVERIFIED' && !collecting && !partial)
+    if (status === 'UNVERIFIED' && !collecting)
       say(`UNVERIFIED: no pins — run ${proofCommand(resolve(import.meta.dir, 'prove.mjs'), app)}`);
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');
   }
-  process.exit(failures.length || (!collecting && !process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg)) && proofStatus({failures, expected:previousPins, pins}) !== 'PASS') ? 1 : 0);
+  process.exit(lookFailed ? 1 : proofVerdict({failures, expected:previousPins, pins, collecting}, process.argv).code);
 }

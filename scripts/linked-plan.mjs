@@ -7,8 +7,9 @@
  * build of Euxy). Here the build script's own code (`exact-js-bake --cargo`)
  * bakes into a directory of its own; the build script takes from it only the
  * files Rust compiles (EXACT_BAKED, `exact_js_bake::build`), which an edit to
- * the plan leaves as they were, and the link puts the plan and compat.json in
- * the executable's `__TEXT` (`exact_apple::baked`, host/apple/build.mjs).
+ * the plan or the TypeScript leaves as they were, and the link puts the plan,
+ * compat.json and the module's bytecode in the executable's `__TEXT`
+ * (`exact_apple::baked`, host/apple/build.mjs).
  *
  * The bake runs again when something it named has changed since it started,
  * as Cargo would run the build script: a watched file, anything under a
@@ -20,6 +21,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, developmentBuildEnv } from './app.mjs';
+import { webOnly } from './app-cli.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const TOOL_TARGET = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(ROOT, 'target');
@@ -84,9 +86,11 @@ export function linkable(app, pkg) {
 /** Where an Apple build for `target` keeps the bake it links. */
 export const linkedBakeDir = (env, platform, target) => resolve(env.EXACT_BAKE_OUTPUT, `${platform}-${target}.baked`);
 
-/** The linker arguments that put a linked bake's plan and compat.json in the executable. */
-export const linkedPlanArgs = (dir) => !dir ? [] : [['__exact_plan', 'app.plan'], ['__exact_compat', 'compat.json']]
-  .flatMap(([section, file]) => ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', section, '-Xlinker', resolve(dir, file)]);
+/** The linker arguments that put a linked bake's plan, compat.json and module bytecode in the executable; the
+ * bytecode 16-byte aligned, which Hermes needs to read it in place (js/src/shim.cc). */
+export const linkedPlanArgs = (dir) => !dir ? [] : [...[['__exact_plan', 'app.plan'], ['__exact_compat', 'compat.json'], ['__exact_hbc', 'app.hbc']]
+  .flatMap(([section, file]) => ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', section, '-Xlinker', resolve(dir, file)]),
+  '-Xlinker', '-sectalign', '-Xlinker', '__TEXT', '-Xlinker', '__exact_hbc', '-Xlinker', '0x10'];
 
 /** The time of the newest change at `path`: its own, a link's target's, and
  * for a directory every entry's under it (a link in it is not followed);
@@ -122,8 +126,9 @@ export function bakeOutside(app, platform, target, env) {
   const built = spawnSync(bakeTool.command, bakeTool.args, { ...bakeTool.options(), stdio: ['ignore', 'inherit', 'inherit'] });
   if (built.status !== 0) throw new Error(`the bake tool did not build (${bakeTool.command} ${bakeTool.args.join(' ')})`);
   const tool = `${bakeTool.built} ${statSync(bakeTool.built).mtimeMs}`;
-  // Its warnings are said on every build, as Cargo replays a build script's.
-  const warn = (warnings) => { for (const warning of warnings ?? []) console.error(`warning: ${app.name}: ${warning}`); };
+  // Its warnings are said on every build, as Cargo replays a build script's: the SF Symbols only the web draws blank
+  // one line where the first was, as `contract build` says them (18 of them every euxy build).
+  const warn = (warnings) => { for (const line of bakeWarnings(app.name, warnings ?? [])) console.error(line); };
   let record = null; try { record = JSON.parse(readFileSync(at, 'utf8')); } catch { /* none yet */ }
   if (fresh(record, dir, env, tool)) { warn(record.warnings); return dir; }
   rmSync(at, { force: true });
@@ -143,18 +148,28 @@ export function bakeOutside(app, platform, target, env) {
   return dir;
 }
 
-/** Places the linked pair, `plan` and the `compat` text naming it (`id`),
- * in `dir`, where one app's links alone read it (`linkedPlanArgs`): each
- * file replaced whole and only when its bytes change. Its directory and
- * digest, which `<product>.linked` records. */
-export function placeLinkedPlan(dir, plan, compat, id) {
+/** An Apple bake's warning lines for app `name`, in the compiler's order: each, but the SF Symbols only the web draws
+ * blank (`webOnly`), which are one line counting them at the first one's place. */
+export function bakeWarnings(name, warnings) {
+  const web = warnings.filter(webOnly), one = web.length === 1, lines = [];
+  for (const warning of warnings) {
+    if (!webOnly(warning)) lines.push(warning);
+    else if (warning === web[0]) lines.push(`${warning.split(' warning [')[0]} warning [lower-symbol-platform] ${web.length} SF Symbol use${one ? '' : 's'} draw${one ? 's' : ''} blank on the web, here first: an icon token or a role draws on every host (\`bun exact.mjs contract build --json\` says each, and how)`);
+  }
+  return lines.map((line) => `warning: ${name}: ${line}`);
+}
+
+/** Places what the link carries, `plan`, the `compat` text naming it (`id`) and the module's `bytecode`, in `dir`,
+ * where one app's links alone read it (`linkedPlanArgs`): each file replaced whole and only when its bytes change.
+ * Its directory and digest, which `<product>.linked` records. */
+export function placeLinkedPlan(dir, plan, compat, id, bytecode) {
   if (JSON.parse(compat).id !== id) throw new Error(`host/apple: the linked compat.json is not the bake's (${id})`);
   mkdirSync(dir, { recursive: true });
-  for (const [file, bytes] of [['app.plan', plan], ['compat.json', compat]]) {
+  for (const [file, bytes] of [['app.plan', plan], ['compat.json', compat], ['app.hbc', bytecode]]) {
     const path = resolve(dir, file);
     if (existsSync(path) && readFileSync(path).equals(bytes)) continue;
     writeFileSync(`${path}.${process.pid}.tmp`, bytes);
     renameSync(`${path}.${process.pid}.tmp`, path);
   }
-  return { dir, digest: createHash('sha256').update(plan).update(compat).digest('hex') };
+  return { dir, digest: createHash('sha256').update(plan).update(compat).update(bytecode).digest('hex') };
 }

@@ -17,7 +17,7 @@ impl Game for Halos {
     type Args = Options;
     fn setup(w: &mut World, args: &Options) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             bloom: None,
             fog: None,
             tone_mapping: ToneMapping::None,
@@ -251,7 +251,7 @@ impl Game for Shapes {
     type Args = ();
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             bloom: None,
             fog: None,
             tone_mapping: ToneMapping::None,
@@ -419,7 +419,7 @@ impl Game for SocketShape {
     type Args = ();
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             bloom: None,
             fog: None,
             tone_mapping: ToneMapping::None,
@@ -678,7 +678,7 @@ impl Game for SoftDepth {
     type Args = ();
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             bloom: None,
             fog: None,
             tone_mapping: ToneMapping::None,

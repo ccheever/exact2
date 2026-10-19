@@ -48,6 +48,7 @@ import { DOCUMENT_UTIS, executableName, ownDocumentType, HOST_DEV, checkModuleRo
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
+import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { compileFixtures, iosTestRuns, macTests } from './xctest.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
@@ -296,8 +297,12 @@ export function developmentAdmission(app, locator) {
 /** The opening links for `page` that this Mac's current development clients
  * admit — what a dev server's opening page offers: one per destination whose
  * placed bundle was built with `--url` at `page`'s origin, carrying that
- * build's token (its receipt keeps it). */
-export function developmentLinks(app, page) {
+ * build's token (its receipt keeps it). Only to a request the development
+ * gate calls local (`access.local`): the token is this Mac's, as the install
+ * token is, never a LAN peer's or a proxied client's (stage 10 C's canvas
+ * gateway marks its requests forwarded). */
+export function developmentLinks(app, page, access) {
+  if (access?.local !== true) return [];
   const origin = new URL(page).origin;
   return ['macos', 'ios-simulator', 'ios'].flatMap((destination) => {
     const { bundle } = appleArtifacts(app, { destination, trust: 'development' });
@@ -371,9 +376,25 @@ export const usageKeys = (reach) => {
   if (!usage.length) return {};
   return {
     ...Object.fromEntries(usage.map(([key, texts]) => [key, texts[reach.base]])),
+    ...Object.fromEntries((reach.flags ?? []).map((key) => [key, true])),
+    ...reach.modules,
     CFBundleDevelopmentRegion: reach.base,
     CFBundleLocalizations: reach.locales,
   };
+};
+
+/** `reach` with what the app's modules' implementations add to Info.plist
+ * (`modules`): each declared dictionary, keyed by the strings keys the app
+ * passes and valued by their base text (LLP 1133.002 D10). */
+const modulePlist = (app, reach, target) => {
+  const added = appleImplementations(app.dir, target).flatMap((p) => p.plist);
+  if (!added.length) return reach;
+  const base = reach?.base ?? 'en', strings = JSON.parse(readFileSync(resolve(app.dir, `strings/${base}.json`), 'utf8'));
+  const modules = Object.fromEntries(added.map(({ key, keys }) => [key, Object.fromEntries(keys.map((k) => {
+    if (typeof strings[k] !== 'string') throw new Error(`host/apple: ${key} names "${k}", which strings/${base}.json lacks`);
+    return [k, strings[k]];
+  }))]));
+  return { ...reach, modules };
 };
 
 /** `<tag>.lproj/InfoPlist.strings` under `dir`, one per strings table, with
@@ -845,6 +866,7 @@ async function main(args, lockHeld = false) {
     try { was = JSON.parse(readFileSync(resolve(bin, `${sole}.linked`), 'utf8')); } catch { return null; }
     if (was.libDir !== expected.capture || was.lib !== crate.replace(/-/g, '_') || typeof was.link !== 'string' || !existsSync(resolve(bin, sole)) || !existsSync(resolve(expected.capture, `lib${was.lib}.a`))) return null;
     if (ios && !device && !existsSync(resolve(expected.scratch, `${sole}-entitlements.plist`))) return null;
+    if (was.plan && !existsSync(resolve(expected.scratch, 'plan/app.hbc'))) return null;
     let claim;
     try { claim = claimBuildOutput(app, expected.swiftLock); } catch { return null; }
     const step = startApple('swift', [...swiftArgs, ...entitledArgs(expected.scratch, sole), ...linkedPlanArgs(was.plan && resolve(expected.scratch, 'plan')), '--product', sole], resolve(webBuildDir, 'swift-compile.log'),
@@ -942,7 +964,7 @@ async function main(args, lockHeld = false) {
   const libDir = paths.capture;
   const bakedCompat = buildReceipt.compat;
   // What this Apple destination derives from the grants: the bake's, less what tvOS has not.
-  const appleReach = tv ? tvReach(bakedCompat.reach) : bakedCompat.reach;
+  const appleReach = modulePlist(app, tv ? tvReach(bakedCompat.reach) : bakedCompat.reach, tv ? 'tvos' : ios ? 'ios' : 'macos');
   const level = bakedCompat.inputs?.store?.L;
   if (!['0', 'A'].includes(level)) throw new Error(`host/apple: unsupported baked store level ${level}`);
   const composition = level === '0' ? 'embedded' : 'updating';
@@ -1090,10 +1112,15 @@ async function main(args, lockHeld = false) {
   // @ref LLP 1075.003 Q2 — the app's `data-*` words as typed keys, written
   // from app.json `data` beside the glue (built, never committed).
   const dataKeys = resolve(linkRoot, `ExactDataKeys-${app.id}.swift`);
-  if (modules.apple.length) writeDataKeys(app, dataKeys, ios ? 'ios' : 'macos');
+  // @ref LLP 1133.001 D4, D5 — the modules' Swift implementations the app names, each package compiled as a Swift
+  // module of its own and composed into the app's one module by an adapter written here (never committed).
+  const packages = appleImplementations(app.dir, tv ? 'tvos' : ios ? 'ios' : 'macos'), composing = modules.apple.length > 0 || packages.length > 0;
+  const composed = resolve(linkRoot, `ExactComposed-${app.id}.swift`), packageDir = resolve(webBuildDir, 'packages'), packageObjects = packages.map(p => resolve(packageDir, `${p.module}.o`));
+  if (composing) writeFileSync(composed, composedModule(packages, modules.apple.length > 0));
+  if (composing) writeDataKeys(app, dataKeys, ios ? 'ios' : 'macos');
   // @ref LLP 1121 D12 — the token names `contract tamber gen swift` writes from the design (never committed).
-  if (modules.apple.length) (await import('../../scripts/tamber-names.mjs')).writeTamberNames(app, 'swift'); const tamberNames = resolve(app.dir, '.exact/tamber/tamber.swift');
-  const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'), ...(existsSync(tamberNames) ? [tamberNames] : []), dataKeys, ...snapshot.copies] : [];
+  if (composing) (await import('../../scripts/tamber-names.mjs')).writeTamberNames(app, 'swift'); const tamberNames = resolve(app.dir, '.exact/tamber/tamber.swift');
+  const moduleSources = composing ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'), resolve(root, 'host/apple/modules/ExactExtensions.swift'), composed, ...(existsSync(tamberNames) ? [tamberNames] : []), dataKeys, ...snapshot.copies] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
   // The slice of each `modules/apple/*.xcframework` for this build, read
   // from the xcframework's own Info.plist (`AvailableLibraries`: platform,
@@ -1128,9 +1155,15 @@ async function main(args, lockHeld = false) {
   const frameworkStamp = (forIos, simulator, arch) => JSON.stringify([linkArgs(forIos), ...(modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).stamped).map(f => { const st = statSync(f); return [f, st.size, st.mtimeMs]; })]);
   const macArch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
   const iosArch = device ? 'arm64' : (iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64');
-  const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
+  const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...(packages.length ? ['-I', packageDir, ...packageObjects] : []), ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
   const macTarget = ['-target', moduleTripleFor(app, false)];
-  if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
+  // Each package's Swift module for this target, before the app's module links it.
+  for (const p of packages) {
+    mkdirSync(packageDir, { recursive: true });
+    const r = spawnSync('xcrun', ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-wmo', '-O', '-swift-version', '5', '-module-name', p.module, '-emit-module', '-emit-module-path', resolve(packageDir, `${p.module}.swiftmodule`), '-c', ...p.sources, '-o', resolve(packageDir, `${p.module}.o`), ...(ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget)], { encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`host/apple: ${p.extension}'s Swift (${p.sources.join(', ')}) did not compile:\n${r.stderr}`);
+  }
+  if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), [...moduleSources, ...packageObjects], modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
   // The roster the artifact serves (its tags, and which join the first frame) is read from its table: for iOS from a Mac
   // Catalyst executable of the same sources (their iOS code, run here), else a macOS slice; for tvOS the macOS slice, and no
   // tag joins the first frame. A probe that does not compile or run is named; it, or no slice, fails a production build.
@@ -1165,8 +1198,8 @@ async function main(args, lockHeld = false) {
       writeFileSync(answer, swiftBinDir);
     }
     const archive = buildReceipt.products.find(made => made.path === resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`))?.sha256;
-    // The linked plan and compat.json, as the bake verified them, where this app alone links from (and its next early build).
-    const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id) : null;
+    // The linked plan, compat.json and bytecode, as the bake verified them, where this app alone links from (and its next early build).
+    const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id, readFileSync(resolve(buildReceipt.linkedPlan, 'app.hbc'))) : null;
     for (const p of products) {
       const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks'] : []), ...linkedPlanArgs(linkedPlan?.dir)];
       let entitled = null;
@@ -1257,7 +1290,7 @@ async function main(args, lockHeld = false) {
 
   const bundleTools = {runApple,appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements};
   if (!ios) {
-    const bundlePath = assembleMac({shared, macWidgets, triple: moduleTripleFor(app, ios, device, tv), hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
+    const bundlePath = assembleMac({shared, macWidgets, triple: moduleTripleFor(app, ios, device, tv), appleReach, hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
     publishProducts();
     release();
     rmSync(webBuildDir, { recursive: true, force: true });
@@ -1381,8 +1414,11 @@ async function test(args) {
     run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--',
       'build', resolve(source, 'app.contract'), '-o', env.TEST_RUNNER_EXACT_FIXTURE_PLAN]);
     env.TEST_RUNNER_EXACT_FIXTURE_MODULE = resolve(fixtureDir, 'libexact_modules.dylib');
+    // The module composes no packages' extensions (LLP 1133.001 D5): their table, empty.
+    writeFileSync(resolve(fixtureDir, 'ExactComposed.swift'), composedModule([], fixture.modules.apple.length > 0));
     runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules',
-      '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
+      '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'),
+      resolve(root, 'host/apple/modules/ExactExtensions.swift'), resolve(fixtureDir, 'ExactComposed.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
     compileFixtures(root, run, env, fixtureDir, 'TEST_RUNNER_EXACT', app.id);
     if (process.env.EXACT_REQUIRED) env.TEST_RUNNER_EXACT_REQUIRED = process.env.EXACT_REQUIRED;
@@ -1403,4 +1439,22 @@ if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pat
   const args = guardFlags(['--ios', '--device', '--tvos', '--watchos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
   useXcode(); if (args.includes('--release')) process.env.EXACT_UPDATE_TRUST = 'production'; // the build that ships: Cargo's release profile, no development trust
   (args.includes('--test') ? test(args) : main(args)).catch((error) => { console.error(error.message); process.exitCode = 1; });
+}
+
+/** The app's module composed with its packages' implementations (LLP 1133.001 D5): an adapter over each package's
+ * class (its shape, host/apple/modules/ExactExtensions.swift), the table that names them, and, for an app with no
+ * module of its own, an empty one. */
+function composedModule(packages, ownModule) {
+  const lines = ['// Written by host/apple/build.mjs (LLP 1133.001 D5); never edited.', ...packages.map(p => `import ${p.module}`)];
+  for (const p of packages) lines.push(
+    `final class ExactAdapter_${p.module}: ExactExtensionAdapter {`,
+    `    let impl: ${p.className}`,
+    `    init(_ context: ExactModuleContext) { impl = ${p.className}(changed: { [weak context] topic in context?.changed(topic) }, agent: context.agent, log: { [weak context] line in context?.diagnostics.log(line) }) }`,
+    '    override func later(_ name: String, _ args: [String: Any], reply: ExactReply) { impl.later(name, args) { reply.send($0) } }',
+    '    override func call(_ name: String, _ args: [String: Any]) throws -> [String: Any] { try impl.call(name, args) }',
+    '    override func release(_ name: String) { impl.release(name) }',
+    '}');
+  lines.push(`let exactExtensions: [String: (ExactModuleContext) -> ExactExtensionAdapter] = [${packages.map(p => `${JSON.stringify(p.extension)}: { ExactAdapter_${p.module}($0) }`).join(', ') || ':'}]`);
+  if (!ownModule) lines.push('final class ExactComposedModule: ExactModule {}', 'let exactModule: ExactModule.Type = ExactComposedModule.self');
+  return lines.join('\n') + '\n';
 }

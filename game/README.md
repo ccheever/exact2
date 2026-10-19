@@ -50,21 +50,42 @@ snapshot `321055e1` (2026-09-21). The original checkout remains intact.
 
 Run these commands from the Exact2 repository root. With the pinned Bun and rustup
 installed, `bun scripts/exact.mjs setup` installs the SDK's Rust toolchains,
-wasm-bindgen, Binaryen and Bun dependencies. `setup --check` diagnoses missing or
+wasm-bindgen, Binaryen and Bun dependencies, and builds the engine rustdoc that
+`exact game vocab <name>` reads, so a first lookup skips that cold build (seconds, not
+minutes). `setup --check` diagnoses missing or
 mismatched tools. See [offline setup](#offline-setup) for populating Cargo's cache.
+Cargo installs wasm-bindgen into `$CARGO_HOME/bin` (normally `~/.cargo/bin`);
+include that directory in `PATH` for web builds and the dev loop.
+Setup provisions source dependencies; it does not compile the optional engine.
 
 ```sh
 bun game/new.mjs ./my-game
 bun game/dev.mjs ./my-game
 ```
 
-Open the dev server's printed URL. It serves on 8765, or on the next free port when
+Open the dev server's printed URL. It answers with a building page before compiling.
+`bun exact.mjs status` lists each web/prove invocation, its phase and elapsed time.
+Start `web` in one terminal, then `bun exact.mjs web --ready --timeout 600` in another
+to wait for that invocation's current build. It refuses a failed rebuild even when
+the server still shows the previous game. A dead process is reported as `unknown`;
+`running` means the process exists, not that the compiler is making progress.
+
+The dev loop serves on 8765, or on the next free port when
 another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
 before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
-`my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
-app-runtime edits reload the page. The server also prints **Open in native**.
+`my-game/app.contract` for UI. `bun exact.mjs check` (or `bun game/app/shells.mjs <game> --check`) checks the logic
+library for type errors and determinism violations, without linking. The dev loop prints
+that result before building each Rust save and keeps the running game when it fails.
+Host, linker and target errors still belong to the build.
+Gameplay reloads carry the running world in games without tables. In table games,
+successful Rust saves rebuild the primary module and restart the world; table-only web
+edits preserve it. Shared app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
+The first web build uses the size-tuned `web` profile and `wasm-opt`. After a
+Rust edit, the dev loop builds only the affected GPU module under `gpu-dev`,
+then runs wasm-bindgen and swaps it into the page without `wasm-opt`. The first
+such edit compiles that profile's dependencies; later edits reuse them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.
 `game/dev.mjs` passes the dev server's flags through (`--port`, `--lan`, and
 `--allow-host <name>`, repeatable, to serve the game through a tunnel such as
@@ -77,8 +98,11 @@ bun game/prove.mjs ./my-game
 ```
 
 This is a release step, not part of the edit loop: nothing before it waits on it, and
-cold it takes many minutes. The first baseline requires Linux and web agreement in all
-three simulation modes, plus a Linux release run. Later invocations verify one GPU-less Linux run by default.
+cold it takes many minutes. The first baseline requires Linux and web agreement in all three simulation modes,
+plus native release and shipping-profile web runs. Later invocations verify one GPU-less Linux run by default.
+Both proof hosts build the game module under `gpu-dev`; `EXACT_GAME_PROOF_PROFILE=release`
+selects native release or the web shipping profile. Repinning refuses any pin disagreement
+between the fast and shipping profiles. Ordinary web builds and deploys keep the shipping profile.
 Use `bun my-game/proof.mjs web --screenshot-only` for pixels only; this reports
 `UNVERIFIED` because it skips gameplay checks. Its screenshot is
 `my-game/artifacts/web/game.png`. The starter includes movement, jumping, two
@@ -91,7 +115,8 @@ one, as `exact new` makes an app — also gets an app's `exact.mjs` and `AGENTS.
 `bun exact.mjs test-rust` (the hostless tests), `web`, `web-build`, `test web`
 (`app.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `windows`, `contract`,
 `prove` and `feedback`, with the exact2 checkout named once (LLP 1086).
-Generation writes only inside that game. A game is the files its author writes; bakes
+Generation resolves the generated workspace offline against the current SDK lock, so
+the first locked test and proof need no lock refresh. Generation writes only inside that game. A game is the files its author writes; bakes
 generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 
 | File | What you own |
@@ -101,7 +126,7 @@ generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 | `proof.mjs`, `logic/tests/*.rs` | Real-host assertions and hostless simulation tests |
 | `app.test.contract` | Menus and HUD driven on a host (`bun scripts/agent.mjs <host> --test`) |
 | `pins.json` | Verified tick/save baselines, written by `prove.mjs` |
-| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, data and render crates |
+| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, `game.look`, data and render crates |
 | `logic/Cargo.toml`, `Cargo.lock` (optional) | Only when the game adds dependencies ([below](#exact2-integration)) |
 
 The crate is `<Game::ID>-logic` and the bundle id `com.exact.<Game::ID>`; the title
@@ -274,8 +299,10 @@ The dev compiler retains its last good plan on an error.
 | Follow the player | Attach `Follow`; the scene steps it after the tick. Call `scene::follow(w)` explicitly to choose an earlier order. |
 | Find a nearby unlit beacon | `w.nearest_xz_mut::<Beacon>("player", 1.5, \|b\| !b.lit)` returns its entity and mutable row handle together; `beacon.name()` reads its name. |
 | Count for the HUD | `w.count::<Beacon>(\|b\| b.lit)` |
+| Colour a surface | `Material::hex("#527b65")` (any CSS colour Contract takes: hex, `forestgreen`, `rgb(…)`); `Material::srgb(r, g, b)` for a picker's 0–1 floats. `Material::rgb` takes linear light, the renderer's own space, where 0.5 is not mid-grey; reach for it only for computed light |
+| Sky, fog, tint and sprite colours | `Environment.background`, `Fog.color`, `Tint.color` and `Sprite.color` are a `Color`: `Some(Color::hex("#bad6d1"))`; `[r, g, b].into()` keeps linear values |
 | Ring, torus, cone and halo | `Mesh::ring(inner, outer)`, `Mesh::torus(radius, tube)`, `Mesh::cone(radius, height)`, `Material::alpha(a)`; [halo recipe](recipes/halo.md). |
-| Grid and fog | `Material::grid(color, spacing)` and the saved `Environment`/`Fog` resource |
+| Grid and fog | `Material::grid(Color::hex("#6f8486"), spacing)` and the saved `Environment`/`Fog` resource |
 | An underwater scene | `w.insert_resource(Environment::underwater())`, a sun from above and no opaque surface over the floor; [underwater recipe](recipes/underwater.md) |
 | Fade a glowing mesh | Attach `Glow` to `Material::glow`; call `beacon.glow_to(1.0, 0.5)` once. The renderer samples at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
@@ -393,12 +420,14 @@ bun game/prove.mjs ./my-game --repin --reason "describe the intended state chang
 ```
 
 Repinning runs Off, Save and FreshGame, requires matching execution inputs and host
-observations, and includes a Linux release check. It refuses failures or a missing
-requested browser, leaving the pins unchanged. Existing pins may be updated with
+observations, and compares the fast profile with native release and, when requested,
+shipping web. A profile disagreement, failed proof or missing requested browser
+leaves the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
 Summaries and every pin update record two digests: `inputs` identifies the exact
-execution-input tree, including baked assets and `.baked-assets.json`;
-`sourceInputs` identifies portable authored sources. The latter omits the bake's
+execution-input tree, including runtime files under `assets/` and `.baked-assets.json`,
+even when Git ignores those generated products;
+`sourceInputs` identifies portable authored sources. The latter follows authored-input tracking and omits the bake's
 manifest-owned outputs and the manifest itself, and names app and SDK files
 relative to their own roots. Rust crate `tests/` and `examples/` directories are
 excluded only when their parent contains `Cargo.toml`, inside or outside the SDK.
@@ -422,13 +451,68 @@ seek's length is not bounded by a host's answer window (Chrome's 15 s).
 
 `PASS` means the complete saved baseline was checked. Partial/build-only runs and
 baseline collection report `UNVERIFIED`; failed assertions report `FAIL`. A
-screenshot alone is not a verified simulation. `prove.mjs` prints its unique
-`ARTIFACTS` directory; direct `proof.mjs` runs use `artifacts/<host>/`.
+screenshot alone is not a verified simulation. Proof exits are **0 PASS**, **1 FAIL**
+and **3 UNVERIFIED**, including build-only, pixel-only and baseline-collection legs.
+Each verdict names its reason. `prove` accepts exit 3 from a collecting leg; it writes
+pins only after the complete matrix agrees. Callers that treated UNVERIFIED as exit 1,
+or build/collection runs as exit 0, must handle 3 explicitly. `diff` retains exit 2
+for a refused capture. `prove.mjs` prints its unique
+`ARTIFACTS` directory. Its `src/` copy supplies the game inputs and proof program;
+edits to the original game do not change a running proof. `legs.json` records each
+host/mode/profile result. Resume with `bun game/prove.mjs <game> --continue <run-directory>`;
+completed legs are reused and failed or interrupted legs rerun. Continuation refuses
+changed game/SDK inputs, changed proof helpers, a changed matrix (including
+`--compare-saves`) or damaged receipts. Keep the original comparison flags when resuming.
+The SDK stays in its checkout and must remain unchanged throughout the run.
+Proof imports and declared `export const proofData = ["relative/file.json"];` data
+are checked separately from bake inputs; game-local dependencies are copied into
+`src/`. SDK helpers remain live and are checked before and after every leg.
+Snapshots share the original game’s `target/` for compilation and validated receipts
+under `artifacts/build/`. A target lock covers proof build validation and copying;
+each Linux proof then executes private products under its source copy's
+`artifacts/build/`, checked against their input and product digests by the driver.
+Linux GPU receipt hits restore the surface declaration and generated runtime assets.
+Game-local `.ts` proof helpers are relocated like `.js` and `.mjs`; an unsupported
+`proofData` declaration is refused by name.
+Direct `proof.mjs` runs use `artifacts/<host>/`.
+
 Use `--report` on `prove.mjs` to explain recorded stalls and refusals.
 `ios` selects the simulator; `--device` selects a paired phone and requires an
 accessible development signing key. Direct proofs accept `ios --device --phone
 <device-id>` too. Phone artifacts and build receipts use `ios-device`; the proof's
 1280 × 720 logical viewport fits into the phone window for equal input dimensions.
+
+**The look result.** Beside the simulation result a proof reports a look result, on its own line:
+`simulation: PASS · look: PASS, 0 tells`, or `look: FAIL, near-black`. At each
+session's close the runner draws every world offscreen from its own camera at the
+tick the clock holds (a look frame, [render README](render/README.md#look-frames)),
+the page as composited where the canvas draws, and a contact sheet over 600 ms at
+half resolution, and prints each as a `LOOK` path. A tell fails the look: a
+near-black or near-white frame, more than 5% of pixels clipped, a particle draw that
+covered nothing (no fragment of it contributed in front of the scene), a shadowed
+sun whose maps hold no texel nearer than their clear depth. Tells are judged
+on whole frames from the game's camera: the close step's, the one a drawing host
+takes at every `clock settle` and pixel `screenshot` (their replies carry its
+`look` lines, `lookGaps`, `lookFailed` and the canvases looked at, `lookSeen`), and
+each frame of a full-resolution `from camera` film. The contact sheet and the orbit
+and plan views are pictures. A tell is counted once a frame that told it, and fails
+the look alone: the simulation result and its failures do not change, and a repin
+records its pins. A look the game intends is silenced by name in `app.json`,
+`"game": {"look": {"silence": ["near-black"]}}`, and still printed and recorded.
+The look passes only when every world any reply showed (a settle's or a state's
+world list, a tree's canvases) was looked at, at its close, in a judged frame or by
+a `look(session)` from the game's camera, and every measurement a tell reads was
+taken. A world with no picture (the GPU-less host
+without a GPU, or a model-capable module there: `look: no picture on this host`), a
+drawing canvas with no picture, a look frame that failed, a world shown and never
+looked at, or a gap (`particles: not measured`) leaves it `UNVERIFIED`, named on a
+`look: unverified` line. `prove.mjs` passes the look only when every requested
+host's every run did; a run with no summary is a gap. The tells see brightness and
+coverage, not colour, facing or layout: open a `LOOK` picture once before reporting.
+A proof script takes its own with `look(session, view, label)`, `view` being `{}`
+(the game's camera, judged), `{top: 30}` or `{yaw: 35, pitch: -20, distance: 40}`;
+the look step runs in mode 0 only, beside the simulation the paranoid modes check,
+whose journal comparison leaves the `look:` lines out.
 
 The [shared proof runner](proof.mjs) handles builds, sessions, transcripts and
 cleanup. Each game's proof owns its assertions. `check` records failures while
@@ -513,6 +597,39 @@ In a proof, `session.world('world').snapshot({all:true})`
 reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
 
+A world answers a few questions about its picture from a look frame, the tick the
+clock has reached drawn offscreen (presentation only; no tick runs and the hash does
+not move):
+
+```sh
+bun scripts/agent.mjs web "tap play" "clock settle" \
+  "screenshot side.png world from 35 -20 40" "screenshot plan.png world from top 60" \
+  "state world draws" "state world:beacon-1 visible" "state world look"
+```
+
+`screenshot <png> <canvas> from <yaw> <pitch> <distance>` sees the scene from a
+camera that many degrees round and down from the centre of its drawn entities, that
+many metres off; `from top <height>` is an orthographic plan that many metres tall;
+`from camera` is the game's own camera; `over <ms> every <ms>` films any of them.
+`state world draws` lists each draw in pass order with its batch, instances submitted
+and kept after culling, whether it covered a sample and what it wrote.
+`state world:<entity> visible` answers one word and a reason: `drawn`, `frustum`,
+`occluded`, `hidden`, `hidden-ancestor <name>`, `opacity 0`, `asset-pending <model>`,
+`lod-hidden <d> m`, `outside-cascade <n>`, `custom-material`, `not-drawn` or
+`no-particles`, read from what the renderer did (a sprite's texture residency and
+its quad's extent about its anchor included). `state world look` gives the frame's
+luminance, clipped fraction, tells and gaps; after `clock settle` and every pixel
+`screenshot` a canvas that draws adds them to the world's `logs` (`look: …` lines,
+never its journal, which a save carries) and to the reply. The GPU-less Linux host
+draws look frames on this machine's GPU where it has one. A production build
+refuses all of these.
+
+Linux GPU loading and surface/asset refusals, and web GPU/surface refusals, carry
+`{refused:{host,subsystem,message}}`. The driver prints the host and subsystem first;
+`EXACT_AGENT_DEBUG=1` or `--json` includes its stack. Browser console diagnostics
+remain available through `logs --all` after a wasm trap, including the panic hook's
+message. This does not make a trapped world usable again; reload it before driving.
+
 In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,
 `layout`, `snapshot` and `save`. A held key is released on the same carrier even
 when advancing time fails. `open({fresh:true, world:'run.world'})` opens a new
@@ -549,8 +666,7 @@ Clippy holds every game's logic library to rules 1–3 with the SDK's
 naming its replacement. `sqrt` is correctly rounded and allowed; glam is built with
 `libm`, so `Vec3::length`, `Quat::slerp` and the other glam methods are portable. The
 lints run in `shells.mjs --test`, before first pins and `--repin`, and in every
-production-profile bake (web, Apple, release Linux, deploy); the gpu-dev edit loop
-leaves them to those. An `#[allow(clippy::disallowed_types)]` on an item is a
+production-profile bake (web, Apple, release Linux, deploy); the dev loop also checks the logic library before each Rust rebuild. An `#[allow(clippy::disallowed_types)]` on an item is a
 visible exception — a `HashMap` that is only ever looked up, say. Tests may time
 themselves. Setting `RUSTFLAGS` replaces the workspace's `-fp-contract=off`, so a
 game build under it is refused until the flag is appended.
@@ -567,7 +683,13 @@ and [authoring diaries](diaries/001-scores.md) record measurements and remaining
 
 The first bake derives host adapters and `.shells/app.json` from the authored
 manifest. It does not rewrite an existing `app.json`. Contract owns layout, UI,
-accessibility and controls; the world owns the canvas contents. Hosts consume
+accessibility and controls; the world owns the canvas contents. A HUD button with
+`action="jump"` holds that `Actions` action while pressed; its `aria-keyshortcuts`
+takes its chord (the key with exactly its modifiers) before the focused world hears
+it and presses the action once per keydown, never on its repeats, moving no focus,
+on every host (the rule `host/linux/src/presenter/shortcuts.rs` states). The bake warns
+when `Actions` bind the same key. Show touch controls under
+`exactViewport().pointer == "coarse"` ([recipe](recipes/touch-controls.md)). Hosts consume
 declaration data without a build dependency on the engine or gameplay. The GPU
 build writes that declaration directly, without linking the host bake.
 
@@ -620,7 +742,8 @@ subset; each version must be the SDK lock's, so bakes, deploys and proofs still 
 lock lacks but exact2's root `Cargo.lock` pins (a core crate's new dependency) is
 admitted at the root lock's version and checksum until the SDK lock is refreshed. A game that adds a
 dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK crates as
-`exact-game.workspace = true`) and captures its own `Cargo.lock` with `bun exact.mjs
+`exact-game.workspace = true`; a game with `art/` also lists `exact-game-bake.workspace =
+true` under `[dev-dependencies]` for `sim_with_art!`) and captures its own `Cargo.lock` with `bun exact.mjs
 lock` (from exact2, `bun game/app/shells.mjs ./my-game --lock`): it fetches what the
 graph needs, resolves with the SDK lock's versions first and prints what changed
 (`--update-lock` resolves offline from the cache alone); commit and review that lock.
@@ -634,9 +757,22 @@ the core’s vendored patches and `host-dev` profile; the existing SDK test chec
 those against the root workspace. Web builds retain the game’s non-contracting
 floating-point flag alongside the core’s path-remapping flags.
 
-Linux development uses `gpu-dev` with separate completed host and GPU receipts;
+Linux proofs use `gpu-dev` with separate completed host and GPU receipts;
 a logic-only edit can rebuild the GPU alone. Completed development receipts bind
-the whole file. Release/production bakes bind the product digest: a signed 64-bit
+the whole file. `bun proof.mjs linux --build-only` builds this host/module pair.
+The generic `bun exact.mjs linux` verb builds only the host, under `host-dev`.
+The registry cache in `game/app/crates.mjs` is built but not enabled. D2 requires
+three cold `gpu-dev` runs under load 5 with an eligible registry dependency
+chain over a quarter of the total before wiring it into `buildBake` or setup.
+See `game/bench/cold-build/README.md` for the measurement commands.
+The cache separates channel, profile, target triple, rustc, toolchain overrides
+and compiler/profile flags. It keeps two coherent registry generations,
+excluding path/git crates and their dependants, and uses Cargo metadata's
+resolved build and product directories. A build with any private profile does
+not publish a generation. Cargo validates copied fingerprints;
+a rebuilt copied unit means the warm failed. Cache files are not game inputs.
+Web and release builds do not use it.
+Release/production bakes bind the product digest: a signed 64-bit
 Mach-O leaves out its signature and normalizes the signature and `__LINKEDIT` size
 fields; other files hash whole. Generated profiles disable floating-point contraction; `gpu-dev` disables
 debug assertions and overflow checks as release does. These profiles come from `game/Cargo.toml`, not authored per-game host code.
@@ -661,7 +797,12 @@ load order never reaches the hash; a save refuses only while a shown one is in
 flight. A model a tick animates or reads belongs in `ASSETS`. Streamed names are
 models and textures (sounds are not streamed yet), and never also in `ASSETS`.
 Models and sprites need the asset-capable module; sounds and untextured emitters do
-not. See [the audio executor](audio/README.md) and
+not. `assets/` is the bake's output, not a test's input: a hostless test builds its world
+with `exact_game::sim_with_art!(Options::default())`, which bakes the game's `art/` in
+memory (the same bytes) from either manifest layout and any working directory, then hands
+them to `Sim::with_assets`; `bun game/new.mjs <game> --assets` starts a game that does.
+A generated `logic` member gets `exact-game-bake` as a dev-dependency when the game has
+`art/`; an authored `logic/Cargo.toml` declares it. See [the audio executor](audio/README.md) and
 [the audio fixture](games/audio-fixture/logic/src/lib.rs) for sampled sounds.
 
 For a data-authored level, derive `Data` for its record and declare `Game::LEVEL`.
@@ -670,6 +811,42 @@ Setup reads it with `w.level::<T>(name)` after the
 asset barrier. `w.generated(name, mesh_data)` registers immutable generated geometry;
 saves check its reconstructed identity rather than storing render vertices. See
 [the level example](games/asset-fixture/logic/src/lib.rs) and [engine reference](engine/README.md).
+
+Tuning records use `Game::TABLES`, for example
+`const TABLES: &'static [asset::Table] = &[asset::Table::of::<Movement>("movement.json")];`.
+A record derives `Data` and is `Send + Sync`. The bake validates every named field;
+a wrong type or missing field names its path. `w.table::<Movement>("movement.json")?`
+borrows an immutable decoded version. `asset::Curve(Vec<(f32, f32)>)` samples with
+`at(x)`, interpolating between ordered finite points and clamping at the endpoints.
+[Beacons' movement table](games/beacons/movement.json) controls its speed and jump.
+
+The web dev loop validates table saves in-process using that bake's compiled decoder,
+then delivers all tables together through `assets/exact-tables.json`. It prints validation
+time and subprocess count. No Cargo or rustc runs for a tuning save. A complete valid
+transaction activates at the next simulation tick; a rejected transaction keeps the old
+values. Paused tables await resume without preventing settlement. Restart and initial setup
+admit the most recently delivered live transaction before setup reads it. Replay transactions
+strictly after that live transaction's tick keep their recorded ticks across the initial asset
+barrier and restart; earlier and equal-tick replay rows are superseded. A timestamped restart
+first advances the old world to that time, then admits its resulting tables.
+Levels require a new session. Tables never spawn entities.
+
+Active table bytes appear in world resources and contribute to the hash. Every admitted
+version remains in saved inputs for the session. `sim.table_inputs()` exports these
+clock-stamped bytes; `sim.replay_tables(&inputs)` queues them on a tick-zero simulation
+loaded with their original setup version. A restore requires the same active table bytes
+and declared type identities (`table:` plus the declaring module path and type name),
+and refuses changed tables by name. Development swaps are reported as `tableEdits` in
+world state and refuse a proof pin. Delivery while running is admitted at the next tick;
+replay preserves those recorded ticks, including transactions still pending at export.
+
+Web dev clients swap tables under the running world, preserving its tick. Native Apple
+dev clients apply a whole generation and restart the world on table delivery. For table
+games, successful Rust saves rebuild the primary module and restart the web world,
+validating the current table files before publishing the new declarations; the validator never follows an unselected side module.
+The server retains only the three most recent table generations in memory. A client still
+fetching an older generation after three later edits receives a refusal and must reload
+the latest generation; those table generations are not retained on disk.
 
 Animation order is explicit: `animation::step` → apply root motion → query sockets.
 `SocketFollow` attaches to a joint without changing the saved local transform.

@@ -4,16 +4,16 @@
     "60": "0x2987115a97f93508"
   },
   "saves": {
-    "continuation": "4d3596bcd64b499e40ae594705b6c33c8a7a8080345e5f2e6d5a07e47e33f0ca"
+    "continuation": "48026d1afacd266eb5389fe68484ea67742a6abfc35a4e0ba2fbd6b3a4a30d57"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "339ecc38cd26389acf699fc60ab4895fa59c46905f1d23d7d71ef0658497f2f2",
-  "sourceInputs": "8533c084fa6b4b1b0ec5d4b566ac4fae04a6c031697cc425e1cd9461637e92db",
+  "inputs": "6debf41dd7b87377cb12958801e1e28cc814af95013a96f6b997f0daab000971",
+  "sourceInputs": "62e7ce470dce4818e8dbca08bbd9bbe918bb053c59328db1d113517fc9c494dc",
   "game": "asset-fixture",
   "generated": "bun game/prove.mjs asset-fixture --repin --hosts 'linux,web'",
-  "at": "aa3d6611193eb44e4604a553d2166bacf5d24f51",
-  "reason": "07170a2db: saved Environment.tone_mapping (Aces) extends the world hash stream and simulation save; fog is None; MeshData.outline, MaterialData.rim and Node.posable extend saved model identities"
+  "at": "793a4dab1202e6d4ef783cc29718d360c5f9d20c",
+  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
 }

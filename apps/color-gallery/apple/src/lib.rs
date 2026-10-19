@@ -2,11 +2,10 @@
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 include!(concat!(env!("OUT_DIR"), "/baked.rs"));
-const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
 fn embedded_data() -> ExactEmbeddedData {
-    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+    exact_js::Module::new(APP_BYTECODE, APP, GRANTS)
         .with_canvas_surfaces(CANVAS_SURFACES)
         .placed(TYPESCRIPT_PLACEMENT)
 }

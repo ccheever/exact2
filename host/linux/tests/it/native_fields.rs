@@ -164,11 +164,6 @@ fn native_paint_is_materials_filled_field() {
     assert_eq!([c.red(), c.green(), c.blue()], [0, 0, 0]);
 }
 
-fn look_fade(mut c: [u8; 4], alpha: f32) -> [u8; 4] {
-    c[3] = (c[3] as f32 * alpha).round() as u8;
-    c
-}
-
 #[test]
 fn focused_bare_fields_ring_the_outer_box() {
     let mut p = boot();
@@ -293,4 +288,92 @@ fn oversized_field_line_paints_at_the_kernel_baseline() {
         expected,
         "field ink and baseline-aligned text must occupy the same rows"
     );
+}
+
+#[test]
+fn mouse_file_press_precedes_production_picker_refusal() {
+    assert!(
+        !exact_linux::picker::agent(),
+        "exercise the production refusal"
+    );
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for mutation in [
+        "cancel-keep",
+        "cancel-remove",
+        "press-disable",
+        "press-remove",
+        "press-hide",
+    ] {
+        for own in [false, true] {
+            for feedback in ["", "-exact-press-opacity=0.5"] {
+                let handler = if own { "press=pressed" } else { "" };
+                let source = format!(
+                    r#"component App
+  state pending = false
+  state showing = true
+  state seen = ""
+  state disabled = false
+  state display = "block"
+  action pressed
+    pending = true
+    seen = `${{seen}}press `
+    disabled = {disabled}
+    showing = {showing}
+    display = "{display}"
+  action cancelled
+    pending = false
+    seen = `${{seen}}cancel `
+    showing = {keep}
+  view
+    column width=300 height=200 press=pressed {feedback}
+      if showing
+        input type="file" disabled=disabled display=display id="file" testId="file" width=100 height=40 {handler} {feedback} cancel=cancelled
+"#,
+                    keep = mutation != "cancel-remove",
+                    disabled = mutation == "press-disable",
+                    showing = mutation != "press-remove",
+                    display = if mutation == "press-hide" {
+                        "none"
+                    } else {
+                        "block"
+                    }
+                );
+                let (mut p, error) = Presenter::boot_with(
+                    &contract::compile(&source).unwrap().encode(),
+                    (),
+                    (300., 200.),
+                    1.,
+                    std::path::PathBuf::new(),
+                    PainterChoice::Cpu,
+                )
+                .unwrap();
+                assert!(error.is_none(), "{error:?}");
+                let file = id(&p, "file");
+                let (x, y, w, h) = p.rect_of(file).unwrap();
+                p.pointer_down(x + w / 2., y + h / 2., 0.).unwrap();
+                p.pointer_up(x + w / 2., y + h / 2., 1.).unwrap();
+                actual.push((
+                    mutation,
+                    own,
+                    feedback,
+                    p.host().runner().slot("pending").cloned(),
+                    p.host().runner().slot("seen").cloned(),
+                ));
+                let cancelled = matches!(mutation, "cancel-keep" | "cancel-remove" | "press-hide");
+                expected.push((
+                    mutation,
+                    own,
+                    feedback,
+                    Some(exact_runner::Value::Bool(!cancelled)),
+                    Some(exact_runner::Value::str(if cancelled {
+                        "press cancel "
+                    } else {
+                        "press "
+                    })),
+                ));
+            }
+        }
+    }
+    assert_eq!(actual, expected);
 }

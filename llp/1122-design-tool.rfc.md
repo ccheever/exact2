@@ -350,7 +350,8 @@ socket frames (LLP 1121 D13). So D4 adds both directions.
   command and batch on both streams.
 
 The tool drives no input into an app (no taps, no typing), takes no pictures and launches no
-sessions. Commands need `write` scope and are journaled with their client.
+sessions. `inspect` needs `read` scope and the other three commands need `write` (D12); all are
+journaled with their client.
 
 ### D5 — Inspect: tap the real screen
 
@@ -664,20 +665,32 @@ is undone in one step.
   - A paired client reads, proposes or writes through `tamber/1` as its scope allows, and
     receives selections and outlines' sources like any client. Its access ends when its
     token is revoked or expires.
-    - **Seeing the app** remotely goes through an **authenticated canvas gateway**: the Tamber
-    server proxies the app's dev URL, same-origin, under the paired client's token, over the
-    encrypted transport.
+  - **Seeing the app** remotely goes through an **authenticated canvas gateway**: the Tamber
+    server proxies the app's dev URL under the paired client's token, over the encrypted
+    transport, on **its own origin** (a second TLS port on the same listener and certificate),
+    so script in the framed canvas can't read the tool's DOM, storage or token (LLP 1121 stage
+    10 C; theme2's ruling, 2026-10-19).
+    - The tool enters the canvas with a single-use grant carried in the frame's `#g=` fragment;
+      the gateway trades it for a session cookie bound server-side to the token, and the
+      fragment leaves the frame's address before any request. No wire request reads a cookie,
+      and a cookie that page code sets with the gateway's name grants nothing.
+    - The gateway needs `read`.
     - A remote frame whose `src` was the developer's loopback URL would load the remote
-      browser's own loopback.
+      browser's own loopback, so the gateway rewrites the app's loopback URLs to itself. That
+      rewrite is functional, not a security boundary: it never touches a non-loopback host,
+      and exotic encodings are a known limit. The boundary is the token and the origin.
     - The dev gate checks host, origin and peer, never a paired credential
       (`scripts/install-page.mjs`).
-    - Revoking the token ends canvas access too.
+    - Revoking the token ends canvas access too, on both ports, separately from the socket.
 
     Without the gateway, a remote client works on the design and sees selections, but has no
     canvas.
-  - Control messages (D4) need `write`: inspect, outline, hold and pin change what the
-    developer's screens show.
-- **No team relay** (§9 Q6, ruled): remote use is pairing only.
+  - Control messages (D4): `inspect` needs `read`, since it only reports what is under the
+    pointer, so a `propose` client inspects read-only; `outline`, `hold` and `pin` need `write`,
+    since they change what the developer's screens show (LLP 1121 stage 10 A's scope table).
+- **No relay in v1** (§9 Q6): remote use is pairing only. A hosted relay is LLP 1121 stage
+  10c, later: a blind pass-through of the client's TLS to the developer's server, which changes
+  nothing here (the same pairing, tokens, scopes and gateway).
 
 ### D13 — Security
 
@@ -687,9 +700,9 @@ is undone in one step.
   verified-local request (LLP 1121 D13). Paired clients have scoped, revocable tokens, only
   over an encrypted transport (D12).
 - **No driving.** The tool sends no taps, keystrokes or file answers into an app. Its only
-  control is D4's four commands, which need `write`, are journaled with their client, and
-  are cleared when that client goes. Inspect mode takes input only while it is on, with a
-  banner and a local way out.
+  control is D4's four commands (`inspect` needs `read`, the rest `write`; D12), which are
+  journaled with their client and cleared when that client goes. Inspect mode takes input only
+  while it is on, with a banner and a local way out.
 - **Reports are bound to their build.** A `status` or `selected` POST must carry the nonce
   from that build's stream hello. The dev loop accepts other POSTs with no token
   (`host/web-js/dev.mjs`), so without it a page that can reach the dev server could forge a
@@ -726,7 +739,7 @@ is undone in one step.
 | inspect mode in each host's development build, and the `selected` report | this RFC D5 → the hosts | proposed |
 | the build channel: registration with a nonce, four commands down, `status`, `selected` and `unsupported` reports up | this RFC D4 → the dev loops, the hosts, the Tamber server | proposed |
 | devices launched connected to the dev URL, one `--wasm` loop for frame and devices | this RFC D3, D4 → `host/apple/build.mjs`, the dev loops | proposed |
-| the canvas gateway for paired clients | this RFC D12 → the Tamber server | proposed |
+| the canvas gateway for paired clients | this RFC D12 → the Tamber server | built (LLP 1121 stage 10 C) |
 | `iframe` embedding stated as a second document, not a second session | this RFC D3 → LLP 1121 D14 | proposed |
 | the held state, as `hold` and as a form of `tap` | this RFC D8 → the hosts, LLP 1012 | ruled yes (§9 Q4) |
 | a held state's overlay rows, and a `boundary` row source, in the node explanation | this RFC D5, D8 → LLP 1035.002, LLP 1121 D7 | proposed |
@@ -884,7 +897,9 @@ lands with or after the Tamber stage it needs.
    app, updated by the live table and the hot reload. Several live copies come in T7.
 6. **People who share no machine or network with the developer.** **Ruled (Charlie,
    2026-10-13): no hosted relay.** Remote use is pairing only, over an encrypted connection
-   (D12).
+   (D12). **Revisited (Charlie, 2026-10-19): "We will prob need one yes."** A hosted relay is
+   LLP 1121 stage 10c, later: blind TLS pass-through, so the relay never sees a token,
+   a design or a canvas, and the tool's side is unchanged.
 7. **How the tool controls running apps.** **Ruled (Charlie, 2026-10-13): yes, for now.** The
    tool sends four commands (inspect, outline, hold, pin) and receives three reports
    (status, a selection, unsupported), and it never drives an app (D4). Taps and typing
@@ -1377,3 +1392,59 @@ the second disabled).
 | Inspect on the held node shows the state part's rows | **Met** on the JS loop with stage 9 E: the held row ":active background-color" at its part (`screens.contract:582`) with its token, no provenance incomplete, "Edit PostButton :active background-color" on it. |
 | The workbench's state parts, editable through `set-state` | **Met**: the selection's `:active` row offers the state rung (the default) and "Edit the token primary_600 instead"; the field starts at `primary_600`; Rebuilds; Apply wrote one line (`screens.contract:582`, `primary_600` → `positive_500`). |
 | After the rebuild the hold is held again | **Met** on the JS loop (00:49Z, at main with the glue fixes): the server re-sent it at the corresponding copy ("Holding pressed.", where before the replay fix every PostButton cleared), the reloaded page held it 2 s later ("Held pressed.") with the canvas out of view, and in view its ground was the new `:active` value, `positive_500`, with no touch. **Met** on the wasm loop too (01:17Z, in a quiet window): Held again after its restart, `positive_500` in view. |
+
+### T5, template and style rungs (step 1 `1c6434a090`, `ee2d85d546`; step 2 `f0f1917a25`; step 3 `95332bb9de`; the map's `layout` `7553483dd7`; fixes `c74d313a22`, `7eec1a9a90`, `fb943c06df`, `47d74f03b7`, `e1d7526acc`, `7311d0f039`; optional *1.12* fields)
+
+- **The template and style rungs** (D6, step 1, the server's join): a row its author wrote, where
+  the map places it (D1's `at` and `attr`), answers the template rung `{file, at, sha256, row,
+  state?, instances, text, component?, token?}` on the node or the style rung `{style, row, file,
+  text, token?}` in its class's `style` by the name its file declares, the default unless the row
+  reads a param (whose rung then carries its `template` address, for a detach); the token its
+  whole value is offered beside. `row` is the attribute as written (a shorthand's whole for a
+  longhand). Only a plain value is offered, read at the map's UTF-8 byte column as Contract writes
+  one (`plainAt`: a string, its escapes decoded as the lexer does, a bare `#…` colour, a number,
+  in any parentheses, then a comment, another attribute or a positional argument); an expression
+  or a name in scope, a file outside the app's own sources, a conditional class and a layout row
+  (the map's `layout`, D14, set-row's own test: `paint_row`, now the library's) are refused with a
+  reason, a whole token still offered. A state row written under the node takes the template rung
+  with `state`, held ones too where the build names the held node; `instances` counts call-site
+  chains (a `button "…"`'s label is no copy).
+- **The tool's editor** (step 2): "Edit this template · N instances" / "Edit style X" as the
+  bordered default, a field from the value as written, proposed as `set-row` (Rebuilds, no scrub),
+  its draft bound to the copy (with the build's facts) and the files' digests, and refused at
+  propose when the files moved since the copy was selected; the server's refusals (a moved file, a
+  compile failure with its diagnostics, D14) shown, nothing written.
+- **Moves** (step 3, D6's enumerated set; `moves.ts`): a template row to a new param (`add-param`
+  in the template's file, its kind the row's, its default the value as written) or, an
+  unconditional value, a new token (`add-token`), the row reading it; a param row detached to its
+  template (the param's value written there; `remove-param` for it unless the server says another
+  row still reads it, and for each param it alone left read, as the compile names them; refused
+  where the design sets it or its default is an expression over another param). Each one
+  transaction, one undo; checked against the params read the ops were made from.
+- **Known limits:**
+  - a promotion's kind is read from the row's name (a colour row's, opacity's number, shadows,
+    `font-family`, durations, easings, else a length); a row whose value the server types
+    otherwise is refused by the server, not guessed again;
+  - a detach copies a token default as the token's name (the row then reads the token, D6's
+    "expressions are kept"), and refuses a default that is an expression over another param;
+  - before the server's first file read the join has no own-sources list and uses the path rule
+    (the server's write refuses a vendored file regardless);
+  - a positional argument written against the value with no space (`opacity=0.5("hi")`) reads as
+    an expression;
+  - a param colour on the JS page reads as a dynamic value (a CSS variable the page resolves), so
+    its row offers neither the param rung nor a detach there.
+
+### T5's gate (2026-10-19; the run is `~/x2theme/t5-gate-run.txt`)
+
+On a copy of the clone (`dt5-gate`, its main `95d7d41` with the header's right slot given a literal
+ground and the Post button a one-reader `corner` param).
+
+| Gate line | Result |
+|---|---|
+| A template colour edit writes one line and hot-reloads | **Met** on the JS loop: `#f1f3f5` → `#ffb3b3` at `home.contract:331` only, Rebuilds, the page rebuilt to that colour; one undo restored it. |
+| A stale source digest is refused | **Met**: the file edited after the copy was selected; the server refused (`tamber-contract-edit`: the file changed since line 331 was selected), nothing written. |
+| A candidate that fails to compile writes nothing | **Met**: `not-a-colour` refused with its diagnostic (`tamber-unknown-token`), the files unchanged. |
+| Promote to param and to token are each one transaction | **Met**: `drawerGround` (the param's line and the row reading it, one write, one undo); `gate.drawer` (`app.tamber`'s new token and the row naming it, two files, one write, one undo). |
+| A `class:` row edits the style in its own file | **Met**: the Post button's `color` row wrote `style PostButton`'s line in `screens.contract`; undone. |
+| (review2) Detach is one transaction, its closure listed | **Met**: `PostButton.corner` detached: its line removed and the row written `999px`, one write, one undo. |
+| (review2) A layout row is refused with D14's reason | **Met**: width, height, margins, paddings, alignment and font-weight rows each say D14's reason. |

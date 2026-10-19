@@ -134,7 +134,8 @@ uint32_t exact_calc_parse(const uint8_t *text, size_t len);
 
 /* A style owns this environment snapshot until destroy. Values: top, right, bottom, left,
  * viewport width/height (the window's when a sheet is open), segment cols/rows, the layout
- * regions' count (0 or 20) and the regions (LLP 1123 D10), then x,y,w,h per segment. create copies them and returns NULL for malformed input or an unknown handle.
+ * regions' count (0 or 20) and the regions (LLP 1123 D10), the title-bar area's count (0 or 4)
+ * and its x,y,w,h, then x,y,w,h per segment. create copies them and returns NULL for malformed input or an unknown handle.
  * resolve borrows a live context; destroy consumes it exactly once (NULL is allowed). */
 void *exact_calc_create(uint32_t handle, const double *values, size_t count);
 double exact_calc_resolve(const void *context, double basis);
@@ -245,10 +246,6 @@ uint32_t exact_region_request(ExactRuntime rt, uint64_t request, uint64_t known_
 uint32_t exact_region_complete(ExactRuntime rt, uint64_t request, ExactMetrics metrics, void *owner, ExactRegionReleaseFn release);
 
 typedef ExactMetrics (*ExactMeasureFn)(void *ctx, const ExactMeasureRequest *request);
-/* Source-backed editor layout. Negative width/height refuses the measurement. */
-typedef ExactMetrics (*ExactDecoratedMeasureFn)(void *ctx, uint32_t view, const ExactMeasureRequest *request,
-    const uint8_t *record, size_t record_len, const uint8_t *styles, size_t styles_len, float root, float scale);
-void exact_set_decorated_measure(ExactRuntime rt, ExactDecoratedMeasureFn read);
 
 /* The plan's declared faces, synchronously before first layout. The strings
  * are UTF-8 and live only for the callback. This is a host seam, not an
@@ -366,6 +363,13 @@ void exact_app_answer(void *slot, uint32_t status, const uint8_t *bytes, size_t 
 void exact_app_changed(ExactRuntime rt, const uint8_t *topic, size_t len);
 void exact_app_reply(void *reply, uint32_t status, const uint8_t *bytes, size_t len);
 
+/* A document the app kept was forgotten by the app (LLP 1069.010.000 D5):
+ * called on a storage worker's thread with the object's device and inode;
+ * the host takes it off NSDocumentController's recents on the main thread.
+ * One hook for the process. */
+typedef void (*ExactForgottenFn)(uint64_t device, uint64_t inode);
+void exact_on_document_forgotten(ExactForgottenFn forgotten);
+
 /* Buffers. exact_in returns NULL for a handle nobody holds. */
 uint8_t *exact_in(ExactRuntime rt, size_t len);
 const uint8_t *exact_out(ExactRuntime rt);
@@ -468,8 +472,10 @@ typedef struct { double x, y, width, height; uint32_t available; } ExactInlineFr
 typedef ExactInlineFrame (*ExactInlineFrameFn)(void *ctx, uint32_t view);
 typedef ExactInlineFrame (*ExactRangeFrameFn)(void *ctx, uint32_t view, uint32_t start, uint32_t end);
 void exact_set_inline_geometry(ExactRuntime rt, ExactInlineFrameFn read, ExactRangeFrameFn range, void *ctx);
-/* Request/reply JSON for the optional decorated field, freed by exact_markup_free. */
-uint64_t exact_decorations(const uint8_t *input, size_t len, const uint8_t **out, size_t *count);
+/* A textarea's decorations (LLP 1114.007): UTF-8 JSON {record, current, styles} in,
+ * {provisional, spans, styles} out, valid until the next call on this thread; null when
+ * the request does not parse. */
+const uint8_t *exact_field_decorations(const uint8_t *input, size_t len, size_t *count);
 /* Open top-layer views in back-to-front order, with viewport x/y/width/height
  * in four doubles per id: where the host shows each, a block's root by its
  * block's rectangle (the root sits in it by its own frame) and any other view
@@ -604,6 +610,12 @@ uint32_t exact_activities(ExactRuntime rt, size_t len);
  * arm's {"ports":…} or {"messages":…}, or the agent's `prefer midi` and
  * `tap midi`. Returns the batch length. */
 uint32_t exact_midi(ExactRuntime rt, size_t len);
+/* @ref LLP 1124 D7: the agent's `prefer extension`, JSON in the input buffer:
+ * a native module source's preferred value. Returns the batch length. */
+uint32_t exact_extension(ExactRuntime rt, size_t len);
+/* @ref LLP 1133.001 D4: the extensions the app's module composes, one name a
+ * line in the input buffer: the runner sends their names to the module. */
+void exact_bind_extensions(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D13, stage 4: a live design batch or snapshot frame from the dev
@@ -692,6 +704,13 @@ uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, flo
  * region is the safe area. A change re-sends the style of every node that
  * reads the environment and lays out again. */
 uint32_t exact_regions(ExactRuntime rt, const float *insets, uint32_t count);
+/* The title-bar area beside the window's controls (points, from the layout
+ * viewport), what env(titlebar-area-x|y|width|height) resolves to (Window
+ * Controls Overlay): count is 4, x, y, width, height (all zero while the area
+ * is hidden), or 0, when the window gives none and each variable is undefined.
+ * A change re-sends the style of every node that reads the environment and
+ * lays out again. */
+uint32_t exact_titlebar_area(ExactRuntime rt, const float *rect, uint32_t count);
 /* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
  * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments

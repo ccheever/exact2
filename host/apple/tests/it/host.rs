@@ -193,8 +193,8 @@ fn the_first_batch_creates_places_and_sizes_the_whole_tree() {
     );
     assert!(batch.contains("\"kind\":\"button\"") && batch.contains("\"handlers\":[\"press\"]"));
     assert!(
-        batch.contains("\"kind\":\"scroll\"") && count(&batch, "content") == 1,
-        "one scroll container, one content size"
+        batch.contains("\"kind\":\"scroll\"") && count(&batch, "content") == 2,
+        "a content size for the one scroll container and the root"
     );
     assert!(
         batch.contains("\"font_size\":24,\"font_weight\":700"),
@@ -1411,7 +1411,7 @@ fn resolved_language_is_published_at_boot_and_after_switching() {
     plan.locale = Some(exact_plan::SlotsId(0));
     for rtl in [false, true] {
         let name = exact_plan::StrId(plan.strings.len() as u32);
-        plan.strings.push(if rtl { "ar" } else { "en" }.into());
+        plan.strings.push(if rtl { "ar" } else { "en" });
         plan.locales.push(exact_plan::LocalesRow {
             name,
             rtl,

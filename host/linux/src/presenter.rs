@@ -119,7 +119,7 @@ mod swipe_tests;
 mod visibility_tests;
 
 pub use clock::{wall_since, Wall};
-pub use device::Device;
+pub use device::{touch_only, Device, Pointing};
 pub use hosted::action as field_action;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
@@ -961,6 +961,24 @@ impl<D: DataSource> Presenter<D> {
             .copied()
     }
 
+    /// How far scroll container `id`'s offset travels on each axis (LLP 1012 `rx`/`ry`): the bounds its offset is
+    /// clamped to, as `clamp_scroll` reads them.
+    fn scroll_range(&self, id: ViewId, collection_limits: &BTreeMap<ViewId, f32>) -> (f32, f32) {
+        let kernel = self.host.kernel();
+        let Some(node) = kernel.node(id) else {
+            return (0., 0.);
+        };
+        let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
+            self.brush.scroll_bounds(
+                kernel,
+                self.host.content_region(),
+                &node,
+                collection_limits.get(&id).copied(),
+            )
+        });
+        (bounds.max.0.max(0.), bounds.max.1.max(0.))
+    }
+
     /// The agent's `layout`: every node's box in the viewport (scroll
     /// folded in), scroll containers with their offsets, by id. With a
     /// `node`, the runner's explanation of that node (LLP 1035.002 D1) plus
@@ -1002,6 +1020,7 @@ impl<D: DataSource> Presenter<D> {
             );
         }
         s.push_str("]},\"nodes\":[");
+        let limits = self.collection_scroll_limits();
         for (i, b) in boxes.iter().enumerate() {
             if i > 0 {
                 s.push(',');
@@ -1016,7 +1035,15 @@ impl<D: DataSource> Presenter<D> {
                 num(r2(b.rect.3))
             );
             if let Some((sx, sy)) = b.scroll {
-                let _ = write!(s, ",\"sx\":{},\"sy\":{}", num(r2(sx)), num(r2(sy)));
+                let (rx, ry) = self.scroll_range(b.id, &limits);
+                let _ = write!(
+                    s,
+                    ",\"sx\":{},\"sy\":{},\"rx\":{},\"ry\":{}",
+                    num(r2(sx)),
+                    num(r2(sy)),
+                    num(r2(rx)),
+                    num(r2(ry))
+                );
             }
             s.push('}');
         }
@@ -1079,7 +1106,7 @@ impl<D: DataSource> Presenter<D> {
                 .filter(|s| s.starts_with("symbol:"))
             {
                 let name = &source[7..];
-                let reason = if name == "sf/" {
+                let reason = if name == "sf/" || name.is_empty() {
                     "empty"
                 } else if !name.starts_with("sf/") && exact_kernel::symbol_path(name).is_none() {
                     "role"
@@ -1116,11 +1143,27 @@ impl<D: DataSource> Presenter<D> {
 
     /// The deepest painted box under a point (viewport points), through every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
+        self.hit_with_visibility(x, y, false)
+    }
+
+    /// Ordinary mouse releases use current CSS eligibility even before the
+    /// next display flip. Retained regions keep their picture's hit policy.
+    pub(super) fn hit_after_pointerdown(&mut self, x: f32, y: f32) -> Option<ViewId> {
+        self.hit_with_visibility(x, y, true)
+    }
+
+    fn hit_with_visibility(&mut self, x: f32, y: f32, current: bool) -> Option<ViewId> {
         // Under an open surface of the top layer the page is inert.
         if !self.display.contains(x, y) || (self.top_open() && self.alert.is_none()) {
             return None;
         }
         self.boxes();
+        self.painted_hit(x, y, current)
+    }
+
+    /// The deepest box of the latest paint under a point, as [`Self::hit`]
+    /// finds it once the boxes are fresh and the page takes a press.
+    pub(super) fn painted_hit(&self, x: f32, y: f32, current: bool) -> Option<ViewId> {
         self.boxes
             .iter()
             .rev()
@@ -1131,7 +1174,17 @@ impl<D: DataSource> Presenter<D> {
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
             })
-            .find_map(|b| self.svg_hit(b, x, y))
+            .find_map(|b| {
+                let mut hit = *b;
+                if current && !self.brush.region_blocks_action(b.id) {
+                    let node = self.host.kernel().node(b.id)?;
+                    hit.pointer_hit = node
+                        .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
+                        != exact_kernel::PointerEvents::None
+                        && crate::paint::paints(self.host.kernel(), b.id, None);
+                }
+                self.svg_hit(&hit, x, y)
+            })
     }
 
     /// The agent's wheel: over the node's center.

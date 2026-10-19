@@ -179,7 +179,8 @@ final class AgreementIOSTests: XCTestCase {
               "style": ["width": size, "height": size, "background_color": [0, 122, 255, 255], "text_color": [0, 0, 0, 255]]],
              ["op": "frame", "id": id, "x": x, "y": 0.0, "w": size, "h": size]]
         }
-        p.apply(wireBatch([["op": "create", "id": 1, "kind": "view"], ["op": "create", "id": 5, "kind": "view"]]
+        // 5 is a view (its prop), holding the run.
+        p.apply(wireBatch([["op": "create", "id": 1, "kind": "view"], ["op": "create", "id": 5, "kind": "view", "props": ["testId": "row"]]]
             + bar(6, x: 0) + bar(7, x: size)
             + [["op": "children", "id": 5, "ids": [6, 7]], ["op": "children", "id": 1, "ids": [5]], ["op": "roots", "ids": [1]],
                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0],

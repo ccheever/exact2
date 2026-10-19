@@ -106,6 +106,23 @@ whose design the port serves.
   opened on: a write since, or a stale or read-only copy, refuses Apply
   until the copy is selected and the row opened again. A part in a package
   is read-only; an inline state row on a node waits for `set-row` (T5).
+- A row its author wrote (T5, D6; `set-row`): where the map places it, the
+  default edit is "Edit this template · N instances" (the node's own
+  attribute, every copy of it) or "Edit style X" (in the style's own file,
+  every node using it), the token its whole value is offered beside; the
+  editor names the attribute it writes (a shorthand's whole for a longhand)
+  and starts from the value as written. It rebuilds; the server refuses a
+  file moved since the copy was compiled, a value the app does not build
+  with (its diagnostics shown) and a layout row (D14), and the tool refuses
+  an edit of files other than the ones the copy was selected under.
+- Moves (T5, D6's enumerated set; `moves.ts`): a template row's "Make it a
+  param" (a new param of its component, its kind the row's, its default the
+  value as written, the row reading it) and "Make it a token" (an
+  unconditional value only); a param row's "Detach to this template" (the
+  param's value written at the row, the param removed with any param it
+  alone left read, as the server names them, kept where another row reads
+  it, refused where the app's design sets it). Each is one transaction and
+  one undo.
 - Act first, re-scope after (D6, `rescope.ts`): the last edit of a param
   whose value there aliases one token offers "Apply to the token … instead",
   and the last edit of a token that one param aliases there offers "Apply to
@@ -160,4 +177,10 @@ whose design the port serves.
   (`bun exact.mjs tamber import astryx …`) and is reviewed the same way.
 - `app.test.contract` runs against `stub/tamber-stub.ts`, canned replies;
   `scripts/design-tool.test.mjs` drives the built tool against a real
-  server on a copy of `apps/theme-fixture`.
+  server on a copy of `apps/theme-fixture`. Both run on the checkout's own
+  port (`EXACT_TOOL_PORT` names another), never a person's 7740: `bun
+  exact.mjs test` here runs a copy staged for that origin
+  (`scripts/tamber-tool-port.mjs`), and so does a drive or verify named
+  straight to `scripts/agent.mjs` or `scripts/verify.mjs` (`--app
+  design-tool`, `scripts/tool-drive.mjs`). `EXACT_TOOL_PORT=7740` runs any
+  of them in place, on 7740.

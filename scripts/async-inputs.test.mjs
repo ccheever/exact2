@@ -105,6 +105,14 @@ test('the lane tests in-repo game pins outside the engine workspace', () => {
   expect(steps.find(([name]) => name === 'game-pins')).toEqual(['game-pins', 'bun', ['game/app/shells.mjs', '--test']]);
 });
 
+test("the lane runs the game scaffold's standing tests, the cheap ones apart from the one that builds", () => {
+  const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
+  const scaffold = steps.find(([name]) => name === 'game-scaffold');
+  expect(scaffold[2]).toEqual(expect.arrayContaining(['game/proof-game.test.mjs', 'game/new.test.mjs']));
+  expect(scaffold[2].at(-1)).not.toContain('assets scaffold');
+  expect(steps.find(([name]) => name === 'game-assets-scaffold')[2].at(-1)).toBe('assets scaffold');
+});
+
 test('the semantics run as four gated checks, and only a finished run is an outcome', () => {
   const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
   expect(steps.filter(step => step[3]).map(([name]) => name)).toEqual(['lean', 'vm-extract', 'difftest', 'difftest-js']);

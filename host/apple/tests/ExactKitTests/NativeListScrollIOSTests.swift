@@ -175,8 +175,8 @@ final class NativeListScrollIOSTests: GroupedListFixture {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
             XCTAssertEqual(l.collection.contentOffset.y + owner.scrollTopInset(l.collection), 0, accuracy: 0.5)
             let measured = try XCTUnwrap(try cell(p, 10) as? GroupedCell)
-            XCTAssertEqual(measured.height, 79)
-            XCTAssertEqual(measured.bounds.height, 79, accuracy: 0.5)
+            XCTAssertEqual(measured.height, 80)
+            XCTAssertEqual(measured.bounds.height, 80, accuracy: 0.5)
             XCTAssertTrue(p.views[10]?.superview === measured.contentView)
         }
     }
@@ -213,7 +213,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
                            "a changed native inset uses the current start, follow=\(follow)")
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
             XCTAssertEqual(l.collection.contentOffset.y + l.collection.adjustedContentInset.top, 0, accuracy: 0.5)
-            XCTAssertEqual(try XCTUnwrap((try cell(p, 10) as? GroupedCell)?.height), 79)
+            XCTAssertEqual(try XCTUnwrap((try cell(p, 10) as? GroupedCell)?.height), 80)
         }
     }
 
@@ -240,7 +240,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
             XCTAssertGreaterThan(before, 0, "the surviving row is fully visible away from the end")
             model.sections[0].rows.insert(Row(view: 9, custom: true), at: 0)
             p.apply(wireBatch([
-                ["op": "create", "id": 9, "kind": "view", "style": ["border_width_bottom": 1.0]],
+                ["op": "create", "id": 9, "kind": "view", "style": [:]],
                 ["op": "children", "id": 5, "ids": ([9] + ids.map(Int.init))],
                 ["op": "frame", "id": 9, "x": 16.0, "y": 0.0, "w": 354.0, "h": 80.0],
             ]))
@@ -280,7 +280,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         XCTAssertEqual(l.collection.contentOffset.y, before, accuracy: 0.5)
         model.sections[0].rows.append(Row(view: 22, custom: true))
         p.apply(wireBatch([
-            ["op": "create", "id": 22, "kind": "view", "style": ["border_width_bottom": 1.0]],
+            ["op": "create", "id": 22, "kind": "view", "style": [:]],
             ["op": "children", "id": 5, "ids": ids.map(Int.init) + [22]],
             ["op": "frame", "id": 22, "x": 16.0, "y": 400.0, "w": 354.0, "h": 80.0],
         ]))
@@ -393,7 +393,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         ]))
         XCTAssertEqual(l.collection.numberOfItems(inSection: 0), 2)
         XCTAssertEqual(l.collection.contentOffset.y, 250, accuracy: 0.5, "the write uses the resized native extent in the same batch")
-        XCTAssertEqual(try XCTUnwrap((try cell(p, 21) as? GroupedCell)?.height), 599, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap((try cell(p, 21) as? GroupedCell)?.height), 600, accuracy: 0.5)
     }
 
     func testAResizedPortSettlesBeforeItsScrollWrite() throws {

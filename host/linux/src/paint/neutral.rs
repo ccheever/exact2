@@ -523,7 +523,8 @@ pub(super) fn caret(
     backend.pop_clip();
 }
 
-/// A list's row under the neutral look (LLP 1115.000 D16), as the page's
+/// A grouped list's row's separator, in any look (LLP 1084 D7); then a
+/// list's row under the neutral look (LLP 1115.000 D16), as the page's
 /// sheet draws it: over the row's own ground, the wash of what presses in
 /// it (where a pointer hovers, and a stronger one while it is held), then,
 /// under each row but the last, one line that only divides, inside the
@@ -540,6 +541,7 @@ pub(super) fn row(
     dark: bool,
     feedback: (Option<exact_kernel::ViewId>, Option<exact_kernel::ViewId>),
 ) {
+    super::grouped::separator(backend, kernel, node, outer.rect, ts, dark);
     if !look::neutral() {
         return;
     }

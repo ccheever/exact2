@@ -13,10 +13,16 @@ pub struct Options {
 pub struct Beacon {
     pub lit: bool,
 }
+#[derive(Default, Data)]
+pub struct Movement {
+    pub speed: asset::Curve,
+    pub jump: f32,
+}
 pub struct Beacons;
 impl Game for Beacons {
     const ID: &'static str = "beacons";
     const HZ: u32 = 60;
+    const TABLES: &'static [asset::Table] = &[asset::Table::of::<Movement>("movement.json")];
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
@@ -27,7 +33,7 @@ impl Game for Beacons {
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
         w.insert_resource(Environment {
-            background: Some([0.49, 0.67, 0.64]),
+            background: Some(Color([0.49, 0.67, 0.64])),
             ..Environment::default()
         });
         w.spawn((
@@ -118,6 +124,12 @@ impl Game for Beacons {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
+        {
+            let tuning = w.table::<Movement>("movement.json").unwrap();
+            let mut player = w.require_mut::<Character>("player");
+            player.speed = tuning.speed.at(input.stick_xz("move").length());
+            player.jump = tuning.jump;
+        }
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
         let mut near = "";

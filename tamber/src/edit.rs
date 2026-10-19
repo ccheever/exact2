@@ -236,7 +236,7 @@ fn step(
     // that was no use (a channel, a colour space, a platform selector) would.
     if let Op::RenameToken { .. } = op {
         let folded = |text: &str| {
-            let folding = match params.list.is_empty() {
+            let folding = match params.is_empty() {
                 true => crate::check(text, vocab).ok(),
                 false => crate::parse(text)
                     .ok()
@@ -449,7 +449,7 @@ fn run(
         text = next;
         inverse.insert(0, undo);
     }
-    match params.list.is_empty() {
+    match params.is_empty() {
         true => drop(crate::check(&text, vocab)?),
         false => drop(crate::check_design(
             crate::params::laid(&crate::parse(&text)?, params),

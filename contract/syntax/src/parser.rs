@@ -19,6 +19,7 @@ mod midi;
 mod migration;
 pub(crate) use migration::parsed_with_edits;
 mod names;
+pub use names::is_reserved;
 mod params;
 mod parts;
 #[path = "routes.rs"]
@@ -1049,9 +1050,23 @@ impl Parser {
             self.newline()?;
             return Ok(Stmt::Command { name, args, span });
         }
+        // A bare name is most often a call of another action written without
+        // its parentheses.
+        if matches!(
+            self.peek_kind(),
+            TokenKind::Newline | TokenKind::Dedent | TokenKind::Eof
+        ) {
+            return Err(SyntaxError {
+                id: "syntax-expected-statement",
+                message: format!(
+                    "write `{name}()` to call the action or command `{name}`; a name alone is not a statement (`{name} = expr` assigns a state)"
+                ),
+                span,
+            });
+        }
         self.err(
             "syntax-expected-statement",
-            "expected `slot = expr`, `let name = expr`, `command(args)`, `send mutation = source(args)`, `refresh resource`, `if cond`, or `match option`",
+            "expected `slot = expr`, `let name = expr`, a call of an action or command `name(args)`, `send mutation = source(args)`, `refresh resource`, `if cond`, or `match option`",
         )
     }
 
@@ -1290,7 +1305,9 @@ impl Parser {
     fn call_args(&mut self) -> R<Vec<Expr>> {
         let (mut out, mut deepest) = (Vec::new(), 0);
         while !self.at_punct(")") {
-            let arg = if matches!(self.peek_kind(), TokenKind::Ident(_))
+            let arg = if let Some(words) = self.dotted_name_ahead() {
+                self.dotted_arg(words)?
+            } else if matches!(self.peek_kind(), TokenKind::Ident(_))
                 && matches!(self.peek2(), TokenKind::Punct("=" | ":"))
             {
                 let (name, span) = self.field_name()?;

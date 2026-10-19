@@ -220,6 +220,15 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// `prefer extension` (LLP 1124 D7): the runner's, committed as `midi_agent`'s is.
+    pub fn extension_agent(&mut self, request: &str) -> Option<Result<String, String>> {
+        let reply = self.host.extension_agent(request)?;
+        Some(match self.after_commit() {
+            Some(e) => Err(e),
+            None => reply,
+        })
+    }
+
     /// The agent's `prefer midi.*` and `tap midi` (LLP 1125 §4): `None` for
     /// another request, else the reply or the refusal.
     pub fn midi_agent(&mut self, request: &str) -> Option<Result<String, String>> {

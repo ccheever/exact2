@@ -560,8 +560,9 @@ impl<D: DataSource> Presenter<D> {
         if self.surface_key(name, now_ms) {
             return;
         }
-        // The page's shortcuts first, focus or none (`shortcuts.rs`).
-        if self.shortcut(name, false, now_ms) {
+        // The page's shortcuts first, focus or none (`shortcuts.rs`); a
+        // repeat is the shortcut's, and presses nothing.
+        if self.shortcut(name, repeat, now_ms) {
             return;
         }
         // Then a desktop's Back key (LLP 1115.000 D5.4), focus or none.

@@ -161,7 +161,7 @@ fn cone_picks_side_cap_inside_and_transformed_rays() {
 #[test]
 fn asset_save_loads_with_its_original_hash() {
     // Asset remains at ordinal 5; only the EXGAME version byte changed.
-    let bytes = include_bytes!("fixtures/asset-v5.bin");
+    let bytes = include_bytes!("fixtures/asset-v6.bin");
     let mut w = World::new(120, 7);
     w.register::<Transform>()
         .register::<Mesh>()

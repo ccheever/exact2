@@ -98,6 +98,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a chat that opens at its newest message|`chat-thread`|
 |a welcome at first launch|`first-launch`|
 |SQLite, grants|`files-and-grants`|
+|location, or anything the person must allow|`permissions`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|

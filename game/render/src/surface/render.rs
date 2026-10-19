@@ -52,6 +52,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
             audio_requested: false,
             hidden: false,
             interrupted: false,
+            look: Default::default(),
         }
     }
 }
@@ -143,6 +144,8 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             return sim.assets_pending();
         }
         sim.viewport(frame.width, frame.height);
+        self.look.points = (frame.width, frame.height);
+        self.look.held = Some(*frame);
         if self.format != Some(format) {
             self.gpu_timing = None;
             self.hook_clock.reset();

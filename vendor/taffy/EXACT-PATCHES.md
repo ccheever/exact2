@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55 and 56 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60 and 61 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1766,6 +1766,194 @@ wrapped frames failed before preserving the definite cross size and available
 space. The auto-width 1:1 flex root's ratio item changes from 10×50 to 50×50,
 matching Chrome and `origin/main` at c8f5d6c96. Controls cover a second ratio,
 height bounds, wrapping, alignment, column direction, and flex and grid items.
+
+## Patch 57: preserve the inline content minimum beyond a ratio height cap
+
+A non-replaced container's `ContentSize` probe with a supplied height keeps
+its authored maximum width instead of the width transferred from `max-height`.
+The automatic inline minimum's container probe supplies its clamped definite
+height; an indefinite-height probe retains the transferred cap, including
+for a flex basis. A leaf's probe leaves both dimensions unknown so it reaches
+its text measurer: supplying a height would derive a width and return early.
+The minimum combines that independent content width with the height transfer.
+Block uses the same ratio-aware content measurement as flex and grid: a
+derived width is an automatic minimum that wider content can exceed, unless
+an explicit inline minimum or scrolling disables it. Block and flex also
+keep the transferred maximum out of a supplied-height probe's min/max short
+circuit.
+
+A row item with a definite height keeps that wider content minimum when
+flex chooses its automatic minimum. Specified widths and maximum widths
+still cap it. When flex chooses its main-axis automatic minimum, auto-height
+rows, columns and replaced elements retain the transferred cap; the
+hypothetical-size clamp is unchanged. A column item's inline minimum can
+still exceed its transferred width cap, as in block, absolute and root layout.
+This follows Chrome 151.0.7922.34, measured on 2026-10-19.
+[Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto) defines a
+converted cross-axis maximum for the content suggestion of non-replaced
+elements too; the inline-axis behavior here is the measured browser result.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+50 literal `Chrome 151 ratio max-height minimum` cases. Before the patch,
+28 frames differed. The reported item changes from 60×60 to 120×60; with
+`max-width:90px` it becomes 90×60. Controls cover block, flex and grid items,
+wide and tall column content, minimum heights below and above the maximum,
+ratios 2 and 0.5, explicit minima, hidden overflow, box sizing, flex bases,
+shrinking, wrapping, reversed rows, percentage heights and definite stretch.
+An auto-height row item stays 60×60, as does the column analogue.
+
+`browser_replaced::constraints::ratio_cross_maximum_still_caps_replaced_minima`
+holds eight measurements of canvas and loaded-image items (natural size
+300×150), including 60×60 rows and columns, a width cap and a zero minimum.
+
+The 48 literal `Chrome 151 ratio max-height growth` cases use the same Chrome
+version and date. They hold growth in 200px rows with block, flex and grid
+items and outer parents. Removing the transferred cap from an indefinite-height
+basis probe froze the reported item at 60×60 instead of Chrome's 200×60;
+25 cases (33 frames) failed before restricting the uncapped probe to a
+supplied height. Controls cover zero minima, hidden overflow, padding under
+both box-sizing modes, flex bases, a width cap, another ratio, minimum heights,
+explicit heights and definite stretch. Equal minimum and maximum heights
+without an authored height keep 60×60 in a 50px row, as
+Chrome and `origin/main` do; they do not gain a definite-height exception.
+
+The 24 literal `Chrome 151 ratio inline probe` cases use the same version
+and date. Eleven text-leaf frames failed before preserving the independent
+probe. The 120px word keeps 120×60 with max-height and 120×80 without it;
+controls cover an authored width cap, zero minimum, scrolling, another ratio,
+both box-sizing modes, shorter and wrapping text, and growth. Block and
+absolute children, the root and flex-start column items with a 120px child
+keep 120×60 in Chrome and the kernel; main's 60×60 is not a cap to restore.
+
+## Patch 58: preserve grid ratio minima and bound track contributions
+
+Grid alignment keeps `minimum_ratio_width` in its final minimum-width clamp
+when the inline size depends on the ratio.
+The shared minimum already respects authored `max-width`; a maximum
+transferred from `max-height` must not erase wider content. Grid track sizing
+clamps a preferred size by its resolved minimum and maximum before using it
+as the item's minimum contribution, as `known_dimensions` already does.
+This applies on both axes, including items without a ratio.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+17 literal `Chrome 151 grid ratio maximum` cases, measured with Chrome
+151.0.7922.34 on 2026-10-19. Before the patch, 22 frames differed. The
+reported grid changes from 50×80 to 50×60 and its item from 60×60 to 120×60.
+Controls cover explicit auto columns, start alignment, narrower content,
+no maximum, block parents, authored widths and bounds, zero minima,
+hidden overflow, a minimum height above the maximum, ratio 2, both box-sizing
+modes with padding and borders, no ratio, and a max-width counterpart.
+
+Explicit inline stretch supplies the grid area's width before resolving the
+ratio, so neither the ratio's automatic inline minimum nor transferred bounds
+replace that width. Auto margins cancel stretch; authored width limits still
+apply. This follows [Chromium 151's inline sizing](https://github.com/chromium/chromium/blob/782af9cb30a53f54487e5d2e44738645a8ec457c/third_party/blink/renderer/core/layout/length_utils.cc#L527).
+Intrinsic track contributions retain the shared content minimum. A derived
+width is not an authored preferred width: an automatic minimum follows the
+auto-track, overflow and fixed-track-limit rules. Thus a fixed 60px track
+stretches the item to 60px, while an auto track sized by its 120px content
+stretches it to 120px.
+
+The same test holds 32 `Chrome 151 grid ratio stretch` cases, measured with
+the same version and date. Before this correction, 20 frames differed.
+They cover fixed widths below and above the ratio transfer and content,
+implicit and explicit auto columns, intrinsic and fractional tracks, capped
+auto minima, normal and start alignment, auto and fixed margins, authored
+widths and limits, height limits, overflow, and both box-sizing modes.
+Second-row siblings expose the auto column's width independently of the
+ratio item's final size. No `justify-self` row is exposed by the kernel.
+
+The automatic-minimum predicates inspect only the tracks the item spans,
+as required by [CSS Grid §6.6](https://www.w3.org/TR/css-grid-1/#min-size-auto).
+An unrelated fractional track must not erase the content minimum; an
+unrelated auto minimum must not enable it. Both axes use the same predicates.
+The same test holds 12 `Chrome 151 grid ratio span` cases, measured with the
+same version and date. Six frames failed before this correction, including
+items without ratios on both axes. Controls cover preceding and following
+fractional tracks, a fraction inside the span, a single track, gaps, normal
+alignment and zero minima. Four `Chrome 151 grid ratio minimum floor` cases
+also retain measured 100×100 items with `min-height:100px`, in max-content
+and absolute shrink-to-fit grids, with normal and stretch alignment.
+
+## Patch 59: let automatic ratio heights contain content above a width cap
+
+`Ratio::resolve` retains the height floor derived from the capped width,
+but does not transfer `max-width` into a content-based automatic height's
+maximum. This lets block, absolute and grid layout measure taller content
+instead of treating equal transferred bounds as a known height or clamping
+the final height to the ratio. Authored `max-height` still caps content;
+explicit minima, scroll containers and replaced elements retain their bounds.
+See [CSS Sizing 4 §4.3](https://www.w3.org/TR/css-sizing-4/#auto-min-size)
+and [§4.4](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-size-transfers).
+
+A flex container's ratio-derived percentage basis does not determine its
+automatic main size. Its content can exceed the ratio floor. Flex item
+sizing still transfers constraints independently: a column's content size
+suggestion is capped by the ratio-converted `max-width`, including when the
+item also has a preferred height or `max-height`
+([CSS Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto)).
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+66 literal `Chrome 151 ratio max-width height` cases, measured with Chrome
+151.0.7922.34 on 2026-10-19. The first 65 cases failed with 21 differing
+frames before the patch. The reported grid remains 60×50 while its item
+changes from 60×60 to 60×120; block and absolutely positioned items grow
+likewise. Controls retain 60×60 for short content, 60×50 in a flex row and
+60×60 in a flex column. They cover authored height bounds, explicit minima,
+hidden overflow, a second ratio, padding and borders under both box-sizing
+modes, and block, flex and grid contents. The existing replaced-element
+constraint tests retain their ratio caps.
+
+The column content cap floors `max-width` by `min-width` before converting
+it through the ratio. A conflicting width minimum wins on that axis;
+the preferred height and authored maximum height still cap the resulting
+automatic minimum. The same test holds 25 `Chrome 151 ratio column conflicting
+widths` cases, measured with the same version and date. Seventeen frames
+failed before this correction. The reported item with an 80px height changes
+from 100×60 to 100×80; its automatic-height sibling changes from 100×60 to
+100×100. Controls cover height bounds, overflow, both box-sizing modes,
+percentage bounds, short content, nested flex/grid contents, ratios 2 and 0.5,
+and reversed columns. Non-binding and binding 70px width maxima retain
+40×70 and 70×70 items respectively.
+
+## Patch 60: a cache's measure slots are allocated as they are used
+
+`Cache::measure_entries` held `CACHE_SIZE` (nine) `Option<CacheEntry<Size<f32>>>`
+inline, 360 of a boxed cache's 448 bytes, for a box that is measured under one
+or two inputs before its final layout. It is now a `Vec` of the slots used so
+far, grown three at a time (`reserve_exact`), the entries at the same indices:
+slots fill in cursor order, the cursor skips only a slot whose recently-used
+bit is set (a filled one) and wraps only past the ninth, so slot `i` exists for
+every `i < len()`, and the store either replaces slot `i` or pushes it. Hits,
+eviction and `clear` (which keeps the allocation) answer as before. Euxy's
+first screen: 312 caches of 448 bytes become 312 of 120 and their slots.
+
+**Held by** `tree::cache::tests` (`lazy_storage_preserves_cache_answers_and_clear_state`
+compares every answer with an eagerly stored cache through 240 mixed stores,
+hits and clears) and the kernel's layout tests.
+
+## Patch 61: transfer an intrinsic flex row's resolved width through its ratio
+
+After intrinsic main sizing resolves a flex row's width, refresh its height
+constraints, percentage basis and cross-axis definiteness through the same
+ratio resolution used for incoming dimensions. This happens before cross
+sizing and alignment, so the ratio floor sizes and places the lines as well
+as the container. The intrinsic main-axis constraints and definiteness stay
+intact. Content can exceed the automatic height floor; authored height bounds,
+explicit minima and scroll containers keep their existing ratio rules.
+See [CSS Sizing 4 §4.2](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-automatic),
+[§4.3](https://www.w3.org/TR/css-sizing-4/#auto-min-size) and
+[§4.4](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-size-transfers).
+
+**Held by** `browser_position::max_content_roots_wrap_at_their_resolved_width`:
+17 literal `Chrome 151 intrinsic ratio floor` cases, measured with Chrome
+151.0.7922.34 on 2026-10-19 inside `width:max-content` wrappers and compared
+with direct `Offer::MAX_CONTENT` kernel layouts. Before the patch, 17 frames
+in 11 cases differed. The reported root changes from 100×60 to 100×100;
+without `max-height` it changes from 120×30 to 120×120. Controls cover definite
+width and height, columns, grid, content exceeding the floor, centered and
+stretched lines, reverse wrapping, nowrap, ratio 2, padding and borders under
+both box-sizing modes, a zero minimum and hidden overflow.
 
 ## Cargo workspace boundary
 

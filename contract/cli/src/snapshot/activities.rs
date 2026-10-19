@@ -215,11 +215,12 @@ pub(super) fn placements(plan: &mut Plan) -> Result<(), Vec<CompileError>> {
         )]);
     }
     for (name, root) in ACTIVITY_PLACEMENTS.into_iter().zip(roots) {
-        let name = if let Some(i) = plan.strings.iter().position(|s| s == name) {
+        let found = plan.strings.iter().position(|s| s == name);
+        let name = if let Some(i) = found {
             exact_plan::StrId(i as u32)
         } else {
             let i = exact_plan::StrId(plan.strings.len() as u32);
-            plan.strings.push(name.into());
+            plan.strings.push(name);
             i
         };
         plan.activity_slots.push(ActivitySlotsRow { name, root });

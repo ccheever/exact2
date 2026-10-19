@@ -49,7 +49,7 @@ fn a_host_that_says_its_platform_reads_that_platforms_column() {
     metrics::set_column(Column::Mac);
     assert_eq!(metrics::column(), Column::Mac);
     let mac = read();
-    assert_eq!(mac.min_height, Dimension::Points(16.0));
+    assert_eq!(mac.min_height, Dimension::Points(36.0));
     assert_eq!(mac.padding_top, Dimension::Points(10.0));
     assert_eq!(mac.max_width, Dimension::Points(744.0));
     assert_eq!(mac.background_color, Some(pair(0xf9f9_f9ff, 0x2727_27ff)));

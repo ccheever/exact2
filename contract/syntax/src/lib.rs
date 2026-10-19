@@ -27,6 +27,7 @@ pub mod inline;
 pub mod lexer;
 mod midi;
 pub mod migrate;
+mod module_decl;
 mod notfound;
 pub mod params;
 pub mod parser;
@@ -45,10 +46,11 @@ pub use inline::{
 };
 pub use lexer::{Lexer, Token, TokenKind};
 pub use midi::MidiStep;
+pub use module_decl::{ModuleDecl, ModuleKind, PlatformWords};
 pub use notfound::implicit_notfound;
 pub use parser::{
-    is_launch, parse, parse_source, parse_source_all, parse_source_partial, same_launch, Partial,
-    SyntaxError,
+    is_launch, is_reserved, parse, parse_source, parse_source_all, parse_source_partial,
+    same_launch, Partial, SyntaxError,
 };
 pub use sequence::Sequence;
 pub use share::share_calls;

@@ -9,7 +9,6 @@ import UIKit
 #else
 import AppKit
 #endif
-import CExact
 
 /// What the core asks of the Markdown capability.
 package protocol MarkdownCapability: AnyObject {
@@ -19,8 +18,6 @@ package protocol MarkdownCapability: AnyObject {
     func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool) -> [Run]
     /// A Markdown text area's styler.
     func editor() -> MarkdownEditing
-    func decorator() -> FieldDecorating
-    func measureDecorations(_ engine: TextEngine, request: ExactMeasureRequest, record: String, styles: String, root: Double, scale: Double, selection: NSRange?) -> ExactMetrics?
     /// `source` without its Markdown syntax (Copy Plain Text).
     func plain(_ source: String) -> String?
     /// Apply a formatting command to `node`'s editor.
@@ -66,7 +63,7 @@ extension NodeView {
     func publishMarkupSelection(force: Bool = false) { MarkdownLink.installed?.publishSelection(self, force: force) }
     func restyleMarkup() {
         MarkdownLink.installed?.restyle(self)
-        fieldDecorations?.restyle(self)
+        restyleDecorations()
     }
 }
 

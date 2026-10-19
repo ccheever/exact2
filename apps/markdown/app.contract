@@ -47,6 +47,18 @@ shape Entry
   path: string
   current: bool
 
+// A document the reader keeps to reopen after a relaunch (LLP
+// 1069.010.000 D5): the host keeps what the person chose, on a Mac in File ▸
+// Open Recent's list.
+shape Kept
+  path: string
+  name: string
+  kind: string
+
+shape Forgot
+  ok: bool
+  message: string
+
 shape Document
   path: string
   name: string
@@ -70,6 +82,10 @@ component Markdown
   // What the system is set to. Only read when `scheme` is `system`.
   resource media = exactViewport() as shape SystemMedia
   resource doc = open(asked) as shape Document
+  resource recent = recentDocuments() as shape Kept[]
+  mutation forgotten as shape Forgot
+  // The recent document a context menu was opened on.
+  state aimed = ""
 
   // What the host delivers, what the field shows, and what a followed link
   // does are one action, because they are one thing.
@@ -77,6 +93,10 @@ component Markdown
     asked = value
   action toggleFolder
     folder = not folder
+  action aim(path: string)
+    aimed = path
+  action forgetRecent
+    send forgotten = forgetDocument(aimed)
   // The File System Access API's pickers, on every host that has them; the
   // handle arrives at `open-file` like every other way in (LLP 1069.010 D2).
   action chooseFile
@@ -92,6 +112,7 @@ component Markdown
   // (LLP 1034 D3).
   derive iconSet = (scheme == "system" ? media.prefersColorScheme : scheme) == "dark" ? "-dark" : ""
   derive hasFolder = not doc.siblings.isEmpty()
+  derive hasRecent = not recent.isEmpty()
   // The window is titled by the file it shows, as a Mac document window
   // is, so two documents in two windows or tabs tell apart (LLP 1069.010
   // D6); the welcome document's name is the app's.
@@ -133,11 +154,24 @@ component Markdown
         // a row holding a 4,000-point document is 4,000 points tall and the
         // window merely clips it. The web has the same rule and the same fix.
         row flex=1 min-height=0 width="100%"
-          if folder and hasFolder
+          if folder and (hasFolder or hasRecent)
             scroll width=230 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color="chrome" border-right-style="solid" border-right-width=1 border-color="edge" testId="folder"
               column width="100%" box-sizing="border-box" padding=8 gap=1
+                // What the person opened before, kept across launches:
+                // one press reopens it with no panel (LLP 1069.010.000).
+                if hasRecent
+                  text "Recent" font-size=11 font-weight=600 color="softInk" padding-left=6 padding-top=4 padding-bottom=2
+                  for k in recent key=k.path
+                    button press=openFile(k.path) contextmenu=aim(k.path) contextPopover="recent-menu" aria-label=k.name testId=`recent-${k.name}` width="100%"
+                      row width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color=(k.path == doc.path ? "pill" : "transparent")
+                        text k.name font-size=12 color=(k.path == doc.path ? "pillInk" : "ink")
+                  if hasFolder
+                    text "In This Folder" font-size=11 font-weight=600 color="softInk" padding-left=6 padding-top=10 padding-bottom=2
                 for e in doc.siblings key=e.id
                   FolderRow(entry=e, open=openFile)
+          column id="recent-menu" popover="auto" role="menu"
+            button press=forgetRecent popovertarget="recent-menu" popovertargetaction="hide" testId="recent-forget"
+              text "Remove from Recents"
           // A virtualized list's container takes no block-axis padding (its
           // rows are the extent), so the page's top and end space is the
           // first and last rows' own. A block's id is its index.

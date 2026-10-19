@@ -82,7 +82,11 @@ impl Ratio {
             if let Some(w) = min.width {
                 min_out.height = Some(f32_max(min.height.unwrap_or(0.0), self.height(w)));
             }
-            if let Some(w) = max.width {
+            // EXACT PATCH 59: an automatic content-based height can exceed
+            // max-width's transfer (CSS Sizing 4 §4.3). Its ratio floor is
+            // derived from the capped width below; only authored max-height
+            // caps the content. Flex item bounds transfer separately.
+            if let Some(w) = max.width.filter(|_| !floor_height) {
                 max_out.height = Some(max.height.map_or(self.height(w), |h| f32_min(h, self.height(w))));
             }
         }
@@ -131,8 +135,10 @@ pub(crate) fn sizes_through_ratio(
     }
 }
 
-/// Resolve a flex or grid container's incoming sizes. In a content probe,
-/// a transferred width is a minimum that wider content can exceed.
+/// Resolve a container's incoming sizes. A non-replaced content probe with
+/// no width and a supplied height treats the transferred width as a floor
+/// when min-width is auto and neither overflow axis scrolls. Wider content
+/// can exceed the transferred maximum; an indefinite-height probe keeps it.
 pub(crate) fn container_sizes_through_ratio(
     style: &impl CoreStyle,
     pb_sum: Size<f32>,
@@ -141,13 +147,23 @@ pub(crate) fn container_sizes_through_ratio(
     max: Size<Option<f32>>,
     sizing_mode: crate::SizingMode,
 ) -> (Size<Option<f32>>, Size<Option<f32>>, Size<Option<f32>>) {
-    let (mut size, mut min, max) = sizes_through_ratio(style, pb_sum, given, min, max);
+    let authored_max_width = max.width;
+    let (mut size, mut min, mut max) = sizes_through_ratio(style, pb_sum, given, min, max);
     // EXACT PATCH 56: the non-replaced content minimum combines content and
     // the ratio transfer (Flexbox §4.5). A known width would skip content
     // measurement; a floor leaves it independent of the transferred size.
     if sizing_mode == crate::SizingMode::ContentSize && !style.is_compressible_replaced() && given.width.is_none() {
-        if let Some(width) = size.width.take() {
-            min.width = Some(width.maybe_min(max.width).maybe_max(min.width));
+        // EXACT PATCH 57: with a definite height, Chrome 151 preserves wider
+        // inline content beyond max-height's transfer. An indefinite-height
+        // probe retains that cap, including when measuring a flex basis.
+        if given.height.is_some() {
+            max.width = authored_max_width;
+        }
+        let overflow = style.overflow();
+        if style.min_size().width.is_auto() && !overflow.x.is_scroll_container() && !overflow.y.is_scroll_container() {
+            if let Some(width) = size.width.take() {
+                min.width = Some(width.maybe_min(max.width).maybe_max(min.width));
+            }
         }
     }
     (size, min, max)
@@ -221,9 +237,8 @@ pub(crate) fn minimum_ratio_width(
     let min_height = style.min_size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))
         .maybe_add(adjustment.height);
     let max = style.max_size().maybe_resolve(parent, |v, b| tree.calc(v, b)).maybe_add(adjustment);
-    // EXACT PATCH 50: the content-only probe omits the definite height's
-    // transfer (CSS Sizing 4 §5.1, Flexbox §4.5). Keep the larger suggestion,
-    // transferring the clamped height in the box the ratio relates.
+    // EXACT PATCH 50: keep the larger of content and the clamped height's
+    // transfer in the box the ratio relates (CSS Sizing 4 §5.1, Flexbox §4.5).
     // EXACT PATCH 54: flex layout has already applied the height's bounds.
     let height = used_height.or_else(|| {
         style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))
@@ -231,9 +246,13 @@ pub(crate) fn minimum_ratio_width(
     })?;
     let transferred = ratio.width(height);
     drop(style);
+    // EXACT PATCH 57: a leaf must measure content independently: a supplied
+    // height derives a width and returns before calling its measurer. A
+    // container needs the height to let content exceed its transferred cap.
+    let known = if tree.child_count(node) == 0 { Size::NONE } else { Size { width: None, height: Some(height) } };
     let intrinsic = tree.measure_child_size(
         node,
-        Size::NONE,
+        known,
         parent,
         Size { width: crate::AvailableSpace::MinContent, height: crate::AvailableSpace::MinContent },
         crate::SizingMode::ContentSize,
