@@ -81,7 +81,8 @@ on macOS and Linux.
   a hold named on a node inside it resolved to), each row its `token` (the runner's, as a style
   row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
   press row it lowered to as `row`); LLP 1122 T4 added the selection's state rung (a style's
-  `:active` part row is edited by `set-state`). Stage 9's later wire changes add under the same
+  `:active` part row is edited by `set-state`), and T5 the template and style rungs (a row its
+  author wrote, edited by `set-row`). Stage 9's later wire changes add under the same
   version: D2's `set-row`, D3's `add-param` and `remove-param`; C1's `explain` of an icon and a
   param, and `describe`'s icon `draws`; C2's `uses` of an icon and a motion token's sites by
   instance.
@@ -1100,12 +1101,25 @@ The tool drives no input into an app; a command changes only what `prefer` would
   default (D6). A style outside the app's own Contract sources as the server counts them (a
   package's, a vendored or linked one included) answers a reason. A held state's rows carry the
   same where the build names the held node (its `held.site`), whose parts' files count toward
-  `readOnly` too; with none named they are shown, not offered. A state row a node writes itself (no style) is read-only, pointing at
-  `set-row`, unless its whole value is a token, which the token rung offers. Only an `:active`
+  `readOnly` too; with none named they are shown, not offered. A row its author wrote (the map's
+  `at` and `attr`, D1's address) answers, unless it reads a param (the param rung, above), the
+  **template** rung (origin `own`) `{rung: "template", file, at: {line, col}, sha256, row, state?,
+  instances, text, token?, modes?}` (*1.12*, LLP 1122 T5) or the **style** rung (origin a single
+  `class:<Name>`) `{rung: "style", style, row, file, text, token?, modes?}`, the default (D6):
+  `set-row`'s address (at the place: the file relative to the app, the attribute's line and
+  column and the file's digest as compiled; on a style: the style by the name its file declares
+  it with, and its file), `row` the attribute as written (a shorthand's, for a longhand of it:
+  `set-row` edits the shorthand whole), `state` for a state row written under the node, `instances`
+  the copies of this source node in the map (a template edit is every one's), `text` the value as
+  written, and the token its whole value is, offered beside it, never the default. Only a plain
+  value is offered (one string or number, bare or in parentheses, as `set-row` replaces): an
+  expression or a name in scope answers a reason, as does a file outside the app's own Contract
+  sources. A row the map gives no place answers a reason (the source's to edit), or, a whole
+  token, the token rung. Only an `:active`
   part's rows (lowered to the press paint) carry their part's place in the map: a `:hover`,
   `:focus-visible`, `:disabled` or `:checked` part's are offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
-  expression, a boundary, or an expression over tokens links its token, never this node's edit;
-  a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
+  expression, a boundary, or an expression over tokens links its token, never this node's edit).
+  A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place (its edit, the state rung
   above). A row its author wrote on the node or in its class's `style` (*1.12*)
   carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest

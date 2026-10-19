@@ -35,7 +35,8 @@ test('a selection is joined to its site\'s source, each row\'s origin and editab
       ['padding', 'class:Panel', null, null],
       ['text_color', null, null, 'text.primary'],
     ]);
-    expect(s.rows[1].editable.reason).toContain('template editing (T5)');
+    // (Bindings with no place, D1's address: the source's to edit.)
+    expect(s.rows[1].editable.reason).toContain('the map gives no place');
     expect(s.rows[2].editable.reason).toContain('inherited from #3');
     // Every copy of the node: the sites at that source location.
     expect(sitesAt(map, s.source)).toEqual([1, 2]);
@@ -88,8 +89,8 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
       ['press_background_color', 'active', 9, 'token'],
       ['press_color', 'active', 10, null],
     ]);
-    // Written on the node itself (no style): `set-row` edits it, with T5.
-    expect(s.rows[1].editable.reason).toContain('set-row');
+    // Written on the node itself (no style), with no place the map gives: the source's.
+    expect(s.rows[1].editable.reason).toContain('the map gives no place');
     // `uses` names the part's own place; outlining it finds the node.
     expect(sitesAt(map, part)).toEqual([0]);
     // What is held (LLP 1122 D8): an `:active` row at its part, named by its state.
@@ -313,6 +314,58 @@ test('a held site corresponds in a new plan by its place and call-site chain: ea
   expect(correspondingSite(was, { nodes: [...plan(5).nodes, { ...def, chain: [{ ...call(10), file: '/a/other.contract' }] }] }, 2)).toBe(null);
 });
 
+test('a row its author wrote joins on the template or style rung for set-row, the default: at its place with the file\'s digest, or on its style by its declared name; its plain value as written; the token beside; an expression, a package or a moved file read-only (LLP 1122 T5)', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-row-'));
+  try {
+    const card = joinPath(dir, 'card.contract');
+    const text = ['component Card', '  view', '    box background-color="surface.card" padding=12 opacity=(0.5)', '      border-color=(mix ? "a" : "b")', '', 'style Panel', '  color="red" // the panel', '  margin="8px 4px"', ''].join('\n');
+    writeFileSync(card, text);
+    const pkg = joinPath(dir, 'node_modules', 'ui', 'x.contract');
+    mkdirSync(joinPath(dir, 'node_modules', 'ui'), { recursive: true });
+    writeFileSync(pkg, '    box color="blue"');
+    const col = (line, attr) => text.split('\n')[line - 1].indexOf(attr) + 1;
+    const at = (line, attr, file = card) => ({ file, line, col: col(line, attr), end_col: col(line, attr) + attr.length });
+    const node = { file: card, line: 3, col: 5, end_col: 8, component: 'Card', chain: [], bindings: [
+      { row: 'background_color', origin: 'own', at: at(3, 'background-color'), attr: 'background-color' },
+      { row: 'padding_top', origin: 'own', at: at(3, 'padding'), attr: 'padding' },
+      { row: 'opacity', origin: 'own', at: at(3, 'opacity'), attr: 'opacity' },
+      { row: 'border_top_color', origin: 'own', at: at(4, 'border-color'), attr: 'border-color' },
+      { row: 'text_color', origin: 'class:Panel__card', at: at(7, 'color'), attr: 'color' },
+      { row: 'margin_top', origin: 'class:Panel__card', at: at(8, 'margin'), attr: 'margin' },
+      { row: 'outline_color', origin: 'own', at: { file: pkg, line: 1, col: 9, end_col: 14 }, attr: 'color' },
+    ] };
+    // Two copies of this source node (a component called twice).
+    const map = { digest: 'p1', sources: [{ file: card, sha256: sha(text) }, { file: pkg, sha256: sha('    box color="blue"') }], nodes: [node, { ...node, chain: [{ file: card, line: 9, col: 1, end_col: 2, component: 'App' }] }] };
+    const rows = [
+      { name: 'background_color', value: '#fff', source: 'authored', token: { names: ['surface.card'], text: 'surface.card', modes: '', implied: false } },
+      { name: 'padding_top', value: 12, source: 'authored' },
+      { name: 'opacity', value: 0.5, source: 'authored' },
+      { name: 'border_top_color', value: '#000', source: 'authored' },
+      { name: 'text_color', value: '#f00', source: 'authored' },
+      { name: 'margin_top', value: 8, source: 'authored' },
+      { name: 'outline_color', value: '#00f', source: 'authored' },
+    ];
+    const s = join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir });
+    const template = { rung: 'template', file: 'card.contract', sha256: sha(text), instances: 2 };
+    expect(s.rows[0].editable).toEqual({ ...template, at: { line: 3, col: col(3, 'background-color') }, row: 'background-color', text: 'surface.card', token: 'surface.card', modes: '' });
+    // A longhand of the shorthand written there: the shorthand, whole.
+    expect(s.rows[1].editable).toEqual({ ...template, at: { line: 3, col: col(3, 'padding') }, row: 'padding', text: '12' });
+    expect(s.rows[2].editable).toMatchObject({ rung: 'template', row: 'opacity', text: '0.5' });
+    expect(s.rows[3].editable).toMatchObject({ rung: null, reason: expect.stringContaining('expression') });
+    // On its style, by the name its file declares (the compiler renamed it), in its own file.
+    expect(s.rows[4].editable).toEqual({ rung: 'style', style: 'Panel', row: 'color', file: 'card.contract', text: 'red' });
+    expect(s.rows[5].editable).toEqual({ rung: 'style', style: 'Panel', row: 'margin', file: 'card.contract', text: '8px 4px' });
+    expect(s.rows[6].editable).toMatchObject({ rung: null, reason: expect.stringContaining("package") });
+    // A file the server does not count as the app's own: a package's.
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir, own: new Set(['other.contract']) }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('package') });
+    // Moved since: read-only, its token still linked.
+    writeFileSync(card, `${text}// edited\n`);
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows }, map, { app: dir }).rows[0].editable).toMatchObject({ rung: null, link: 'surface.card' });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('editability fails closed: only a row the node itself sets to one token, its whole value, offers the token rung', () => {
   const token = (names, implied = false, text = names[0]) => ({ names, text, modes: '', implied });
   expect(editable({ source: 'authored', token: token(['ink']) }, 'own')).toMatchObject({ rung: 'token', token: 'ink' });
@@ -329,7 +382,7 @@ test('editability fails closed: only a row the node itself sets to one token, it
   // A row the map does not place: read-only.
   expect(editable({ source: 'authored', token: token(['ink']) }, null).rung).toBe(null);
   expect(editable({ source: 'authored', token: token(['ink']) }, 'tag')).toMatchObject({ rung: null });
-  expect(editable({ source: 'authored' }, 'own').reason).toContain('not a token');
+  expect(editable({ source: 'authored' }, 'own').reason).toContain('the map gives no place');
   expect(editable({ source: 'initial' }, null).rung).toBe(null);
 });
 
