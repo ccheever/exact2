@@ -997,7 +997,8 @@ extension Agent {
         }
         #if os(iOS)
         if let node = presenter.shortcut(key: device.key, held: held, focus: v) {
-            presenter.pressShortcut(node)
+            // A repeat is not a press, as on every host.
+            if req["repeat"] as? Bool != true { presenter.pressShortcut(node) }
             reply["shortcut"] = Int(node.id)
             return taken()
         }
@@ -1113,7 +1114,7 @@ extension Agent {
             #if os(iOS)
             if phase != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
                 presenter.supersedePress() // a key, as `keyDown` and `performShortcut` take it
-                presenter.pressShortcut(node)
+                if req["repeat"] as? Bool != true { presenter.pressShortcut(node) }
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
             #endif

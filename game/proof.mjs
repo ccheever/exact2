@@ -821,7 +821,7 @@ export async function proof(meta, script) {
     const built = host === 'linux' && profile === 'gpu-dev' ? await ensureLinuxReceipts({
       directory:buildOut, gpuInputs:() => inputHash(readInputs().gpu),
       completeGpu:() => writeFileSync(artifacts.module + '.proof.json',readFileSync(resolve(buildOut,'build-linux-gpu.sha256'))),
-      hostInputs:() => inputHash(readInputs().host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8')),
+      hostInputs:() => inputHash(readInputs().host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8') + (existsSync(resolve(appInfo.workspace,'keys.json')) ? readFileSync(resolve(appInfo.workspace,'keys.json'),'utf8') : '')),
       gpuArtifact:() => productDigest(artifacts.module,resolve(buildOut,'product-linux-gpu.json')),
       hostArtifact:() => productDigest(artifacts.binary,resolve(buildOut,'product-linux-host.json')),
       build:async part => {

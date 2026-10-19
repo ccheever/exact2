@@ -350,6 +350,15 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     // The display's clock owns time (the timers RFC, D1)
     p.set_live_clock(Some(crate::presenter::wall_since(started)));
     let mut input = Input::open();
+    // @ref LLP 1132 D10 — a touch screen alone is `pointer: coarse`, `hover: none`.
+    if input.touch_only() {
+        let mut preferences = p.host().runner().viewport().preferences;
+        preferences.pointer = exact_runner::Pointer::Coarse;
+        preferences.hover = exact_runner::Hover::None;
+        if let Some(e) = p.set_preferences(preferences) {
+            eprintln!("exact: {e}");
+        }
+    }
     let mut vnc = match config.vnc.as_deref() {
         Some(addr) => match Vnc::start(addr, pw, ph) {
             Ok(v) => Some(v),

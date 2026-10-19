@@ -28,10 +28,12 @@ extension Presenter {
     /// Whether `node`'s shortcut may take `key` (the web's name) with the
     /// modifiers `held` (`KeyCodes.held`), the focus being `focus`.
     /// Press `node` as its shortcut: a world's control is a down and an up
-    /// of its action on the web's assistive-click contact (gpu-glue.js).
+    /// of its action on the assistive contact, which moves no focus. A
+    /// disabled button takes its key and presses nothing, as on the web.
     func pressShortcut(_ node: NodeView) {
+        guard !node.disabled else { return }
         guard node.isSurfaceControl else { return press(node.id) }
-        let contact = Int(UInt32.max - 3)
+        let contact = NodeView.assistiveContact
         if node.control("down", id: contact) { _ = node.control("up", id: contact) }
     }
 

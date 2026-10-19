@@ -1,11 +1,13 @@
 use exact_game::*;
 
 /// What reached the world: the HUD's Buy button (`action="buy"`, which
-/// declares `aria-keyshortcuts="1"`) and the world's own Digit1 binding.
+/// declares `aria-keyshortcuts="1"`), the world's own Digit1 binding and
+/// its Space.
 #[derive(Default, Resource)]
 pub struct Shop {
     pub buys: u32,
     pub ones: u32,
+    pub jumps: u32,
 }
 #[derive(Default, Data)]
 struct Hud {
@@ -18,7 +20,11 @@ impl Game for ShortcutFixture {
     const HZ: u32 = 60;
     type Args = ();
     fn actions() -> Actions {
-        Actions::new().button("buy", &[]).button("one", &["Digit1"])
+        Actions::new()
+            .button("buy", &[])
+            .button("one", &["Digit1"])
+            .button("forward", &["KeyW"])
+            .button("jump", &["Space"])
     }
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
@@ -49,6 +55,7 @@ impl Game for ShortcutFixture {
         let mut shop = w.resource_mut::<Shop>();
         shop.buys += u32::from(input.pressed("buy"));
         shop.ones += u32::from(input.pressed("one"));
+        shop.jumps += u32::from(input.pressed("jump"));
         let buys = shop.buys;
         w.publish_record(&Hud { buys });
     }

@@ -32,6 +32,11 @@ fn require_declaration(app_dir: &str) {
         .join(".shells/surfaces.json");
     println!("cargo:rerun-if-changed={}", path.display());
     fs::metadata(&path).expect("build the game's GPU shell before its host");
+    // The keys `Actions` bind, which the bake's shortcut warning reads.
+    let keys = path.with_file_name("keys.json");
+    if keys.exists() {
+        println!("cargo:rerun-if-changed={}", keys.display());
+    }
 }
 
 /// Bake the app named by the generated shell, with no JS or Rust module.

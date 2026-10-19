@@ -58,6 +58,12 @@ pub(super) fn keys(app_root: &Path) -> BTreeMap<String, BTreeMap<String, Vec<Str
 /// (the platformer's diary, R4). Content-stable writes keep an unchanged
 /// declaration's time, so newer Rust only says it may be stale.
 pub(super) fn newer_rust(app_root: &Path) -> Option<std::path::PathBuf> {
+    newer_rust_than(app_root, ".shells/surfaces.json")
+}
+
+/// The game Rust newer than the declaration at `declaration` (relative to
+/// the app's root), when some is.
+pub(super) fn newer_rust_than(app_root: &Path, declaration: &str) -> Option<std::path::PathBuf> {
     fn newest(dir: &Path, best: &mut Option<(std::time::SystemTime, std::path::PathBuf)>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
@@ -75,7 +81,7 @@ pub(super) fn newer_rust(app_root: &Path) -> Option<std::path::PathBuf> {
             }
         }
     }
-    let declared = std::fs::metadata(app_root.join(".shells/surfaces.json"))
+    let declared = std::fs::metadata(app_root.join(declaration))
         .and_then(|m| m.modified())
         .ok()?;
     let mut best = None;

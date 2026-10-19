@@ -1,21 +1,36 @@
 //! A button's `aria-keyshortcuts` against the keys a game's `Actions` bind
-//! (LLP 1132 D11). A shown button's shortcut takes its key before the
+//! (LLP 1132 D11). A shown button's shortcut takes its chord before the
 //! focused world hears it, on every host, so a key both declare reaches the
-//! world only while no such button shows.
+//! world with the chord's modifiers held only while no such button shows.
 
 use crate::{AnalyzeError, Related};
 use contract_syntax::{Attr, Expr, File, Node, Span};
 use std::collections::BTreeMap;
 
-/// The `KeyboardEvent.code`s a chord as ARIA spells it (`1`, `Shift+A`,
-/// `Space`, `Control+Plus`) can arrive as: the physical keys that type its
-/// key on a US layout, and the keypad's.
-pub fn chord_codes(chord: &str) -> Vec<String> {
-    let key = if chord == "+" || chord.ends_with("++") {
-        "+"
+/// The modifiers a chord as ARIA spells it holds (`Shift` in `Shift+J`)
+/// and the `KeyboardEvent.code`s its key can arrive as: the physical keys
+/// that type it on a US layout, and the keypad's. The hosts match a chord
+/// only with exactly its modifiers held, so the same key without them still
+/// reaches the world. No codes for a chord no host matches.
+pub fn chord_codes(chord: &str) -> (Vec<&str>, Vec<String>) {
+    let (modifiers, key) = if chord == "+" {
+        ("", "+")
+    } else if let Some(held) = chord.strip_suffix("++") {
+        (held, "+")
     } else {
-        chord.rsplit('+').next().unwrap_or_default()
+        chord.rsplit_once('+').unwrap_or(("", chord))
     };
+    let modifiers: Vec<&str> = modifiers.split('+').filter(|m| !m.is_empty()).collect();
+    if !modifiers
+        .iter()
+        .all(|m| matches!(*m, "Meta" | "Control" | "Alt" | "Shift"))
+    {
+        return (modifiers, Vec::new());
+    }
+    (modifiers, key_codes(key))
+}
+
+fn key_codes(key: &str) -> Vec<String> {
     let key = match key {
         "Plus" => "+",
         "Space" => " ",
@@ -42,7 +57,9 @@ pub fn chord_codes(chord: &str) -> Vec<String> {
         'a'..='z' | 'A'..='Z' => vec![format!("Key{}", c.to_ascii_uppercase())],
         '0'..='9' => vec![format!("Digit{c}"), format!("Numpad{c}")],
         ' ' => vec!["Space".into()],
-        _ if shifted.contains(c) => vec![format!("Digit{}", shifted.find(c).unwrap_or_default())],
+        _ if c != '*' && shifted.contains(c) => {
+            vec![format!("Digit{}", shifted.find(c).unwrap_or_default())]
+        }
         _ => {
             let (code, numpad) = match c {
                 '-' | '_' => ("Minus", Some("NumpadSubtract")),
@@ -66,6 +83,32 @@ pub fn chord_codes(chord: &str) -> Vec<String> {
                 .collect()
         }
     }
+}
+
+/// Whether any button in `file` declares `aria-keyshortcuts`: only then
+/// does a stale or missing key declaration matter.
+pub fn declares_shortcuts(file: &File) -> bool {
+    fn any(nodes: &[Node]) -> bool {
+        nodes.iter().any(|node| match node {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                (tag == "button" && attrs.iter().any(|a| a.name == "aria-keyshortcuts"))
+                    || any(children)
+            }
+            Node::Use { children, .. } => any(children),
+            Node::Each { body, .. } => any(body),
+            Node::When {
+                then, otherwise, ..
+            } => any(then) || any(otherwise),
+            Node::Match { some, none, .. } => any(&some.1) || any(none),
+            Node::Children { .. } => false,
+        })
+    }
+    file.components.iter().any(|c| any(&c.view))
 }
 
 /// Every button whose `aria-keyshortcuts` names a key a surface's
@@ -189,7 +232,8 @@ pub fn check_shortcut_keys(
                     literals(&shortcut.value, component, &props, &args, 0, &mut values);
                     for (text, written) in values {
                         for chord in text.split_whitespace() {
-                            for code in chord_codes(chord) {
+                            let (modifiers, codes) = chord_codes(chord);
+                            for code in codes {
                                 for (surface, keys) in bound {
                                     let Some(actions) = keys.get(&code) else {
                                         continue;
@@ -207,7 +251,12 @@ pub fn check_shortcut_keys(
                                     };
                                     out.push(AnalyzeError {
                                         id: "analyze-shortcut-world-key",
-                                        message: format!("`aria-keyshortcuts` \"{chord}\" takes {code} while this button shows, so surface `{surface}` never hears it as {names}: the shortcut presses the button first on every host (LLP 1132 D11); {fix}"),
+                                        message: if modifiers.is_empty() {
+                                            format!("`aria-keyshortcuts` \"{chord}\" takes {code}, so while this button shows, surface `{surface}` never hears {code} as {names}: the shortcut presses the button first on every host (LLP 1132 D11); {fix}")
+                                        } else {
+                                            let held = modifiers.join("+");
+                                            format!("`aria-keyshortcuts` \"{chord}\" takes {code} with {held} held, so while this button shows, surface `{surface}` hears {code} as {names} only without {held}: the shortcut presses the button first on every host (LLP 1132 D11); {fix}")
+                                        },
                                         span: shortcut.span,
                                         related: match shortcut.value {
                                             Expr::Str(..) => Vec::new(),

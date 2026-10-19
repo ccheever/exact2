@@ -584,17 +584,41 @@ pub fn shortcut_findings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileEr
 }
 
 fn shortcut_warnings(file: &contract_syntax::File, app_root: &Path) -> Vec<CompileError> {
-    let bound = surface::keys(app_root);
-    if bound.is_empty() {
+    let keys = app_root.join(".shells/keys.json");
+    let stale = |message: String| CompileError {
+        pass: "warning",
+        id: "analyze-shortcut-keys-stale".into(),
+        message,
+        span: Span::default(),
+        file: Some(keys.as_path().into()),
+        related: Box::new([]),
+    };
+    if !contract_analyze::declares_shortcuts(file) {
         return Vec::new();
     }
-    contract_analyze::check_shortcut_keys(file, &bound)
-        .into_iter()
-        .map(|e| CompileError {
-            pass: "warning",
-            ..e.into()
-        })
-        .collect()
+    // A game built before its GPU build wrote the keys: say so, rather
+    // than check against none.
+    if !keys.is_file() {
+        return match app_root.join(".shells/surfaces.json").is_file() {
+            true => vec![stale("no .shells/keys.json, so button shortcuts are not checked against the game's `Actions`; a web or native build writes it".into())],
+            false => Vec::new(),
+        };
+    }
+    let mut out: Vec<CompileError> =
+        contract_analyze::check_shortcut_keys(file, &surface::keys(app_root))
+            .into_iter()
+            .map(|e| CompileError {
+                pass: "warning",
+                ..e.into()
+            })
+            .collect();
+    if let Some(newer) = surface::newer_rust_than(app_root, ".shells/keys.json") {
+        out.push(stale(format!(
+            ".shells/keys.json is older than {}: it names the keys of the game's last GPU build; a web or native build rewrites it",
+            newer.display()
+        )));
+    }
+    out
 }
 
 /// [`compile_path_all`] without the surface-argument check, which the

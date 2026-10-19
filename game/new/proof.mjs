@@ -44,13 +44,15 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('HUD is a polite live region', node(await s.tree(), 'hud-lit')?.props.accessibilityLive === 'polite');
   check('initial HUD', node(await s.tree(), 'hud-lit')?.props?.text === 'Lit 0');
   // On-screen controls follow the primary input: a mouse shows none, a touch screen all three.
-  const launched = await s.tree();
-  check(`the ${host === 'ios' ? 'touch screen shows' : 'mouse shows no'} on-screen controls at launch`, ['move', 'jump', 'light'].every(id => !!node(launched, id) === (host === 'ios')));
+  // At launch it is the device class's: a phone's touch screen, a desktop's mouse.
+  const touchScreen = ['ios', 'android'].includes(host), launched = await s.tree();
+  check(`the ${touchScreen ? 'touch screen shows' : 'mouse shows no'} on-screen controls at launch`, ['move', 'jump', 'light'].every(id => !!node(launched, id) === touchScreen));
   await s.prefer({pointer:'coarse'});
   const touch = await s.tree();
   check('a touch screen shows the stick and buttons', ['move', 'jump', 'light'].every(id => !!node(touch, id)));
   await s.prefer({pointer:'fine'});
-  check('a mouse again hides them', !node(await s.tree(), 'move'));
+  const mouse = await s.tree();
+  check('a mouse again hides them', ['move', 'jump', 'light'].every(id => !node(mouse, id)));
   const game = s.world('world');
   pin(0, await game.snapshot());
   check('no prompt outside range', !node(await s.tree(), 'near-prompt'));

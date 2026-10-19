@@ -62,5 +62,5 @@ component Game
   the pointer changes while the game runs.
 - Drive both on a desktop carrier: `bun scripts/agent.mjs web "prefer pointer coarse" tree`
   shows them, `prefer pointer fine` hides them.
-- A button's `aria-keyshortcuts` takes its key before the world hears it; do not
+- A button's `aria-keyshortcuts` takes its chord before the world hears it; do not
   also bind that key in `Actions`.

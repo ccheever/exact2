@@ -11,6 +11,9 @@ final class PrimaryInputTests: XCTestCase {
         XCTAssertEqual(Preferences.primaryInput(touchScreen: true, pointingDevice: true), [], "an iPad with a trackpad: fine, hover")
         XCTAssertEqual(Preferences.primaryInput(touchScreen: false), [], "a Mac")
         XCTAssertEqual(Preferences.primaryInput(touchScreen: false, focusEngine: true), [.noPointer, .noHover], "a remote")
+        // The iPad's own reading: `GCMouse.current != nil` is the pointing device.
+        XCTAssertEqual(DisplayPreferences.touchInput(pointingDevice: true), [], "a trackpad attached: fine, hover")
+        XCTAssertEqual(DisplayPreferences.touchInput(pointingDevice: false), [.coarsePointer, .noHover])
     }
 
     #if os(macOS)

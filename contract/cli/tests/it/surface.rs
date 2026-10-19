@@ -501,6 +501,14 @@ fn a_shortcut_on_a_key_the_game_binds_warns() {
         contract::shortcut_findings(&path).unwrap().is_empty(),
         "no declaration, no warning"
     );
+    // A game whose last GPU build wrote no keys is told so.
+    std::fs::write(dir.join(".shells/surfaces.json"), r#"{"world":[]}"#).unwrap();
+    let ids =
+        |found: Vec<contract::CompileError>| found.into_iter().map(|e| e.id).collect::<Vec<_>>();
+    assert_eq!(
+        ids(contract::shortcut_findings(&path).unwrap()),
+        ["analyze-shortcut-keys-stale"]
+    );
     std::fs::write(
         dir.join(".shells/keys.json"),
         r#"{"world":{"Digit1":["one"],"KeyJ":["jump"],"KeyW":["move"]}}"#,
@@ -519,18 +527,41 @@ fn a_shortcut_on_a_key_the_game_binds_warns() {
         ],
         "{found:?}"
     );
+    // `Shift+J` takes KeyJ with Shift held: the world still hears a plain J.
     assert!(
-        found[0].message.contains("button's own `action`"),
+        found[0].message.contains("takes KeyJ with Shift held")
+            && found[0].message.contains("only without Shift")
+            && found[0].message.contains("button's own `action`"),
         "{}",
         found[0]
     );
     assert!(
-        found[1].message.contains("\"1\" takes Digit1") && found[1].message.contains("`one`"),
+        found[1].message.contains("\"1\" takes Digit1")
+            && found[1].message.contains("never hears Digit1 as `one`"),
         "{}",
         found[1]
     );
     assert_eq!(found[1].related.len(), 1, "the use that passed \"1\"");
     assert_eq!(found[1].related[0].span.line, 4);
+    // Rust newer than the keys: they may predate an `Actions` edit.
+    std::fs::create_dir_all(dir.join("logic/src")).unwrap();
+    std::fs::write(dir.join("logic/src/lib.rs"), "").unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    std::fs::File::options()
+        .write(true)
+        .open(dir.join(".shells/keys.json"))
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    let stale = contract::shortcut_findings(&path).unwrap();
+    assert_eq!(stale.len(), 3, "{stale:?}");
+    assert!(
+        stale[2]
+            .message
+            .starts_with(".shells/keys.json is older than"),
+        "{}",
+        stale[2]
+    );
     let compiled = contract::compile_path_all(&path, false);
     assert!(
         compiled.is_ok(),
@@ -546,22 +577,36 @@ fn a_shortcut_on_a_key_the_game_binds_warns() {
         2,
         "a build prints them"
     );
+    assert!(warned.iter().any(|e| e.id == "analyze-shortcut-keys-stale"));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// The physical keys a chord as ARIA spells it arrives as, which the
-/// shortcut warning compares with the codes `Actions` bind.
+/// The modifiers a chord as ARIA spells it holds and the physical keys
+/// its key arrives as, which the shortcut warning compares with the codes
+/// `Actions` bind.
 #[test]
-fn a_chord_names_the_physical_keys_that_type_it() {
+fn a_chord_names_its_modifiers_and_the_physical_keys_that_type_it() {
     let codes = contract_analyze::chord_codes;
-    assert_eq!(codes("1"), ["Digit1", "Numpad1"]);
-    assert_eq!(codes("Shift+a"), ["KeyA"]);
-    assert_eq!(codes("Space"), ["Space"]);
-    assert_eq!(codes("Enter"), ["Enter", "NumpadEnter"]);
-    assert_eq!(codes("Control+Plus"), ["Equal", "NumpadAdd"]);
-    assert_eq!(codes("Meta++"), ["Equal", "NumpadAdd"]);
-    assert_eq!(codes("!"), ["Digit1"]);
-    assert_eq!(codes("F13"), ["F13"]);
-    assert!(codes("F36").is_empty());
-    assert!(codes("Volume").is_empty());
+    let none: Vec<&str> = Vec::new();
+    assert_eq!(
+        codes("1"),
+        (none.clone(), vec!["Digit1".into(), "Numpad1".into()])
+    );
+    assert_eq!(codes("Shift+a"), (vec!["Shift"], vec!["KeyA".into()]));
+    assert_eq!(codes("Space"), (none.clone(), vec!["Space".into()]));
+    assert_eq!(codes("Enter").1, ["Enter", "NumpadEnter"]);
+    assert_eq!(
+        codes("Control+Plus"),
+        (vec!["Control"], vec!["Equal".into(), "NumpadAdd".into()])
+    );
+    assert_eq!(
+        codes("Meta++"),
+        (vec!["Meta"], vec!["Equal".into(), "NumpadAdd".into()])
+    );
+    assert_eq!(codes("Shift+!").1, ["Digit1"]);
+    assert_eq!(codes("*").1, ["Digit8", "NumpadMultiply"]);
+    assert_eq!(codes("F13").1, ["F13"]);
+    assert!(codes("F36").1.is_empty());
+    assert!(codes("Volume").1.is_empty());
+    assert!(codes("Hyper+K").1.is_empty(), "a modifier no host matches");
 }

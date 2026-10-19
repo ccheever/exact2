@@ -221,3 +221,33 @@ fn bold_text_weights_the_system_font() {
     assert!(p.set_device(&phone()).is_none());
     assert_eq!(weight(&p), 400);
 }
+
+#[test]
+fn a_touch_screen_alone_is_the_primary_pointer() {
+    let touch = Pointing {
+        absolute: true,
+        touch: true,
+        ..Default::default()
+    };
+    let touchpad = Pointing {
+        absolute: true,
+        touch: true,
+        left: true,
+        ..Default::default()
+    };
+    let mouse = Pointing {
+        relative: true,
+        left: true,
+        ..Default::default()
+    };
+    let kvm = Pointing {
+        absolute: true,
+        left: true,
+        ..Default::default()
+    };
+    assert!(touch_only(&[touch]));
+    assert!(!touch_only(&[touch, mouse]), "a laptop's mouse is primary");
+    assert!(!touch_only(&[touchpad]));
+    assert!(!touch_only(&[kvm]));
+    assert!(!touch_only(&[]));
+}
