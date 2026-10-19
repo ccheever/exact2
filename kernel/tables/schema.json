@@ -5839,6 +5839,7 @@
     ["grouped-accessory-weight", "style", 600, 700, 600, 600],
     ["grouped-switch-size", "style", "unset", "mini", "unset", "unset"],
     ["grouped-field-align", "style", "unset", "right", "unset", "unset"],
+    ["grouped-value-wrap", "style", "wrap", "nowrap", "wrap", "wrap"],
     ["grouped-button-appearance", "style", "none", "auto", "none", "none"],
     ["grouped-button-min-height", "style length", 52, 24, 52, 52],
     ["grouped-button-max-width", "style length", "calc(100% - 16px)", "calc(100% - 10px)", "calc(100% - 16px)", "calc(100% - 16px)"],

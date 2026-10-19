@@ -193,7 +193,8 @@ fn scroll(parts: Parts, rows: Vec<Attr>, span: Span, instance: u32) -> Node {
 /// styled so and put in its swipe. A swipe written by hand (a `scroll`
 /// naming its row as `swipeContent`) is styled the same way: its row is
 /// the grouped row and the scroll takes the row's box in the card.
-pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node) -> Node) -> Node {
+/// `row` styles a row; its flag says the row is a swipe's content.
+pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node, bool) -> Node) -> Node {
     if let Some(styled) = written(node, row) {
         return styled;
     }
@@ -203,7 +204,7 @@ pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node) -> Node) -> Node {
         ..a
     };
     let Some(parts) = parts(node, &sheet) else {
-        return row(node);
+        return row(node, false);
     };
     let (span, instance) = match node {
         Node::Element { span, instance, .. } => (*span, *instance),
@@ -217,7 +218,7 @@ pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node) -> Node) -> Node {
 /// `swipeContent` names one of its children. That child is styled as the
 /// row and the scroll takes the row's box in the card, the sheet's rows
 /// under the author's; `None` for any other node.
-fn written(node: &Node, row: &dyn Fn(&Node) -> Node) -> Option<Node> {
+fn written(node: &Node, row: &dyn Fn(&Node, bool) -> Node) -> Option<Node> {
     let Node::Element {
         tag,
         positional,
@@ -276,7 +277,7 @@ fn written(node: &Node, row: &dyn Fn(&Node) -> Node) -> Option<Node> {
     fn styled(
         nodes: &[Node],
         named: &dyn Fn(&Node) -> bool,
-        row: &dyn Fn(&Node) -> Node,
+        row: &dyn Fn(&Node, bool) -> Node,
         span: Span,
         outer: &mut Vec<Attr>,
     ) -> Vec<Node> {
@@ -323,7 +324,7 @@ fn written(node: &Node, row: &dyn Fn(&Node) -> Node) -> Option<Node> {
 /// its swipe's scroll takes: the row's box in the card, and the swipe's
 /// leading margin. The row's own leading inset gives way to the swipe's:
 /// on the scroll where the Mac's rows stand in, in the content elsewhere.
-fn swiped(content: &Node, row: &dyn Fn(&Node) -> Node, span: Span) -> (Node, Vec<Attr>) {
+fn swiped(content: &Node, row: &dyn Fn(&Node, bool) -> Node, span: Span) -> (Node, Vec<Attr>) {
     let mark = |name: &str| format!("{}{name}", crate::grouped::MARK);
     let Node::Element {
         tag,
@@ -332,7 +333,7 @@ fn swiped(content: &Node, row: &dyn Fn(&Node) -> Node, span: Span) -> (Node, Vec
         children,
         span: at,
         instance: own,
-    } = row(content)
+    } = row(content, true)
     else {
         unreachable!("row keeps an element")
     };

@@ -753,7 +753,7 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
 /// Whether a `style` row's name says a property that takes no length, as
 /// the grouped sheet writes it (`style::metrics`' row test): a colour, a
 /// line's style, a position, a font, a weight, a control size, an
-/// alignment, an appearance, a box model, a flex factor. Every other `style`
+/// alignment, an appearance, a box model, a flex factor, a flex wrap. Every other `style`
 /// row is written on a length property (a gap, an inset, a corner, a width or
 /// height, a padding, a margin, an offset).
 fn names_no_length(name: &str) -> bool {
@@ -762,7 +762,7 @@ fn names_no_length(name: &str) -> bool {
         || name == "grouped-separator"
         || [
             "-style", "-color", "-position", "-tint", "-font", "-weight", "-align", "-appearance",
-            "-box-sizing", "-grow",
+            "-box-sizing", "-grow", "-wrap",
         ]
         .iter()
         .any(|e| name.ends_with(e))

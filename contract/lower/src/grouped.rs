@@ -27,6 +27,7 @@ mod lines;
 mod messages;
 mod native;
 mod title;
+mod value;
 
 use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
 use native::native_row;
@@ -604,7 +605,11 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
         group.push(m("row-gap", "separator-gap", span));
     }
     group.push(s("overflow", "hidden", span));
-    let mut styled = |n: &Node| Ok(swipe_rows::grouped(n, &|n| row(n, !cardless)));
+    let mut styled = |n: &Node| {
+        Ok(swipe_rows::grouped(n, &|n, swiped| {
+            row(n, !cardless, swiped)
+        }))
+    };
     let body = rows
         .iter()
         .map(|r| over(r, &mut styled))
@@ -769,7 +774,9 @@ fn s_val(value: &str, span: Span) -> Expr {
 /// accessory's size and colour, and what a `destructive` row is: red text
 /// where the platform's list shows that, the platform's push button where
 /// its form shows one (the Mac's, LLP 1115.002 D6).
-fn row(node: &Node, separated: bool) -> Node {
+/// `swiped`: the row is a swipe's content, which the platform's list
+/// carries as a custom row.
+fn row(node: &Node, separated: bool, swiped: bool) -> Node {
     let Node::Element {
         tag,
         attrs,
@@ -1023,29 +1030,30 @@ fn row(node: &Node, separated: bool) -> Node {
     let last = shown.len().saturating_sub(1);
     let mut at_shown = 0;
     let titled = title_button(children);
-    let parts: Vec<Node> = children
-        .iter()
-        .enumerate()
-        .map(|(k, child)| {
-            let i = if hidden(child) {
-                usize::MAX
-            } else {
-                at_shown += 1;
-                at_shown - 1
-            };
-            let at = Place {
-                i,
-                last,
-                stack,
-                lines,
-                field,
-                titled: titled == Some(k),
-                tint: &tint,
-                grow: &title_grow,
-            };
-            part(child, at, &mut texts)
-        })
-        .collect();
+    let mut parts = Vec::with_capacity(children.len());
+    let mut counts = Vec::with_capacity(children.len());
+    for (k, child) in children.iter().enumerate() {
+        let i = if hidden(child) {
+            usize::MAX
+        } else {
+            at_shown += 1;
+            at_shown - 1
+        };
+        let at = Place {
+            i,
+            last,
+            stack,
+            lines,
+            field,
+            titled: titled == Some(k),
+            tint: &tint,
+            grow: &title_grow,
+        };
+        let before = texts.clone();
+        parts.push(part(child, at, &mut texts));
+        counts.push((before, texts.clone()));
+    }
+    let parts = value::boxed(children, parts, &counts, swiped, lines, title_grow(), span);
     let Node::Element {
         tag,
         positional,
