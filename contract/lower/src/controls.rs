@@ -127,9 +127,11 @@ pub(crate) fn control(
         return Ok(Some("select"));
     }
     if tag != "input" {
+        // (An `iframe`'s `name` is HTML's: its frame's browsing context name,
+        // the target a page names it by, never in its URL.)
         if let Some(a) = attrs
             .iter()
-            .find(|a| matches!(a.name.as_str(), "checked" | "name"))
+            .find(|a| a.name == "checked" || (a.name == "name" && tag != "iframe"))
         {
             return err(
                 "lower-attr-tag",

@@ -1183,3 +1183,15 @@ fn every_recipe_and_pattern_answers_by_name() {
         );
     }
 }
+
+/// An `iframe`'s `name` is HTML's frame name (the design tool names its
+/// live copies by it, LLP 1122 T7), written as the frame's own prop; on any
+/// other tag but a radio it is still refused.
+#[test]
+fn an_iframe_takes_a_frame_name() {
+    let source = "component App\n  view\n    iframe name=\"exact-copy-1\" src=\"https://example.com\" sandbox=\"allow-scripts\"\n";
+    let plan = contract::compile(source).expect("an iframe's name compiles");
+    assert!(format!("{plan:?}").contains("exact-copy-1"), "the name is the frame's prop");
+    let error = contract::compile("component App\n  view\n    text \"a\" name=\"x\"\n").unwrap_err();
+    assert!(format!("{error:?}").contains("lower-attr-tag"));
+}
