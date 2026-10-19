@@ -4,16 +4,16 @@
     "1420": "0xabf0724dcb9e3028"
   },
   "saves": {
-    "continuation": "516239ecd756f2c21e8e59774f5988e5abe33d697af3f887c0535a03b36b9207"
+    "continuation": "a4533ed0c51b730185823c41ad629cd1a490ba3e032509552328f875569051c6"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "970e73951677479aa21a853d25938503929434554f4cddd7b2f25a77ab8f4b7f",
-  "sourceInputs": "e3867a24c98b5f7c2a62c39f175f88ce5f28bab90ab4ff579d868dd1e31c896c",
+  "inputs": "f368e4466326375ddbb4b9c03ecd1caef7128ebb5ba7ad052bf21dc19c4e292b",
+  "sourceInputs": "9219ff523f8717f636d947316502bf4faea4631248a3880a691dd48282b0a2f3",
   "game": "tennis",
   "generated": "bun game/prove.mjs tennis --repin --hosts 'linux,web'",
-  "at": "bb15d69dafd3a3b4deda48c3084c383235c65e63",
-  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
+  "at": "88760cbdd675a063310055b4bf0b234e6e6bb472",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
 }
