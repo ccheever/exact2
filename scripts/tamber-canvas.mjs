@@ -164,7 +164,9 @@ export function rewriter(loop, origin) {
         // scan goes on from there. A userinfo `;@` parses whole: never cut.
         let auth = g.auth;
         if (!parses(auth, scheme || 'http:')) {
-          auth = /^[^;,)}]*/.exec(auth)[0];
+          // Cut only past any userinfo (after the last `@`), so `;@` stays.
+          const host = auth.lastIndexOf('@') + 1;
+          auth = auth.slice(0, host) + /^[^;,)}]*/.exec(auth.slice(host))[0];
           end = m.index + m[0].length - (g.auth.length - auth.length);
           swap = m[0].slice(0, end - m.index);
         }
