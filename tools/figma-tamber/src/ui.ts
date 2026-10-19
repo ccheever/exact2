@@ -96,6 +96,7 @@ async function pushDesign() {
       prefer[c.key] = pick;
     }
     collected = await ask({ type: 'collect', prefer }, 'collected');
+    if (collected.clashes?.length) { show('not pushed: a Light value changed while you chose; push again'); return; }
   }
   const { source, baseline, unread } = collected;
   const got = await call(paired, '/__tamber', { method: 'import', kind: 'dtcg', client: 'figma', source, baseline });
