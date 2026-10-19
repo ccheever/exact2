@@ -10,8 +10,7 @@
 //! scroll content sizes; other presentation values follow. The kernel is the single source of
 //! truth; the mirror is a memo of what the presenter has been told.
 
-use crate::batch::Batch;
-use crate::style;
+use crate::{batch::Batch, style};
 use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{
     Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue, TextMeasurer,
@@ -19,11 +18,10 @@ use exact_kernel::{
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
 
-#[path = "agent.rs"]
-mod agent;
-
 #[path = "activities.rs"]
 mod activities;
+#[path = "agent.rs"]
+mod agent;
 #[path = "arrange.rs"]
 mod arrange;
 #[path = "arrange_group.rs"]
