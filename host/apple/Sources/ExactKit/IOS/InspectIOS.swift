@@ -145,8 +145,13 @@ enum InspectHost {
             }
         }
         if let root = presenter.navigation.container, let tabs = NavigationTabs.of(root, presenter), let index = tabs.tabs.firstIndex(where: { $0 === node }),
-           let bar = presenter.navigation.tabController?.tabBar {
-            return { [weak bar] in
+           let controller = presenter.navigation.tabController {
+            let bar = controller.tabBar
+            return { [weak bar, weak controller] in
+                // iPadOS's floating bar: the tab's item cell.
+                if let list = controller?.floatingTabList, let cell = list.cellForItem(at: IndexPath(item: index, section: 0)), cell.window != nil {
+                    return cell.convert(cell.bounds, to: nil)
+                }
                 guard let bar, bar.window != nil, !bar.isHidden else { return nil }
                 let boxes = buttonBoxes(in: bar)
                 return boxes.count == bar.items?.count && boxes.indices.contains(index) ? bar.convert(boxes[index], to: nil) : nil
@@ -285,25 +290,26 @@ enum InspectHost {
     }
 
     /// What a tap at `p` on iPadOS's floating tab bar selects: the tab whose
-    /// item is there, else nothing (the bar's own space), said; nil where no
-    /// floating bar is at `p`. That bar is the tab bar controller's own view
-    /// beside the selected tab's (its `tabBar` is then out of the window), its
-    /// items the cells of a collection view, in the tabs' order.
+    /// item is there, else nothing, said, on the bar's own space (its list, or
+    /// a view around the list that holds no tab's content); nil anywhere else,
+    /// for the walk to judge (`floatingTabList`).
     private static func floatingTab(at p: CGPoint, in window: UIWindow, _ app: ExactApp) -> (session: ExactSession?, id: UInt32?, view: UIView?, why: String?)? {
         guard let hit = window.hitTest(p, with: nil) else { return nil }
         for session in app.sessions where session.booted {
             let nav = session.presenter.navigation
-            guard let tabs = nav.tabController, tabs.tabBar.window == nil, hit.isDescendant(of: tabs.view),
-                  let selected = tabs.selectedViewController?.viewIfLoaded, !hit.isDescendant(of: selected) else { continue }
-            var at: UIView? = hit
-            while let v = at, v !== tabs.view {
-                if let cell = v as? UICollectionViewCell, let list = cell.superview as? UICollectionView, let index = list.indexPath(for: cell)?.item,
-                   let root = nav.container, let tablist = NavigationTabs.of(root, session.presenter), index < tablist.tabs.count {
-                    let id = tablist.tabs[index].id
-                    return (session, id, session.presenter.views[id] ?? cell, nil)
+            guard let tabs = nav.tabController, let list = tabs.floatingTabList, list.window === window,
+                  let selected = tabs.selectedViewController?.viewIfLoaded else { continue }
+            if hit.isDescendant(of: list) {
+                var at: UIView? = hit
+                while let v = at, v !== list {
+                    if let cell = v as? UICollectionViewCell, let path = list.indexPath(for: cell), path.section == 0, case let index = path.item,
+                       let root = nav.container, let tablist = NavigationTabs.of(root, session.presenter), index < tablist.tabs.count {
+                        let id = tablist.tabs[index].id
+                        return (session, id, session.presenter.views[id] ?? cell, nil)
+                    }
+                    at = v.superview
                 }
-                at = v.superview
-            }
+            } else if !(hit !== tabs.view && hit.isDescendant(of: tabs.view) && list.isDescendant(of: hit) && !selected.isDescendant(of: hit)) { continue }
             return (session, nil, nil, "That is part of UIKit's tab bar, not a view of the app.")
         }
         return nil

@@ -453,4 +453,27 @@ extension NavigationHost {
             !(tablist.wrote("appearance") && tablist.style["appearance"]?.string == "none")
     }
 }
+
+#if os(iOS)
+extension UITabBarController {
+    /// iPadOS 18's floating tab bar, in a regular width: no `UITabBar` in the
+    /// window (`tabBar` is out of it), but a list of the tabs' items at the
+    /// top, a collection view whose first section has a cell per tab, in
+    /// their order, and whose others are empty (iPadOS 27 keeps a second,
+    /// for tabs a person adds), beside the selected tab's view. Nil where the
+    /// bar is UIKit's classic one, or no such list shows.
+    var floatingTabList: UICollectionView? {
+        guard tabBar.window == nil, let count = viewControllers?.count, count > 0, let selected = selectedViewController?.viewIfLoaded else { return nil }
+        var pending: [UIView] = view.subviews
+        while !pending.isEmpty {
+            let v = pending.removeFirst()
+            guard v !== selected, !v.isHidden else { continue }
+            if let list = v as? UICollectionView, list.numberOfSections >= 1, list.numberOfItems(inSection: 0) == count,
+               (1..<list.numberOfSections).allSatisfy({ list.numberOfItems(inSection: $0) == 0 }) { return list }
+            pending += v.subviews
+        }
+        return nil
+    }
+}
+#endif
 #endif

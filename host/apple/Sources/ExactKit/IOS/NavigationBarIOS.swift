@@ -340,17 +340,15 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
             // That layout can start the bar's own update UIKit deferred to
             // the transition's end (iPadOS applies a push's items only then):
             // started inside the end, it takes the bar's touches and never
-            // gives them back, so Back and a drawn title take no taps. Give
-            // back what this layout took, once the transition is over and
-            // nothing else is moving.
+            // gives them back (UIKit gives them back when a transition ends,
+            // and this one already has), so Back and a drawn title take no
+            // taps. What this layout took is given back at once, before the
+            // host and the app hear of the route: a bar either of them turns
+            // off stays off. (An update UIKit animates takes taps a moment
+            // early; one it leaves to a later turn is not this layout's.)
             let bar = nav.navigationBar, touches = bar.isUserInteractionEnabled
             nav.view.layoutIfNeeded()
-            if touches, !bar.isUserInteractionEnabled {
-                DispatchQueue.main.async { [weak nav, weak bar] in
-                    guard let nav, let bar, nav.transitionCoordinator == nil else { return }
-                    bar.isUserInteractionEnabled = true
-                }
-            }
+            if touches, !bar.isUserInteractionEnabled { bar.isUserInteractionEnabled = true }
         }
         host?.navigationController(nav, didShow: controller, animated: animated)
         app?.navigationController?(nav, didShow: controller, animated: animated)

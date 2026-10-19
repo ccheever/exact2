@@ -21,6 +21,8 @@ extension Presenter {
         let chosen = scrollsToTopTarget()
         #endif
         if viewport.scrollsToTop != (chosen === viewport) { viewport.scrollsToTop = chosen === viewport }
+        // UIKit's own list of an iPad's floating tab bar is a scroll view too.
+        if let list = navigation.tabController?.floatingTabList, list.scrollsToTop { list.scrollsToTop = false }
         for id in scrollers {
             guard let sv = views[id]?.scrollView else { continue }
             if sv.scrollsToTop != (sv === chosen) { sv.scrollsToTop = sv === chosen }

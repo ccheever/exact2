@@ -593,12 +593,17 @@ final class PressFocusIOSTests: XCTestCase {
         }
         let session = try fixture()
         let p = session.presenter
+        // The agent's clock, stopped till the sheet is up: the answer (a
+        // second's timer) lands after it, however long it takes to come up.
+        let agent = Agent(session: session)
+        let from = try XCTUnwrap(agent.clock(["take": true])["clock"] as? Double)
         let opener = try XCTUnwrap(fixtureNode(p, "open-focused-note"))
         tap(opener)
         until { self.window.rootViewController?.presentedViewController?.isBeingPresented == false }
         let sheet = try XCTUnwrap(window.rootViewController?.presentedViewController, "the note is a sheet")
         XCTAssertNil(fixtureNode(p, "note-text"), "the textarea is not there yet: the sheet is up first")
         XCTAssertNotNil(p.pressHandoff, "the sheet's route still hands on its first autofocus")
+        XCTAssertNil(agent.clock(["to": from + 1500])["error"])
         func text() -> UITextView? { fixtureNode(p, "note-text")?.textArea }
         until { text()?.isFirstResponder == true }
         XCTAssertTrue(try XCTUnwrap(text(), "the note's textarea mounted").isDescendant(of: sheet.view))

@@ -127,6 +127,10 @@ final class InspectIOSTests: XCTestCase {
         let second = try XCTUnwrap(items.last)
         let picked = InspectHost.target(at: CGPoint(x: second.box.midX, y: second.box.midY), in: window, ExactApp.shared)
         XCTAssertEqual(picked.id, second.id, "\(picked)")
+        // Its box is the item's, for the press and the outline.
+        let node = try XCTUnwrap(session.presenter.views[second.id])
+        let place = try XCTUnwrap(InspectHost.place(of: node, in: session), "a tab has a place")
+        XCTAssertEqual(try XCTUnwrap(place(), "the item's box").integral, second.box)
         // The bar's own space, on no item: nothing, said.
         let bar = floating ? try XCTUnwrap(bars.first, "the floating bar's list") : tabs.tabBar
         let box = bar.convert(bar.bounds, to: window)
@@ -151,10 +155,11 @@ final class InspectIOSTests: XCTestCase {
         XCTAssertTrue(field.becomeFirstResponder())
         func toTop() -> [UIScrollView] {
             var found: [UIScrollView] = [], pending: [UIView] = [window]
-            while !pending.isEmpty { let v = pending.removeFirst(); if let s = v as? UIScrollView, s.scrollsToTop, !(s is UITextView), !s.isDescendant(of: field), !tabChrome(s, tabs) { found.append(s) }; pending += v.subviews }
+            while !pending.isEmpty { let v = pending.removeFirst(); if let s = v as? UIScrollView, s.scrollsToTop, !(s is UITextView), !s.isDescendant(of: field) { found.append(s) }; pending += v.subviews }
             return found
         }
-        // (Not UIKit's own: the iPad's floating tab bar is a list of its items.)
+        // (Only it: an iPad's floating tab bar, a list of its items, takes none.)
+        if let list = tabs.floatingTabList { XCTAssertFalse(list.scrollsToTop) }
         let before = toTop()
         XCTAssertEqual(before.count, 1, "the route's content scroller takes the status-bar tap")
         Inspect.set(true, seq: 1)

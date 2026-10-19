@@ -317,12 +317,23 @@ final class NavigationBasicsIOSTests: XCTestCase {
     /// a compact width's) does; iPadOS's floating bar, at the top in a
     /// regular width, insets nothing, so there the bar's own state is read.
     private func barInsets(_ tabs: UITabBarController) -> Bool { tabs.tabBar.window != nil }
+    /// Whether the tab bar shows on screen: the bar, or an iPad's floating
+    /// list of its items, in the window, unhidden, opaque enough, on screen.
+    private func barShows(_ tabs: UITabBarController) -> Bool {
+        guard let bar: UIView = barInsets(tabs) ? tabs.tabBar : tabs.floatingTabList, let window = bar.window else { return false }
+        var at: UIView? = bar
+        while let v = at { if v.isHidden || v.alpha < 0.01 { return false }; at = v.superview }
+        let box = bar.convert(bar.bounds, to: window)
+        return box.height > 1 && box.intersects(window.bounds)
+    }
 
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
         let session = try fixture("basics-tabbar")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         let home = try XCTUnwrap((tabs.selectedViewController as? UINavigationController)?.topViewController)
         let insets = barInsets(tabs)
+        if !insets { XCTAssertNotNil(tabs.floatingTabList, "no UITabBar in the window: an iPad's floating bar") }
+        XCTAssertTrue(barShows(tabs), "the tab bar shows over Home")
         let shown = home.view.safeAreaInsets.bottom
         if insets { XCTAssertGreaterThan(shown, 40, "the tab bar insets the root") }
         try tapNode(session, "detail")
@@ -331,14 +342,18 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let detail = try XCTUnwrap(nav.topViewController)
         XCTAssertFalse(detail.hidesBottomBarWhenPushed, "the tablist shows over Detail")
         if insets { XCTAssertEqual(detail.view.safeAreaInsets.bottom, shown, accuracy: 0.5) }
+        XCTAssertTrue(barShows(tabs), "and over Detail")
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         let (_, _, chat) = try chat(session)
         XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")
-        if insets { until("the tab bar left") { chat.view.safeAreaInsets.bottom < shown - 20 } }
+        // (iPadOS 27's floating bar does not take `hidesBottomBarWhenPushed`:
+        // it stays over Chat. Whether Exact should hide it there is a QUEUE
+        // question; this test says what each bar does today.)
+        if insets { until("the tab bar left") { !barShows(tabs) && chat.view.safeAreaInsets.bottom < shown - 20 } }
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
-        if insets { until("the tab bar came back") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 } }
+        until("the tab bar came back") { barShows(tabs) && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
     }
 
     /// LLP 1075.003 §3.7, amended 2026-10-05: the root's tablist hidden
