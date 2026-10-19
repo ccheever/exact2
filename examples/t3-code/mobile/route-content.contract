@@ -425,7 +425,7 @@ component MobileRouteContent
     else if routeName == "gitBranches"
       MobileGitBranches(data=gitBranchesData, newBranch=gitNewBranch, worktreeBase=gitWorktreeBase, worktreeBranch=gitWorktreeBranch, editBranch=editGitBranch, editBase=editGitBase, editWorktree=editGitWorktree, action=gitBranchAction, bottomInset=(max(layout.safeBottom, 18) + 18), colors=gitLook)
     else if routeName == "threadBrowser" and focused
-      MobileBrowser(data=browserData, colors=previewLook, active=true, action=browserAction, menuConfiguration=browserMenus.options, menuEvent=browserMenu)
+      MobileBrowser(data=browserData, colors=previewLook, active=true, action=browserAction, menuConfiguration=browserMenus.options, menuEvent=browserMenu, addressFontSize=settingsAppearance.roles.footnote.size, addressLineHeight=settingsAppearance.roles.footnote.line)
     else if routeName == "threadDevices" and focused
       MobileDevices(data=devicesData, colors=previewLook, active=true, safeAreaTop=layout.safeTop, action=devicesAction, close=back, menuConfiguration=devicesMenus.options, menuEvent=devicesMenu)
     else if routeName == "threadTerminal"
