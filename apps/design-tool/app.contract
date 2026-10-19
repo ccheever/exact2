@@ -1163,8 +1163,9 @@ component DesignTool
       editTarget = newName.trim()
       editWhen = ""
       editValue = newValue.trim()
-  // Stage 11: a base or package value set for this app (its override line, add-token), or the app's line
-  // over one of theirs taken away (remove-token), each reviewed and applied as any edit.
+  // Stage 11: a base or package value set for this app (its override line: set-token, theme2's 17:09Z
+  // ruling, one op for both), or the app's line over one of theirs taken away (remove-token), each
+  // reviewed and applied as any edit.
   action setForApp(name: string, value: string, from: string)
     // (The override is the app's line: written in the app's design, whichever file is open.)
     file = ""
@@ -1177,10 +1178,15 @@ component DesignTool
       scrubTick = scrubTick + 1
       scrubWant = false
       send written = cancelScrub(scrubAsk)
-    editKind = "add-token"
+    editKind = "set-token"
     editTarget = name
     editWhen = ""
     editValue = value
+    // (A panel edit: no branch draft, no mode scope.)
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
   action backToBase(name: string)
     file = ""
     if scrubShown
@@ -1873,7 +1879,7 @@ component DesignTool
                   input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
               if editKind != ""
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
-                  if editKind == "add-token" and editTarget == setForAppName and setForAppNote != ""
+                  if editKind == "set-token" and editTarget == setForAppName and setForAppNote != ""
                     text setForAppNote font="-exact-footnote" color="-exact-secondary-label" testId="set-for-app-note"
                   if draftStale or partsStale
                     text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"

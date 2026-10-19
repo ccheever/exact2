@@ -1856,7 +1856,7 @@ test "stage 11: the base scale's rows are read-only, with each platform the app 
   expect disabled "branch-value"
   tap "set-for-app-space.md"
   clock data
-  expect state editKind == "add-token"
+  expect state editKind == "set-token"
   expect state editTarget == "space.md"
   expect state editValue == "16px"
   expect text "set-for-app-note" == "space.md for this app starts from iOS's 16px, and the app's value is every platform's."

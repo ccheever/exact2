@@ -312,7 +312,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // A base name set for this app, or its override taken away (stage 11): the rows describe gives move with it.
       if (SCALE && request.method === 'transaction') for (const o of request.ops ?? []) {
         const row = BASE_ROWS.find(r => r.name === o.name);
-        if (row && o.op === 'add-token') { row.override = { file: 'app.tamber', line: 41, col: 3, text: String(o.value) }; SCALE_TOKENS.push({ name: row.name, kind: 'length', role: null, dials: [], entries: null, values: [String(o.value)], fallback: [String(o.value), String(o.value)] }); }
+        if (row && o.op === 'set-token' && !row.override) { row.override = { file: 'app.tamber', line: 41, col: 3, text: String(o.value) }; SCALE_TOKENS.push({ name: row.name, kind: 'length', role: null, dials: [], entries: null, values: [String(o.value)], fallback: [String(o.value), String(o.value)] }); }
         if (row && o.op === 'remove-token') { row.override = null; SCALE_TOKENS.splice(SCALE_TOKENS.findIndex(t => t.name === row.name), 1); }
       }
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
