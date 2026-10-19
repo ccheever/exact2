@@ -75,10 +75,10 @@ component SettingsProviderAccounts
                         button press=action("reveal", account.key, emailToken) min-height=44 padding=0 text-align="left" aria-label=account.emailAction
                           text account.email font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
                     if account.deviceCode.length > 0
-                      text account.deviceCode font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground
+                      text account.deviceCode user-select="text" font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground
                     if account.output.length > 0
                       scroll max-height=224
-                        text account.output font-family="Menlo" font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.foreground
+                        text account.output user-select="text" font-family="Menlo" font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.foreground
                     for entry in account.fields key=entry.name
                       input type=(entry.secret ? "password" : "text") value=entry.value input=field(account.key, entry.name) disabled=account.disabled maxlength=entry.limit placeholder=entry.label aria-label=entry.label autocapitalize="none" autocomplete="off" border-radius=7 border-width=1 border-style="solid" border-color=colors.borderSubtle padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 font-family="DM Sans" font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground background-color="transparent"
                     for item in account.actions key=`inline:${item.op}:${item.value}`

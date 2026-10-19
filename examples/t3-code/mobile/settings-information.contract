@@ -182,4 +182,4 @@ component SettingsClientStorage
                   t3-archive-spinner spinner-tint=data.danger width=20 height=20
         text data.footer padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.size * 1.5}px` color=colors.muted
         if data.error.length > 0
-          text data.error padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=data.danger role="alert" testId="client-storage-error"
+          text data.error user-select="text" padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=data.danger role="alert" testId="client-storage-error"

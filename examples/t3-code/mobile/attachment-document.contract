@@ -78,7 +78,7 @@ component MobileAttachmentDocument
                 for item in data.table key=item.id
                   row width=(item.cells.length * 168) background-color=(item.header ? colors.card : colors.sheet)
                     for cell in item.cells key=cell.id
-                      text cell.text width=168 box-sizing="border-box" padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 border-right-width=1 border-bottom-width=1 border-style="solid" border-color=colors.border font-size=12.25 font-weight=(item.header ? 600 : 400) color=colors.foreground
+                      text cell.text user-select="text" width=168 box-sizing="border-box" padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 border-right-width=1 border-bottom-width=1 border-style="solid" border-color=colors.border font-size=12.25 font-weight=(item.header ? 600 : 400) color=colors.foreground
         else if data.activeMode == "markdown"
           scroll id="attachment-document" flex=1 min-height=0
             text data.text markup="markdown" padding=14 font-size=16 line-height="23px" color=colors.foreground
