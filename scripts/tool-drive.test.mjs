@@ -2,13 +2,18 @@
 // scripts/verify.mjs (tool-drive.mjs): the checkout's own port, the stage's
 // directory and dist, each --test file the stage's; any other app, or
 // EXACT_TOOL_PORT=7740, as it is.
-import { expect, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { checkoutPort } from './port-lock.mjs';
+import { spawnOwned, stopAll } from './test-children.mjs';
 import { appServer } from './verify.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+
+// A server a test started ends with the test, a timeout included.
+afterEach(() => stopAll());
 
 /** toolDrive(verb, argv) in a fresh process under `env` (EXACT_TOOL_PORT and
  * EXACT_APP_DIR unset unless it names them): its argv and the variables it set. */
@@ -49,21 +54,26 @@ test('another app, a drive already in a stage, and EXACT_TOOL_PORT=7740 are left
 });
 
 test('agent.mjs and verify.mjs named the tool by its path or name stage it: what answers at its stub\'s port is that port\'s, never 7740', async () => {
-  // Something already answering at the stage's port: each refuses before any
-  // build, naming the URL it would have started the stub at.
-  const port = 17994, held = Bun.serve({ port, hostname: '127.0.0.1', fetch: () => new Response('held') });
+  // Something already answering at the stage's port, in a process of its own
+  // (a spawnSync here would leave a server in this one unanswered): each
+  // refuses before any build, naming the URL it would have started the stub at.
+  const held = spawnOwned(process.execPath, ['-e', "const s = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('held') }); console.log(s.port); setTimeout(() => process.exit(0), 300_000);"], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const port = await new Promise(ok => held.stdout.once('data', d => ok(Number(String(d).trim()))));
   try {
     const env = { ...process.env, EXACT_TOOL_PORT: String(port) };
     for (const k of ['EXACT_APP_DIR', 'EXACT_WEB_DIST']) delete env[k];
-    const run = (args) => { const r = spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8', timeout: 120_000 }); return `${r.stdout}${r.stderr}`; };
-    const said = [
-      run(['scripts/verify.mjs', 'web', '--app', 'apps/design-tool']),
-      run(['scripts/verify.mjs', 'web', '--app', 'design-tool']),
-      run(['scripts/agent.mjs', 'web', '--app', './apps/design-tool', '--storage', 'tool-drive-test', '--reset-storage', 'tree']),
-    ];
-    for (const s of said) {
-      expect(s).toContain(`127.0.0.1:${port}`);
-      expect(s).not.toContain('127.0.0.1:7740');
+    const run = (args) => spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8', timeout: 120_000 });
+    const verifies = [run(['scripts/verify.mjs', 'web', '--app', 'apps/design-tool']), run(['scripts/verify.mjs', 'web', '--app', 'design-tool'])];
+    const agent = run(['scripts/agent.mjs', 'web', '--app', './apps/design-tool', '--storage', 'tool-drive-test', '--reset-storage', 'tree']);
+    for (const r of [...verifies, agent]) {
+      expect(r.error).toBeUndefined();
+      expect(r.status).not.toBe(0);
+      expect(`${r.stdout}${r.stderr}`).not.toContain('127.0.0.1:7740');
     }
-  } finally { held.stop(true); }
+    for (const r of verifies) expect(r.stderr).toContain(`verify: http://127.0.0.1:${port} already answers`);
+    expect(agent.stderr).toContain(`something already answers at http://127.0.0.1:${port}`);
+  } finally {
+    await held.stop(5_000);
+    for (const d of [`target/design-tool-test-${port}`, `target/design-tool-test-web-${port}`]) rmSync(resolve(ROOT, d), { recursive: true, force: true });
+  }
 }, 300_000);
