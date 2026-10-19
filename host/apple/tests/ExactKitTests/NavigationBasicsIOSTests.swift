@@ -313,26 +313,32 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(partial["native"] as? String, "bar-readout", "\(partial)")
     }
 
+    /// Whether the tab bar insets a tab's content from below: a phone's (and
+    /// a compact width's) does; iPadOS's floating bar, at the top in a
+    /// regular width, insets nothing, so there the bar's own state is read.
+    private func barInsets(_ tabs: UITabBarController) -> Bool { tabs.tabBar.window != nil }
+
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
         let session = try fixture("basics-tabbar")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         let home = try XCTUnwrap((tabs.selectedViewController as? UINavigationController)?.topViewController)
+        let insets = barInsets(tabs)
         let shown = home.view.safeAreaInsets.bottom
-        XCTAssertGreaterThan(shown, 40, "the tab bar insets the root")
+        if insets { XCTAssertGreaterThan(shown, 40, "the tab bar insets the root") }
         try tapNode(session, "detail")
         let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         until("Detail pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
         let detail = try XCTUnwrap(nav.topViewController)
         XCTAssertFalse(detail.hidesBottomBarWhenPushed, "the tablist shows over Detail")
-        XCTAssertEqual(detail.view.safeAreaInsets.bottom, shown, accuracy: 0.5)
+        if insets { XCTAssertEqual(detail.view.safeAreaInsets.bottom, shown, accuracy: 0.5) }
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         let (_, _, chat) = try chat(session)
         XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")
-        until("the tab bar left") { chat.view.safeAreaInsets.bottom < shown - 20 }
+        if insets { until("the tab bar left") { chat.view.safeAreaInsets.bottom < shown - 20 } }
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
-        until("the tab bar came back") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        if insets { until("the tab bar came back") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 } }
     }
 
     /// LLP 1075.003 §3.7, amended 2026-10-05: the root's tablist hidden
@@ -354,16 +360,17 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         let home = try XCTUnwrap(nav.topViewController as? RouteController)
+        let insets = barInsets(tabs)
         let shown = home.view.safeAreaInsets.bottom
-        XCTAssertGreaterThan(shown, 40, "the tab bar insets the root")
+        if insets { XCTAssertGreaterThan(shown, 40, "the tab bar insets the root") }
         let settled = { nav.transitionCoordinator == nil }
         // Hidden over the root: the bar goes.
         try tapNode(session, "toggle-choosing")
-        until("the bar left") { tabs.isTabBarHidden && home.view.safeAreaInsets.bottom < shown - 20 }
+        until("the bar left") { tabs.isTabBarHidden && (!insets || home.view.safeAreaInsets.bottom < shown - 20) }
         XCTAssertFalse(home.hidesBottomBarWhenPushed, "the root is never pushed: no flag")
         // Shown again: it comes back.
         try tapNode(session, "toggle-choosing")
-        until("the bar came back") { !tabs.isTabBarHidden && abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        until("the bar came back") { !tabs.isTabBarHidden && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
         // A hatch's hide, with the tablist shown and unchanged, stands; and
         // the tablist hidden and shown again over it leaves it standing too:
         // Exact did not make that hide.
@@ -416,7 +423,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         tapTab(tabs, 0)
         until("back to Home (2)") { nav.viewControllers.count == 1 && settled() }
         until("the bar is back over Home") { !tabs.isTabBarHidden }
-        until("Home inset by it again") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        if insets { until("Home inset by it again") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 } }
         // The pushed-route rule stands.
         let (_, _, chat) = try chat(session)
         XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")

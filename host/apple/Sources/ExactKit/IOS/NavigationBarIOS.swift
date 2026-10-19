@@ -336,7 +336,22 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
         // Restoring a hidden bar changes the route's safe area. Lay out its
         // container before reporting that cover to the kernel.
         nav.view.setNeedsLayout()
-        if nav.viewIfLoaded?.window != nil { nav.view.layoutIfNeeded() }
+        if nav.viewIfLoaded?.window != nil {
+            // That layout can start the bar's own update UIKit deferred to
+            // the transition's end (iPadOS applies a push's items only then):
+            // started inside the end, it takes the bar's touches and never
+            // gives them back, so Back and a drawn title take no taps. Give
+            // back what this layout took, once the transition is over and
+            // nothing else is moving.
+            let bar = nav.navigationBar, touches = bar.isUserInteractionEnabled
+            nav.view.layoutIfNeeded()
+            if touches, !bar.isUserInteractionEnabled {
+                DispatchQueue.main.async { [weak nav, weak bar] in
+                    guard let nav, let bar, nav.transitionCoordinator == nil else { return }
+                    bar.isUserInteractionEnabled = true
+                }
+            }
+        }
         host?.navigationController(nav, didShow: controller, animated: animated)
         app?.navigationController?(nav, didShow: controller, animated: animated)
     }

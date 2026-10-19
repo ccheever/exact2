@@ -142,12 +142,13 @@ final class FaceSymbolIOSTests: XCTestCase {
 
     @MainActor func testNativeTabsPathIsTheirTabBarItemsAndSegmentsImage() throws {
         var p = tablist([2: face(token, title: "Reply"), 3: face("tray", title: "Inbox")], selected: true)
-        let items = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UITabBar }.first?.items)
+        let tabBar = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UITabBar }.first)
+        let items = try XCTUnwrap(tabBar.items)
         XCTAssertTrue(isTemplate(items[0].image), "the tab bar tints it")
-        XCTAssertEqual(items[0].image?.size.width, FaceSymbol.tabBarPoints(UITraitCollection(horizontalSizeClass: .compact)))
+        // Sized for the bar's own size class: compact on a phone, regular on an iPad.
+        XCTAssertEqual(items[0].image?.size.width, FaceSymbol.tabBarPoints(tabBar.traitCollection))
         XCTAssertTrue(items[1].image?.isSymbolImage == true, "an SF Symbol as before")
         // The size class sizes the glyph: compact, regular, compact again, the faces unchanged.
-        let tabBar = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UITabBar }.first)
         for size in [UIUserInterfaceSizeClass.compact, .regular, .compact] {
             tabBar.traitOverrides.horizontalSizeClass = size
             tabBar.updateTraitsIfNeeded()

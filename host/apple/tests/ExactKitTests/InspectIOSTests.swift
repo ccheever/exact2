@@ -65,6 +65,8 @@ final class InspectIOSTests: XCTestCase {
 
     func testATapSelectsTheNodeItLandsOnAndTheBarsDrawnTitleButNotUIKitsBack() throws {
         let (session, window, nav, route) = try chat()
+        // Chat's bar takes touches after its push (iPadOS once left it with none: no Back, no title).
+        XCTAssertTrue(nav.navigationBar.isUserInteractionEnabled)
         // Content: the node under the point, the nearest that stands for a plan node.
         // (One whose middle the window's hit test gives to it, or to a part of
         // it that stands for no other node.)
@@ -91,14 +93,34 @@ final class InspectIOSTests: XCTestCase {
         XCTAssertEqual(back.why, "That is part of UIKit's navigation bar, not a view of the app.")
     }
 
+    /// Whether a view is UIKit's tab bar chrome: the bar, or on an iPad in a
+    /// regular width (iPadOS 18), the floating bar that stands in for it at
+    /// the top, a part of the container outside the selected tab's view.
+    private func tabChrome(_ v: UIView, _ tabs: UITabBarController) -> Bool {
+        if tabs.tabBar.window != nil { return v.isDescendant(of: tabs.tabBar) }
+        guard let selected = tabs.selectedViewController?.view else { return false }
+        return v.isDescendant(of: tabs.view) && !v.isDescendant(of: selected)
+    }
+
     func testATapOnTheTabBarSelectsTheTabUnderItAndItsEmptySpaceNothing() throws {
         let (session, window) = try home()
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
-        let bar = tabs.tabBar, root = try XCTUnwrap(session.presenter.navigation.container)
+        let root = try XCTUnwrap(session.presenter.navigation.container)
         let tablist = try XCTUnwrap(NavigationTabs.of(root, session.presenter))
-        // Each item's button (UIKit's, in order; no accessibility client runs here to make elements).
-        var buttons: [CGRect] = [], pending: [UIView] = bar.subviews
-        while !pending.isEmpty { let v = pending.removeFirst(); if v is UIControl { let b = v.convert(v.bounds, to: window).integral; if !buttons.contains(b) { buttons.append(b) } } else { pending += v.subviews } }
+        // Each item's box, in order (no accessibility client runs here to make
+        // elements): the bar's buttons, or the floating bar's item cells.
+        let floating = tabs.tabBar.window == nil
+        var buttons: [CGRect] = [], pending: [UIView] = floating ? [tabs.view] : [tabs.tabBar]
+        var bars: [UIView] = []
+        while !pending.isEmpty {
+            let v = pending.removeFirst()
+            guard tabChrome(v, tabs) || v === tabs.view else { continue }
+            if floating ? v is UICollectionViewCell : v is UIControl {
+                let b = v.convert(v.bounds, to: window).integral
+                if !buttons.contains(b) { buttons.append(b) }
+                if let list = v.superview, !bars.contains(list) { bars.append(list) }
+            } else { pending += v.subviews }
+        }
         buttons.sort { $0.minX < $1.minX }
         XCTAssertEqual(buttons.count, 2, "the fixture's two tabs show in UIKit's tab bar")
         let items = zip(tablist.tabs, buttons).map { (id: $0.id, box: $1) }
@@ -106,11 +128,12 @@ final class InspectIOSTests: XCTestCase {
         let picked = InspectHost.target(at: CGPoint(x: second.box.midX, y: second.box.midY), in: window, ExactApp.shared)
         XCTAssertEqual(picked.id, second.id, "\(picked)")
         // The bar's own space, on no item: nothing, said.
+        let bar = floating ? try XCTUnwrap(bars.first, "the floating bar's list") : tabs.tabBar
         let box = bar.convert(bar.bounds, to: window)
         var empty: CGPoint?
         for y in stride(from: box.minY + 2, to: box.maxY, by: 4) { for x in stride(from: box.minX + 2, to: box.maxX, by: 4) {
             let p = CGPoint(x: x, y: y)
-            guard empty == nil, !items.contains(where: { $0.box.contains(p) }), let hit = window.hitTest(p, with: nil), hit.isDescendant(of: bar) else { continue }
+            guard empty == nil, !items.contains(where: { $0.box.contains(p) }), let hit = window.hitTest(p, with: nil), tabChrome(hit, tabs) else { continue }
             empty = p
         } }
         let space = try XCTUnwrap(empty, "the tab bar has space outside its items")
@@ -121,15 +144,17 @@ final class InspectIOSTests: XCTestCase {
 
     func testInspectModeEndsEditingAndTheStatusBarsScrollToTopTillItEnds() throws {
         let (session, window, _, route) = try chat()
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         let field = UITextField(frame: CGRect(x: 20, y: 300, width: 200, height: 40))
         route.view.addSubview(field)
         defer { field.removeFromSuperview() }
         XCTAssertTrue(field.becomeFirstResponder())
         func toTop() -> [UIScrollView] {
             var found: [UIScrollView] = [], pending: [UIView] = [window]
-            while !pending.isEmpty { let v = pending.removeFirst(); if let s = v as? UIScrollView, s.scrollsToTop, !(s is UITextView), !s.isDescendant(of: field) { found.append(s) }; pending += v.subviews }
+            while !pending.isEmpty { let v = pending.removeFirst(); if let s = v as? UIScrollView, s.scrollsToTop, !(s is UITextView), !s.isDescendant(of: field), !tabChrome(s, tabs) { found.append(s) }; pending += v.subviews }
             return found
         }
+        // (Not UIKit's own: the iPad's floating tab bar is a list of its items.)
         let before = toTop()
         XCTAssertEqual(before.count, 1, "the route's content scroller takes the status-bar tap")
         Inspect.set(true, seq: 1)
