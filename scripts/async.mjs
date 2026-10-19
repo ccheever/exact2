@@ -36,7 +36,7 @@
  * worktree is the script's own and is checked out with --force.
  *
  * --tier 2 is the second lane: the platforms that ride on another host's
- * code (tvOS on the UIKit presenter, and cross-target Linux/Windows compile checks), in its own
+ * code (tvOS on the UIKit presenter, cross-target Linux/Windows compile checks, and an Android APK), in its own
  * worktree (<repo>-async2) and state, hourly by default. It checks only the
  * newest pending commit, so a failure it files names the range since the
  * last commit it checked, never one commit.
@@ -81,13 +81,16 @@ const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player
 // Hermes) and installs it on an Apple TV simulator, which the first lane's
 // compile does not; Linux and Windows compile their target-only branches:
 // Windows with Windows Desk, Linux with every app (`*-linux` is the host and
-// each `apps/<app>/linux`), Zig compiling Hermes's C++ bindings too.
+// each `apps/<app>/linux`), Zig compiling Hermes's C++ bindings too. Android
+// builds Weatherlight's APK, which compiles the Android target's Rust, the
+// reader's Kotlin and a module's (LLP 1133.002 stage 4, Charlie's say-so).
 export function tierTwoChecks() {
   return [
     ['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']],
     ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
     ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', '*-linux']],
     ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],
+    ['android', 'bun', ['scripts/agent-android.mjs', 'build', 'weatherlight', '--apk']],
   ];
 }
 export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']];

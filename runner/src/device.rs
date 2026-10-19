@@ -25,6 +25,9 @@ pub struct Device {
     pub ios: &'static [&'static str],
     /// iOS `Info.plist` keys set to true.
     pub ios_flags: &'static [&'static str],
+    /// Android's runtime permissions (`<uses-permission>`), asked in one
+    /// request (LLP 1133.002 D6).
+    pub android: &'static [&'static str],
     /// macOS `Info.plist` usage keys.
     pub macos: &'static [&'static str],
     /// The macOS hardened-runtime entitlement: without it a notarised build is
@@ -55,6 +58,7 @@ const ROW: Device = Device {
     name: "",
     ios: &[],
     ios_flags: &[],
+    android: &[],
     macos: &[],
     hardened: None,
     web: None,
@@ -94,6 +98,10 @@ pub const DEVICES: &[Device] = &[
         ],
         hardened: Some("com.apple.security.personal-information.location"),
         web: Some("geolocation"),
+        android: &[
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_COARSE_LOCATION",
+        ],
         ..ROW
     },
     // Approximate location (LLP 1133.002 D7): the same keys, and on iOS the
@@ -102,6 +110,8 @@ pub const DEVICES: &[Device] = &[
         name: "geolocation-approximate",
         ios: &["NSLocationWhenInUseUsageDescription"],
         ios_flags: &["NSLocationDefaultAccuracyReduced"],
+        // Coarse alone: a ceiling on Android, where fine can then never be asked (D7).
+        android: &["android.permission.ACCESS_COARSE_LOCATION"],
         macos: &[
             "NSLocationUsageDescription",
             "NSLocationWhenInUseUsageDescription",

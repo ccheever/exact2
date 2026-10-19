@@ -80,7 +80,7 @@ test('the scripts a verb runs answer --help and refuse a flag they do not take, 
     ['verify', ['scripts/verify.mjs', 'web', '--app', 'caltrain']],
     ['ios', ['host/apple/build.mjs', '--ios', 'caltrain-apple']], ['mac', ['host/apple/build.mjs', 'caltrain-apple']],
     ['linux', ['scripts/build-linux.mjs', 'caltrain']], ['android', ['scripts/agent-android.mjs', 'build', 'caltrain']],
-    ['feedback', ['scripts/feedback.mjs', 'send']], ['hatch', ['scripts/exact.mjs', 'hatch', 'avatar']], ['pattern', ['scripts/exact.mjs', 'pattern', 'list-detail']],
+    ['feedback', ['scripts/feedback.mjs', 'send']], ['hatch', ['scripts/exact.mjs', 'hatch', 'avatar']], ['add', ['scripts/exact.mjs', 'add', 'geolocation']], ['pattern', ['scripts/exact.mjs', 'pattern', 'list-detail']],
     ['contract', ['scripts/exact.mjs', 'contract', 'build']], ['new', ['scripts/exact.mjs', 'new', 'x']],
   ]) {
     const help = timed([...args, '--help'], { cwd: ROOT, env });
@@ -123,6 +123,7 @@ test('each verb\'s help names exactly the flags its script parses, in a short te
     ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))],
     ['feedback', parsed(read('scripts/feedback.mjs'))],
     ['hatch', parsed(between('export function hatch(', '\nexport function pattern('))],
+    ['add', parsed(between('export function add(', '\n/** `exact hatch'))],
     ['pattern', parsed(between('export function pattern(', '\n/** The guides'))],
     ['docs', parsed(between('export function docs(', '\nasync function main('))],
     ['new', parsed(between("if (verb === 'new')", '\n  }'))],
@@ -160,7 +161,7 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
 // verb's script parses (a form never names a flag that does not exist).
 test('help is the one read: the verbs and the forms a build uses, in one screen, naming only flags the verbs parse', () => {
   assert.doesNotMatch(helpText('status'), /undefined/);
-  const text = indexText({ verbs: Object.keys(HELP).filter((v) => v !== 'new') });
+  const text = indexText({ verbs: Object.keys(HELP).filter((v) => !['new', 'add'].includes(v)) });
   assert.ok(text.split('\n').length <= 36, `the index is ${text.split('\n').length} lines`);
   assert.ok(Buffer.byteLength(text) <= 2800, `the index is ${Buffer.byteLength(text)} bytes`);
   // What builders used across rounds 10 and 11: verify's platform and `--shots`, test's platform, agent's `--storage`, `--size`

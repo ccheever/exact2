@@ -31,7 +31,7 @@ const DRIVE = [
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
   ['--scale <n>', 'screenshots at n pixels per point (exact.mjs agent on ios, macos: 1; an iPhone\'s own: 3)'],
   ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],
-  ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
+  ['--timing platform · --bind <extension>', 'Apple: UIKit\'s transitions keep their own timing (default: frozen) · Apple, Android: a module answered by its implementation, not the substitute'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
   ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
   ['--locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, UTC, 1'],
@@ -45,7 +45,7 @@ const DRIVE = [
   ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark · --props <json>', 'widget only: variant and props; --size large|xxxl is its text size'],
   ['--json', 'one compact JSON object per op reply, one per line (default: short text)'],
 ];
-const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json', '--family <name>', '--mode <name>', '--scheme <name>', '--props <json>'];
+const TEST_IGNORES = ['--bind <extension>', '--timing <v>', '--world <file>', '--open <file>', '--json', '--family <name>', '--mode <name>', '--scheme <name>', '--props <json>'];
 // The drive flags a first build reaches for; `--help all` shows the rest.
 const DRIVE_FIRST = ['--storage', '--size', '--chrome', '--epoch', '--sim', '--json'];
 const naming = (names, keep) => ([row]) => specs(row).some((spec) => names.includes(name(spec))) === keep;
@@ -362,6 +362,16 @@ loop must be started with the same to let it frame its pages). The rest: none; t
 completion.`,
     example: 'bun exact.mjs tamber eval . --mode dark-style=dim',
   },
+  add: {
+    line: 'a standard module (geolocation): its dependency in package.json, installed',
+    usage: 'exact add <module> <app>',
+    flags: [],
+    body: `<module> is one of exact2's (geolocation, or @exact/geolocation): a path into this checkout,
+so it compiles against the SDK the app uses. Then name what you use, and its grant line:
+docs/recipes/permissions.md.
+Ports    none. Runs to completion.`,
+    example: 'bun <exact2>/scripts/exact.mjs add geolocation .',
+  },
   hatch: {
     line: 'an access hatch: a stub per target the app builds, and its app.json entry',
     usage: 'bun exact.mjs hatch <word> | --app | --window',
@@ -495,7 +505,7 @@ export function helpText(verb, { all = false } = {}) {
 /** The index: each verb of an app's exact.mjs, then the app's own (app.json `commands`), then the forms a build uses
  * (LLP 1116.009 D6: builders read `help` and then four or five verbs' `--help` for the same flags, each a step carried in
  * context to the end; every flag a form names is one its script parses, help.test.mjs). */
-export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new'), own = {} } = {}) {
+export function indexText({ verbs = Object.keys(HELP).filter((v) => !['new', 'add'].includes(v)), own = {} } = {}) {
   const names = [...verbs, ...Object.keys(own)], width = Math.max(...names.map((v) => v.length));
   const line = (verb) => HELP[verb]?.line ?? (own[verb] ? `app.json commands: ${own[verb].join(' ')}` : '');
   const forms = verbs.flatMap((verb) => HELP[verb]?.common ?? []);
