@@ -100,6 +100,24 @@ const answered = (r: { status?: number; ok?: unknown; error?: unknown }) => r.ok
 let miss = false;
 // Held proposals, as a test holds them (`/__stub/hold`).
 let held: Record<string, unknown>[] = [], holds = 0;
+// Live copies (LLP 1122 T7), as a test turns them on (`/__stub/copies`):
+// hello's page is this stub's own origin, whose root is a copy's page: it
+// registers a build named by its frame (`copy-<name>`, a stable id, as a
+// real page keeps its id under its frame's name), after the delay a test
+// gives that name, and posts that id to the page framing it. A copy of a
+// name in `noNavigate` can't navigate. Each navigate is kept, in order.
+let copyDelays: Record<string, number> = {}, noNavigate: string[] = [];
+const navs: { client: string; build: string; location: string }[] = [];
+const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(async () => {
+  const r = await fetch('/__stub/copy', { method: 'POST', body: JSON.stringify({ name: window.name }) });
+  const { id } = await r.json().catch(() => ({}));
+  if (id && parent !== window) parent.postMessage({ type: 'exact-build', id }, '*');
+  document.getElementById('at').textContent = id ?? 'no copy';
+})();</script>`;
+/** A copy's build as the server would list it: its facts its pin's (a page reports what it paints). */
+const copyBuild = (id: string, name: string) => ({ id, host: 'web', capabilities: ['pin', 'inspect', 'hold', ...(noNavigate.includes(name) ? [] : ['navigate'])], plan: 'g1', planDigest: 'c'.repeat(64), design: 'd1',
+  status: { scheme: 'light', contrast: 'no-preference', mode: {}, rootFontSize: 16, revision: 0, location: '/' }, pin: null, pinRevision: 0, hold: null, held: null, unsupported: null });
+const copyFacts = (b: any, pin: any) => ({ ...b.status, scheme: pin?.scheme ?? 'light', mode: pin?.mode ?? {}, rootFontSize: pin?.rootFontSize ?? 16 });
 // What a page reports held when a refresh asks it again (`/__stub/held-answer`).
 let heldAnswer: Record<string, unknown> | null = null;
 let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
@@ -230,6 +248,18 @@ Bun.serve({ hostname, port: Number(port), routes: {
         save();
         return send({ ok: { build: request.build } });
       }
+      // A navigation (LLP 1122 T7): one build that can, moved to the location, as its page then reports.
+      if (request.method === 'navigate') {
+        if (!present.has(request.client)) return send({ error: { message: `navigate: \`${request.client}\` is not present` } }, 409);
+        const b = BUILDS.find(x => x.id === request.build);
+        if (!b) return send({ error: { message: `no registered build \`${request.build}\`` } }, 400);
+        if (!(b.capabilities ?? []).includes('navigate')) return send({ error: { message: `build \`${b.id}\` (web) cannot navigate`, unsupported: 'navigate' } }, 409);
+        navs.push({ client: request.client, build: b.id, location: request.location });
+        BUILDS = BUILDS.map(x => x.id === b.id ? { ...x, status: { ...(x.status ?? {}), location: request.location } } : x);
+        log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+        save();
+        return send({ ok: { navigated: true, build: b.id, seq: navs.length } });
+      }
       if (request.method === 'inspect') {
         // Below write a refresh reads the selection each build last reported, asking no build again
         // and moving no inspect mode (ruling 5), as the server answers it.
@@ -266,7 +296,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
         pins += 1;
         // Each record replaced, never edited: an event logged before keeps
         // what it said.
-        BUILDS = BUILDS.map(b => ids.includes(b.id) ? { ...b, pin: request.method === 'preview' ? { mode: { [request.axis]: request.value } } : request.pin, pinRevision: pins, pinBy: request.client } : b);
+        BUILDS = BUILDS.map(b => ids.includes(b.id) ? { ...b, pin: request.method === 'preview' ? { mode: { [request.axis]: request.value } } : request.pin, pinRevision: pins, pinBy: request.client, ...(String(b.id).startsWith('copy-') ? { status: { ...copyFacts(b, request.pin), revision: pins } } : {}) } : b);
         log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
         save();
         return send({ ok: { builds: ids, revision: pins } });
@@ -426,6 +456,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
       paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; SCALE = false;
+      copyDelays = {}; noNavigate = []; navs.length = 0;
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;
@@ -447,6 +478,28 @@ Bun.serve({ hostname, port: Number(port), routes: {
       return send({ ok: true });
     },
   },
+  '/__stub/copies': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      const body = await req.json().catch(() => ({}));
+      PAGE = `http://127.0.0.1:${copies.port}`;
+      copyDelays = body.delays ?? {};
+      noNavigate = body.noNavigate ?? [];
+      return send({ ok: true });
+    },
+  },
+  // The person moving one copy (its page reports a new location).
+  '/__stub/move': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      const { build, location } = await req.json().catch(() => ({}));
+      BUILDS = BUILDS.map(x => x.id === build ? { ...x, status: { ...(x.status ?? {}), location } } : x);
+      log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+      save();
+      return send({ ok: true });
+    },
+  },
+  '/__stub/navs': { GET: (req) => (driver(req) ? send({ navs }) : send({ message: 'Not found.' }, 404)) },
   '/__stub/page': {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
@@ -517,6 +570,23 @@ Bun.serve({ hostname, port: Number(port), routes: {
       for (const e of body.events ?? [body]) take(e);
       save();
       return send({ ok: true });
+    },
+  },
+} });
+// The copies' dev loop: its own origin (hello's page is never the tool's
+// server's), whose root is a copy's page and which takes its registration.
+const copies = Bun.serve({ hostname, port: 0, routes: {
+  '/': { GET: () => new Response(COPY_PAGE, { headers: { 'content-type': 'text/html' } }) },
+  '/__stub/copy': {
+    POST: async (req) => {
+      const name = String((await req.json().catch(() => ({}))).name ?? '');
+      if (!/^exact-copy-\d{1,2}$/.test(name)) return send({ id: null });
+      await new Promise(ok => setTimeout(ok, copyDelays[name] ?? 0));
+      const id = `copy-${name.slice('exact-copy-'.length)}`;
+      BUILDS = BUILDS.filter(b => b.id !== id).concat([copyBuild(id, name)]);
+      log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+      save();
+      return send({ id });
     },
   },
 } });

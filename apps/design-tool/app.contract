@@ -61,6 +61,25 @@ shape Canvas
 shape CanvasIn
   entered: bool
 
+// One live copy of several (LLP 1122 T7): its frame's name, what it shows
+// (a mode and text size, or a state), the page it frames, the build its
+// page said it is, that build's facts as it reports them, and what is
+// wrong, if anything.
+shape GridTile
+  name: string
+  label: string
+  src: string
+  build: string
+  ready: bool
+  facts: string
+  note: string
+
+shape Grid
+  ok: bool
+  error: string
+  note: string
+  tiles: GridTile[]
+
 shape Client
   client: string
   name: string
@@ -721,6 +740,19 @@ component DesignTool
   derive pinAxes = file == "" ? design.axes : appAxes.axes
   derive pinFontOk = pinFont == 0 or (pinFont >= 4 and pinFont <= 64)
   resource changes = waitChanges(since, epoch, asks, client) as shape Changes else empty(ok=true)
+  // Several live copies (LLP 1122 T7): one copy, a grid of modes, or the
+  // selected view's states side by side; the axis the grid's dark copies
+  // vary, its larger text size, how many copies, and whether a copy moved
+  // leads the others. The copies frame the dev loop's page (paired: the
+  // gateway's, once entered), and are read each second while shown.
+  state canvasView = "one"
+  state gridAxis = ""
+  state gridLarge = 22 persist
+  state gridCap = 6 persist
+  state gridMirror = true
+  state gridPoll = 0
+  derive gridPage = hello.local ? hello.frame : (canvasAt.frame != "" and canvasAt.frame.indexOf("#g=") < 0 ? canvasAt.frame : "")
+  resource gridAt = loadGrid(client, canvasView, gridAxis, gridLarge, gridCap, gridPage, gridMirror, canWrite, gridPoll, changes.answer) as shape Grid else empty(ok=true)
   // The design file shown ("": the app's own), a group's "more" opened,
   // and the two tokens whose contrast is shown.
   state file = ""
@@ -854,6 +886,8 @@ component DesignTool
   // (its own count: the poll's answers would put it off for ever).
   task watchCanvas when canvasAt.frame.indexOf("#g=") >= 0 and (canvasPolled != canvasKey or canvasPollsLeft > 0) and not pending(canvasIn) and not pending(canvasAt) key=canvasPoll
     after(1000, pollCanvas)
+  task watchGrid when canvasView != "one" and gridPage != "" and not pending(gridAt) key=gridPoll
+    after(1000, pollGrid)
   task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
     after(3000, reloadClients)
 
@@ -885,6 +919,18 @@ component DesignTool
     canvasPolled = canvasKey
   action reloadCanvas
     canvasTick = canvasTick + 1
+  action pollGrid
+    gridPoll = gridPoll + 1
+  action chooseCanvasView(v: string)
+    canvasView = v
+  action chooseGridAxis(v: string)
+    gridAxis = v
+  action chooseGridLarge(v: string)
+    gridLarge = match parseNumber(v) { case some(n) => n, case none => 0 }
+  action chooseGridCap(v: string)
+    gridCap = match parseNumber(v) { case some(n) => n, case none => 6 }
+  action toggleGridMirror(checked: bool)
+    gridMirror = checked
   action reloadClients
     clientsTries = clientsTries + 1
     refresh clients
@@ -1465,6 +1511,10 @@ component DesignTool
             column gap=8 testId="canvas"
               row gap=8 align-items="center"
                 text "Canvas" role="heading" aria-level=2 flex=1
+                select value=canvasView change=chooseCanvasView aria-label="Copies shown" testId="canvas-view"
+                  option "One copy" value="one"
+                  option "Grid of modes" value="grid"
+                  option "States side by side" value="states"
                 select value=canvasSize change=chooseCanvasSize aria-label="Canvas size" testId="canvas-size"
                   option "Phone" value="phone"
                   option "Tablet" value="tablet"
@@ -1477,8 +1527,11 @@ component DesignTool
                 if canvasAt.frame != ""
                   button press=reloadCanvas disabled=pending(canvasAt) buttonStyle="bordered" testId="canvas-reload"
                     text "Reload Canvas"
-                if canvasAt.frame != "" and not pending(canvasAt)
+                // (Several copies once the one entry frame has entered: they load the gateway's pages on its session.)
+                if canvasAt.frame != "" and not pending(canvasAt) and (canvasView == "one" or canvasAt.frame.indexOf("#g=") >= 0)
                   iframe src=canvasAt.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+                else if canvasAt.frame != "" and not pending(canvasAt)
+                  text "" display="none"
                 else
                   row gap=8 align-items="center" flex-wrap="wrap"
                     text (canvasAt.error != "" ? canvasAt.error : "The canvas comes through the design server's gateway.") color="-exact-secondary-label" flex=1 testId="canvas-remote-none"
@@ -1486,11 +1539,45 @@ component DesignTool
                       button press=reloadCanvas disabled=pending(canvasAt) buttonStyle="bordered" testId="canvas-retry"
                         text "Try Again"
               else if hello.page != ""
-                iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+                if canvasView == "one"
+                  iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
               else
                 column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
                   text "No app running" role="heading" aria-level=3
                   text "The canvas shows the app from its dev loop. Start one (bun exact.mjs web, in the app's directory), then open the tool through it: bun exact.mjs tamber tool --via <its URL>. Stop this tool first: it holds the design server, and --via refuses while it runs." color="-exact-secondary-label" testId="no-app-how"
+              // Several live copies (LLP 1122 T7), each its own build: pinned to its
+              // mode and text size, or holding the selected view's state.
+              if canvasView != "one"
+                column gap=8 testId="grid-section"
+                  if canvasView == "grid"
+                    row gap=8 align-items="center" flex-wrap="wrap" testId="grid-controls"
+                      select value=gridAxis change=chooseGridAxis aria-label="Dark copies vary" testId="grid-axis"
+                        option "The first axis" value=""
+                        for a in pinAxes key = a.name
+                          option a.name value=a.name
+                      input type="number" min=4 max=64 value=(gridLarge > 0 ? `${gridLarge}` : "") placeholder="px" change=chooseGridLarge aria-label="Larger text size" width=80 testId="grid-large"
+                      select value=`${gridCap}` change=chooseGridCap aria-label="How many copies" testId="grid-cap"
+                        option "4 copies" value="4"
+                        option "6 copies" value="6"
+                        option "8 copies" value="8"
+                      row gap=4 align-items="center"
+                        input type="checkbox" checked=gridMirror change=toggleGridMirror aria-label="Mirror navigation" testId="grid-mirror"
+                        text "Mirror navigation"
+                  text "Copies share this app's data: a write in one shows in the others, and mirrored navigation replays no actions." color="-exact-secondary-label" font="-exact-footnote" testId="grid-shared"
+                  if not canWrite
+                    text "Pins and holds need write scope: each copy shows the app's own mode." color="-exact-secondary-label" font="-exact-footnote" testId="grid-scope"
+                  if gridPage == ""
+                    text (hello.local ? "No app running: the copies frame its dev loop's page." : "The copies come through the gateway once the canvas has entered.") color="-exact-secondary-label" testId="grid-none"
+                  if gridAt.note != ""
+                    text gridAt.note color="-exact-secondary-label" testId="grid-note"
+                  if gridAt.error != ""
+                    text gridAt.error color="-exact-system-red" testId="grid-error"
+                  row gap=12 flex-wrap="wrap" align-items="flex-start" testId="grid"
+                    for t in gridAt.tiles key = t.name
+                      column gap=4 testId=`grid-tile-${t.name}`
+                        text t.label font="-exact-headline" testId=`grid-label-${t.name}`
+                        iframe name=t.name src=t.src width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId=`grid-frame-${t.name}`
+                        text (t.note != "" ? t.note : t.facts) color=(t.note != "" ? "-exact-system-orange" : "-exact-secondary-label") font="-exact-caption1" max-width=390 testId=`grid-note-${t.name}`
             // The builds (LLP 1122 D4): every running copy, its effective
             // facts from its own report, and pins, which last while the tool
             // runs (its long poll names it) and are handed back when it stops.

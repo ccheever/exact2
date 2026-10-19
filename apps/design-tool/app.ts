@@ -14,6 +14,7 @@ import { componentsOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
+import { gridSources } from './grid';
 import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
@@ -327,7 +328,7 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
 // gap, a new run), then the build events. Each with the revision of the
 // last pin frame it was sent (`pinRevision`, whoever sent it), and the last
 // command it could not apply, kept while that pin is its pin.
-type BuildState = { id: string; host: string; status: any; plan: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding };
+type BuildState = { id: string; host: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding };
 let buildsNow = new Map<string, BuildState>();
 // The latest selection (the server's join, LLP 1122 D5) with what it was
 // made under; a stale one stays stale until a fresh selection (a reload back
@@ -371,7 +372,7 @@ const buildOf = (b: any, was?: BuildState): BuildState => {
   if (note) holdNotes.set(id, note); else holdNotes.delete(id);
   // Another hold, none, or a new frame of the same one (its report forgotten at the server): asked afresh.
   if (!sameHold(holding.hold, was?.holding.hold) || (holding.hold && was?.holding.held && !holding.held)) { forgetHeld(id); asked.delete(id); }
-  return { id, host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding };
+  return { id, host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, planDigest: typeof b.planDigest === 'string' ? b.planDigest : was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding };
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
@@ -616,6 +617,7 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 
 const sources: Sources = {
   ...pairingSources(call, pairWith, remote),
+  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes),
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };
