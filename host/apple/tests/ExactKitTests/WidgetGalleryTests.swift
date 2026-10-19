@@ -9,6 +9,61 @@ import ExactSnapshot
 
 @MainActor
 final class WidgetGalleryTests: XCTestCase {
+    func testActivityAgentUsesTheGalleryRegionWidthForTreeAndScreenshot() throws {
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let plan = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_EDGES_PLAN"]))
+        let directory = plan.deletingLastPathComponent().appendingPathComponent("agent-regions-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("plans"), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: plan, to: directory.appendingPathComponent("plans/edges.plan"))
+        try Data("[{\"kind\":\"edges\",\"preview\":{\"title\":\"Private label\"}}]".utf8).write(to: directory.appendingPathComponent("plans/activities.json"))
+        let app = ExactApp.shared, previous = app.assetRoot
+        defer { app.assetRoot = previous; try? FileManager.default.removeItem(at: directory) }
+        app.assetRoot = directory
+        for width in [CGFloat(402), 800] {
+            let session = ExactSession(app: app, label: "agent-regions", launchPlace: LaunchPlace(environment: ["EXACT_AGENT":"1"]))
+            session.clock = 0
+            defer { session.destroy() }
+            XCTAssertNil(session.boot(plan: try fixturePlan("PAGE_EDGES"), size: CGSize(width: width, height: 900)).error)
+            let agent = Agent(session: session)
+            for placement in [ActivityPlacement.minimal, .compactTrailing] {
+                let address = ["entry":"edges", "placement":placement.name]
+                let tree = ActivityAgent.answer("tree", request: ["activity":address], agent: agent)
+                XCTAssertNil(tree["error"])
+                let preview = try XCTUnwrap(agent.activityPreview)
+                let gallery = ActivityGalleryView(preview: preview, width: session.viewportSize.width - 32)
+                let region = gallery.regionWidth(placement)
+                let nodes = try XCTUnwrap(tree["nodes"] as? [[String:Any]])
+                if placement == .minimal {
+                    let text = nodes.flatMap { ($0["lines"] as? [[String:Any]])?.compactMap { $0["text"] as? String } ?? [] }
+                    XCTAssertEqual(text, ["Thin"], "minimal uses its Island proposal on a phone and a wide Mac window")
+                } else {
+                    let frame = try XCTUnwrap(nodes.first?["frame"] as? [String:CGFloat])
+                    XCTAssertEqual(try XCTUnwrap(frame["w"]), region, accuracy: 0.01, "the percentage root uses the region width")
+                }
+                let path = directory.appendingPathComponent("\(Int(width))-\(placement.name).png").path
+                let shot = ActivityAgent.answer("screenshot", request: ["activity":address, "path":path], agent: agent)
+                XCTAssertNil(shot["error"])
+                XCTAssertEqual(try XCTUnwrap(shot["w"] as? Int), Int((region + 2 * gallery.geometry.compactInset).rounded(.up)))
+                let source = try XCTUnwrap(CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil))
+                let actual = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+                let expected = ImageRenderer(content: gallery.compactPlacement(placement)); expected.scale = 1
+                let reference = try XCTUnwrap(expected.cgImage)
+                XCTAssertEqual(actual.width, reference.width); XCTAssertEqual(actual.height, reference.height)
+                XCTAssertEqual(rgba(actual), rgba(reference), "the screenshot draws the gallery region the tree measured")
+            }
+        }
+    }
+
+    private func rgba(_ image: CGImage) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return bytes
+    }
+
     func testCaltrainGalleryListsOnlyItsPlatformFamilies() throws {
         let plan = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_TRAINS_PLAN"]))
         let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: plan.deletingLastPathComponent().appendingPathComponent("entries/caltrain/app.json"))) as! [String: Any]

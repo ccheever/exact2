@@ -288,6 +288,23 @@ struct ActivityGalleryView: View {
     private var dark: Bool { preview.scheme == "dark" }
     /// The expanded regions' inner width at this gallery width.
     var expandedInner: CGFloat { width - geometry.expandedInsets.leading - geometry.expandedInsets.trailing }
+    func regionWidth(_ placement: ActivityPlacement) -> CGFloat {
+        let margins = ActivityPlacementView.platformMargins
+        switch placement {
+        case .lockScreen: return max(1, width - margins.leading - margins.trailing)
+        case .minimal: return max(1, geometry.obstruction.height - 2 * geometry.compactInset)
+        case .compactLeading, .compactTrailing:
+            return max(1, (width - geometry.obstruction.width - geometry.obstruction.height - 16 - 2 * geometry.compactInset) / 2)
+        default: return expandedFrames().all[placement.rawValue - ActivityPlacement.expandedLeading.rawValue].width
+        }
+    }
+    func compactRegion(_ placement: ActivityPlacement) -> some View {
+        preview.view(placement).frame(width: regionWidth(placement), alignment: placement == .compactTrailing ? .trailing : .leading)
+    }
+    func compactPlacement(_ placement: ActivityPlacement) -> some View {
+        compactRegion(placement).padding(geometry.compactInset)
+            .background(Color.black).clipShape(Capsule()).environment(\.colorScheme, .dark)
+    }
     /// The frames the expanded regions take at this width, from the
     /// driver's ideal sizes: what the stand-in places, for a test to read.
     func expandedFrames() -> ExpandedArrangement.Frames {
@@ -311,7 +328,7 @@ struct ActivityGalleryView: View {
     /// `activityBackgroundTint` (iOS only), its gradients the view paints,
     /// and, unsaid, the scheme's material.
     var lockScreen: some View {
-        let laid = try? preview.render.layout(.lockScreen, width: width - 2 * ActivityPlacementView.platformMargins.leading, height: nil)
+        let laid = try? preview.render.layout(.lockScreen, width: regionWidth(.lockScreen), height: nil)
         let tint = laid.flatMap { SnapshotActivity.background(of: $0, dark: dark).tint }
         return preview.view(.lockScreen)
             .frame(width: width)
@@ -338,12 +355,12 @@ struct ActivityGalleryView: View {
         let inset = geometry.compactInset
         return HStack(spacing: 16) {
             HStack(spacing: 0) {
-                preview.view(.compactLeading).padding(EdgeInsets(top: inset, leading: inset, bottom: inset, trailing: 0))
+                compactRegion(.compactLeading).padding(EdgeInsets(top: inset, leading: inset, bottom: inset, trailing: 0))
                 Color.clear.frame(width: geometry.obstruction.width, height: geometry.obstruction.height)
-                preview.view(.compactTrailing).padding(EdgeInsets(top: inset, leading: 0, bottom: inset, trailing: inset))
+                compactRegion(.compactTrailing).padding(EdgeInsets(top: inset, leading: 0, bottom: inset, trailing: inset))
             }
             .background(Color.black).clipShape(Capsule())
-            preview.view(.minimal)
+            compactRegion(.minimal)
                 .padding(inset).frame(minWidth: geometry.obstruction.height, minHeight: geometry.obstruction.height)
                 .background(Color.black).clipShape(Capsule())
         }

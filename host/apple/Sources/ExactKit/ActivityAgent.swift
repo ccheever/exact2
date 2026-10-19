@@ -15,8 +15,7 @@ struct ActivityAddressView: View {
         if placement == "expanded" { ActivityGalleryView(preview: preview, width: width).expanded }
         else if placement == "lockScreen" { ActivityGalleryView(preview: preview, width: width).lockScreen }
         else if let slot = ActivityPlacement(name: placement) {
-            preview.view(slot).padding(IslandGeometry.iPhone17Pro.compactInset)
-                .background(Color.black).environment(\.colorScheme, .dark)
+            ActivityGalleryView(preview: preview, width: width).compactPlacement(slot)
         }
     }
 }
@@ -68,7 +67,7 @@ enum ActivityAgent {
                 case "tree":
                     var nodes: [[String: Any]] = [], roots: [UInt32] = []
                     for (index, slot) in slots.enumerated() {
-                        let slotWidth = placement == "expanded" ? frames[index].width : slot.hasMargins ? width - 28 : width
+                        let slotWidth = placement == "expanded" ? frames[index].width : gallery.regionWidth(slot)
                         guard let laid = preview.render.laidOut(slot, proposal: ProposedViewSize(width: slotWidth, height: nil)) else { continue }
                         roots.append(laid.root.id)
                         func visit(_ id: UInt32, parent: UInt32?, depth: Int) {
