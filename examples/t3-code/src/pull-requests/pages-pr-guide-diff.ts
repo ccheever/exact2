@@ -9,6 +9,7 @@ import { filesOf, presentCode, prCodeLocal } from './pages-pr-code';
 import { codeRows, type CodeItem } from './pages-pr-code-rows';
 import { renderablePatch, reviewPositionAnchor, type PullRequestReviewPosition } from './pages-pr-code-logic';
 import { expandRange, type Expansion } from '../diff/diff-lazy';
+import { markDiffRows } from '../diff/diff-find';
 import { pullRequestReviewKey, pullRequestReviewStore } from './pages-pr-writes-logic';
 import type { WriteReference } from './pages-pr-writes';
 import { hiddenCount } from './pages-pr-code-rows';
@@ -45,7 +46,7 @@ export function presentGuideDiff(ctx: { client: T3Client; reference: GuideRefere
       const rendered = codeRows({ files: [file], layout: 'stacked', foldOverride: 'expanded', toggled: new Set(), viewedMark: () => '', omitted: new Map(),
         annotations: () => ({ threads: [], pending: pending.filter(item => item.path === path).map(item => ({ id: item.id, body: item.body, position: item.position as PullRequestReviewPosition })), draft: draft ? { position: draft.position, label: `${path}:${reviewPositionAnchor(draft.position).line}` } : null }),
         selection: draft ? { path, range: draft.range } : code.selection, contents: loaded ? { [expansionPrefix]: loaded } : {}, contentsKey: () => expansionPrefix, expansions: state.expansions });
-      card.items = rendered.items.filter(item => item.kind !== 'pr-file' && item.kind !== 'pad' && (full || card.expandable || item.kind !== 'gap')).map(item => ({ ...item, id: `${id}:${item.id}` }));
+      card.items = markDiffRows(rendered.items, code.find).items.filter(item => item.kind !== 'pr-file' && item.kind !== 'pad' && (full || card.expandable || item.kind !== 'gap')).map(item => ({ ...item, id: `${id}:${item.id}` }));
       if (!full) {
         for (const item of card.items) {
           if (item.kind !== 'line') continue;

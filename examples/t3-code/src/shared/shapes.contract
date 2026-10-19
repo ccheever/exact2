@@ -112,7 +112,6 @@ shape Activity
   linkTitle: string
   linkThreadId: string
 shape Message
-  secret: SecretCardView[]
   id: string
   kind: string
   title: string
@@ -169,6 +168,7 @@ shape Message
   attachFiles: MessageFile[]
   // Code font/size, word wrap and the message's chips (message-chips.ts).
   md: MarkdownEnv
+  secret: SecretCardView[]
 shape Provider
   id: string
   name: string
