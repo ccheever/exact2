@@ -175,8 +175,22 @@ async function archiveActivities(s, udid) {
     try {
       const {state} = await spring('foreground');
       if (state === 'notRunning') throw Error('the app exited while SpringBoard was showing');
-      // Activate the existing process without XCTest's wait for app quiescence.
-      simctl('launch', udid, resolveApp('caltrain').id);
+      if (state !== 'runningForeground') {
+        await spring('home');
+        let icon;
+        for (let page = 0; page < 3; page++) {
+          icon = (await spring('find', {label:'Caltrain'})).elements.find(n => n.frame[2] > 0 && n.frame[3] > 0);
+          if (icon) break;
+          if (page < 2) await spring('swipe', {point:[350,450], to:[50,450]});
+        }
+        if (!icon) throw Error('Caltrain’s Home Screen icon was not exposed on three pages');
+        await spring('tap', {point:[icon.frame[0] + icon.frame[2] / 2, icon.frame[1] + icon.frame[3] / 2]});
+        const deadline = performance.now() + 5000;
+        while ((await spring('foreground')).state !== 'runningForeground') {
+          if (performance.now() >= deadline) throw Error('Caltrain did not become foreground within 5 s of its icon tap');
+          await Bun.sleep(100);
+        }
+      }
       await Promise.race([s.state(), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('the app did not answer state within 5 s')), 5000); })]);
     } catch (error) { throw Error(`${context}: the agent session did not resume after Home/lock: ${error.message}`); }
     finally { clearTimeout(timer); }
