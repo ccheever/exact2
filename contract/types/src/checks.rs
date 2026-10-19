@@ -1352,7 +1352,9 @@ fn handler_action(
     };
     match scope.lookup(name) {
         Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(params))) => {
-            if !args.is_empty() && shapes.fns.contains_key(name) {
+            // A call with any count of arguments, `pick()` too: `infer`
+            // would type it as the fn.
+            if matches!(value, Expr::Call(..)) && shapes.fns.contains_key(name) {
                 let checked =
                     super::component::action_call(name, params, args, span, scope, shapes);
                 return Some(checked.map(|_| ()));

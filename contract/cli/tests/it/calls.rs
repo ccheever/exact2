@@ -1275,3 +1275,41 @@ fn a_childs_handler_naming_the_roots_action_is_refused_as_a_handler_not_typed_as
     press(&mut r, "pick");
     assert_eq!(text_of(&r, "v"), "x");
 }
+
+/// `press=pick()` is the action `pick()`, as `press=pick` is, though an app
+/// `fn pick` takes an argument: a local action, an action prop and an
+/// injected action alike.
+#[test]
+fn a_handler_called_with_no_arguments_is_the_action_not_the_fn() {
+    const FN: &str = "fn pick(n: number): number = n + 1\n";
+    let local = format!("{FN}component App\n  state v = 0\n  action pick\n    v = pick(v)\n  view\n    column\n      text `${{v}}` testId=\"v\"\n      button \"pick\" press=pick() testId=\"pick\"\n");
+    let mut r = boot(&local);
+    press(&mut r, "pick");
+    assert_eq!(text_of(&r, "v"), "1");
+    let prop = format!("{FN}component App\n  state v = 0\n  action bump\n    v = pick(v)\n  view\n    column\n      text `${{v}}` testId=\"v\"\n      Seg(pick=bump)\ncomponent Seg\n  props\n    pick: action\n  view\n    button \"pick\" press=pick() testId=\"pick\"\n");
+    let mut r = boot(&prop);
+    press(&mut r, "pick");
+    assert_eq!(text_of(&r, "v"), "1");
+    let inject = format!("{FN}component App\n  state v = 0\n  action bump\n    v = pick(v)\n  provide\n    pick = bump\n  view\n    column\n      text `${{v}}` testId=\"v\"\n      Seg()\ncomponent Seg\n  inject\n    pick: action\n  view\n    button \"pick\" press=pick() testId=\"pick\"\n");
+    let mut r = boot(&inject);
+    press(&mut r, "pick");
+    assert_eq!(text_of(&r, "v"), "1");
+    // An argument the parameterless action does not take is the handler's
+    // refusal (analyze's, which knows the event's payload), never the fn's.
+    let e = refused(&local.replace("press=pick()", "press=pick(1)"));
+    assert_eq!(e.id, "analyze-handler-arity", "{e}");
+}
+
+/// A child's `provide` is substituted with its props as its view is, so a
+/// provided value calling an action prop named like an app `fn` is the
+/// clash too: typed as the fn, lifted as the action's name.
+#[test]
+fn an_action_prop_named_like_an_app_fn_is_refused_where_a_provide_calls_it() {
+    let src = "fn pick(xs: string[], i: number): string = match xs.at(i) { case some(s) => s, case none => \"\" }\ncomponent App\n  state v = \"\"\n  action choose(s: string)\n    v = s\n  view\n    Seg(labels=[\"a\", \"b\"], pick=choose)\ncomponent Seg\n  props\n    labels: string[]\n    pick: action\n  provide\n    label = pick(labels, 0)\n  view\n    Leaf()\ncomponent Leaf\n  inject\n    label: string\n  view\n    text label\n";
+    let e = refused(src);
+    assert_eq!(e.id, "type-prop-hides-fn", "{e}");
+    assert_eq!(
+        e.message,
+        "rename the action prop `pick` (as in `onPick`) or `fn pick`: in `Seg` the call `pick(…)` at line 13 cannot be both the prop and the fn"
+    );
+}

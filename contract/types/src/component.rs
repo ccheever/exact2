@@ -508,8 +508,8 @@ fn hides_fn(c: &Component, p: &Param, ty: &Ty, kind: &str, shapes: &Shapes) -> O
     })
 }
 
-/// The first call of `name` in the component's derives, states or view that
-/// is not a handler's own (`press=name(…)`): a handler's arguments count,
+/// The first call of `name` in the component's derives, states, provides or
+/// view that is not a handler's own (`press=name(…)`): a handler's arguments count,
 /// as does a use's argument.
 fn expression_call(c: &Component, name: &str) -> Option<Span> {
     fn in_expr(e: &Expr, name: &str) -> Option<Span> {
@@ -573,6 +573,7 @@ fn expression_call(c: &Component, name: &str) -> Option<Span> {
     c.derives
         .iter()
         .chain(&c.states)
+        .chain(&c.provides)
         .find_map(|b| in_expr(&b.expr, name))
         .or_else(|| in_nodes(&c.view, name))
 }
