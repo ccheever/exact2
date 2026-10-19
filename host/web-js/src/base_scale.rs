@@ -48,15 +48,25 @@ pub fn named(plan: &Plan) -> Vec<&'static str> {
                 .map(|v| plan.str(v).trim()),
         );
     }
-    for b in &plan.bindings {
+    // Each binding's node's arm: the regions whose frames its code reads
+    // (`LoadItem`, `LoadBound`), innermost first.
+    let mut arms: Vec<Option<exact_plan::ArmsId>> = vec![None; plan.bindings.len()];
+    let looks = plan
+        .looks
+        .iter()
+        .map(|l| (l.bindings, plan.nodes[l.node.0 as usize].arm));
+    for (range, arm) in plan.nodes.iter().map(|n| (n.bindings, n.arm)).chain(looks) {
+        for b in range.iter() {
+            arms[b.0 as usize] = arm;
+        }
+    }
+    for (b, arm) in plan.bindings.iter().zip(arms) {
         let length = b.kind == BindingKind::Style
-            && StyleId::from_bit(u32::from(b.id)).is_some_and(|id| {
-                exact_kernel::style::theme::admits(exact_kernel::style::theme::Kind::Length, id)
-            });
+            && StyleId::from_bit(u32::from(b.id)).is_some_and(reads_length);
         if !length {
             continue;
         }
-        match returns(plan, plan.code(b.expr)) {
+        match returns(plan, plan.code(b.expr), arm) {
             Some(strings) => said.extend(
                 strings
                     .into_iter()
@@ -69,6 +79,26 @@ pub fn named(plan: &Plan) -> Vec<&'static str> {
         .filter(|n| every || said.contains(n))
         .filter(|n| !plan.theme.iter().any(|r| plan.str(r.name) == *n))
         .collect()
+}
+
+/// Whether row `id`'s codec reads a length: a base name the JS target
+/// resolves only there. The kernel's `theme::admits` takes a length token on
+/// every row that is no colour's or number's, keyword rows too
+/// (`color-scheme`, `font-style`, `dynamic-range-limit`), where the codec
+/// then refuses the length the name reads: so on such a row a base name is
+/// refused either way, and counting it would declare the scale in an app
+/// that never uses it (B2 round 1, theme2: a release unchanged by the
+/// scale). Asked of the codec itself, with `1px`.
+pub fn reads_length(id: StyleId) -> bool {
+    use exact_kernel::style::theme::{admits, Kind};
+    if !admits(Kind::Length, id) {
+        return false;
+    }
+    let mut probe = exact_kernel::StyleProps::default();
+    probe
+        .set_dynamic(id, &exact_kernel::StyleValue::Text("1px".into()))
+        .is_ok()
+        && probe.mask.has(id)
 }
 
 /// An abstract value of [`returns`]: the string constants it may be, or
@@ -128,7 +158,55 @@ impl Value {
 /// anything); `None` when it may be any string: read (a state, a param,
 /// data), computed (`Concat`, a call), or code this reading does not follow.
 /// A literal's leaves as lowering's `literal` reads them, on the bytecode.
-fn returns(plan: &Plan, code: &[u8]) -> Option<BTreeSet<u32>> {
+fn returns(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>) -> Option<BTreeSet<u32>> {
+    let out = walk(plan, code, arm, 0)?;
+    (!out.unknown).then_some(out.strings)
+}
+
+/// The region whose frame `depth` frames out of `arm` is (every region
+/// pushes one: a `when`'s, a `match`'s, an `each`'s), when the plan says.
+fn region_at(
+    plan: &Plan,
+    arm: Option<exact_plan::ArmsId>,
+    depth: u64,
+) -> Option<&exact_plan::RegionsRow> {
+    let mut region = &plan.regions[plan.arms.get(arm?.0 as usize)?.region.0 as usize];
+    for _ in 0..depth {
+        region = &plan.regions[plan.arms.get(region.arm?.0 as usize)?.region.0 as usize];
+    }
+    Some(region)
+}
+
+/// What a frame `depth` out of `arm` holds, typed by its region's subject:
+/// an `each`'s item, the elem of its list; a `match`'s bound value, the
+/// elem of its option. Unknown where the plan does not say (`nested` caps a
+/// subject read through other frames).
+fn frame_value(
+    plan: &Plan,
+    arm: Option<exact_plan::ArmsId>,
+    depth: u64,
+    kind: exact_plan::RegionKind,
+    nested: u8,
+) -> Value {
+    let elem = || {
+        let region = region_at(plan, arm, depth).filter(|r| r.kind == kind)?;
+        let subject = walk(plan, plan.code(region.subject), region.arm, nested + 1)?;
+        let t = &plan.types[subject.ty?.0 as usize];
+        let wants = match kind {
+            exact_plan::RegionKind::Each => exact_plan::TypeKind::List,
+            _ => exact_plan::TypeKind::Option,
+        };
+        (t.kind == wants).then_some(t.elem).flatten()
+    };
+    match (nested < 8).then(elem).flatten() {
+        Some(elem) => Value::typed(plan, elem),
+        None => Value::unknown(),
+    }
+}
+
+/// [`returns`]' walk: the joined value `code` may return, its type where
+/// every way says one.
+fn walk(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>, nested: u8) -> Option<Value> {
     let program: Vec<_> = exact_runner::vm::instructions(code)
         .collect::<Result<_, _>>()
         .ok()?;
@@ -136,7 +214,7 @@ fn returns(plan: &Plan, code: &[u8]) -> Option<BTreeSet<u32>> {
     let mut seen: Vec<Option<(Vec<Value>, Vec<Value>)>> = vec![None; program.len()];
     let mut work = vec![0usize];
     seen[0] = Some((Vec::new(), Vec::new()));
-    let mut out = Value::default();
+    let mut out: Option<Value> = None;
     // Each instruction's state joined from every way in; one that grows is
     // walked again (a finite lattice: the body's constants).
     while let Some(i) = work.pop() {
@@ -184,11 +262,23 @@ fn returns(plan: &Plan, code: &[u8]) -> Option<BTreeSet<u32>> {
                 plan,
                 plan.resources.get(ins.args[0] as usize)?.ty,
             )),
-            Opcode::LoadParam
-            | Opcode::LoadItem
-            | Opcode::LoadBound
-            | Opcode::FailureResource
-            | Opcode::FailureMutation => stack.push(Value::unknown()),
+            Opcode::LoadItem => stack.push(frame_value(
+                plan,
+                arm,
+                ins.args[0],
+                exact_plan::RegionKind::Each,
+                nested,
+            )),
+            Opcode::LoadBound => stack.push(frame_value(
+                plan,
+                arm,
+                ins.args[0],
+                exact_plan::RegionKind::Match,
+                nested,
+            )),
+            Opcode::LoadParam | Opcode::FailureResource | Opcode::FailureMutation => {
+                stack.push(Value::unknown())
+            }
             Opcode::Field => {
                 let v = pop(&mut stack)?;
                 let record =
@@ -262,7 +352,11 @@ fn returns(plan: &Plan, code: &[u8]) -> Option<BTreeSet<u32>> {
             }
             Opcode::JumpIfNone => to.push(at(ins.args[0] as usize)?),
             Opcode::Return => {
-                out.join(stack.last()?);
+                let top = stack.last()?;
+                match &mut out {
+                    Some(out) => out.join(top),
+                    None => out = Some(top.clone()),
+                }
                 to.clear();
             }
             _ => return None,
@@ -290,7 +384,7 @@ fn returns(plan: &Plan, code: &[u8]) -> Option<BTreeSet<u32>> {
             }
         }
     }
-    (!out.unknown).then_some(out.strings)
+    out
 }
 
 /// A base name's custom property: `--exact-space-md`.

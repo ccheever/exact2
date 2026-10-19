@@ -397,7 +397,10 @@ pub fn map(
     // The base scale's names the plan names (LLP 1121 stage 11 B2), in a row
     // that takes a length: their properties (`base_scale`).
     let mut pairs = pairs;
-    if exact_kernel::style::theme::admits(Kind::Length, id) {
+    // (A row whose codec reads no length, a keyword row the kernel's
+    // `admits` still takes a length token on, gets none: the codec refuses
+    // a base name's length there anyway, `base_scale::reads_length`.)
+    if crate::base_scale::reads_length(id) {
         pairs.extend(crate::base_scale::pairs(plan, attribute));
     }
     // A text shadow is a colour channel a mode boundary writes again: a row

@@ -307,6 +307,13 @@ fn the_declared_bases_are_the_plans_length_reads() {
     // A string state bound to a length row may be any base an action sets.
     let (names, _) = declared("component App\n  state size = \"12px\"\n  view\n    column padding=size\n      text \"a\"\n");
     assert_eq!(names, all);
+    // A list item is typed by its list: a number one is no base, a string
+    // one may be any (and a keyword row whose codec reads no length, as
+    // `font-style`, counts none: `base_scale::reads_length`).
+    let (names, out) = declared("component App\n  state sizes = [12, 16]\n  state style = \"italic\"\n  view\n    column font-style=style\n      for s in sizes key=s\n        column padding=s\n          text \"a\"\n");
+    assert_eq!(names, Vec::<&str>::new(), "{}", out.css);
+    let (names, _) = declared("component App\n  state names = [\"space.md\"]\n  view\n    column\n      for n in names key=n\n        column padding=n\n          text \"a\"\n");
+    assert_eq!(names, all);
     // Plain text, a label, a literal length that is no base, a condition
     // over literals, a number state, a length built with a unit: no base
     // read, nothing declared or mapped (a release unchanged by the scale).

@@ -4957,20 +4957,27 @@ draws nothing new: stage 11 C draws and conforms on top.
       (`returns`, an abstract walk of the VM's stack);
     - each base name a length token aliases;
     - all nine when a length row's value may be any string, as lowering keeps every length token then
-      (`computed_measure`): a string-typed read (a state, a field, an each item, a param), a string call, or a
-      concatenation whose every part could be inside a base name (`"space." + size`). A read typed as a number or bool
-      is no base, nor is a concatenation with a part no base name holds (`w.toString() + "px"`).
+      (`computed_measure`): a string-typed read, a string call, or a concatenation whose every part could be inside a
+      base name (`"space." + size`). A read is typed by the plan: a state's, a derive's or a resource's type, a
+      record's field, an each item by its list's subject and a match's bound value by its option's (through the
+      region frames the node sits in); a param stays untyped. A read typed as a number or bool is no base, nor is a
+      concatenation with a part no base name holds (`w.toString() + "px"`).
+    - only rows whose codec reads a length (`base_scale::reads_length`, asked of the codec with `1px`), for the
+      declared set and the maps alike. The kernel's `admits` takes a length token on every row that is no colour's or
+      number's, keyword rows too (`color-scheme`, `font-style`, `dynamic-range-limit`), but there the codec refuses the
+      length a base name reads, so the base name is refused either way. This departs from `admits` only for such
+      values.
 
     The maps hold the same set, so a computed name finds its property. A text or a label that says `space.md` declares
     nothing. theme2 (B): declaring all nine where a name may be computed is safe, missing one is not. Tests in
     `base_scale_tests.rs`: `"space." + size` and a string state declare all nine and map each; plain text, a label, a
     condition over literals, a number state and a `+ "px"` length declare none; a literal row declares exactly its
     own, and one condition's leaf exactly its own; an alias declares its base (the earlier test). Release output
-    compared with d7eaafb72a (before B2) for 14 apps: 11 are byte-identical (hello, caltrain, messages, realworld,
-    theme-fixture, tamber-host, svg-gallery, interaction-gallery, motion-gallery, typetour, spark). design-tool,
-    color-gallery and markdown declare the nine: each binds a row the kernel's `admits` counts as taking a length
-    (`color-scheme`, `font-style`, `dynamic-range-limit`) to an each item's field or a string state, which this
-    reading can't type.
+    compared with d7eaafb72a's exact-web-js (before B2) for 14 apps: all 14 are byte-identical in app.js, app.css,
+    paint.js, names.js and pages.json (hello, caltrain, design-tool, messages, realworld, theme-fixture,
+    color-gallery, tamber-host, svg-gallery, interaction-gallery, motion-gallery, markdown, typetour, spark). Further
+    tests: a number list's item declares none and a string list's all nine, and a keyword row (`font-style`) bound
+    to a string state declares none.
   - **A real live edit on a page** (Astra 4). `base-scale-live.test.mjs` builds an app for development with
     `space.md = 40px` and `card.pad: length = space.md`, shows it in Chrome, and compiles the edit to `48px` as the dev
     loop does (`exact-web-js design`). It checks that the structure and shape hold and that both tokens change, sends
