@@ -4635,7 +4635,7 @@ ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
     leaves unset, since the kernel holds every column. One the design sets is kept only when read, as any token is.
   - **The monotonic test** (`style::scale` tests): within each look xs ≤ sm ≤ md ≤ lg ≤ xl and radius sm ≤ md ≤ lg,
     with radius.full left out.
-- **SCHEMA_DIGEST** moves once, in the stage's window: `0xad42_cc2d_c5b5_26f3` → `0x45a9_8459_9339_c7bf`
+- **SCHEMA_DIGEST** moves once, in the stage's window: `0xd348_8e13_baf4_12bd` (main, after 7ce6cb98db) → `0xc76c_20d0_6202_3b03` (on the branch's base before that rebase, `0xad42_cc2d_c5b5_26f3` → `0x45a9_8459_9339_c7bf`)
   (`kernel/src/wire/codec.rs`; the `scale` table, the metrics' terminal column and theme2's unit flag, `style length`.
   Rounds 1 and 2 pinned `0x374f_477d_d305_5b7e` before the flag, round 3 `0x1360_51a6_5170_bf6a` before the `calc()` guard, as `codec.rs` is hashed). Nothing else pins it.
 - **QUEUE:** "A Dynamic Type opt-in for the base scale" (ruling 6, the lead's assignment to this commit).
