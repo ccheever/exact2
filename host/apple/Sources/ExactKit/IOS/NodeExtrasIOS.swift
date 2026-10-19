@@ -339,7 +339,7 @@ extension NodeView {
     /// LLP 1121 D9).
     /// A field of the author's own (`appearance="none"`) is their box, and
     /// inherits as text does.
-    package var fieldInk: UIColor {
+    var fieldInk: UIColor {
         showsOwnTextColor || !isNativeTextControl ? color("text_color", SystemColor.canvasText) : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
     }
     /// `ownColor` as this node draws it now, or nil.

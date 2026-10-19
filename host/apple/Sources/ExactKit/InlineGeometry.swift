@@ -38,10 +38,14 @@ extension Runtime {
 }
 
 extension Presenter {
+    /// `rangeFrame` (LLP 1114.007): a textarea's UTF-16 range as TextKit
+    /// last laid it out, a plain one's or a Markdown one's source alike, in
+    /// viewport points; collapsed, the caret's rectangle. Nil past the
+    /// field's text, while text is marked, or when the field is hidden.
     func rangeFrame(_ id: UInt32, start: UInt32, end: UInt32) -> CGRect? {
-        guard start <= end, let node = views[id], node.window != nil, !node.isHidden,
+        guard start <= end, let node = views[id], node.window != nil, !node.isHidden, !node.fieldComposing,
               let field = node.textArea, end <= node.fieldText.utf16.count else { return nil }
-        var ancestor: PlatformView? = node
+        var ancestor: PlatformView? = field
         while let view = ancestor {
             if view.isHidden { return nil }
             ancestor = view.superview
@@ -53,18 +57,24 @@ extension Presenter {
               let range = NSTextRange(location: first, end: last) else { return nil }
         manager.ensureLayout(for: range)
         var result = CGRect.null
-        manager.enumerateTextSegments(in: range, type: .standard, options: [.rangeNotRequired]) { _, rect, _, _ in
+        // An empty range's `.selection` segment is the insertion point's.
+        manager.enumerateTextSegments(in: range, type: start == end ? .selection : .standard, options: [.rangeNotRequired]) { _, rect, _, _ in
             result = result.union(rect.offsetBy(dx: field.textContainerOrigin.x, dy: field.textContainerOrigin.y))
             return true
+        }
+        if result.isNull, start == end, let window = field.window {
+            let screen = field.firstRect(forCharacterRange: NSRange(location: Int(start), length: 0), actualRange: nil)
+            result = field.convert(window.convertFromScreen(screen), from: nil)
         }
         #else
         guard let first = field.position(from: field.beginningOfDocument, offset: Int(start)),
               let last = field.position(from: field.beginningOfDocument, offset: Int(end)),
               let range = field.textRange(from: first, to: last) else { return nil }
-        let result = start == end ? field.caretRect(for: first)
+        var result = start == end ? field.caretRect(for: first)
             : field.selectionRects(for: range).reduce(CGRect.null) { $0.union($1.rect) }
         #endif
         guard !result.isNull, !result.isInfinite else { return nil }
+        if start == end { result.size.width = 0 }
         return Agent.box(result, of: field, viewport: viewport)
     }
 
