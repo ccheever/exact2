@@ -822,7 +822,7 @@ component DesignTool
     after(3000, advance)
   // A clients read refused while the poll goes on is asked again, each 3 s
   // (its own count: the poll's answers would put it off for ever).
-  task watchCanvas when canvasAt.frame.indexOf("#g=") >= 0 and (canvasPolled != canvasKey or canvasPollsLeft > 0) and not pending(canvasIn) key=canvasPoll
+  task watchCanvas when canvasAt.frame.indexOf("#g=") >= 0 and (canvasPolled != canvasKey or canvasPollsLeft > 0) and not pending(canvasIn) and not pending(canvasAt) key=canvasPoll
     after(1000, pollCanvas)
   task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
     after(3000, reloadClients)

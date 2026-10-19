@@ -5,7 +5,12 @@
 import { expect, test } from 'bun:test';
 import { METHOD_SCOPE } from './tamber-pairing.mjs';
 import { above, doorOf, GONE, NEEDS, needOf, wire } from '../apps/design-tool/wire.ts';
-import { canvasFrame, pairingSources } from '../apps/design-tool/pairing.ts';
+import { canvasFrame, onCanvasWord, pairingSources } from '../apps/design-tool/pairing.ts';
+
+// Windows as a message's source: the tool's page (top), its canvas frame, a popup, a frame inside the canvas.
+const toolTop = {}, canvasWin = { top: toolTop, parent: toolTop }, popup = {}, nested = { top: toolTop, parent: canvasWin };
+popup.top = popup; popup.parent = popup;
+const word = (origin, source = canvasWin, type = 'exact-canvas-entered') => onCanvasWord({ origin, source, data: { type } });
 
 test('the tool\'s scope table is the server\'s, method for method', () => {
   expect(NEEDS).toEqual({ ...METHOD_SCOPE });
@@ -150,10 +155,14 @@ test('the canvas entry page\'s word (C2) from the minted canvas\'s origin alone 
   expect(first.frame).toBe(`https://192.168.1.20:7745/canvas/remote%3AAda%231/#g=${grant}`);
   expect((await src.canvasEntered(['remote:Ada#1', 'epoch-1', 0, 0])).entered).toBe(false);
   // Another origin, or another message, is not the entry page's word.
-  globalThis.dispatchEvent(new MessageEvent('message', { data: { type: 'exact-canvas-entered' }, origin: 'https://evil.example:7745' }));
-  globalThis.dispatchEvent(new MessageEvent('message', { data: { type: 'something-else' }, origin: 'https://192.168.1.20:7745' }));
+  word('https://evil.example:7745');
+  word('https://192.168.1.20:7745', canvasWin, 'something-else');
+  // Nor a window the canvas opened, nor a frame inside it, nor no window.
+  word('https://192.168.1.20:7745', popup);
+  word('https://192.168.1.20:7745', nested);
+  word('https://192.168.1.20:7745', null);
   expect((await src.canvasEntered(['remote:Ada#1', 'epoch-1', 0, 1])).entered).toBe(false);
-  globalThis.dispatchEvent(new MessageEvent('message', { data: { type: 'exact-canvas-entered' }, origin: 'https://192.168.1.20:7745' }));
+  word('https://192.168.1.20:7745');
   expect((await src.canvasEntered(['remote:Ada#1', 'epoch-1', 0, 2])).entered).toBe(true);
   // Asked for another tick (Reload, before its mint lands), not entered.
   expect((await src.canvasEntered(['remote:Ada#1', 'epoch-1', 1, 2])).entered).toBe(false);
@@ -176,10 +185,27 @@ test('a canvas mint a newer one overtook is kept nowhere: the canvas shown is th
   const src = pairingSources(call, async () => ({ ok: false, error: '', client: '', scope: '' }), () => 'https://192.168.1.20:7743');
   const older = src.loadCanvas([false, 'remote:Ada#1', 'epoch-2', 0, false]);
   const newer = await src.loadCanvas([false, 'remote:Ada#1', 'epoch-2', 1, false]);
-  release(); await older;
-  globalThis.dispatchEvent(new MessageEvent('message', { data: { type: 'exact-canvas-entered' }, origin: 'https://192.168.1.20:7745' }));
+  release();
+  expect(JSON.stringify(await older)).not.toContain('#g=');
+  word('https://192.168.1.20:7745');
   expect((await src.canvasEntered(['remote:Ada#1', 'epoch-2', 1, 0])).entered).toBe(true);
   expect((await src.loadCanvas([false, 'remote:Ada#1', 'epoch-2', 1, true])).frame).toBe('https://192.168.1.20:7745/');
   expect(newer.frame).toContain('#g=');
   expect(mints).toBe(2);
+});
+
+test('one mint a canvas key: a second ask for it (its word moving meanwhile) shares the first, and nothing brings the grant back after the word', async () => {
+  let mints = 0, release = () => {};
+  const slow = new Promise(ok => { release = ok; });
+  const call = async () => { mints += 1; await slow; return { error: '', reply: { ok: { url: 'https://192.168.1.20:7745/canvas/remote%3AAda%231/', grant: 'D'.repeat(43), expires: 0 } }, used: 'run-1' }; };
+  const src = pairingSources(call, async () => ({ ok: false, error: '', client: '', scope: '' }), () => 'https://192.168.1.20:7743');
+  const a = src.loadCanvas([false, 'remote:Ada#1', 'epoch-3', 0, true]), b = src.loadCanvas([false, 'remote:Ada#1', 'epoch-3', 0, false]);
+  release();
+  const [first, second] = await Promise.all([a, b]);
+  expect(mints).toBe(1);
+  expect(second.frame).toContain('#g=');
+  expect(JSON.stringify(first)).not.toContain('#g=');
+  word('https://192.168.1.20:7745');
+  expect((await src.loadCanvas([false, 'remote:Ada#1', 'epoch-3', 0, true])).frame).toBe('https://192.168.1.20:7745/');
+  expect(mints).toBe(1);
 });
