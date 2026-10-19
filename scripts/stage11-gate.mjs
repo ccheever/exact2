@@ -295,19 +295,13 @@ export function lines(opts) {
       return r.ok ? pass(...names.map(n => `design-tool test: ${n}`)) : fail(...names, r.out.split('\n').slice(-6).join(' / '));
     }],
     ['clone', 'The clone\'s space.header keeps its meaning (Q5), on a signed-out copy of its design', () => {
-      // A clone copy signed out (dt2-gate2 by default), its design copied
-      // here without its icon tokens (whose files the fold reads; they name
-      // no space), so nothing is signed in and nothing of the clone written.
+      // A clone copy signed out (dt2-gate2 by default), its design read in
+      // place: `tamber eval` writes nothing and signs nothing in.
       const from = join(opts.clone, 'app.tamber');
       if (!existsSync(from)) return waits(`a clone copy at ${opts.clone} (--clone)`);
-      const text = readFileSync(from, 'utf8');
-      const said = /^\s*space\.header\s*=\s*(\S+)/m.exec(text)?.[1];
+      const said = /^\s*space\.header\s*=\s*(\S+)/m.exec(readFileSync(from, 'utf8'))?.[1];
       if (!said) return waits(`the clone copy at ${opts.clone} names no space.header`);
-      const dir = join(WORK, 'clone');
-      rmSync(dir, { recursive: true, force: true });
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, 'app.tamber'), text.split('\n').filter(l => !/^\s+icon\.\S+\s*=/.test(l)).join('\n'));
-      const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'eval', join(dir, 'app.tamber')]);
+      const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'eval', from]);
       const got = /^space\.header = (\S+)/m.exec(r.out)?.[1];
       const evidence = [`the clone's app.tamber: space.header = ${said}; this checkout folds it to ${got ?? '(none)'}`];
       return r.ok && got === said ? pass(...evidence) : fail(...evidence, r.out.split('\n').slice(-4).join(' / '));
