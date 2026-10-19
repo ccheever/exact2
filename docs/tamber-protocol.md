@@ -125,7 +125,7 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
 | `/__tamber` | POST | one request, one reply |
 | `/__tamber/subscribe` | POST | the change stream, as server-sent events on the response |
 | `/__tamber/events` | POST | the change stream as a long poll, for a client whose `fetch` reads a whole body |
-| `/__tamber/tool/…` | GET, HEAD | the design tool's built files, to a local request only (*1.1*) |
+| `/__tamber/tool/…` | GET, HEAD | the design tool's built files, to a local request (*1.1*) and on the remote doors (stage 10 B) |
 
 - **The development gate runs first.** It answers 421 with an empty body to an unknown host, or to
   a browser POST whose `Origin` isn't the server's own (`scripts/install-page.mjs`).
@@ -225,8 +225,8 @@ statuses:
 - **The local token** is the local tool's only on a request the development gate calls local: a
   LAN peer holding it is no one (404).
 - **Off this machine** (stage 10 B's listener, or a tunnel the developer trusts) nothing is local:
-  no token page, no tool, and the local token is no one. A request reaches only
-  `POST /__tamber/pair` without a paired token.
+  no token page, and the local token is no one. Without a paired token a request reaches only
+  `POST /__tamber/pair`, and the design tool's own static files (no design is in them).
 - **`clients`** (the local token only) answers `{clients}`: the local token (`{client: "local",
   local: true, scope: "write"}`), then each paired client's `{client, name, scope, peer, created,
   expires, lastSeen}`. No token is ever listed.

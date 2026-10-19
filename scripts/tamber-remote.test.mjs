@@ -435,7 +435,10 @@ test('pairing end to end: the code names the doors and the fingerprint; the othe
     const minted = await local({ method: 'pair-code', scope: 'propose', name: 'laptop' });
     expect(minted.status).toBe(200);
     expect(minted.body.ok.remote).toEqual([{ origin, fingerprint }, { origin: `http://127.0.0.1:${tunnelPort}`, tunnel: true }]);
-    // The other machine, over TLS: the certificate is the one named, the code gives a token, the token works.
+    // The other machine, over TLS: it checks the certificate is the one named before it sends the code.
+    const { connect: tlsConnect } = await import('node:tls');
+    const seen = await new Promise(ok => { const s = tlsConnect({ host: '127.0.0.1', port, rejectUnauthorized: false }, () => { ok(s.getPeerCertificate().fingerprint256); s.end(); }); s.on('error', () => ok(null)); });
+    expect(seen).toBe(fingerprint);
     const paired = await send(true, port, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: minted.body.ok.code, name: 'laptop' }) });
     expect(paired.fingerprint).toBe(fingerprint);
     expect(paired.status).toBe(200);
@@ -444,8 +447,15 @@ test('pairing end to end: the code names the doors and the fingerprint; the othe
     const hello = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': paired_token, 'content-type': 'application/json' }, body: '{"method":"hello"}' });
     expect(hello.status).toBe(200);
     expect(JSON.parse(hello.text).ok.scope).toBe("propose");
-    // The local token is still nothing there.
-    expect((await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).status).not.toBe(200);
+    // Its scope holds there: no write, no local method.
+    const write = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': paired_token }, body: '{"method":"transaction","ops":[]}' });
+    expect([write.status, JSON.parse(write.text).error?.needs]).toEqual([403, 'write']);
+    const mint = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': paired_token }, body: '{"method":"pair-code","scope":"read"}' });
+    expect([mint.status, JSON.parse(mint.text).error?.needs]).toEqual([403, 'local']);
+    // The local token is still no one there.
+    const localThere = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' });
+    expect(localThere.status).toBe(404);
+    expect(localThere.text).not.toContain(token);
   } finally { await doors.close(); await wire.close(); }
 });
 
