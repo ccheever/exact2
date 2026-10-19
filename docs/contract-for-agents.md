@@ -3407,7 +3407,7 @@ browser's 16). A `text role="heading"` with no `font-size` or `font-weight` of
 its own is the platform's text style for its `aria-level` (LLP 1115 D3): 1
 `title1`, 2 (the default) `title2`, 3 `title3`, 4 and on `headline`, sized for
 the reader's Dynamic Type by Apple's own ramp (iOS at the default size:
-28/22/20/17 pt, the titles bold as a heading's emphasized style, `headline`
+28/22/20/17 pt, levels 1 and 2 bold and 3 semibold as Apple's emphasized titles, `headline`
 semibold; the Mac: 22/17/15/13, `headline` bold; the web reads the ramp at its
 16 px root: 27/21/19/16, in `rem`). So omit `font-size` on headings; a written
 `font-size` or `font-weight` on the heading wins, an inherited one does not.
