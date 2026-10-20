@@ -553,13 +553,6 @@ impl Lowerer<'_> {
             if crate::native::leftover(tag, a) {
                 continue;
             }
-            if a.name == "transform" && !element && tag != "svg" {
-                return err(
-                    "lower-attr-tag",
-                    crate::vocab::BOX_TRANSFORM_REFUSAL,
-                    a.span,
-                );
-            }
             // A `clipPath` by reference clips SVG elements (LLP 1055.000 D10);
             // a box's `clip-path` is a path.
             if matches!(tag, "text" | "tspan") && element && a.name == "rotate" {

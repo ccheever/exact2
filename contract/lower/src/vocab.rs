@@ -93,7 +93,10 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ),
     ("reachend", "`list virtualized=true` with one direct `each`"),
     ("text-transform", "any tag but `input` and `textarea`"),
-    ("transform", "SVG elements, including `svg` and SVG `text`"),
+    (
+        "transform",
+        "SVG elements, including `svg` and SVG `text`, with the whole property; a box takes a `translate`, `rotate`, `scale` list in that order, which lowers to those rows",
+    ),
     (
         "selectionchange",
         "`text`, plain text `input` or `textarea`",
@@ -124,8 +127,9 @@ pub fn collection_edge_refusal(event: &str) -> String {
     format!("`{event}` belongs to a virtualized list (LLP 1010): write `list virtualized=true` with one direct `each`. Only a non-empty collection has edges in its geometric window; a plain list lays out all its children and has no collection window to report an edge. For a plain feed or masonry, use the web's `intersect=` on a marker at the end of the content, after the columns (docs/reference.md, \"Intersection visibility\"):\nview intersect=loadMore intersect-margin=\"0px 0px 800px 0px\"\n  height=1")
 }
 
-/// LLP 1055.000 D5's box refusal and the alternatives printed by `contract vocab`.
-pub const BOX_TRANSFORM_REFUSAL: &str = "write the individual `translate`, `rotate` and `scale` properties on a box: `transform=\"translate(0px, 25px)\"` becomes `translate=\"0px 25px\"`, and `transform=\"scale(0.8)\"` becomes `scale=0.8`; `transform` on a box is deferred (LLP 1055.000 D5), and is accepted only on SVG elements";
+/// What `transform` is on a box (LLP 1055.000 D5), printed by `contract
+/// vocab` and, with a clause naming the value's own fault, as the refusal.
+pub const BOX_TRANSFORM_REFUSAL: &str = "`transform` on a box is the individual `translate`, `rotate` and `scale` properties: a value made of those functions, each at most once, in that order (CSS applies the rows translate, then rotate, then scale: CSS Transforms 2 §6.1) lowers to the rows it equals, so `transform=\"translate(0px, 25px)\"` is `translate=\"0px 25px\"`, `transform=\"scale(0.8)\"` is `scale=0.8`, and `transform=\"translate(10px) rotate(45deg) scale(1.5)\"` is all three; `none` is no row. The rest of the property is deferred on a box (LLP 1055.000 D5) and accepted only on SVG elements: `matrix`, a skew, a per-axis or 3D scale, a 3D function, a function repeated, functions in another order (`scale(2) translate(10px)` is not `translate(10px) scale(2)`), and a bound string the compiler cannot read";
 
 /// What a button with no `buttonStyle` is on each host (LLP 1115.000 D15,
 /// D14.5), in one sentence for both places that print it. The hosts hold the

@@ -3105,7 +3105,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Refused or misleading form | Accepted direction |
 | --- | --- |
 | `action save writes item` | Delete the clause; effects come from the body |
-| `transform` on a box, inline or through `class` (`lower-attr-tag`) | Box `transform` is deferred (LLP 1055.000 D5). Use `translate`, `rotate` and `scale`: `transform="translate(0px, 25px)"` becomes `translate="0px 25px"`; `transform="scale(0.8)"` becomes `scale=0.8`. SVG elements keep `transform`. |
+| `transform` on a box, inline or through `class`, beyond `translate`, `rotate` and `scale` in that order (`lower-attr-tag`) | A box `transform` that is those functions, each at most once, in CSS's individual-property order (translate, then rotate, then scale) lowers to the rows it equals: `transform="translate(0px, 25px) scale(0.8)"` is `translate="0px 25px" scale=0.8`; `none` is no row. The rest (`matrix`, skews, `scale(x, y)` with two factors, 3D functions, a function repeated or out of order, a bound string) is deferred (LLP 1055.000 D5): write the rows. A `transform` beside a `translate`, `rotate` or `scale` row on the same element is refused; keep one. SVG elements keep the whole property. |
 | Component `contract` assertions | Authored `test` blocks exercised by the driver |
 | `provide theme = value` around view children | Component `provide` section, wrapper component if needed |
 | `items[0]` | `first(items)` or `items.at(0)`, an option to `match` |

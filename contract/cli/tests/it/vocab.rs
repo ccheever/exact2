@@ -284,7 +284,7 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("reachstart", "view", "reachstart=done"),
         ("reachend", "view", "reachend=done"),
         ("text-transform", "input", "text-transform=\"uppercase\""),
-        ("transform", "view", "transform=\"scale(0.8)\""),
+        ("transform", "view", "transform=\"skewX(10deg)\""),
         ("selectionchange", "view", "selectionchange=done"),
         ("beforeinput", "view", "beforeinput=done"),
         ("name", "view", "name=\"station\""),

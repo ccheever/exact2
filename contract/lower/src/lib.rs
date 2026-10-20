@@ -21,6 +21,7 @@
 
 mod alert_parts;
 pub mod anatomy;
+mod box_transform;
 mod buttons;
 mod cells;
 mod class;

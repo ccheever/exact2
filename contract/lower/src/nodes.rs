@@ -129,6 +129,14 @@ impl Lowerer<'_> {
         let lengths =
             svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
         let expanded = lengths.as_deref().unwrap_or(expanded);
+        // A box's `transform` as the rows it equals (LLP 1055.000 D5's
+        // deferral keeps the rest), before `check_svg` reads the rows.
+        let boxed = crate::box_transform::lower(
+            tag,
+            svg::in_svg(self.svg_depth > 0, parent_tag),
+            expanded,
+        )?;
+        let expanded = boxed.as_deref().unwrap_or(expanded);
         self.check_svg(tag, parent_tag, expanded, *span)?;
         shorthands::check_text_box(tag, parent_tag, expanded)?;
         // @ref LLP 1034 §8 — an inline run paints in its paragraph's
