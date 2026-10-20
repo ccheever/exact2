@@ -510,14 +510,14 @@ fn caustics_net_the_lit_floor_and_leave_the_shadowed_floor_as_it_was() {
         constant.1 < 4. * plain.1,
         "a constant is no net: {constant:?}"
     );
-    assert!(
-        (shade.0 - shade_plain.0).abs() <= 0.05 * shade_plain.0,
-        "none in shadow: {shade:?} {shade_plain:?}"
-    );
     // Nor a pattern that keeps the mean: the shadowed patch is as even as without.
     assert!(
         shade.1 <= 1.05 * shade_plain.1 + 1e-6,
         "no net in shadow: {shade:?} {shade_plain:?}"
+    );
+    assert!(
+        (shade.0 - shade_plain.0).abs() <= 0.05 * shade_plain.0,
+        "none in shadow: {shade:?} {shade_plain:?}"
     );
 }
 
