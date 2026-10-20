@@ -155,6 +155,44 @@ describe('the composer against the reference\'s', () => {
     expect(view.composer.placeholder).not.toBe('Enable a provider in Settings to send a message');
     expect(view).toMatchObject({ providerDriver: 'codex', modelLabel: DEFAULT_MODEL });
   });
+  test.each(['p1', 'scratch', 'new-project'])('a new draft in %s carries the source thread provider when its binary is missing', async projectId => {
+    const { client, native, command } = await opened();
+    native.config.settings = { defaultModelSelection: null, defaultRuntimeMode: 'full-access' };
+    native.config.providers = [fixtureProvider('codex', 'codex', { installed: false, status: 'error', models: [], message: 'Codex binary is missing.' })];
+    client.config = native.config;
+    if (projectId !== 'p1') client.shell.projects.push({ id: projectId, title: projectId, workspaceRoot: `/${projectId}` });
+    await command('new-thread', projectId);
+    expect([client.projectId, client.threadId, client.providerId, client.modelId]).toEqual([projectId, '', 'codex', 'model-a']);
+    const view = snapshot(client);
+    expect(view).toMatchObject({ providerDriver: 'codex', modelLabel: DEFAULT_MODEL, providerBannerMessage: 'Codex binary is missing.', canSend: true });
+    expect(view.composer).toMatchObject({ noProvider: '', providerSetupId: '', runtimeLabel: 'Full access' });
+    expect(view.composer.placeholder).not.toBe('Enable a provider in Settings to send a message');
+    await command('send', '', 'Check the unavailable provider');
+    expect(native.committed.at(-1)).toMatchObject({ method: 'orchestration.launchThread', projectId,
+      modelSelection: { instanceId: 'codex', model: DEFAULT_MODEL } });
+  });
+  test.each(['missing', 'disabled', 'unavailable'])('a carried %s provider still requires setup', async state => {
+    const { client, native, command } = await opened();
+    client.config.settings = { defaultModelSelection: null };
+    client.config.providers = state === 'missing' ? [] : [fixtureProvider('codex', 'codex',
+      state === 'disabled' ? { enabled: false } : { availability: 'unavailable' })];
+    await command('new-thread', 'p1');
+    expect(composerSelection(client)).toMatchObject({ instanceId: '', noProviderAvailable: true, providerSetupInstanceId: 'codex' });
+    expect(snapshot(client).composer).toMatchObject({ noProvider: 'Open provider settings', placeholder: 'Enable a provider in Settings to send a message' });
+    await command('send', '', 'Cannot send');
+    expect(native.committed).toHaveLength(0);
+  });
+  test.each(['server', 'project', 'override'])("a %s default takes precedence over the source thread's provider", async scope => {
+    const { client, command } = await opened();
+    client.config.settings = { defaultModelSelection: null };
+    client.shell.projects.push({ id: 'p2', title: 'Destination', workspaceRoot: '/destination' });
+    const selection = { instanceId: 'claude', model: 'model-b' };
+    if (scope === 'server') obj(client.config.settings).defaultModelSelection = selection;
+    else if (scope === 'project') client.shell.projects.at(-1)!.defaultModelSelection = selection;
+    else obj(client.config.settings).projectSettingsOverrides = { p2: { defaultModelSelection: selection } };
+    await command('new-thread', 'p2');
+    expect(composerSelection(client)).toMatchObject({ instanceId: 'claude', model: 'model-b' });
+  });
   test('a stored model the catalog does not list shows and sends the instance default', async () => {
     const native = new Fake();
     (native.details.t1!.projection as Obj).thread = { ...(native.details.t1!.projection as Obj).thread as Obj, modelSelection: { instanceId: 'codex', model: 'gpt-5.4' } };

@@ -13,6 +13,7 @@ import { homeTarget } from '../pages/home-landing';
 import { obj, str, messages } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
 import { dismissPromptLink } from '../prompt-links/prompt-link-handler';
+import { carryNewThreadModelSelection } from '../composer/composer-provider-selection';
 
 /** Selection: a project, a new thread or a hero's carry, a thread, older history; Copy message; dismissing the thread error. */
 export async function threadOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
@@ -46,10 +47,12 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
       const carry = op.startsWith('pages:hero-') ? await heroCarry(this, op.slice(11), id, () => ensureScratchProject(this, native!)) : null;
       if (carry) id = carry.projectId;
       if (id && !this.shell.projects.some(project => project.id === id)) return true;
+      const modelSelection = carry ? null : carryNewThreadModelSelection(this, id || this.projectId);
       if (id && this.shell.projects.some(project => project.id === id)) this.projectId = id;
       this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
       delete this.subscriptions.thread;
       this.threadLive = true; this.diffOpen = false; this.answers = {}; this.chooseDefaults();
+      if (modelSelection) Object.assign(this, modelSelection);
       if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
       if (carry) heroLand(this, carry);
     } else if (op === 'select-thread') {
