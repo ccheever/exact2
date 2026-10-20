@@ -439,7 +439,8 @@ fn ir(
     let Ok(mut ir) = serde_json::from_str::<serde_json::Value>(&folding.ir()) else {
         return folding.ir();
     };
-    if !app.tokens.is_empty() {
+    // (as `describe` lists them: a library component with no params too, stage 12 D3)
+    if !app.tokens.is_empty() || app.library.iter().any(|(_, _, d)| d.library) {
         contract::tamber_params::hide(&mut ir);
         let design = exact_tamber::parse(src).ok();
         ir["components"] = contract::tamber_params::components(

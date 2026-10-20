@@ -55,7 +55,7 @@ fn components(s: &mut Serve) -> Vec<Value> {
 }
 
 #[test]
-fn describe_lists_a_library_components_parts_variants_and_each_params_winning_level() {
+fn describe_lists_a_library_components_parts_and_variants_and_resolve_each_params_level() {
     let dir = library(
         "describe-library",
         "tamber app\n\ntheme\n  lib.gap = 6px\n\nparams\n  Card.set = 10px\n",
@@ -139,17 +139,77 @@ fn describe_lists_a_library_components_parts_variants_and_each_params_winning_le
 }
 
 #[test]
-fn an_app_with_no_library_lists_no_parts() {
+fn a_local_component_or_a_public_packages_with_parts_is_no_library_one() {
+    // A local file's `Card` (with a param, so `components` is listed) and a public package's `Tile`, each
+    // naming parts: neither is an exported library component (LLP 1139 D0: a private package with a design).
     let dir = app(
         "describe-no-library",
         "tamber app\n\ntheme\n  other = 2px\n",
     );
     std::fs::write(
+        dir.join("card.contract"),
+        "component Card\n  params\n    pad: length = \"8px\"\n  parts\n    surface: space\n  view\n    column part=\"surface\" padding=\"param.pad\"\n      text \"c\"\n",
+    )
+    .unwrap();
+    let public = dir.join("node_modules/@acme/public");
+    std::fs::create_dir_all(&public).unwrap();
+    std::fs::write(
+        public.join("package.json"),
+        r#"{"name":"@acme/public","version":"1.0.0","exports":{".":"./index.contract"}}"#,
+    )
+    .unwrap();
+    std::fs::write(public.join("index.contract"), "component Tile\n  params\n    gap: length = \"4px\"\n  parts\n    face: space\n  view\n    column part=\"face\" gap=\"param.gap\"\n      text \"t\"\n").unwrap();
+    std::fs::write(
         dir.join("app.contract"),
-        "component App\n  view\n    text \"a\"\n",
+        "use Card from \"./card.contract\"\nuse Tile from \"@acme/public\"\n\ncomponent App\n  view\n    column\n      Card()\n      Tile()\n",
     )
     .unwrap();
     let mut s = Serve::start(&dir, &[]);
-    assert!(components(&mut s).iter().all(|c| c.get("parts").is_none()));
+    let all = components(&mut s);
+    let names: Vec<&str> = all.iter().map(|c| c["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Card", "Tile"], "{all:?}");
+    for c in &all {
+        assert!(
+            c.get("parts").is_none() && c.get("variants").is_none() && c.get("library").is_none(),
+            "{c}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_app_whose_only_library_component_has_no_params_lists_it_by_its_own_name() {
+    // No params anywhere: `components` is listed for the library's `Badge` alone, named `Badge` though the app
+    // has a `Badge` of its own (the compiler's renamed name never shown).
+    let dir = app(
+        "describe-badge-only",
+        "tamber app\n\ntheme\n  other = 2px\n",
+    );
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("package.json"), r#"{"name":"@acme/lib","version":"1.0.0","private":true,"exports":{".":"./index.contract"}}"#).unwrap();
+    std::fs::write(
+        lib.join("index.contract"),
+        "component Badge\n  parts\n    face: paint\n  view\n    text \"b\" part=\"face\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        lib.join("lib.tamber"),
+        "tamber lib\n\ntheme\n  lib.ink = #111111\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Badge as LibBadge from \"@acme/lib\"\n\ncomponent Badge\n  view\n    text \"mine\"\n\ncomponent App\n  view\n    column\n      LibBadge()\n      Badge()\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let all = components(&mut s);
+    assert_eq!(
+        all,
+        vec![
+            json!({"identity": "@acme/lib/index.contract#Badge", "name": "Badge", "params": [], "library": true, "parts": [{"name": "face", "groups": ["paint"], "slot": false}], "variants": []})
+        ],
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

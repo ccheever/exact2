@@ -460,7 +460,8 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     written, null where unwritten (D10), and `draws` (*1.12*): `{target: source}` for each target the
     app ships, the source that target draws (`sf`, `svg`) or null for none, by D10's rule (the one
     `tamber-icon-missing` checks).
-  - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params: each
+  - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params, or
+    it uses an exported library component (*1.15*): each
     component `{identity, name, params}`, its identity its declaring file and name
     (`post.contract#PostButton`); each param `{name, short, param, token, kind, default, values,
     range, step, control, options, label, help, group, priority}`. `name` is its full name

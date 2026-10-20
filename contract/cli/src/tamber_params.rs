@@ -499,10 +499,14 @@ pub fn components(
     // An exported library component's parts and variant props (LLP 1139 D5,
     // stage 12 D3, *1.15*), from C's IR, with params or without (one with
     // none listed with `params: []`).
-    for (identity, name, d) in app.library.iter().filter(|(_, _, d)| d.library) {
+    for (identity, _, d) in app.library.iter().filter(|(_, _, d)| d.library) {
         let at = match out.iter().position(|c| c["identity"] == identity.as_str()) {
             Some(i) => i,
             None => {
+                // (named from its identity, as one with params is: never the compiler's renamed `Badge__index`)
+                let name = identity
+                    .rsplit_once('#')
+                    .map_or(identity.as_str(), |(_, c)| c);
                 out.push(json!({"identity": identity, "name": name, "params": []}));
                 out.len() - 1
             }
