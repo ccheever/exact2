@@ -1,7 +1,7 @@
 // `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a state, derive or resource (or a field of the record)
 // reads by name, down a dotted path, as `expect state` does, even where a view carries the name; a plain view's is the record.
 import { test, expect } from 'bun:test';
-import { render, renderTrace, stateOp, tapRefusal, nextCommitTasks } from './agent-inspect.mjs';
+import { render, renderTrace, stateOp, tapRefusal, nextCommitTasks, settleBound } from './agent-inspect.mjs';
 
 test('log rendering skips canvas error rows and preserves journal order', () => {
   const error = { canvas: 7, error: 'journal unavailable' };
@@ -93,4 +93,11 @@ test('the tasks due a commit later are those within 1 ms of the clock', async ()
   const session = { state: async () => ({ tasks: { importLink: 1001, later: 1002, spent: null, past: 999, now: 1000, adopt: 1000.5 } }) };
   expect(await nextCommitTasks(session, 1000)).toEqual([['adopt', 1000.5], ['importLink', 1001]]);
   expect(await nextCommitTasks(session, 2000)).toEqual([]);
+});
+
+// Past its 16 rounds, `clock settle` is not settled while a task is still due a commit later, and names it.
+test('a settle that runs out of rounds says which tasks are still due', () => {
+  const r = settleBound([['chain', 17]]);
+  expect([r.settled, r.reason, r.tasks]).toEqual([false, 'tasks', { chain: 17 }]);
+  expect(r.diagnostic).toContain('`chain` is due again at 17 ms');
 });

@@ -729,6 +729,12 @@ export async function nextCommitTasks(session, now) {
   return tasks.filter(([, at]) => Number.isFinite(at) && at > now && at <= now + 1).sort((a, b) => a[1] - b[1]);
 }
 
+/** `clock settle`'s reply when tasks are still due a commit later after its 16 rounds: not settled, and which. */
+export function settleBound(soon) {
+  const names = soon.map(([name]) => `\`${name}\``).join(', ');
+  return { settled: false, reason: 'tasks', tasks: Object.fromEntries(soon), diagnostic: `clock settle ran 16 rounds of tasks due a commit later and ${names} ${soon.length > 1 ? 'are' : 'is'} due again at ${soon[0][1]} ms: a task that re-arms itself \`after(1, …)\` never settles; \`clock +N\` moves past it` };
+}
+
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
   if (error.transport || error.malformed) return error; // App state cannot explain malformed input or a failed transport.
