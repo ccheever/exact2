@@ -1,0 +1,104 @@
+// Variable Type: one variable font, Roboto Flex, set on two of its axes. The
+// pad's x is the type's width (`font-stretch`, the `wdth` axis, 50%–150%) and
+// its y the weight (`font-weight`, `wght`, 100–1000) and size. Each row slides
+// by half its own width, so the loop stays seamless however wide the type is.
+// After the Expo SDK 58 variable-font poster in react-native-motion
+// (LLP 1019 §13). assets/RobotoFlex.ttf is Roboto Flex cut to the poster's
+// letters, every axis kept: another word needs the whole font.
+
+font "Roboto Flex" = "assets/RobotoFlex.ttf"
+
+keyframes slide
+  to translate="-50% 0px"
+
+shape Viewport
+  width: number
+  height: number
+  prefersReducedMotion: bool
+
+// The pad's inner box and its handle, CSS px.
+fn padWidth(): number = 162
+fn padHeight(): number = 138
+fn handle(): number = 46
+
+fn unit(v: number): number = min(1, max(0, v))
+fn axisWeight(y: number): number = round(1000 - y * y * y * y * 900)
+fn axisWidth(x: number): number = round(50 + x * 100)
+
+// A row's word (a no-break space after it), started at a letter of its own,
+// repeated `copies` times.
+fn word(): string = "EXACT "
+fn start(row: number): number = (row * 7 + 3) % 6
+fn turned(row: number): string = word().slice(start(row)) + word().slice(0, start(row))
+fn rowText(row: number, copies: number): string = range(copies).map(c => turned(row)).join("")
+
+component VariableType
+  resource viewport = exactViewport() as shape Viewport
+  state x = 0.5
+  state y = 0.55
+  state dragging = false
+  derive frame = min(24, viewport.width * 0.025)
+  derive posterWidth = max(1, viewport.width - frame * 2)
+  derive posterHeight = max(1, viewport.height - frame * 2)
+  derive base = min(posterWidth * 0.42, posterHeight * 0.39)
+  derive smallest = max(base * 0.6, posterHeight / (12 * 0.76))
+  derive largest = max(smallest, min(base * 1.5, posterHeight / (2.2 * 0.76)))
+  derive size = largest - y * (largest - smallest)
+  derive weight = axisWeight(y)
+  derive width = axisWidth(x)
+  derive rows = ceil(posterHeight / (smallest * 0.76)) + 2
+  // Each half of a row is wider than the poster at the narrowest type.
+  derive copies = 2 * ceil(posterWidth / (smallest * 1.4) + 1)
+  derive described = `Width ${width}%, weight ${weight}`
+
+  action place(e: PointerEvent)
+    x = unit((e.offsetX - handle() / 2) / (padWidth() - handle()))
+    y = unit((e.offsetY - handle() / 2) / (padHeight() - handle()))
+  action press(e: PointerEvent)
+    dragging = true
+    x = unit((e.offsetX - handle() / 2) / (padWidth() - handle()))
+    y = unit((e.offsetY - handle() / 2) / (padHeight() - handle()))
+  action drag(e: PointerEvent)
+    if dragging
+      x = unit((e.offsetX - handle() / 2) / (padWidth() - handle()))
+      y = unit((e.offsetY - handle() / 2) / (padHeight() - handle()))
+  action release(e: PointerEvent)
+    dragging = false
+  action step(k: string, e: KeyboardEvent)
+    let by = e.shiftKey ? 0.1 : 0.025
+    if k == "ArrowLeft"
+      x = unit(x - by)
+    if k == "ArrowRight"
+      x = unit(x + by)
+    if k == "ArrowUp"
+      y = unit(y - by)
+    if k == "ArrowDown"
+      y = unit(y + by)
+    if k == "Home"
+      x = 0.5
+      y = 0.5
+
+  view
+    main testId="root" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" padding=frame background-color="#f2f1f3"
+      column testId="poster" position="relative" flex=1 min-height=0 border-radius=40 corner-shape="-exact-continuous" overflow="hidden" background-color="#2002f5"
+        column position="absolute" inset=0 role="img" aria-label="Rows of the word Exact in Roboto Flex, sliding left and right"
+          for r in range(rows) key=r
+            text rowText(r, copies) aria-hidden=true testId=`row-${r}`
+              position="absolute" left=0 top=((r - 0.8) * size * 0.76)
+              white-space="nowrap" color="#f2f1f3" font-family="Roboto Flex"
+              font-size=size font-weight=weight font-stretch=`${width}%` line-height=0.76 letter-spacing=(0 - size * 0.045)
+              animation=(viewport.prefersReducedMotion ? "none" : `slide 40s linear ${0 - ((r * 37) % 100) * 0.4}s infinite ${r % 2 == 0 ? "normal" : "reverse"}`)
+        column testId="pad" position="absolute" right=16 bottom=16 width=164 height=140 box-sizing="border-box"
+          border-radius=22 border="1px solid #cecbdf80" background-color="#2002f5" overflow="hidden"
+          touch-action="none" tabindex=0 role="slider" aria-label="Font width and weight"
+          aria-valuetext=described key=step pointerdown=press pointermove=drag pointerup=release
+          for t in range(7) key=t
+            box position="absolute" top=0 bottom=0 left=`${(t + 1) * 12.5}%` width=1 background-color="#cecbdf40"
+            box position="absolute" left=0 right=0 top=`${(t + 1) * 12.5}%` height=1 background-color="#cecbdf40"
+          column testId="handle" position="absolute" left=0 top=0 width=handle() height=handle() border-radius=23
+            border="1px solid #cecbdf80" background-color="#cecbdf18" align-items="center" justify-content="center"
+            translate=`${x * (padWidth() - handle())}px ${y * (padHeight() - handle())}px`
+            scale=(dragging ? 1.12 : 1)
+            transition=(dragging ? "scale 200ms ease-out" : "translate 300ms ease-out, scale 300ms ease-out")
+            column width=28 height=28 border-radius=14 background-color="#cecbdf" align-items="center" justify-content="center"
+              box width=5 height=5 border-radius=3 background-color="#2002f5"
