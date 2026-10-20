@@ -45,9 +45,10 @@ impl Default for Environment {
 impl Environment {
     /// Clear water seen from inside it: a tank or a shallow sea. The whole frame
     /// sits in one medium, so the sky is the water's colour and fog is uniform.
-    /// Pair it with a sun of about 6,000 lux from above and no opaque surface
-    /// between the sun and the floor; [the underwater recipe](crate::recipes::underwater)
-    /// has the scene, its camera framing and the mean luminance it was measured at.
+    /// Pair it with a sun of about 6,000 lux from above, no opaque surface
+    /// between the sun and the floor, and [`Water`] for the surface;
+    /// [the underwater recipe](crate::recipes::underwater) has the scene, its
+    /// camera framing and the mean luminance it was measured at.
     pub fn underwater() -> Self {
         Self {
             // The fog hides the whole sky, so a flat background would never show.

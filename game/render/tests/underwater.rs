@@ -1,8 +1,9 @@
 //! The underwater recipe's numbers (`game/recipes/underwater.md`): the frame's
 //! mean luminance sits in a band that a wrong exposure leaves, at the start and
-//! with the sub backed against the glass (still in the frame); a translucent
-//! water surface keeps the sand in sunlight where an opaque one shades it; and
-//! `Environment::underwater()`'s fog hides 90% of a surface at the reach it states.
+//! with the sub backed against the glass (still in the frame), and in a look
+//! frame with no tell; the water's surface keeps the sand in sunlight where an
+//! opaque lid shades it; and `Environment::underwater()`'s fog hides 90% of a
+//! surface at the reach it states.
 #![cfg(not(target_arch = "wasm32"))]
 #[path = "fixture/device.rs"]
 mod test_device;
@@ -257,7 +258,7 @@ fn the_recipe_frame_is_in_its_band_and_a_wrong_exposure_is_not() {
     let sands = [&recipe, &shaded].map(sand);
     eprintln!(
         "underwater mean luminance: recipe {:.4}, exposure x0.25 {:.4}, x4 {:.4}, \
-         sub at the glass {:.4}; sand: translucent surface {:.4}, opaque surface {:.4}; \
+         sub at the glass {:.4}; sand: under the water {:.4}, under an opaque lid {:.4}; \
          sub on screen at the glass {sub:?}",
         means[0], means[1], means[2], means[3], sands[0], sands[1]
     );
@@ -276,6 +277,30 @@ fn the_recipe_frame_is_in_its_band_and_a_wrong_exposure_is_not() {
         sands[1] < sands[0] * 0.8,
         "an opaque surface shades the sand: {sands:?}"
     );
+}
+
+/// The recipe's frame as the look oracle (LLP 1127.000) sees it, from the
+/// GPU-less proof host's look frame: in the band, and no tell, the surface and
+/// its shafts in it.
+#[test]
+fn the_recipe_frame_trips_no_tell_in_a_look_frame() {
+    let Some(_gpu) = gpu() else { return };
+    let mut s = WorldSurface::<Tank>::default();
+    s.bind(&[Value::Number(1.), Value::Bool(false)], None)
+        .unwrap();
+    s.agent(r#"{"op":"clock","now":0,"width":192,"height":108}"#)
+        .unwrap();
+    s.agent(r#"{"op":"clock","now":500}"#).unwrap();
+    let reply = s
+        .agent(r#"{"op":"state","look":true,"now":500,"width":192,"height":108}"#)
+        .unwrap();
+    let look: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    let look = &look["look"];
+    let mean = look["mean"].as_f64().unwrap() as f32;
+    eprintln!("underwater look frame at 500 ms: mean {mean:.4}, tells {}", look["tells"]);
+    assert!(BAND.contains(&mean), "{look}");
+    assert_eq!(look["tells"], serde_json::json!([]), "{look}");
+    assert_eq!(look["gaps"], serde_json::json!([]), "{look}");
 }
 
 #[derive(Default, Args)]

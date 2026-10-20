@@ -2,8 +2,10 @@
 
 `Environment::underwater()` is the water: a green-blue sky that the fog covers
 entirely, uniform fog that hides 90% of a surface 32.9 m away, no sun disc, and
-exposure 0.9. The scene around it decides the rest: a sun from above, nothing
-opaque between the sun and the sand, and a camera that stays inside the glass.
+exposure 0.9. `Water::at(8.)` is its surface at the top of the tank: seen from
+below, with caustics on the sand and shafts in the water. The scene around them
+decides the rest: a sun from above, nothing opaque between the sun and the sand,
+and a camera that stays inside the glass.
 
 ```rust
 use exact_game::*;
@@ -18,10 +20,8 @@ fn tank(w: &mut World) {
     ));
     w.spawn_named("sand", (Transform::at(0., 0., -12.), Mesh::plane(20., 36.),
         Material::rgb(0.45, 0.38, 0.24)));
-    // The surface faces down at the camera and, translucent, casts no shadow.
-    w.spawn_named("surface", (
-        Transform::at(0., 8., -12.).looking_at(Vec3::new(0., 8., -13.), Vec3::NEG_Y),
-        Mesh::plane(20., 36.), Material::rgb(0.6, 0.9, 0.95).alpha(0.25)));
+    // The surface at the top of the tank, with its caustics and shafts.
+    w.insert_resource(Water::at(GLASS_MAX.y));
     for (i, z) in [-4., -12., -24.].into_iter().enumerate() {
         w.spawn_named(format!("rock-{i}"), (Transform::at(-3. + 3. * i as f32, 0.6, z),
             Mesh::sphere(1.2), Material::rgb(0.1, 0.1, 0.09).rough(0.9)));
@@ -71,6 +71,14 @@ assert_eq!(water, Environment {
     fog: Some(Fog::new(0.07, 0.)),
     bloom: Some(Bloom { threshold: 1., intensity: 0.1, radius: 1.5 }),
 });
+assert_eq!(Water::at(8.), Water {
+    height: 8.,
+    color: [0.02, 0.12, 0.15],
+    clarity: 1.,
+    waves: Waves { amplitude: 0.02, wavelength: 2., speed: 0.6 },
+    caustics: Some(Caustics { strength: 0.45, scale: 1.5 }),
+    shafts: Some(Shafts { intensity: 0.7, length: 0.6 }),
+});
 let reach = 10f32.ln() / 0.07; // where 10% of a surface's colour is left
 assert!((reach - 32.9).abs() < 0.05);
 
@@ -98,31 +106,46 @@ The values, which the fragment pins:
 | `fog` | `Fog::new(0.07, 0.)` | uniform; 10% of a surface left at 32.9 m |
 | `bloom` | threshold 1, intensity 0.1, radius 1.5 | a weaker glow than the default 0.16 |
 | Sun | 6,000 lux, [0.8, 0.95, 1], from above | sunlight through blue-green water |
+| `Water::at(8.)` | the tank's top; waves 0.02 m high, 2 m long, at 0.6 m/s | a surface that moves without hiding the sky in its window |
+| `Caustics` | strength 0.45, cells 1.5 m | a net on the sand that leaves its shadows readable |
+| `Shafts` | intensity 0.7, length 0.6 of the frame | streaks that brighten the water towards the sun without washing out the sand |
 
 Measured on the GPU by [the underwater test](../render/tests/underwater.rs), which
 renders this scene at 192 × 108 (on an Apple M5 Max under Metal):
 
 | Number | Value | How |
 |---|---|---|
-| Mean luminance at the start | 0.230, band 0.13–0.33 | Rec. 709 over decoded sRGB, as the look frame measures |
-| Exposure × 0.25, × 4 | 0.033 and 0.644, outside the band | the negative control |
-| Mean luminance with the sub at the glass | 0.269, the sub wholly in the frame | three seconds in |
-| Sand in the bottom eighth | 0.319; 0.127 under an opaque lid | the lid shades the whole floor |
+| Mean luminance at the start | 0.236, band 0.13–0.33 | Rec. 709 over decoded sRGB, as the look frame measures |
+| Exposure × 0.25, × 4 | 0.034 and 0.658, outside the band | the negative control |
+| Mean luminance with the sub at the glass | 0.261, the sub wholly in the frame | three seconds in |
+| The look frame at 500 ms | 0.284, no tell | the GPU-less proof host's look frame |
+| Sand in the bottom eighth | 0.302; 0.127 under an opaque lid | the lid shades the whole floor and its caustics |
 | Fog transmittance at 16.45 m, 32.9 m | 0.311, 0.095 (0.316, 0.1 expected) | black faces crossing the probe rays at those distances, lights off |
 
-The frame at the start: teal water fills the top and the far end; pale
-green-grey sand fades into it by the third rock, 24 m away; the sub, centred,
-reads yellow-green under the blue-green sun, with its shadow on the sand beneath.
-At the glass the camera looks down on the sub's top from about 5 m above it, and the
-open water past the tank's front edge fills the bottom of the frame. At a quarter
-of the exposure the sand is olive-black; at four times it is near white, the
-"washed out" frame. `EXACT_GPU_OUT=<dir>` with the test writes each frame as a PPM.
+The band held with the water in: the surface, caustics and shafts moved the start
+frame by 0.006 and the frame at the glass by 0.008. A frame looking 50° up into
+Snell's window measures 0.32 over the whole frame and 0.48 over its top quarter
+([the water test](../render/tests/water.rs)), so the band does not reject the window
+and the window clears the band by more than 0.1.
+
+The frame at the start: teal water fills the top and the far end, under the
+surface's slow ripples; pale green-grey sand, netted with caustics, fades into it by
+the third rock, 24 m away, and faint shafts of light stand in the water above it;
+the sub, centred, reads yellow-green under the blue-green sun with the net across
+its side, and its shadow on the sand beneath has none. At the glass the camera
+looks down on the sub's top from about 5 m above it, and the open water past the
+tank's front edge fills the bottom of the frame. At a quarter of the exposure the
+sand is olive-black; at four times it is near white, the "washed out" frame.
+`EXACT_GPU_OUT=<dir>` with the test writes each frame as a PPM.
 
 - Tune the fog by its reach, not its density: `density = ln 10 / reach`. A tank
   shorter than the reach shows its far glass; a sea longer than it fades out.
-- An opaque lid over the water shades the whole floor from the sun: a tank
-  modelled as a closed box is one. Draw the surface as a translucent plane facing
-  down (`Material::alpha`), which casts no shadow, or leave the tank open.
+- An opaque lid over the water shades the whole floor from the sun, caustics and
+  all: a tank modelled as a closed box is one. Leave the top open and let `Water`
+  draw the surface; a mesh at the same height would fight it for the same pixels.
+  The shafts come from the surface the frame can see, so a lid hidden behind it
+  does not stop them.
+- `Water` is a saved resource: adding it to a game moves its pins, so repin.
 - A follow camera's offset carries it through the glass when the followed body
   backs into a wall. Clamping the camera's position after the follower has
   aimed loses the sub from the frame: at the glass it sits about 47° below the

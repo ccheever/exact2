@@ -352,6 +352,68 @@ engine's saved types.
   enabling. HDR's timestamp is `opaque depth prepass`; direct frames include
   depth in `forward + sky`.
 
+### Water
+
+Inserting the engine's `Water` resource (or setting `FrameInput::water`) adds three
+things, all WGSL in this crate on every host's backend, each read from the frame
+uniform's water words (`water.rs`), so no pipeline varies with them:
+
+- **The surface** (`shaders/water.wgsl`): one full-screen triangle in the forward
+  pass after the sky and the hook's background, before translucency. Each pixel
+  meets its ray with the plane at `height`, writes that point's depth (so opaque and
+  translucent objects on either side sort by depth as before: the part of an object
+  beyond the surface is hidden, the part on the camera's side draws over it) and
+  shades it. From below: inside Snell's window (48.6° from the zenith at an index
+  of 1.333) the sky as the sky pass draws it, by Schlick's transmittance; outside
+  it, total reflection of the environment's lower hemisphere; then the fog over
+  the distance to the surface. From above: the sky's reflection, premultiplied
+  over what the forward pass drew beneath, which shows through by `clarity`; no
+  refracted copy of the scene is made. Two summed waves on the displayed time
+  bend the normals and fade where a pixel spans half a wavelength.
+- **Fog under water**: with water, `frame.wgsl`'s exponential fog integrates only
+  the part of each ray below the height, for every surface, the sky and the water
+  itself, wherever the camera is. Linear fog (`Fog::linear`) is unchanged.
+- **Caustics** (`shaders/caustics.wgsl`): a factor on the sun's direct term in the
+  primitive and model forward shaders, for fragments below the height: two layers
+  of a tiling cell net, scrolled apart by the wave speed, read where the
+  fragment's ray to the sun crosses the surface. It multiplies the shadow
+  visibility, so a shadowed surface has none, and it is normalized to the net's
+  mean, so it moves light rather than adding it. A net finer than the pixels fades
+  to that mean. Custom materials' `MATERIAL_SHADOWS_WGSL` declares
+  `water_caustics(world)` for them to multiply in.
+- **Shafts** (`shaders/shafts.wgsl`): an HDR pass after ambient occlusion and before
+  the hook's post and bloom, only with the camera below the surface. Each pixel
+  marches 24 steps towards the sun's refracted direction on screen (up to `length`
+  of the frame's height, and no further than the sun's own point) through the
+  forward pass's depth, which it keeps for the pass: where the surface is in sight
+  the light passes, broken by a pattern drifting with the waves; where something
+  stands in front of it, its shadow streaks the water. The result is scaled by the
+  fog's scattering over the pixel's distance and by a Henyey-Greenstein phase
+  (g = 0.6), and added. Without fog there are no shafts.
+
+With water a frame is never [direct](#direct-frames). `Renderer::set_water_effects`
+clears caustics or shafts at present time: the frame draws as if the resource had
+none, and the resource is unchanged (`tests/water.rs`). A look frame lists the
+surface as a `water surface` draw and the shafts as one `water shafts` summary.
+Not drawn: reflections or refractions of objects, an object above the surface seen
+from below (the surface hides it), or a shadow cast into the shafts by something
+the frame cannot see in front of the surface (a lid above it still lets them in).
+
+`tests/water.rs` measures each in look frames of a pool under
+`Environment::underwater()`, the surface 2 m over the camera, the sun 35° up
+ahead (Apple M5 Max, Metal; the oracles are bands, which every host is held to):
+
+| Oracle | Measured | Fails it |
+|---|---|---|
+| Upper quarter, 50° up, mean luminance at least the recipe band's top + 0.1 (0.43) | 0.484 | no water 0.169; a flat opaque quad 0.045 |
+| Pitched 45°: top fifth (in the window) less bottom fifth (outside) above 0.2 | 0.260 | no water 0.000; flat quad −0.033 |
+| From 1 m above a floor 1 m down: lower half's hue within 10° of the floor's without water | 137.6° against 136.5° | flat quad 188.6° |
+| The window's look frame: no tell | none | |
+| Lit sand, 64 × 64 patch: variance at least 4× that without caustics | 0.00609 against 0.000206 (29.5×) | strength 0, a constant: 1× |
+| The same patch in the sun's shadow: mean within 5% | 0.1245 both | |
+| A 24-pixel column, pitched 20°: towards the sun less turned 40°, at least 0.05 | 0.100 | without shafts 0.000 (held within 0.01) |
+| Below a dark box crossing that column at 4 m/s, darker than open water | 0.235 against 0.264 at 2 s; 0.254 both at 4 s | |
+
 ### Toon models
 
 `MeshData.outline` optionally holds `MeshOutline { width, min_pixels, color,
@@ -816,7 +878,7 @@ until it has, and the driver asks again.
   arguments), a particle draw's counted fragments, whether it covered a sample and
   the attachments it writes (blended draws and the split translucent pass, whose
   depth is read-only, write colour alone). A hook's draws, the outline hulls,
-  bloom's passes and ambient occlusion are one entry each, marked `summary`.
+  bloom's passes, ambient occlusion and the water's shafts are one entry each, marked `summary`.
   Coverage there is an occlusion query around each draw of the forward and
   translucent passes, sized after the frame's groups are prepared: whether any
   sample passed the depth test, not how many (Metal's visibility results are
