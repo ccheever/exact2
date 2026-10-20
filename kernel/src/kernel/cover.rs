@@ -237,12 +237,17 @@ pub(crate) fn without_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::
 
 /// A box's children changed: a covered box's top cover may hold its first
 /// child's inset (`header_inset`), so its engine style is derived again.
-pub(crate) fn children_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
+pub(crate) fn children_changed(
+    arena: &NodeArena,
+    layout: &mut dyn LayoutMirror,
+    slot: u32,
+    touched: &mut Vec<crate::NodeKey>,
+) {
     if let (Some(HostCover::Edges(_)), Some(node)) = (arena.cover(slot), arena.taffy(slot)) {
         layout.restyle(arena, slot, node);
         layout.mark_dirty(node);
     }
-    crate::rows::children_changed(arena, layout, slot);
+    crate::rows::children_changed(arena, layout, slot, touched);
 }
 
 /// The top inset a box's replaced first child cleared for itself: that

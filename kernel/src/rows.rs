@@ -38,10 +38,7 @@ pub(crate) fn apply_margins(
     s: &mut taffy::style::Style,
 ) {
     use taffy::style::LengthPercentage as Lp;
-    let Some(list) = inset_row(arena, slot) else {
-        return;
-    };
-    let Some(m) = arena.list_margins(list).or_else(look_margins) else {
+    let Some(m) = row_inset(arena, slot) else {
         return;
     };
     let written = &arena.style(slot).written;
@@ -73,18 +70,28 @@ pub(crate) fn prop_changed(
         _ => return false,
     };
     for row in rows {
-        crate::grouped::restyle(arena, layout, row);
-        // A content region a restyled box owns is laid out again: its
-        // padding changed while its border box may not have.
-        let mut walk = vec![(row, 3u8)];
-        while let Some((s, depth)) = walk.pop() {
-            touched.push(arena.key(s));
-            if depth > 0 {
-                walk.extend(arena.children(s).iter().map(|&c| (c, depth - 1)));
-            }
-        }
+        restyle_touched(arena, layout, row, touched);
     }
     true
+}
+
+/// Restyle `slot` as [`crate::grouped::restyle`] does, marking what it
+/// restyles touched: a content region one of them owns is laid out again,
+/// its padding having changed while its border box may not have.
+fn restyle_touched(
+    arena: &crate::arena::NodeArena,
+    layout: &mut dyn crate::layout::LayoutMirror,
+    slot: u32,
+    touched: &mut Vec<crate::NodeKey>,
+) {
+    crate::grouped::restyle(arena, layout, slot);
+    let mut walk = vec![(slot, 3u8)];
+    while let Some((s, depth)) = walk.pop() {
+        touched.push(arena.key(s));
+        if depth > 0 {
+            walk.extend(arena.children(s).iter().map(|&c| (c, depth - 1)));
+        }
+    }
 }
 
 /// A swipe's children in a cells list moved: which is first, and so its row
@@ -93,10 +100,11 @@ pub(crate) fn children_changed(
     arena: &crate::arena::NodeArena,
     layout: &mut dyn crate::layout::LayoutMirror,
     slot: u32,
+    touched: &mut Vec<crate::NodeKey>,
 ) {
     if arena.props(slot).str(PropId::SwipeContent).is_some() && in_cells(arena, slot) {
         for &child in arena.children(slot) {
-            crate::grouped::restyle(arena, layout, child);
+            restyle_touched(arena, layout, child, touched);
         }
     }
 }
@@ -110,6 +118,14 @@ fn look_margins() -> Option<[f32; 2]> {
     }
     let inset = length(crate::generated::metric::LIST_ROW_INSET, 0.0, 0.0)?;
     Some([inset, inset])
+}
+
+/// The inset `slot` takes at its left and right as a cells list's row:
+/// the margin its host reported for the list, else the look's.
+pub(crate) fn row_inset(arena: &crate::arena::NodeArena, slot: u32) -> Option<[f32; 2]> {
+    arena
+        .list_margins(inset_row(arena, slot)?)
+        .or_else(look_margins)
 }
 
 /// The cells list whose inset `slot` takes as its row: a row that is no

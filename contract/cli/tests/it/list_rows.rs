@@ -195,6 +195,8 @@ fn a_rows_unsaid_padding_is_its_platforms_cell_margin() {
   row testId=\"padded\" padding-left=4
     column flex=1 testId=\"padded-in\"
   input type=\"checkbox\" switch testId=\"switch\" aria-label=\"On\"
+  button appearance=\"auto\" buttonStyle=\"plain\" width=\"100%\" testId=\"native\" press=go
+    text \"Native\"
   row testId=\"wide\" width=\"100%\"
     column flex=1 testId=\"wide-in\"
 list testId=\"windowed\" virtualized=true estimated-item-height=44 height=200
@@ -234,6 +236,20 @@ list testId=\"leading\"
         !r.kernel().takes_row_inset(switch),
         "a form control keeps its own padding"
     );
+    // A native button row's face carries the inset its host places and measures the title by.
+    let face_inset = |r: &Runner<NoData>| {
+        let style = r
+            .kernel()
+            .button_face_style(id(r, "native"))
+            .unwrap()
+            .button;
+        let points = |d| match d {
+            exact_kernel::Dimension::Points(n) => n,
+            other => panic!("{other:?}"),
+        };
+        (points(style.padding_left), points(style.padding_right))
+    };
+    assert_eq!(face_inset(&r), (16.0, 16.0), "a native button's face");
     // A swipe with leading actions is its author's to pad (what the web's sheet can select).
     assert_eq!(
         inset(&r, "lead-row"),
@@ -264,6 +280,11 @@ list testId=\"leading\"
     }
     lay(&mut r);
     assert_eq!(inset(&r, "plain"), (16.0, 20.0), "the cell's margins");
+    assert_eq!(
+        face_inset(&r),
+        (16.0, 20.0),
+        "a native button's face, again"
+    );
     assert_eq!(
         inset(&r, "padded"),
         (4.0, 20.0),

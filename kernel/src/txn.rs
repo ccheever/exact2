@@ -913,14 +913,14 @@ pub(crate) fn continue_document(
                         count(arena.children(p).len(), 0);
                         arena.prune_children(p);
                         sync_children(arena, layout, p);
-                        crate::kernel::cover_children_changed(arena, layout, p);
+                        crate::kernel::cover_children_changed(arena, layout, p, touched);
                         arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
                         touched.push(arena.key(p));
                         defaults::changed(arena, layout, p, context, touched, receipt);
                     }
                     arena.set_children(slot, new);
                     sync_children(arena, layout, slot);
-                    crate::kernel::cover_children_changed(arena, layout, slot);
+                    crate::kernel::cover_children_changed(arena, layout, slot, touched);
                     // A box into or out of a grouped list takes or sheds the platform's margins.
                     for (n, was) in reached {
                         if was || crate::grouped::reached(arena, n) {
@@ -1199,7 +1199,7 @@ impl Detach {
                 count(arena.children(parent).len(), 0);
                 arena.prune_children(parent);
                 sync_children(arena, layout, parent);
-                crate::kernel::cover_children_changed(arena, layout, parent);
+                crate::kernel::cover_children_changed(arena, layout, parent, touched);
                 defaults::changed(arena, layout, parent, context, touched, receipt);
             }
         }
