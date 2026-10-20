@@ -689,12 +689,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         e.preventDefault(); e.stopPropagation();
         const at = `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`, files = [...dt.files], items = [...dt.items].filter(i => i.kind === "file");
         const handles = items.map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null), entries = items.map(i => i.webkitGetAsEntry?.() ?? null);
-        const delivered = documents?.().then(async (glue) => {
+        return documents?.().then(async (glue) => {
           const found = await glue.dropped(await Promise.all(handles), files, entries);
           if (found.length) fire(38, `${at}\n${found.join("\n")}`); else log("drop: refused: the browser handed over no file");
         });
-        globalThis.exact.documents?.ending?.(delivered);
-        return delivered;
       }
       // A field keeps the browser's own double-click, and a text field its edit menu (navigation.js `editMenu`); a control's input has no edit menu, so its node's `contextmenu` runs (#487).
       if (kind === "contextmenu" ? editMenu(e.target) : e.target.closest("input,textarea,[contenteditable]")) return;

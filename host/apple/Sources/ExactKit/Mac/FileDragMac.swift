@@ -6,10 +6,11 @@
 // it, and `dragleave` when it leaves the box, is cancelled or leaves the
 // window: moves between its own descendants are neither, which is what a
 // web handler gets by ignoring an event whose `relatedTarget` it contains
-// (T3 Code's chat column does). A drop ends the drag everywhere it was: the
-// `drop` first, then a `dragleave` at each node still entered. Every file
-// drag is heard, whether or not a `drop` takes it; a disabled control or an
-// inert node hears none.
+// (T3 Code's chat column does). A drop a node takes ends the drag with no
+// `dragleave`, as a browser's does (an overlay is cleared by the `drop`'s
+// action); a drop no node takes, or one whose files none could be opened,
+// is a leave at each node still entered. Every file drag is heard, whether
+// or not a `drop` takes it; a disabled control or an inert node hears none.
 //
 // AppKit hands a drag to the deepest view under it that registered for its
 // types, and a text field or text area registers for file URLs, inserting
@@ -93,7 +94,7 @@ enum FileDrag {
         let files = urls(info)
         guard !files.isEmpty, let target = NodeView.dropTarget(view) else { ended(); return nil }
         let ok = target.drop(files, at: info.draggingLocation)
-        ended()
+        ended(dropped: ok)
         return ok
     }
 
@@ -103,10 +104,12 @@ enum FileDrag {
         return !urls(info).isEmpty && NodeView.dropTarget(view) != nil
     }
 
-    /// The drag ended (dropped, cancelled): every node still entered leaves.
-    static func ended() {
+    /// The drag ended: cancelled, or dropped where nothing took it, every
+    /// node still entered leaves; `dropped`, none does (the DOM's `drop` is
+    /// the last event of a drag that lands).
+    static func ended(dropped: Bool = false) {
         turn &+= 1
-        if !entered.isEmpty { update([], at: last) }
+        if dropped { entered = [] } else if !entered.isEmpty { update([], at: last) }
     }
 
     // The agent's drag (`tap <target> dragenter <path…>`, `tap … drop`,
@@ -150,8 +153,8 @@ extension Field {
 extension Agent {
     /// `tap <target> drop <path…>`, `dragenter <path…>` and `dragleave`
     /// (studio diary R19): the drag a Finder drag would bring to the window
-    /// point `p` over `v`, through the same chain, filter-free minting and
-    /// events. Nil for any other tap.
+    /// point `p` over `v`, through the same chain, minting and events (no
+    /// `dragleave` after a drop that lands). Nil for any other tap.
     func fileDragTap(_ req: [String: Any], _ v: NodeView, at p: NSPoint, in win: NSWindow, reply at: [Double]) -> [String: Any]? {
         if req["dragleave"] != nil {
             FileDrag.ended()
@@ -171,7 +174,7 @@ extension Agent {
         }
         FileDrag.agentEnter(at: p, in: win)
         let ok = node.drop(paths.map { URL(fileURLWithPath: $0) }, at: p)
-        FileDrag.ended()
+        FileDrag.ended(dropped: ok)
         session.presenter.settlePump()
         guard ok else { return ["error": "drop: refused: no file could be opened"] }
         return ["tapped": Int(node.id), "at": at, "drop": paths.count, "delivery": "presenter"]

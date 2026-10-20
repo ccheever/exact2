@@ -244,27 +244,28 @@ function entryHandle(entry) {
 // relatedTarget)` test does, without relying on `relatedTarget`, which
 // Safari leaves null). HTML fires the new target's dragenter before the old
 // one's dragleave (HTML §6.11.5), so a dragleave at the element last entered
-// is the drag leaving the page or cancelled. A drop ends the drag after the
-// drop's own delivery (`ending`).
-const hearers = new Map(); // element → { kinds: Map(kind → fire(ev)), allowed() }
-let over = [], last = null, at = null, tracking = false, ending = null;
+// is the drag leaving the page or cancelled. A drop ends the drag with no
+// dragleave, as the DOM's does: the drop's own action clears what the enter
+// drew. Each hearing element keeps its handlers itself (`exactDrags`), so
+// one gone from the page is forgotten with it.
+let over = [], last = null, at = null, tracking = false;
 const fileDrag = (ev) => ev.dataTransfer?.types?.includes('Files');
 function retarget(target) {
-  const now = target ? [...hearers].filter(([el, h]) => el.isConnected && el.contains(target) && h.allowed()).map(([el]) => el) : [];
-  now.sort((a, b) => a.contains(b) ? 1 : b.contains(a) ? -1 : 0); // the innermost first, as the DOM's events bubble
+  const now = []; // the innermost first, as the DOM's events bubble
+  for (let el = target; el; el = el.parentNode) if (el.exactDrags?.allowed()) now.push(el);
   const was = over;
   over = now;
-  for (const el of now) if (!was.includes(el)) hearers.get(el)?.kinds.get('dragenter')?.(at);
-  for (const el of was) if (!now.includes(el) && el.isConnected) hearers.get(el)?.kinds.get('dragleave')?.(at);
+  for (const el of now) if (!was.includes(el)) el.exactDrags.kinds.get('dragenter')?.(at);
+  for (const el of was) if (!now.includes(el) && el.isConnected) el.exactDrags?.kinds.get('dragleave')?.(at);
 }
 function hearDrags(el, kind, allowed, fire) {
-  (hearers.get(el) ?? hearers.set(el, { kinds: new Map(), allowed }).get(el)).kinds.set(kind, fire);
+  (el.exactDrags ??= { kinds: new Map(), allowed }).kinds.set(kind, fire);
   if (tracking) return;
   tracking = true;
   document.addEventListener('dragenter', (ev) => { if (fileDrag(ev)) { at = ev; last = ev.target; retarget(ev.target); } }, true);
   document.addEventListener('dragover', (ev) => { if (fileDrag(ev)) at = ev; }, true);
   document.addEventListener('dragleave', (ev) => { if (fileDrag(ev) && ev.target === last) { at = ev; last = null; retarget(null); } }, true);
-  document.addEventListener('drop', (ev) => { if (fileDrag(ev)) { at = ev; last = null; setTimeout(() => Promise.resolve(ending).then(() => retarget(null))); } }, true);
+  document.addEventListener('drop', (ev) => { if (fileDrag(ev)) { last = null; over = []; } }, true);
 }
 
 // The manifest's `file_handlers`, the only types a picker offers (D2).
@@ -277,8 +278,6 @@ function types() {
 
 globalThis.exact.documents = {
   mint, run, files, observe, hearDrags,
-  /** A drop's delivery under way: the drag's leaves wait for it. */
-  ending(p) { ending = Promise.resolve(p).catch(() => {}); },
   /** A paste's files (`clipboardData.files`), each a read-only copy minted
    * at once, so the action hears them in the paste's own event and its
    * `preventDefault()` still cancels the field's paste; a pasted image with

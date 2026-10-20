@@ -1517,7 +1517,8 @@ iOS, Linux, Windows, Android and the terminal have none. The driver's `tap
 moves between its own descendants (the `currentTarget.contains(relatedTarget)`
 test a drop overlay makes): a node that declares one hears `dragenter` when
 a drag of files from outside the app comes over its box, and `dragleave` when
-it leaves the box, is cancelled, or drops, after the `drop`. Their
+it leaves the box or is cancelled. A drop sends `drop` and no `dragleave`, as
+the DOM's does: the drop's action clears what the enter drew. Their
 `DragEvent` has the point and the modifiers and no `files`, which the DOM
 keeps from a page until the drop. They are heard whether or not a `drop`
 will take the files, so an overlay can say where they would land:
@@ -1530,6 +1531,7 @@ action entered
 action left
   over = false
 action took(e: DragEvent)
+  over = false
   paths = e.files
 column dragenter=entered dragleave=left drop=took position="relative"
   textarea placeholder="Message"

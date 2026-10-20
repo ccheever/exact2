@@ -291,8 +291,8 @@ pub enum Event {
     /// its own descendants hears it); its `files` are empty, as the DOM's are
     /// until the drop.
     Dragenter(super::DropEvent),
-    /// That drag left the view's box, was cancelled, or dropped (DOM's
-    /// `dragleave`, likewise; a drop ends it everywhere it was).
+    /// That drag left the view's box or was cancelled (DOM's `dragleave`,
+    /// likewise); a drop sends none, as the DOM's does.
     Dragleave(super::DropEvent),
     /// A double click, or the platform’s double tap.
     Dblclick,

@@ -214,12 +214,11 @@ OnHooks.drop = (e, f) => {
     const [offsetX, offsetY] = record(e, ev), held = [ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey];
     const items = [...dt.items].filter(i => i.kind === 'file');
     const handles = items.map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null), entries = items.map(i => i.webkitGetAsEntry?.() ?? null), files = [...dt.files];
-    const delivered = counted(docs().then(async m => {
+    counted(docs().then(async m => {
       const found = await m.dropped(await Promise.all(handles), files, entries);
       if (!found.length) return say('drop: refused: the browser handed over no file');
       f([offsetX, offsetY, found, ...held]);
     }));
-    x().documents?.ending?.(delivered);
   });
 };
 // `dragenter` and `dragleave` of a file drag (documents-glue.js `hearDrags`):

@@ -451,16 +451,23 @@ extension NodeView {
     /// for this session and delivered with the `DragEvent`'s line.
     func drop(_ urls: [URL], at windowPoint: NSPoint) -> Bool {
         guard let presenter, let session = presenter.session else { return false }
-        // A dropped file is one the person chose (LLP 1069.010.000 D3): kept,
-        // it arrives as the path it is kept by. A folder is a directory
-        // handle, its path undisclosed (`fs.stat` tells the two apart).
-        let docs = urls.filter(\.isFileURL).compactMap { session.keepDocument($0, noting: true) ?? session.mintDocument($0) }
+        let docs = Self.droppedDocuments(urls, accepts: ExactDocuments.accepts,
+                                         keep: { session.keepDocument($0, noting: true) }, mint: session.mintDocument)
         guard !docs.isEmpty else {
             session.log("drop: refused: no file could be opened")
             return false
         }
         presenter.mouseEvent(id, 38, dragLine(windowPoint) + "\n" + docs.joined(separator: "\n"))
         return true
+    }
+
+    /// The handles of dropped `urls`. A file of a type the manifest declares
+    /// is a document the person chose (LLP 1069.010.000 D3): kept, it arrives
+    /// as the path it is kept by, and joins Open Recent. Any other file, and a
+    /// folder (a directory handle, its path undisclosed; `fs.stat` tells the
+    /// two apart), is content: minted for this session alone, as a paste's is.
+    static func droppedDocuments(_ urls: [URL], accepts: (URL) -> Bool, keep: (URL) -> String?, mint: (URL) -> String?) -> [String] {
+        urls.filter(\.isFileURL).compactMap { url in (accepts(url) ? keep(url) : nil) ?? mint(url) }
     }
 
     /// A `DragEvent`'s point line: from the content box, and the modifiers held.

@@ -1,0 +1,8 @@
+tap column dragenter scripts/fixtures/assets/tint.png
+tap composer dragenter scripts/fixtures/assets/tint.png
+tap column dragleave
+tap composer drop scripts/fixtures/assets/tint.png editors/vscode/syntaxes
+clock settle
+type composer paste --image scripts/fixtures/assets/tint.png
+type composer paste --file scripts/fixtures/assets/tint.png
+type composer paste hello

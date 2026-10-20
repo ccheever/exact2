@@ -195,11 +195,11 @@ the Markdown reader's remaining surfaces and Fieldnotes' backups. Take: none
 named (Charlie: "idk what to trade it for, maybe relax the limit slightly").
 **Waived (Charlie, 2026-10-11, coding-agent file attachments):** `input type="file"`
 with no `accept` (or `accept="*/*"`) may pick any file, with no trade.
-**Extended (2026-10-20, the same consumer: T3 Code's composer, whose drop,
-paste and Attach files are one path):** `drop` takes files and folders of any
-type, and a paste carries its files (`ClipboardEvent.files`, pasted image
-data as a PNG), each a `doc:` handle, with no trade (LLP 1069.010, "Files
-dropped or pasted"; implemented by Claude, 2026-10-20).
+**Extended (Daehyeon Mun, 2026-10-20; no trade):** for the same consumer,
+T3 Code's composer, whose drop, paste and Attach files are one path, `drop`
+takes files and folders of any type, and a paste carries its files
+(`ClipboardEvent.files`, pasted image data as a PNG), each a `doc:` handle
+(LLP 1069.010, "Files dropped or pasted").
 Specific `accept` types remain bounded as above. `capture` stays refused
 (the camera is a native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.

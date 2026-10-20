@@ -45,7 +45,10 @@ extension NodeView {
         let claim = pasteClaim(board)
         if !claim.urls.isEmpty { return claim.urls.compactMap { session.mintDocument($0) } }
         guard let png = claim.png, let url = writePastedImage(png) else { return [] }
-        return session.mintDocument(url).map { [$0] } ?? []
+        let folder = url.deletingLastPathComponent()
+        guard let doc = session.mintDocument(url) else { try? FileManager.default.removeItem(at: folder); return [] }
+        PastedImages.held(folder, by: session)
+        return [doc]
     }
 
     /// What a paste from `board` carries as files: its file URLs, or with
@@ -82,6 +85,16 @@ extension NodeView {
             try? FileManager.default.removeItem(at: folder)
             return nil
         }
+    }
+}
+
+/// The folders a session's pasted images were written to: removed when its
+/// handles go (`forgetDocuments`), which is when nothing can read them.
+enum PastedImages {
+    nonisolated(unsafe) private static var folders: [ObjectIdentifier: [URL]] = [:]
+    static func held(_ folder: URL, by session: ExactSession) { folders[ObjectIdentifier(session), default: []].append(folder) }
+    static func forget(_ session: ExactSession) {
+        for folder in folders.removeValue(forKey: ObjectIdentifier(session)) ?? [] { try? FileManager.default.removeItem(at: folder) }
     }
 }
 
