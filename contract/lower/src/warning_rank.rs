@@ -23,6 +23,7 @@ pub fn rank(id: &str, message: &str) -> u8 {
         | "lower-navigation-key"
         | "lower-screen-by-state"
         | "lower-button-unlabelled"
+        | "lower-nested-button"
         | "lower-round-button-label"
         | "lower-dialog-role"
         | "lower-level-without-heading"

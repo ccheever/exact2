@@ -1,7 +1,7 @@
 //! What a button or a role promises a person and VoiceOver, and the
 //! element does not keep (LLP 1116.004 D4): a button with nothing to say,
-//! and a dialog's role on a box; and a heading's level with no heading
-//! (LLP 1115.000 D12.5).
+//! a button in a button, and a dialog's role on a box; and a heading's
+//! level with no heading (LLP 1115.000 D12.5).
 
 use super::{computed, has, literal, BOXES};
 use crate::LowerError;
@@ -78,17 +78,27 @@ fn says(nodes: &[Node], in_svg: bool) -> Says {
         .unwrap_or(Says::Nothing)
 }
 
+/// What a `tag` element says of itself as a button: unlabelled, or holding
+/// another.
+pub(super) fn button(
+    tag: &str,
+    attrs: &[Attr],
+    children: &[Node],
+    span: Span,
+) -> impl Iterator<Item = LowerError> {
+    let button = tag == "button";
+    let unlabelled = button.then(|| unlabelled_button(attrs, children, span));
+    let nested = button.then(|| nested_button(children));
+    unlabelled.flatten().into_iter().chain(nested.flatten())
+}
+
 /// `lower-button-unlabelled`: a `button` with no text anywhere in it, no
 /// `aria-label` or `aria-labelledby`, and no image with an `alt` (LLP
 /// 1116.004 D4). It is blank: water-tracker's `button press=drink(500)`
 /// with no child drew an empty button, and VoiceOver reads one as
 /// "button". A text of any expression, a symbol image with a name, and a
 /// button hidden from assistive technology are not named.
-pub(super) fn unlabelled_button(
-    attrs: &[Attr],
-    children: &[Node],
-    span: Span,
-) -> Option<LowerError> {
+fn unlabelled_button(attrs: &[Attr], children: &[Node], span: Span) -> Option<LowerError> {
     let hidden = attrs
         .iter()
         .rev()
@@ -110,6 +120,41 @@ pub(super) fn unlabelled_button(
         id: "lower-button-unlabelled",
         message: message.into(),
         span,
+    })
+}
+
+/// The first `button` among `nodes` or under them, through `if`, `for`
+/// and `match`: its span.
+fn inner_button(nodes: &[Node]) -> Option<Span> {
+    nodes.iter().find_map(|node| match node {
+        Node::Element {
+            tag,
+            span,
+            children,
+            ..
+        } => (tag == "button")
+            .then_some(*span)
+            .or_else(|| inner_button(children)),
+        Node::When {
+            then, otherwise, ..
+        } => inner_button(then).or_else(|| inner_button(otherwise)),
+        Node::Each { body, .. } => inner_button(body),
+        Node::Match { some, none, .. } => inner_button(&some.1).or_else(|| inner_button(none)),
+        Node::Use { .. } | Node::Children { .. } => None,
+    })
+}
+
+/// `lower-nested-button`: a `button` inside a `button`, at the inner one.
+/// HTML allows no interactive content in a button (HTML § 4.10.6). Every
+/// host gives a press to the innermost button alone, as a React Native
+/// `Pressable` inside another takes the touch (euxy's Note row and its
+/// Listen pill, FRICTION 11), but the outer button's accessible name takes
+/// in the inner one's words: the web reads the row as "Note Listen".
+fn nested_button(children: &[Node]) -> Option<LowerError> {
+    Some(LowerError {
+        id: "lower-nested-button",
+        message: "this `button` is inside another `button`. A press on it is its own (the outer one does not hear it, on every host), but the outer button's accessible name reads this one's words with its own, and HTML allows no button in a button. Put the two side by side: a `row` holding the outer's content as one `button` (`flex=1`) and this one after it, as a table cell holds its accessory button".into(),
+        span: inner_button(children)?,
     })
 }
 

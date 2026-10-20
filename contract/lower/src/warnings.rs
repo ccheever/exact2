@@ -89,10 +89,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 if let (true, "image", Some(source)) = (fresh, tag.as_str(), positional.first()) {
                     out.extend(crate::symbols::image_source(source, &mut platform));
                 }
-                let button = (tag == "button")
-                    .then(|| roles::unlabelled_button(attrs, children, span))
-                    .flatten();
-                out.extend(button.filter(|_| fresh));
+                out.extend(roles::button(tag, attrs, children, span).filter(|_| fresh));
                 out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
                 out.extend(roles::level_without_heading(tag, attrs, span).filter(|_| fresh));
                 if fresh {
