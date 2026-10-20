@@ -214,8 +214,9 @@ impl Default for Caustics {
     }
 }
 /// Sunlight scattered by the water between the camera and what it sees, in
-/// streaks from the surface towards the sun. The scattering is the
-/// `Environment`'s fog: without fog there are no shafts.
+/// streaks from the surface towards the sun, while the sun is above the
+/// horizon. The scattering is the `Environment`'s fog, either mode: without
+/// fog there are no shafts.
 #[derive(Clone, Copy, Debug, PartialEq, Data)]
 pub struct Shafts {
     /// Brightness of fully scattered light looking towards the sun, as a share

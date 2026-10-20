@@ -321,9 +321,9 @@ sRGB encoding. Use exposure 1 and `bloom: None` to avoid those effects too.
 resource like `AmbientOcclusion`: a world without it draws and hashes as before.
 Inserting it draws the surface (from below, the sky through Snell's window and the
 reflected depths outside it; from above, the sky's reflection over what lies
-beneath, `clarity` of it showing and the rest `color`), confines the exponential
-fog to the part of each view ray below the height, and adds `caustics` (a moving
-net in the sun's light on surfaces under the water, none in shadow) and `shafts`
+beneath, `clarity` of it showing and the rest `color`), confines the fog to the
+part of each view ray below the height, and adds `caustics` (a moving net in the
+sun's light on surfaces under the water, none in shadow) and `shafts`
 (the sun's light scattered by that fog, seen from below). `Waves` bend the
 surface's normals; the plane stays flat, so nothing floats or collides with it.
 `Water` is saved and hashed like any resource, so adopting it moves a game's pins

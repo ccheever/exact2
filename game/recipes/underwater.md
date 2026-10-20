@@ -122,8 +122,7 @@ renders this scene at 192 × 108 (on an Apple M5 Max under Metal):
 | Sand in the bottom eighth | 0.302; 0.127 under an opaque lid | the lid shades the whole floor and its caustics |
 | Fog transmittance at 16.45 m, 32.9 m | 0.311, 0.095 (0.316, 0.1 expected) | black faces crossing the probe rays at those distances, lights off |
 
-The band held with the water in: the surface, caustics and shafts moved the start
-frame by 0.006 and the frame at the glass by 0.008. A frame looking 50° up into
+A frame looking 50° up into
 Snell's window measures 0.32 over the whole frame and 0.48 over its top quarter
 ([the water test](../render/tests/water.rs)), so the band does not reject the window
 and the window clears the band by more than 0.1.

@@ -370,9 +370,11 @@ uniform's water words (`water.rs`), so no pipeline varies with them:
   over what the forward pass drew beneath, which shows through by `clarity`; no
   refracted copy of the scene is made. Two summed waves on the displayed time
   bend the normals and fade where a pixel spans half a wavelength.
-- **Fog under water**: with water, `frame.wgsl`'s exponential fog integrates only
-  the part of each ray below the height, for every surface, the sky and the water
-  itself, wherever the camera is. Linear fog (`Fog::linear`) is unchanged.
+- **Fog under water**: with water, `frame.wgsl`'s fog counts only the part of each
+  ray below the height, for every surface, the sky and the water itself, wherever
+  the camera is: exponential fog integrates over it, linear fog (`Fog::linear`)
+  takes its view depth. An orthographic camera's rays start on its plane, not at
+  its position.
 - **Caustics** (`shaders/caustics.wgsl`): a factor on the sun's direct term in the
   primitive and model forward shaders, for fragments below the height: two layers
   of a tiling cell net, scrolled apart by the wave speed, read where the
@@ -380,21 +382,27 @@ uniform's water words (`water.rs`), so no pipeline varies with them:
   visibility, so a shadowed surface has none, and it is normalized to the net's
   mean, so it moves light rather than adding it. A net finer than the pixels fades
   to that mean. Custom materials' `MATERIAL_SHADOWS_WGSL` declares
-  `water_caustics(world)` for them to multiply in.
+  `water_caustics(world)` for them to multiply in. Translucent primitives
+  (`quad.wgsl`'s lit quads) take none.
 - **Shafts** (`shaders/shafts.wgsl`): an HDR pass after ambient occlusion and before
-  the hook's post and bloom, only with the camera below the surface. Each pixel
+  the hook's post and bloom, only with the camera below the surface and the sun
+  shining down on it (a sun below the horizon sends none). Each pixel
   marches 24 steps towards the sun's refracted direction on screen (up to `length`
   of the frame's height, and no further than the sun's own point) through the
   forward pass's depth, which it keeps for the pass: where the surface is in sight
   the light passes, broken by a pattern drifting with the waves; where something
   stands in front of it, its shadow streaks the water. The result is scaled by the
-  fog's scattering over the pixel's distance and by a Henyey-Greenstein phase
-  (g = 0.6), and added. Without fog there are no shafts.
+  fog's share over the pixel's distance (either fog mode) and by a Henyey-Greenstein
+  phase (g = 0.6) of the pixel's own ray, and added. Without fog there are no
+  shafts. A scene-copy hook's continuation keeps the depth for it, as for SSAO; its
+  GPU time is the `water shafts` pair.
 
 With water a frame is never [direct](#direct-frames). `Renderer::set_water_effects`
 clears caustics or shafts at present time: the frame draws as if the resource had
 none, and the resource is unchanged (`tests/water.rs`). A look frame lists the
 surface as a `water surface` draw and the shafts as one `water shafts` summary.
+The surface draws in the world's viewport and scissor whatever the hook's
+background stage left set.
 Not drawn: reflections or refractions of objects, an object above the surface seen
 from below (the surface hides it), or a shadow cast into the shafts by something
 the frame cannot see in front of the surface (a lid above it still lets them in).
@@ -410,7 +418,13 @@ ahead (Apple M5 Max, Metal; the oracles are bands, which every host is held to):
 | From 1 m above a floor 1 m down: lower half's hue within 10° of the floor's without water | 135.5° against 136.5° | flat quad 188.6° |
 | The window's look frame: no tell | none | |
 | Lit sand, 64 × 64 patch: variance at least 4× that without caustics | 0.00609 against 0.000206 (29.5×) | strength 0, a constant: 1× |
-| The same patch in the sun's shadow: mean within 5% | 0.1245 both | |
+| The same patch in the sun's shadow: variance at most 1.05× and mean within 5% | 0.0000010 and 0.1245 both | a net on the ambient light: variance 0.0035 |
+| Murky water (`clarity` 0, black) from 1 m above, pitched 15° down: steep band under 0.03, grazing band 0.03 brighter | 0.005, 0.148 | nothing drawn from above: steep 0.317 |
+| Orthographic camera from below, 44° up: the surface's variance above 1e-4 | 0.0050 | one hit for every ray: 0.0000 |
+| A sun 20° below the horizon: the frame with shafts is the frame without | 0 bytes differ | |
+| Linear fog: a glowing pillar 3 m over the water, 30 m off, brighter than with no water's clip; shafts add over 0.02 | 0.685 against 0.186; 0.196 against 0.114 | |
+| A scene-copy hook, and a background hook that leaves a quarter viewport: bytes that differ from no hook | under 1% (0 measured) | 75% and 65% |
+| Still water 100 ms on: bytes changed; a restored non-default `Water` runs on to the same frame | 55% | frozen time: 0 |
 | A 24-pixel column, pitched 20°: towards the sun less turned 40°, at least 0.05 | 0.100 | without shafts 0.000 (held within 0.01) |
 | Below a dark box crossing that column at 4 m/s, darker than open water | 0.235 against 0.264 at 2 s; 0.254 both at 4 s | |
 
@@ -747,7 +761,7 @@ frames late and asynchronously, `perf.culled` (instances each view drew: `camera
 `shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings for every
 pass by `GPU_PASS_NAMES`: forward, the cascades, local shadows, `cull`, skin palettes,
 the environment prefilter, SSAO, each bloom level (and `bloom`, first start to last
-end), tonemap, depth resolves and hook stages; the translucent run (particles,
+end), tonemap, depth resolves, the water's shafts and hook stages; the translucent run (particles,
 blended models) and inside-pass hook stages where the device times inside passes.
 A pass the frame did not run is not read. GPU timings also fill under the agent's
 virtual clock (seekable frames), so `state world perf:true` then `clock +ms` times
