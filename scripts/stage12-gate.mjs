@@ -649,7 +649,8 @@ export async function restyle(opts) {
     } catch (e) { rows.push({ host, ok: false, why: whyOf(e) }); continue; }
     const cell = L.base.cell ?? null;
     for (const c of RESTYLE) {
-      const v0 = lengthOf(c.param ? paramOf(c)?.default : c.name, host, cell);
+      // The web's two targets read one column (the neutral look).
+      const v0 = lengthOf(c.param ? paramOf(c)?.default : c.name, host.startsWith('web-') ? 'web' : host, cell);
       const v1 = Number(/^(\d+(?:\.\d+)?)px$/.exec(c.set)[1]);
       for (const read of c.reads) {
         const row = { host, case: c.name, who: read.who, what: read.what, ok: true, why: [] };
