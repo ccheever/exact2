@@ -191,7 +191,8 @@ function bootSimulator(dev) {
   const b = read('xcrun', ['simctl', 'boot', dev.udid]);
   if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
   const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
-  if (s.status !== 0) throw new Error('simctl bootstatus: ' + s.stderr);
+  // A simulator this call booted is not left running when its boot does not finish.
+  if (s.status !== 0) { if (b.status === 0) read('xcrun', ['simctl', 'shutdown', dev.udid]); throw new Error('simctl bootstatus: ' + s.stderr); }
   return b.status === 0 ? { ...dev, bootedHere: true } : dev;
 }
 
