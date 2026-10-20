@@ -317,6 +317,6 @@ export function observe(views, inactive = () => false) {
   const root = document.getElementById('exact-root'), probe = document.createElement('span');
   probe.style.color = 'light-dark(rgb(0, 0, 1), rgb(0, 0, 2))'; root.append(probe);
   const used = getComputedStyle(probe).color.includes('2)') ? 'dark' : 'light'; probe.remove();
-  const coarse = matchMedia('(pointer: coarse)').matches, overlap = Math.max(0, H - (globalThis.visualViewport?.height ?? H));
+  const coarse = matchMedia('(any-pointer: coarse)').matches, overlap = Math.max(0, H - (globalThis.visualViewport?.height ?? H));
   return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, look: 'neutral', target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
 }

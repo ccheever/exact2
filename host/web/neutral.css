@@ -10,8 +10,10 @@
        page (an author's `accent-color` is drawn as written); ink on the accent is white or black, whichever reads; a
        switch's thumb is white.
      - Shape: 8 px corners on a control, 12 px on a surface that floats or groups, 4 px on a mark.
-     - Size: a control is 36 px tall at the body size under a fine pointer and 44 px under a coarse one; a
-       checkbox, a radio and a switch are the line's height (20 px), 24 px under a coarse pointer.
+     - Size: a control is 36 px tall at the body size, and 44 px on a touch device (`any-pointer: coarse`: any
+       coarse input, normally a touch screen, whichever pointer it uses now, so nothing resizes as a mouse comes or
+       goes); a checkbox, a radio and a switch are the line's height (20 px), and a checkbox or a radio 24 px on a
+       touch device.
      - Elevation has three steps: a bar or a card is flat, with a 1 px line; a menu or popover is raised, a line and
        a short shadow; a dialog or a sheet's card is modal, a line and a long shadow over a 40% scrim.
      - Emphasis is a fill, never a weight: filled, tinted, gray, bordered (the unsaid button, an outline), plain.
@@ -35,14 +37,14 @@
   /* The page and its text: one ground in every browser, where each engine's dark `Canvas` is its own. */
   html { background-color: var(--exact-background); color: var(--exact-label); }
 
-  /* Buttons. One box: 36 px (44 under a coarse pointer) in every engine, so a line's height is said (`normal` is each
+  /* Buttons. One box: 36 px (44 on a touch device) in every engine, so a line's height is said (`normal` is each
      engine's own, 18 px or 20 for the system font), a 1 px edge every style keeps so they line up, no dimmed face
      while pressed. `bordered` and the unsaid button are an outline in the label's ink; `gray` a neutral fill; `filled`
      the accent under the ink that reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the
      button's accent, so an outline or a grey button takes red ink. */
   #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
   #exact-root button[data-button-style]:has(> img:only-child):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
-  @media (pointer: coarse) { #exact-root button[data-button-style] { min-height: 44px; min-width: 44px; } }
+  @media (any-pointer: coarse) { #exact-root button[data-button-style] { min-height: 44px; min-width: 44px; } }
   /* The floor and the padding are the look's, and a size the author wrote is the author's (LLP 1115: what is written
      wins). In CSS a minimum outranks a size, and a border box is never narrower than its padding, so the host names a
      written `width` or `height` (`data-exact-said`, D2's bit) and on that axis the look steps aside: the minimum is
@@ -130,7 +132,7 @@
   #exact-root input[data-native], #exact-root textarea[data-native] { padding: .4375em .75em; line-height: 1.25; }
   #exact-root input[data-exact-field] { height: 2.25em; }
   #exact-root :is(input, textarea)::placeholder { color: var(--exact-placeholder-color, var(--exact-placeholder)); opacity: 1; }
-  @media (pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: 2.625; } }
+  @media (any-pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: 2.625; } }
   #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled, #exact-root select:not([multiple]):disabled, #exact-root input[data-exact-field]:disabled { color: var(--exact-gray-text); background-color: var(--exact-field, var(--exact-secondary-background)); border-color: var(--exact-separator); }
   /* The select's caret, in the secondary label's ink, at the inline end. */
   #exact-root select:not([multiple]) { background-image: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%), linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%); }
@@ -147,7 +149,7 @@
   #exact-root input[data-exact-control][type="radio"]:checked::before { background: radial-gradient(circle closest-side, currentColor 38%, #0000 42%); }
   @media (hover: hover) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]):enabled:not(:checked):hover { border-color: var(--exact-label); } }
   #exact-root input[data-exact-control]:disabled, #exact-root input[data-exact-switch]:disabled { opacity: .5; }
-  @media (pointer: coarse) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]) { width: 1.5em; height: 1.5em; } }
+  @media (any-pointer: coarse) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]) { width: 1.5em; height: 1.5em; } }
   /* A range: a 4 px track in the control's line, the thumb in the accent. No engine but Firefox marks the part
      before the thumb, so none is drawn. */
   #exact-root input[data-exact-control][type="range"] { appearance: none; height: 1.25em; background: none; }
@@ -159,7 +161,7 @@
   #exact-root input[data-exact-control][type="file"] { color: var(--exact-secondary-label); }
   #exact-root input[data-exact-control][type="file"]::file-selector-button { box-sizing: border-box; min-height: 2.25em; margin-inline-end: .75em; padding: .375em 1em; border: 1px solid var(--exact-line); border-radius: 8px; background-color: transparent; color: var(--exact-label); font: inherit; font-weight: 500; }
   @media (hover: hover) { #exact-root input[data-exact-control][type="file"]:enabled::file-selector-button:hover { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); } }
-  @media (pointer: coarse) { #exact-root input[data-exact-control][type="file"]::file-selector-button { min-height: 44px; } }
+  @media (any-pointer: coarse) { #exact-root input[data-exact-control][type="file"]::file-selector-button { min-height: 44px; } }
 
   /* The switch, drawn in every browser (one that styles its own would not match the rest): a 36 by 20 track, the
      control's line off and the accent on, and a white thumb on either, as Apple's is, at the inline start until on. */
@@ -192,7 +194,7 @@
   #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(var(--exact-background), var(--exact-fill)); box-shadow: 0 1px 2px rgb(0 0 0 / .16); }
   #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-label); }
   @media (hover: hover) { #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled:hover { color: var(--exact-label); } }
-  @media (pointer: coarse) { #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { min-height: 38px; } }
+  @media (any-pointer: coarse) { #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { min-height: 38px; } }
 
   /* The root tab bar, narrow: a bar of the page's ground under a 1 px line, each tab its symbol over its label, the
      selected one in the accent. */
@@ -224,7 +226,7 @@
   #exact-root [navigationkey] > header::part(back):focus-visible { outline: revert; outline-offset: 2px; }
   #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); }
   @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
-  @media (pointer: coarse) { #exact-root [navigationkey] > header::part(back) { min-height: 44px; } }
+  @media (any-pointer: coarse) { #exact-root [navigationkey] > header::part(back) { min-height: 44px; } }
   /* A pressable nobody styled in a bar dims where a pointer hovers, as a bar button dims under a finger on iOS, in
      place of the unsaid wash, which would fill a box the button does not show (around a chevron or a word). It dims
      to the shell's press dim, at once as a press does, so a press shows nothing more. The rule weighs no more than
@@ -279,7 +281,7 @@
   #exact-root [role="menu"] button[data-button-style]:focus-visible { outline-offset: -2px; }
   #exact-root [role="menu"] button[data-button-style][data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-fill) 0 0); }
   @media (hover: hover) { #exact-root [role="menu"] button[data-button-style]:enabled:hover { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); } }
-  @media (pointer: coarse) { #exact-root [role="menu"] button[data-button-style] { min-height: 44px; } }
+  @media (any-pointer: coarse) { #exact-root [role="menu"] button[data-button-style] { min-height: 44px; } }
 
   /* A modal route is a sheet (D4.8): the page's ground, full-bleed in a narrow window; in a wide one (900 px, the
      navigation glue's `WIDE`) a card over a scrim, as tall as its content up to the window. The layout is the

@@ -140,6 +140,13 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   expect(rows.filter(([name, kind]) => kind === 'number' && !RATIO[name] && !['control-line-height', 'control-weight', 'select-line-height'].includes(name)).map(([name]) => name)).toEqual([]);
 });
 
+// Touch sizes follow the device, whichever pointer it uses now (`any-pointer`, Media Queries 4 §5.3), so no control
+// resizes as a mouse comes or goes; the agent's check asks for a touch target by the same rule.
+test('the neutral sheet sizes for touch by the device, not the current pointer', () => {
+  expect(read('../neutral.css').match(/@media[^{]*pointer[^{]*/g).filter((q) => q.trim() !== '@media (any-pointer: coarse)')).toEqual([]);
+  expect(read('../../web-js/check.js').match(/\([a-z-]*pointer: coarse\)/g)).toEqual(['(any-pointer: coarse)']);
+});
+
 // The page each browser draws: one of each control.
 const fixture = `
 <div id="exact-root">
@@ -363,12 +370,12 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', '12px', SURFACE[scheme], 178, 178, true, false]]);
       await context.close();
     }
-    // A narrow window: the sheet is the page's own box, full-bleed. A coarse pointer: a control is 44 px.
-    const narrow = await browser.newContext({ viewport: { width: 390, height: 700 }, ...(engine === 'chromium' ? { hasTouch: true, isMobile: true } : {}) });
+    // A narrow window: the sheet is the page's own box, full-bleed. A touch device: a control is 44 px.
+    const narrow = await browser.newContext({ viewport: { width: 390, height: 700 }, hasTouch: true, ...(engine === 'chromium' ? { isMobile: true } : {}) });
     const page = await narrow.newPage();
     await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>${sheet()}</style>${fixture}<script>${helpers}</script>`);
     expect([engine, await page.evaluate(() => css('sheet', 'position'))]).toEqual([engine, 'absolute']);
-    if (engine === 'chromium') expect(await page.evaluate(() => [matchMedia('(pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3]])).toEqual([true, 44, 44, 44]);
+    expect([engine, await page.evaluate(() => [matchMedia('(any-pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3], box('check')[3]])]).toEqual([engine, [true, 44, 44, 44, 24]]);
   } finally { await browser.close(); }
 }, 90000);
 

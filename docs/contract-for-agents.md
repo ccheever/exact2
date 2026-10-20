@@ -2632,8 +2632,11 @@ on Android's touch screen and on a Linux one with no mouse or touchpad, read onc
 at launch; on iOS `coarse` and `none`, or `fine` and
 `hover` while an iPad has a trackpad or mouse attached; `none` and `none` on tvOS.
 They change while the app runs. Show a game's on-screen stick under `coarse`
-(the starter does, `game/recipes/touch-controls.md`), never by platform. Under the
-agent each is the device class's from launch; `prefer pointer coarse` and
+(the starter does, `game/recipes/touch-controls.md`), never by platform. The web's
+neutral look sizes its own controls for a touch device instead (`any-pointer:
+coarse`: any coarse input, normally a touch screen), so they keep their size
+while an iPad's trackpad comes and goes. Under the agent each is the device
+class's from launch; `prefer pointer coarse` and
 `prefer hover none` substitute them. Chrome emulates a touch screen, so it takes
 `coarse` with `none` and `fine` with `hover`, and refuses `pointer none`; the
 Firefox and WebKit carriers refuse both.

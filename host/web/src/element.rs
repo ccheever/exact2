@@ -1293,8 +1293,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             }
         }
     }
-    // A platform button's floor (neutral.css: 36 px each way, 44 under a
-    // coarse pointer) and its padding are the look's, and a size its
+    // A platform button's floor (neutral.css: 36 px each way, 44 on a
+    // touch device) and its padding are the look's, and a size its
     // author wrote is the author's. In CSS a minimum outranks a size, so
     // the sheet is told which of the two were written and steps aside on
     // that axis.
