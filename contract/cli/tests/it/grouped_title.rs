@@ -267,3 +267,39 @@ fn a_rows_trailing_button_goes_under_its_text_where_the_text_would_be_squeezed()
         }
     }
 }
+
+/// A row whose one part is a box of the author's (a button's face laid out
+/// in a `row`) fills the cell, as a hand-built cell pins its stack to its
+/// content view's edges: a bar in it is a share of the row's width, not of
+/// its label's (round 29's polls: two 50% bars of different lengths).
+#[test]
+fn a_rows_one_box_fills_the_row() {
+    let option = |n: &str, label: &str, mark: &str| {
+        format!("    button press=go testId=\"{n}\"\n      row gap=8 align-items=\"center\" testId=\"{n}-face\"\n        {mark}\n        column flex=1 min-width=0\n          text \"{label}\"\n          view height=8 testId=\"{n}-track\"\n            view width=\"50%\" height=8 testId=\"{n}-bar\"\n")
+    };
+    let body = format!(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n{}{}",
+        option("a", "Tacos", "image \"symbol:checkmark\""),
+        option(
+            "b",
+            "A much longer option label",
+            "if false\n          image \"symbol:checkmark\""
+        )
+    );
+    let r = boot(&body);
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+    for n in ["a", "b"] {
+        let (row, face) = (frame(n), frame(&format!("{n}-face")));
+        assert!(
+            face.width >= row.width - 40.0,
+            "{n}: the face fills its row: {face:?} in {row:?}"
+        );
+    }
+    let (a, b) = (frame("a-bar"), frame("b-bar"));
+    assert!(
+        (a.width - frame("a-track").width / 2.0).abs() < 0.5
+            && (frame("b-face").width - frame("a-face").width).abs() < 0.5,
+        "equal shares draw bars a share of the row: {a:?} {b:?}"
+    );
+}

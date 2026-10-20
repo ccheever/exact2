@@ -1379,6 +1379,15 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                 _ => stack_of_lines(child, margins),
             }
         }
+        // The row's one part, a box the author laid its content out in (a
+        // button's face in a `row`), fills the cell, as a hand-built cell
+        // pins its stack to its content view's edges. As wide as its
+        // content, a bar in it was a share of its label's width (polls,
+        // round 29).
+        ("row" | "column" | "view", _) if i == 0 && last == 0 && !sized(child) => with(
+            child,
+            vec![attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)],
+        ),
         _ => child.clone(),
     }
 }
