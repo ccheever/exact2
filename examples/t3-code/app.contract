@@ -637,10 +637,15 @@ component T3Code
     chatLocal("pr-ui-disarm", prDetail.ref, `serial:${prDetail.actions.armedSerial}`)
   state welcomeStep = "connect"
   state welcomeLink = ""
-  state welcomePairOpen = true
+  // "Add a computer" as the person left it; "" is as the Connect step starts it (ConnectionStep's expandPairingInitially).
+  state welcomePairFold = ""
+  derive welcomePairOpen = welcomePairFold == "" ? welcome.pairStartsOpen : welcomePairFold == "open"
+  state welcomePaired = 0
   resource welcome = welcome(welcomeStep, wallTime.epochAtZero + elapsed, data.revision) as shape WelcomeView
   action welcomeGo(step: string)
     welcomeStep = step
+    if step == "connect"
+      welcomePairFold = ""
   action welcomeSetup
     welcomeStep = "agents"
     send localChanged = command("pageslocal:welcome-setup", "", "", 0)
@@ -654,7 +659,12 @@ component T3Code
       modalError = ""
       send changed = command("welcome-pair", "", welcomeLink, 0)
   action welcomeTogglePair
-    welcomePairOpen = not welcomePairOpen
+    welcomePairFold = welcomePairOpen ? "closed" : "open"
+  // ConnectionStep's onPaired and its `ready` effect: Continue takes the focus once it can.
+  task welcomePairedFocus when welcomePaired > 0 and welcomeStep == "connect" and welcome.ready and not commandPending key=welcomePaired
+    after(1, welcomeFocusContinue)
+  action welcomeFocusContinue
+    focus("welcome-continue")
   action welcomeFinish
     if not commandPending
       commandPending = true
@@ -1587,7 +1597,8 @@ component T3Code
             originEdited = false
           if pendingModal == "welcome-pair"
             welcomeLink = ""
-            welcomePairOpen = false
+            welcomePairFold = "closed"
+            welcomePaired = welcomePaired + 1
           if pendingModal == "provider-add" or pendingModal == "provider-add-local"
             providerDialog = pendingModal == "provider-add-local" ? "" : wizardManual or wizardDriver == "acpRegistry" ? providerDialog : ""
             providerSelected = providerCreated
