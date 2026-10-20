@@ -39,6 +39,11 @@ pub struct Retained {
     /// or expansion were not what checking again gives, and the fresh ones
     /// were used.
     pub stale: bool,
+    /// The style rows whose values are literal, which the design server's
+    /// write check judges again (`contract_lower::rows`).
+    pub rows: Vec<contract_lower::rows::Row>,
+    /// Each source's path, by source id: where a row is.
+    pub paths: Vec<std::path::PathBuf>,
 }
 
 #[derive(Default)]
@@ -50,6 +55,7 @@ struct Program {
     kept: Option<Kept>,
     reused: bool,
     stale: bool,
+    paths: Vec<std::path::PathBuf>,
 }
 
 thread_local! {
@@ -85,6 +91,7 @@ pub fn retention_build(path: &Path, offered: Option<Kept>) -> Retained {
     }
     let _ = contract_lower::synthetic_candidates();
     let _ = contract_lower::retention();
+    let _ = contract_lower::rows::rows();
     let outer = PROGRAM.with(|p| {
         std::mem::replace(
             &mut *p.borrow_mut(),
@@ -105,6 +112,8 @@ pub fn retention_build(path: &Path, offered: Option<Kept>) -> Retained {
         kept: program.kept,
         reused: program.reused,
         stale: program.stale,
+        rows: contract_lower::rows::rows(),
+        paths: program.paths,
     }
 }
 
@@ -178,4 +187,15 @@ pub(crate) fn verify(fresh: (&Types, &Expanded), reused: (&Types, &Expanded)) ->
 /// as [`Retained::stale`].
 pub(crate) fn refused_fresh() {
     PROGRAM.with(|p| p.borrow_mut().stale = true);
+}
+
+/// Keep each source's path, when the design server asked: where its rows
+/// are.
+pub(crate) fn keep_paths(paths: &[std::path::PathBuf]) {
+    PROGRAM.with(|p| {
+        let mut p = p.borrow_mut();
+        if p.keep {
+            p.paths = paths.to_vec();
+        }
+    })
 }

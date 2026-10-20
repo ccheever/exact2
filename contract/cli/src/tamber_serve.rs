@@ -209,6 +209,10 @@ struct Server {
     /// sources' key: a build the design alone moved reuses them where the
     /// program loads as it did (`contract::retention_build`).
     kept: Option<(String, contract::Kept)>,
+    /// The style rows the last retention build found literal, with each
+    /// source's path, by the Contract sources' key: what a write's rows
+    /// check judges again (`contract_lower::rows`).
+    rows: Option<(String, Vec<contract_lower::rows::Row>, Vec<PathBuf>)>,
     /// The background whole build, which says when a retention build's
     /// build fails after the design (theme2's 12:15 ruling).
     checker: check::Checker,
@@ -372,6 +376,7 @@ impl Server {
             client: None,
             synthetic: None,
             kept: None,
+            rows: None,
             checker: check::Checker::default(),
             last_key: String::new(),
             params: Default::default(),
@@ -459,7 +464,8 @@ impl Server {
             };
             let _ = file.and_then(|mut f| f.write_all(line.as_bytes()));
         }
-        self.kept = built.kept.map(|kept| (sources, kept));
+        self.kept = built.kept.map(|kept| (sources.clone(), kept));
+        self.rows = Some((sources, built.rows, built.paths));
         // A build that stopped before the design says nothing of them.
         let retention = built.retention?;
         self.synthetic = Some((key.clone(), built.candidates.clone(), Some(retention)));

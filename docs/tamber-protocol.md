@@ -750,7 +750,12 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   synthetic token gained, lost or left unfoldable, a profile colour, or an unknown closure (the
   app's build stops before its design, or the server's background whole build found a build under
   the same retention failing, until a whole build of the files as they are now passes; the breaking
-  edit itself, answered before that build reports, is `live`). A `live` edit reaches running development builds as a batch, with
+  edit itself, answered before that build reports, is `live`). An edit that breaks an element's
+  literal style row that passed (a token of the wrong kind, a value the row doesn't take, a name
+  removed) is refused instead, as `propose`, `transaction` and a verifying scrub frame answer any
+  write check: the compiler's own refusal, its id and words, at the row in its Contract source. A
+  row already failing before the edit is the build's to report, and isn't refused (LLP 1121 D3,
+  D7; QUEUE names the rows not judged so). A `live` edit reaches running development builds as a batch, with
   no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads.
   `propose` through the JS target's dev loop is also `rebuild` when the edit moves a token its pages
   write inline, which the loop's design read marks (a `font-weight` number, an SVG attribute's

@@ -826,6 +826,7 @@ fn compile_loaded(
         all.truncate(MAX_DIAGNOSTICS);
         all
     };
+    retained::keep_paths(sources.paths());
     let strings = strings::load(&app_root, path).map_err(joined)?;
     let mut own = match warned {
         Some(_) => grants::check(&file, &app_root, strings.as_deref()),

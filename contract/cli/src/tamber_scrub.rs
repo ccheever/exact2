@@ -148,6 +148,104 @@ impl Server {
     /// that comes to vary by an app axis (LLP 1121 D5, the compiler's
     /// `tamber-role-axis`), and a param's value out of its range (D15).
     /// `texts` are the files as planned over.
+    /// The rows a write breaks (theme2's 14:19 ruling): the compiler's
+    /// own check of just the literal rows that name a token the write
+    /// touches (`contract_lower::rows::check`), under the design before and
+    /// after; a row that passed and fails is refused, in the compiler's
+    /// words, where it is. `before` is laid only when a row fails after.
+    fn rows_check(
+        &self,
+        texts: &[(String, String)],
+        planned: &exact_tamber::Planned,
+        app: &contract::tamber_params::AppParams,
+        folded: &exact_tamber::Folding,
+    ) -> Result<(), Value> {
+        let Some((key, rows, paths)) = &self.rows else {
+            return Ok(());
+        };
+        // A write that edits a Contract source too (a rename's) leaves the
+        // map behind it: those rows are the build's to judge.
+        let contract = planned
+            .files
+            .iter()
+            .any(|(p, _, _)| p.ends_with(".contract"));
+        if *key != self.sources_key() || rows.is_empty() || contract {
+            return Ok(());
+        }
+        let Some((_, after, _)) = planned.files.iter().find(|(p, _, _)| *p == self.design) else {
+            return Ok(());
+        };
+        let old = texts
+            .iter()
+            .find(|(p, _)| *p == self.design)
+            .map(|(_, t)| t.as_str());
+        let Ok(parsed) = exact_tamber::parse(after) else {
+            return Ok(());
+        };
+        let names = |d: &exact_tamber::Design| -> Vec<String> {
+            d.tokens
+                .iter()
+                .chain(&d.icons)
+                .map(|t| t.name.value.clone())
+                .collect()
+        };
+        // What the write changes, and every name it removes.
+        let mut touched: Vec<String> = planned
+            .changed
+            .iter()
+            .filter(|(f, _)| *f == self.design)
+            .map(|(_, t)| t.clone())
+            .collect();
+        let was = old.and_then(|t| exact_tamber::parse(t).ok());
+        if let Some(was) = &was {
+            let now = names(&parsed);
+            touched.extend(names(was).into_iter().filter(|n| !now.contains(n)));
+        }
+        if touched.is_empty() {
+            return Ok(());
+        }
+        let touched: Vec<&str> = touched.iter().map(String::as_str).collect();
+        let exprs = self
+            .synthetic
+            .as_ref()
+            .map(|(_, e, _)| e.clone())
+            .unwrap_or_default();
+        let broken = contract_lower::rows::check(
+            rows,
+            &touched,
+            &folded.design,
+            folded,
+            || was.as_ref().map(|d| contract::tamber_params::laid(d, app)),
+            &exprs,
+            &app.tokens,
+        );
+        if broken.is_empty() {
+            return Ok(());
+        }
+        let diagnostics: Vec<Value> = broken
+            .iter()
+            .map(|b| {
+                let span = b.error.span;
+                // As tamber/1.15 names a file: the app's relative, a
+                // package's by its name (`tamber_uses::shown`).
+                let file = paths
+                    .get(span.source_id as usize)
+                    .map(|p| contract::tamber_uses::shown(p, &self.dir))
+                    .unwrap_or_default();
+                diagnostic(
+                    &file,
+                    &exact_tamber::Diagnostic {
+                        id: b.error.id,
+                        message: b.error.message.clone(),
+                        line: span.line,
+                        col: span.col,
+                    },
+                )
+            })
+            .collect();
+        Err(json!({"message": "refused", "diagnostics": diagnostics}))
+    }
+
     pub(super) fn write_checks(
         &self,
         texts: &[(String, String)],
@@ -200,10 +298,10 @@ impl Server {
         // The app's design as planned, folded as the build folds it with its
         // packages' designs (LLP 1121 D11): an edit that leaves a package
         // token naming what isn't its own (an override removed) is refused.
-        // (the fold kept for the slot check below: one fold a write)
+        // (the fold kept for the slot and row checks below: one fold a write)
         let chains = self.slot_chains();
         let mut folded = None;
-        if !app.packages.is_empty() || chains.is_some() {
+        if !app.packages.is_empty() || chains.is_some() || self.rows.is_some() {
             for (path, text, _) in planned.files.iter().filter(|(p, _, _)| *p == self.design) {
                 match contract::tamber_params::fold_with(text, &app, &self.vocab) {
                     Ok((f, _)) => folded = Some((path.clone(), f)),
@@ -288,6 +386,10 @@ impl Server {
                     json!({"message": "refused", "diagnostics": all.iter().map(|d| super::located(path, d, &app)).collect::<Vec<_>>()}),
                 );
             }
+        }
+        // The literal rows the write reaches, judged as the build judges them.
+        if let Some((_, after)) = &folded {
+            self.rows_check(texts, planned, &app, after)?;
         }
         if !app.tokens.is_empty() {
             let set: Vec<(String, String)> = planned

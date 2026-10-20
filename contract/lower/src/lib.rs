@@ -141,6 +141,7 @@ pub fn package_unband(message: &str) -> String {
 }
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
 pub use theme::retained::retention_only;
+pub use theme::rows;
 pub use theme::{retention, synthetic_candidates};
 pub use warnings::{warnings, MAX_WARNINGS};
 

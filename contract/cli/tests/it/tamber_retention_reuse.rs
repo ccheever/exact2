@@ -467,10 +467,20 @@ fn an_edit_failing_after_the_design_is_classed_rebuild_while_retention_is_kept()
     );
     let (ok, _) = s.ask(propose("ink"));
     assert!(ok.get("ok").is_some(), "{ok}");
+    // The rows check (theme2's 14:19 ruling) refuses that write now, in the
+    // compiler's words; made on disk past the server, the build refuses it.
     let (written, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": "gap", "value": "#444444"}]}));
-    assert_eq!(written["ok"]["class"], "rebuild", "{written}");
+    assert_eq!(
+        written["error"]["diagnostics"][0]["id"], "tamber-kind",
+        "{written}"
+    );
+    edit(&dir, "gap = 8px", "gap = #444444");
     let failed = contract::compile_path(&dir.join("app.contract")).unwrap_err();
     assert_eq!(failed.id, "tamber-kind", "{failed:?}");
+    assert_eq!(
+        written["error"]["diagnostics"][0]["message"], failed.message,
+        "the compiler's words"
+    );
     // The write moved a kind, which keys: the next propose builds, as far
     // as the retention of a build that then fails, and the one after hits
     // the cache (one line for the two).
@@ -523,7 +533,8 @@ fn a_build_failing_after_the_design_is_rebuild_once_the_check_reports() {
             let (w, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": "scale", "value": to}]}));
             assert!(w.get("ok").is_some(), "{w}");
         };
-        set(&mut s, "neg");
+        // Past the server (an editor): the write check would refuse it.
+        edit(&dir, "scale = one", "scale = neg");
         // The answer right after the move is the stopped build's; once the
         // check fails, `rebuild`, and it stays.
         assert_eq!(class(&mut s), "live", "over: {over}");
@@ -595,7 +606,7 @@ fn a_value_edit_while_broken_is_rebuild_and_a_fixing_one_returns_to_live() {
         assert!(w.get("ok").is_some(), "{w}");
     };
     assert_eq!(class(&mut s), "live");
-    write(&mut s, "scale", "zero");
+    edit(&dir, "scale = one", "scale = zero");
     until(&mut s, "rebuild");
     seen(&log, "failed");
     // An unrelated value edit: the key stays, the build is still broken.
@@ -682,7 +693,7 @@ fn a_lost_check_is_asked_for_again() {
     assert_eq!(class(&mut s), "live");
     open();
     seen(&log, "passed");
-    write(&mut s, "scale", "zero");
+    edit(&dir, "scale = one", "scale = zero");
     class(&mut s);
     // While that check is held at the gate (its second `began`), an
     // unrelated value edit; then the gate opens for every build.
@@ -727,8 +738,7 @@ fn an_open_scrub_follows_the_check() {
             ("EXACT_TAMBER_CHECK_GATE", gate.to_str().unwrap()),
         ],
     );
-    let (w, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": "scale", "value": "zero"}]}));
-    assert!(w.get("ok").is_some(), "{w}");
+    edit(&dir, "scale = one", "scale = zero");
     let files = json!({"app.tamber": digest(&dir.join("app.tamber"))});
     let frame = |s: &mut Serve, open: bool, v: &str| {
         let (r, _) = s.ask(json!({"method": "scrub-fold", "open": open, "files": files, "ops": [{"op": "set-token", "name": "ink", "value": v}]}));
@@ -771,7 +781,7 @@ fn a_failure_of_files_since_moved_still_marks_the_key() {
         let (w, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": name, "value": to}]}));
         assert!(w.get("ok").is_some(), "{w}");
     };
-    write(&mut s, "scale", "zero");
+    edit(&dir, "scale = one", "scale = zero");
     write(&mut s, "ink", "#555555");
     for _ in 0..100 {
         if s.ask(propose("ink")).0["ok"]["class"] == "rebuild" {
@@ -794,8 +804,7 @@ fn a_scrubs_frames_never_clear_a_key_the_files_left() {
     let log = PathBuf::from(format!("{}.check.log", dir.display()));
     let _ = std::fs::remove_file(&log);
     let mut s = Serve::start(&dir, &[("EXACT_TAMBER_CHECK_LOG", log.to_str().unwrap())]);
-    let (w, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": "scale", "value": "zero"}]}));
-    assert!(w.get("ok").is_some(), "{w}");
+    edit(&dir, "scale = one", "scale = zero");
     let broken = std::fs::read_to_string(dir.join("app.tamber")).unwrap();
     let files = json!({"app.tamber": digest(&dir.join("app.tamber"))});
     let frame = |s: &mut Serve, open: bool, v: &str| {
@@ -820,4 +829,13 @@ fn a_scrubs_frames_never_clear_a_key_the_files_left() {
     assert_eq!(s.ask(propose("ink")).0["ok"]["class"], "rebuild");
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Edit the app's design on disk, past the server, as an editor does:
+/// `from` to `to`.
+fn edit(dir: &std::path::Path, from: &str, to: &str) {
+    let path = dir.join("app.tamber");
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains(from), "{text}");
+    std::fs::write(&path, text.replacen(from, to, 1)).unwrap();
 }

@@ -232,10 +232,14 @@ fn a_transaction_writes_a_line_its_inverse_undoes_and_a_stale_digest_conflicts()
     let (conflict, _) = s.ask(json!({"method": "transaction", "client": "two", "files": {"app.tamber": seen}, "ops": [{"op": "set-token", "name": "contrast_0", "value": "#000000"}]}));
     assert_eq!(conflict["error"]["conflict"], true);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), after);
-    // A structural edit (a kept token renamed) is a rebuild; the inverse
-    // gives the bytes back.
+    // A kept token renamed where a row names it breaks the row: refused at
+    // the write in the compiler's words, where the row is (the rows check,
+    // theme2's 14:19 ruling), where it was a rebuild the build then
+    // refused. The inverse gives the bytes back.
     let (rename, _) = s.ask(json!({"method": "propose", "ops": [{"op": "rename-token", "from": "mute_banner", "to": "banner.mute"}]}));
-    assert_eq!(rename["ok"]["class"], "rebuild");
+    let refused = &rename["error"]["diagnostics"][0];
+    assert_eq!(refused["id"], "tamber-unknown-token", "{rename}");
+    assert_eq!(refused["file"], "app.contract", "{rename}");
     let (undone, _) =
         s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
     assert!(undone["ok"]["inverse"].is_string(), "{undone}");
