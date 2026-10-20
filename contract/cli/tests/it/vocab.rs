@@ -89,7 +89,10 @@ fn color_scheme_and_exact_midi_say_what_a_port_asked() {
         out.contains("`normal`, `light dark` and `only` are refused"),
         "{out}"
     );
-    assert!(out.contains("setScheme(\"system\" | \"light\" | \"dark\")"), "{out}");
+    assert!(
+        out.contains("setScheme(\"system\" | \"light\" | \"dark\")"),
+        "{out}"
+    );
     let out = stdout(&vocab(&["exactMIDI"]));
     assert!(out.contains("`sent` never lists it"), "{out}");
     let out = stdout(&vocab(&["navigate"]));
