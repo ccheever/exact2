@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, renderedIds, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, beforeDrift, conformFailures, conformSame, renderedIds, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -154,4 +154,13 @@ test('what a screen renders: the testIds only the packages write, from its whole
     { testId: 'postcard-content-2', x: 10, y: 10, w: 0, h: 0 }, { testId: 'actions-2', x: 10, y: 900, w: 20, h: 20 }] }), JSON.stringify({ node: { testId: 'compose-text' } })].join('\n');
   expect(renderedIds(out).sort()).toEqual(['actions-1', 'atcard-visit-3', 'compose-post', 'postcard-content-1']);
   expect(renderedIds('no layout')).toBe(null);
+});
+
+test('conform on the clone: the adoption fails nothing the baseline does not', () => {
+  const out = 'x\nFAIL app tap a: layout b.w: wasm 1 js 2 (delta 1 px, tolerance 0.5 px)\nFAIL app clock +1: screenshot: 1.50% of pixels differ (clock-1-side-by-side.png)\n2 failures across 1 targets; r.md';
+  expect(conformFailures(out)).toEqual(['FAIL app tap a: layout b.w: wasm 1 js 2 (delta 1 px, tolerance 0.5 px)', 'FAIL app clock +1: screenshot: 1.50% of pixels differ']);
+  const before = { failures: conformFailures(out) };
+  expect(conformSame({ before, after: { failures: before.failures.slice(1) } })).toBe(true);
+  expect(conformSame({ before, after: { failures: [...before.failures, 'FAIL app new'] } })).toBe(false);
+  expect(conformSame({ before: null, after: { failures: [] } })).toBe(false);
 });

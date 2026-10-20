@@ -296,6 +296,39 @@ export function renderedLibrary(map) {
   return [...new Set((map.nodes ?? []).map(n => `${home.get(n.file) ?? ''}#${n.component}`).filter(id => id.startsWith('@')))];
 }
 
+/** Conform on the clone holds when both sides ran and the adoption fails
+ * nothing the baseline doesn't (LLP 1139 §5's "conform on the clone clean",
+ * held as stage 9's gate held a conform red: identical on the base). */
+export const conformSame = c => !!(c.before && c.after) && c.after.failures.every(f => c.before.failures.includes(f));
+const conformEvidence = c => {
+  if (!c.before || !c.after) return [`conform on the clone: did not run (${['before', 'after'].filter(s => !c[s]).join(', ')})`];
+  const added = c.after.failures.filter(f => !c.before.failures.includes(f));
+  return [`conform on the clone (host/web-js/conform.mjs --strict --linux, wasm against JS): after ${c.after.summary.split(';')[0]}, before ${c.before.summary.split(';')[0]}; ${added.length ? `${added.length} the adoption adds` : `every failure the baseline's own (${c.after.failures.length}, the same lines)`}`, ...added.map(f => `  NEW ${f}`)];
+};
+
+/** The SDK a copy builds with: its exact.mjs's EXACT2 (the environment's,
+ * else its default). */
+function sdkOf(copy) {
+  const named = /const EXACT2 = resolve\(import\.meta\.dir, process\.env\.EXACT2 \?\? "([^"]+)"\)/.exec(readFileSync(join(copy, 'exact.mjs'), 'utf8'))?.[1];
+  return process.env.EXACT2 ? resolve(process.env.EXACT2) : named ? resolve(copy, named) : null;
+}
+
+/** host/web-js/conform.mjs on a copy, run from the SDK it builds with (its
+ * patches name that checkout's crates), by its app's name: its failures,
+ * each a `FAIL` line with a screenshot's file name set aside; null when it
+ * didn't run. */
+export function conformOf(copy, side) {
+  const sdk = sdkOf(copy), name = /name: "([^"]+)"/.exec(readFileSync(join(copy, 'exact.mjs'), 'utf8'))?.[1];
+  if (!sdk || !name) return null;
+  const work = join(ROOT, 'target', 'stage12-gate', `conform-${side}`);
+  const r = run(process.execPath, [join(sdk, 'host/web-js/conform.mjs'), name, '--build', '--strict', '--linux', '--jobs', '1', '--wasm-root', join(work, 'wasm'), '--out', join(work, 'out')],
+    { cwd: sdk, timeout: 7_200_000, env: { ...process.env, EXACT_APP_DIR: copy, CARGO_TARGET_DIR: join(ROOT, 'target', `stage12-gate-${side}`) } });
+  const summary = r.out.split('\n').find(l => /failures across/.test(l));
+  if (!summary) return null;
+  return { summary, failures: conformFailures(r.out) };
+}
+export const conformFailures = out => out.split('\n').filter(l => l.startsWith('FAIL ')).map(l => l.replace(/\s*\([^()]*side-by-side\.png\)\s*$/, ''));
+
 /** What the adoption must use: the four components from the two packages. */
 export const ADOPTED = ['@exact/cards/post-card.contract#PostCard', '@exact/cards/at-card.contract#AtCard', '@exact/actions/action-row.contract#ActionRow', '@exact/actions/post-button.contract#PostButton'];
 
@@ -330,10 +363,10 @@ export function consumerPixels(opts) {
   const missing = ADOPTED.filter(id => !uses.after.includes(id));
   if (missing.length) return fail(`--copy does not use ${missing.join(', ')}: not the adoption`);
   if (uses.before.length) return fail(`--before already uses library components (${uses.before.join(', ')}): not the baseline`);
-  // Conform on the clone: its own check (every diagnostic of its build,
-  // and its data module's tests), on the adoption.
-  const check = run('sh', [join(opts.copy, 'tools/check.sh')], { cwd: opts.copy, env: { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', 'stage12-gate-after') } });
-  const checkSaid = check.out.trim().split('\n').at(-1) ?? '';
+  // Conform on the clone (the JS target's harness: the app's wasm build
+  // against its JS build, step by step), on each side: the adoption adds no
+  // failure the baseline doesn't have.
+  const conform = Object.fromEntries([['before', opts.before], ['after', opts.copy]].map(([side, copy]) => [side, conformOf(copy, side)]));
   const shots = {};
   for (const [side, copy] of [['before', opts.before], ['after', opts.copy]]) {
     const said = buildSide(copy, side);
@@ -356,8 +389,8 @@ export function consumerPixels(opts) {
     'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
     `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before none`,
     `rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${early.length ? `; before already shows ${early.join(', ')}` : ''}`,
-    `conform on the clone (its tools/check.sh: its build's diagnostics and its data tests): ${check.ok && checkSaid === 'ok' ? 'clean' : `NOT clean: ${check.out.trim().split('\n').slice(-3).join(' / ').slice(0, 300)}`}`];
-  return bad.length || !r.length || !check.ok || checkSaid !== 'ok' || unseen.length || own.length || early.length ? fail(...evidence) : pass(...evidence);
+    ...conformEvidence(conform)];
+  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || early.length ? fail(...evidence) : pass(...evidence);
 }
 
 /** The library lines' required hosts (LLP 1139 §5): the web's JS target
