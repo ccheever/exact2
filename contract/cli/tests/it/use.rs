@@ -481,3 +481,42 @@ fn a_root_that_names_no_file_has_its_lines_written() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&shared_dir);
 }
+
+/// Review round 2's case: app → Panel, panel → Widget, widget → Panel and
+/// Icon. The Panel/Widget lines would make a cycle and are not written, so
+/// the root never reaches widget.contract, and its `use Icon` is not
+/// written either: only an edge a fix writes makes a file the root's.
+#[test]
+fn a_file_reached_only_through_a_refused_cycle_is_not_written() {
+    let dir = temp_dir("cycle-reach");
+    let write = |name: &str, text: &str| std::fs::write(dir.join(name), text).unwrap();
+    write("icon.contract", "component Icon\n  view\n    text \"i\"\n");
+    let widget = "component Widget\n  view\n    column\n      Panel()\n      Icon()\n";
+    write("widget.contract", widget);
+    let panel = "component Panel\n  view\n    Widget()\n";
+    write("panel.contract", panel);
+    write(
+        "app.contract",
+        "component App\n  view\n    column\n      Panel()\n",
+    );
+    let root = dir.join("app.contract");
+    let (written, refused) = contract::fix_uses(&root).unwrap();
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap();
+    assert_eq!(read("widget.contract"), widget, "{written:?}");
+    assert_eq!(read("panel.contract"), panel, "{written:?}");
+    assert_eq!(
+        read("icon.contract"),
+        "component Icon\n  view\n    text \"i\"\n"
+    );
+    assert!(
+        read("app.contract").starts_with("use Panel from \"./panel.contract\"\n"),
+        "{written:?}"
+    );
+    assert!(
+        refused
+            .iter()
+            .any(|e| e.message.contains("would make a cycle")),
+        "{refused:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

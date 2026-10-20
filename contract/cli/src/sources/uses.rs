@@ -29,10 +29,14 @@ pub struct UseLine {
 /// What one file lacks, and the refusal that says so.
 #[derive(Debug, Clone)]
 pub(crate) struct UseFix {
+    /// The file's unit.
+    pub(crate) unit: usize,
     pub(crate) path: PathBuf,
     pub(crate) lines: Vec<UseLine>,
     /// Names no line can bring by rule, each with why.
     pub(crate) unresolved: Vec<String>,
+    /// The units the lines name: the edges writing them adds.
+    pub(crate) brings: Vec<usize>,
     pub(crate) error: CompileError,
 }
 
@@ -44,6 +48,7 @@ impl Loader<'_> {
         let mut groups: Vec<(String, Vec<String>)> = Vec::new();
         let mut unresolved: Vec<String> = Vec::new();
         let mut seen: Vec<String> = Vec::new();
+        let mut brings: Vec<usize> = Vec::new();
         for (m, e) in &misses {
             if seen.contains(&m.name) {
                 continue;
@@ -78,6 +83,9 @@ impl Loader<'_> {
                     m.name, e.file
                 ));
             } else if let Some(spec) = self.specifier(index, e.unit) {
+                if !brings.contains(&e.unit) {
+                    brings.push(e.unit);
+                }
                 match groups.iter_mut().find(|(s, _)| *s == spec) {
                     Some((_, names)) => names.push(m.name.clone()),
                     None => groups.push((spec, vec![m.name.clone()])),
@@ -178,9 +186,11 @@ impl Loader<'_> {
             });
         }
         UseFix {
+            unit: index,
             path: self.sources.paths[index].clone(),
             lines,
             unresolved,
+            brings,
             error: CompileError {
                 pass: "use",
                 id: "contract-use-missing".into(),
@@ -472,14 +482,13 @@ pub(crate) fn use_fixes(
                 }
                 let reach = loader.reached_with_fixes(reached);
                 let sources = &loader.sources;
-                let at = |fix: &UseFix| sources.paths.iter().position(|p| *p == fix.path);
                 return Ok(std::mem::take(&mut loader.fixes)
                     .into_iter()
-                    .filter(|fix| at(fix).is_some_and(|i| reach.contains(&i)))
+                    .filter(|fix| reach.contains(&fix.unit))
                     .map(|mut fix| {
                         // Only the app's own files are written: a package's,
                         // or one a link leads outside the app to, is said.
-                        let own = at(&fix).is_some_and(|i| sources.origins[i] == Origin::App);
+                        let own = sources.origins[fix.unit] == Origin::App;
                         if !own || !fix.path.starts_with(app_root) {
                             fix.lines.clear();
                         }
@@ -539,18 +548,15 @@ impl Loader<'_> {
     }
 
     /// The units the root reaches through the `use` lines written and the
-    /// edges the fixes would add (`proposed`); the first `reached` units are
-    /// the root's own program.
+    /// ones the fixes write (`brings`, never an edge a fix refused, such as
+    /// a cycle's); the first `reached` units are the root's own program.
     fn reached_with_fixes(&self, reached: usize) -> HashSet<usize> {
         let mut seen: HashSet<usize> = (0..reached).collect();
         let mut todo: Vec<usize> = seen.iter().copied().collect();
         while let Some(at) = todo.pop() {
             let written = self.units[at].targets.iter().copied();
-            let added = self
-                .proposed
-                .iter()
-                .filter(|(from, _)| *from == at)
-                .map(|(_, to)| *to);
+            let fixes = self.fixes.iter().filter(|f| f.unit == at);
+            let added = fixes.flat_map(|f| f.brings.iter().copied());
             for next in written.chain(added).collect::<Vec<_>>() {
                 if seen.insert(next) {
                     todo.push(next);
