@@ -360,6 +360,10 @@ function createPresence(root) {
         if (el.style.getPropertyValue(LAYOUT)) tracked.add(el);
         else { tracked.delete(el); stop(el); }
       }
+      // A position-only flip has no size surface for sync() to retire.
+      // Stop only this controller's move when its owner left the document;
+      // connected exit ghosts and unrelated animations keep their lifetimes.
+      for (const el of tracked) if (!el.isConnected) { stop(el); tracked.delete(el); }
       const place = measure(), moves = [];
       for (const [el, [was, [d, v]]] of first) {
         if (!tracked.has(el)) continue;

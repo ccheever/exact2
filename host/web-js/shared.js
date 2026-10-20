@@ -18,6 +18,50 @@
 
 import { hold, within } from './focus.js';
 
+/** The late presence bridge. Reports own elements only until the next
+ * publication; temporary IDs never enter the runtime's strong Views map. */
+export function presence(controller, exiting) {
+  const styled = new Set(), created = new Set();
+  let aborted = false;
+  const report = (ops, run) => {
+    const views = new Map(), batch = [];
+    try {
+      for (const [op, elements, css] of ops) for (const e of elements) {
+        if (!e?.isConnected) continue;
+        const id = views.size; views.set(id, e);
+        batch.push({ op, id, css });
+      }
+      run({ ops: batch }, views);
+    } finally { views.clear(); }
+  };
+  const clear = () => { styled.clear(); created.clear(); };
+  return {
+    // Only metadata: evaluating a binding here could ask a resource twice
+    // or publish an obsolete child that a queued parent is about to retire.
+    before(queue) {
+      aborted = false;
+      const gains = new Set(queue.filter(n => !n.gone && n.$layout?.isConnected).map(n => n.$layout));
+      report([['style', gains, '--exact-layout-transition:']], (batch, views) => controller.before(batch, views));
+    },
+    style(e) { if (!aborted) styled.add(e); },
+    create(e) { if (!aborted) created.add(e); },
+    after() {
+      try { if (!aborted) report([['style', styled], ['create', created]], (batch, views) => controller.after(batch, views)); }
+      finally { clear(); }
+    },
+    // A poisoned tree never publishes its partial writes through a later
+    // piece/list settlement. The next actual tail owns a new measurement.
+    discard() { clear(); aborted = true; },
+    // A removed region root with an exit remains out of flow, as the
+    // kernel's exit operation. Other animations belong to their own hosts.
+    leave(n) {
+      const css = n.nodeType === 1 && n.style.getPropertyValue('--exact-exit-animation').trim();
+      if (css) controller.exit(n, css);
+      if (!exiting(n)) n.remove();
+    },
+  };
+}
+
 const NAME = '[data-shared-element]';
 let pending = null; // the tails waiting for a transition's update
 let running = null; // the transition animating, if any

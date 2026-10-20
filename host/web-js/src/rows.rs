@@ -11,6 +11,23 @@ use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
 impl Em<'_> {
+    /// A dynamic-only site must load the late controller even while its
+    /// first value declares no transition. Keep static exit registration.
+    pub(super) fn presence(&mut self, i: u32, e: &str, static_decls: &str) {
+        let dynamic = self.plan.nodes[i as usize]
+            .bindings
+            .iter()
+            .map(|b| self.plan.binding(b))
+            .any(|b| {
+                b.kind == BindingKind::Style
+                    && b.id == StyleId::LayoutTransition as u16
+                    && style::literal(self.plan, self.plan.code(b.expr)).is_none()
+            });
+        if !static_decls.is_empty() || dynamic {
+            let pr = self.uses.rt("pr");
+            let _ = write!(self.out, "{pr}({e});");
+        }
+    }
     /// Clock ticks format cached instants without evaluating app code.
     pub(super) fn live_time(
         &mut self,
@@ -515,6 +532,9 @@ impl Em<'_> {
                     // Composed with the row's own map (`accent-color` has one).
                     let map = match (w.map, &cm) {
                         (Some(m), Some(cm)) => Some(format!("v=>({m})({cm}(v))")),
+                        (Some(m), None) if id == StyleId::LayoutTransition => {
+                            Some(self.uses.constant("$layout", || m.to_string()))
+                        }
                         (Some(m), None) => Some(m.to_string()),
                         (None, cm) => cm.clone(),
                     };
@@ -592,7 +612,11 @@ impl Em<'_> {
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at
         // run time from the node (`Sr`).
         let refs = style::can_be(plan, plan.code(b.expr), &|v| v.contains("url("));
-        let s = self.uses.rt(if refs {
+        let s = self.uses.rt(if id == StyleId::LayoutTransition {
+            // Its owned effect carries the prospective target metadata;
+            // native motion holds do not own this presence declaration.
+            "S"
+        } else if refs {
             "Sr"
         } else if self.is_motion_node(i) {
             "Sm"

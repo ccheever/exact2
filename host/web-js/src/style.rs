@@ -783,6 +783,15 @@ pub static TRANSITION_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::ne
     format!("v=>{{if(v==null)return v;{TRANSITION_ENTRIES}return p.join(\",\")||\"none\"}}")
 });
 
+/// A layout binding uses the same validated grammar as paint, selecting
+/// the last `all` (or omitted property) exactly as Transitions::matching.
+pub static LAYOUT_TRANSITION_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        "v=>{{const p=({})(v);return p?.filter(t=>t.property===null||t.property===\"all\").at(-1)?.css??null}}",
+        crate::paint::transition_parser()
+    )
+});
+
 /// `text` with each `-exact-platform-color()` in it as its CSS (its `web` colour or
 /// its fallback), as the kernel writes a literal's.
 fn platform_css(text: &str) -> String {
@@ -959,6 +968,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         }],
         StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large',unset:'medium'})[v]??'medium'")],
         StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
+        StyleId::LayoutTransition => vec![with("--exact-layout-transition", &LAYOUT_TRANSITION_MAP)],
         StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
         StyleId::ColumnGap | StyleId::RowGap => {
