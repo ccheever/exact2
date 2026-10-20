@@ -1,11 +1,13 @@
 //! `storage.fs.compressImage` (LLP 1069.002 Amendment A1): decode an image,
-//! scale it to a pixel budget and encode it as a JPEG within a byte budget.
+//! scale it to a pixel budget and encode it as a JPEG, or a PNG that keeps
+//! its alpha (A1.11), within a byte budget.
 //!
-//! The search is Bluesky's (`social-app` `compress.ts`), restated in A1.2
-//! and kept as a pure function over an encoder ([`search`]) so every host's
-//! trials can be checked against one recorded sequence. The codec is the
-//! platform's: ImageIO on Apple ([`compress`]); elsewhere there is no JPEG
-//! encoder in the tree and the call is refused (`unsupported`, A1.3).
+//! The JPEG search is Bluesky's (`social-app` `compress.ts`), restated in
+//! A1.2 and kept as a pure function over an encoder ([`search`]) so every
+//! host's trials can be checked against one recorded sequence; a PNG has no
+//! quality, so it only shrinks ([`search_lossless`]). The codec is the
+//! platform's: ImageIO on Apple ([`compress`]); elsewhere there is no encoder
+//! in the tree and the call is refused (`unsupported`, A1.3).
 use std::time::Instant;
 
 #[cfg(target_vendor = "apple")]
@@ -22,7 +24,34 @@ pub const MAX_SOURCE_PIXELS: u64 = 64 * 1024 * 1024;
 /// The most dimensions the search shrinks through (`attempts >= 4`).
 pub const MAX_SHRINKS: u32 = 4;
 
-/// What the codec made: JPEG bytes and their pixel size.
+/// What `compressImage` writes (`type`, A1.11): a JPEG unless the app asks
+/// for a PNG.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Format {
+    #[default]
+    Jpeg,
+    Png,
+}
+
+impl Format {
+    /// The `type` option's value, or `None` for a type it does not take.
+    pub fn parse(media_type: &str) -> Option<Self> {
+        match media_type {
+            "image/jpeg" => Some(Self::Jpeg),
+            "image/png" => Some(Self::Png),
+            _ => None,
+        }
+    }
+    /// The media type the result reports.
+    pub fn media_type(self) -> &'static str {
+        match self {
+            Self::Jpeg => "image/jpeg",
+            Self::Png => "image/png",
+        }
+    }
+}
+
+/// What the codec made: encoded bytes and their pixel size.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Compressed {
     pub bytes: Vec<u8>,
@@ -115,6 +144,38 @@ where
     Ok(best)
 }
 
+/// A PNG's search (A1.11): the fitted size, then each 0.8 shrink, at most
+/// [`MAX_SHRINKS`] of them, until `encode(w, h)` fits `max_bytes`. `None`:
+/// nothing fits.
+pub fn search_lossless<E>(
+    width: u32,
+    height: u32,
+    max_dimension: u32,
+    max_bytes: u64,
+    mut encode: E,
+) -> Result<Option<Compressed>, String>
+where
+    E: FnMut(u32, u32) -> Result<Vec<u8>, String>,
+{
+    let mut dimension = max_dimension;
+    for _ in 0..=MAX_SHRINKS {
+        let (w, h) = contain(width, height, dimension);
+        let bytes = encode(w, h)?;
+        if bytes.len() as u64 <= max_bytes {
+            return Ok(Some(Compressed {
+                bytes,
+                width: w,
+                height: h,
+            }));
+        }
+        if dimension == 1 {
+            break;
+        }
+        dimension = ((f64::from(dimension) * 0.8).floor() as u32).max(1);
+    }
+    Ok(None)
+}
+
 /// When the codec must stop starting work: checked before the decode and
 /// before each trial (a trial already running finishes).
 pub struct Deadline<'a> {
@@ -134,17 +195,19 @@ impl Deadline<'_> {
     }
 }
 
-/// Decode `source`, then [`search`] with the platform's JPEG encoder,
+/// Decode `source`, then search with the platform's encoder for `format`,
 /// starting no decode or trial at or after `deadline` (`timeout`).
 /// `max_dimension` and `max_bytes` are as [`check_limits`] admits.
 pub fn compress(
     source: &[u8],
+    format: Format,
     max_dimension: u32,
     max_bytes: u64,
     deadline: Instant,
 ) -> Result<Compressed, String> {
     compress_controlled(
         source,
+        format,
         max_dimension,
         max_bytes,
         deadline,
@@ -162,6 +225,7 @@ pub fn compress(
 #[allow(clippy::too_many_arguments)]
 pub fn compress_controlled(
     source: &[u8],
+    format: Format,
     max_dimension: u32,
     max_bytes: u64,
     deadline: Instant,
@@ -179,6 +243,7 @@ pub fn compress_controlled(
     }
     platform(
         source,
+        format,
         max_dimension,
         max_bytes,
         Deadline {
@@ -193,21 +258,22 @@ pub fn compress_controlled(
 #[cfg(target_vendor = "apple")]
 fn platform(
     source: &[u8],
+    format: Format,
     max_dimension: u32,
     max_bytes: u64,
     deadline: Deadline<'_>,
 ) -> Result<Compressed, String> {
-    apple::compress(source, max_dimension, max_bytes, deadline)
+    apple::compress(source, format, max_dimension, max_bytes, deadline)
 }
 
 #[cfg(not(target_vendor = "apple"))]
-fn platform(_: &[u8], _: u32, _: u64, _: Deadline<'_>) -> Result<Compressed, String> {
+fn platform(_: &[u8], _: Format, _: u32, _: u64, _: Deadline<'_>) -> Result<Compressed, String> {
     Err(unsupported())
 }
 
 /// The refusal where there is no codec (A1.3).
 pub fn unsupported() -> String {
-    failure("unsupported", "no JPEG encoder on this host")
+    failure("unsupported", "no image encoder on this host")
 }
 
 #[cfg(test)]

@@ -879,13 +879,15 @@ pub unsafe extern "C" fn ibex2_async_begin(
         return 1;
     };
     if op == AsyncOp::FsCompressImage {
-        if raw.len() != 4 {
+        // Exact patch 9 (exact2 LLP 1069.002 A1.11): a fifth, the media type.
+        if !(4..=5).contains(&raw.len()) {
             return 1;
         }
         for (index, value) in raw.iter().enumerate() {
             match (index, value.borrow()) {
                 (0 | 1, Ok(HostArg::Str(text))) if text.len() <= 32_768 => {}
                 (2 | 3, Ok(HostArg::Number(_))) => {}
+                (4, Ok(HostArg::Str(text))) if text.len() <= 32 => {}
                 _ => return 1,
             }
         }
@@ -973,6 +975,17 @@ fn prepare_image_args(
             "compressImage expects from, to, maxDimension, maxBytes".into(),
         ));
     };
+    // Exact patch 9 (exact2 LLP 1069.002 A1.11): an optional media type last.
+    let format = match args.get(4) {
+        None => crate::stdlib::fs_image::ImageFormat::Jpeg,
+        Some(HostValue::Str(t)) if t == "image/jpeg" => crate::stdlib::fs_image::ImageFormat::Jpeg,
+        Some(HostValue::Str(t)) if t == "image/png" => crate::stdlib::fs_image::ImageFormat::Png,
+        Some(_) => {
+            return Err(HostError::InvalidArgument(
+                "compressImage type must be image/jpeg or image/png".into(),
+            ))
+        }
+    };
     if !dimension.is_finite()
         || dimension.fract() != 0.0
         || *dimension <= 0.0
@@ -992,6 +1005,7 @@ fn prepare_image_args(
         crate::stdlib::fs_image::ImageRequest {
             max_dimension: *dimension as u32,
             max_bytes: *bytes as u64,
+            format,
         },
     )
 }

@@ -102,6 +102,43 @@ fn an_encoder_error_ends_the_search_with_it() {
     assert_eq!((calls, err.as_str()), (1, "compressImage: timeout: late"));
 }
 
+/// A1.11: a PNG is tried at the fitted size, then at each 0.8 shrink, at most
+/// four of them; nothing fitting is `None`.
+#[test]
+fn a_png_shrinks_until_it_fits() {
+    let mut sizes = Vec::new();
+    let found = search_lossless(1000, 800, 1000, 300_000, |w, h| {
+        sizes.push((w, h));
+        Ok(vec![0; (w * h) as usize / 2])
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(sizes, [(1000, 800), (800, 640)]);
+    assert_eq!((found.width, found.height), (800, 640));
+    let mut sizes = Vec::new();
+    let none = search_lossless(1000, 800, 1000, 1, |w, h| {
+        sizes.push((w, h));
+        Ok(vec![0; 2])
+    })
+    .unwrap();
+    assert!(none.is_none());
+    assert_eq!(
+        sizes,
+        [(1000, 800), (800, 640), (640, 512), (512, 409), (409, 327)]
+    );
+}
+
+#[test]
+fn the_type_option_takes_jpeg_and_png() {
+    assert_eq!(Format::parse("image/jpeg"), Some(Format::Jpeg));
+    assert_eq!(Format::parse("image/png"), Some(Format::Png));
+    for other in ["image/webp", "png", "IMAGE/PNG", ""] {
+        assert_eq!(Format::parse(other), None, "{other}");
+    }
+    assert_eq!(Format::default().media_type(), "image/jpeg");
+    assert_eq!(Format::Png.media_type(), "image/png");
+}
+
 #[test]
 fn limits_are_integers_in_range() {
     assert_eq!(check_limits(4000.0, 2e6), Ok((4000, 2_000_000)));
@@ -126,15 +163,17 @@ fn limits_are_integers_in_range() {
 #[test]
 fn without_a_codec_the_call_is_unsupported() {
     let fixture = include_bytes!("../../scripts/fixtures/picker/oriented-gps.jpg");
-    assert_eq!(
-        compress(fixture, 4000, 2_000_000, later()).unwrap_err(),
-        "compressImage: unsupported: no JPEG encoder on this host"
-    );
+    for format in [Format::Jpeg, Format::Png] {
+        assert_eq!(
+            compress(fixture, format, 4000, 2_000_000, later()).unwrap_err(),
+            "compressImage: unsupported: no image encoder on this host"
+        );
+    }
 }
 
 #[cfg(target_vendor = "apple")]
 mod apple_codec {
-    use super::super::apple::{first_pixel, inspect, png};
+    use super::super::apple::{first_pixel, first_rgba, inspect, png};
     use super::*;
 
     const FIXTURE: &[u8] = include_bytes!("../../scripts/fixtures/picker/oriented-gps.jpg");
@@ -157,6 +196,7 @@ mod apple_codec {
         ];
         assert!(compress_controlled(
             EIGHT,
+            Format::Jpeg,
             16,
             1000,
             later(),
@@ -169,6 +209,7 @@ mod apple_codec {
             let checks = std::cell::Cell::new(0);
             let result = compress_controlled(
                 source,
+                Format::Jpeg,
                 16,
                 1000,
                 later(),
@@ -195,7 +236,7 @@ mod apple_codec {
             (64, 48, Some(6))
         );
         assert!(source.gps && source.exif_date);
-        let out = compress(FIXTURE, 4000, 2_000_000, later()).unwrap();
+        let out = compress(FIXTURE, Format::Jpeg, 4000, 2_000_000, later()).unwrap();
         let read = inspect(&out.bytes).unwrap();
         assert!(read.jpeg, "{read:?}");
         assert_eq!((out.width, out.height), (48, 64));
@@ -209,7 +250,7 @@ mod apple_codec {
 
     #[test]
     fn a_smaller_dimension_scales_the_upright_image() {
-        let out = compress(FIXTURE, 32, 2_000_000, later()).unwrap();
+        let out = compress(FIXTURE, Format::Jpeg, 32, 2_000_000, later()).unwrap();
         assert_eq!((out.width, out.height), (24, 32));
         let read = inspect(&out.bytes).unwrap();
         assert_eq!((read.width, read.height), (24, 32));
@@ -233,7 +274,7 @@ mod apple_codec {
     fn noise_shrinks_until_it_fits() {
         let source = png(1000, 800, &noise(1000, 800));
         // 1000×800 noise is far over 120 kB at quality 26; a smaller size fits.
-        let out = compress(&source, 1000, 120_000, later()).unwrap();
+        let out = compress(&source, Format::Jpeg, 1000, 120_000, later()).unwrap();
         assert!(out.bytes.len() <= 120_000);
         assert!(out.width < 1000 && out.width >= 512, "{}", out.width);
         assert_eq!(out.height, (f64::from(out.width) * 0.8).floor() as u32);
@@ -244,29 +285,72 @@ mod apple_codec {
     #[test]
     fn nothing_fitting_is_unfit() {
         let source = png(200, 200, &noise(200, 200));
-        let err = compress(&source, 200, 100, later()).unwrap_err();
+        let err = compress(&source, Format::Jpeg, 200, 100, later()).unwrap_err();
         assert!(err.starts_with("compressImage: unfit: "), "{err}");
     }
 
     #[test]
     fn transparency_becomes_white() {
         let clear = vec![0u8; 8 * 8 * 4];
-        let out = compress(&png(8, 8, &clear), 8, 100_000, later()).unwrap();
+        let out = compress(&png(8, 8, &clear), Format::Jpeg, 8, 100_000, later()).unwrap();
         let [r, g, b] = first_pixel(&out.bytes);
         assert!(r > 245 && g > 245 && b > 245, "{r},{g},{b}");
+    }
+
+    /// A1.11: a PNG keeps the source's alpha, where a JPEG fills it white.
+    #[test]
+    fn a_png_keeps_transparency() {
+        // Clear on the left half, opaque red on the right.
+        let rgba: Vec<u8> = (0..16 * 16)
+            .flat_map(|i| {
+                if i % 16 < 8 {
+                    [0, 0, 0, 0]
+                } else {
+                    [255, 0, 0, 255]
+                }
+            })
+            .collect();
+        let source = png(16, 16, &rgba);
+        let out = compress(&source, Format::Png, 8, 100_000, later()).unwrap();
+        assert!(out.bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert_eq!((out.width, out.height), (8, 8));
+        let read = inspect(&out.bytes).unwrap();
+        assert!(
+            !read.jpeg && (read.width, read.height) == (8, 8),
+            "{read:?}"
+        );
+        assert_eq!(first_rgba(&out.bytes)[3], 0, "the clear corner stays clear");
+        let jpeg = compress(&source, Format::Jpeg, 8, 100_000, later()).unwrap();
+        assert_eq!(first_rgba(&jpeg.bytes), [255, 255, 255, 255]);
+        let err = compress(
+            &png(200, 200, &noise(200, 200)),
+            Format::Png,
+            200,
+            100,
+            later(),
+        )
+        .unwrap_err();
+        assert!(err.starts_with("compressImage: unfit: no PNG"), "{err}");
     }
 
     #[test]
     fn bytes_that_are_no_image_are_undecodable() {
         for bytes in [&b"not an image at all"[..], &[], &FIXTURE[..200]] {
-            let err = compress(bytes, 100, 100_000, later()).unwrap_err();
+            let err = compress(bytes, Format::Jpeg, 100, 100_000, later()).unwrap_err();
             assert!(err.starts_with("compressImage: undecodable: "), "{err}");
         }
     }
 
     #[test]
     fn a_source_over_the_limits_is_too_large() {
-        let err = compress(&vec![0; MAX_BYTES as usize + 1], 100, 100, later()).unwrap_err();
+        let err = compress(
+            &vec![0; MAX_BYTES as usize + 1],
+            Format::Jpeg,
+            100,
+            100,
+            later(),
+        )
+        .unwrap_err();
         assert!(err.starts_with("compressImage: too-large: "), "{err}");
         // The fixture's frame header rewritten to claim 9000 × 9000 (JPEG
         // has no checksum): refused from the header, before decoding.
@@ -274,19 +358,19 @@ mod apple_codec {
         let sof = header.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
         header[sof + 5..sof + 7].copy_from_slice(&9000u16.to_be_bytes());
         header[sof + 7..sof + 9].copy_from_slice(&9000u16.to_be_bytes());
-        let err = compress(&header, 100, 100, later()).unwrap_err();
+        let err = compress(&header, Format::Jpeg, 100, 100, later()).unwrap_err();
         assert!(err.starts_with("compressImage: too-large: "), "{err}");
     }
 
     #[test]
     fn a_passed_deadline_starts_nothing() {
-        let err = compress(FIXTURE, 4000, 2_000_000, Instant::now()).unwrap_err();
+        let err = compress(FIXTURE, Format::Jpeg, 4000, 2_000_000, Instant::now()).unwrap_err();
         assert_eq!(err, "compressImage: timeout: the search ran past its time");
     }
 
     #[test]
     fn a_one_pixel_limit_makes_a_one_pixel_jpeg() {
-        let out = compress(FIXTURE, 1, 2_000_000, later()).unwrap();
+        let out = compress(FIXTURE, Format::Jpeg, 1, 2_000_000, later()).unwrap();
         assert_eq!((out.width, out.height), (1, 1));
         let read = inspect(&out.bytes).unwrap();
         assert_eq!((read.width, read.height), (1, 1));
@@ -298,7 +382,7 @@ mod apple_codec {
             &include_bytes!("../../scripts/fixtures/picker/photo.heic")[..],
             &include_bytes!("../../scripts/fixtures/picker/photo.png")[..],
         ] {
-            let out = compress(bytes, 100, 2_000_000, later()).unwrap();
+            let out = compress(bytes, Format::Jpeg, 100, 2_000_000, later()).unwrap();
             assert!(out.width.max(out.height) <= 100);
             assert!(inspect(&out.bytes).unwrap().jpeg);
         }
@@ -309,6 +393,7 @@ mod apple_codec {
 fn codec_control_refuses_before_decoding_and_before_the_next_trial() {
     let refused = compress_controlled(
         b"not an image",
+        Format::Jpeg,
         64,
         1000,
         later(),
@@ -326,6 +411,7 @@ fn codec_control_refuses_before_decoding_and_before_the_next_trial() {
         let checks = std::cell::Cell::new(0);
         let refused = compress_controlled(
             source,
+            Format::Jpeg,
             64,
             1000,
             later(),
@@ -344,8 +430,16 @@ fn codec_control_refuses_before_decoding_and_before_the_next_trial() {
             refused.unwrap_err(),
             "compressImage: timeout: cancelled between trials"
         );
-        let refused =
-            compress_controlled(source, 64, 1000, later(), &|| Ok(()), MAX_SOURCE_PIXELS, 1);
+        let refused = compress_controlled(
+            source,
+            Format::Jpeg,
+            64,
+            1000,
+            later(),
+            &|| Ok(()),
+            MAX_SOURCE_PIXELS,
+            1,
+        );
         assert!(refused.unwrap_err().contains("codec memory reservation"));
     }
 }

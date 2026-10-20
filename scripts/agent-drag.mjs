@@ -4,6 +4,8 @@
 import { MalformedOperation, pointerArguments, tapWords } from './agent-keys.mjs';
 import { DRAG_BOUNDS, REACH_MS } from '../host/apple/touches.mjs';
 import { layoutArgs, perfOp } from './agent-inspect.mjs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 
 /** A drag's `during` op is a read or the clock, not a second finger (drums R8).
  * A filmed screenshot (`over … every`) loops on the clock, a comparison settles
@@ -364,4 +366,33 @@ export async function holdTap({ s, node, target, host, timing, tapRefusal, scrol
   const r = await s.op({ op: 'tap', id: node.id, holdState });
   if (r.error) throw await tapRefusal(s, target, new Error(r.error));
   return s.landed({ ...r, tapped: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? 'recognized', carrier: host, mode: r.mode ?? timing });
+}
+
+// A folder's files as the browser is handed them (a picker's answer, a paste): each path under it and its bytes.
+export const folderTree = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? folderTree(resolve(dir, e.name), `${prefix}${e.name}/`) : e.isFile() ? [{ path: `${prefix}${e.name}`, bytes: readFileSync(resolve(dir, e.name)).toString('base64') }] : []);
+/** The driver's pasted paths: a file's bytes, a folder's tree. */
+export const driverFiles = (paths) => paths.map((p) => statSync(p).isDirectory() ? { name: basename(p), files: folderTree(p) } : { name: basename(p), bytes: readFileSync(p).toString('base64') });
+
+/** `tap <target> drop|dragenter <path…>` and `tap <target> dragleave` on Chrome; returns the drag it leaves held. */
+export async function fileDrag({ kind, opts, id, x, y, dragged, call, evaluate }) {
+  // A drag of files from the desktop as Chrome takes one (`Input.dispatchDragEvent`, the paths themselves, so
+  // its DataTransfer is the browser's own, folders included): it comes over the point, then drops there, or
+  // is cancelled. A drop no element accepts is refused before Chrome would open the files itself.
+  if (kind === 'dragleave') {
+    if (!dragged) throw new Error('no drag is held over the page');
+    // Out of the page first: Chrome sends the page no dragleave for a bare cancel.
+    await call('Input.dispatchDragEvent', { type: 'dragOver', x: -1, y: -1, data: dragged.data });
+    await call('Input.dispatchDragEvent', { type: 'dragCancel', x: -1, y: -1, data: dragged.data });
+    dragged = null;
+  } else {
+    const data = { items: [], files: opts[kind], dragOperationsMask: 1 };
+    if (kind === 'drop' && !await evaluate(`(() => { const dt = new DataTransfer(); dt.items.add(new File([], 'probe')); const over = new DragEvent('dragover', { clientX: ${x}, clientY: ${y}, bubbles: true, cancelable: true, dataTransfer: dt }); (document.elementFromPoint(${x}, ${y}) ?? exact.views.get(${id})).dispatchEvent(over); return over.defaultPrevented; })()`)) {
+      if (dragged) { await call('Input.dispatchDragEvent', { type: 'dragCancel', x: dragged.x, y: dragged.y, data: dragged.data }); dragged = null; }
+      throw new Error(`view ${id} took no drop (nothing at its middle accepts a file drag)`);
+    }
+    if (!dragged || dragged.data.files.join('\n') !== data.files.join('\n')) await call('Input.dispatchDragEvent', { type: 'dragEnter', x, y, data });
+    await call('Input.dispatchDragEvent', { type: 'dragOver', x, y, data });
+    if (kind === 'drop') { await call('Input.dispatchDragEvent', { type: 'drop', x, y, data }); dragged = null; } else dragged = { x, y, data };
+  }
+  return dragged;
 }

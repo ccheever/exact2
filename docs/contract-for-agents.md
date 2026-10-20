@@ -1570,7 +1570,8 @@ icon token), an `app:/data|cache|tmp/…` file
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
 nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
 `storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
-upright JPEG with no location metadata ([reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
+upright JPEG with no location metadata (`type: "image/png"` writes a PNG that
+keeps transparency; [reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
 Linux answers `unsupported`. Upload a file with `fetch(url, {method: "POST", headers:
 {"content-type": "image/jpeg"}, exactBodyFrom: path})`, not `readFile` then `body`: the host
 reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo never passes
@@ -2326,8 +2327,10 @@ button goes down (`buttons` 2 is a right-click's), and a `contextmenu` action ma
 take the same record, where the click was. `wheel` hands a `WheelEvent` (deltas,
 modifiers; a trackpad pinch is a Control-held wheel) and `preventDefault()` keeps
 the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
-handles of the types `file_handlers` declares. See
-[Pointer](contract-grammar.md#pointer).
+handles of any type, a folder's included, and takes a file drag over a field
+inside its node; `dragenter` and `dragleave` bracket the drag for a drop
+overlay; a `paste`'s `ClipboardEvent` carries `files` too. See
+[Pointer](contract-grammar.md#pointer) and [Clipboard](contract-grammar.md#clipboard).
 
 Use `keycapture=shortcut` on a container when its shortcut must run before
 the focused field's `key=` handler. Capture runs outermost first, then the

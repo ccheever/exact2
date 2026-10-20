@@ -17,6 +17,16 @@ use exact_runner::instance::collection::Align;
 use exact_runner::DataSource;
 use std::io::{BufRead, Write};
 
+/// The host this agent runs on, as a refusal names it: the Windows host and
+/// the Android reader run this code too.
+const HOST_NAME: &str = if cfg!(windows) {
+    "Windows"
+} else if cfg!(target_os = "android") {
+    "Android"
+} else {
+    "Linux"
+};
+
 pub(crate) fn refusal(subsystem: &str, message: &str) -> serde_json::Value {
     let host = if cfg!(windows) {
         "windows"
@@ -382,6 +392,14 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             if request.get("close").is_some() {
                 return error("unsupported: the Linux presenter closes no window (no `beforeunload`); close drives a macOS window or the browser's page");
             }
+            // A drag from outside the app: this host takes none (no
+            // `drop`, `dragenter` or `dragleave`, as the guide says).
+            if ["drop", "dragenter", "dragleave"]
+                .iter()
+                .any(|k| request.get(*k).is_some())
+            {
+                return error(&format!("unsupported: the {HOST_NAME} host takes no drag from outside the app (no `drop`, `dragenter` or `dragleave`); drop drives the browser's page or a macOS window"));
+            }
             // @ref LLP 1116.006 D4 — the platform's Back, as Alt+Left or a Back key takes it.
             if request.get("back").is_some() {
                 if request
@@ -541,6 +559,10 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 return malformed("type needs an id");
             };
             if let Some(edit) = field_str(line, "clipboard") {
+                // This host's clipboard carries text: a paste's `files` is empty.
+                if line.contains(r#""files":"#) || line.contains(r#""image":"#) {
+                    return error(&format!("unsupported: the {HOST_NAME} host pastes text only (a `ClipboardEvent`'s `files` is empty); paste --file and --image drive the browser's page or an Apple host"));
+                }
                 let text = field_str(line, "text").unwrap_or_default();
                 return p.clipboard(id, &edit, &text).unwrap_or_else(|e| error(&e));
             }

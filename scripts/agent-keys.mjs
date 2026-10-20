@@ -221,7 +221,8 @@ export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown,
   // Firefox builds a synthetic paste's clipboardData from its own `dataType`
   // and `data` and ignores `clipboardData`, so its paste carried no text.
   const send = async () => {
-    const heard = await evaluate(`(() => { const el = document.activeElement?.closest?.('[data-view]') ? document.activeElement : exact.views.get(${id}), dt = new DataTransfer(); if (${JSON.stringify(opts.clipboard)} === 'paste') dt.setData('text/plain', ${JSON.stringify(opts.text ?? '')}); const ev = new ClipboardEvent(${JSON.stringify(opts.clipboard)}, { clipboardData: dt, ...(${JSON.stringify(opts.clipboard)} === 'paste' ? { dataType: 'text/plain', data: ${JSON.stringify(opts.text ?? '')} } : {}), bubbles: true, cancelable: true }); el.dispatchEvent(ev); return { editable: el.matches('input, textarea, [contenteditable]'), prevented: ev.defaultPrevented }; })()`);
+    // A paste's files stand in for the browser's (`exact.agentPaste`, documents-glue.js `pasted`): Firefox hands a synthetic paste no files.
+    const heard = await evaluate(`(() => { ${opts.pasted ? `exact.agentPaste = ${JSON.stringify(opts.pasted)};` : ''} const el = document.activeElement?.closest?.('[data-view]') ? document.activeElement : exact.views.get(${id}), dt = new DataTransfer(); if (${JSON.stringify(opts.clipboard)} === 'paste') dt.setData('text/plain', ${JSON.stringify(opts.text ?? '')}); const ev = new ClipboardEvent(${JSON.stringify(opts.clipboard)}, { clipboardData: dt, ...(${JSON.stringify(opts.clipboard)} === 'paste' ? { dataType: 'text/plain', data: ${JSON.stringify(opts.text ?? '')} } : {}), bubbles: true, cancelable: true }); el.dispatchEvent(ev); return { editable: el.matches('input, textarea, [contenteditable]'), prevented: ev.defaultPrevented }; })()`);
     if (opts.clipboard === 'paste' && heard.editable && !heard.prevented) await (insertText ?? (text => call('Input.insertText', { text })))(opts.text ?? '');
   };
   if (opts.clipboard !== 'paste') { await send(); return; }
@@ -456,6 +457,10 @@ export function tapWords(args, held = false) {
     case 'pinch': return [first, { pinch: number(rest[0], 'pinch'), ...options(rest.slice(1), ['at']) }];
     // Files dragged in from outside, each a path (studio diary R19).
     case 'drop': if (!rest.length) refuse('drop takes one or more paths'); return [first, { drop: rest.map((path) => resolve(path)) }];
+    // A drag of those files from outside comes over the target and stays there (`dragenter`), until a `drop` there
+    // or a `dragleave`, which takes it away undropped.
+    case 'dragenter': if (!rest.length) refuse('dragenter takes the dragged paths'); return [first, { dragenter: rest.map((path) => resolve(path)) }];
+    case 'dragleave': if (rest.length) refuse('dragleave takes no more words'); return [first, { dragleave: true }];
     case 'into': {
       // tap <list> into <key> [block <v>] [inline <v>]
       if (rest[0] === undefined) refuse('into takes a key');
@@ -473,7 +478,7 @@ export function tapWords(args, held = false) {
     case 'mouse': case 'dblclick': case 'contextmenu': case 'auxclick': return [first, { [form]: true, ...options(rest, ['at', 'modifiers']) }];
     case 'clicks': return [first, { clicks: number(rest[0], 'clicks'), ...options(rest.slice(1), ['at', 'modifiers']) }];
     // Most often a target of several words left unquoted (sb4 farm wave 4, 053: `tap Why are my…`).
-    default: refuse(`unknown word ${JSON.stringify(form)}; a target of several words is quoted inside the op (\`tap "${args.join(' ').replace(/["\\]/g, '\\$&')}"\`), and after a target come only: tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
+    default: refuse(`unknown word ${JSON.stringify(form)}; a target of several words is quoted inside the op (\`tap "${args.join(' ').replace(/["\\]/g, '\\$&')}"\`), and after a target come only: tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | dragenter <path…> | dragleave | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
   }
 }
 
@@ -505,7 +510,7 @@ export function tapArguments(opts) {
   const button = ['mouse', 'contextmenu', 'auxclick', 'dblclick', 'clicks'].filter((k) => opts[k] !== undefined && opts[k] !== false);
   if (button.length > 1) throw new MalformedOperation(`tap: one of mouse, dblclick, contextmenu, auxclick and clicks at a time, not ${button.join(' and ')}`);
   if (opts.clicks !== undefined && ![1, 2, 3].includes(opts.clicks)) throw new MalformedOperation('tap … clicks: 1, 2 or 3');
-  if (opts.at !== undefined && (opts.hover || opts.history !== undefined || opts.drop || opts.into)) throw new MalformedOperation('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
+  if (opts.at !== undefined && (opts.hover || opts.history !== undefined || opts.drop || opts.dragenter || opts.dragleave || opts.into)) throw new MalformedOperation('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
   if (opts.at !== undefined && (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite))) throw new MalformedOperation('tap at needs two finite numbers');
   const modifiers = opts.modifiers ?? opts.drag?.modifiers;
   if (modifiers !== undefined && !String(modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new MalformedOperation(`tap … modifiers: ${modifiers} is not Shift, Control, Alt and Meta joined by +`);
@@ -541,6 +546,9 @@ export function typeCommand(line) {
   const target = matched[1] != null ? inputJSON(`"${matched[1]}"`) : matched[2];
   const rest = matched[3] ?? '';
   const head = /^\S+/.exec(rest)?.[0];
+  // A paste of files (`clipboardData.files`): paths, or one image's data with no file.
+  const files = /^paste\s+--(file|image)\s+([\s\S]*\S)\s*$/.exec(rest);
+  if (files) return typeArguments([target, 'paste', `--${files[1]}`, ...files[2].split(/\s+/)]);
   // A paste's text is a tail as typed text is: its newlines are the clipboard's.
   const pasted = /^paste\s+([\s\S]*\S[\s\S]*)$/.exec(rest);
   if (pasted) return [target, { clipboard: 'paste', text: decodeTypeText(pasted[1]) }];
@@ -563,6 +571,14 @@ function decodeTypeText(text) {
 export function typeArguments(args) {
   // The clipboard's events at the target (spreadsheet F6): `copy`, `cut`, `paste <text…>`.
   if (['copy', 'cut'].includes(args[1]) && args.length === 2) return [args[0], {clipboard:args[1]}];
+  if (args[1] === 'paste' && args[2] === '--file') {
+    if (args.length < 4) throw new MalformedOperation('paste --file takes one or more paths');
+    return [args[0], {clipboard:'paste', text:'', files:args.slice(3).map((path) => resolve(path))}];
+  }
+  if (args[1] === 'paste' && args[2] === '--image') {
+    if (args.length !== 4) throw new MalformedOperation('paste --image takes one image file, pasted as its data');
+    return [args[0], {clipboard:'paste', text:'', image:resolve(args[3])}];
+  }
   if (args[1] === 'paste' && args.length > 2) return [args[0], {clipboard:'paste', text:args.slice(2).join(' ')}];
   if (args[1] !== 'key' || !args[2]) return [args[0], args.slice(1).join(' ')];
   if (args[3] === 'for') {

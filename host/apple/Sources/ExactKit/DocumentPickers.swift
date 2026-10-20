@@ -51,6 +51,7 @@ extension ExactSession {
     /// The session ends: its handles go, and so does its access.
     func forgetDocuments() {
         _ = documentCall(["op": "forgetDocuments"])
+        PastedImages.forget(self)
         for url in picker.scoped { url.stopAccessingSecurityScopedResource() }
         picker.scoped = []
     }

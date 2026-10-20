@@ -25,8 +25,10 @@ export interface FileSystem {
   realpath(path: string): Promise<string>;
   /** Exact patch 9 (exact2 LLP 1069.002 A1), the app interface: decode the
    * image at `from`, scale it to fit `maxDimension` and encode a JPEG of at
-   * most `maxBytes` at `to`, searching quality as Bluesky's composer does.
-   * Orientation is applied and no metadata is written. Needs `fs.read` on
+   * most `maxBytes` at `to`, searching quality as Bluesky's composer does;
+   * or, with `type: "image/png"` (A1.11), a PNG that keeps alpha, shrunk by
+   * 0.8 up to four times until it fits. Orientation is applied and no
+   * metadata is written. Needs `fs.read` on
    * `from` and `fs.write` on `to`, both `app:/` paths. Rejects with a
    * `TypeError` for a bad option, else with `code` `unsupported` (no codec
    * on this host), `undecodable`, `too-large` (over 64 MiB, 64 Mi pixels,
@@ -80,11 +82,13 @@ export interface CompressImageOptions {
   readonly maxDimension: number;
   /** An integer from 1 to 67108864: the encoded file's limit. */
   readonly maxBytes: number;
+  /** What to write; `"image/jpeg"` when absent. */
+  readonly type?: "image/jpeg" | "image/png";
 }
 
 export interface CompressedImage {
   readonly path: string;
-  readonly type: "image/jpeg";
+  readonly type: "image/jpeg" | "image/png";
   readonly size: number;
   readonly width: number;
   readonly height: number;

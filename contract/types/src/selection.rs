@@ -72,7 +72,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         // secondary click was (studio diary R22).
         "pointerdown" | "pointerup" | "pointermove" | "contextmenu" => Some("PointerEvent"),
         "wheel" => Some("WheelEvent"),
-        "drop" => Some("DragEvent"),
+        "drop" | "dragenter" | "dragleave" => Some("DragEvent"),
         "key" | "keycapture" | "keyup" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
         "toggle" => Some("ToggleEvent"),
@@ -183,12 +183,18 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("isComposing".into(), Ty::Bool),
         ],
     );
-    // DOM's `ClipboardEvent`, its data as plain text (`getData("text/plain")`):
+    // DOM's `ClipboardEvent`, its data as plain text (`getData("text/plain")`)
+    // and its `clipboardData.files` as the `doc:` handles the host minted for
+    // them (LLP 1069.010 D1), image data with no file among them as a PNG:
     // what a paste carries; empty on copy and cut, as the DOM's is until a
     // listener sets it — the action writes the clipboard with `copyText`.
-    shapes
-        .map
-        .insert("ClipboardEvent".into(), vec![("text".into(), Ty::String)]);
+    shapes.map.insert(
+        "ClipboardEvent".into(),
+        vec![
+            ("text".into(), Ty::String),
+            ("files".into(), Ty::List(Box::new(Ty::String))),
+        ],
+    );
     // The part of the reader's selection inside one `text` (the reader
     // diary), what `selectionchange` hands its action, in the order
     // `exact_runner::Event::SelectionChange` writes it: the selected text
@@ -266,6 +272,8 @@ pub(super) fn declare(shapes: &mut Shapes) {
     // DOM's `DragEvent` at a `drop` of files (studio diary R19), its
     // `dataTransfer.files` as the `doc:` handles the host minted for them
     // (LLP 1069.010 D1, as a picker's), in `exact_runner::DropEvent`'s order.
+    // A `dragenter` or `dragleave` has none: the DOM protects a drag's files
+    // until it drops.
     shapes.map.insert(
         "DragEvent".into(),
         [
