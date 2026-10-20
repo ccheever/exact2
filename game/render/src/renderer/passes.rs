@@ -479,6 +479,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
             state.times[3] = start.map(|s| s.elapsed());
         }
+        if frame.water.is_some() {
+            // A background hook may have left its own viewport and scissor.
+            self.scene_viewport(&mut pass, state.size, false);
+            let above = crate::water::from_above(frame);
+            (self.water).draw_surface(&mut pass, &self.scene_binds[self.current], above);
+            self.probe_note(|| Drew::Fixed("water surface"));
+            state.draws += 1;
+        }
         if !state.scene_copy && !split {
             timing::pass_stamp(
                 &self.device,
@@ -599,7 +607,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 view: &self.targets.depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Load,
-                    store: if state.needs.contains(crate::Needs::FINAL_DEPTH) {
+                    store: if state.needs.contains(crate::Needs::FINAL_DEPTH) || state.depth_after {
                         wgpu::StoreOp::Store
                     } else {
                         wgpu::StoreOp::Discard

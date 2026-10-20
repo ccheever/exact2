@@ -776,7 +776,16 @@ fn s_val(value: &str, span: Span) -> Expr {
 /// its form shows one (the Mac's, LLP 1115.002 D6).
 /// `swiped`: the row is a swipe's content, which the platform's list
 /// carries as a custom row.
+/// A grouped list's row: the sheet's rows, without the look of an element
+/// that yields it to the row (`row_look`).
 fn row(node: &Node, separated: bool, swiped: bool) -> Node {
+    match crate::row_look::yielded(node) {
+        Some(own) => styled(&own, separated, swiped),
+        None => styled(node, separated, swiped),
+    }
+}
+
+fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     let Node::Element {
         tag,
         attrs,
@@ -1379,6 +1388,15 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                 _ => stack_of_lines(child, margins),
             }
         }
+        // The row's one part, a box the author laid its content out in (a
+        // button's face in a `row`), fills the cell, as a hand-built cell
+        // pins its stack to its content view's edges. As wide as its
+        // content, a bar in it was a share of its label's width (polls,
+        // round 29).
+        ("row" | "column" | "view", _) if i == 0 && last == 0 && !sized(child) => with(
+            child,
+            vec![attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)],
+        ),
         _ => child.clone(),
     }
 }

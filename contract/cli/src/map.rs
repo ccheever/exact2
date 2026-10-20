@@ -255,6 +255,16 @@ impl SourceMap {
                 &mut out,
                 &self.sites.instances[node.instance as usize].component,
             );
+            // The part its element is named as (LLP 1139 D5).
+            if let Some(part) = &node.part {
+                out.extend_from_slice(b",\"part\":");
+                quote(&mut out, part);
+            }
+            // The exported library component it is of (LLP 1139 D5).
+            if let Some(identity) = &node.library {
+                out.extend_from_slice(b",\"library\":");
+                quote(&mut out, identity);
+            }
             out.extend_from_slice(b",\"chain\":[");
             let mut instance = node.instance as usize;
             let mut first = true;
@@ -286,6 +296,9 @@ impl SourceMap {
             for (row, origin) in &node.rows {
                 match origin {
                     Origin::State { .. } => rows.push((*row, None, vec![origin])),
+                    Origin::Folded { base, parts } => {
+                        rows.push((*row, base.as_deref(), parts.iter().collect()))
+                    }
                     _ => rows.push((*row, Some(origin), Vec::new())),
                 }
             }
@@ -343,6 +356,13 @@ impl SourceMap {
             quote(&mut out, &path.to_string_lossy());
             out.extend_from_slice(b",\"sha256\":");
             quote(&mut out, digest);
+            // Its components' identities' home (LLP 1121 D15): a param's
+            // full name, `<home>#<component>.<param>`, from the file it
+            // is read in (LLP 1122's queue item (2)).
+            if let Some(home) = self.sources.home(i) {
+                out.extend_from_slice(b",\"home\":");
+                quote(&mut out, home);
+            }
             out.push(b'}');
         }
         out.extend_from_slice(b"],\"slots\":");

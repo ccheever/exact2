@@ -3,7 +3,7 @@
 // `exact_data::image::search` is checked against. `bun test ./host/web/storage-image.test.mjs`.
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { compress, contain, headerSize, limits, search } from './storage-image.js';
+import { compress, contain, headerSize, limits, search, searchLossless } from './storage-image.js';
 
 const recorded = JSON.parse(readFileSync(new URL('../../scripts/fixtures/picker/compress-trials.json', import.meta.url), 'utf8'));
 const models = {
@@ -34,8 +34,20 @@ test('contain floors, never upscales, and keeps a pixel', () => {
   expect(contain(9000, 2, 2048)).toEqual([2048, 1]);
 });
 
+test('a PNG shrinks by 0.8 until it fits, at most four times (A1.11)', async () => {
+  const trials = [];
+  const found = await searchLossless(1000, 800, 1000, 300_000, async (w, h) => { trials.push([w, h]); return { size: w * h / 2, value: w }; });
+  expect(trials).toEqual([[1000, 800], [800, 640]]);
+  expect(found).toEqual({ value: 800, width: 800, height: 640 });
+  trials.length = 0;
+  expect(await searchLossless(1000, 800, 1000, 1, async (w, h) => { trials.push([w, h]); return { size: 2, value: null }; })).toBe(null);
+  expect(trials).toEqual([[1000, 800], [800, 640], [640, 512], [512, 409], [409, 327]]);
+});
+
 test('limits are integers in range, else a TypeError', () => {
-  expect(limits({ maxDimension: 4000, maxBytes: 2e6 })).toEqual({ maxDimension: 4000, maxBytes: 2000000 });
+  expect(limits({ maxDimension: 4000, maxBytes: 2e6 })).toEqual({ maxDimension: 4000, maxBytes: 2000000, type: 'image/jpeg' });
+  expect(limits({ maxDimension: 8, maxBytes: 9, type: 'image/png' })).toEqual({ maxDimension: 8, maxBytes: 9, type: 'image/png' });
+  for (const type of ['image/webp', 'png', null, 7]) expect(() => limits({ maxDimension: 8, maxBytes: 9, type })).toThrow(TypeError);
   for (const bad of [undefined, null, 7, {}, { maxDimension: 0, maxBytes: 1 }, { maxDimension: 8193, maxBytes: 1 },
     { maxDimension: 1.5, maxBytes: 1 }, { maxDimension: 1, maxBytes: 0 }, { maxDimension: 1, maxBytes: 67108865 }, { maxDimension: '10', maxBytes: 1 }])
     expect(() => limits(bad)).toThrow(TypeError);

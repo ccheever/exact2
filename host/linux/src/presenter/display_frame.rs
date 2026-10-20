@@ -43,6 +43,8 @@ struct Picture {
     paint: Presentation,
     boxes: Vec<PaintedBox>,
     witness: Witness,
+    /// The runner it was painted for (`rangeFrame`'s reader).
+    session: u64,
 }
 
 /// The pending pixel owner. ACK consumes its metadata even if a caller retains
@@ -182,6 +184,7 @@ impl<D: DataSource> Presenter<D> {
         // afterward moves B into its receipt, without deep-copying any payload.
         let old_paint = self.brush.presentation();
         let old_boxes = std::mem::take(&mut self.boxes);
+        let old_shown = self.ranges.shown.get();
         self.boxes_serial += 1;
         self.display.active = true;
         self.display.rendering = true;
@@ -232,8 +235,11 @@ impl<D: DataSource> Presenter<D> {
             paint: self.brush.replace_presentation(old_paint),
             boxes: std::mem::replace(&mut self.boxes, old_boxes),
             witness,
+            session: self.ranges.session(),
         };
         self.boxes_serial += 1;
+        self.ranges.shown.set(old_shown);
+        self.publish_ranges();
         self.display.pending = Some(identity.clone());
         Some(SubmittedFrame {
             pixels,
@@ -262,6 +268,8 @@ impl<D: DataSource> Presenter<D> {
                 self.brush.replace_presentation(picture.paint);
                 self.boxes = picture.boxes;
                 self.boxes_serial += 1;
+                self.ranges.shown.set(picture.session);
+                self.publish_ranges();
                 self.display.acknowledged = Some(picture.witness);
                 self.retire_acknowledged_pointer();
                 self.acknowledge_collection_scroll(model_scroll);

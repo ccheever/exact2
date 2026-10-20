@@ -49,9 +49,20 @@ pub trait Game: 'static {
     /// Canvas argument declarations in positional order; also declares exact arity.
     type Args: Args;
     /// Presented world raster relative to device pixels; does not change layout.
-    /// Finite (0, 1]; the compositor scales to the canvas box. Defaults to full size.
+    /// Finite (0, 1]; the compositor scales to the canvas box. The default,
+    /// [`AUTO_RENDER_SCALE`](crate::AUTO_RENDER_SCALE), leaves it to the quality
+    /// ladder (full size on `High`); any value returned here, 1 included, stands
+    /// on every rung.
     fn render_scale(_args: &Self::Args) -> f32 {
-        1.0
+        crate::AUTO_RENDER_SCALE
+    }
+    /// The renderer's rung of the quality ladder, read once, from the first
+    /// arguments the canvas binds, before the renderer is made:
+    /// [`Quality::Auto`](crate::Quality::Auto) follows the device's GPU tier.
+    /// A later value takes effect when the canvas is made again (unmounted and
+    /// mounted); under the agent, `prefer gpu-tier` remakes the renderer.
+    fn quality(_args: &Self::Args) -> crate::Quality {
+        crate::Quality::Auto
     }
     /// Discoverable controls.
     fn actions() -> Actions {
@@ -59,6 +70,13 @@ pub trait Game: 'static {
     }
     /// Refuse domain-invalid arguments before any simulation mutation.
     fn validate(_args: &Self::Args) -> Result<(), String> {
+        Ok(())
+    }
+    /// Accept or refuse a decoded save before it replaces the running world. A
+    /// game whose saved shape changed under the same `ID` names the difference
+    /// here (a save-contract resource it inserts in setup and checks), so an
+    /// older save is refused by name instead of failing on a later tick.
+    fn restorable(_saved: &World) -> Result<(), String> {
         Ok(())
     }
     /// Register types that vary with setup arguments, without gameplay side effects.
@@ -191,6 +209,8 @@ pub struct Sim<G: Game> {
     // The last tick's pointer motion, for presentation between ticks only.
     last_motion: crate::Vec2,
     paranoid: Option<fn(&mut Self)>,
+    pub(crate) paranoid_mode: Paranoid,
+    pub(crate) paranoid_checked: u64,
     // A paranoid sample deferred while a shown asset was in flight: the next
     // tick takes it. Skipped samples are counted for the proof's report.
     paranoid_owed: bool,
@@ -219,6 +239,8 @@ impl<G: Game> Sim<G> {
     /// Override EXACT_GAME_PARANOID for this simulation.
     pub fn paranoid(mut self, mode: Paranoid) -> Self {
         self.paranoid = Self::reconstruction(mode);
+        self.paranoid_mode = mode;
+        self.paranoid_checked = 0;
         self
     }
 
@@ -377,6 +399,8 @@ impl<G: Game> Sim<G> {
             last_motion: crate::Vec2::ZERO,
             ready_hint: None,
             paranoid: Self::reconstruction(Paranoid::environment()),
+            paranoid_mode: Paranoid::environment(),
+            paranoid_checked: 0,
             paranoid_owed: false,
             paranoid_skipped: 0,
             present_owed: false,
@@ -1073,7 +1097,54 @@ impl<G: Game> Sim<G> {
         });
     }
     /// Post a message into the world at the current clock, as Contract's
-    /// `postMessage(text, surface)` does; the next tick reads it in `Input::messages`.
+    /// `postMessage(text, surface)` and the driver's `post [<surface>] <text>`
+    /// do; the next tick reads it in `Input::messages`. It is input, saved with
+    /// the queue until a tick reads it; a paused world holds it for the first
+    /// tick after the pause. For staging and scripting a scene the game already
+    /// listens to, never a way into state the game does not handle.
+    ///
+    /// ```
+    /// use exact_game::*;
+    /// #[derive(Default, Args)]
+    /// pub struct Options {
+    ///     #[live]
+    ///     pub paused: bool,
+    /// }
+    /// #[derive(Default, Component)]
+    /// pub struct Gulper;
+    /// pub struct Tank;
+    /// impl Game for Tank {
+    ///     const ID: &'static str = "tank";
+    ///     type Args = Options;
+    ///     fn setup(_: &mut World, _: &Options) {}
+    ///     fn paused(args: &Options) -> bool {
+    ///         args.paused
+    ///     }
+    ///     fn tick(w: &mut World, input: &Input, _: &Options) {
+    ///         for m in input.messages() {
+    ///             if m == "spawn-gulper" {
+    ///                 w.spawn(Gulper);
+    ///             }
+    ///         }
+    ///     }
+    /// }
+    /// let gulpers = |s: &Sim<Tank>| s.world().count::<Gulper>(|_| true);
+    /// let mut sim = Sim::<Tank>::new(Options { paused: true }).unwrap();
+    /// sim.run(0.);
+    /// sim.post("spawn-gulper");
+    /// sim.run(500.);
+    /// assert_eq!(gulpers(&sim), 0, "paused: held");
+    /// // Saved before its tick, it is read exactly once after a restore.
+    /// let saved = sim.save().unwrap();
+    /// let mut fresh = Sim::<Tank>::new(Options { paused: true }).unwrap();
+    /// fresh.restore(&saved).unwrap();
+    /// for s in [&mut sim, &mut fresh] {
+    ///     s.bind(&[Value::Bool(false)], None).unwrap();
+    ///     s.run(1000.);
+    ///     assert_eq!(gulpers(s), 1);
+    /// }
+    /// assert_eq!(fresh.world().hash(), sim.world().hash());
+    /// ```
     pub fn post(&mut self, text: impl Into<String>) {
         self.input(InputEvent::Message {
             text: text.into(),

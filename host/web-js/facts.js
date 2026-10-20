@@ -29,32 +29,44 @@ export function viewport(readers) {
       prefersContrast: CONTRAST[(p >> 2) & 3], prefersColorScheme: p & 16 ? "dark" : "light",
       devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows, // @ref LLP 1078 D2, D6
       colorGamut: GAMUT[(p >>> 26) & 3], dynamicRange: p & (1 << 28) ? "high" : "standard", // @ref LLP 1100 D9
-      pointer: p & 64 ? "none" : p & 32 ? "coarse" : "fine", hover: p & 128 ? "none" : "hover" });
+      pointer: p & 64 ? "none" : p & 32 ? "coarse" : "fine", hover: p & 128 ? "none" : "hover",
+      gpuTier: reporter()?.read()["gpu-tier"] ?? "high" }); // @ref LLP 1139.003 D2: the page facts' tier; this target has no GPU module, so the screen's class, or the agent's
   };
   if (typeof addEventListener !== "function") return;
   const changed = again("exactViewport", "viewport");
   addEventListener("resize", changed);
   onPreferences(changed);
   onFold(changed);
+  viewportChanged = changed;
+  shareReporter();
   // The agent's `prefer` fold group (LLP 1078 D7): an empty one re-reads the browser, a filled one is the substitute.
   (globalThis.exact ??= {}).fold = { prefer: (f) => { const env = preferFold(f && Object.keys(f).length ? f : null); changed(); return env; }, env: foldEnv };
 }
 
 // A release admits no agent mode (LLP 1069.007 D2): its build writes this false.
 const AGENT_ADMITTED = true;
+// One reporter per session for both sources (`exactViewport().gpuTier` is a
+// page fact), and the agent's `prefer` page group (LLP 1069.000 D6) sets it,
+// whichever of them the plan reads.
+let pageFacts, viewportChanged = () => {}, pageChanged = () => {};
+const reporter = () => pageFacts !== undefined ? pageFacts : (pageFacts = typeof document === "object" && document.createElement
+  ? pageReporter(AGENT_ADMITTED && typeof location === "object" && new URLSearchParams(location.search).has("agent")) : null);
+function shareReporter() {
+  const facts = reporter();
+  if (!facts) return;
+  (globalThis.exact ??= {}).page = { prefer: p => { facts.prefer(p); pageChanged(); if (p?.["gpu-tier"]) viewportChanged(); return facts.read(); }, read: () => facts.read() };
+}
 export function page(readers) {
-  const agent = AGENT_ADMITTED && typeof location === "object" && new URLSearchParams(location.search).has("agent");
-  const facts = typeof document === "object" && document.createElement ? pageReporter(agent) : null;
+  const facts = reporter();
   (data.reserved ??= {}).exactPage = (_, a, name) => {
     // A render has no page: the bake's answer (runner/src/page.rs `Page::default`).
     const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-share-files": false, "can-share-pictures": false, "can-open-files": false, "has-focus": true, "navigation-type": "", persisted: false, restores: 0 };
     return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canShareFiles: f["can-share-files"], canSharePictures: f["can-share-pictures"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"], navigationType: f["navigation-type"], persisted: f.persisted, restores: f.restores });
   };
   if (!facts) return;
-  const changed = again("exactPage", "page");
-  facts.onChange(changed);
-  // The agent's `prefer` page group (LLP 1069.000 D6).
-  (globalThis.exact ??= {}).page = { prefer: p => { facts.prefer(p); changed(); return facts.read(); } };
+  pageChanged = again("exactPage", "page");
+  facts.onChange(pageChanged);
+  shareReporter();
 }
 
 /** Each reader's second entry: the value the build baked, if it baked one

@@ -633,6 +633,7 @@ impl Scene {
                 .try_resource::<exact_game::AmbientOcclusion>()
                 .as_deref()
                 .copied(),
+            water: w.try_resource::<exact_game::Water>().as_deref().copied(),
             timestamps: None,
             attachments: &self.attachments.output,
             headroom: 1.0,

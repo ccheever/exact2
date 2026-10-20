@@ -881,8 +881,9 @@ app's can tell their tokens apart (the one-name rule above is then the app's and
 app's definition wins). A token keeps its name in the one table; its source is
 `<package>/<file>` (`@exact/reading/reading.tamber`), and the design server names it
 `<package>/<file>#<token>` (stage 11 A2), as D15 names components. A package's design holds a
-`theme` block only: axes, dials, components' params, `params` lines, icon tokens and `exports`
-are refused (`tamber-package-block`; components are stage 12's, icons QUEUE). Its tokens join the
+`theme` block and its components' params (stage 12 B1: `component … params`, named
+`<package>/<file>#Name`): axes, dials, `params` lines, icon tokens and `exports` are refused
+(`tamber-package-block`; icons QUEUE). Its tokens join the
 app's design in the one fold; a token the app's design defines is the app's, whole (all its
 `when` lines). What a package token names, as the fold resolves it (its values and its `pair=`),
 is a token its own design declares, a role or one of the base scale's nine names (`space.xs`,
@@ -1265,7 +1266,9 @@ component PostButton
   modes, and a change to it re-folds every param and token that reads it.
 - **Its identity is stable.** A component's identity is its declaring file, relative to its
   app or package root, and its name: `post.contract#PostButton`, or
-  `@scope/reading/article.contract#Article` for a package's. A param's full name is that
+  `@scope/reading/article.contract#Article` for a package's. A package outside the app needs a
+  name in its `package.json` (`contract-package-unnamed`, the path fix): its place from the app
+  would spell this machine's directories. A param's full name is that
   identity and the param (`post.contract#PostButton.radius`). The short form
   `PostButton.radius` is accepted wherever it is unambiguous and refused where two
   components share the name (`tamber-param-ambiguous`); an import alias (`use X as Y`)
@@ -3261,7 +3264,10 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     value (a text, an attribute that is no row, a function's argument, a condition, a state, a
     derive, an action) is refused (`tamber-param-scope`), naming the param.
   - A param named where no component owns it is refused (`tamber-param-scope`): in a `style` or a
-    `keyframes`, which any component may apply; in a state's or a derive's value. So is one in
+    `keyframes`, which any component may apply; in a state's or a derive's value. *Amended
+    2026-10-20 (LLP 1139 D3, stage 12 C3; theme2's ruling, one rule for every component):* a
+    `style` one component's view alone applies is that component's, and its `param.*` are that
+    component's params; one another component applies too is no one's and stays refused. So is one in
     what a row computes (a function's argument, a condition, a comparison, a callback): what it
     computes is data the param's value never reaches, and a duration there would never be written
     in. A package's file is named by the package's declared name: the nearest directory above the
@@ -4604,6 +4610,134 @@ the loopback rewrite is functional, not a security boundary; the hosted relay is
 
 **Stage 10 is closed.** The `tamber/1.13` window is closed; the next wire change takes `tamber/1.14` (stage 11).
 
+**A fix after the close, under `tamber/1.15` (it opens the version; stage 11 closed `tamber/1.14`): no answer names the machine's directories.** It changes what every client reads in a `file` field (a local one too: app-relative or `<package>/<path>`, no longer absolute), so it is a version, not a fix inside 1.14. `hello` reports `tamber/1.15`; docs/tamber-protocol.md opens its bullet.
+`uses` gave a site's `file` as the source map's absolute path for a package's file and, past a link such as macOS's
+`/tmp`, for the app's own. A remote client saw the machine's directories. Every site file in `uses` and in
+`explain`'s icon sites is now named from the app's directory, as `explain` names a param's file
+(`node_modules/@acme/reading/index.contract`), by one helper (`tamber_uses::shown`); a package linked from outside
+the app keeps its path from `node_modules` on. A transaction's refusal names its file the same way. As a backstop,
+the server drops the app's directory, as given or canonical, from every answer's text, so a read error says
+`app.tamber: Permission denied`. Test: `tamber_serve_packages.rs` `no_answer_names_the_machines_directories`:
+`uses` on a package component's param gives the relative path, and ten answers and their events, plus a read error,
+hold neither form of the directory. It fails without the fix, checked by hand.
+The JS server (theme2's ruling: leaking local directories to remote clients is a fix): `hello`'s `app` stays the
+path for the local client, which `tamber tool` tells its own server by, and is the directory's name for any other
+(paired, through B's door or a tunnel; stage 10c's relay has no door on main yet). Every reply, stream event and
+long poll a client that is not local gets has the app's directory (as given and real) and the home directory
+dropped (a selection's source in a package was the map's absolute path). docs/tamber-protocol.md says so. Test:
+`tamber-remote.test.mjs`'s `no answer to a remote client names this machine's directories`, through the real design
+server with the app under the home directory. A paired client through B's TLS door asks hello, describe, resolve,
+explain, uses, a refused `set-row` on a package's file and a checker refusal with spans (`propose`, `transaction`),
+then hello through the tunnel and a long poll. No reply holds the app's or the home directory in either form,
+`hello.app` is the name, `uses` names `node_modules/@acme/reading/index.contract`, and the local hello is unchanged.
+It fails without the fix, checked by hand. `outline`, which takes `uses`'s sites, reads a file named from the app's
+directory as well as the map's own (its path, as given and real), so the design tool's outline of a token's sites
+still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it).
+
+**After the path fix's review round 1 (Astra WRONG; Grok RIGHT WITH CHANGES; one rework):**
+- **No blanket replacement.** The Rust backstop in `Server::handle` and the JS one over replies, events and long polls
+  replaced the app's and home directory's text anywhere. That corrupted authored data: a token value holding
+  `<app>/assets/icon.svg`, a history's text, `/tmp/x` inside `/private/tmp/x`, and `/Users/admin` inside
+  `/Users/administrator`. The Rust one hit local clients too. Both are gone.
+- **Path metadata through one rule.** A file is named from the app's directory where it is in it (as given or
+  real); else from its package, the nearest directory above it whose `package.json` has a name
+  (`<name>/<path inside it>`, as D15's `sources::home` names a package's file, so a `file:` link outside the app and
+  the home directory is unique and stable); else `<outside>/<its name>`. Rust keeps it in `tamber_uses::shown` (for
+  `uses`, explain's icon sites and param file through `AppParams.files`, and a refusal's diagnostics), and JS in
+  `scripts/tamber-paths.mjs` `pathName`. JS applies it, by `file` fields only, to every reply and every event for
+  every client: a selection's source and chain, `inspect`, and the long poll. The stale-map and moved-file messages
+  of `tamber-inspect.mjs` name their file the same way.
+- **Machine-written messages are scrubbed at path boundaries,** for a client that is not local. The app's
+  directory becomes `<app>` and the home directory `~`, longest first, in the given and real forms, only where a
+  whole path starts and ends. It applies only to an `error`'s messages (and its diagnostics') and the `down` event's,
+  including the two 503s that bypassed it: a subscribe while down, and a long poll past the `down` event. Authored
+  text is not read.
+- **`outline` matches by the rule.** Each location's file and each map node's file are named by `pathName` and
+  compared, so a package linked from outside the app round-trips and two packages' same-named files stay apart. A
+  map's named nodes are kept per map read, since a map can move under one plan digest.
+- **Tests:**
+  - `scripts/tamber-paths.test.mjs`: the rule (inside the app, through its real path, through a link inside it, a
+    package's own path outside it, outside both); the boundaries (`/private/tmp/xy`, `<home>istrator`); and that
+    only an error's and `down`'s messages are scrubbed, never a commit's.
+  - `tamber-remote.test.mjs`, through the real design server, with the app under the home directory and
+    `@acme/linked` linked from outside both. A build is registered on the dev loop's channel whose map names the
+    package's real path. A paired client through B's door asks hello, describe, resolve, explain, uses ×2, a
+    refused `set-row` and a checker refusal (propose, transaction), and inspect. It also reads the selection in the
+    long poll (`@acme/linked/index.contract`), outlines `uses`'s site (it reaches the build: sites `[0]`), and asks
+    hello through the tunnel. No reply holds the app's, the home or the linked directory in either form, except
+    describe's authored metadata. Authored text (the token's `help` holding the app's path, the commit's message
+    naming it) is byte-identical to the local and the remote client.
+  - A design server that is down (it says the app's path on stderr): the remote subscribe and long poll are 503 with
+    `<app>`, and the `down` event in a long poll from the start is scrubbed too. Both tests fail without the
+    rework, checked by hand.
+  - `tamber_serve_packages.rs` `authored_text_holding_the_apps_path_is_kept`: a local proposal's diff, describe's
+    metadata and a scrub's fold keep a `help` value holding the app's path byte for byte.
+  - `tamber-server.test.mjs`'s wasm inspect test now expects the selection's file as `app.contract`.
+- **Not covered (round 1's view; wrong, see round 2):** a machine message naming a linked package's directory outside
+  the app and the home directory. A compile refusal does name one.
+
+**After the path fix's review round 2 (Astra WRONG; Grok RIGHT WITH CHANGES; their findings overlap):**
+- **A linked package's directory in a message is its name.** A compile or load refusal names a file by its path: a
+  missing named design (`sources/packages.rs`), an unreadable `use` target (`sources.rs`), resolution
+  (`resolve.rs`), and a transaction's diagnostics, which `uses`, `explain` and the others carry as `the app does
+  not build: …`. Round 2 rewrote each package root found under the app's `node_modules`. Its quick re-check found
+  that misses a nested dependency, a `node_modules` installed above the app, and Bun's per-file links (whose files
+  link into a store). So the scrubber no longer lists roots. In a machine message to a client that is not local,
+  every absolute path (a run from `/`, `~/` or a drive letter, up to white space, a quote, a backtick, `)` or a `:`
+  before a line number) is named by `pathName`, but a server's route (`/__…`), exempted by name: app-relative, its
+  package's `<name>/<path inside>`, or `<outside>/<name>`. It resolves from the path's nearest existing ancestor
+  (realpath, then the nearest named `package.json`), so a missing file under a missing directory of a package is
+  still the package's. (Re-check 2: a guard that kept a token unless it or its parent existed let a manifest's
+  `dist/theme.tamber`, never built, through whole.) Rust's `shown` resolves the same way. A `:line:col` after it
+  stays, and so does a sentence's full stop. The app's directory itself reads `<app>`, the home directory `~`, and
+  the app and home rule stays as a backstop for any other mention.
+- **Motion sites through a linked package keep their site.** `motion_sites` named its files for the reply before
+  `motion_instances` joined them against the elements' paths, so a linked package's duration or easing use lost its
+  instance (`site: null`) and its outline. It keeps the loader's path through the join; the finished reply is named
+  (`relative_files`).
+- **explain reads where the file is.** `AppParams` keeps each source's path on this machine (`paths`) beside its
+  name (`files`). explain reads a param's default as written through the path, so an outside package's `"4px"` keeps
+  its spelling. Only the emitted `file` is the name.
+- **The rest named too:** the subscribe snapshot (named, and scrubbed for a client that is not local), the long
+  poll's `proposals`, and export's `baseline` (`shown`, no `unwrap_or` to the absolute path).
+- **Tests:**
+  - `tamber-paths.test.mjs`: each path in a message is named and keeps its `:line:col` (`app.contract:3:7`); a
+    route is left, and a missing file under a missing directory is still named (`dist/theme.tamber`); a longer name
+    beside the app's or the home's is named from what exists above it (`<outside>/…`). A package's file is `<name>/…` however it is installed: a
+    link outside the app, a dependency nested in its `node_modules`, a `node_modules` above the app, and a Bun-style
+    per-file link into a store.
+  - `tamber-remote.test.mjs`: a design server that is down, whose stderr names a package's file outside the app
+    and the home directory, reads `… writes <app> (it read @acme/far/index.contract:2:1; no @acme/far/dist/theme.tamber)` to a remote client, in the
+    503s and the `down` event. `@acme/linked`, outside the app and the home directory, names a design under a `dist/` that was
+    never built (`dist/theme.tamber`). The local client's `uses` refusal holds the path; a paired client's refusals (`uses`, `explain`) hold
+    neither the outside directory nor the app's nor the home's, and `uses` says `@acme/linked/missing.tamber`. It
+    fails without the package rewrite.
+  - `tamber_serve_packages.rs` `a_package_linked_from_outside_keeps_its_motion_sites_and_its_defaults`: a linked
+    package outside the app. `uses` of a duration its view writes finds each instance (`site` set), named
+    `@acme/linked/index.contract`; `explain` gives the param's default as written (`"4px"`); neither names the
+    outside directory. It fails with either fix reverted.
+
+**After the path fix's re-check 3 (Astra; theme2's ruling: refuse it):**
+- **A package outside the app needs a name.** A linked package whose `package.json` has no `name` got an identity from its place from the app (`../../../Users/alice/shared/cards/index.contract#Card`),
+  which `describe` and `explain` sent whole and every param's full name carried. It is now a compile refusal,
+  `contract-package-unnamed`, at the `use` that reaches it: "the package `a` is outside the app and its `package.json`
+  has no `name`: a package outside the app needs a name in its package.json", naming the package as the `use` does,
+  never its path. `sources::home` answers none for it and the loader refuses, so no relative identity is made.
+- **A linked package ends at its root.** `home` walked every directory above a file to the app's, so a package with no
+  name inside an outer directory whose `package.json` has a name took that name: the same leak by another route. A
+  package's file is now named only by a directory between it and its package's root. A package that holds its own
+  test app (`packages/geolocation/test/fixture`) is its own: its root's name names it, where it was `../../…` before.
+- **Apps unchanged.** `contract build --json --errors-only` of all 90 `app.contract` roots in the checkout, before and
+  after: the same diagnostics (74 build, 16 refused as before). None hits the refusal; the geolocation fixture did
+  until the package-holds-the-app case above.
+- **Tests:** `tamber_params_tools.rs` `an_unnamed_package_outside_the_app_is_refused_even_inside_a_named_directory`
+  (two unnamed linked packages, refused at the app's `use` line with the package's `use` name and no directory of
+  theirs; again inside an outer named directory; named, two identities by their names) and
+  `a_package_holding_its_own_test_app_names_its_files_by_its_name`; `tamber-remote.test.mjs`'s
+  unnamed `@acme/linked` linked from outside the app and the home directory: a paired client's hello, describe,
+  explain, resolve and uses hold neither its directories nor its name nor any `../`, and `uses` says the refusal. Each
+  fails without the change.
+
 ### Stage 11, commit B1: the base scale table (draft for theme2)
 
 Built to the approved plan (`~/x2theme/x2p4-s11b-plan.md`, theme2's 09:56 approval and its conditions) and theme2's 10:57
@@ -5210,3 +5344,225 @@ write op for overrides (`set-token`). **Left to QUEUE:** expressions over base n
 form, incremental retention after a name-moving edit, a Linux InlineGeometry reader.
 
 **Stage 11 is closed.** The `tamber/1.14` window is closed; the next wire change takes `tamber/1.15` (stage 12).
+
+### Stage 12, commit B1: package components' params (draft for theme2)
+
+Stage 12 §B's first commit, under no wire change (the server's existing fields carry it; the three levels in
+`explain`/`resolve` are B2, under tamber/1.15).
+
+- **What was there** (verified first): a package's Contract component's params already worked end to end. Its
+  identity is its file under its package (`sources.rs` `home`: `@acme/reading/index.contract#Card`), `describe`
+  lists them under `components`, `set-param`/`unset-param` by full or short name write the app's design (the server
+  writes only the app's own files), the build keeps a set one, and `uses` lists its sites in the package's file.
+  Only tests were missing.
+- **A package design's components** (D15; QUEUE "A package's `.tamber` components", closed). A package's design
+  may declare `component Name` with `params`, for a component that isn't Contract, as the app's design may. It is
+  no longer `tamber-package-block`. Its identity is its design's home and its name
+  (`@acme/reading/reading.tamber#Map`, `params::design_tokens`), so two packages' components of one name stay
+  apart: their token names differ by file, and a short name naming both is `tamber-param-ambiguous`. The three
+  places that read the app design's components read the packages' designs too: `params::tokens` (what `describe`,
+  the server and the build list), the build's retention roots (D7: such a component's params are kept, with what
+  their defaults name) and the loader's checks (`tamber-param-unknown`, `syntax-param-attribute`,
+  `tamber-param-collision`), which say a package's refusal at its line in the package's design.
+- **A package's `params` line stays refused** (`tamber-package-block`): a param's value is the app's to set, in the
+  app's design. The message says so.
+- **Tests** (`contract/cli/tests/it/tamber_package_params.rs`, through the server):
+  - `describe` lists `@acme/reading/index.contract#Card` (Contract) and `@acme/reading/reading.tamber#Map` (design)
+    with their params, full and short names, and the design param's default naming a package token;
+  - `set-param` by full name (`Card.inset`) and short name (`Map.pin`) writes the app's `params` block alone, the
+    package's files byte for byte unchanged; `resolve` and the build read both values (the plan keeps them);
+  - `uses` lists `Card.inset`'s sites in the package's `index.contract`;
+  - `unset-param` by short and full name removes both lines;
+  - a package design's `params` line is refused, and a package param's `param.nothing` is said at
+    `reading.tamber:9`;
+  - two packages each declaring `component Map`: both listed, the short name ambiguous, the full name set.
+  - `package_designs.rs`: the block test no longer lists components, and a package design with `component …
+    params` builds.
+- **Next (B2, tamber/1.15):** a param's three levels in `explain`/`resolve` (the package or base token its default
+  reaches with stage 11 D's `bases`, the app's override of that token, the param's own app value), with A2 part 2's
+  `package`/`file` fields once they land. Also: `uses` names a package file by its absolute path, where `explain`
+  names it relative to the app.
+- **After review round 1 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **A short name only where `set-param` takes it** (Astra 1 = Grok 1). `describe`'s `short` read the Contract
+    components' identities alone, so two packages' `Map`, or the app's `Map` and a package's, each said
+    `short: "Map.pin"`, which `set-param` refused as ambiguous. It now reads every param's identity too, as
+    `resolve` does (`tamber_params::short`). Tests: both `Map.pin`s, across two packages and across the app and a
+    package, have no `short`; `Card.inset` keeps its own.
+  - **The server's retention key sees a package's components** (Astra 2). Retention now has a package design's
+    component params as roots, but the server's cached build of it was keyed by the walk, which leaves design files
+    out. A param a package came to declare after the server primed was no root, and an override of it varying by an
+    axis said `live`. The key now holds each package design's components (`Server::synthetic`). Test: prime, add
+    `size` to the package's `Map`, then set it under `when mode=b`: `rebuild`, as a fresh server says. It said
+    `live` without the fix, checked by hand.
+  - **A package param's default names its package's own** (Grok 2). The package reference check (`references`)
+    read only the package band's tokens, so a param's default could name another package's token, an app token or
+    a dial. A package design's param is now held to its package's rule: its own tokens, roles, base names and its
+    component's other params (`param.pin`), and no dial. A refusal is `tamber-unknown-token` at the default, in the
+    package's file. A param the app sets is the app's value and is not held to it. Tests: `maps.pin` and `ink` are
+    refused at `reading.tamber:9`; a sibling param is admitted; the app's `Map.pin = ink` builds.
+- **After review round 2 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **The retention key holds each package design whole** (Astra 1). Round 1's key held a package design's
+    components, not its tokens, which a param's default reads through. The key now holds each package design's
+    digest (`Server::synthetic`). Test: `a_package_tokens_edit_moves_what_its_params_keep` primes on
+    `Map.pin → reading.pin → reading.old` (an override of `reading.old` over an axis is `rebuild`), moves
+    `reading.pin` to `reading.new`, and holds both overrides' classes to a fresh server's. With round 1's key the
+    primed server kept the old retention and classed `reading.old`'s override `rebuild` where a fresh server says
+    `live`; the package's digest is what makes them match (corrected in round 3: an earlier check ran before the
+    test primed on `reading.old`).
+  - **A written whole alias is judged as written** (Astra 2 = Grok 1, 2). A profile colour folds as `transparent`,
+    naming none, and an icon param lies on `icons`, so `pin: color = ink` (the app's `color(--brand …)`) and
+    `glyph: icon = icon.app` (the app's icon) passed. The default as written is now held to the package's rule as
+    the theme tokens' are: a whole token or icon name that isn't the package's, a role, a base name or a sibling param
+    is `tamber-unknown-token` at the default in the package's file. A literal `icon(sf "…")` names nothing. Tests:
+    both are refused at `reading.tamber:9`, and `glyph: icon = icon(sf "heart")` builds.
+  - **The app sets a package param only by a name only it answers** (Grok 3). Whether the app's `params` line sets
+    a param is decided with `resolve` over every param and the Contract components (`package_references` takes them
+    now), so an ambiguous short name sets none, and the default's refusal is said beside `tamber-param-ambiguous`.
+    Test: two packages' `Map`, the app's `Map.pin = ink`, and reading's default `ink`: `tamber-unknown-token` is
+    among the build's refusals.
+- **After review round 3 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **A package param's SVG is a source of the app** (Astra). The dependency scan (`source_graph`) folded only
+    Contract params, so `glyph: icon = icon(svg "pin.svg")` in a package's design read `assets/pin.svg` without its
+    being a source: no watcher rebuilt on it, and one made later was not looked for. The scan now takes each package
+    design's params too, and so runs when the app has no design file. Test: `a_package_icon_params_svg_is_a_source`,
+    with no `app.tamber`: `pin.svg`, there, is a source; `later.svg`, not there yet, is looked for (`consulted`).
+  - **The app's design whole keys the server's retention** (Grok 1). The key held the app design's token names and
+    components, not their values or its `params` block, so an app override of a package token moving what a param's
+    default reaches (`reading.pin = reading.old` to `reading.new`) left the old retention. It now holds the app
+    design's digest (`Server::synthetic`), as it holds each package design's. Each edit of the design builds the
+    retention again, a compile, where a value edit used to reuse it. A commit needs no reset: its text moves the key.
+    Test: `the_apps_design_whole_keys_what_its_params_keep`: prime on `reading.old`, move the app's override, then
+    set `Map.pin = ink2`. The overrides of `reading.old` and `ink2` over an axis are classed as a fresh server
+    classes them (`ink2`'s `rebuild`). With the names-and-components key it fails, checked by hand.
+  - **§10's round-2 note corrected** (Grok 2): the package's digest is what makes round 2's classes match.
+- **theme2's sign-off condition: the server's retention, timed on the clone, keyed narrower.** Round 3 keyed the
+  server's cached retention (`Server::synthetic`) by each design's digest, so any design edit rebuilt it, a whole
+  compile of the app. On the clone that added seconds to the next `propose`. The key is now what can move retention
+  or the synthetic tokens (`tamber_walk::retention_key`), parsed, never compiled: for the app's design and each
+  package's, each token's and icon's name, written kind, a value's rough kind (a colour, a length, a number, other),
+  the names its value and `when` values reference, and its `when` conditions; the `params` entries, name to value;
+  each component's params with their defaults; and the axes, dials and `exports`. A value that names nothing (a
+  hex, a length) is left out, so editing it keeps the cache. A design that does not parse is keyed whole.
+  - **Test:** `a_value_edit_naming_nothing_keeps_the_cached_retention` counts builds by the server's hook
+    (`EXACT_TAMBER_RETENTION_LOG`, one line a build), not by time. A primed server keeps its one build through
+    three value edits (a hex, a length, an alias target's colour). An alias moved, a param set to a token, and a
+    colour turned into a length each build again. Round 3's alias-move and set-param tests still pass.
+  - **Timed:** `/tmp/bsky-bench.py` on `/tmp/bsky-retention`, a copy of the clone's sources (the clone itself
+    untouched). It uses debug builds, as the dev loop runs `cargo run -p contract`. A server is primed with a
+    `propose`; then five times: an edit written to `app.tamber`, the next `propose` timed (after edit), and one
+    more with no edit (warm). The value edit flips `contrast_25`'s light hex; the alias edit makes `white_50` name
+    `black_20` and back. Medians of 5, in ms:
+
+    | binary | edit | prime (cold) | after edit | warm |
+    |---|---|---|---|---|
+    | old key (token names and components; the stage-11 path fix's build) | value | 2621 | 220 | 6 |
+    | old key | alias | 2528 | 222 (no rebuild: the stale case round 3 fixed) | 6 |
+    | round 3's key (each design's digest) | value | 2607 | 3433 | 8 |
+    | round 3's key | alias | 2717 | 2493 | 7 |
+    | this key | value | 3107 | 238 | 8 |
+    | this key | alias | 2507 | 2519 | 7 |
+
+    Two more value runs, the old key and this key back to back: 223 and 224, then 224 and 221. A value edit's
+    `propose` is the old key's (within 20 ms; the limit was 50). An edit that can move retention rebuilds it, a
+    compile, as round 3's key did, in the same time. The old key took 222 ms there only because it did not rebuild
+    and kept a stale retention. (An earlier run, under heavier load, had the old key at 469 ms after a value edit and
+    round 3's at 5639 and 7695.)
+  - **After the key's re-check (Astra, blocking):**
+    - **Names compared as the checker resolves them.** A role's spelling is matched in any case and with or without
+      `-exact-` (`CANVAS` is `Canvas`), so the key folded only exact matches: `pick = CANVAS` moved to
+      `pick = CANVASTEXT` kept it while the retained chain moved. Names and references are now folded (lowercased,
+      `-exact-` dropped) before they are compared and keyed. Test: `a_role_alias_moved_by_its_case_is_followed`: a
+      param set to `pick` with `Canvas = old` and `CanvasText = fresh`. Moving `pick` by case builds again, and the
+      primed server's answers (a value edit of `old`, of `fresh`) are a fresh server's.
+    - **Each row says its section.** A token's row and an icon's were alike (`icon.brand None other []`), so a name
+      moved from `icons` to `theme` kept the key though it changes what the views may read. Rows now open with
+      `token` or `icon`. In the same sweep, a token's metadata keys the names it references (`pair=` another token).
+      Params, components, axes, dials and `exports` already have rows of their own, and colour profiles are the
+      Contract sources' (in the walk's key). Test: `a_name_moved_between_sections_or_a_pair_moved_builds_again`:
+      `pair=paper` to `pair=ground` builds again, and so does `icon.brand = icon(sf "star")` moved verbatim from
+      `icons` to `theme`. Both tests fail without their fixes, checked by hand.
+
+  - After the key's second re-check (Astra): a reference is found by its folded form but keyed as written, so two tokens differing only in case (`Foo`, `foo`) stay two; a chain moved from one to the other builds again (`two_tokens_of_one_name_in_two_cases_stay_two`, failing without the fix)
+  - After the key's fourth re-check (Astra; theme2's pre-approved fallback): the key holds a value VERBATIM whenever it names anything (a name of the designs, as folded, or any dotted word, a package token or a component's generated `param.…` name the designs don't declare); only a literal that names nothing (a hex, a length, `light-dark(#fff, #000)`, `rgba(…)`) is kept by its rough kind, so its edit is a cache hit. Each design's header name is keyed too (a package header repaired joins its tokens). So a non-literal value edit now recomputes retention, as an alias move does. Re-measured on the clone copy (/tmp/bsky-bench.py, debug, median of 5, ms; old key vs this key): a literal edit 370 vs 364 (warm 10 vs 12, a cache hit); an alias move 399 (the old key never rebuilt) vs 3354 (a whole-app compile, as round 3's key). A unit test in tamber_walk.rs holds the key's rules.
+  - After the key's fifth re-check (Astra): every string the key holds (names, values, metadata, params, component params) is written quoted, so a metadata value decoding to a newline can't spell another token's row (a unit test, failing without the quoting)..
+### Stage 12, commit B2-levels: a param's three levels (draft for theme2)
+
+Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels adds a clause to its one summary line).
+
+- **One walker** (`contract::tamber_levels`, library). Per tuple it starts at the app's own value of a param (its
+  `params` line, by its full name or a short name only it answers, with that line's `when` for the tuple), else the
+  param's default. It then follows each bare reference, in order: another param (its app value or its default), the
+  app's token (a role's spelling in any case), then a package's token, each line's value in the tuple. It goes at
+  most 8 hops (`HOPS`) and stops at a line whose value is no reference (a literal or an expression), at a base name or
+  at a role. It answers `Step {level, name}`, the level that wins and the name there: `app-param`, `app-token`,
+  `package`, `base`, `role`, or `default`. `default` is not in the plan's list: it is the param's own default being a
+  literal or an expression, the one case none of the five names (theme2: it stays; a tool's word for it is "the
+  component's default"). rt1's stage 12 D3 reads the same walker; its
+  signature was sent to rt1.
+- **`resolve` of a param**: each tuple adds `level` and `name`, from the walker.
+- **`explain` and `resolve` of a param**: `levels: {token, app, base, param}` when the default is a reference;
+  `levels: null`, explicitly, for a literal or an expression (theme2's ruling; round 1).
+  - `token` is the first token the default names, `{name, package?, file, line, value}`: a package's own line with
+    stage 11 A2's `package` and `file` exactly, else the app's.
+  - `app` is the app's override of that package token, `{file, line, value}`, or null.
+  - `base` is the base name every tuple reaches, as stage 11 D's `bases` names it, or null when the tuples' walks
+    differ or one reaches none (theme2's ruling; each tuple's own is on `resolve`'s tuples).
+  - `param` is the app's own value, `{file, line, value}`, or null; `param.set` stays.
+- **`describe`**: a param whose default is a bare reference adds `reaches: {token, base, app_set}`, compact.
+- **Tests** (`contract/cli/tests/it/tamber_levels.rs`, through the server, with `@acme/reading`'s Contract `Card`
+  and its design's `Map`):
+  - each level wins in turn on one param: the package's line, the app's override (`levels.app`), the app's value
+    (`levels.param`, and `param.set` kept), and an app value naming an app token;
+  - a chain of package tokens;
+  - a base name (`Card.inset` through `reading.gap = space.md`), a role (`AccentColor`), and an expression
+    (`levels: null`, its tuples `default`);
+  - `describe`'s `reaches`;
+  - levels differing by tuple (`reading.gap` 12px, `when mode=b: space.lg`): `app-token` then `base`, and
+    `levels.base` null; then a `when` sending one tuple to another base (`space.md`, `when mode=b: space.lg`):
+    each tuple's base, and `levels.base` null; with no `when`, `space.md` in both and `levels.base` `space.md`;
+  - a chain of ten app tokens stopping after eight (`c7`).
+
+**After review round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES):**
+- **Roles as the checker keys them** (Astra 1 = Grok 1). A role's override is found in either spelling and any case,
+  as `tamber/src/check.rs` `role_key` reads it: `Secondary-Label = …` or `-exact-Secondary-Label = …` overrides
+  `-exact-secondary-label`, and `accentcolor = …` overrides `AccentColor`. An app value written `secondary-label`
+  reaches the override too. A role or its override is named by the row spelling the fold publishes. Only a row
+  spelling stops the walk as a role, as the fold names a role.
+- **Icon params** (Astra 3). `resolve` and `explain` of an icon param returned before the additions; both return
+  paths now carry them (`Designs::annotate`, one call for every param). The walker reads the app's icon tokens. A
+  package's icons are not read yet (`tamber-package-block`), so a package icon param's default is a literal.
+- **`levels.token` walks** (Astra 4 = Grok 2). A default naming another param (`edge: color = param.pin` in a
+  `.tamber`, `edge: length = "param.inset"` in Contract) follows params' defaults, never the app's `params` lines, at
+  most 8 hops, to the first app or package token (`reading.pin`, `reading.gap`).
+- **References, not literals** (Astra 5). A reference is a bare name that is a param, an app token or icon, a package
+  token, a base name or a role's row spelling. `transparent` and `-1` are literals. A literal or an expression
+  default answers `levels: null`, explicitly. describe's `reaches` stays omitted there.
+- **`levels.base`** (Astra 2): every tuple's walk agreeing (folded in from theme2's ruling above).
+- **Tests** (Grok 3): `reaches.app_set` true under an override; a chain's `levels.token` is its first token
+  (`reading.chain`); an app-set `space.md = 10px` wins as `app-token`. Two new tests:
+  `a_roles_override_in_either_spelling_and_an_app_set_base_name` (both spellings, mixed case, the fold's value
+  agreeing) and `icon_params_param_aliases_and_literals` (a literal package icon param with `levels: null`, an app
+  component's icon param naming the app's icon, the app setting the package's icon param through its icon and as
+  written, both aliases, `transparent` and `-1`). Each fails on the commit before.
+
+**After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES):**
+- **`levels.token` keeps the walk's cap** (Astra 1 = Grok 1). `levels` took the default's reference and then followed
+  8 more params, one hop past the walk. The default's reference is now the first hop, so `levels.token` and
+  `reaches.token` name a line the walk can reach: at most 7 params passed, the token at hop 8.
+- **A light/dark pair stops on its line** (Grok 2). A `when` naming an axis `under scheme=dark` makes a colour's pair
+  (the checker's `under_value`: light from the line without that axis, dark from the `when`). The walk followed the
+  dark side alone. It now follows neither: the line owning the pair wins, so `level` and `name` match the tuple's
+  light/dark value.
+- **Tests:**
+  - `levels_token_keeps_the_walks_eight_hops`: nine `.tamber` params, each naming the next and the last
+    `reading.pin` (eight aliases): the tuple's level is `default` on the last param, `levels.token` and
+    `reaches.token` null. Eight reach `reading.pin` at hop 8, and both say it.
+  - `a_light_dark_pair_stops_on_its_line`: `reading.chain = #ffffff` with `when dark-style=dim: reading.pin`: both
+    tuples `app-token` `reading.chain`, the dim tuple light `#ffffff`, dark `#333333`.
+  - `two_axes_overlapping_whens_on_a_package_token_and_an_app_param` (Astra 2): axes `mode` and `size`. A package
+    token has `when mode=b`, `when size=l` and `when mode=b size=l`; then the app's `params` line has its own
+    `when size=l` and `when mode=a size=l`. Every tuple's modes, level, name and value are asserted.
+  - Each fails with its fix reverted (checked by hand: `0..HOPS`; the pair arm removed; the first holding `when` in
+    place of the most specific).
+- **§10's lead sentence** (Grok 3) says `levels: null` for a literal or an expression, as the wire does.
+- **After review round 3 (Astra RIGHT, Grok RIGHT):** two NITs taken: the test summary says `levels: null` for an expression, and the stage-4 `uses` comment in contract/cli/src/lib.rs sits on `tamber_uses` again.

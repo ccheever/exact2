@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.14`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.15`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.14"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.15"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -115,6 +115,21 @@ on macOS and Linux.
   source map behind them (development only, never on the wire) keys each state part by its row and
   state: a binding's `states`, `[{state, origin, at?}]` (no `at` for a conditional class's part,
   either style's).
+- `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
+  values for a length over unset base names (stage 12 D1); a param's levels (stage 12 B2-levels):
+  `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name`, and
+  `describe`'s param rows' `reaches`; a relay session's `spki` with its
+  certificate got by ACME (stage 10c R2); and names this machine's files in no answer:
+  every `file` field and file name in an answer or event is app-relative, or `<package>/<path inside it>`
+  for a package's file (a package linked from outside the app included), never absolute, `hello`'s `app`
+  is absolute only for the local client, and a client that is not local gets machine-written messages
+  (an error's, a refusal's, `down`'s) with no directory of this machine in them (see `hello`'s `app`).
+  Stage 12's other wire changes add under the same version, and so do LLP 1122's: its queue item (2) reads a selection row the runtime calls
+  `dynamic` because a `:disabled` or `:checked` part folds it over its base as that base, where the
+  source map says both (its `editable` the base's rung, its `at` and `attr` the base attribute's),
+  with `states: [{state, source, editable}]`, each folded part's place and its own edit; the
+  development-only source map lists each Contract source's `home`, from which a param's full name
+  is built.
 
 ## Where it runs
 
@@ -230,13 +245,48 @@ statuses:
   paired token works, never the local one. No other path gives a sandboxed page CORS: the token
   route keeps the dev gate's rule, so such a page cannot read it.
 - **A hosted relay** (*1.14*; stage 10c R1, LLP 1121 §5 10c): `--relay <host[:port]> --relay-account
-  <label>` with `--relay-cert`/`--relay-key` (PEM files for the relay's names) dials out to a relay
-  that hands each client's TCP stream down unopened; the client's TLS ends in this server, on that
-  certificate, so the relay reads only the ClientHello's name and never a token, a design or a
-  canvas. The account's token is `EXACT_RELAY_TOKEN` or `~/.exact/relay/<label>/token` (refused
+  <label>` dials out to a relay that hands each client's TCP stream down unopened; the client's TLS
+  ends in this server, so the relay reads only the ClientHello's name and never a token, a design or
+  a canvas. The certificate it ends on (R2, *1.15*) is got here by ACME (Let's Encrypt, or
+  `--relay-acme <directory>`): one wildcard for the account's names (`*.<label>.<relay>`), by
+  DNS-01, its record put up by the relay (which serves only names under the connector's own
+  account) and taken down after; its key made here, kept with the ACME account's key and the
+  certificate under `~/.exact/relay/<label>/` (0600 in a 0700 directory), never sent anywhere; got
+  again 30 days before it ends (checked daily; one process at a time, by a lock file, and a process
+  sharing the account adopts one another renewed). Every URL the ACME server gives must be https on
+  its directory's origin, with a deadline and a size bound; an authorization must be for a name
+  asked for, checked before its record goes anywhere; the certificate must be for this key and
+  name the wildcard itself and no name more; an order has at most one authorization a name and one
+  deadline, and stops where it is when the connector ends (the command or connection putting a
+  record up stopped, its records taken down still, nothing kept; closing waits for that). A
+  certificate that has ended serves no client. With `--relay-name <tool> <canvas>` (names of the
+  developer's own domain, one parent), the record is put up by `--relay-dns-hook <command>`, run
+  here with `EXACT_ACME_ACTION` (`publish`|`clear`), `EXACT_ACME_RECORD` and `EXACT_ACME_VALUE`,
+  its output never logged (and never given the relay's token): their DNS credentials never pass
+  through the relay. The relay operator, whose port those names reach, could still get a
+  certificate for them by TLS-ALPN-01 or HTTP-01; the CAA records printed at start close that:
+  `issue` and `issuewild` on the parent (RFC 8659: `issuewild` governs only the wildcard, `issue`
+  the hosts), each limited to this ACME account (`accounturi=`) by DNS-01, with the CA's CAA name
+  from its directory, and the two names pointed at the relay by A/AAAA records, never a CNAME (a CA
+  reads a CNAME's target's CAA, which the relay writes). They are checked at start and before each
+  renewal, for the wildcard and for each of the two names (the nearest CAA set up the tree, as a CA
+  reads it, every rule pinning this account and `validationmethods=dns-01`, each tag once and in
+  lower case as Let's Encrypt reads them, at a CA known to honour those parameters (RFC 8657;
+  `letsencrypt.org`, until every public CA must, 2027-03-15), or forbidding issuance; a CNAME on
+  the way up never pinned; a kept certificate whose account URL isn't kept is not pinned either; all
+  of one check's lookups within 5 s, past which it is not pinned):
+  each answer is shown at once, and until they pin, the start-up line says
+  plainly "not zero-trust", naming the name left open, and `pair-code`'s relay entry carries `caa: false` (*1.15*; `caa: true`
+  once it is), and with `--require-caa` no order runs at all until it is, and a later check that
+  no longer pins closes the relay door. The check reads the
+  system resolver without DNSSEC validation, and CAA binds the CAs that honour it, which every
+  public CA must (RFC 8659, the Baseline Requirements). The relay's own domain keeps its residual:
+  its operator controls its CAA. `--relay-cert`/`--relay-key` (PEM files) give
+  one of the developer's own instead. The account's token is `EXACT_RELAY_TOKEN` or `~/.exact/relay/<label>/token` (refused
   unless only its owner may read it), never logged, never in a URL. A relay whose own certificate
   fails WebPKI is never sent it, and no flag turns that check off. The session's names are the
-  relay's (`<id>-tool.<label>.<relay>`), or the developer's own with `--relay-name <tool>
+  relay's (`<id>-tool.<label>.<relay>`, under `<label>.<relay>` whole, `<relay>` being the
+  `--relay` host: by ACME a session under any other parent is refused), or the developer's own with `--relay-name <tool>
   <canvas>`. A relayed request is routed as the TLS listener's, at the tool's name (port 443):
   `{remote: true, tunnel: false, peer: "relay:<tool name>", reported}`, `reported` the client's
   address as the relay says it, shown in logs only. Names under a relay's domain aren't secret
@@ -275,7 +325,9 @@ statuses:
   remote?}`. `remote` lists the remote doors open (stage 10 B), for the tool to show beside the
   code: `{origin, fingerprint}` for the TLS listener, whose certificate's SHA-256 the other machine
   checks before it pairs (the lead's ruling 2), and `{origin, tunnel: true}` for a trusted tunnel's
-  local end, and `{origin, fingerprint, relay: true}` for a relay's session (*1.14*). It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
+  local end, and `{origin, fingerprint, spki, relay: true, caa?}` for a relay's session (*1.14*; `caa` with names of the developer's own, above; `spki`,
+  the base64 SHA-256 of its certificate's public key, the same across renewals with the account's
+  one key, a non-browser client's pin, *1.15*). It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
   read|propose|write [--name <name>]` mints one from this machine and prints them. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,
   `L` and `O` forgiven), valid two minutes, used once. At most 8 are live: a ninth replaces the
   oldest.
@@ -369,7 +421,15 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
   report's `{state, reason}` on the last hold frame sent it (null until it reports on that frame),
   *1.11*; see [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
-- `app`: the app's directory, absolute (*1.1*);
+- `app`: the app's directory, absolute, for the local client (`local: true`), which `tamber tool` tells
+  its own server by (*1.1*); for any other client (paired, through a remote door or a tunnel) the
+  directory's name alone. Every `file` an answer or event carries is named by one rule, for every
+  client: from the app's directory where the file is in it (`node_modules/@acme/reading/index.contract`),
+  else from its package (`<package.json name>/<path inside it>`, as D15 names a package's file),
+  else `<outside>/<its name>`; never by its path on this machine. A client that is not local gets
+  machine-written messages (an error's, a refusal's, the `down` event's) with the app's directory
+  as `<app>` and the home directory as `~`, at whole paths only. What an author wrote (a token's
+  value, a commit's message, a file's text) comes back as written to every client (*1.15*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
 - `live` (*1.2*): true when a dev loop serves the wire, whose running builds take a value-only edit in
   place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).
@@ -408,6 +468,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `{value, line, whens}` of its `params` line, or null; `pinned` names the tokens the default
     reads that a literal `set` no longer follows (D14's mark). Moving the declaring file is a new
     identity, so a value keyed by the old one no longer applies.
+    A param whose default is a reference adds `reaches: {token, base, app_set}` (*1.15*): the first
+    token its default reaches, the base name every tuple reaches (or null), and whether the app
+    overrides that token (`explain`'s `levels`, compact; none where `levels` is null).
     A component that isn't Contract, declared in the design (`component MapCard` over
     `params`, stage 7 D), is listed the same way, its identity the design file and its name
     (`app.tamber#MapCard`).
@@ -496,9 +559,43 @@ tuple:
 - **A param** (*1.12*) adds `param: {component, identity, kind, file, line, col, default, set}`:
   where its line is, its default as written, and `set`, the design's line that sets the app's
   value (`{file, line, value}`), or null.
+- **A param's levels** (*1.15*, stage 12 B2-levels), on `explain` and `resolve` of a param, from one
+  walker. It starts at the app's own value of the param (its `params` line), else the param's default,
+  and follows each reference: another param, then the app's token or icon (a role's override in
+  either spelling, as the checker keys it: `secondary-label` or `-exact-secondary-label`, any case),
+  then a package's token. It takes each line's value in the tuple and goes at most 8 hops. It stops
+  at a line whose value is no reference (a literal such as `transparent` or `-1`, or an
+  expression), at a base name or at a role, and that place wins. A `when` naming an axis `under
+  scheme=dark` is a colour's light/dark pair: the walk follows neither side, and its line wins. An icon
+  param answers the same.
+  - Each of `resolve`'s tuples adds `level`, one of `app-param`, `app-token`, `package`, `base`,
+    `role` or `default` (the param's own default, a literal or an expression: a tool's word for it is
+    "the component's default"), and `name`, the name at
+    that level (a param's full name, a token's, a base name; a role, or an override of one, by the row
+    spelling the fold publishes: `AccentColor`, `-exact-secondary-label`).
+  - `levels: {token, app, base, param}` when the param's default is a reference; `levels: null` for a
+    literal or an expression:
+    - `token` is the first token the default reaches through params' defaults (never the app's
+      `params` lines; at most 8 hops), `{name, package?, file, line, value}`: a package's own line
+      with stage 11 A2's `package` and `file` (`<package>/<file>`), else the app's line;
+    - `app` is the app's override of that package token, `{file, line, value}`, or null;
+    - `base` is the base name every tuple's walk reaches, or null when they differ or one reaches
+      none (each tuple's own is on `resolve`'s tuples);
+    - `param` is the app's own value of the param, `{file, line, value}`, or null (`param.set`
+      stays).
 - **A base name** (*1.14*) answers `{kind: "base", name, base, files}`, its base row. One the app
   sets also carries its line's fields as any token's (`token, value, whens, dials, names`), so a
   tool reads and edits its `when` lines.
+- **A length over unset base names** (*1.15*, stage 12 D1): an alias of one, or an expression
+  (`calc(space.md * 2)`, stage 12 B2), whose value is each host's, adds `columns` on `explain`'s
+  value and on each `when` line, as the first tuple that chooses that line folds it (a line no
+  tuple chooses, the default included, has none), and on each of `resolve`'s tuples:
+  `{ios, mac, neutral, material, terminal: {value}}`, each the expression folded for that column
+  by the kernel's own per-column evaluator, written as the base rows write a column's value
+  (`"32px"`; the terminal's `"2cell"`, `"1.5cell"` or `"0"`, in column-width cells before its
+  layout rounds a space to whole cells on the axis it spaces); a column it doesn't fold in is left
+  out. An app-set base name folds into its own value, so one whose fold reaches no unset base name
+  is one value and has none (`space.md = space.sm` still reaches `space.sm`, and has them).
 - **A token whose values name base names** (*1.14*), an overridden base name's own line included,
   adds `bases`: each base name any of its lines reaches, `when` lines no tuple selects included (an
   unset one named bare, a set one as the token it names), and those any line of each token it
@@ -651,7 +748,14 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   tokens) fold on both sides; a role override's value, or a token one reads, is a value like any
   other (stage 5). It is `rebuild` for structure (a role override gained or lost among it), a
   synthetic token gained, lost or left unfoldable, a profile colour, or an unknown closure (the
-  app's build stops before its design). A `live` edit reaches running development builds as a batch, with
+  app's build stops before its design, or the server's background whole build found a build under
+  the same retention failing, until a whole build of the files as they are now passes; the breaking
+  edit itself, answered before that build reports, is `live`). An edit that breaks an element's
+  literal style row that passed (a token of the wrong kind, a value the row doesn't take, a name
+  removed) is refused instead, as `propose`, `transaction` and a verifying scrub frame answer any
+  write check: the compiler's own refusal, its id and words, at the row in its Contract source. A
+  row already failing before the edit is the build's to report, and isn't refused (LLP 1121 D3,
+  D7; QUEUE names the rows not judged so). A `live` edit reaches running development builds as a batch, with
   no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads.
   `propose` through the JS target's dev loop is also `rebuild` when the edit moves a token its pages
   write inline, which the loop's design read marks (a `font-weight` number, an SVG attribute's
@@ -777,6 +881,14 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
 - **Refused by the checker:** `{message: "refused", diagnostics: [{file, line, col, id,
   message}]}`. A write (or a propose) that would make a role override vary by an app axis is
   refused the same way, `tamber-role-axis`, since the build would refuse it (*1.1*).
+  So is a write, or a scrub's resting value (`scrub-fold`'s verify; its frames before that only
+  preview), that would hide an exported library component's slot fill: a node of the slot's chain
+  given `opacity` 0, a zero size, `display: none` and the rest of LLP 1139 D4's list, in any tuple
+  or scale column, through a token, a base name a chain's token reaches, or a param
+  (`lower-anatomy-slot`, the compiler's own checker and words, at the line of the chain's token
+  it names, in the app's design or a package's; *1.15*, stage 12 D2). A write no chain's tokens
+  reach isn't asked. A scrub whose app components or package designs moved since it opened is a
+  conflict at its verify, opened again.
 - **An editor that ignores the lock** and saves between the server's last read and its rename is
   overwritten. The digests narrow that window but don't close it.
 
@@ -1367,8 +1479,14 @@ The tool drives no input into an app; a command changes only what `prefer` would
   (`inspect {refresh: true, status: true}`: its status first, then the selection), once per
   status it has. A current one is joined to the source map of the plan it names
   (the dev loop's `app.plan.map.json`, verified by that digest) and published as the `selection`
-  event: `source` `{file, line, col, end_col, component, chain}` (the component call sites above
-  it), and each row with its map `origin` (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
+  event: `source` `{file, line, col, end_col, component, chain, library?}` (the component call sites above
+  it; `library` *1.15*, stage 12 D4, LLP 1139 D5: `{identity, part}` on a node of an exported library
+  component's own view, its declaring identity (`@scope/pkg/file.contract#Name`) and the part it is
+  named as, or null, joined from the map since `part=` never reaches a host, beside
+  `component`, the bare name the map gives (the declared one, which two packages can share; an alias
+  the app imports it by is in neither); absent outside one, a slot's fill being the caller's), and each row with its map `origin`
+  (with the node's `library` too, on a row whose map `origin` isn't null, where the node has one;
+  a held state's rows the held node's) (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
   "token", token, modes}` only for a row the node itself sets (`authored`, `own`) whose whole
   value is one token; `{rung: "param", param, short, token?, modes, template?}` (*1.11*, LLP 1122 T3; `template` *1.12*, T5: the template rung's fields where the map places the row, which a detach writes at) for
   such a row whose whole value is one component param: `param` its full name, `short` its short
@@ -1419,8 +1537,18 @@ The tool drives no input into an app; a command changes only what `prefer` would
   token, the token rung. An `:active` part's rows (lowered to the press paint) carry their part's
   place in the map, and so, held (*1.14*, LLP 1122's queue item (1)), do a `:hover` or
   `:focus-visible` part's: the map keys each part by its row and state, never by its row alone, so
-  a look's row is never offered at its base row's place. A `:disabled` or `:checked` part's are
-  offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  a look's row is never offered at its base row's place. A row a `:disabled` or `:checked` part
+  folds over its base (one value, `disabled ? D : B`, the runtime's `dynamic`) is read through the
+  map (*1.15*, LLP 1122's queue item (2)) where it says both the base and the parts: its `editable`
+  is its base's rung, whichever branch the runtime shows now (param, one `param.<name>` as written,
+  by its full name among the params read for the component it is written in, a package's included,
+  its template address the base attribute's, never a part's; template, style or token), and it adds `states: [{state, source, editable}]`, one per folded part
+  (`disabled`, `checked`; two of one state, a class's and the node's, each),
+  `source` the part's place in the form a held row's has (its node's for a part with none: a
+  conditional class's), `editable` that part's own edit: `set-state` on a style's part or
+  `set-row` with `state` on the node's own, never a param it names (the base's and every other
+  use's). A fold the map can't explain (no base an author wrote: a link's colour, `none`, a
+  metric) stays `dynamic`, read-only. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit).
   A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place (none for a conditional
@@ -1430,8 +1558,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
   `padding` for `padding_top`; and `layout: true` where that attribute writes a layout row (LLP
   1122 D14: `set-row` refuses it, by the same test), so a client offers it no `set-row` edit (a
-  param or token it reads whole is still offered). A tag's row, one the compiler derived, a conditional class's, a
-  folded `:disabled` or `:checked` row, and one the compiler composed or renamed (an animation's
+  param or token it reads whole is still offered). A tag's row, one the compiler derived, a conditional class's, and one the compiler composed or renamed (an animation's
   longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, node?, site?, instance?, rows}`
   (*1.11*; `node`, `site`, `instance` and a row's `token` *1.12*): the node the state is held on
   (the press it resolved to, named on a node inside it) and the rows that state shows (`active`:

@@ -26,6 +26,7 @@ unsafe or would waste the work if wrong.
 |---|---|
 | Implementation | codex `gpt-6.1-sol` high / xhigh / ultra |
 | Code review | **both** `grok-4.7` **and** codex `gpt-6.1-sol` xhigh |
+| Hard directional decisions, RFC/LLP refinement | **the panel** — see the `panel` skill; it replaces super-refine |
 | Everything else | your call |
 
 Codex: `codex exec -m gpt-6.1-sol -c model_reasoning_effort=<effort>`, prompt on stdin;

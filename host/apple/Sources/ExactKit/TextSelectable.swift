@@ -10,8 +10,8 @@ private typealias AncestorView = UIView
 
 extension NodeView {
     /// Whether this text takes part in selection. Walking up from the text:
-    /// 1. the nearest authored `user-select` decides: `none` no; `text` yes
-    ///    (`all` and `contain`, which the compiler refuses, as `text`);
+    /// 1. the nearest authored `user-select` decides: `none` no; `text` and
+    ///    `all` yes (`contain`, which the compiler refuses, as `text`);
     /// 2. else the text is a control's label, and not selectable, inside a
     ///    pressable (a button or link, a box with a press action, a `button`,
     ///    `link`, `tab`, `menuitem`, `option`, `checkbox`, `radio` or
@@ -56,6 +56,17 @@ extension NodeView {
         #else
         return false
         #endif
+    }
+    /// The outermost view from here up that says `user-select: all`: CSS UI
+    /// 4 §6.1 selects its content atomically, so a selection that takes part
+    /// of it takes all of it. An element inside another is part of the outer.
+    var selectAllElement: NodeView? {
+        var found: NodeView?, current: AncestorView? = self
+        while let view = current {
+            if let node = view as? NodeView, node.style["user_select"]?.string == "all" { found = node }
+            current = view.superview
+        }
+        return found
     }
     private static let controlRoles: Set<String> = ["button", "link", "tab", "menuitem", "menuitemcheckbox", "menuitemradio",
                                                     "option", "checkbox", "radio", "switch", "treeitem"]

@@ -93,13 +93,17 @@ package struct RuntimeHooks {
     package static let headless = RuntimeHooks(decodeBatch: { Batch.decodeWire($0, resolver: $1) }, symbolMeasure: SymbolMeasure.measure)
 }
 
+/// A top-layer view, its viewport frame and optional viewport clip (LLP 1123 D2).
+/// Clipping bounds reads without changing the box's mapping.
+package typealias TopLayerFrame = (UInt32, CGRect, CGRect?)
+
 /// A runtime handle and its calls. `destroy` is idempotent at this layer and
 /// one-shot at the C boundary; a call after it is refused by the library by
 /// name, never a trap.
 package final class Runtime {
     package let rt: ExactRuntime
     private(set) package var destroyed = false
-    package var topLayer: (() -> (frames: [(UInt32, CGRect)], modal: Int?))?
+    package var topLayer: (() -> (frames: [TopLayerFrame], modal: Int?))?
     package var inlineFrame: ((UInt32) -> CGRect?)?
     package var rangeFrame: ((UInt32, UInt32, UInt32) -> CGRect?)?
     #if DEBUG
@@ -136,10 +140,16 @@ package final class Runtime {
         let (open, modal) = topLayer?() ?? ([], nil)
         let ids = open.map(\.0)
         let rects = open.flatMap { [Double($0.1.minX), Double($0.1.minY), Double($0.1.width), Double($0.1.height)] }
+        let clips = open.flatMap { entry -> [Double] in
+            guard let clip = entry.2 else { return [.nan, 0, 0, 0] }
+            return [Double(clip.minX), Double(clip.minY), Double(clip.width), Double(clip.height)]
+        }
         return Owner.shared.sync({
             ids.withUnsafeBufferPointer { ids in
                 rects.withUnsafeBufferPointer { rects in
-                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
+                    clips.withUnsafeBufferPointer { clips in
+                        exact_top_layer(rt, ids.baseAddress, rects.baseAddress, clips.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
+                    }
                 }
             }
             return body()
@@ -431,7 +441,8 @@ package final class Runtime {
     }
     /// The clipboard's `copy` (32), `cut` (33) or `paste` (34) with its
     /// plain text; a `contextmenu` (10) with its pointer line, a `wheel`
-    /// (37), a `drop` (38), or a popover `toggle` (50) with theirs (`Event::of_host_kind`).
+    /// (37), a `drop` (38), a file drag's `dragenter` (55) or `dragleave` (56), a
+    /// paste with files (57), or a popover `toggle` (50) with theirs (`Event::of_host_kind`).
     package func clipboard(_ view: UInt32, _ kind: UInt32, _ text: String, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, kind, write(text), now)) }
     }

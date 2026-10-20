@@ -62,6 +62,18 @@ pub async fn load_gpu(
     instance: wgpu::Instance,
     compatible: Option<&wgpu::Surface<'_>>,
 ) -> Result<Gpu, DeviceFailure> {
+    load_gpu_as(instance, compatible, false).await
+}
+
+/// [`load_gpu`]; `module`: a native module's own device, whose adapter
+/// chooses the process's GPU tier, unless its host told one, before the
+/// device is made (LLP 1139.003 D2). A fixture's or a look frame's device
+/// never chooses.
+pub(crate) async fn load_gpu_as(
+    instance: wgpu::Instance,
+    compatible: Option<&wgpu::Surface<'_>>,
+    module: bool,
+) -> Result<Gpu, DeviceFailure> {
     // Exact's Android shaders keep uniforms in f32. Opt this instance into
     // native f16 arithmetic on Adreno; the HAL rejects unsupported f16 uniforms
     // before Vulkan sees them (vendor/wgpu-hal/EXACT-PATCHES.md, 11).
@@ -76,6 +88,12 @@ pub async fn load_gpu(
         })
         .await
         .map_err(|e| DeviceFailure::new(DeviceFailureKind::NoAdapter, e.to_string()))?;
+    #[cfg(not(target_arch = "wasm32"))]
+    if module {
+        crate::tier::choose(&adapter.get_info());
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = module;
     let available = adapter.limits();
     let required_limits = requested_limits(available);
     let (device, queue) = adapter

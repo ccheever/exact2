@@ -553,14 +553,16 @@ pub(super) fn published_content_box(
     let (left, top, right, bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
     let button = exact_kernel::ControlKind::of(node.node_type, node.props)
         == Some(exact_kernel::ControlKind::Button);
-    let side = |id: exact_kernel::StyleId, value: f32| {
-        (!button || node.style.mask.has(id)).then_some(value)
+    // A list's row inset is a side the host places the title by too (LLP 1138).
+    let row = button && kernel.takes_row_inset(node.key);
+    let side = |id: exact_kernel::StyleId, value: f32, inset: bool| {
+        (!button || node.style.mask.has(id) || inset).then_some(value)
     };
     let padding = [
-        side(exact_kernel::StyleId::PaddingTop, top),
-        side(exact_kernel::StyleId::PaddingRight, right),
-        side(exact_kernel::StyleId::PaddingBottom, bottom),
-        side(exact_kernel::StyleId::PaddingLeft, left),
+        side(exact_kernel::StyleId::PaddingTop, top, false),
+        side(exact_kernel::StyleId::PaddingRight, right, row),
+        side(exact_kernel::StyleId::PaddingBottom, bottom, false),
+        side(exact_kernel::StyleId::PaddingLeft, left, row),
     ];
     let written = button && padding.iter().any(Option::is_some);
     (written || x != 0.0 || y != 0.0 || width != f.width || height != f.height).then_some(

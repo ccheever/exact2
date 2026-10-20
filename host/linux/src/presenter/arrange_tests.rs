@@ -10,6 +10,9 @@ impl DataSource for Rows {
         Ok(AppValue::list(self.0.clone()))
     }
 }
+// Each row's grip spans its row, as the pointer coordinates below assume:
+// the row writes its inline ends, so a cells list's inset (LLP 1138, tested
+// in contract/cli/tests/it/list_rows.rs) leaves it alone.
 const APP: &str = r#"component App
   state grips = true
   state width = 300
@@ -32,7 +35,7 @@ const APP: &str = r#"component App
     column width="100%" height="100%"
       list testId="list" id="items" width=width height=180 virtualized=true reorderdrop=drop
         for item in rows key=item
-          box height=40 testId=`row-${item}`
+          box height=40 padding-left=0 padding-right=0 testId=`row-${item}`
             if grips
               box height=40 width="100%" reorderFor="items" testId=`grip-${item}`
             else

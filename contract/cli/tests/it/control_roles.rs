@@ -49,6 +49,27 @@ fn an_accent_on_switches_is_unreachable_on_the_mac_only() {
         said[0].starts_with("accent-color on macOS switches: NSSwitch draws the system accent"),
         "{said:?}"
     );
+    // What ships the Mac, which `exact new` writes unasked, and how to stop.
+    assert!(
+        said[0].ends_with(
+            "The app ships macos (app.json `host.macos`); not shipping it? delete those keys"
+        ),
+        "{said:?}"
+    );
+    // A control and its disabled state that the Mac leaves alike: one line.
+    let both = SWITCHES.replace("aria-label=\"B\"", "aria-label=\"B\" disabled=true");
+    let path = app(
+        "switch-disabled",
+        "\"macos\": {}",
+        "  accent.brand = #e0218a\n",
+        &both,
+    );
+    let said = unreachable(&path);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("accent-color on macOS switches and disabled switches: NSSwitch"),
+        "{said:?}"
+    );
     // Shipping the web alone: nothing.
     let path = app(
         "switch-web",

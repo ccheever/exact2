@@ -395,9 +395,18 @@ fn check_words(used: Vec<(String, Span)>, app_root: &Path, kind: &Words) -> Vec<
             } else {
                 format!("the app's words are {}", declared.join(", "))
             };
+            let stale = if Manifest::generated_stale(app_root) {
+                "; .shells/app.json is stale, generated from an earlier app.json: \
+                 `bun exact.mjs shells` regenerates it, as the web and test builds do"
+            } else {
+                ""
+            };
             refusal(
                 kind.refusal,
-                format!("{} is not declared: {listed}{hint}", kind.written(&word)),
+                format!(
+                    "{} is not declared: {listed}{hint}{stale}",
+                    kind.written(&word)
+                ),
                 span,
             )
         })

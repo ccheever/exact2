@@ -19,6 +19,66 @@ fn value(v: ScaleValue) -> String {
     }
 }
 
+/// A length over unset base names (an alias of one, or an expression,
+/// stage 12 B2) in each scale column, as the base rows write a column's
+/// value (*1.15*, stage 12 D1): each folded by the kernel's own
+/// per-column evaluator, never a copy; a column it doesn't fold in is left
+/// out. None when the text reads no base name.
+fn columns_of(text: &str) -> Option<Value> {
+    if scale::named_in(text).is_empty() {
+        return None;
+    }
+    // (a bare alias, `space.md`, folded as the one-term expression it is)
+    let text = &match text.contains('(') {
+        true => text.to_string(),
+        false => format!("calc({text})"),
+    };
+    let columns: serde_json::Map<String, Value> = scale::COLUMNS
+        .iter()
+        .filter_map(|(key, column)| {
+            let n = scale::evaluate(text, *column)?;
+            // The evaluator's own f32, shortest (Rust's Display), a zero
+            // never negative (after the terminal's division too).
+            let zero = |n: f32| if n == 0.0 { 0.0 } else { n };
+            // (the terminal's in cells before its layout rounds them: the
+            // evaluator reads a cell, `1ch`, as its column's px, so a
+            // column-width cell here, as `Env::cell_spaces` then rounds on
+            // the axis it spaces)
+            let v = match *key {
+                "terminal" => match zero(n / exact_kernel::style::cells::COLUMN) {
+                    0.0 => "0".to_string(),
+                    c => format!("{c}cell"),
+                },
+                _ => format!("{}px", zero(n)),
+            };
+            Some((key.to_string(), json!({ "value": v })))
+        })
+        .collect();
+    (!columns.is_empty()).then_some(Value::Object(columns))
+}
+
+/// The `when` line of `t` a tuple selects, the one naming the most axes
+/// among those that hold (the checker's rule for a length, whose light
+/// and dark sides are one); None for its default.
+fn branch_of(t: &exact_tamber::Token, axes: &[exact_tamber::Axis], tuple: usize) -> Option<usize> {
+    let mut rest = tuple;
+    let mut chosen = vec![""; axes.len()];
+    for (i, a) in axes.iter().enumerate().rev() {
+        chosen[i] = &a.values[rest % a.values.len()];
+        rest /= a.values.len();
+    }
+    let holds = |(axis, v): &(String, String)| {
+        axes.iter()
+            .position(|a| &a.name.value == axis)
+            .is_some_and(|i| chosen[i] == v)
+    };
+    let holding = (0..t.whens.len()).filter(|&i| t.whens[i].conds.iter().all(holds));
+    let most = holding.clone().map(|i| t.whens[i].conds.len()).max()?;
+    holding
+        .into_iter()
+        .find(|&i| t.whens[i].conds.len() == most)
+}
+
 /// A cell's source as the shape writes it.
 fn source(s: ScaleSource) -> Value {
     match s {
@@ -194,6 +254,23 @@ impl Server {
         Ok(out)
     }
 
+    /// A param's additions (stage 12 B2-levels, *1.15*) to `out`, from the
+    /// one walker over `file`'s `text`; nothing for a token that is no
+    /// param's.
+    fn levelled(
+        &self,
+        app: &contract::tamber_params::AppParams,
+        file: &str,
+        text: Option<&str>,
+        name: &str,
+        out: &mut Value,
+    ) {
+        if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
+            let designs = contract::tamber_levels::Designs::read(file, text, app, &self.vocab);
+            designs.annotate(p, out);
+        }
+    }
+
     /// A token's stored value per tuple and scheme; a host value (a role, a
     /// platform colour) is a residual, labelled so, with its fallback.
     pub(super) fn resolve(&self, request: &Value) -> Result<Value, Value> {
@@ -209,12 +286,23 @@ impl Server {
                 return Ok(json!({"name": name, "base": base, "files": files_json(&snap)}));
             }
         }
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        let text = snap
+            .iter()
+            .find(|(f, ..)| *f == file)
+            .map(|(_, t, _)| t.to_string());
+        // A param's (stage 12 B2-levels, *1.15*): each tuple's winning level
+        // and the name there, and its levels, from the one walker.
+        let app = self.app_params();
+        let levelled = |out: &mut Value| self.levelled(&app, &file, text.as_deref(), &name, out);
         // An icon (D10): its sources, the same in every tuple.
         if let Some(icon) = folding.icons.iter().find(|i| i.name == name) {
             let tuples: Vec<Value> = (0..folding.tuples)
                 .map(|t| json!({"modes": modes_of(&folding.design.axes, t), "kind": "icon", "sf": icon.sf, "material": icon.material, "svg": icon.svg}))
                 .collect();
-            return Ok(json!({"token": name, "tuples": tuples, "files": files_json(&snap)}));
+            let mut out = json!({"token": name, "tuples": tuples, "files": files_json(&snap)});
+            levelled(&mut out);
+            return Ok(out);
         }
         let token = folding
             .tokens
@@ -243,7 +331,12 @@ impl Server {
                                 ("named", Value::Null)
                             }
                         };
-                        return json!({"modes": modes, "value": v.css(), "kind": "length", "unit": unit, "amount": amount});
+                        let mut out = json!({"modes": modes, "value": v.css(), "kind": "length", "unit": unit, "amount": amount});
+                        // Each host's, by column, for one over base names (*1.15*).
+                        if let Some(columns) = columns_of(&v.css()) {
+                            out["columns"] = columns;
+                        }
+                        return out;
                     }
                     exact_tamber::Value::Number(n) => {
                         return json!({"modes": modes, "value": v.css(), "kind": "number", "amount": n});
@@ -295,11 +388,11 @@ impl Server {
         // The digests it read, so a client reading several tokens can tell
         // one revision from two.
         let mut out = json!({"token": name, "tuples": tuples, "files": files_json(&snap)});
+        levelled(&mut out);
         if let Some(base) = base {
             out["base"] = base;
         }
-        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
-        crate::tamber_packages::fields(&self.app_params(), &snap, &file, &name, &mut out, false);
+        crate::tamber_packages::fields(&app, &snap, &file, &name, &mut out, false);
         Ok(out)
     }
 
@@ -311,9 +404,14 @@ impl Server {
         let app = self.app_params();
         // The design asked about (`file`), whose lines set the app's values.
         let design = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
-        if let Some(icon) =
+        let text = snap
+            .iter()
+            .find(|(f, ..)| *f == design)
+            .map(|(_, t, _)| t.to_string());
+        if let Some(mut icon) =
             crate::tamber_explain::icon(&self.dir, &design, &app, &snap, &folding, &name)
         {
+            self.levelled(&app, &design, text.as_deref(), &name, &mut icon);
             return Ok(icon);
         }
         // A base name (*1.14*), not a param named like one: its row, with
@@ -342,19 +440,42 @@ impl Server {
             .zip(&folding.design.tokens)
             .find(|(t, _)| t.name == name)
             .ok_or_else(|| no_token(&folding, &name))?;
+        // Each line's value over base names in each column (*1.15*), as the
+        // first tuple that line chooses folds it (a line no tuple chooses,
+        // none).
+        let axes = &folding.design.axes;
+        let columns = |line: Option<usize>| {
+            (0..folding.tuples)
+                .find(|&t| branch_of(declared, axes, t) == line)
+                .and_then(|t| token.values.get(t))
+                .and_then(|v| match v {
+                    exact_tamber::Value::Length(_) => columns_of(&v.css()),
+                    _ => None,
+                })
+        };
         let whens: Vec<Value> = declared
             .whens
             .iter()
-            .map(|w| {
-                json!({"when": w.conds.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(), "value": w.value.value})
+            .enumerate()
+            .map(|(i, w)| {
+                let mut out = json!({"when": w.conds.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(), "value": w.value.value});
+                if let Some(c) = columns(Some(i)) {
+                    out["columns"] = c;
+                }
+                out
             })
             .collect();
         let mut out = json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names, "files": files_json(&snap)});
+        if let Some(c) = columns(None) {
+            out["columns"] = c;
+        }
         // A param (D15): where it is declared, its default as written, and
         // the design's line that sets the app's value, *1.12*.
         if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
             out["param"] = crate::tamber_explain::param(&self.dir, &design, p, &app, &snap);
         }
+        // Its levels (stage 12 B2-levels, *1.15*).
+        self.levelled(&app, &design, text.as_deref(), &name, &mut out);
         crate::tamber_packages::fields(&app, &snap, &design, &name, &mut out, true);
         Ok(with(out))
     }

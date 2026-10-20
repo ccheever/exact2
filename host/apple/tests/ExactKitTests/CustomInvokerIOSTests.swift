@@ -370,6 +370,52 @@ final class CustomInvokerIOSTests: XCTestCase {
         XCTAssertEqual(presses, [8, 8])
     }
 
+    /// The overlay holds the invoker's press look; a second contact's press
+    /// drops `popovertarget`, and with it the overlay. Once that contact
+    /// retires, nothing holds the look.
+    func testAContactWhosePressDropsTheOverlayLeavesNoPressLook() throws {
+        let session = ExactApp.shared.makeSession(label: "custom-invoker")
+        let p = page(session: session)
+        let source = try XCTUnwrap(p.views[2])
+        source.handlers = ["press"]
+        p.menus.sync()
+        let overlay = try XCTUnwrap(source.subviews.compactMap { $0 as? InvokerButton }.first, "\(source.subviews)")
+        overlay.isHighlighted = true
+        XCTAssertTrue(source.pressed, "the overlay's highlight holds the look")
+        p.onPress = { id in
+            guard id == 2 else { return }
+            p.apply(wireBatch([["op": "props", "id": 2, "set": [String: String](), "clear": ["popovertarget"]]]))
+        }
+        let touch = Touch(source)
+        source.touchesBegan([touch], with: nil)
+        source.touchesEnded([touch], with: nil)
+        XCTAssertNil(source.subviews.first { $0 is InvokerButton }, "the press dropped the overlay")
+        XCTAssertFalse(source.hasPressContact)
+        XCTAssertFalse(source.pressed, "no holder is left")
+    }
+
+    /// A press crossing out of a popover keeps the path `PointerRecognizer`
+    /// took before it sent `pointerdown`: a node there that handler disables
+    /// and restores cancels the agent's press, as it does a finger's.
+    func testAPointerdownCancellingACrossingPressCancelsTheAgentsToo() throws {
+        let session = ExactApp.shared.makeSession(label: "custom-invoker")
+        let p = page(session: session), agent = Agent(session: session)
+        let root = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[5])
+        row.handlers = ["pointerdown"]
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { id, phase, _ in
+            guard id == row.id, phase == .down else { return }
+            p.apply(wireBatch([["op": "props", "id": root.id, "set": ["disabled": "true"]]]))
+            p.apply(wireBatch([["op": "props", "id": root.id, "clear": ["disabled"]]]))
+        }
+        p.menus.action("showPopover", ["choices"])
+        let reply = tap(agent, 5)
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertTrue(reply["pressed"] is NSNull, "\(reply)")
+        XCTAssertEqual(presses, [])
+    }
+
     func testPopoverBubblingInvokesWithAndWithoutAnInvokerHandler() throws {
         let session = ExactApp.shared.makeSession(label: "custom-invoker")
         let p = page(session: session), agent = Agent(session: session)

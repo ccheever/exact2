@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { requireReleasePins } from '../game/inputs.mjs';
 // `exact deploy` — the publisher (LLP 1030.000 D3 the verb, D4 the policies,
 // D5 one library in its own process, D7 where things live; LLP 1030 D3 the
 // classifier and D3a the compatibility id; LLP 1026 D11 the signed head).
@@ -65,7 +66,6 @@ const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
 const STREAM_PLATFORMS = ['ios', 'macos', 'linux'];
 const USAGE = 'usage: bun scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>] [--only bundle|origin] [--platform <web|ios|macos|linux>]... [--snapshot <sha>] [--dirty] [--release <id>] [--keys <dir>] [--json] [--yes]\n       bun scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]';
 // ------------------------------------------------------------------ arguments
-
 function parseArgs(argv) {
   const opts = { platform: [], _: [] };
   const valued = new Set(['--origin', '--channel', '--only', '--platform', '--snapshot', '--release', '--keys']);
@@ -89,9 +89,7 @@ function parseArgs(argv) {
   opts.keys = resolve(opts.keys ?? process.env.EXACT_SIGNING_KEY_DIR ?? resolve(homedir(), '.config/exact/keys'));
   return opts;
 }
-
 // -------------------------------------------------------------- the snapshot
-
 const snapshotCaptures = new WeakMap();
 const inside = (root, path) => {
   const rel = relative(root, path);
@@ -105,7 +103,6 @@ function canonicalPath(path) {
     return parent === absolute ? absolute : resolve(canonicalPath(parent), basename(absolute));
   }
 }
-
 /** Only actual build outputs are absent from a source snapshot. These are
  * explicit root paths, not recursive basename patterns: `assets/dist/a.png`
  * and `fixtures/target/input.rs` remain inputs when the app carries them. */
@@ -693,6 +690,7 @@ function buildFor(app, platform, sourceRoot, run) {
     if (sdk.status !== 0) refuse(`the ${apple} SDK is unavailable: ${sdk.stderr}`);
     env.SDKROOT = sdk.stdout.trim();
     env[apple === 'ios' ? 'IPHONEOS_DEPLOYMENT_TARGET' : 'MACOSX_DEPLOYMENT_TARGET'] = apple === 'ios' ? '17.0' : '14.0';
+    env.EXACT_APPLE_LINK = 'plan'; // a compatibility input: link as the production archive does (host/apple/link.mjs)
   }
   return buildBake(app, platform, target, {env, analysis:true});
 }
@@ -1306,6 +1304,7 @@ async function deployCaptured(opts, capsule) {
   if (capsule.app.external) process.env.EXACT_APP_DIR = canonicalPath(capsule.app.dir);
   else delete process.env.EXACT_APP_DIR;
   const app = resolveApp(opts._[0]);
+  requireReleasePins(app);
   if (canonicalPath(app.dir) !== canonicalPath(capsule.app.dir)
     || canonicalPath(app.workspace) !== canonicalPath(capsule.app.workspace)) {
     refuse('the captured app resolver does not select the app and workspace frozen by the launcher');
@@ -1417,6 +1416,7 @@ async function deployCaptured(opts, capsule) {
  * What is captured, and how it is frozen, is unchanged. */
 async function deploy(opts) {
   const locatedApp = resolveApp(opts._[0]);
+  requireReleasePins(locatedApp);
   const target = process.env.CARGO_TARGET_DIR ? canonicalPath(process.env.CARGO_TARGET_DIR) : null;
   if (!target || [locatedApp.dir, ROOT].some((dir) => inside(repoTop(dir), target))) return launch(locatedApp, opts);
   const cache = resolve(target, 'deploy');

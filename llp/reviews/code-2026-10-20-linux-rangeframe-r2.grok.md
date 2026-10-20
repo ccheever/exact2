@@ -1,0 +1,17 @@
+# Code review: the Linux rangeFrame reader (LLP 1114.007 D7), round 2 of 3, 2026-10-20 (grok)
+
+- **Family:** xAI. Grok 4.7 via the grok CLI, xhigh, `--max-turns 400 --no-plan --no-subagents --deny Edit --deny Write`, a throwaway worktree at `4c268d6669`.
+- **Method:** one brief (sha256 `70b48d232edfd5db25ae0cbd0a3405cfe0dda488b0e0f2edd969ceaa1e57a30d`), blind to the other reviewer; the commit as amended after the previous pass; 3 rounds (a host's geometry read, theme2's 17:27 ruling), then a narrow check of the last fix. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+- **Verdict:** approve (3 NIT).
+- **Disposition:** the wording and missing-box NITs taken ("Round 2").
+
+**Verdict: no BLOCKING findings.** Round 1’s fixes hold. `cargo test -p exact-linux --lib range_frame` passed 10/10, and `bun test host/web-js/conform.test.mjs` passed 8/8.
+
+Text boxes use each run’s ascent and descent at the baseline (`host/linux/src/text/field.rs:127-132`, `282-301`). A hard break, including CR LF (`field.rs:94-108`, same separators as `host/linux/src/text/shaping.rs:179-199`), is a zero-width box and is dropped unless it is the only box (`field.rs:309-318`, `host/linux/src/paint/field.rs:139-148`), so `ab\ncd` 0..3 is `ab`. A caret on a soft wrap is upstream (`field.rs:192-202`, `288-291`). Each fragment is transformed, then unioned (`paint/field.rs:138-147`). Inputs return none (`paint/field.rs:134-136`); Android installs no reader (`host/linux/src/presenter/range_frame.rs:70-74`). `shown`/`session` and the presentation swap keep a pending picture and a reloaded runner unread (`range_frame.rs:66-84`, `host/linux/src/presenter/display_frame.rs:185-242` and `252-272`, `host/linux/src/presenter.rs:1298` then `598-599`). A failed paint leaves `field_text` in place (`host/linux/src/paint.rs:906-910`). The fixture’s `sizes` slot is still compared on wasm and JS; Linux drops only that slot (`host/web-js/conform-linux.mjs:5-8`, `host/web-js/conform.mjs:428` and `:774`). QUEUE `1588-1589` matches the 18:18 caret check and the 17:27 inline-`frame` deferral.
+
+1. **NIT** — The Linux/Windows sentence still says line boxes. `docs/contract-grammar.md:1161` and `llp/1114.007-highlights-in-a-text-field.rfc.md:194` say the host reads “its glyphs’ boxes and line boxes”, while the rule just above (grammar `1154-1156`, D7 `183-186`) and `Geometry::range` use the font’s content area.
+
+2. **NIT** — A failed paint that also changes scale can publish the previous field with the perspective bit cleared. `host/linux/src/content_region/presenter.rs:197-200` drops boxes when the retained scale differs; `publish_ranges` (`range_frame.rs:87-91`) then treats a missing box as not projected, while `field_text` stays the last success. `display_frame` restores boxes before it returns (`display_frame.rs:236-242`). Headless and `window_frame`, which publish `frame()` directly, would answer a perspective field until the next successful paint. That needs a paint failure and a scale change together.
+
+3. **NIT** — Still open from round 1, and outside the taken list: a break box uses the logically last span’s end x (`field.rs:315-316`), the same x as the painted caret, and it is visible only when every box is empty (mixed bidi). The fixture’s `inside` check still has no bottom edge (`host/web-js/conformance/decorations.contract:30`), the 17:27 tradeoff.
