@@ -82,7 +82,7 @@
 
   /* An author's `:hover` look (LLP 1121 D8) sets this to `none` on its node: it replaces the wash. Each pressable
      starts unset, so a look's `none` reaches none inside it. */
-  :where(#exact-root :is(button, a[data-view][href], [data-exact-on~="press"])) { --exact-hover-wash: initial; }
+  :where(#exact-root :is(button, a[data-view][href], [data-exact-on~="press"])) { --exact-hover-wash: initial; --exact-hover-dim: initial; }
   /* The unsaid hover (LLP 1115.000 D6): a custom `button`, a link or a box with a `press` shows a wash where a
      pointer hovers, as an image, so it lies over a fill the author gave the box. Only the innermost pressable; not a
      native control, which has its own, nor a pressable covering the window, nor a link in running text or one that
@@ -225,6 +225,13 @@
   #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); }
   @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
   @media (pointer: coarse) { #exact-root [navigationkey] > header::part(back) { min-height: 44px; } }
+  /* A pressable nobody styled in a bar dims where a pointer hovers, as a bar button dims under a finger on iOS, in
+     place of the unsaid wash, which would fill a box the button does not show (around a chevron or a word). It dims
+     to the shell's press dim, at once as a press does, so a press shows nothing more. The rule weighs no more than
+     the shell's reset of a `button` (`button:where()`), which it follows, so an opacity the author wrote wins; an
+     author's hover look replaces the dim (looks.rs sets it to 1). */
+  :where(#exact-root [navigationkey] > header) :is(button, a[data-view][href], [data-exact-on~="press"]):not([data-button-style], [data-native]) { --exact-hover-wash: none; }
+  @media (hover: hover) { button:where(#exact-root [navigationkey] > header :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover))), :where(#exact-root [navigationkey] > header :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover))) { opacity: var(--exact-hover-dim, .65); } }
 
   /* LLP 1116.009 D4: a sheet's bar centres its title, as UIKit's does, whatever flanks it (a Cancel, a Save, both,
      neither); a page's title stays leading. The title's auto side margins share the bar's free space on either side of

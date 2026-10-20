@@ -5891,6 +5891,7 @@
     ["button-hover-filled", "number", 0.12],
     ["button-pressed-tinted", "number", 0.16],
     ["button-pressed-filled", "number", 0.22],
+    ["bar-hover-alpha", "number", 0.65],
     ["field-padding-block", "length", "0.4375em"],
     ["field-padding-block-coarse", "length", "0.6875em"],
     ["field-padding-inline", "length", "0.75em"],
