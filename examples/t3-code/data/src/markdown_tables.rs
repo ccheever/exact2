@@ -26,7 +26,7 @@ const CELL_CAP: f64 = 384.0;
 /// code span 12pt SF Mono in its 1pt-bordered 5.6pt-padded box, plus 24 padding.
 fn cell_width(runs: &[markdown_parse::Run], header: bool) -> f64 {
     let mut width = 0.0;
-    for run in runs {
+    for run in runs.iter().filter(|run| strike_mark(&run.text).is_none()) {
         if run.code {
             width += run.text.chars().count() as f64 * 7.22 + 13.2;
             continue;
@@ -61,6 +61,11 @@ fn cell_markdown(runs: &[markdown_parse::Run]) -> String {
                 Some(href) => format!("[{copy}]({href})"),
                 None => copy,
             });
+            continue;
+        }
+        // serializeElement writes `<del>` as `~~`.
+        if strike_mark(&run.text).is_some() {
+            out.push_str("~~");
             continue;
         }
         let skill_source = run.href.strip_prefix("t3-skill:");
@@ -101,7 +106,7 @@ fn cell_link(href: &str) -> Option<&str> {
 /// A cell's text content, as ToCsv reads it: an image has none.
 fn cell_plain(runs: &[markdown_parse::Run]) -> String {
     runs.iter()
-        .filter(|run| !run.href.starts_with(IMAGE_MARK))
+        .filter(|run| !run.href.starts_with(IMAGE_MARK) && strike_mark(&run.text).is_none())
         .map(|run| run.href.strip_prefix("t3-skill:").unwrap_or(&run.text))
         .collect::<String>()
         .split_whitespace()
