@@ -106,7 +106,9 @@ fn drawn_pose_primes_survive_dirty_feed_and_last_two_observer_ticks() {
                         assert!(s.assets().requests.contains(&"lod.model".into()));
                         s.asset(
                             "lod.model",
-                            Ok(&exact_game::bin::to_vec(&crate::test_model::posable_model())),
+                            Ok(&exact_game::asset::encode_model(
+                                &crate::test_model::posable_model(),
+                            )),
                         );
                     }
                     "teleport" => {

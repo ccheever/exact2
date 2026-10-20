@@ -1220,7 +1220,9 @@ fn offsets_move_socketed_props_with_their_owner_and_alone() {
             .unwrap();
         surface.asset(
             "fox.model",
-            Ok(&exact_game::bin::to_vec(&crate::test_model::skinned_model())),
+            Ok(&exact_game::asset::encode_model(
+                &crate::test_model::skinned_model(),
+            )),
         );
         surface.asset(
             "fox/0-srgb-straight.tex",

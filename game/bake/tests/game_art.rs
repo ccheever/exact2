@@ -156,7 +156,7 @@ fn a_double_sided_material_and_black_vertex_colours_bake_as_exported() {
     joined["meshes"][0]["primitives"][0]["attributes"]["COLOR_0"] = serde_json::json!(4);
     fs::write(game.join("art/joined.gltf"), joined.to_string()).unwrap();
     let art = exact_game_bake::art(&game).unwrap();
-    let model = |name: &str| exact_game::bin::from_slice::<asset::Model>(&art[name]).unwrap();
+    let model = |name: &str| asset::decode_model(&art[name]).unwrap();
     let (sided, joined) = (model("sided.model"), model("joined.model"));
     assert!(sided.materials[0].double_sided);
     assert!(
