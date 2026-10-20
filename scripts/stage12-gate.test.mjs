@@ -111,11 +111,14 @@ test('the restyle line expects the value, or its change from the base drive, in 
   expect(expected(is, 24, 12, 16, { w: 8, h: 16 })).toBe(24);
   expect(expected(twice, 24, 12, 80, { w: 8, h: 16 })).toBe(112);
   expect(expected(once, 20, 12, 32, { w: 8, h: 16 })).toBe(32);
+  // An instance reading another token stays where it was.
+  expect(expected({ same: true, axis: 'w' }, 24, 12, 8, null)).toBe(8);
   // Each case names what it sets and how it is removed.
   for (const c of RESTYLE) {
     expect(c.set).toMatch(/^\d+px$/);
     expect(['remove-token', 'unset-param']).toContain(c.unset.op);
     expect(c.reads.length).toBeGreaterThan(0);
+    for (const r of c.reads) expect(r.ids.length).toBeGreaterThan(0);
   }
   expect(new Set(RESTYLE.flatMap(c => c.reads.map(r => r.who)))).toEqual(new Set(['PostCard', 'ActionRow', 'AtCard', 'PostButton']));
 });
@@ -125,15 +128,21 @@ test('release identity: every source compared and identical in every run, but li
   const row = (source, status, run = 'a..b') => ({ run, commits: ['Stage 12 E: x'], source, status });
   const file = rows => { const f = join(dir, `${Math.random()}.json`); writeFileSync(f, JSON.stringify(rows)); return f; };
   const sources = ['apps/a/app.contract', 'apps/expose/app.contract'];
-  expect(releaseIdentity(null, sources).status).toBe('WAITS');
-  expect(releaseIdentity(file([]), sources).status).toBe('FAIL');
-  expect(releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed'), row('apps/library-gate/app.contract', 'build failed')]), sources).status).toBe('PASS');
-  const moved = releaseIdentity(file([row('apps/a/app.contract', 'DIFFERS'), row('apps/expose/app.contract', 'both failed')]), sources);
+  const id = (f, src = sources, runs = ['a..b']) => releaseIdentity(f, src, runs);
+  expect(id(null).status).toBe('WAITS');
+  expect(id(file([])).status).toBe('FAIL');
+  expect(id(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed'), row('apps/library-gate/app.contract', 'build failed')])).status).toBe('PASS');
+  const moved = id(file([row('apps/a/app.contract', 'DIFFERS'), row('apps/expose/app.contract', 'both failed')]));
   expect(moved.status).toBe('FAIL');
   expect(moved.evidence[1]).toContain('MOVED apps/a/app.contract');
   // Failing alike counts only for the named; a run that leaves a source out fails.
-  expect(releaseIdentity(file([row('apps/a/app.contract', 'both failed'), row('apps/expose/app.contract', 'both failed')]), sources).status).toBe('FAIL');
-  const short = releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed'), row('apps/a/app.contract', 'identical', 'c..d')]), sources);
+  expect(id(file([row('apps/a/app.contract', 'both failed'), row('apps/expose/app.contract', 'both failed')])).status).toBe('FAIL');
+  const short = id(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed'), row('apps/a/app.contract', 'identical', 'c..d')]));
   expect(short.status).toBe('FAIL');
-  expect(short.evidence.at(-1)).toContain('NOT COMPARED apps/expose/app.contract over c..d');
+  expect(short.evidence.join('\n')).toContain('NOT COMPARED apps/expose/app.contract over c..d');
+  expect(short.evidence.join('\n')).toContain('NOT A RUN OF STAGE 12 E c..d');
+  // A run the history has that the file leaves out fails; so does a row with no commits.
+  const ok = [row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed')];
+  expect(id(file(ok), sources, ['a..b', 'e..f']).evidence.join('\n')).toContain('RUN NOT COMPARED e..f');
+  expect(id(file([{ ...ok[0], commits: [] }, ok[1]])).status).toBe('FAIL');
 });

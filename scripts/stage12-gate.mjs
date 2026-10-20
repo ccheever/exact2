@@ -26,10 +26,12 @@ import { jsTargetBuild } from '../host/web/serve.mjs';
 import { placements } from './library-gate.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
-/** Every per-host line's required hosts (LLP 1139 §5). */
-export const HOSTS = ['web', 'web-js', 'ios', 'macos', 'linux', 'android', 'terminal'];
-/** The consumer's own targets among them: the pixel line's hosts. */
-export const CLONE_HOSTS = ['web', 'ios', 'macos', 'linux'];
+/** The consumer's own targets among the required hosts (LLP 1139 §5): the
+ * pixel line's. `web` is the clone's own web build (the JS target),
+ * `web-wasm` its wasm build, into a dist of its own. */
+export const CLONE_HOSTS = ['web', 'web-wasm', 'ios', 'macos', 'linux'];
+/** A side's wasm web dist, in its own target. */
+const cloneWasmDist = env => join(env.CARGO_TARGET_DIR ?? join(ROOT, 'target'), 'web-wasm-dist');
 export const SCHEMES = ['light', 'dark'];
 /** The agent clock's zero for every drive: the fixture's posts read "3h". */
 export const EPOCH = '2026-10-01T15:00:00Z';
@@ -128,10 +130,11 @@ function driveScreens(copy, host, dir, env) {
   for (const scheme of SCHEMES) {
     for (const [screen] of SCREENS) {
       const png = join(dir, `${host}-${scheme}-${screen}.png`);
-      const args = [join(copy, 'exact.mjs'), 'agent', host, '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
+      const wasm = host === 'web-wasm';
+      const args = [join(copy, 'exact.mjs'), 'agent', wasm ? 'web' : host, '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
-      const r = run(process.execPath, args, { cwd: copy, env });
+      const r = run(process.execPath, args, { cwd: copy, env: wasm ? { ...env, EXACT_WEB_DIST: cloneWasmDist(env) } : env });
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
@@ -157,7 +160,7 @@ function provenance(copy) {
   return {
     gate: git(ROOT, 'rev-parse', 'HEAD'), sdk, exact2: sdk ? git(sdk, 'rev-parse', 'HEAD') : null, sdkDirty: sdk ? git(sdk, 'status', '--porcelain', '--untracked-files=no') !== '' : null,
     copy: git(copy, 'rev-parse', 'HEAD'), copyDirty: git(copy, 'status', '--porcelain') !== '',
-    os: `darwin ${release()}`, macos: run('sw_vers', ['-productVersion']).out.trim(), xcode, simulator: device, statusBar: STATUS_BAR.join(' '), epoch: EPOCH, size: { web: SIZE, linux: SIZE, ios: 'the simulator\'s screen', macos: 'its own window' }, schemes: SCHEMES,
+    os: `darwin ${release()}`, macos: run('sw_vers', ['-productVersion']).out.trim(), xcode, simulator: device, statusBar: STATUS_BAR.join(' '), epoch: EPOCH, size: { web: SIZE, 'web-wasm': SIZE, linux: SIZE, ios: 'the simulator\'s screen', macos: 'its own window' }, schemes: SCHEMES,
     taken: new Date().toISOString(),
   };
 }
@@ -217,7 +220,7 @@ export function comparePixels(before, after) {
     const a = later.get(key(b));
     if (!b.ok || !a?.ok) return { shot: key(b), ok: false, said: !a ? 'no after shot' : `not shot: ${(b.ok ? a : b).said}` };
     const allow = [...b.allow ?? [], ...a.allow ?? []];
-    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host === 'web' ? WEB_NOISE : null);
+    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host.startsWith('web') ? WEB_NOISE : null);
     return { shot: key(b), ok: d.differ === 0, differ: d.differ, total: d.total, allow };
   });
 }
@@ -247,14 +250,23 @@ export function beforeDrift(before) {
  * the working tree, so a side must be its commit. */
 export const uncommitted = copy => run('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: copy }).out.split('\n').filter(Boolean);
 
-/** The library components a copy's app uses (its Tamber IR's `library`,
- * compiled by its own SDK), by identity. */
+/** The library components a copy's app renders: the identities
+ * (`<home>#<component>`) of its plan's view nodes from a package's file,
+ * by the build's source map (`contract build --map`), so an import its
+ * views never place counts for nothing. */
 function usesOf(copy, dir, env) {
   mkdirSync(dir, { recursive: true });
-  const ir = join(dir, 'tamber.json');
-  const r = run(process.execPath, [join(copy, 'exact.mjs'), 'contract', 'tamber', 'ir', '.', '-o', ir], { cwd: copy, env });
-  if (!r.ok || !existsSync(ir)) return null;
-  return (JSON.parse(readFileSync(ir, 'utf8')).library ?? []).map(c => c.identity);
+  const plan = join(dir, 'app.plan');
+  const r = run(process.execPath, [join(copy, 'exact.mjs'), 'contract', 'build', 'app.contract', '-o', plan, '--map'], { cwd: copy, env });
+  const mapFile = `${plan}.map.json`;
+  if (!r.ok || !existsSync(mapFile)) return null;
+  return renderedLibrary(JSON.parse(readFileSync(mapFile, 'utf8')));
+}
+
+/** A source map's view nodes from a package's file, as identities. */
+export function renderedLibrary(map) {
+  const home = new Map((map.sources ?? []).map(s => [s.file, s.home]));
+  return [...new Set((map.nodes ?? []).map(n => `${home.get(n.file) ?? ''}#${n.component}`).filter(id => id.startsWith('@')))];
 }
 
 /** What the adoption must use: the four components from the two packages. */
@@ -265,10 +277,12 @@ export const ADOPTED = ['@exact/cards/post-card.contract#PostCard', '@exact/card
  * after its own build. */
 function buildSide(copy, side) {
   const env = { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', `stage12-gate-${side}`), CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? '4' };
-  for (const verb of [['web-build'], ['linux'], ['mac'], ['ios', ...(process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : [])]]) {
-    const r = run(process.execPath, [join(copy, 'exact.mjs'), ...verb], { cwd: copy, env });
-    if (!r.ok) return `${side}: ${verb[0]} failed: ${r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300)}`;
+  for (const verb of [['web-build'], ['web-build', '--wasm'], ['linux'], ['mac'], ['ios', ...(process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : [])]]) {
+    const wasm = verb[1] === '--wasm';
+    const r = run(process.execPath, [join(copy, 'exact.mjs'), ...verb], { cwd: copy, env: wasm ? { ...env, EXACT_WEB_DIST: cloneWasmDist(env) } : env });
+    if (!r.ok) return `${side}: ${verb.join(' ')} failed: ${r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300)}`;
   }
+  if (jsTargetBuild(cloneWasmDist(env))) return `${side}: ${cloneWasmDist(env)} is not a wasm build`;
   return null;
 }
 
@@ -282,10 +296,10 @@ export function consumerPixels(opts) {
     const dirty = uncommitted(copy);
     if (dirty.length) return fail(`${side} has changes not committed: ${dirty.join(', ').slice(0, 300)}`);
   }
-  // The adoption is the packages': after uses all four library
-  // components, before none.
-  const uses = Object.fromEntries([['before', opts.before], ['after', opts.copy]].map(([side, copy]) => [side, usesOf(copy, join(ROOT, 'target', 'stage12-gate', `${side}-ir`), { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', `stage12-gate-${side}`) })]));
-  if (!uses.before || !uses.after) return fail(`a copy's design did not read (contract tamber ir): ${['before', 'after'].filter(s => !uses[s]).join(', ')}`);
+  // The adoption is the packages': after's views place all four library
+  // components, before's none.
+  const uses = Object.fromEntries([['before', opts.before], ['after', opts.copy]].map(([side, copy]) => [side, usesOf(copy, join(ROOT, 'target', 'stage12-gate', `${side}-map`), { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', `stage12-gate-${side}`) })]));
+  if (!uses.before || !uses.after) return fail(`a copy's app did not build with its source map: ${['before', 'after'].filter(s => !uses[s]).join(', ')}`);
   const missing = ADOPTED.filter(id => !uses.after.includes(id));
   if (missing.length) return fail(`--copy does not use ${missing.join(', ')}: not the adoption`);
   if (uses.before.length) return fail(`--before already uses library components (${uses.before.join(', ')}): not the baseline`);
@@ -468,33 +482,42 @@ export function slotRendered(opts) {
 
 /** The restyle line's cases (LLP 1139 §5, "One app value restyles the
  * library"): a base name, a package token and a param, each set in
- * apps/library-gate's design and then removed. Each `reads` is a length
- * measured on the layout (`at`, in points) and what it is: `is` the value
- * itself, or `twice` / `once` its change from the base drive (a box that
- * grows on both sides, or moves). `axis` says which way a terminal cell
- * rounds it (none for a size). */
+ * apps/library-gate's design and then removed. Each read is a length
+ * measured on the layout (`at`, in points) on every instance in `ids` (its
+ * id in library-gate) and what it is: `is` the value itself, `twice` /
+ * `once` its change from the base drive (a box that grows on both sides,
+ * or moves), or `same` (an instance that reads another token, which must
+ * not move). `axis` says which way a terminal cell rounds it (none for a
+ * size). */
+const POST_CARDS = ['pc-base', 'pc-inthread', 'pc-lineabove', 'pc-linebelow', 'sample-pc-pinned', 'sample-pc-reposted'];
+const ACTION_ROWS = ['ar-base', 'ar-big', 'ar-haptics', 'ar-reposted', 'ar-liked', 'sample-ar-replydisabled', 'sample-ar-saved'];
+const POST_BUTTONS = ['pb-base', 'sample-pb-reply', 'sample-pb-disabled'];
 export const RESTYLE = [
   {
     name: 'space.md', what: 'a base name', set: '24px', unset: { op: 'remove-token', name: 'space.md' },
     reads: [
-      { who: 'PostCard', what: 'its end padding (cards.pad-end)', is: true, axis: 'w', at: L => right(L, 'post-pc-base') - right(L, 'postcard-content-pc-base') },
+      // cards.pad-end, and in a thread cards.pad-end-thread: both space.md.
+      { who: 'PostCard', what: 'its end padding (cards.pad-end, -thread)', ids: POST_CARDS, is: true, axis: 'w', at: (L, id) => right(L, `post-${id}`) - right(L, `postcard-content-${id}`) },
       // Between its counted buttons' row and save's: three equal columns
       // (flex 1 each), so the first row ends a column past like's.
-      { who: 'ActionRow', what: 'its gap (param gap, actions.row-gap)', is: true, axis: 'w', at: L => box(L, 'bookmark-ar-base').x - (2 * box(L, 'like-ar-base').x - box(L, 'repost-ar-base').x) },
-      { who: 'AtCard', what: 'its padding (cards.link-pad), the visit button\'s move', once: true, axis: 'w', at: L => box(L, 'atcard-visit-at-base').x - box(L, 'atcard-at-base').x },
-      { who: 'PostButton', what: 'its side padding (actions.post-pad), its width', twice: true, axis: 'w', at: L => box(L, 'compose-post-pb-base').w },
+      { who: 'ActionRow', what: 'its gap (param gap, actions.row-gap)', ids: ACTION_ROWS, is: true, axis: 'w', at: (L, id) => box(L, `bookmark-${id}`).x - (2 * box(L, `like-${id}`).x - box(L, `repost-${id}`).x) },
+      { who: 'AtCard', what: 'its padding (cards.link-pad), the visit button\'s move', ids: ['at-base'], once: true, axis: 'w', at: (L, id) => box(L, `atcard-visit-${id}`).x - box(L, `atcard-${id}`).x },
+      { who: 'PostButton', what: 'its side padding (actions.post-pad), its width', ids: POST_BUTTONS, twice: true, axis: 'w', at: (L, id) => box(L, `compose-post-${id}`).w },
     ],
   },
   {
     name: 'cards.pad-start', what: 'a package token', set: '20px', unset: { op: 'remove-token', name: 'cards.pad-start' },
-    reads: [{ who: 'PostCard', what: 'its start padding', is: true, axis: 'w', at: L => box(L, 'postcard-avatar-pc-base').x - box(L, 'post-pc-base').x }],
+    reads: [
+      { who: 'PostCard', what: 'its start padding', ids: POST_CARDS.filter(id => id !== 'pc-inthread'), is: true, axis: 'w', at: (L, id) => box(L, `postcard-avatar-${id}`).x - box(L, `post-${id}`).x },
+      { who: 'PostCard', what: 'its start padding in a thread (cards.pad-start-thread, not this token)', ids: ['pc-inthread'], same: true, axis: 'w', at: (L, id) => box(L, `postcard-avatar-${id}`).x - box(L, `post-${id}`).x },
+    ],
   },
   {
     // A library component's param by its full name (LLP 1139 D8).
     name: '@exact/actions/post-button.contract#PostButton.height', param: true, what: 'a param', set: '40px', unset: { op: 'unset-param', name: '@exact/actions/post-button.contract#PostButton.height' },
     // A size, not a space: the terminal keeps it in points (only spaces
     // are whole cells, LLP 1121 stage 11 (c)).
-    reads: [{ who: 'PostButton', what: 'its height', is: true, axis: null, at: L => box(L, 'compose-post-pb-base').h }],
+    reads: [{ who: 'PostButton', what: 'its height', ids: POST_BUTTONS, is: true, axis: null, at: (L, id) => box(L, `compose-post-${id}`).h }],
   },
 ];
 
@@ -606,6 +629,7 @@ export async function restyleWrites(dir) {
 export function expected(read, v, v0, base, cell) {
   const k = cell && read.axis ? (read.axis === 'h' ? cell.h : cell.w) : 0;
   const q = x => (k ? cellsOf(x, k) * k : x);
+  if (read.same) return base;
   if (read.is) return q(v);
   return base + (read.twice ? 2 : 1) * (q(v) - q(v0));
 }
@@ -653,10 +677,10 @@ export async function restyle(opts) {
       // The web's two targets read one column (the neutral look).
       const v0 = lengthOf(c.param ? paramOf(c)?.default : c.name, host.startsWith('web-') ? 'web' : host, cell);
       const v1 = Number(/^(\d+(?:\.\d+)?)px$/.exec(c.set)[1]);
-      for (const read of c.reads) {
-        const row = { host, case: c.name, who: read.who, what: read.what, ok: true, why: [] };
+      for (const read of c.reads) for (const id of read.ids) {
+        const row = { host, case: c.name, who: read.who, what: read.what, id, ok: true, why: [] };
         try {
-          const b = read.at(L.base), s = read.at(L[`${c.name} set`]), r = read.at(L[`${c.name} removed`]);
+          const b = read.at(L.base, id), s = read.at(L[`${c.name} set`], id), r = read.at(L[`${c.name} removed`], id);
           const want0 = read.is ? expected(read, v0, v0, b, cell) : b, want1 = expected(read, v1, v0, b, cell);
           Object.assign(row, { before: b, set: s, removed: r, want: [want0, want1] });
           if (v0 === undefined) row.why.push(`no value of ${c.name} for ${host}`);
@@ -677,7 +701,12 @@ export async function restyle(opts) {
   const n = x => (Number.isFinite(x) ? Math.round(x * 100) / 100 : x);
   const evidence = [
     ...writes.map(w => `${w.name} (${RESTYLE.find(c => c.name === w.name).what}): propose ${w.classes.set}, written ${w.classes.written}, its removal proposed ${w.classes.removal}, undone ${w.classes.undo}; the design's bytes ${w.restored ? 'restored' : 'NOT restored'}`),
-    ...rows.filter(r => r.case).map(r => `${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.case}: ${r.who} ${r.what}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)} (expected ${n(r.want?.[0])}, ${n(r.want?.[1])})${r.why ? `: ${r.why}` : ''}`),
+    // One line per host, case and read: its instances, and each that failed.
+    ...[...new Set(rows.filter(r => r.case).map(r => `${r.host}\u0000${r.case}\u0000${r.what}`))].flatMap(key => {
+      const group = rows.filter(r => `${r.host}\u0000${r.case}\u0000${r.what}` === key), [first] = group, failed = group.filter(r => !r.ok);
+      return [`${failed.length ? 'FAIL' : 'ok  '} ${first.host} ${first.case}: ${first.who} ${first.what}: ${group.length - failed.length} of ${group.length} instances; ${first.id}: before ${n(first.before)}, set ${n(first.set)}, removed ${n(first.removed)} (expected ${n(first.want?.[0])}, ${n(first.want?.[1])})`,
+        ...failed.map(r => `      ${r.id}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)} (expected ${n(r.want?.[0])}, ${n(r.want?.[1])}): ${r.why}`)];
+    }),
     ...rows.filter(r => !r.case).map(r => `FAIL ${r.host}: ${r.why}`),
     ...missing.map(h => `  ${h}: a required host not run`),
     ...skipped,
@@ -695,19 +724,44 @@ export const FAIL_ALIKE = ['apps/expose/app.contract'];
  * every run compares every app now in apps/ and the corpus, each built at
  * both ends and byte-identical, but apps/library-gate's own (the gate app
  * those commits make and change) and FAIL_ALIKE's. */
-export function releaseIdentity(file, sources = releaseSources()) {
+export function releaseIdentity(file, sources = releaseSources(), expectedRuns = releaseRuns()) {
   if (!file || !existsSync(file)) return { status: 'WAITS', on: 'the release identity run (--release <its JSON>)', evidence: [] };
   const rows = JSON.parse(readFileSync(file, 'utf8'));
   if (!Array.isArray(rows) || !rows.length) return { status: 'FAIL', evidence: ['release identity: no comparisons'] };
+  const malformed = rows.filter(r => typeof r?.run !== 'string' || typeof r?.source !== 'string' || typeof r?.status !== 'string' || !Array.isArray(r?.commits) || !r.commits.length);
+  if (malformed.length) return { status: 'FAIL', evidence: [`release identity: ${malformed.length} rows lack a run, source, status or commits`] };
   const own = r => r.source === 'apps/library-gate/app.contract';
   const alike = r => r.status === 'both failed' && FAIL_ALIKE.includes(r.source);
   const count = st => rows.filter(r => r.status === st).length;
   const unnamed = rows.filter(r => r.status !== 'identical' && !own(r) && !alike(r));
   const runs = [...new Set(rows.map(r => r.run))];
+  // Every run of stage 12 E commits on this checkout's history, found here
+  // as the script finds them, and no other.
+  const absent = expectedRuns.filter(run => !runs.includes(run)).map(run => `  RUN NOT COMPARED ${run}`);
+  const extra = runs.filter(run => !expectedRuns.includes(run)).map(run => `  NOT A RUN OF STAGE 12 E ${run}`);
   const short = runs.flatMap(run => sources.filter(src => !rows.some(r => r.run === run && r.source === src)).map(src => `  NOT COMPARED ${src} over ${run}`));
   const evidence = [`release identity: ${rows.length} comparisons over ${runs.length} runs of stage 12 E commits; ${count('identical')} identical, ${rows.filter(own).length} apps/library-gate's own, ${rows.filter(alike).length} failing alike (${FAIL_ALIKE.join(', ')})`,
-    ...unnamed.map(r => `  ${r.status === 'DIFFERS' ? 'MOVED' : r.status === 'both failed' ? 'FAILED AT BOTH ENDS' : 'BUILD FAILED'} ${r.source} over ${r.run} (${r.commits?.[0]})`), ...short];
-  return { status: unnamed.length || short.length ? 'FAIL' : 'PASS', evidence };
+    ...unnamed.map(r => `  ${r.status === 'DIFFERS' ? 'MOVED' : r.status === 'both failed' ? 'FAILED AT BOTH ENDS' : 'BUILD FAILED'} ${r.source} over ${r.run} (${r.commits[0]})`), ...short, ...absent, ...extra];
+  return { status: unnamed.length || short.length || absent.length || extra.length ? 'FAIL' : 'PASS', evidence };
+}
+
+/** The runs of consecutive stage 12 E commits from LLP 1139's acceptance
+ * to HEAD, in topological order (~/x2ios/rel12/release-groups.py's
+ * matching), each `<parent>..<last>` by ten-character hashes. */
+export const STAGE12E = /^Stage 12 E|^LLP 1139 stage 12 E|^stage12-gate/;
+export function releaseRuns(from = '92f1cae184') {
+  const log = run('git', ['log', '--topo-order', '--reverse', '--format=%H %s', `${from}^..HEAD`]).out.trim().split('\n').filter(Boolean);
+  const runs = [];
+  let cur = null;
+  for (const line of log) {
+    const [h, ...subject] = line.split(' ');
+    if (STAGE12E.test(subject.join(' '))) {
+      cur ??= { base: run('git', ['rev-parse', `${h}^`]).out.trim() };
+      cur.end = h;
+    } else if (cur) { runs.push(cur); cur = null; }
+  }
+  if (cur) runs.push(cur);
+  return runs.map(r => `${r.base.slice(0, 10)}..${r.end.slice(0, 10)}`);
 }
 
 /** What release identity must compare: every app now in apps/ (library-gate
@@ -745,10 +799,12 @@ export function lines(opts) {
     ['restyle', 'Setting space.md, cards.pad-start or a param moves every library component reading it; removing the line returns it (per host, measured on apps/library-gate; live or rebuild from the design server)', () => restyle(opts)],
     ['anatomy', 'C\'s compiler tests: every anatomy, slot, library-literal, library-platform and library-control refusal with its span', () => {
       // C's own suites (reload1's stage 12 C), run by name.
-      const r = run('cargo', ['test', '-q', '-p', 'contract', '--test', 'it', '--', 'anatomy::', 'anatomy_slot::', 'library_rules::']);
+      // And a library package's params held in range in every scale column,
+      // the terminal's included (tamber_base_expression's column ranges).
+      const r = run('cargo', ['test', '-q', '-p', 'contract', '--test', 'it', '--', 'anatomy::', 'anatomy_slot::', 'library_rules::', 'library_packages::', 'tamber_base_expression::']);
       const counts = [...r.out.matchAll(/test result: (\w+)\. (\d+) passed; (\d+) failed/g)];
       const passed = counts.reduce((n, m) => n + Number(m[2]), 0), failed = counts.reduce((n, m) => n + Number(m[3]), 0);
-      const said = `contract tests anatomy::, anatomy_slot::, library_rules::: ${passed} passed, ${failed} failed`;
+      const said = `contract tests anatomy::, anatomy_slot::, library_rules::, library_packages::, tamber_base_expression::: ${passed} passed, ${failed} failed`;
       return r.ok && passed > 0 && failed === 0 ? pass(said) : fail(said, r.out.trim().split('\n').slice(-4).join(' / ').slice(0, 400));
     }],
     ['slot-rendered', 'Every variant cell of apps/library-gate renders its slot\'s marker, both glyphs, on every required host', () => slotRendered(opts)],
