@@ -99,9 +99,10 @@ export function applySticky(client: T3Client): void {
 
 // ── Next-turn staging in started threads ───────────────────────────────────
 
-/** A started thread stages its next-turn choices while a turn runs, or once a staged choice exists. */
+/** A server thread keeps its mode and model picks in the draft until the next send (persistThreadSettingsForNextTurn):
+ *  no request goes at the pick, and the send's own commands carry them. */
 export function stagesChanges(client: T3Client): boolean {
-  return !!client.threadId && (!!activeRun(client.projection) || !!prefs(client).staged[client.draftKey]);
+  return !!client.threadId;
 }
 export function stage(client: T3Client, change: Partial<StagedSelection>): void {
   const state = prefs(client);

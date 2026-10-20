@@ -419,9 +419,9 @@ export class T3Client {
     else { this.thread = null; this.threadLive = true; this.chooseDefaults(); }
     if (generation === this.generation) {
       this.synchronizedGeneration = generation;
-      this.error = !this.scopes.includes('orchestration:operate') ? 'This connection is read-only.'
-        : obj(environment.capabilities).serverResolvedCommandContext !== true
-          ? 'Update the T3 server to send messages from this client. Existing threads remain readable.' : '';
+      // A read-only connection says so on Send ("This connection cannot change threads."), not in a banner.
+      this.error = this.scopes.includes('orchestration:operate') && obj(environment.capabilities).serverResolvedCommandContext !== true
+        ? 'Update the T3 server to send messages from this client. Existing threads remain readable.' : '';
     }
     this.changed();
   }
