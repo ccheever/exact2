@@ -116,11 +116,26 @@ extension NavigationHost {
     }
 
     /// The navigation controller a hatch asks for (`ExactTab.controller`):
-    /// a held tab's is built now.
+    /// a held tab's is made now. While a transition runs it is only made and
+    /// handed back; it takes the route and the tab's place once the
+    /// transition is over (`syncTabs`), as a held tab that pushes does.
     func navigation(forHatch controller: UIViewController) -> UINavigationController? {
         if let nav = controller as? UINavigationController ?? (controller as? HeldStack)?.built { return nav }
-        guard let panel = heldTabs.first(where: { $0.value === controller })?.key else { return nil }
-        return realize(panel, why: "a hatch asked for it")
+        guard let (panel, held) = heldTabs.first(where: { $0.value === controller }) else { return nil }
+        guard realizeWaits else { return realize(panel, why: "a hatch asked for it") }
+        syncAfterTransition()
+        return made(for: held)
+    }
+
+    /// A held tab's navigation controller, made once: recorded on the held
+    /// stack before the `navigation` hatch runs, which may ask for it again.
+    private func made(for held: HeldStack) -> UINavigationController {
+        if let nav = held.built { return nav }
+        let nav = makeNavigation(first: held.route?.node) { held.built = $0 }
+        watchPops(nav)
+        // The item, with whatever a hatch set on it, is the tab's still.
+        nav.tabBarItem = held.tabBarItem
+        return nav
     }
 
     /// A transition whose controllers a tab's replacement would cut into: a
@@ -132,22 +147,28 @@ extension NavigationHost {
     }
 
     /// A held tab that waited (`realizeWaits`) is built by a sync once the
-    /// transition is over, whatever batch comes or does not.
+    /// transition is over, whatever batch comes or does not: at the running
+    /// coordinator's completion (at once if it has finished), or after a
+    /// short wait where there is none or it never completes, whichever is
+    /// first. A sync that finds a transition still running (a cancelled
+    /// interactive dismissal, the next one) arms it again (`syncTabs`).
     func syncAfterTransition() {
         guard !syncAfterTransitionArmed else { return }
         syncAfterTransitionArmed = true
+        var done = false
         let resync = { [weak self] in
+            guard !done else { return }
+            done = true
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.syncAfterTransitionArmed else { return }
                 self.syncAfterTransitionArmed = false
                 self.sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
             }
         }
         let coordinator = tabController?.transitionCoordinator
             ?? (Array(tabNavigations.values) + presentedNavigations).lazy.compactMap(\.transitionCoordinator).first
-        if let coordinator { coordinator.animate(alongsideTransition: nil) { _ in resync() } }
-        // A sheet's presentation between coordinators: look again shortly.
-        else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { resync() } }
+        if coordinator?.animate(alongsideTransition: nil, completion: { _ in resync() }) == false { resync() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { resync() }
     }
 
     /// Build a held tab's navigation controller, holding the route the tab
@@ -161,18 +182,12 @@ extension NavigationHost {
     @discardableResult
     func realize(_ panel: UInt32, why: String) -> UINavigationController? {
         if let nav = tabNavigations[panel] { return nav }
-        guard let held = heldTabs.removeValue(forKey: panel) else { return nil }
+        guard let held = heldTabs[panel] else { return nil }
+        let nav = made(for: held)
+        heldTabs[panel] = nil
+        tabNavigations[panel] = nav
         let route = held.release()
         let index = tabPanels.firstIndex(of: panel) ?? -1
-        // Where Exact keeps it before the `navigation` hatch runs: a hook
-        // that reads the tab's controller again gets this one.
-        let nav = makeNavigation(first: route?.node) { [self] nav in
-            held.built = nav
-            tabNavigations[panel] = nav
-        }
-        watchPops(nav)
-        // The item, with whatever a hatch set on it, is the tab's still.
-        nav.tabBarItem = held.tabBarItem
         // A scroller at its start stays there under a large title (`restAtTop`).
         let scroller = route.flatMap { contentScroller(of: $0) }.flatMap(shownScroll)
         let atStart = scroller.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
@@ -193,6 +208,8 @@ extension NavigationHost {
             route.mount()
             kept.restore(in: route)
             nav.view.layoutIfNeeded()
+            // The remote's item, asked for in `restore`, through that layout.
+            if route.focusReturn != nil { route.updateFocusIfNeeded(); route.focusReturn = nil }
             #if !os(tvOS)
             if atStart, let sv = contentScroller(of: route).flatMap(shownScroll) { restAtTop(sv, in: route) }
             #endif
@@ -235,19 +252,35 @@ struct KeptFocus {
         node.frame = at
     }
 
-    /// The node is in its route again: the focus it held is its own again.
+    /// The node is in its route again: the focus it held is its own again,
+    /// where what held it is still in the route and shown (`exposed`); else
+    /// UIKit chooses (VoiceOver told the screen changed, with no element).
+    /// The remote's item is asked for here and taken in the layout after.
     func restore(in route: RouteController) {
         node.frame = frame
-        if let responder, !responder.isFirstResponder, (responder as? UIView)?.window != nil { _ = responder.becomeFirstResponder() }
-        if let voiceOver, (voiceOver as? UIView ?? (voiceOver as? UIAccessibilityElement)?.accessibilityContainer as? UIView)?.window != nil {
-            Self.announce(voiceOver)
+        if let view = responder as? UIView, !view.isFirstResponder, Self.exposed(view, in: route), view.canBecomeFirstResponder { _ = view.becomeFirstResponder() }
+        if let voiceOver {
+            let view = voiceOver as? UIView ?? (voiceOver as? UIAccessibilityElement)?.accessibilityContainer as? UIView
+            Self.announce(view.map { Self.exposed($0, in: route) } == true ? voiceOver : nil)
         }
-        if let remote, let window = remote.window, UIFocusSystem.focusSystem(for: window)?.focusedItem !== remote {
+        if let remote, let window = remote.window, UIFocusSystem.focusSystem(for: window)?.focusedItem !== remote,
+           Self.exposed(remote, in: route), remote.canBecomeFocused {
             route.focusReturn = remote
             route.setNeedsFocusUpdate()
-            route.updateFocusIfNeeded()
-            route.focusReturn = nil
         }
+    }
+
+    /// Whether `view` is in the route's view and shown: neither it nor an
+    /// ancestor up to the route's view is hidden, transparent or hidden
+    /// from accessibility.
+    static func exposed(_ view: UIView, in route: RouteController) -> Bool {
+        guard route.isViewLoaded, view.isDescendant(of: route.view) else { return false }
+        var at: UIView? = view
+        while let v = at, v !== route.view {
+            if v.isHidden || v.alpha < 0.01 || v.accessibilityElementsHidden { return false }
+            at = v.superview
+        }
+        return true
     }
 }
 #endif

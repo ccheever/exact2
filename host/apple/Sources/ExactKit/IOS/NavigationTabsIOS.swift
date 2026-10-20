@@ -205,12 +205,13 @@ extension NavigationHost {
             }
         }
         guard tabs.panels.allSatisfy({ tabStack($0.id) != nil }) else { return }
-        // A held tab that now pushes or shows a bar gets its navigation
-        // controller, its route moved in first: the selected tab's push
-        // animates from it in `sync` (HeldStackIOS). Not while a transition
-        // runs, whose controllers it would replace: it waits for its end.
+        // A held tab that now pushes or shows a bar, or whose controller a
+        // hatch was handed, gets its navigation controller, its route moved
+        // in first: the selected tab's push animates from it in `sync`
+        // (HeldStackIOS). Not while a transition runs, whose controllers it
+        // would replace: it waits for its end.
         let waits = realizeWaits
-        for (index, panel) in tabs.panels.enumerated() where heldTabs[panel.id] != nil && needsNavigation(base(p.wanted[index])) {
+        for (index, panel) in tabs.panels.enumerated() where heldTabs[panel.id].map({ $0.built != nil || needsNavigation(base(p.wanted[index])) }) == true {
             if waits { syncAfterTransition() } else { realize(panel.id, why: "it pushes or shows a bar") }
         }
         let navs = tabs.panels.compactMap { tabStack($0.id) }

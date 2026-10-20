@@ -284,5 +284,41 @@ final class HeldStackIOSTests: XCTestCase {
         XCTAssertEqual(announced.count, 1)
         XCTAssertTrue(announced.first as AnyObject? === field, "VoiceOver is told its element again")
     }
+    /// The sync armed for a transition's end comes whatever the transition
+    /// does: with none running it comes after a short wait, and a reset
+    /// disarms it.
+    func testTheSyncArmedForATransitionsEndAlwaysComes() throws {
+        let session = try fixture("held-armed")
+        let navigation = session.presenter.navigation
+        XCTAssertFalse(navigation.realizeWaits)
+        navigation.syncAfterTransition()
+        XCTAssertTrue(navigation.syncAfterTransitionArmed)
+        until("the armed sync ran") { !navigation.syncAfterTransitionArmed }
+        navigation.syncAfterTransition()
+        navigation.reset()
+        XCTAssertFalse(navigation.syncAfterTransitionArmed, "a reset disarms it")
+    }
+
+    /// A hatch reading a held tab's controller while a sheet presents gets
+    /// it at once; the route moves into it and it takes the tab's place
+    /// only once the presentation is over.
+    func testAHatchReadDuringASheetsPresentationWaitsForItsEnd() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "a sheet presents only from a scene's window") }
+        let session = try fixture("held-hatch-waits")
+        let navigation = session.presenter.navigation
+        let (tabs, held, root) = try held(session)
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        try press(session, "open-sheet")
+        until("the sheet is presenting") { navigation.realizeWaits }
+        let nav = try XCTUnwrap(navigation.navigation(forHatch: held))
+        XCTAssertTrue(navigation.navigation(forHatch: held) === nav, "the same one, asked again")
+        XCTAssertTrue(tabs.viewControllers?.first === held, "the tab keeps its place during the presentation")
+        XCTAssertTrue(held.route === root)
+        XCTAssertTrue(nav.viewControllers.isEmpty)
+        until("the sheet is up") { !navigation.realizeWaits }
+        until("then the controller holds the route in the tab's place") { tabs.viewControllers?.first === nav && nav.viewControllers == [root] }
+        XCTAssertEqual(navigation.presentedNavigations.count, 1, "the sheet stays up")
+    }
 }
 #endif
