@@ -180,17 +180,10 @@ final class SegmentHost {
                 if case .title(let title) = face { return title != tab.accessibleName }
                 return false
             }
-            // A radio with its own background, border or radius keeps its
-            // group as written (`paintsOwnButton`).
-            let radios = owner.props["accessibilityRole"] == "radiogroup"
-            let painted = radios ? tabs.first(where: \.paintsOwnButton) : nil
-            if tabs.count <= 1 || unshown != nil || painted != nil {
+            if tabs.count <= 1 || unshown != nil {
                 restore(owner: owner.id)
-                let member = radios ? "radio" : "tab"
-                let why = painted.map { "radio #\($0.id) paints its own background, border or radius" }
-                    ?? unshown.map { "\(member) #\($0.id) is not one image or its label alone, which a segment cannot show" }
-                    ?? "fewer than two pressable \(member)s"
-                decide(owner, "kept as authored: \(why)")
+                let member = owner.props["accessibilityRole"] == "radiogroup" ? "radio" : "tab"
+                decide(owner, unshown.map { "kept as authored: \(member) #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable \(member)s")
                 continue
             }
             decide(owner, "projected to NSSegmentedControl (\(tabs.count) segments)")

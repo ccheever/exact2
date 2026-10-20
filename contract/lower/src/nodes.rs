@@ -78,6 +78,8 @@ impl Lowerer<'_> {
             *span,
         )?;
         let native_button = button.as_ref().is_some_and(|b| b.native);
+        let painted_group =
+            self.painted_radio_group(attrs, expanded.as_deref().unwrap_or(&[]), children, *span)?;
         // A `button` part as the platform draws it (LLP 1139 D6).
         if let Some(b) = button.as_ref() {
             self.button_part(*span, b.native, b.bare_reason.as_deref());
@@ -104,13 +106,10 @@ impl Lowerer<'_> {
             None => attrs.as_slice(),
         };
         let inked = tags::symbol_ink(tag, positional, &expanded[sheet.len()..]);
-        let expanded = match inked {
-            Some(row) => {
-                let mut rows = expanded.to_vec();
-                rows.push(row);
-                std::borrow::Cow::Owned(rows)
-            }
-            None => std::borrow::Cow::Borrowed(expanded),
+        let added: Vec<Attr> = inked.into_iter().chain(painted_group).collect();
+        let expanded = match added.is_empty() {
+            false => std::borrow::Cow::Owned([expanded, &added].concat()),
+            true => std::borrow::Cow::Borrowed(expanded),
         };
         let expanded = &*expanded;
         decorations::check_field(tag, expanded)?;

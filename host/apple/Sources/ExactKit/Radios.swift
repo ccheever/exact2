@@ -42,18 +42,6 @@ extension NodeView {
         return members.first { presenter?.views[$0]?.formDisabled == false } == id
     }
 
-    /// Whether this bare button's author painted it: wrote a row CSS UI 4
-    /// §7.2.1 says disables a widget's native appearance (a background, a
-    /// border, a radius; LLP 1104 D2). A radio group with such a radio is the
-    /// author's drawn control, not the platform's segmented one (LLP 1115:
-    /// what the author writes wins).
-    var paintsOwnButton: Bool {
-        !isNativeButton && Self.disablingRows.contains(where: wrote)
-    }
-    private static let disablingRows = ["background_color", "background_image"]
-        + ["top", "right", "bottom", "left"].flatMap { ["border_width_\($0)", "border_style_\($0)", "border_color_\($0)"] }
-        + ["top_left", "top_right", "bottom_right", "bottom_left"].map { "border_radius_\($0)" }
-
     /// The `radiogroup` an authored ARIA radio belongs to: a pressable
     /// `button role="radio"` whose parent element is a radio group the host
     /// draws as written, with no segmented control standing in for it (its

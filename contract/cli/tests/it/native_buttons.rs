@@ -832,3 +832,49 @@ fn bare_reasons_live_only_in_the_development_map_and_migration_uses_merged_rows(
     let (_, map) = contract::compile_path_source_mapped(&path, &source).unwrap();
     assert_eq!(map.button_migrations().len(), 1);
 }
+
+/// LLP 1115 and 1104 D2 for a radio group: a radio that writes a
+/// background, border or radius on any arm (a one-sided class included)
+/// makes its group `appearance: none`, written, decided once in the plan,
+/// so no host projects it to the platform's segmented control and back as
+/// the selection moves. Unpainted radios, and a group that says its own
+/// `appearance`, are left to the platform.
+#[test]
+fn a_radio_group_whose_radios_paint_is_the_authors_once() {
+    let group = |radio: &str, own: &str| {
+        let src = format!(
+            "style Chosen\n  background-color=\"-exact-system-blue\"\nstyle Plain\n  padding=4\n{}",
+            app(&format!(
+                "row role=\"radiogroup\" aria-label=\"Size\" testId=\"g\"{own}\n  for p in [1, 2] key=p\n    button role=\"radio\" aria-checked=(n == p) press=go {radio}\n      text `${{p}}`"
+            ))
+        );
+        let r = boot(&src);
+        let node = r.kernel().node(view_of(&r, "g")).unwrap().clone();
+        (
+            node.style.appearance,
+            node.style.written.has(exact_kernel::StyleId::Appearance),
+        )
+    };
+    use exact_kernel::Appearance::{Auto, None};
+    for painted in [
+        "background-color=\"-exact-fill\"",
+        "border-radius=8",
+        "class=(n == p ? Chosen : Plain)",
+        "background-color=(n == p ? \"-exact-fill\" : \"transparent\")",
+    ] {
+        assert_eq!(group(painted, ""), (None, true), "{painted}");
+    }
+    for plain in [
+        "",
+        "padding=4",
+        "class=Plain",
+        "color=\"-exact-system-blue\"",
+    ] {
+        assert_eq!(group(plain, ""), (Auto, false), "{plain}");
+    }
+    assert_eq!(
+        group("border-radius=8", " appearance=\"auto\""),
+        (Auto, true),
+        "the group's own word stands"
+    );
+}
