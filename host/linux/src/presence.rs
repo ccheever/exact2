@@ -71,10 +71,9 @@ impl<D: DataSource> Host<D> {
             let due = self.runner.timer_due_ms().unwrap_or(to);
             let step = due.max(self.runner.now_ms()).min(to);
             let a = self.runner.advance_until_request(step);
-            // A timer still due by `step` is one a request stopped short.
-            let stopped = a.error.is_some()
-                || step >= to
-                || self.runner.timer_due_ms().is_some_and(|due| due <= step);
+            // A commit that sent stops the jump: the next send would drop
+            // its reply (LLP 1016 D5).
+            let stopped = a.error.is_some() || a.stopped_on_request || step >= to;
             error = error.or(self.advanced(a).0);
             if stopped || self.presence.layout.is_empty() {
                 break;

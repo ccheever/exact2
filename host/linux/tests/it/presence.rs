@@ -224,3 +224,116 @@ fn a_box_a_timer_moves_inside_an_agents_jump_starts_moving_at_the_timer() {
     assert_eq!(agent_jump(&mut h, 121_000.), 1);
     assert_eq!(h.runner().now_ms(), 121_000.);
 }
+
+/// Each `fetchOne(word)` a request whose reply is `word`.
+#[derive(Default)]
+struct Fetches;
+impl exact_runner::DataSource for Fetches {
+    fn query(
+        &mut self,
+        source: &str,
+        _: &[exact_plan::Value],
+    ) -> Result<exact_plan::Value, exact_runner::DataError> {
+        Err(exact_runner::DataError::UnknownSource(source.into()))
+    }
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        args: &[exact_plan::Value],
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        let word = args[0].as_str().unwrap_or_default();
+        Ok(exact_runner::Answer::Later(exact_runner::Request::get(
+            &format!("https://fixture.invalid/{word}"),
+        )))
+    }
+    fn parse(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        _: &[exact_plan::Value],
+        outcome: exact_runner::Outcome,
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        let exact_runner::Outcome::Storage(bytes) = outcome else {
+            panic!("a storage outcome")
+        };
+        Ok(exact_runner::Answer::Now(exact_plan::Value::record(vec![
+            exact_plan::Value::str(std::str::from_utf8(&bytes).unwrap()),
+        ])))
+    }
+}
+
+/// A box under a layout transition, and two timers that each send.
+const SENDS: &str = "shape Reply
+  text: string
+component A
+  state go = false
+  state small = false
+  state seen = \"\"
+  mutation loaded as shape Reply then note
+  action start
+    go = true
+  action load
+    small = true
+    send loaded = fetchOne(\"a\")
+  action loadAgain
+    send loaded = fetchOne(\"b\")
+  action note
+    match loaded
+      case some(r)
+        seen = `${seen}${r.text}`
+      case none
+        seen = seen
+  task beating when go
+    every(1000, load)
+  task again when go
+    after(1500, loadAgain)
+  view
+    column width=\"100%\" height=\"100%\" position=\"relative\"
+      button testId=\"go\" press=start
+        text \"Go\"
+      row testId=\"capsule\" position=\"absolute\" right=(small ? 68 : 14) bottom=14 -exact-layout-transition=\"400ms linear\"
+        view width=(small ? 48 : 180) height=48
+";
+
+#[test]
+fn a_jump_stepping_for_a_layout_transition_still_stops_at_each_send() {
+    let plan = contract::compile(SENDS).unwrap().encode();
+    let mut h = Host::boot(
+        &plan,
+        Fetches,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        600.,
+    )
+    .unwrap()
+    .0;
+    let go = {
+        let k = h.kernel();
+        k.node_by_key(k.find_by_test_id("go")[0]).unwrap().id
+    };
+    h.dispatch_at(go, Event::Press, 0.);
+    // `clock +1800` as the agent runs it: each stop's request is answered
+    // before the jump goes on (LLP 1016 D5).
+    let mut stops = Vec::new();
+    while h.timer_due_ms().is_some_and(|d| d <= 1800.) {
+        h.advance_until_request(1800.);
+        for r in h.take_requests() {
+            let word = r.request.url.rsplit('/').next().unwrap().to_string();
+            stops.push((h.runner().now_ms(), word.clone()));
+            let now = h.runner().now_ms();
+            let landed = h
+                .runner_mut()
+                .fulfill(r.ticket, exact_runner::Outcome::Storage(word.into_bytes()))
+                .unwrap();
+            assert!(landed.is_some(), "the reply at {now} commits");
+        }
+    }
+    h.advance(1800.);
+    assert_eq!(stops, [(1000., "a".to_string()), (1500., "b".to_string())]);
+    assert_eq!(
+        h.runner().slot("seen"),
+        Some(&exact_plan::Value::str("ab")),
+        "both replies landed"
+    );
+}
