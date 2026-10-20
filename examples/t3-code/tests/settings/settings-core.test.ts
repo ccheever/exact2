@@ -360,6 +360,25 @@ describe('navigation and search', () => {
     expect(scopeAvailable('environment-defaults', 'project')).toBe(false);
     expect(commandLabel('composer.sendAlternate')).toBe('Composer: Opposite Queue or Steer Action');
   });
+  test('the reference app finds the same settings, in its order', () => {
+    // The desktop app's results for ten queries, keybinding commands left out (they follow the server's bindings).
+    const desktop = { ...context, localBackend: true, localEnvironment: true };
+    const titles = (query: string) => searchSettings(query, desktop).filter(item => item.route !== 'keybindings').map(item => `${item.title} / ${breadcrumbLabel(item.route)}`);
+    expect(titles('update')).toEqual(['Update track / General', 'Provider update checks / General', 'Continue threads after restarts / General', 'Version / General']);
+    expect(titles('credits')).toEqual(['Remove agent credits when merging / Source Control']);
+    expect(titles('clients')).toEqual(['This machine / Connections']);
+    expect(titles('worktree')).toEqual(['Worktree cleanup / Storage', 'Worktree location / Storage', 'Worktree branch naming / Source Control', 'Keep worktrees with local changes / Storage',
+      'New threads / General', 'Submodules / General', 'Start from origin / General', 'Actions / Project']);
+    expect(titles('theme')).toEqual(['Themes / Appearance']);
+    expect(titles('model')).toEqual(['Default model / General', 'Text generation model / General', 'Source control writer model / Source Control', 'Review guide model / Source Control',
+      'Project defaults and overrides / General', 'Providers / Providers', 'Health check interval / Providers']);
+    expect(titles('token')).toEqual(['GitHub accounts and token / Source Control', 'Response streaming / General', 'Context window indicator (legacy) / General', 'Cursor account usage / Providers',
+      'GitCafe credentials / Source Control', 'Bitbucket credentials / Source Control']);
+    expect(titles('mcp')).toEqual([]);
+    expect(titles('sidebar')).toEqual(['Sidebar (legacy) / General', 'Project grouping / General', 'Project order / General', 'Working section (beta) / General', 'Auto-settle inactive threads / General',
+      'Auto-settle merged threads / General', 'Days of inactivity before auto-settle / General', 'Environment icon / Connections']);
+    expect(titles('settle')).toEqual(['Auto-settle inactive threads / General', 'Auto-settle merged threads / General', 'Days of inactivity before auto-settle / General']);
+  });
 });
 
 describe('appearance', () => {

@@ -163,8 +163,7 @@ component PanelHeaderBar
         row flex-shrink=0 width=(panel.tabStrip.content > panel.tabStrip.view ? panel.tabStrip.content : "100%") gap="0.25rem" align-items="center" role="tablist" aria-label="Panel surfaces" hatch="t3-anchor" data-anchor="tab-strip-content"
           for tab in panel.tabs key=tab.id
             PanelTabChip(tab=tab, ui=ui, local=local, menu=tabMenu, begin=beginTabDrag, move=moveTab, end=endTabDrag, dragging=(draggingTab and dragTab == tab.id))
-          if panel.count > 0
-            AddSurfaceMenu(surfaces=surfaces, profiles=panel.browser.profiles, ui=ui, local=local)
+          AddSurfaceMenu(surfaces=surfaces, profiles=panel.browser.profiles, ui=ui, local=local)
       if panel.tabStrip.overflow
         TabScroll(canLeft=(tabsScroll > 1), canRight=(tabsScroll < panel.tabStrip.max - 1), left=scrollTabs(0 - tabsStep), right=scrollTabs(tabsStep))
       if sheet

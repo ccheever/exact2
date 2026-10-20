@@ -366,7 +366,7 @@ describe('the Pull Requests Filters submenus', () => {
     expect(state).toMatchObject({ sub: 'author', subPointer: false, subLeft: false });
     expect(calls).toEqual([['preventDefault'], ['focus', 'pr-filters-sub-keys']]);
     calls.length = 0;
-    const filterItems = value(body.match(/^  derive filterItems = (.+)$/m)![1]!, { KmItem: (item: unknown) => item });
+    const filterItems = value(body.match(/^  derive filterItems = (.+)$/m)![1]!, { KmItem: (item: unknown) => item, serverShown: false });
     menu.call('subKey', state, { ...scope, filterItems }, ['author', 'ArrowDown', event()]);
     expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ['focus', 'pr-filter-labels']]);
     expect(body).not.toContain('pr-filters-rest');

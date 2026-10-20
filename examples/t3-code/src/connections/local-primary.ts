@@ -114,6 +114,14 @@ export const primaryEnvironmentId = (source: LocalPrimary = primary): string | n
 /** Whether this environment id is the primary's. */
 export const isPrimaryEnvironment = (environmentId: string, source: LocalPrimary = primary) =>
   !!environmentId && !!source.target?.environmentId && source.target.environmentId === environmentId;
+/**
+ * The environment catalog's order (useEnvironments): the primary first, as the desktop registers it before the saved
+ * environments, then the rest in `fleetOrder` (EnvironmentFleet.catalogIds); one it lacks keeps its place before them.
+ */
+export function catalogOrder<T extends { environmentId: string }>(list: readonly T[], fleetOrder: readonly string[], source: LocalPrimary = primary): T[] {
+  const rank = (environmentId: string) => isPrimaryEnvironment(environmentId, source) ? -2 : fleetOrder.indexOf(environmentId);
+  return list.map((item, index) => ({ item, index })).sort((a, b) => rank(a.item.environmentId) - rank(b.item.environmentId) || a.index - b.index).map(entry => entry.item);
+}
 /** Whether this origin is the primary's address (the focus before its descriptor answered). */
 export const isPrimaryOrigin = (origin: string, source: LocalPrimary = primary) =>
   !!source.target && !!origin && trim(origin) === trim(source.target.httpBaseUrl);
