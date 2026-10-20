@@ -337,12 +337,12 @@ strip.
   `backgroundColor`, which it paints behind each section, and the collection
   view's own background, which shows through a clear section ground and
   below a short list. UIKit gives the collection view the appearance's
-  ground only for a layout with none of its own and leaves its default
+  ground only for a layout with none of its own, and leaves its default
   `systemBackground` for one with a ground, so the host sets it from the
-  first layout on: clear, else the theme's ground for the appearance (LLP
-  1095 D4: `grouped-background`, or for a plain list the page's,
-  `background` else `Canvas`), else UIKit's (`systemGroupedBackground`, or
-  `systemBackground`). The cards keep their
+  first layout on. It is clear where a background is written, else the
+  theme's ground for the appearance (LLP 1095 D4: `grouped-background`, or
+  for a plain list the page's, `background` else `Canvas`), else UIKit's
+  (`systemGroupedBackground`, or `systemBackground`). The cards keep their
   own background, as UIKit's list cells keep theirs over a clear collection
   view.
 - **Past the box.** The list's background past the viewport's edge (§6

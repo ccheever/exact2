@@ -3469,9 +3469,9 @@ it vanishes); a surface inside either card is its pair's tertiary role. A route 
 scroll is a grouped list (`list appearance="auto"`, `inset-grouped` or `grouped`) is a
 `-exact-grouped-background` page with nothing written, bar to bottom edge, so a switcher
 or summary between its `header` and the list sits on the list's grey (LLP 1116.007 D5); a
-`background-color` on the route, or on that content, wins. One on the list is its ground
-around the cards, which keep theirs: `transparent` shows what lies behind it, such as an
-`aria-hidden` `svg` at `z-index=-1` (LLP 1084 §6.5). A brand colour
+`background-color` on the route, or on that content, wins. One on the list itself is its
+ground around the cards, which keep theirs: `transparent` shows what lies behind it, such
+as an `aria-hidden` `svg` at `z-index=-1` (LLP 1084 §6.5). A brand colour
 the platform has no role for is the one place for a literal.
 
 **Type: say a heading, not a size.** Body text is the platform's body size
