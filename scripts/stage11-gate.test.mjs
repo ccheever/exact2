@@ -34,7 +34,7 @@ test('a cargo run passes only when it ran a test and none failed', () => {
 
 test('the gate\'s lines, and its command line', () => {
   const ids = lines({ hosts: [], app: 'unsaid', only: [] }).map(([id]) => id);
-  expect(ids).toEqual(['base-values', 'citations', 'packages-restyle', 'packages-base', 'package-full-name', 'package-one-name', 'package-no-dials', 'package-when-axis', 'package-no-base', 'server-rows', 'server-writes', 'live', 'tool', 'clone', 'no-regressions']);
+  expect(ids).toEqual(['base-values', 'citations', 'packages-restyle', 'packages-base', 'package-full-name', 'package-one-name', 'package-no-dials', 'package-when-axis', 'package-no-base', 'server-rows', 'server-writes', 'private', 'live', 'tool', 'clone', 'no-regressions']);
   expect(parse(['--host', 'linux', '--only', 'citations'])).toMatchObject({ hosts: ['linux'], only: ['citations'], app: 'unsaid' });
   expect(parse(['--host'])).toBe('--host needs a value');
   expect(parse(['--bogus', 'x'])).toBe('unknown argument --bogus');

@@ -20,7 +20,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const GATE = join(ROOT, 'apps/scale-gate');
@@ -154,6 +154,22 @@ function packageFiles() {
   return { bytes, clean };
 }
 
+/** Whether A2 part 2 is in: describe carries a package token's package. */
+function a2In(described) {
+  return /"package":\s*"@exact\/cards"/.test(JSON.stringify(described ?? {}));
+}
+
+/** The object describe gives a package token's row in, wherever it sits. */
+function packageRow(node, name) {
+  if (!node || typeof node !== 'object') return null;
+  if ((node.name === name || node.token === name) && 'package' in node) return node;
+  for (const v of Object.values(node)) {
+    const found = packageRow(v, name);
+    if (found) return found;
+  }
+  return null;
+}
+
 /** The packages' paddings (`[cards, notes]`, px) in an agent's `layout` reply. */
 function paddings(reply) {
   const of = id => reply.nodes.find(n => n.testId === id);
@@ -184,17 +200,23 @@ async function live() {
     const { url: base, ask } = await owned(dev, new RegExp(`(http://127\\.0\\.0\\.1:${port})/`), said);
     // Its first builds settled (5 s with nothing said, at most a minute), so
     // the page the drive opens is not reloaded under it.
-    for (let quiet = 0, last = said.text.length, t = 0; quiet < 5 && t < 60; t++) {
-      await new Promise(ok => setTimeout(ok, 1000));
-      quiet = said.text.length === last ? quiet + 1 : 0;
-      last = said.text.length;
-    }
+    const settled = async () => {
+      let quiet = 0;
+      for (let last = said.text.length, t = 0; quiet < 5 && t < 60; t++) {
+        await new Promise(ok => setTimeout(ok, 1000));
+        quiet = said.text.length === last ? quiet + 1 : 0;
+        last = said.text.length;
+      }
+      return quiet >= 5;
+    };
+    if (!(await settled())) return fail('the dev loop did not settle in a minute: its builds kept coming');
     const edit = async op => ask({ method: 'transaction', client: 'gate', files: (await ask({ method: 'hello' })).ok?.files, ops: [op] });
     const settle = ['clock +3000 real', 'clock data', 'clock +3000 real', 'clock data'];
-    drive = own(process.execPath, [join(ROOT, 'scripts/agent.mjs'), 'web', '--url', base, '--storage', `stage11-gate-${process.pid}`, '--reset-storage', '--json', 'layout', ...settle, 'layout', ...settle, 'layout'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    drive = own(process.execPath, [join(ROOT, 'scripts/agent.mjs'), 'web', '--url', base, '--storage', `stage11-gate-${process.pid}`, '--reset-storage', '--json', 'layout', ...settle, 'layout', ...settle, ...settle, 'layout'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const replies = [], edits = [];
     const ops = [{ op: 'set-token', name: 'space.md', value: '28px' }, { op: 'remove-token', name: 'space.md' }];
-    let heard = '', raced = false, buf = '', queue = Promise.resolve(), arrived = 0;
+    let heard = '', buf = '', queue = Promise.resolve();
+    const arrivals = [];
     drive.stderr.on('data', c => { heard = (heard + c).slice(-2000); });
     // One reader of the drive's lines; an edit after a layout runs to its
     // answer while later lines wait their turn.
@@ -202,7 +224,7 @@ async function live() {
       replies.push(JSON.parse(line));
       if (replies.length > ops.length) return;
       const from = said.text.length;
-      edits.push({ reply: await edit(ops[replies.length - 1]), from });
+      edits.push({ reply: await edit(ops[replies.length - 1]), from, done: Date.now() });
     };
     const read = new Promise((ok, no) => {
       drive.stdout.on('data', c => {
@@ -211,10 +233,10 @@ async function live() {
         while ((at = buf.indexOf('\n')) >= 0) {
           const line = buf.slice(0, at); buf = buf.slice(at + 1);
           if (!line.startsWith('{') || !line.includes('"nodes"')) continue;
-          // A layout arriving before the edits owed for the layouts before
-          // it are answered: the drive raced them.
-          if (edits.length < Math.min(arrived, ops.length)) raced = true;
-          arrived++;
+          // Each layout's arrival, which is when the agent took it; one taken
+          // before the edit before it was answered raced it.
+          const when = Date.now();
+          arrivals.push(when);
           queue = queue.then(() => onLayout(line));
         }
       });
@@ -223,13 +245,14 @@ async function live() {
     });
     await read;
     await queue;
+    const raced = edits.some((e, k) => !(arrivals[k + 1] > e.done));
     const [first, moved, back] = replies.map(paddings);
     // What the dev loop said between the set-token and the next edit.
     const setTokenSaid = said.text.slice(edits[0]?.from ?? 0, edits[1]?.from ?? said.text.length);
     // The set-token's: a batch read from the compiler with no build, no
     // page reloaded or newly connected (the same page took it).
-    const unbuilt = /batch ready [^\n]*\(design read in [^\n]*no build\)[^\n]*no reload/.test(setTokenSaid);
-    const reloaded = /reloaded seq=|[1-9]\d* pages? reloading|page connected|\(built in |\(rebuilt in /.test(setTokenSaid);
+    const unbuilt = /batch ready [^\n]*(no build\)[^\n]*no reload|no plan)/.test(setTokenSaid);
+    const reloaded = /reloaded seq=|[1-9]\d* pages? reloading|page connected|\(built in |\(rebuilt in |plan ready|pushed to/.test(setTokenSaid);
     const evidence = [`paddings (cards, notes): ${JSON.stringify(first)} at 20px; ${JSON.stringify(moved)} after set-token space.md 28px; ${JSON.stringify(back)} after remove-token (the web's base)`,
       `edits: ${edits.map(e => (e.reply.ok ? 'ok' : JSON.stringify(e.reply.error))).join(', ')}`,
       `the dev loop after the set-token: ${setTokenSaid.split('\n').filter(l => /edit →|page connected|reloaded/.test(l)).join(' / ') || '(nothing)'}`];
@@ -240,8 +263,14 @@ async function live() {
   } finally {
     await stop(drive);
     await stop(dev);
+    // The dev loop's compiler runs in a group of its own: any process still
+    // naming this run's app copy or build is this run's, and is ended.
+    for (const pid of run('pgrep', ['-f', dir]).out.split('\n').concat(run('pgrep', ['-f', dist]).out.split('\n')).map(Number).filter(n => n > 0 && n !== process.pid)) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+    }
     rmSync(dir, { recursive: true, force: true });
     rmSync(dist, { recursive: true, force: true });
+    rmSync(log, { force: true });
   }
 }
 
@@ -356,11 +385,10 @@ export function lines(opts) {
         evidence.push(`explain notes.rule: value ${rule.ok?.value} (the app's, by its full name)`);
         if (!/^#00ff00/i.test(rule.ok?.value ?? '')) bad.push('explain notes.rule: the app\'s #00ff00');
         // A2 part 2's: package tokens on describe, with their package and file.
-        const tokens = described.ok?.tokens ?? [];
-        const pad = tokens.find(t => t.name === 'cards.pad');
-        const packaged = tokens.some(t => t.package != null);
-        evidence.push(`describe: cards.pad ${pad ? `package ${JSON.stringify(pad.package ?? null)}, file ${JSON.stringify(pad.file ?? null)}` : 'absent'}`);
-        if (packaged && (pad?.package !== '@exact/cards' || !String(pad?.file ?? '').endsWith('cards.tamber'))) bad.push('describe: cards.pad is @exact/cards\'s, from cards.tamber');
+        const pad = packageRow(described.ok, 'cards.pad');
+        const packaged = a2In(described.ok);
+        evidence.push(`describe: cards.pad ${pad ? `package ${JSON.stringify(pad.package ?? null)}, file ${JSON.stringify(pad.file ?? null)}` : 'with no package row'}`);
+        if (packaged && (pad?.package !== '@exact/cards' || !/(^|\/)cards\.tamber$/.test(String(pad?.file ?? '')))) bad.push('describe: cards.pad is @exact/cards\'s, from its cards.tamber');
         if (bad.length) return fail(...evidence, ...bad);
         return packaged ? pass(...evidence) : waits('A2 part 2 (package rows on describe)', ...evidence);
       } finally { await s.stop(); }
@@ -378,17 +406,25 @@ export function lines(opts) {
         evidence.push(`set-token space.md 24px: ${set.ok ? 'written' : JSON.stringify(set.error)}; the app's line ${/^\s*space\.md = 24px/m.test(design()) ? 'there' : 'missing'}; package files ${untouched() ? 'untouched' : 'CHANGED'}`);
         if (!set.ok || !/^\s*space\.md = 24px/m.test(design()) || !untouched()) bad.push('set-token space.md writes the app\'s line and no package file');
         // A2 part 2's: present once describe carries package rows.
-        const a2 = ((await s.ask({ method: 'describe' })).ok?.tokens ?? []).some(t => t.package != null);
+        const described = (await s.ask({ method: 'describe' })).ok;
+        const a2 = a2In(described);
         const pkg = await write({ op: 'set-token', name: 'cards.fill', value: '#00ff00' });
         const wrote = /^\s*cards\.fill = #00ff00/m.test(design());
         evidence.push(`set-token cards.fill: ${pkg.ok ? (wrote ? 'the app\'s override line' : 'ok, no app line') : `refused (${pkg.error?.message ?? ''})`}; package files ${untouched() ? 'untouched' : 'CHANGED'}`);
         const add = await write({ op: 'add-token', name: 'space.lg', value: '30px' });
         const pointed = !add.ok && /set-token/.test(JSON.stringify(add.error?.diagnostics ?? add.error?.message ?? ''));
         evidence.push(`add-token space.lg: ${add.ok ? 'taken' : `refused: ${JSON.stringify(add.error?.diagnostics?.[0]?.message ?? add.error?.message ?? '')}`}; package files ${untouched() ? 'untouched' : 'CHANGED'}`);
-        const packageFile = relative(s.dir, join(ROOT, 'packages/cards/cards.tamber'));
-        const outside = await write({ op: 'set-token', file: packageFile, name: 'cards.fill', value: '#123456' });
-        const refusedOutside = !outside.ok && /outside the app|a package's file|package file/i.test(JSON.stringify(outside.error ?? ''));
-        evidence.push(`set-token naming the package file: ${outside.ok ? 'taken' : `refused: ${JSON.stringify(outside.error?.message ?? outside.error ?? '')}`}; package files ${untouched() ? 'untouched' : 'CHANGED'}`);
+        // The package file as the server names it (A2 part 2), else no probe:
+        // a path it doesn't know is refused as no file of the design, which
+        // proves nothing of the guard.
+        const packageFile = Object.keys(described?.files ?? {}).find(f => /(^|\/)cards\.tamber$/.test(f));
+        let refusedOutside = false;
+        if (packageFile) {
+          const outside = await write({ op: 'set-token', file: packageFile, name: 'cards.fill', value: '#123456' });
+          const said = JSON.stringify(outside.error ?? '');
+          refusedOutside = !outside.ok && !/is no file of this design/.test(said);
+          evidence.push(`set-token naming ${packageFile}: ${outside.ok ? 'taken' : `refused: ${said.slice(0, 160)}`}; package files ${untouched() ? 'untouched' : 'CHANGED'}`);
+        } else evidence.push('the server names no package file yet: the guard not probed');
         if (!untouched()) {
           bad.push('a package file changed (tracked bytes): put back');
           ['cards', 'notes'].forEach((p, i) => writeFileSync(join(ROOT, `packages/${p}/${p}.tamber`), before.bytes[i]));
@@ -399,6 +435,18 @@ export function lines(opts) {
         return a2 ? fail(...evidence, ...pending.map(p => `A2 part 2 is in, but not: ${p}`)) : waits(`A2 part 2 (${pending.join('; ')})`, ...evidence);
       } finally { await s.stop(); }
     }],
+    ['private', 'The fixture packages are private, and nothing publishes them', () => {
+      const evidence = [], bad = [];
+      for (const p of ['cards', 'notes']) {
+        const manifest = JSON.parse(readFileSync(join(ROOT, `packages/${p}/package.json`), 'utf8'));
+        evidence.push(`@exact/${p}: private ${manifest.private === true}`);
+        if (manifest.private !== true || manifest.name !== `@exact/${p}`) bad.push(`@exact/${p} is not private`);
+      }
+      const publishes = run('git', ['grep', '-n', '-E', '(npm|bun|pnpm|yarn) publish', '--', 'scripts', '.github', 'packages']).out.split('\n').filter(l => /cards|notes|workspaces?|packages\/\*/.test(l));
+      evidence.push(publishes.length ? `publishing: ${publishes.join(' / ')}` : 'no publish command names them or the workspace');
+      if (publishes.length) bad.push('a publish names them');
+      return bad.length ? fail(...evidence, ...bad) : pass(...evidence);
+    }],
     ['live', 'Live: set-token space.md on the running gate app moves both packages with no reload (web); remove-token returns them to the base', () => live()],
     ['tool', 'The design tool shows base and package tokens and writes the app\'s override (dtool2\'s D)', () => {
       // dtool2's stage 11 tests: in the tool's own test file (against its stub
@@ -408,11 +456,16 @@ export function lines(opts) {
       if (!own.length && !real.length) return waits('dtool2\'s D (the tool half): no design-tool test says stage 11 yet');
       const evidence = [], bad = [];
       if (own.length) {
-        const r = run(process.execPath, [join(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--test', join(ROOT, 'apps/design-tool/app.test.contract')]);
+        // verify runs the tool's tests with its stub server up (app.json's
+        // `server` command), as dtool2 runs them.
+        const r = run(process.execPath, [join(ROOT, 'scripts/verify.mjs'), 'web', '--app', 'design-tool', '--json']);
+        let results = [];
+        const line = r.out.split('\n').findLast(l => l.startsWith('{"host"'));
+        try { results = JSON.parse(line).tests?.results ?? []; } catch { /* said below */ }
         for (const name of own) {
-          const line = r.out.split('\n').find(l => l.includes(name)) ?? '';
-          const passed = /\b(ok|pass(ed)?)\b/i.test(line) && !/fail/i.test(line);
-          evidence.push(`app.test.contract "${name}": ${passed ? 'pass' : `FAIL (${line.trim() || r.out.trim().split('\n').slice(-2).join(' / ')})`} (the tool's stub server)`);
+          const result = results.find(x => x.name === name);
+          const passed = result && !result.failures?.length;
+          evidence.push(`app.test.contract "${name}": ${passed ? 'pass' : `FAIL (${result ? result.failures.join(' / ').slice(0, 200) : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 200)})`} (the tool's stub server)`);
           if (!passed) bad.push(name);
         }
       }
