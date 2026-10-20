@@ -17,7 +17,7 @@ import { dispatchSelection, promptForSend, ultrathinkChoice } from '../composer/
 import { stepReasoningEffort } from '../composer/composer-effort-step';
 import { queuedEdit, saveQueuedEdit } from '../composer/composer-controls-queue';
 import { fanoutBase, serverThreadWorkspace, workspaceStrategy } from '../composer/composer-controls-branch';
-import { composerSelection } from '../composer/composer-provider-selection'; // the sent selection
+import { antigravitySendBlockReason, composerSelection } from '../composer/composer-provider-selection'; // the sent selection
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from '../composer/composer-controls-usage';
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from '../composer/composer-feedback';
 import { threadContextRecords, withMessageContext } from '../composer/composer-editor';
@@ -154,8 +154,10 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   // An annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
   const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
   const provider = arr(this.config.providers).find(provider => provider.instanceId === sendProviderId);
-  if (!provider || !providerAvailable(provider)) { if (annotationSend) return annotationAttachedToDraft(this); throw new ClientError('This provider is unavailable. Configure it in T3 Code.'); } // onSend: !providerAvailable
-  if (!arr(provider.models).some(model => model.slug === sendModelId)) throw new ClientError('Choose one of the models advertised by T3.');
+  // onSend's !providerAvailable: no provider entry, or Antigravity's block reason. A listed provider whose probe failed
+  // still sends, and the server's failure shows on the thread.
+  const blocked = provider && (chosen.entry || fanoutSelections(this)) ? antigravitySendBlockReason(provider, sendModelId) : 'This provider is unavailable. Configure it in T3 Code.';
+  if (blocked || !provider) { if (annotationSend) return annotationAttachedToDraft(this); throw new ClientError(blocked); }
   if (Array.isArray(provider.supportedRuntimeModes) && !provider.supportedRuntimeModes.includes(this.runtimeMode)) {
     throw new ClientError('Choose a permission mode supported by this provider.');
   }
@@ -164,6 +166,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const serverWorkspace = selection.threadId && !setupQueue ? serverThreadWorkspace(this) : null;
   const attachments = [...await this.uploadSnapshots(native, storage), ...await composerFileAttachments(this, native, text)]; // + folded pastes (composer-editor-files.ts)
   assertOwner();
+  const title = launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)); // onSend's titleSeed
   const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // a draft launches as its own id
   assertOwner();
   if (selection.threadId) {
@@ -177,8 +180,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
       // startThreadTurn with bootstrap.prepareWorktree: launchThread on the existing thread (reuseExistingThread).
       const payload = launchPayload(commandId, selection.threadId, messageId, selection.projectId, text,
         dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)), selection.runtimeMode, submission?.interactionMode || selection.interactionMode, attachments);
-      Object.assign(payload, { reuseExistingThread: true, workspaceStrategy: serverWorkspace,
-        title: launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)) });
+      Object.assign(payload, { reuseExistingThread: true, workspaceStrategy: serverWorkspace, title });
       await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
         description: 'Send', threadId: selection.threadId, text, uncertain: false }, assertOwner);
     } else {
@@ -192,7 +194,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
         assertOwner();
         await this.dispatch(native, storage, withDispatchMode(sendPayload(compactCommandId, selection.threadId, compactMessageId, '/compact', []), 'auto', turnSelection), 'Compact context', assertOwner);
       }
-      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode, turnSelection);
+      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments, title), text), mode, turnSelection);
       if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
       await this.dispatch(native, storage, payload, 'Send', assertOwner);
       setKeepFullHistory(this, false, selection.threadId); // a turn that starts clears the chip's choice; a failed send keeps it
@@ -209,7 +211,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     const payload = launchPayload(commandId, threadId, messageId, selection.projectId, text,
       dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)), selection.runtimeMode, selection.interactionMode, attachments);
     payload.workspaceStrategy = workspaceStrategy(this);
-    payload.title = launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)); // composer-editor-title.ts
+    payload.title = title;
     const result = await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
       description: 'Create thread', threadId, text, uncertain: false }, assertOwner);
     forgetDraftThreadId(this, launchKey);

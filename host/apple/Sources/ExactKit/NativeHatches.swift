@@ -11,7 +11,7 @@
 //
 // The host's table, handed to the module once (`module_connect`):
 //
-//    0  u32 size                96
+//    0  u32 size                120
 //    8  resolve(host, routeKey, keyLen, id, idLen) → node (0: none)
 //   16  act(host, node, action) → 0 done   action 0 click, 1 focus, 2 blur
 //   24  log(host, text, len)
@@ -28,6 +28,13 @@
 //   48  diagnostics → { u32 size 16; 8 record(…) }, or nil in a production
 //        bake: what hatch code says of itself (LLP 1075.003.000.001 §3.2,
 //        HatchDiagnostics.swift). `record` may be called on any thread.
+//   96  tamber(host, view, request, len, out, cap) → length (ExactTamber.swift)
+//  104  stack(host, controller) → navigation controller: the one of a tab
+//        Exact holds without one (HeldStackIOS.swift), built when
+//        `ExactTab.controller` is read (iOS, tvOS; nil elsewhere)
+//  112  on_line(host) → 1 online, 0 offline, 2 not answered (off main, or a
+//        destroyed session): `app.onLine`, read when the module asks, so
+//        the path monitor starts only then (PageFacts)
 //
 // `host` is the session's runtime handle, as for `changed` and `now`: a
 // destroyed session's is answered with nothing.
@@ -113,6 +120,24 @@ private let hatchParts: HatchPartsFn = { host, node, json, length, views, count 
                           view: views?[index].map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() } as? PlatformView)
     }
     return elements.regions.setParts(node: node, scope: "element \(word)", list) ? 0 : 1
+}
+
+private typealias HatchStackFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
+private let hatchStack: HatchStackFn = { host, controller in
+    #if os(iOS) || os(tvOS)
+    guard let controller, let session = hatchSession(host),
+          let held = Unmanaged<AnyObject>.fromOpaque(controller).takeUnretainedValue() as? UIViewController,
+          let nav = session.presenter.navigation.navigation(forHatch: held) else { return nil }
+    return Unmanaged.passUnretained(nav).toOpaque()
+    #else
+    return nil
+    #endif
+}
+
+typealias HatchOnLineFn = @convention(c) (UnsafeMutableRawPointer?) -> UInt32
+let hatchOnLine: HatchOnLineFn = { host in
+    guard hatchSession(host) != nil else { return 2 }
+    return PageFacts.onLine ? 1 : 0
 }
 
 private let hatchLog: HatchLogFn = { host, bytes, length in
@@ -219,7 +244,7 @@ private let hatchDiagnosticsTable: UnsafeRawPointer = {
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 104
+    let size = 120
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -235,6 +260,8 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchOwns, to: UnsafeRawPointer.self), toByteOffset: 80, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchParts, to: UnsafeRawPointer.self), toByteOffset: 88, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchTamber, to: UnsafeRawPointer.self), toByteOffset: 96, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchStack, to: UnsafeRawPointer.self), toByteOffset: 104, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchOnLine, to: UnsafeRawPointer.self), toByteOffset: 112, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 

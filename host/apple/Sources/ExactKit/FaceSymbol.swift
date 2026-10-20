@@ -89,12 +89,15 @@ package enum FaceSymbol {
     /// The point size of an SF Symbol drawn with no configuration (the body text's).
     package static var defaultPoints: CGFloat { UIFont.preferredFont(forTextStyle: .body).pointSize }
     /// A tab bar item's glyph: UIKit sizes a symbol there itself, and an
-    /// image as it is. Measured (FaceSymbolIOSTests, iOS 27 simulator): an
-    /// SF Symbol's inked box there is a 23-point symbol's at a compact width
-    /// (an iPhone's stacked items), a 17-point one's at a regular width
-    /// (inline items, an iPad's).
+    /// image as it is. Measured (FaceSymbolIOSTests and a plain UIKit app,
+    /// iOS 27 simulators): an SF Symbol's inked box there is a 23-point
+    /// symbol's on an iPhone at every width, stacked or inline (an iPhone 18
+    /// Pro Max turned, the iPhone Duo's inner display), and a 17-point one's in
+    /// a standalone tab bar given an iPad's idiom and a regular width on an
+    /// iPhone, standing in for an iPad's inline items (an iPad itself shows
+    /// iPadOS's floating tab bar, not measured here).
     package static func tabBarPoints(_ traits: UITraitCollection) -> CGFloat {
-        traits.horizontalSizeClass == .regular ? 17 : 23
+        traits.userInterfaceIdiom == .pad && traits.horizontalSizeClass == .regular ? 17 : 23
     }
     /// A navigation bar item's glyph, measured as the tab bar's: a 22-point
     /// symbol's (UIKit draws bar symbols larger than the body's 17).

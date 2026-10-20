@@ -17,12 +17,36 @@ struct AimedGradient {
     let gradient: Gradient, stops: ([CGFloat], [CGColor])
 }
 
-/// A paragraph's specs, apart from its view: three `Spec`s inline made every
-/// `NodeView` about 1 KB larger, text or not (2112 bytes, a 2.5 KB block).
+/// A paragraph's specs and raster, apart from its view: three `Spec`s
+/// inline made every `NodeView` about 1 KB larger, text or not (2112
+/// bytes, a 2.5 KB block); the raster's fields fit in the same block.
 final class TextSpecs {
     var rasterKey: TextRasterKey?
     var rasterSpec: Spec?
     var cached: Spec?
+    var raster: CGImage?
+    var rasterLayer: CALayer?
+    var rasterFrame = CGRect.zero
+    var rasterScale: CGFloat = 1
+    var flowShapes: [TextFlowShape] = []
+    var layout: (width: CGFloat, paragraph: Paragraph)?
+}
+
+/// What some nodes set and most do not, apart from the view, so every view
+/// is smaller: a transform's parts, an image, paint ghosts, a scroll's
+/// extent. Made on the first write that is not a default (`NodeView.aside`).
+final class NodeAside {
+    var translatePx = CGPoint.zero, translatePercent = CGPoint.zero
+    var scale: CGFloat = 1
+    var rotate: CGFloat = 0
+    var content = CGSize.zero
+    var image: UIImage?
+    var raster: NativeRasterLease?
+    var imageLayer: CALayer?
+    var imageSource: String?
+    var loadGeneration = 0
+    var paintGhosts = 0
+    weak var ghostParent: NodeView?
 }
 
 /// A box's gradient and shadows, apart from `NodeExtras`: most nodes that
@@ -164,6 +188,53 @@ final class NodeExtras {
 }
 
 extension NodeView {
+    var textMore: TextSpecs {
+        if let specs { return specs }
+        let made = TextSpecs(); specs = made
+        return made
+    }
+    /// The words and style `textRaster` paints, which the paragraph's may
+    /// have left behind since (`invalidateText` keeps the old pixels up).
+    var textRasterSpec: Spec? { get { specs?.rasterSpec } set { if newValue != nil || specs != nil { textMore.rasterSpec = newValue } } }
+    var cachedTextSpec: Spec? { get { specs?.cached } set { if newValue != nil || specs != nil { textMore.cached = newValue } } }
+    var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
+    var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
+    var textRasterFrame: CGRect { get { specs?.rasterFrame ?? .zero } set { if newValue != .zero || specs != nil { textMore.rasterFrame = newValue } } }
+    var textRasterScale: CGFloat { get { specs?.rasterScale ?? 1 } set { if newValue != 1 || specs != nil { textMore.rasterScale = newValue } } }
+    var flowShapes: [TextFlowShape] { get { specs?.flowShapes ?? [] } set { if !newValue.isEmpty || specs != nil { textMore.flowShapes = newValue } } }
+    var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)? { get { specs?.layout } set { if newValue != nil || specs != nil { textMore.layout = newValue } } }
+
+    var asideMade: NodeAside {
+        if let aside { return aside }
+        let made = NodeAside(); aside = made
+        return made
+    }
+    /// `translate`: its lengths, and its percentages of the box (chess diary #4).
+    var translatePx: CGPoint { get { aside?.translatePx ?? .zero } set { if newValue != .zero || aside != nil { asideMade.translatePx = newValue } } }
+    var translatePercent: CGPoint { get { aside?.translatePercent ?? .zero } set { if newValue != .zero || aside != nil { asideMade.translatePercent = newValue } } }
+    package var scale: CGFloat { get { aside?.scale ?? 1 } set { if newValue != 1 || aside != nil { asideMade.scale = newValue } } }
+    package var rotate: CGFloat { get { aside?.rotate ?? 0 } set { if newValue != 0 || aside != nil { asideMade.rotate = newValue } } }
+    /// A scroll container's content extent (the `content` op), before the
+    /// axes that do not scroll are held to the box.
+    var content: CGSize { get { aside?.content ?? .zero } set { if newValue != .zero || aside != nil { asideMade.content = newValue } } }
+    /// An image node's picture, once loaded (decoded off the main thread),
+    /// the source it came from, and which load is current: a completion
+    /// from an older load, or for a view that was destroyed, is dropped.
+    var image: UIImage? { get { aside?.image } set { if newValue != nil || aside != nil { asideMade.image = newValue } } }
+    var raster: NativeRasterLease? {
+        get { aside?.raster }
+        set {
+            if newValue != nil || aside != nil { asideMade.raster = newValue }
+            if newValue == nil, let l = imageLayer { l.removeFromSuperlayer(); imageLayer = nil }
+        }
+    }
+    /// An image's pixels as a sublayer's contents (`applyImageLayer`).
+    var imageLayer: CALayer? { get { aside?.imageLayer } set { if newValue != nil || aside != nil { asideMade.imageLayer = newValue } } }
+    var imageSource: String? { get { aside?.imageSource } set { if newValue != nil || aside != nil { asideMade.imageSource = newValue } } }
+    var loadGeneration: Int { get { aside?.loadGeneration ?? 0 } set { if newValue != 0 || aside != nil { asideMade.loadGeneration = newValue } } }
+    var paintGhosts: Int { get { aside?.paintGhosts ?? 0 } set { if newValue != 0 || aside != nil { asideMade.paintGhosts = newValue } } }
+    var ghostParent: NodeView? { get { aside?.ghostParent } set { if newValue != nil || aside != nil { asideMade.ghostParent = newValue } } }
+
     var more: NodeExtras {
         if let extras { return extras }
         let made = NodeExtras(); extras = made

@@ -4,6 +4,9 @@ import Foundation
 import SwiftUI
 import WidgetKit
 import os
+#if os(macOS)
+import AppKit
+#endif
 #if EXACT_INSPECT
 import Darwin
 #endif
@@ -23,7 +26,7 @@ struct ExactWidgetEntry: TimelineEntry {
     var unavailable = false
 }
 private func embeddedRoot() -> URL {
-    Bundle.main.bundleURL
+    Bundle.main.resourceURL ?? Bundle.main.bundleURL
 }
 private func snapshotFamily(_ family: WidgetFamily) -> SnapshotEnvironment.Family {
     switch family {
@@ -36,9 +39,11 @@ private func snapshotFamily(_ family: WidgetFamily) -> SnapshotEnvironment.Famil
     #if os(watchOS)
     case .accessoryCorner: .accessoryCorner
     #endif
+    #if !os(macOS)
     case .accessoryCircular: .accessoryCircular
     case .accessoryRectangular: .accessoryRectangular
     case .accessoryInline: .accessoryInline
+    #endif
     @unknown default:
         #if os(watchOS)
         .accessoryRectangular
@@ -58,7 +63,7 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
         // Both sample paths contain no account data. Only placeholder(in:) is redacted.
         placeholder: entry.preview,
         linkBase: (Bundle.main.object(forInfoDictionaryKey: "ExactLinkBase") as? String).flatMap(URL.init(string:)),
-        imageRoots: [entry.root, embeddedRoot(), embeddedRoot().deletingLastPathComponent().deletingLastPathComponent()], appGroup: WidgetContainer.root, entryDate: entry.date)
+        imageRoots: [entry.root] + SnapshotBundles.imageRoots(for: .main), appGroup: WidgetContainer.root, entryDate: entry.date)
     #if EXACT_INSPECT
     widgetLog.notice("render family=\(String(describing: family), privacy: .public) width=\(contentSize.width) height=\(contentSize.height)")
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
@@ -118,6 +123,13 @@ struct ExactTimelineProvider: TimelineProvider {
         var unavailable = preview(context, placeholder: true)
         unavailable.unavailable = true
         let fallback = Timeline(entries: [unavailable], policy: .after(date.addingTimeInterval(900)))
+        // An unprovisioned Mac extension must not read the login Keychain or
+        // reuse account props cached by an earlier provisioned build.
+        if (Bundle.main.object(forInfoDictionaryKey: "ExactWidgetRequiresSecrets") as? [String])?.contains(kind) == true,
+           Bundle.main.object(forInfoDictionaryKey: "ExactWidgetSecretsAvailable") as? Bool != true {
+            completion(fallback)
+            return
+        }
         _ = WidgetRefresh.configured
         // A binary update can precede the app's first launch/publication.
         let root = (try? WidgetContainer.pin()) ?? embeddedRoot()
@@ -190,7 +202,7 @@ func footprint() -> UInt64 {
 }
 #endif
 // SwiftUI has no public gamut environment key. The configuration seeds this
-// from the archive's traits; no app or screen lookup is involved.
+// from UIKit traits or the Mac screen; the archived view carries it.
 private struct WidgetDisplayGamut: EnvironmentKey { static let defaultValue = "srgb" }
 extension EnvironmentValues {
     var widgetDisplayGamut: String {
@@ -212,8 +224,12 @@ struct ExactWidgetView: View {
     @Environment(\.widgetContentMargins) private var margins
     private var unavailable: some View { Text("Open \(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "the app")") }
     @ViewBuilder var body: some View {
+        #if os(macOS)
+        GeometryReader { geometry in content(size: geometry.size) }
+        #else
         if family == .accessoryInline { content(size: entry.displaySize).fixedSize() }
         else { GeometryReader { geometry in content(size: geometry.size) } }
+        #endif
     }
     private func content(size displaySize: CGSize) -> some View {
         Group {

@@ -31,7 +31,7 @@ final class NodeLayer: CALayer {
             if node.textRasterFailed { super.display(); return }
         }
         node.repaintThrough()
-        if node.presenter?.views[node.id] === node { node.firstDraw() }
+        if node.presenter?.views[node.id] === node { node.firstDraw?.drawn() }
     }
 }
 

@@ -160,9 +160,11 @@ export function modelSelection(instanceId: string, model: string, options?: unkn
   if (!instanceId || !model) throw new ClientError('Choose an available provider and model.');
   return { instanceId, model, ...(Array.isArray(options) && options.length ? { options: arr(options) } : {}) };
 }
-export function sendPayload(commandId: string, threadId: string, messageId: string, text: string, attachments: Obj[] = []): Obj {
+/** startThreadTurn's message.dispatch. `titleSeed` (onSend's seed) names a thread whose first message this is; a server
+ *  that resolves command context takes it on every send, as the client cannot know the message count. */
+export function sendPayload(commandId: string, threadId: string, messageId: string, text: string, attachments: Obj[] = [], titleSeed = ''): Obj {
   return {
-    type: 'message.dispatch', commandId, threadId, messageId, text, attachments,
+    type: 'message.dispatch', commandId, threadId, messageId, text, attachments, ...(titleSeed ? { titleSeed } : {}),
     createdBy: 'user', creationSource: 'web', deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' },
   };
 }

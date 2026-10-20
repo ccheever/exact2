@@ -1,11 +1,10 @@
 import { test, expect } from 'bun:test';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 // Oracle for InlineFrameMacTests and InlineFrameIOSTests. Keep these metrics
 // tied to the browser's inline elements, including its empty inline box.
 test('inline client rectangles exclude hanging spaces and use the addressed font', async () => {
-  const browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     await page.setContent(`<div style="font:16px/20px Arial;width:260px">Hi<span id="empty"></span> there</div>

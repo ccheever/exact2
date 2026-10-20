@@ -40,7 +40,8 @@ pub(crate) fn check(input: &Path) -> Vec<contract::CompileError> {
         Err(error) => return failure(format!("ambient API check: {error}")),
     };
     if !output.status.success() {
-        return failure(String::from_utf8_lossy(&output.stderr).trim().into());
+        let said = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return failure(said.clone() + &ignored_hint(app, &said));
     }
     let found: Vec<serde_json::Value> = match serde_json::from_slice(&output.stdout) {
         Ok(found) => found,
@@ -69,4 +70,45 @@ pub(crate) fn check(input: &Path) -> Vec<contract::CompileError> {
             related: Box::new([]),
         })
         .collect()
+}
+
+/// What to say of each relative import the bundle couldn't resolve that
+/// names a file git ignores in `app` (Expose's `./local`, which its hosts'
+/// build scripts write before a bake): a file this checkout doesn't have,
+/// and how one gets it. Empty when there is none.
+fn ignored_hint(app: &Path, said: &str) -> String {
+    let mut out = String::new();
+    for part in said.split("Could not resolve '").skip(1) {
+        let Some(import) = part.split('\'').next() else {
+            continue;
+        };
+        if !import.starts_with("./") && !import.starts_with("../") {
+            continue;
+        }
+        // Against the app's directory, where app.ts is: an import from a
+        // module in a subdirectory is looked for there too, so the hint is
+        // only ever missing or extra for one, never wrong about app.ts's.
+        let candidates = ["", ".ts", ".tsx", ".js", ".mjs"].map(|ext| format!("{import}{ext}"));
+        if candidates.iter().any(|c| app.join(c).is_file()) {
+            continue;
+        }
+        let ignored = candidates.iter().find(|c| {
+            Command::new("git")
+                .arg("-C")
+                .arg(app)
+                .args(["check-ignore", "-q", "--"])
+                .arg(c.as_str())
+                .status()
+                .is_ok_and(|s| s.success())
+        });
+        if let Some(file) = ignored {
+            let line = format!(
+                "\n`{import}` is `{file}`, a file git ignores here, so a fresh checkout doesn't have it: it is local to a developer's machine. The app's own build writes it (a host crate's build.rs, or its README says how); build it through a host once, or create the file, then build again."
+            );
+            if !out.contains(&line) {
+                out.push_str(&line);
+            }
+        }
+    }
+    out
 }

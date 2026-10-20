@@ -126,10 +126,17 @@ impl Kernel {
     /// row its author wrote.
     fn swiped(&self, row: &NodeRef<'_>) -> Option<NodeRef<'_>> {
         let name = row.props.str(PropId::SwipeContent)?;
-        row.children()
-            .into_iter()
-            .filter_map(|c| self.node(c))
-            .find(|c| c.props.str(PropId::Id) == Some(name))
+        // In a wrapper too, as the swipe's own hosts find it (a row holding
+        // leading actions and the content).
+        let mut stack: Vec<ViewId> = row.children().into_iter().rev().collect();
+        while let Some(id) = stack.pop() {
+            let Some(node) = self.node(id) else { continue };
+            if node.props.str(PropId::Id) == Some(name) {
+                return Some(node);
+            }
+            stack.extend(node.children().into_iter().rev());
+        }
+        None
     }
 }
 

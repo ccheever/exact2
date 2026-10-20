@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { snapshot } from '../../src/client/presentation';
-import { parsePatch, wordMarks, diffSnapshot, turnSummaries } from '../../src/diff/diff';
+import { parsePatch, wordMarks, diffSnapshot, turnSummaries, hunkRows } from '../../src/diff/diff';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
 
@@ -69,8 +69,8 @@ describe('diff panel', () => {
     await command('diff-view', 'file', 'fixture-result.md');
     const opened = snapshot(client);
     expect(opened.diffItems.map(item => [item.kind, item.tone, item.number])).toEqual([['file', '', ''], ['line', 'context', '1'], ['line', 'context', '2'], ['line', 'deletion', '3'], ['line', 'addition', '3'], ['pad', '', '']]);
-    // DiffPanel passes `lineDiffType: "none"`: a replaced line keeps one unmarked run.
-    expect(opened.diffItems[3]!.segments.map((segment: Obj) => segment.mark)).toEqual([false]);
+    // The served panel marks changed words with Pierre's "word-alt" despite DiffPanel's `lineDiffType: "none"` (9c161462c9 oracle).
+    expect(opened.diffItems[3]!.segments.map((segment: Obj) => segment.mark)).toEqual([false, true, false]);
     expect(opened.diffItems[1]!.gutter).toBe(33.3);
     expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['tag']); // Shiki's heading ink
   });
@@ -116,8 +116,24 @@ describe('diff panel', () => {
     const { client, command } = harness();
     await command('diff'); await command('diff-view', 'reveal', 'a.ts');
     const gaps = snapshot(client).diffItems.filter(item => item.kind === 'gap');
-    expect(gaps.map(item => item.label)).toEqual(['37 unmodified lines']);
+    // Past the last hunk the count is not known before the contents load (Pierre's "unknown" separator).
+    expect(gaps.map(item => item.label)).toEqual(['37 unmodified lines', 'More unchanged context may be available']);
     expect(turnSummaries(client.projection).map(turn => turn.count)).toEqual([2, 1]);
     expect(diffSnapshot(client, 0).diffFiles.map(file => file.letter)).toEqual(['M', 'D', 'A']);
   });
+});
+
+test('a replaced line pair projects word-alt segments on both sides, stacked and split', () => {
+  const [file] = parsePatch(['diff --git a/README.md b/README.md', '--- a/README.md', '+++ b/README.md', '@@ -1,3 +1,3 @@', ' # agent-edits', ' ',
+    '-A fixture repository.', '+A fixture repository, edited by the ACP stand-in.', ''].join('\n'));
+  const marked = (segments: { text: string; mark: boolean }[]) => segments.filter(segment => segment.mark).map(segment => segment.text).join('|');
+  const { stacked, split } = hunkRows(file!.hunks[0]!, file!.path, true);
+  expect(stacked.map(row => [row.tone, marked(row.segments)])).toEqual([['context', ''], ['context', ''], ['deletion', ''], ['addition', ', edited by the ACP stand-in']]);
+  expect([marked(split[2]!.left.segments), marked(split[2]!.right.segments)]).toEqual(['', ', edited by the ACP stand-in']);
+  expect(split[2]!.right.segments.map(segment => segment.text).join('')).toBe('A fixture repository, edited by the ACP stand-in.');
+  // Pierre's maxLineDiffLength: a pair with a line over 1000 characters is not marked.
+  const [long] = parsePatch(['diff --git a/a.txt b/a.txt', '--- a/a.txt', '+++ b/a.txt', '@@ -1 +1 @@', `-${'a'.repeat(1001)}`, `+${'a'.repeat(1001)}b`, ''].join('\n'));
+  expect(hunkRows(long!.hunks[0]!, long!.path, true).stacked.map(row => marked(row.segments))).toEqual(['', '']);
+  // Without `marks` (the pull request Code tab) the rows keep no marks.
+  expect(hunkRows(file!.hunks[0]!, file!.path).stacked.map(row => marked(row.segments))).toEqual(['', '', '', '']);
 });

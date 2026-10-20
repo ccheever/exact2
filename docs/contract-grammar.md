@@ -292,7 +292,8 @@ re-arms it from the commit that changed the key (compared as a `for` key),
 and `key=` alone is `when true key=…`. The gate is a bool (`type-task-gate`), the
 key a string, number or bool (`type-task-key`), and neither reads `performanceNow()`,
 directly or through a derive or a `fn` (`analyze-task-gate-clock`). The named timer action takes no parameters;
-a millisecond interval is a literal whole number of at least 1.
+a millisecond interval is a literal whole number of at least 1 (`after(1, …)` is the web's
+`setTimeout(f, 0)`: 0 would be due in the commit that armed it).
 
 A `sequence` (LLP 1125 D2) declares what should play, as a value, and the
 runner plays it: the gate is a task's, and its body is exactly one
@@ -857,7 +858,7 @@ says. Every roster function has a row and an example, and each example written
 | `replace(router, location)` | Router; the top visit takes the location and keeps its id. A stack's first visit keeps its root route: a location matching another route is refused and the router is unchanged (a first-launch screen: docs/recipes/first-launch.md) | `top(replace(push(nav, "/item/7"), "/item/8")).url` is `"/item/8"` |
 | `back(router)` | Router | `depth(back(push(nav, "/item/7")))` is `1` |
 | `select(router, tabName)` | Router | `nav = select(nav, "search")`, in an action, shows the `search` tab |
-| `go(router, location)` | Router | `top(go(nav, "/item/7")).name` is `"item"` |
+| `go(router, location)` | Router; the top, a pop to it on the selected stack, another tab whose top it is, or else a push onto the selected stack, whatever tab declares its route (into its own tab: `go(select(nav, "tab"), location)` or `open`) | `top(go(nav, "/item/7")).name` is `"item"` |
 | `stack(router)` | `Entry[]` | `stack(push(nav, "/item/7")).length` is `2` |
 | `top(router)` | `Entry` | `top(nav).name` is `"home"` |
 | `depth(router)` | Number | `depth(nav)` is `1` |
@@ -1012,10 +1013,12 @@ CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), a
 top-right, bottom-right, bottom-left; no `/` elliptical radii), as a literal or a
 literal arm; `gap` takes its row and column gaps, and `overflow` and
 `overscroll-behavior` their x and y values, the same way (`gap="8px 16px"`,
-`overflow="hidden auto"`). A computed list (`` padding=`${pad}px 0` ``, a `fn` that returns
-`` `${r}px ${r}px 0 0` ``) is refused (`lower-css-shorthand`): write the longhands,
-`` padding-top=`${pad}px` padding-right=0 … ``, each of which may be computed. A
-computed single value (`padding=pad`) is every side's.
+`overflow="hidden auto"`). A template is split the same way at its own text's white space,
+each interpolation part of one value that also holds text, outside parentheses
+(`` border-radius=`${r}px ${r}px 0 0` ``: the top corners `r`). Another list (`` `${a} ${b}` ``,
+a concatenation, a `fn` that returns one) is refused
+(`lower-css-shorthand`): write the longhands, each of which may be computed. A computed
+single value (`padding=pad`) is every side's.
 An empty string on any style row declares nothing, as CSSOM's `setProperty(p, "")`:
 the row is unset (`background-color=dot` with `dot` `""`).
 `border-style` and each `border-<side>-style` accept `none`, `hidden`, `solid`,
@@ -1043,6 +1046,13 @@ thickness was `0.5`, which is one device pixel only at 2x: `border-width`, the
 hairline thick in the separator role, as wide as what holds it (a flex column
 included), with no margin of its own. Its `color`, `border-*` and `margin` are
 yours to write.
+
+`-exact-accessory-checkmark-width` and `-exact-accessory-checkmark-height` are
+length ramps ([LLP 1137](../llp/1137-length-ramps.rfc.md)): UIKit's list-cell
+checkmark at the root font size, growing with the text size as a text style
+does (19 × 17.33 at the default size, 48 × 43.33 at the largest). They are
+taken where `-exact-hairline` is; a grouped list's checkmark in a row of your
+own already has them on iOS.
 
 A `button` is the platform's own control by default ([LLP
 1104](../llp/1104-the-platforms-controls-by-default.rfc.md) D1). Your bare box

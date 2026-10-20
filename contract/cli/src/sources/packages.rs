@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// `package.json`, vendored) that a relative `use` reached, as a
 /// component's identity names it (`home`).
 /// With each vendored package's `package.json` read, a build's input.
-fn packages(sources: &Sources) -> (Vec<Package>, Vec<PathBuf>) {
+pub(crate) fn packages(sources: &Sources) -> (Vec<Package>, Vec<PathBuf>) {
     let mut all = sources.packages.clone();
     let mut read = Vec::new();
     for (path, origin) in sources.paths.iter().zip(&sources.origins) {

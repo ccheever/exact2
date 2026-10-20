@@ -33,15 +33,34 @@ extension Presenter {
             node.semanticContentAttribute = direction == "rtl" ? .forceRightToLeft : .forceLeftToRight
             #endif
             #if !os(macOS)
-            setLanguage(node)
+            for child in node.subviews where !(child is NodeView) { setLanguage(child) }
             #endif
         }
     }
 
     #if !os(macOS)
+    /// A platform view a node holds (a field, a control) is told the
+    /// language; a node reads it (`NodeView.accessibilityLanguage`).
     private func setLanguage(_ view: UIView) {
         view.accessibilityLanguage = documentLanguage.isEmpty ? nil : documentLanguage
         for child in view.subviews where !(child is NodeView) { setLanguage(child) }
     }
     #endif
 }
+
+#if !os(macOS)
+extension NodeView {
+    /// The document's language (`lang`), which VoiceOver speaks the node in:
+    /// read from the presenter. UIKit stores a set one per view (an
+    /// associated object: 20 KB of malloc over euxy's 250 nodes), and an
+    /// unset one is the user's language, not an ancestor's (`UIAccessibility.h`).
+    package override var accessibilityLanguage: String? {
+        get {
+            if let own = super.accessibilityLanguage { return own }
+            guard let language = presenter?.documentLanguage, !language.isEmpty else { return nil }
+            return language
+        }
+        set { super.accessibilityLanguage = newValue }
+    }
+}
+#endif

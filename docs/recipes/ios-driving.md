@@ -31,14 +31,14 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
 | `--scale 3` | Screenshots at the device's pixels (default 1 a point). |
 | `screenshot <file> window` | The whole screen, bars included; a plain one is the window's too while an alert, sheet or menu is up. `screenshot <f> over 600 every 50 window` films it. |
 | `tap <id> down` `screenshot <png>` `tap up` | `<id>` shown pressed, then pressed once; `tap hold <ms>` moves the clock; a real touch under `--touch platform`. |
-| `clock settle` | Ends a transition; waits up to 1.5 s for the app's own `UIView.animate` (longer: `settled: false`). |
+| `clock settle` | Ends a transition; waits up to 1.5 s for the app's own `UIView.animate`, 4 s for a gliding list (longer: `settled: false`). |
 | `--timing platform`, `--touch platform` | UIKit's own transition timing (default: frozen); every tap and drag a real touch. |
 | `--sim <udid\|name>` (`EXACT_SIM`) | Which simulator (default: the app's). |
 
-- Drive by `testId` (a bar button's, search field's, segment's, tab's
+- Drive by `testId` (a bar button's, field's, segment's, tab's
   `accessibilityIdentifier`), never by coordinates.
 - `tap` and `type` scroll their target into view first.
-- Without `--touch platform`, `tap <scroll or list> drag 0 -300` scrolls as a finger would, with
-  no fling, past the screen too; any other drag is refused, naming the flag.
+- A wheel or `tap <scroller> drag 0 -300` moves content that far, bars as a finger would; a
+  real drag glides ([more](../contract-for-agents.md#drags-on-ios)).
 - A tap on an alert's or action sheet's button returns once UIKit has dismissed it and the press
   has landed, so a `clock data` next sees it.

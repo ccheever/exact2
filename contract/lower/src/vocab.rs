@@ -99,7 +99,7 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
         "`text`, plain text `input` or `textarea`",
     ),
     ("beforeinput", "plain text `input` or `textarea`"),
-    ("name", "`input type=\"radio\"`"),
+    ("name", "`input type=\"radio\"` or `iframe`"),
     ("markup", "`text` or `textarea`"),
     // @ref LLP 1098 D1, D2 — the media session's, `media::check_session`.
     ("metadata", "`audio` or `video`"),

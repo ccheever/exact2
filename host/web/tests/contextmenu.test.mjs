@@ -6,14 +6,13 @@
 // built for the JS target and driven by the agent, as `exact` does; the wasm host takes the same rule
 // (navigation.js `editMenu`), which conformance's `menus` plan compares with this one.
 import { test, expect } from 'bun:test';
-import { chromium as playwrightChromium } from 'playwright-core';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { open } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { chromium, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { serveBuildTree } from '../serve.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
@@ -99,7 +98,7 @@ check('a contextmenu from a checkbox, switch, radio, range, date or time input i
 // The helper both targets call: real HTML popover methods, including omitted
 // source and the browser's queued, coalesced ToggleEvent (issue #319).
 check('popover commands preserve HTML source, focus, idempotence and toggle coalescing', async () => {
-  const browser = await playwrightChromium.launch({ executablePath: chromium().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     await page.setContent('<main id="root"><button id="trigger" data-view="1">Menu</button><div popover="auto" id="menu" data-view="2"><button id="first">Done</button></div></main>');
@@ -139,7 +138,7 @@ check('wasm popover and focus commands preserve authored order', async () => {
   const glue = readFileSync(resolve(ROOT, 'host/web/glue.js'), 'utf8');
   const dispatch = glue.slice(glue.indexOf('        else if (op.name === "focus"'), glue.indexOf('        else if (op.name === "preventDefault"'));
   const drain = glue.slice(glue.indexOf('  // Focusing can dispatch an action:'), glue.indexOf('  focusAutofocus(); inputHandlers?.arrive();'));
-  const browser = await playwrightChromium.launch({ executablePath: chromium().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     await page.setContent('<main id="root"><button id="trigger">Menu</button><div popover="auto" id="menu"><input id="first" autofocus></div></main>');

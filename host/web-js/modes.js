@@ -317,7 +317,12 @@ export function modes(axes, classes, texts, vars, accent, names, devDesign, devS
     // The app's `setMode(axis, value)` (commands.js), as the runner takes it.
     command: args => {
       const [a, v] = args;
-      if (args.length === 2 && typeof a === "string" && typeof v === "string" && !refused([[a, v]])) return void globalThis.exact.modes.set([[a, v]]);
+      if (args.length === 2 && typeof a === "string" && typeof v === "string" && !refused([[a, v]])) {
+        // (A development page may hold the axis over the app's own, LLP 1122 T7: kept as asked, applied when handed back.)
+        const x = globalThis.exact, apply = () => x.modes.set([[a, v]]);
+        (x.asked ??= {})[`mode:${a}`] = { value: v, apply };
+        return void (x.held?.[`mode:${a}`] ? x.onAsked?.() : apply());
+      }
       say(`setMode(${args.map(x => JSON.stringify(x)).join(", ")}) refused: an axis of the app's design and one of its values`);
     },
   };

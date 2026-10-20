@@ -694,52 +694,17 @@ fn compile_path_all_warned_with(path: &Path, mapped: bool, surfaces: bool) -> Wa
     (result, warned)
 }
 
-/// Where a warning stands among a build's, source order kept within a rank:
-/// first what changes what the app shows, or how a person reaches it, on its
-/// native targets (a header item the bar leaves out, a button VoiceOver
-/// cannot name, a scroller that grows); then the rest; then naming advice
-/// that changes nothing shown; last a symbol blank on the web alone. The
-/// euxy port's `lower-header-unplaced` was one of 43, after 13 aliases.
+/// Where a warning stands among a build's: lowering's order
+/// ([`contract_lower::warning_rank::rank`]), which also chose which warnings
+/// its cap kept.
 pub fn warning_rank(warning: &CompileError) -> u8 {
-    if web_only(warning) {
-        return 3;
-    }
-    match warning.id.as_str() {
-        "lower-header-unplaced"
-        | "lower-header-nested"
-        | "lower-header-no-bar"
-        | "lower-navigation-key"
-        | "lower-screen-by-state"
-        | "lower-button-unlabelled"
-        | "lower-round-button-label"
-        | "lower-dialog-role"
-        | "lower-level-without-heading"
-        | "lower-scroll-grows"
-        | "lower-width-padding"
-        | "lower-swipe-wiring"
-        | "lower-row-delete-button"
-        | "lower-delete-row" => 0,
-        "lower-symbol-alias" => 2,
-        _ => 1,
-    }
+    contract_lower::warning_rank::rank(&warning.id, &warning.message)
 }
 
-/// A warning only the web's picture shows: an SF Symbol drawn blank where
-/// the web is the one target besides Apple's (with Linux too, it is blank on
-/// a native host). A build's text says these in one line.
+/// A warning only the web's picture shows
+/// ([`contract_lower::warning_rank::web_only`]).
 pub fn web_only(warning: &CompileError) -> bool {
-    // Its first use names the targets, `ships web (…) and linux (…), where
-    // it is blank`; a later one, `blank on web too`.
-    let shipped = warning
-        .message
-        .split_once(" ships ")
-        .and_then(|(_, rest)| rest.split_once(", where it is blank"))
-        .map(|(targets, _)| targets);
-    warning.id == "lower-symbol-platform"
-        && match shipped {
-            Some(targets) => targets.starts_with("web (") && !targets.contains(") and "),
-            None => warning.message.contains(" blank on web too"),
-        }
+    contract_lower::warning_rank::web_only(&warning.id, &warning.message)
 }
 
 pub(crate) fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {

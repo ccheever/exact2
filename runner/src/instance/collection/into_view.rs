@@ -128,8 +128,17 @@ impl Collection {
             ListAxis::Vertical => [StyleId::MarginTop, StyleId::MarginBottom],
             ListAxis::Horizontal => [StyleId::MarginLeft, StyleId::MarginRight],
         };
-        let number = |id| match root.bound_style(u.env.plan, id) {
-            Some(Value::Number(n)) if n.is_finite() => *n,
+        // As the kernel lays it out, under a terminal's rule (any length, in
+        // whole cells); else as the plan binds it.
+        let laid = u.cell_margins.map(|margins| margins(root.view));
+        let number = |id| match (laid, root.bound_style(u.env.plan, id)) {
+            (Some([t, r, b, l]), _) => match id {
+                StyleId::MarginTop => t,
+                StyleId::MarginRight => r,
+                StyleId::MarginBottom => b,
+                _ => l,
+            },
+            (None, Some(Value::Number(n))) if n.is_finite() => *n,
             _ => 0.0,
         };
         let [top, right, bottom, left] = u

@@ -214,3 +214,16 @@ test('activity labels reject whitespace and control characters in schema validat
     }
   }
 });
+
+
+test('requiresSecrets scopes the account placeholder to its widget entry', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-widget-account-'));
+  try {
+    const widget = { kind: 'card', families: ['systemSmall'], component: 'Card', props: 'Props', refresh: 'refresh', preview: {} };
+    const write = requiresSecrets => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Account', app: { id: 'com.exact.account', name: 'Account' }, widgets: [{ ...widget, requiresSecrets }, { ...widget, kind: 'public' }] }));
+    write(true); assert.equal(readManifest(dir, 'account').widgets[0].requiresSecrets, true);
+    assert.equal(readManifest(dir, 'account').widgets[1].requiresSecrets, undefined);
+    write('yes'); assert.throws(() => readManifest(dir, 'account'), /requiresSecrets/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

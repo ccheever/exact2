@@ -1,8 +1,8 @@
 // `drag`'s reply carries what the host journaled about a reorder during it (LLP 1102 §3.17), and
 // keeps every field of the carrier's reply. `bun test ./scripts/agent-drag.test.mjs`.
 import { test, expect } from 'bun:test';
-import { dragTap, heldDown, heldPhase, heldRead, HELD_LEAD, HELD_READ, HELD_STEP, STROKES } from './agent-drag.mjs';
-import { DRAG_BOUNDS, realTap, REACH_MS } from '../host/apple/touches.mjs';
+import { dragTap, heldDown, heldPhase, heldRead, heldTick, HELD_LEAD, HELD_READ, HELD_STEP, STROKES, TICK_STEP } from './agent-drag.mjs';
+import { DRAG_BOUNDS, realTap, REACH_MS, TICK_MARGIN } from '../host/apple/touches.mjs';
 
 /** A session and carrier whose journal says `lines` during the drag; replies settle a tick later. */
 function drive(lines, { touches = false, notes = {} } = {}) {
@@ -267,6 +267,35 @@ function stillTouch({ reachedAt, liftAfter }) {
   return { t, run: (drag) => realTap({ ask, touches, id: 7, drag: { dx: 0, dy: 0, press: 0, over: 0, hold: 400, ...drag } }) };
 }
 
+// A tap whose view left the window before the lift (the log's `viewGone`) says so in its reply, and the driver refuses
+// nothing for it: the touch smoke taps a grouped row's detail button again when the state is unchanged.
+test('a real tap whose view left the window before the lift says so', async () => {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 };
+  const tap = (lift) => realTap({ id: 7,
+    ask: async (req) => (req.aim ? { aim } : { log: [began, { ...began, seq: 6, phase: 'ended', t: 2, ...lift }], truncated: false }),
+    touches: { async ask(req) { return req.op === 'foreground' ? { state: 'runningForeground' } : { injected: {} }; } } });
+  expect(await tap({ viewGone: true })).toEqual(expect.objectContaining({ delivery: 'platform', viewGone: true }));
+  expect((await tap({})).viewGone).toBeUndefined();
+});
+
+// On the Duo a real touch waits out SpringBoard's fold cloak (cloak.mjs) before its first aim, and a touch still lost
+// says how long it waited.
+test('a real tap waits out the fold cloak before it aims', async () => {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 };
+  const tap = (log, order) => realTap({ id: 7,
+    ask: async (req) => { order.push(req.aim ? 'aim' : 'log'); return req.aim ? { aim } : { log, truncated: false }; },
+    touches: {
+      async ask(req) { order.push(req.op); return req.op === 'foreground' ? { state: 'runningForeground' } : { injected: {} }; },
+      cloak: { async clear() { order.push('clear'); await new Promise((r) => setTimeout(r, 30)); return 30; } },
+    } });
+  const order = [];
+  expect(await tap([began, { ...began, seq: 6, phase: 'ended', t: 2 }], order)).toEqual(expect.objectContaining({ delivery: 'platform' }));
+  expect(order.slice(0, 5)).toEqual(['clear', 'aim', 'foreground', 'aim', 'tap']);
+  await expect(tap([], [])).rejects.toThrow('after waiting 30 ms for SpringBoard\'s fold cloak');
+});
+
 // The ops during a still real touch wait for the view it landed on to have it (`reached`), which a scroll view delays;
 // a held contact's reads, which need it, fail before they run when it never does.
 test('a still real touch runs its ops once the touch has reached its view, and a held contact\'s fail without it', async () => {
@@ -286,19 +315,140 @@ test('a still real touch runs its ops once the touch has reached its view, and a
   expect(later).toEqual([]);
 });
 
+/** `realTap`'s still or moving touch on node 7 for a hold's clock (`tick`): the dispatch log answers `pages` in turn
+ *  (its last again), an Error rejecting; the runner answers `runner` once `lift` is called or after `liftAfter` ms. */
+function tickTouch({ pages, runner = { injected: {} }, liftAfter = 2000 }) {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const t = { reads: 0, settled: false };
+  const ask = async (req) => {
+    if (req.aim) return { aim };
+    const page = pages[Math.min(t.reads++, pages.length - 1)];
+    if (page instanceof Error) throw page;
+    return { truncated: false, reached: [], ...page };
+  };
+  const touches = { async ask(req) {
+    if (req.op === 'foreground') return { state: 'runningForeground' };
+    return new Promise((done) => {
+      const end = () => { t.settled = true; done(runner); };
+      t.lift = end;
+      setTimeout(end, liftAfter);
+    });
+  } };
+  return { t, run: (drag) => realTap({ ask, touches, id: 7, drag: { dx: 0, dy: 0, press: 0, over: 0, hold: 400, ...drag } }) };
+}
+const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'NodeView', node: 7, session: 'main', generation: 1 };
+const ended = { ...began, seq: 6, phase: 'ended', t: 2 };
+
+// Round 2 (Astra, Grok): with no ops the clock waited for nothing; it now waits out the press and the move, as ops do.
+test('a hold\'s clock starts after the press and the move', async () => {
+  for (const drag of [{ press: 300 }, { dx: 0, dy: 40, over: 300 }]) {
+    const a = tickTouch({ pages: [{ log: [began] }], liftAfter: 900 }), at = Date.now(), seen = [];
+    await a.run({ ...drag, tick: async (until, down) => { seen.push([Date.now() - at, until - at, await down()]); a.t.lift(); } }).catch(() => {});
+    expect(seen.length).toBe(1);
+    expect(seen[0][0]).toBeGreaterThanOrEqual(290);
+    expect(seen[0][1]).toBeGreaterThanOrEqual(300 + 400 - TICK_MARGIN);
+    expect(seen[0][2]).toBe(true);
+  }
+});
+
+// Round 2: a log reply that shows the touch began and ended moves no clock, nor does a runner that ended with no touch
+// seen, whose error is the drag's; a log error is the drag's, said once the runner is done.
+test('a hold\'s clock moves only while the touch is known to be down, and a failure is said once the runner is done', async () => {
+  const ticked = [];
+  const tick = async () => { ticked.push(1); };
+  const lifted = tickTouch({ pages: [{ log: [began, ended] }], liftAfter: 10 });
+  expect((await lifted.run({ tick })).touch).toEqual(expect.objectContaining({ began: 1, ended: 2 }));
+  const failed = tickTouch({ pages: [{ log: [] }], runner: { error: 'XCTest crashed' }, liftAfter: 10 });
+  await expect(failed.run({ tick })).rejects.toThrow('the touch runner: XCTest crashed');
+  const refused = tickTouch({ pages: [{ error: 'no such session' }], liftAfter: 50 });
+  await expect(refused.run({ tick })).rejects.toThrow('the dispatch log: no such session');
+  expect(refused.t.settled).toBe(true);
+  expect(ticked).toEqual([]);
+  // `down` reads the log: false once it shows the lift.
+  const late = tickTouch({ pages: [{ log: [began] }, { log: [began] }, { log: [began, ended] }], liftAfter: 300 });
+  const downs = [];
+  await late.run({ tick: async (_, down) => { downs.push(await down()); } }).catch(() => {});
+  expect(downs).toEqual([false]);
+});
+
+// Round 2: a log read that rejects (the carrier gone mid-hold) is said only once the runner has let go, its error first.
+test('a hold whose log read rejects waits for the runner, whose error wins', async () => {
+  const gone = tickTouch({ pages: [new Error('carrier closed')], liftAfter: 50 });
+  await expect(gone.run({ tick: async () => {} })).rejects.toThrow('carrier closed');
+  expect(gone.t.settled).toBe(true);
+  const both = tickTouch({ pages: [new Error('carrier closed')], runner: { error: 'XCTest crashed' }, liftAfter: 50 });
+  await expect(both.run({ tick: async () => {} })).rejects.toThrow('the touch runner: XCTest crashed');
+});
+
+// heldTick: real-time steps of at most TICK_STEP while `down` says the finger is down, the rest at once before
+// `until`; nothing once it has lifted.
+test('a hold\'s clock steps while the finger is down and stops when it lifts', async () => {
+  const s = { now: 0, held: null, steps: [], async clock(spec) { s.steps.push(spec); s.now += Number(/\+(\d+)/.exec(spec)[1]); } };
+  await heldTick(s, 250, 'row')(Date.now() + 10_000, async () => true);
+  expect(s.steps).toEqual([`+${TICK_STEP} real`, `+${TICK_STEP} real`, '+50 real']);
+  s.steps.length = 0; s.now = 0;
+  let reads = 0;
+  await heldTick(s, 1000, 'row')(Date.now() + 10_000, async () => ++reads < 3);
+  expect(s.steps).toEqual([`+${TICK_STEP} real`, `+${TICK_STEP} real`]);
+  expect(s.held).toBe(null);
+});
+
 // A still drag's ops wait for the touch to reach its view inside the finger's time: the runner holds that much longer,
-// and the reply says the hold asked.
-test('a still real drag with ops during it holds the wait for delivery longer, and says the hold asked', async () => {
-  const asked = [];
-  const s = { contact: null, held: null,
+// and the reply says the hold asked. A hold moves the agent's clock by its length beside the finger (`tick`, after the
+// author's ops), never by holding it longer (Astra round 1: a 100 ms hold held 650 ms is a long press); under platform
+// timing the clock is the wall's and is not stepped.
+function tickDrive() {
+  const asked = [], ran = [];
+  const s = { contact: null, held: null, now: 1000,
     async layout() { return { nodes: [{ id: 7, x: 10, y: 10, w: 40, h: 20 }], viewport: { w: 400, h: 800 } }; },
     async op() { return { lines: [], next: 0 }; },
+    async clock(spec) { ran.push(`clock ${spec} ${s.held}`); s.now += Number(/^\+(\d+)/.exec(spec)[1]); return { clock: s.now }; },
     async landed(r) { return r; } };
-  const carrier = { touches: true, async input(id, phase, opts) { asked.push(opts.drag.hold); return { tapped: id, delivery: 'platform', drag: { dx: 0, dy: 0, press: 0, over: 0, hold: opts.drag.hold } }; } };
-  const run = (opts) => dragTap({ s, carrier, node: { id: 7 }, target: 'row', host: 'ios', timing: 'agent', tapRefusal: async (_, __, e) => e }, opts);
-  const r = await run({ dx: 0, dy: 0, hold: 200, during: [async () => 'read'] });
+  // As realTap: the ops in order, then the tick, given when the finger lifts less the margin.
+  const carrier = { touches: true, async input(id, phase, opts) {
+    asked.push(opts.drag.hold);
+    const during = [];
+    for (const op of opts.drag.during) during.push(await op());
+    if (opts.drag.tick) await opts.drag.tick(Date.now() + opts.drag.hold - TICK_MARGIN, async () => true);
+    return { tapped: id, delivery: 'platform', drag: { dx: 0, dy: 0, press: 0, over: 0, hold: opts.drag.hold }, ...(during.length ? { during } : {}) };
+  } };
+  const run = (opts, timing = 'agent') => dragTap({ s, carrier, node: { id: 7 }, target: 'row', host: 'ios', timing, tapRefusal: async (_, __, e) => e }, opts);
+  return { s, asked, ran, run };
+}
+
+test('a real drag holds the finger as asked and moves the clock by the hold beside it', async () => {
+  const d = tickDrive();
+  const r = await d.run({ dx: 0, dy: 0, hold: 200, during: [async () => { d.ran.push('read'); return 'read'; }] });
   expect(r.drag.hold).toBe(200);
-  await run({ dx: 0, dy: 0, hold: 200 });
-  await run({ dx: 0, dy: 40, hold: 200, during: [async () => 'read'] });
-  expect(asked).toEqual([200 + REACH_MS, 200, 200]);
+  expect(r.during).toEqual(['read']);
+  expect(d.ran[0]).toBe('read');
+  expect(d.ran.slice(1).every((line) => line.startsWith('clock +') && line.endsWith(' row'))).toBe(true);
+  expect(d.s.now).toBe(1200);
+  await d.run({ dx: 0, dy: 40, hold: 200, during: [async () => 'read'] });
+  expect(d.s.now).toBe(1400);
+  d.ran.length = 0;
+  await d.run({ dx: 0, dy: 0, hold: 200 }, 'platform');
+  await d.run({ dx: 0, dy: 40 });
+  expect(d.ran).toEqual([]);
+  expect(d.asked).toEqual([200 + REACH_MS, 200, 200, 0]);
+});
+
+// Astra round 1: `hold 100` was held 650 ms, past UIKit's 500 ms long press.
+test('a short real hold is held as asked, and the clock still moves by it', async () => {
+  const d = tickDrive();
+  await d.run({ dx: 0, dy: 0, hold: 100 });
+  expect(d.asked).toEqual([100]);
+  expect(d.s.now).toBe(1100);
+});
+
+// Astra round 1: `hold 1000 during "clock +900 real"` stepped 900 then 1000 more inside a longer hold.
+test('a hold whose ops moved the clock moves it only by the rest', async () => {
+  const d = tickDrive();
+  await d.run({ dx: 0, dy: 0, hold: 1000, during: [() => d.s.clock('+900 real')] });
+  expect(d.asked).toEqual([1000 + REACH_MS]);
+  expect(d.s.now).toBe(2000);
+  const e = tickDrive();
+  await e.run({ dx: 0, dy: 0, hold: 1000, during: [() => e.s.clock('+1200 real')] });
+  expect(e.s.now).toBe(2200);
+  expect(e.ran).toEqual(['clock +1200 real row']);
 });

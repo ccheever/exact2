@@ -171,14 +171,13 @@ final class OwnerBlocks {
     /// whether a window shows that view: a route under a pushed one, or in a
     /// tab not selected, is out of the window.
     private var routes: [(route: RouteController, view: UIView, block: CGRect, shown: Bool, presented: Bool)] {
-        let navigation = presenter.navigation
-        let primary = navigation.allNavigations.filter { nav in !navigation.presentedNavigations.contains { $0 === nav } }
-        return primary.flatMap { routes(of: $0, presented: false) } + presenter.modals.navigations.flatMap { routes(of: $0, presented: true) }
+        presenter.navigation.primaryStacks.flatMap { routes(of: $0, presented: false) } + presenter.modals.navigations.flatMap { routes(of: $0, presented: true) }
     }
 
-    private func routes(of nav: UINavigationController, presented: Bool) -> [(route: RouteController, view: UIView, block: CGRect, shown: Bool, presented: Bool)] {
-        var controllers = nav.viewControllers
-        if let leaving = nav.transitionCoordinator?.viewController(forKey: .from),
+    /// A stack's routes: a navigation controller's, or a tab's held one.
+    private func routes(of stack: UIViewController, presented: Bool) -> [(route: RouteController, view: UIView, block: CGRect, shown: Bool, presented: Bool)] {
+        var controllers = stack.stackRoutes
+        if let leaving = (stack as? UINavigationController)?.transitionCoordinator?.viewController(forKey: .from),
            !controllers.contains(where: { $0 === leaving }) { controllers.append(leaving) }
         return controllers.compactMap { controller in
             guard let route = controller as? RouteController, let view = route.viewIfLoaded,

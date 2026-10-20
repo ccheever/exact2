@@ -1,7 +1,6 @@
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { glueDeclarations } from './glue-fixture.mjs';
 
 const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
@@ -75,7 +74,7 @@ async function inBrowser(run) {
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
     const failed = new Promise((_, reject) => page.on('pageerror', reject));
     await Promise.race([page.goto(server.url.href).then(() => page.waitForFunction(() => window.ready)), failed]);

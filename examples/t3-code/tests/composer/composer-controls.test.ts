@@ -9,6 +9,7 @@ import { noteNow, composerNow, resolveDispatchMode, withDispatchMode, submission
 import { applyOptionChoice, providerLock, wokeAt } from '../../src/composer/composer-controls-commands';
 import { footerLayout, textWidth, traitsDisplay, presentBackgroundWork, tasksProgress } from '../../src/composer/composer-controls-view';
 import { traitsMenu } from '../../src/composer/composer-presentation';
+import { antigravitySendBlockReason } from '../../src/composer/composer-provider-selection';
 import { threadStatusLine } from '../../src/timeline/thread-status-line';
 import { toasts } from '../../src/shell/toast';
 import { queueState, queuedEdit } from '../../src/composer/composer-controls-queue';
@@ -81,6 +82,78 @@ describe('sticky model and next-turn selection', () => {
     client.thread!.projection.providerSessions = [{ id: 's1', capabilities: { sessions: { supportsProviderSwitchingViaHandoff: true } } }];
     client.thread!.projection.providerThreads = [{ id: 'pt', appThreadId: 't1', providerSessionId: 's1' }];
     expect(providerLock(client)).toBeNull();
+  });
+});
+
+describe('the send: settings, title seed, provider and permission (ChatView onSend)', () => {
+  test('on an idle server thread, mode and model picks send nothing until the message, which follows the set commands', async () => {
+    const { client, native, command } = await opened();
+    const before = native.committed.length;
+    await command('interaction', '', 'plan');
+    await command('runtime', '', 'approval-required');
+    await command('model', 'model-b', 'codex');
+    expect(native.committed.length).toBe(before);
+    expect([client.interactionMode, client.runtimeMode, client.modelId]).toEqual(['plan', 'approval-required', 'model-b']);
+    // The picks stay with the thread's draft across a switch.
+    await command('select-thread', 't2');
+    expect(client.interactionMode).toBe('default');
+    await command('select-thread', 't1');
+    await client.refresh(native, storage());
+    expect([client.interactionMode, client.runtimeMode, client.modelId]).toEqual(['plan', 'approval-required', 'model-b']);
+    expect(native.committed.length).toBe(before);
+    await command('send', '', 'Now go');
+    expect(native.committed.slice(before).map(entry => entry.type)).toEqual(['thread.runtime-mode.set', 'thread.interaction-mode.set', 'message.dispatch']);
+    expect(native.committed.at(-1)).toMatchObject({ modelSelection: { instanceId: 'codex', model: 'model-b' } });
+  });
+  test('every message carries its title seed, on a thread with turns too', async () => {
+    const { client, native, command } = await opened();
+    await command('send', '', 'Hello **bold** from the clone');
+    expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', text: 'Hello **bold** from the clone', titleSeed: 'Hello **bold** from the clone' });
+    client.thread!.projection.runs = [{ id: 'r1', ordinal: 1, status: 'completed' }];
+    client.thread!.projection.messages = [{ id: 'm1', role: 'user', text: 'Earlier' }];
+    await command('send', '', `${'y'.repeat(60)} [notes.md](t3-context://v1/file/file_x)`);
+    expect(native.committed.at(-1)!.titleSeed).toBe(`${'y'.repeat(50)}...`);
+  });
+  test('a listed provider whose probe failed still sends; only a missing provider blocks', async () => {
+    const { client, native, command } = await opened();
+    const codex = arr(client.config.providers)[0]!;
+    Object.assign(codex, { installed: false, status: 'error', availability: 'unavailable', auth: { status: 'unknown' } });
+    expect(snapshot(client).canSend).toBe(true);
+    await command('send', '', 'Send anyway');
+    expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', text: 'Send anyway' });
+    codex.models = []; // a probe that failed before listing models (Codex at a missing binary)
+    expect(snapshot(client).canSend).toBe(true);
+    await command('send', '', 'Send without a catalog');
+    expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', text: 'Send without a catalog' });
+    for (const entry of arr(client.config.providers)) entry.enabled = false;
+    const count = native.committed.length;
+    await command('send', '', 'Nowhere to go');
+    expect(native.committed.length).toBe(count);
+    expect(client.error).toContain('This provider is unavailable');
+  });
+  test("Antigravity's block reason is the one provider state that stops a send", () => {
+    const agy = (extra: Obj) => provider('agy', 'antigravity', extra);
+    expect(antigravitySendBlockReason(provider('codex', 'codex', { installed: false, status: 'error' }), 'model-a')).toBe('');
+    expect(antigravitySendBlockReason(agy({ installed: false }), 'model-a')).toBe('Install Antigravity in provider settings before sending.');
+    expect(antigravitySendBlockReason(agy({ auth: { status: 'unauthenticated' } }), 'model-a')).toBe('Sign in to Antigravity in provider settings before sending.');
+    expect(antigravitySendBlockReason(agy({}), ' ')).toBe('Choose an Antigravity model before sending.');
+    expect(antigravitySendBlockReason(agy({ models: [] }), 'model-a')).toBe('Refresh Antigravity models in provider settings before sending.');
+    expect(antigravitySendBlockReason(agy({}), 'gone')).toBe('That Antigravity model is no longer available. Choose another model.');
+    expect(antigravitySendBlockReason(agy({}), 'antigravity-default')).toBe('');
+  });
+  test('without orchestration:operate Send is disabled with its reason and no banner shows', async () => {
+    const client = new T3Client(), native = new Fake(), disk = storage();
+    const later = native.later.bind(native);
+    native.later = async (input: unknown) => obj(input).op === 'http' && obj(input).path === '/api/auth/session'
+      ? native.ok({ authenticated: true, scopes: ['orchestration:read'] }) : later(input);
+    await client.refresh(native, disk);
+    await client.command('select-thread', 't1', '', 0, native, disk);
+    await client.refresh(native, disk);
+    client.local.drafts[client.draftKey] = 'ro text';
+    const view = snapshot(client);
+    expect(client.error).toBe('');
+    expect(view.canSend).toBe(false);
+    expect(view.composer).toMatchObject({ sendStatus: 'This connection cannot change threads.', sendTooltip: 'This connection cannot change threads.' });
   });
 });
 

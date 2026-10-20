@@ -10,6 +10,7 @@ import { inflateSync } from 'node:zlib';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { webContentType } from '../serve.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
 const dir = process.env.EXACT_COLLECTION_TEST, dist = resolve(dir, 'dist');
 const gallery = process.env.EXACT_COLLECTION_GALLERY === '1';
 const javascript = resolve(process.env.EXACT_COLLECTION_JS ?? 'host/web');
@@ -82,7 +83,7 @@ const server = createServer((req, res) => {
   catch { res.writeHead(404); res.end(); }
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
-const child = spawn(process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+const child = spawn(chromium().executable,
   ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}/chrome`, 'about:blank'],
   { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
 const cdp = new Cdp(child.stdio[3], child.stdio[4]), errors = [];

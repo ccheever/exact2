@@ -225,9 +225,15 @@ final class FixtureModule: ExactModule {
     private let fade = Fade()
     private var targets: [String: Click] = [:]
 
+    /// The tabs the container hook was handed, kept when the UIKit tests ask
+    /// (`EXACT_FIXTURE_READ_TABS`): every navigation hook then reads every
+    /// tab's controller, its own included while Exact builds it.
+    private var tabContents: ExactTabContents?
+
     override func navigation(_ navigation: ExactNavigation) {
         navigation.controller.navigationBar.tintColor = .systemIndigo
         context.diagnostics.count("navigations")
+        for tab in tabContents?.tabs ?? [] { _ = tab.controller }
     }
 
     override func route(_ route: ExactRoute) {
@@ -260,7 +266,8 @@ final class FixtureModule: ExactModule {
     /// tests': `EXACT_FIXTURE_CONTAINER=app`): a segmented control over the
     /// selected tab's stack, through the seam alone.
     override func tabContainer(_ contents: ExactTabContents) -> UIViewController? {
-        ProcessInfo.processInfo.environment["EXACT_FIXTURE_CONTAINER"] == "app" ? FixtureTabs(contents) : nil
+        if ProcessInfo.processInfo.environment["EXACT_FIXTURE_READ_TABS"] == "1" { tabContents = contents }
+        return ProcessInfo.processInfo.environment["EXACT_FIXTURE_CONTAINER"] == "app" ? FixtureTabs(contents) : nil
     }
     #endif
 }

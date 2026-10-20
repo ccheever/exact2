@@ -363,7 +363,7 @@ public final class ExactSession {
     private var dataGeneration: Int?
     var dataActivated: Bool { dataGeneration == generation }
     private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
-    private var updateToken: UInt64 = 0
+    private var updateToken: UInt64 = 0, receipt: DrawReceipt?
     package let core: SessionCore
     package var runtime: Runtime { core.runtime }
     /// This session's file roots, captured outside a native module callback.
@@ -1224,14 +1224,14 @@ public final class ExactSession {
 
     /// The first node drew: the GPU module may load now (LLP 1009 D4), on
     /// the next turn; the update store hears first pixel (LLP 1026 D11).
-    /// Capture at node creation. A delayed old draw cannot bless its successor.
-    func drawReceipt() -> () -> Void {
-        let drawnGeneration = generation
-        let token = updateToken
-        return { [weak self] in self?.firstDrawn(generation: drawnGeneration, token: token) }
+    /// Capture at node creation, one for a generation's and an update's nodes: a delayed old draw cannot bless its successor.
+    func drawReceipt() -> DrawReceipt {
+        if let receipt, receipt.generation == generation, receipt.token == updateToken { return receipt }
+        let made = DrawReceipt(self, generation: generation, token: updateToken); receipt = made
+        return made
     }
 
-    private func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
+    func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
         guard state != .destroyed, generation == drawnGeneration else { return }
         if firstDrawMs == nil { firstDrawMs = ExactEnv.wall() }
         app.sharedStore.firstPixel()

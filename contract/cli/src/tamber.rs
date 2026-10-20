@@ -15,12 +15,16 @@ const USAGE: &str = "usage:
   contract tamber serve --stdio <app dir>   (the design's one writer, tamber/1 over JSON lines)
   contract tamber gen ts|rust <app dir | app.contract | file.tamber> [-o <dir>]   (bindings, in the app's .exact/tamber/)
   contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or dir> | astryx <resolved json> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
+  contract tamber import-plan <design file>   (one import planned alone: {request, design} on stdin, {ok} or {error} out; the wire's)
   contract tamber export dtcg <app dir | app.contract | file.tamber> [-o <file>]   (DTCG 2025.10; its baseline kept in .exact/)
   (a flag may come before the path or after it)";
 
 pub fn run(args: &[String]) -> ExitCode {
     if args.first().is_some_and(|a| a == "serve") {
         return crate::tamber_serve::run(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == "import-plan") {
+        return crate::tamber_import::plan_alone(&args[1..]);
     }
     if args.first().is_some_and(|a| a == "import") {
         return crate::tamber_import::run(&args[1..]);
@@ -103,7 +107,12 @@ pub fn run(args: &[String]) -> ExitCode {
                 return ExitCode::from(2);
             }
         },
-        None if !params.is_empty() && verb != "fmt" => {
+        // Params or packages' designs (LLP 1121 D11) and no design of its own: theirs alone.
+        None if app.inline && !app.packages.is_empty() && verb != "fmt" => {
+            eprintln!("contract tamber: {input}'s tokens are an inline `theme`, which `contract tamber` doesn't fold with its packages' designs; `contract build` checks them");
+            return ExitCode::from(2);
+        }
+        None if (!params.is_empty() || !app.packages.is_empty()) && verb != "fmt" => {
             let dir = app_contract(Path::new(&input))
                 .parent()
                 .map(Path::to_path_buf)
@@ -118,11 +127,19 @@ pub fn run(args: &[String]) -> ExitCode {
     if verb == "fmt" {
         return fmt(&path, &src, !rest.is_empty());
     }
-    let folded = match params.is_empty() {
-        true => exact_tamber::check(&src, &contract_lower::tamber_vocab()),
-        false => exact_tamber::parse(&src).and_then(|mut d| {
-            contract_lower::params::add_to(&mut d, params, &app.identities);
-            exact_tamber::check_design(d, &contract_lower::tamber_vocab())
+    // Its params and its packages' tokens (LLP 1121 D11) laid in, as the build lays them.
+    let folded = match (params.is_empty(), app.packages.is_empty()) {
+        (true, true) => exact_tamber::check(&src, &contract_lower::tamber_vocab()),
+        // With packages: what the build refuses of them too (`fold_with`).
+        (_, false) => {
+            contract::tamber_params::fold_with(&src, &app, &contract_lower::tamber_vocab())
+                .map(|(folding, _)| folding)
+        }
+        (false, true) => exact_tamber::parse(&src).and_then(|d| {
+            exact_tamber::check_design(
+                contract::tamber_params::laid(&d, &app),
+                &contract_lower::tamber_vocab(),
+            )
         }),
     };
     let folding = match folded {
@@ -151,7 +168,39 @@ pub fn run(args: &[String]) -> ExitCode {
     // An app with params is built itself, as it builds its design; so is
     // one whose Contract did not load (its params are unknown), so the
     // build says why.
-    let refused = match admission(&src, (!params.is_empty() || app.failed).then_some(built)) {
+    // An app with params or package designs (LLP 1121 D11) is admitted by its own build.
+    // The app's `assets/`, where its build reads its icons' SVGs: beside its
+    // app.contract, or beside a design checked apart from any app.
+    // A design checked by its own path whose app is a directory above it
+    // (app.json's "tamber" naming it) reads that app's.
+    let home = match apart {
+        false => built.parent().map(Path::to_path_buf),
+        true => {
+            let file = canonical(&path);
+            file.ancestors()
+                .skip(1)
+                .find(|d| {
+                    let at = d.join("app.contract");
+                    at.is_file()
+                        && contract::design_path(&at).map(|p| canonical(&p)).as_ref() == Some(&file)
+                })
+                .map(Path::to_path_buf)
+                .or_else(|| path.parent().map(Path::to_path_buf))
+        }
+    };
+    let assets = home.map(|d| d.join("assets"));
+    let mut svgs: Vec<&str> = folding
+        .icons
+        .iter()
+        .filter_map(|i| i.svg.as_deref())
+        .collect();
+    svgs.sort_unstable();
+    svgs.dedup();
+    let refused = match admission(
+        &src,
+        (assets.as_deref(), &svgs),
+        (!params.is_empty() || app.failed || !app.packages.is_empty()).then_some(built),
+    ) {
         Ok(refused) => refused,
         Err(why) => {
             eprintln!("contract tamber: {why}");
@@ -224,6 +273,7 @@ pub fn run(args: &[String]) -> ExitCode {
 #[allow(clippy::type_complexity)]
 fn admission(
     src: &str,
+    (assets, svgs): (Option<&Path>, &[&str]),
     app: Option<PathBuf>,
 ) -> Result<Vec<(Option<PathBuf>, u32, u32, String, String)>, String> {
     if let Some(app) = app {
@@ -252,8 +302,27 @@ fn admission(
                 dir.join("app.contract"),
                 "component App\n  view\n    column\n",
             )
+        })
+        // The design's icons read their SVGs under the app's `assets/`, as
+        // its build reads them: each one it names copied there (one the app
+        // lacks is not, and is refused as the build refuses it).
+        .and_then(|()| {
+            for svg in svgs {
+                let Some(from) = assets.map(|a| a.join(svg)).filter(|f| f.is_file()) else {
+                    continue;
+                };
+                let to = dir.join("assets").join(svg);
+                if let Some(parent) = to.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                // Its bytes, in a file of the copy's own (a read-only
+                // source's permissions not carried over).
+                std::fs::write(to, std::fs::read(from)?)?;
+            }
+            Ok(())
         });
     if let Err(e) = made {
+        let _ = std::fs::remove_dir_all(&dir);
         return Err(format!("{}: {e}", dir.display()));
     }
     let result = contract::compile_path_all(&dir.join("app.contract"), false);

@@ -600,6 +600,8 @@ impl<D: DataSource> Runner<D> {
             ));
         }
         self.take_set_modes(first_command);
+        // The scheme and root size a development host holds: kept as asked, not applied (LLP 1122 T7).
+        self.take_held(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
         // commit's layout, and the command stays for a host that mirrors it;
         // a refused one is journaled as refused, never as a command.

@@ -1,5 +1,19 @@
 # Vendored Ibex split crates — Exact integration ledger
 
+## Mac widget Keychain (LLP 1126.001 WP16)
+
+`crates/ibex2/src/secrets/darwin_keychain.mm` selects the restricted
+`ExactKeychainAccessGroup` in the data-protection Keychain for a provisioned
+Apple widget cohort. Ordinary Mac apps keep the login Keychain. The containing
+app migrates its service's login items on its first provisioned launch;
+copy failure keeps the old item, and an existing shared item wins. Migration
+runs once per process, from `prepare` only. An unreadable item is skipped;
+errors are logged without withholding the app's I/O. Retained items can be
+retried on the next launch. The move is one-way. Extensions never migrate.
+The Objective-C fixture in
+`host/apple/tests/fixtures/keychain-migration.mm` exercises retries and failures
+with substituted Security calls; signed Keychain access still needs profiles.
+
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
@@ -265,6 +279,14 @@ lends such a span to Hermes instead of copying it, since Hermes keeps a
 module's buffer for the runtime's life and the statics live as long; a span
 not so aligned is still copied. `include/ibex2_jsi.h` says so at
 `CompiledScript`. In euxy on iOS the copies were 81 KB of malloc at idle.
+Replay on a refresh.
+
+## Local patch 17, a host-task worker gives its stack back when idle
+
+`pool.rs`: on Apple platforms a worker that finishes a job with none queued
+releases its stack pages below its frame (`MADV_FREE_REUSABLE`). The two
+workers kept through a quiet spell otherwise keep every page a job reached
+dirty for the process's life: 80 KB in euxy on iOS after its launch's reads.
 Replay on a refresh.
 
 ## Qualification boundaries

@@ -9,12 +9,16 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod budget;
 mod check;
 mod color_fn;
 mod component;
 mod css;
 mod edit;
 pub mod export;
+mod export_batch;
+pub use export_batch::own_digest;
+mod export_dials;
 mod export_kinds;
 mod fmt;
 mod fold;
@@ -108,8 +112,16 @@ pub struct Vocab {
     /// without case, as CSS matches keywords.
     pub named_lengths: Vec<String>,
     /// Each named length's px at the default root size (16), as text: what
-    /// the DTCG export writes a text style or the hairline as.
+    /// the DTCG export writes a text style or the hairline as (and a base
+    /// name, the caller's chosen column's: Exact gives the neutral one's).
     pub sizes: Vec<(String, String)>,
+    /// The base names the host resolves per platform (Exact's base scale,
+    /// `space.md`; LLP 1121 stage 11 B), matched exactly. One the design
+    /// leaves unset: a value naming it bare is a named length, kept as
+    /// written and never folded, so each host reads its own; an expression
+    /// over it is refused (`tamber-base-expression`). One the design sets is
+    /// its token, as any.
+    pub bases: Vec<String>,
 }
 
 impl Vocab {
@@ -167,6 +179,13 @@ pub fn check_design(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Di
     // (`params::laid` did this alone, so `check` and an export refused it).
     icon::aliased(&mut design.icons);
     let (icons, mut refused) = icon::check(&design.icons, &design.tokens);
+    // A base name is the scale's length: an icon is never one (a dial's
+    // name is an identifier, so no dial is one).
+    for name in design.icons.iter().map(|t| &t.name) {
+        if vocab.bases.contains(&name.value) {
+            refused.push(Diagnostic::new("tamber-base-kind", format!("`{}` is a base length (the scale's): an app sets it as a length token, not an icon", name.value), name.line, name.col));
+        }
+    }
     // An icon under `theme` is refused by the icons check alone.
     let stripped;
     let colours = if design.tokens.iter().any(icon::misplaced) {
@@ -184,12 +203,24 @@ pub fn check_design(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Di
         &design
     };
     let (tokens, tuples, dials) = match check::check(colours, vocab) {
-        Ok(checked) if refused.is_empty() => checked,
-        Ok(_) => {
+        Ok(checked)
+            if refused.is_empty() && misnamed(&design, kinds(&checked.0), vocab).is_empty() =>
+        {
+            checked
+        }
+        Ok(checked) if refused.is_empty() => {
+            return Err(misnamed(&design, kinds(&checked.0), vocab))
+        }
+        // Each refusal at once: a base name misdeclared beside another
+        // refusal is said too (round 3, Grok).
+        Ok(checked) => {
+            refused.extend(misnamed(&design, kinds(&checked.0), vocab));
             refused.sort_by_key(|d| (d.line, d.col));
             return Err(refused);
         }
-        Err(mut errors) => {
+        Err((mut errors, inferred)) => {
+            // The checker refused: each token's kind, written or inferred.
+            errors.extend(misnamed(&design, inferred, vocab));
             errors.append(&mut refused);
             errors.sort_by_key(|d| (d.line, d.col));
             return Err(errors);
@@ -213,6 +244,27 @@ pub fn check_design(mut design: Design, vocab: &Vocab) -> Result<Folding, Vec<Di
         fallbacks,
         dials: dials.iter().map(ir::dial_text).collect(),
     })
+}
+
+/// `tamber-base-kind` (stage 11 B, theme2's (c)): a base name the design
+/// declares as anything but a length, which every reader of the design
+/// refuses (the build, a write's plan), not the lowering alone.
+fn misnamed(design: &Design, kinds: Vec<Kind>, vocab: &Vocab) -> Vec<Diagnostic> {
+    kinds
+        .into_iter()
+        .zip(&design.tokens)
+        .filter(|(k, d)| vocab.bases.contains(&d.name.value) && *k != Kind::Length)
+        .map(|(k, d)| {
+            let name = &d.name;
+            Diagnostic::new("tamber-base-kind", format!("`{0}` is a base length (the scale's `{0}`): an app sets it to a length (`{0} = 12px`), not a {1}", name.value, k.name()), name.line, name.col)
+        })
+        .collect()
+}
+
+/// Each design token's kind, in the design's order, from the checked
+/// tokens: one a token, as the checker refused none.
+fn kinds(tokens: &[Checked]) -> Vec<Kind> {
+    tokens.iter().map(|t| t.kind).collect()
 }
 
 /// Each type token whose size is px in some tuple (`tamber-type-fixed`,

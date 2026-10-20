@@ -24,6 +24,8 @@ pub struct Widget {
     pub props: String,
     /// Data-source function: `(epoch_ms: number) -> {date: number, props: Props}[]`.
     pub refresh: String,
+    /// Refresh reads account data; an unprovisioned Mac shows the placeholder.
+    pub requires_secrets: bool,
     /// Placeholder props, checked against the shape at bake.
     pub preview: Value,
 }
@@ -55,6 +57,7 @@ impl Manifest {
                         "component",
                         "props",
                         "refresh",
+                        "requiresSecrets",
                         "preview",
                     ]
                     .contains(&key.as_str())
@@ -152,6 +155,10 @@ impl Manifest {
                     component: name("component")?,
                     props: name("props")?,
                     refresh: name("refresh")?,
+                    requires_secrets: match object.get("requiresSecrets") {
+                        None => false,
+                        Some(value) => value.as_bool().ok_or_else(|| format!("{at}.requiresSecrets must be a boolean"))?,
+                    },
                     preview,
                 })
             })

@@ -31,7 +31,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The window's tuple with each `(axis, value)` of `pins`; `None` when
     /// one names no axis or value of the plan's, or an axis twice.
-    fn window_with(&self, pins: &[(&str, &str)]) -> Option<u32> {
+    pub(super) fn window_with(&self, pins: &[(&str, &str)]) -> Option<u32> {
         let axes: Vec<(&str, Vec<&str>)> = self
             .plan
             .axes
@@ -78,7 +78,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Set the window's tuple, to be set again in the next visit.
-    fn set_window(&mut self, tuple: u32) -> bool {
+    pub(super) fn set_window(&mut self, tuple: u32) -> bool {
         let moved = tuple != self.ids.theme.window;
         self.ids.theme.window = tuple;
         self.ids.theme.moved |= moved;
@@ -104,6 +104,18 @@ impl<D: DataSource> Runner<D> {
     /// called it. `false`, and a journal line, for an axis or value the plan
     /// does not have, which changes nothing.
     pub(super) fn app_set_mode(&mut self, args: &[Value]) -> bool {
+        // (On an axis a development host holds over the app's own: kept as asked, not applied.)
+        if let [axis, value] = args {
+            if let Some(pin) = axis
+                .as_str()
+                .zip(value.as_str())
+                .filter(|pin| self.window_with(&[*pin]).is_some())
+            {
+                if self.held_mode(pin.0, pin.1) {
+                    return true;
+                }
+            }
+        }
         let tuple = match args {
             [axis, value] => axis
                 .as_str()

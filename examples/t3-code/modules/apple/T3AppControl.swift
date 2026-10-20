@@ -514,7 +514,7 @@ final class T3AppControl {
     static func activateMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
         if NSApp.isHidden { NSApp.unhide(nil) } // ⌘H: the reference's reveal shows a window that is not visible
-        guard let window = activationTarget(main: NSApp.mainWindow, windows: NSApp.windows) else { return }
+        guard let window = activationTarget(main: NSApp.mainWindow, windows: NSApp.windows, kept: shared.keptWindows()) else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
     }
@@ -522,11 +522,18 @@ final class T3AppControl {
     /// The window `activate` brings back (ElectronWindow's focusedMainOrFirst, restored when minimized): the main
     /// window, else the first document window on screen, else the first one in the Dock. Chosen by kind, not by
     /// `canBecomeMain`, which AppKit answers false for a window that is not visible: a minimized window was never a
-    /// candidate, stayed in the Dock, and its page never handled the request (#298 bug 7).
-    static func activationTarget<Window: T3ActivationWindow>(main: Window?, windows: [Window]) -> Window? {
+    /// candidate, stayed in the Dock, and its page never handled the request (#298 bug 7). Last, a session's window
+    /// that Close Window ordered out without closing (`kept`: `host.macos.window.keepRunning`), as the reference
+    /// opens a main window when it has none.
+    static func activationTarget<Window: T3ActivationWindow>(main: Window?, windows: [Window], kept: [Window] = []) -> Window? {
         if let main { return main }
         let documents = windows.filter(\.isActivationDocument)
-        return documents.first(where: \.isVisible) ?? documents.first(where: \.isMiniaturized)
+        return documents.first(where: \.isVisible) ?? documents.first(where: \.isMiniaturized) ?? kept.first
+    }
+
+    /// The sessions' document windows that have not begun to close.
+    func keptWindows() -> [NSWindow] {
+        queue.sync { windows.values.filter { !$0.closed }.compactMap(\.nsWindow) }
     }
 
     /// A session's module arrived. The first one starts following the embedded server, as a listener

@@ -25,17 +25,17 @@ test('the load commands are read from the file, each slice of a universal one; a
 });
 
 
-test('ordinary app executables refuse WidgetKit and ActivityKit load commands', () => {
+test('ordinary app executables refuse WidgetKit, ActivityKit and SwiftUI, including versioned Mac frameworks (LLP 1126.001 WP16)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-activity-links-'));
   try {
-    for (const framework of ['WidgetKit', 'ActivityKit']) {
-      const name = Buffer.from(`/System/Library/Frameworks/${framework}.framework/${framework}\0`);
+    for (const framework of ['WidgetKit', 'ActivityKit', 'SwiftUI']) for (const version of ['', 'Versions/A/']) {
+      const name = Buffer.from(`/System/Library/Frameworks/${framework}.framework/${version}${framework}\0`);
       const size = (24 + name.length + 7) & ~7, bytes = Buffer.alloc(32 + size);
       bytes.writeUInt32LE(0xfeedfacf, 0); bytes.writeUInt32LE(1, 16); bytes.writeUInt32LE(size, 20);
       bytes.writeUInt32LE(0xc, 32); bytes.writeUInt32LE(size, 36); bytes.writeUInt32LE(24, 40); name.copy(bytes, 56);
       const executable = join(dir, 'App'); writeFileSync(executable, bytes);
       assert.throws(() => assertCapabilityFrameworks(executable, []), new RegExp(framework));
-      assert.doesNotThrow(() => assertCapabilityFrameworks(executable, ['ExactSnapshot']));
+      assert.doesNotThrow(() => assertCapabilityFrameworks(executable, framework === 'SwiftUI' ? [] : ['ExactSnapshot'], framework === 'SwiftUI' ? ['SwiftUI'] : []));
     }
   } finally { rmSync(dir, {recursive:true,force:true}); }
 });
