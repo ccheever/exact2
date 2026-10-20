@@ -112,6 +112,18 @@ pub trait InlineGeometry: std::fmt::Debug {
     }
 }
 
+/// An open top-layer box: its view, viewport frame and optional viewport
+/// clip, each rectangle as `[x, y, width, height]` (LLP 1051.000 D1,
+/// LLP 1123 D2). The clip bounds reads without changing the frame's mapping.
+pub type TopLayerFrame = (ViewId, [f64; 4], Option<[f64; 4]>);
+
+#[derive(Debug, Clone)]
+struct TopLayerBox {
+    key: NodeKey,
+    frame: Option<[f64; 4]>,
+    clip: Option<[f64; 4]>,
+}
+
 /// Where the host last showed each scroll container, and the page, in CSS
 /// px (`scrollLeft`, `scrollTop`): what a native read subtracts from the
 /// kernel's scroll-free box (kanban diary F4: an app hand-tracked every
@@ -122,7 +134,7 @@ pub trait InlineGeometry: std::fmt::Debug {
 pub struct Scrolled {
     page: (f64, f64),
     boxes: Vec<(NodeKey, f64, f64)>,
-    top_layer: Vec<(NodeKey, Option<[f64; 4]>)>,
+    top_layer: Vec<TopLayerBox>,
     /// The index in `top_layer` of the frontmost modal presentation's
     /// first box, as its host reports it.
     modal: Option<usize>,
@@ -166,7 +178,13 @@ impl Scrolled {
         let arena = kernel.arena();
         self.top_layer = views
             .iter()
-            .filter_map(|view| arena.key_of(*view).map(|key| (key, None)))
+            .filter_map(|view| {
+                arena.key_of(*view).map(|key| TopLayerBox {
+                    key,
+                    frame: None,
+                    clip: None,
+                })
+            })
             .collect();
         self.modal = None;
     }
@@ -175,19 +193,26 @@ impl Scrolled {
     /// frames, from back to front. An open top-layer box is positioned by its
     /// presenter instead of its authored parent. `modal` is the index in
     /// `frames` of the frontmost modal presentation's first box
-    /// (`modal_live`), none while no presentation is open.
+    /// (`modal_live`), none while no presentation is open. An optional clip
+    /// bounds hits and visibility in viewport points, independently of the
+    /// frame's mapping (LLP 1051.000 D1, LLP 1123 D2). Invalid rectangles
+    /// discard their entry, without counting it toward `modal`.
     pub fn top_layer_frames(
         &mut self,
         kernel: &Kernel,
-        frames: &[(ViewId, [f64; 4])],
+        frames: &[TopLayerFrame],
         modal: Option<usize>,
     ) {
         let arena = kernel.arena();
-        let entry = |(view, rect): &(ViewId, [f64; 4])| {
+        let entry = |(view, rect, clip): &TopLayerFrame| {
             arena
                 .key_of(*view)
-                .filter(|_| valid_rect(rect))
-                .map(|key| (key, Some(*rect)))
+                .filter(|_| valid_rect(rect) && clip.as_ref().is_none_or(valid_rect))
+                .map(|key| TopLayerBox {
+                    key,
+                    frame: Some(*rect),
+                    clip: *clip,
+                })
         };
         self.top_layer = frames.iter().filter_map(entry).collect();
         // The boxes ignored before it are not counted
@@ -253,14 +278,21 @@ impl Scrolled {
     }
 
     fn is_open(&self, key: NodeKey) -> bool {
-        self.top_layer.iter().any(|(open, _)| *open == key)
+        self.top_layer.iter().any(|open| open.key == key)
     }
 
     fn top_frame(&self, key: NodeKey) -> Option<[f64; 4]> {
         self.top_layer
             .iter()
-            .find(|(open, _)| *open == key)
-            .and_then(|(_, rect)| *rect)
+            .find(|open| open.key == key)
+            .and_then(|open| open.frame)
+    }
+
+    fn top_clip(&self, key: NodeKey) -> Option<[f64; 4]> {
+        self.top_layer
+            .iter()
+            .find(|open| open.key == key)
+            .and_then(|open| open.clip)
     }
 }
 
@@ -913,16 +945,16 @@ fn data_matches(
 /// is open.
 fn modal_live(kernel: &Kernel, scrolled: &Scrolled) -> Option<Vec<u32>> {
     let arena = kernel.arena();
-    let dialog = scrolled.top_layer.iter().rposition(|&(key, _)| {
+    let dialog = scrolled.top_layer.iter().rposition(|open| {
         arena
-            .resolve(key)
+            .resolve(open.key)
             .is_some_and(|slot| modal_dialog(kernel, slot))
     });
     let from = scrolled.modal.into_iter().chain(dialog).max()?;
     Some(
         scrolled.top_layer[from.min(scrolled.top_layer.len())..]
             .iter()
-            .filter_map(|&(key, _)| arena.resolve(key))
+            .filter_map(|open| arena.resolve(open.key))
             .collect(),
     )
 }
@@ -958,7 +990,25 @@ fn kernel_shown(kernel: &Kernel, scrolled: &Scrolled, view: ViewId, _: bool) -> 
         }
         at = arena.parent(slot);
     }
-    true
+    let Some(mut slot) = arena.slot_of(view) else {
+        return false;
+    };
+    loop {
+        if let Some([x, y, w, h]) = scrolled.top_clip(arena.key(slot)) {
+            let rect = kernel_frame(kernel, scrolled, view);
+            return !rect.unavailable
+                && w > 0.0
+                && h > 0.0
+                && rect.x < x + w
+                && rect.x + rect.width > x
+                && rect.y < y + h
+                && rect.y + rect.height > y;
+        }
+        match shown_in(kernel, scrolled, slot, arena.frame(slot)) {
+            Shown::Parent(parent, _) => slot = parent,
+            Shown::Viewport(_) => return true,
+        }
+    }
 }
 
 /// The front-most laid-out box at viewport `(x, y)` (LLP 1094 D10): every
@@ -1002,10 +1052,15 @@ fn kernel_hits(
     let mut hits = Vec::new();
     // Only the open presentation and what is open above it are read
     let live = modal_live(kernel, scrolled);
-    for &(key, _) in scrolled.top_layer.iter().rev() {
-        let Some(slot) = arena.resolve(key) else {
+    for open in scrolled.top_layer.iter().rev() {
+        let Some(slot) = arena.resolve(open.key) else {
             continue;
         };
+        if open.clip.is_some_and(|[left, top, width, height]| {
+            x < left || x >= left + width || y < top || y >= top + height
+        }) {
+            continue;
+        }
         if live.as_ref().is_some_and(|live| !live.contains(&slot)) {
             continue;
         }
@@ -1051,8 +1106,8 @@ fn kernel_hits(
 /// `dialog` that is not a popover counts as modal without asking whether it
 /// is open: Exact opens a dialog only modally (`showModal`, `command="show-modal"`;
 /// `open` is refused), and the host stays the source of truth for what is
-/// open, which iOS does not report for a dialog's sheet. A popover open in a
-/// closed dialog so escapes too, though the dialog's subtree is hidden.
+/// open. A popover open in a closed dialog so escapes too, though the
+/// dialog's subtree is hidden.
 fn inherited_hit_state(kernel: &Kernel, slot: u32) -> Option<(PointerEvents, Visibility)> {
     let arena = kernel.arena();
     let (mut pointer, mut visibility) = (None, None);

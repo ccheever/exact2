@@ -78,6 +78,10 @@ impl Lowerer<'_> {
             *span,
         )?;
         let native_button = button.as_ref().is_some_and(|b| b.native);
+        // A `button` part as the platform draws it (LLP 1139 D6).
+        if let Some(b) = button.as_ref() {
+            self.button_part(*span, b.native, b.bare_reason.as_deref());
+        }
         if native_button {
             let margins = grouped::margins_said(attrs)
                 || expanded.as_deref().is_some_and(grouped::margins_said);
@@ -847,14 +851,25 @@ impl Lowerer<'_> {
         }
         if let Some(sites) = &mut self.sites {
             debug_assert_eq!(sites.nodes.len(), id.0 as usize);
-            sites.nodes.push(sites::node_site(
+            let mut site = sites::node_site(
                 *span,
                 *instance,
                 button,
                 &bindings,
                 origins.as_deref().expect("site origins"),
                 look_sites,
-            ));
+            );
+            site.part = self
+                .part_names
+                .iter()
+                .find(|(node, _)| node == span)
+                .map(|(_, part)| part.clone());
+            site.library = self
+                .library_nodes
+                .iter()
+                .find(|(node, _)| node == span)
+                .map(|(_, identity)| identity.clone());
+            sites.nodes.push(site);
         }
         let children = if let Some(sections) = sections {
             std::borrow::Cow::Owned(sections)

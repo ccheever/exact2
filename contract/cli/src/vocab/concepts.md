@@ -145,7 +145,7 @@ component App
 More: docs/recipes/persisted-setting.md
 
 ## screen: a second screen, a list and its detail, and Back
-names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router, back button, back-button, back title, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
+names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
 
 A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
@@ -211,6 +211,10 @@ component App
   later is a bare chevron. For "‹ Settings", put a
   `button id="back" press=back` with `text "Settings"` (no `‹`: iOS draws it) in the pushed
   route's `header`, with `navigationBack="back"` on the root.
+- A deep link (`protocol_handlers` in app.json, docs/recipes/app-json.md) arrives at `navigate`.
+  A drive delivers one as the system would, without iOS's "Open in …?" alert: `bun exact.mjs
+  agent ios "type <root> euxy://p/abc"`, the root being the node with `navigate=` (macOS and
+  iOS; a path such as `/recipe/Ramen` works on every host).
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 

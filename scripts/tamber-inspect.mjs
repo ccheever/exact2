@@ -18,6 +18,11 @@
 //   offered beside; a style's state part, the state rung (T4); a row reached
 //   by inheritance is a link to its token, never this node's edit; anything
 //   else is read-only, with its reason.
+// - **Library** (*1.15*, LLP 1139 D5). A node of an exported library
+//   component's own view names its declaring identity and part
+//   (`source.library`, and each row with a map origin, a held state's rows
+//   the held node's), from the map only: one the host's report carries is
+//   dropped on every path.
 // - **Outline.** Each build that can inspect is told the sites of its own
 //   plan at the selection's source location (`outline {sites}`), every copy
 //   of the node.
@@ -177,12 +182,15 @@ export function named(token, params) {
 /** A `selected` report as the server publishes it: its rows' token names
  * scrubbed of IR param tokens as the join's are. */
 export function published(selected, params) {
-  if (!selected?.rows) return selected;
-  return { ...selected, rows: scrubbed(selected.rows, params), ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
+  if (!selected || typeof selected !== 'object') return selected;
+  return { ...selected, ...(selected.rows ? { rows: scrubbed(selected.rows, params) } : {}), ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
 }
-const scrubbed = (rows, params) => (rows ?? []).map(r => (r.token ? { ...r, token: named(r.token, params).token } : r));
+// (a `library` is the map's to say, never the host report's: dropped from what the host sent, on every path, a
+// row's own and its source's)
+const bare = ({ library: _host, ...r }) => (r.source && typeof r.source === 'object' ? { ...r, source: (({ library: _said, ...at }) => at)(r.source) } : r);
+const scrubbed = (rows, params) => (rows ?? []).map(bare).map(r => (r.token ? { ...r, token: named(r.token, params).token } : r));
 // A held state's rows (LLP 1121 stage 8 E), scrubbed as the selection's.
-const heldOf = (held, params) => ({ ...held, rows: scrubbed(held.rows, params) });
+const heldOf = ({ library: _host, ...held }, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
 // A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below).
 const authored = name => AUTHORED[name] ?? WRITTEN[name] ?? String(name).replace(/_/g, '-');
@@ -394,7 +402,8 @@ const asBase = b => (b?.origin ? b : null);
  * `map` (null when the build's map is not here). */
 export function join(build, selected, map, { read = readFileSync, served = null, design = null, params = new Map(), app = null, own = null } = {}) {
   const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
-  const rows = (selected.rows ?? []).map(r => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
+  // (a `library` is the map's to say, never the host report's: dropped from what the host sent)
+  const rows = (selected.rows ?? []).map(bare).map(r => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
   if (!map) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
   const node = map.nodes[selected.site];
   if (!node) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'the site is not in the source map' } })), readOnly: 'the site is not in the source map' };
@@ -405,7 +414,12 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   const placed = n => n ? [n.file, ...(n.chain ?? []).map(c => c.file), ...(n.bindings ?? []).flatMap(b => [b.at, ...(b.states ?? []).map(p => p.at)].flatMap(at => at ? [at.file] : []))] : [];
   const files = [...new Set([...placed(node), ...(owner !== node ? placed(owner) : [])])];
   const readOnly = files.map(f => moved(map, f, read, app)).find(Boolean) || designMoved(map, build, served, design, read, app) || null;
-  const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [] };
+  // The exported library component whose own view the node is of, and its part (LLP 1139 D5, *1.15*): from the map
+  // (`part=` never reaches a host), beside `component`, the map's bare declared name (two packages can share one; an
+  // alias the app imports it by is in neither); absent outside one (a slot's fill is the caller's).
+  const libraryOf = n => (typeof n?.library === 'string' ? { identity: n.library, part: typeof n.part === 'string' ? n.part : null } : null);
+  const library = libraryOf(node);
+  const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [], ...(library ? { library } : {}) };
   // A source node's copies (a template edit is every one's): one a call-site chain, as a hold's replay
   // counts them (a `button "…"`'s label shares its span and chain, and is no second copy).
   const copiesOf = n => Math.max(1, new Set(sitesAt(map, n).filter(i => same(map.nodes[i], n)).map(i => JSON.stringify((map.nodes[i].chain ?? []).map(c => [c.file, c.line, c.col])))).size);
@@ -415,7 +429,9 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   // (the press it resolved to, named on a node inside it: stage 9 E), its site's map node.
   if (base.held) {
     const ownerBound = owner === node ? bound : new Map((owner?.bindings ?? []).map(b => [b.row, b]));
-    const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.chain ?? [] };
+    // (the held node's own library and part, where it is of a library component's view)
+    const ownerLibrary = owner === node ? library : libraryOf(owner);
+    const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.chain ?? [], ...(ownerLibrary ? { library: ownerLibrary } : {}) };
     // Edited where it is held (T4): only where the build names that node (its held site); else shown, not offered.
     const heldHere = Number.isSafeInteger(base.held.site) && !!owner;
     base.held = { ...base.held, rows: (base.held.rows ?? []).map((r, i) => {
@@ -428,7 +444,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       // (Whether it reads a param not yet read: from the host's own report, before its names were scrubbed.)
       const unread = named(selected.held.rows?.[i]?.token, params).unread;
       const offered = !heldHere || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, unread, stateRung(r, b, app, read, own), b?.state ? rowRung(r, b, map, app, copiesOf(owner), read, own) : null);
-      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state && b.at ? b.at : ownerSource ?? null, ...(offered ? { editable: offered } : {}) };
+      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state && b.at ? b.at : ownerSource ?? null, ...(b?.origin && ownerLibrary ? { library: ownerLibrary } : {}), ...(offered ? { editable: offered } : {}) };
     }) };
   }
   return {
@@ -462,7 +478,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
         const at = p.at ?? node;
         return { state: p.state, source: { file: at.file, line: at.line, col: at.col, end_col: at.end_col }, editable: shut(e) };
       });
-      return { ...row, origin, ...part, editable: shut(offered), ...(folds.length ? { states } : {}) };
+      return { ...row, origin, ...part, ...(origin && library ? { library } : {}), editable: shut(offered), ...(folds.length ? { states } : {}) };
     }),
   };
 }

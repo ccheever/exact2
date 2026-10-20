@@ -38,6 +38,13 @@ pub struct NodeSite {
     pub looks: Vec<(&'static str, Vec<(StyleId, Origin)>)>,
     /// The button's compile-time appearance decision, absent on other tags.
     pub button: Option<ButtonSite>,
+    /// The part its element is named as (LLP 1139 D2, D5): what the
+    /// selection report's `library` joins, since `part=` reaches no host.
+    pub part: Option<String>,
+    /// The declaring identity of the exported library component whose own
+    /// view the element is of (LLP 1139 D0, D5); a slot fill's nodes are
+    /// their caller's.
+    pub library: Option<String>,
 }
 
 /// Development-only button admission and migration facts (LLP 1104 D2, D9).
@@ -183,6 +190,8 @@ pub(crate) fn node_site(
         rows: style_rows(bindings, origins),
         looks,
         button,
+        part: None,
+        library: None,
     }
 }
 

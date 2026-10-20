@@ -690,6 +690,7 @@ function buildFor(app, platform, sourceRoot, run) {
     if (sdk.status !== 0) refuse(`the ${apple} SDK is unavailable: ${sdk.stderr}`);
     env.SDKROOT = sdk.stdout.trim();
     env[apple === 'ios' ? 'IPHONEOS_DEPLOYMENT_TARGET' : 'MACOSX_DEPLOYMENT_TARGET'] = apple === 'ios' ? '17.0' : '14.0';
+    env.EXACT_APPLE_LINK = 'plan'; // a compatibility input: link as the production archive does (host/apple/link.mjs)
   }
   return buildBake(app, platform, target, {env, analysis:true});
 }

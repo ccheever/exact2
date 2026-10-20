@@ -290,6 +290,13 @@ extension Agent {
                 "ry": r2(max(0, sv.contentSize.height + i.top + i.bottom - sv.bounds.height))]
     }
 
+    /// `v`'s scrollport (LLP 1012 `port`): `sv` less the room UIKit insets its content by (a bar, the keyboard), carried
+    /// out as `v`'s box is, through transforms and a canvas's placement.
+    func port(of v: NodeView, _ sv: UIScrollView) -> [Double] {
+        let f = box(v, region: v.convert(v.scrollPort(sv), from: sv))
+        return [f.minX, f.minY, f.width, f.height].map(Agent.r2)
+    }
+
     func layout() -> [String: Any] {
         let vp = presenter.viewport
         var nodes: [[String: Any]] = []
@@ -313,6 +320,7 @@ extension Agent {
                 n["sx"] = Agent.r2(sv.contentOffset.x)
                 n["sy"] = Agent.r2(sv.contentOffset.y + v.scrollTopInset(sv))
                 n.merge(Agent.range(of: sv)) { _, new in new }
+                n["port"] = port(of: v, sv)
                 // How far past its own ends it sits: a stretched bounce is a
                 // state a driver cannot read from the offset alone.
                 let past = { (value: CGFloat, start: CGFloat, end: CGFloat) -> CGFloat in
@@ -470,7 +478,7 @@ extension Agent {
             if hiddenBy == nil, s.isHidden || (s.alpha == 0 && (s as? NodeView)?.placement == nil) { hiddenBy = describe(s) }
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
             if let n = s as? NodeView {
-                if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y + n.scrollTopInset(sv))].merging(Agent.range(of: sv)) { a, _ in a }) } // CSS scrollTop, as `tree` reads it
+                if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y + n.scrollTopInset(sv)), "port": port(of: n, sv)].merging(Agent.range(of: sv)) { a, _ in a }) } // CSS scrollTop, as `tree` reads it
                 else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]) }
                 if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
@@ -794,7 +802,7 @@ extension Agent {
         // What the finger reaches, taken where it lands (`fingerReach`):
         // what the pointer events below do to the tree never sends the press
         // elsewhere, as a real contact keeps its target.
-        let reach = fingerReach(hit, at: p)
+        var reach = fingerReach(hit, at: p)
         // A finger's `pointerdown` as it lands and `pointerup` as it lifts,
         // before what the lift does (DOM's order), as `PointerRecognizer`
         // hears a real touch before the node does; a held contact's lift
@@ -808,6 +816,7 @@ extension Agent {
         let held = Agent.heldPrefix(req)
         MainActor.assumeIsolated { HeldState.input(at: hit) } // the finger lands where its hit was checked: a held node there lets go (HeldState.swift)
         fingerPointer(.down, fingers, at: p, held: held)
+        reach.rearm(presenter)
         fingerPointer(.up, fingers, at: p, held: held)
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }
         // Its middle reaches a control inside it: the tap landed beside it.

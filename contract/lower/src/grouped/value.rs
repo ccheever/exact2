@@ -7,7 +7,9 @@
 //! expense-tracker).
 //!
 //! The title and its value are boxed in a row that wraps: the value keeps
-//! the far edge while both fit, and below that starts under the title, at
+//! the far edge while both fit (on iOS through the largest standard size:
+//! the gap between them, `grouped-value-gap`, is wider than any line at the
+//! accessibility sizes), and below that starts under the title, at
 //! its leading edge, while a leading symbol or control and a trailing
 //! accessory stay centred in the row's height, as the cell's are. How the
 //! title is sized in the row (its `flex`, its `min-width`, the author's or
@@ -17,10 +19,14 @@
 //! (`lines`). In the box the title grows from its words' width, so the box
 //! wraps when its words and the value's do not fit one line, under an
 //! author's `flex=1` too.
+//! More texts after the value (a lap's time and its total) go in the box
+//! too, each wrapping under the one before, as a hand-built cell's stack of
+//! labels turns vertical at the accessibility sizes; beside them a bare
+//! title was squeezed to no width there (stopwatch, round 30).
 //! A title that is a bare text is boxed only in a swipe's row, which the
-//! platform's list carries as a custom row anyway: elsewhere a row of two
-//! bare texts is the value cell itself, which the platform's list draws on
-//! iOS, and the box would make it custom. A title that is a `column` (one
+//! platform's list carries as a custom row anyway, or before two or more
+//! values: elsewhere a row of two bare texts is the value cell itself, which
+//! the platform's list draws on iOS, and the box would make it custom. A title that is a `column` (one
 //! text, or a title over a subtitle) is custom already. The Mac's form
 //! keeps the two side by side (`grouped-value-wrap`).
 //!
@@ -71,13 +77,22 @@ pub(super) fn boxed(
     };
     let value = title + 1;
     let button = value + 1 == children.len() && worded_button(&children[value]);
+    // The shown texts straight after the value: a lap's time and its total.
+    let mut end = value;
+    while end + 1 < children.len()
+        && tag(end + 1) == Some("text")
+        && counted(end + 1, end + 1 - title)
+    {
+        end += 1;
+    }
     if value >= children.len()
-        || !(tag(title) == Some("column") || (swiped || button) && tag(title) == Some("text"))
+        || !(tag(title) == Some("column")
+            || (swiped || button || end > value) && tag(title) == Some("text"))
         || !(button || tag(value) == Some("text") && counted(value, 1))
     {
         return parts;
     }
-    let mut pair: Vec<Node> = parts.drain(title..=value).collect();
+    let mut held: Vec<Node> = parts.drain(title..=end).collect();
     let sizing = |a: &Attr| {
         matches!(
             a.name.as_str(),
@@ -96,7 +111,7 @@ pub(super) fn boxed(
         attrs,
         instance: at,
         ..
-    } = &mut pair[0]
+    } = &mut held[0]
     {
         instance = *at;
         moved = attrs.iter().filter(|a| sizing(a)).cloned().collect();
@@ -118,7 +133,7 @@ pub(super) fn boxed(
         s("flex-direction", "row", span),
         m("flex-wrap", "value-wrap", span),
         s("align-items", "center", span),
-        m("column-gap", "row-gap", span),
+        m("column-gap", "value-gap", span),
         m("row-gap", "stack-gap", span),
         attr("flex-grow", grow, span),
         n("flex-shrink", 1.0, span),
@@ -137,7 +152,7 @@ pub(super) fn boxed(
             tag: "row".into(),
             positional: Vec::new(),
             attrs,
-            children: pair,
+            children: held,
             span,
             instance,
         },

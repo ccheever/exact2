@@ -10,11 +10,11 @@
 use super::tamber_serve::{app, digest, Serve};
 use serde_json::{json, Value};
 
-const CARD: &str = "component Card\n  params\n    inset: length = \"reading.gap\"\n  view\n    column padding=\"param.inset\" testId=\"card\"\n      text \"c\"\n";
+pub(crate) const CARD: &str = "component Card\n  params\n    inset: length = \"reading.gap\"\n  view\n    column padding=\"param.inset\" testId=\"card\"\n      text \"c\"\n";
 
 /// A package `@acme/<ns>` in the app at `dir`: its entry `index.contract`
 /// (`contract`) and its design `<ns>.tamber`.
-fn package(dir: &std::path::Path, ns: &str, contract: &str, design: &str) {
+pub(crate) fn package(dir: &std::path::Path, ns: &str, contract: &str, design: &str) {
     let at = dir.join(format!("node_modules/@acme/{ns}"));
     std::fs::create_dir_all(&at).unwrap();
     std::fs::write(
@@ -30,7 +30,7 @@ fn package(dir: &std::path::Path, ns: &str, contract: &str, design: &str) {
 
 /// The app at `tag`: `@acme/reading`'s `Card` used once, its design
 /// declaring `component Map` with a param defaulting to a package token.
-fn reading(tag: &str) -> std::path::PathBuf {
+pub(crate) fn reading(tag: &str) -> std::path::PathBuf {
     let dir = app(tag, "tamber t\n\ntheme\n  ink = #111111\n");
     package(
         &dir,

@@ -43,7 +43,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { evictArms, snapshotSources } from './arms.mjs';
+import { evictArms, keepRoster, keptRoster, snapshotSources } from './arms.mjs';
 import { documentTypes, exportedTypes, importedTypes, openingLinks, webPageTypes } from './documents.mjs';
 import { executableName, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
@@ -992,18 +992,18 @@ async function main(args, lockHeld = false) {
   const arm = (args, source, built, extra = '', own = false, optional = false) => { // optional: placing a failed one answers its log's path
     const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : snapshot.key(a)), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
-    try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return async () => true; } catch {} // none, or evicted meanwhile
+    try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return Object.assign(async () => true, { cached }); } catch {} // none, or evicted meanwhile
     mkdirSync(dir, { recursive: true });
     const making = `${cached}.${process.pid}.tmp`;
     const log = resolve(webBuildDir, `arm-${beside.length}.log`), compile = startApple('xcrun', args.map(a => a === built ? making : a), log, { authored: snapshot.authored });
     beside.push(compile);
-    return async () => {
+    return Object.assign(async () => {
       if (!await compile.done({ repeated: optional })) return log;
       // Place this build's result before publishing it to the shared eviction pool.
       copyFileSync(making, built);
       renameSync(making, cached);
       evictArms(dir, basename(built)); return true;
-    };
+    }, { cached }); // its copy's path: a probe's roster is kept beside it
   };
   const arms = [];
   // tvOS has no WebKit, so no iframe arm there.
@@ -1183,22 +1183,22 @@ async function main(args, lockHeld = false) {
       if (route.lacking) { causes.push(`${route.via}: ${basename(route.lacking)} has no ${route.via} slice`); continue; }
       const log = resolve(linkRoot, `roster-probe-${route.via.replaceAll(' ', '-')}.log`);
       try {
-        const compiled = await (route.placed ?? compileProbe(route))();
-        let text; if (compiled !== true) throw failed('compile', readFileSync(compiled, 'utf8'), log);
-        if (!route.variant) try { const { dlopen, read: at, CString } = import.meta.require('bun:ffi'); text = new CString(at.ptr(dlopen(route.built, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString(); } catch (e) { throw failed('load', e.message, log); }
-        else if (route.variant === 'maccatalyst') text = ran(read(route.built, [], { timeout: 60_000 }), log);
-        else {
-          let sim = simulators().find(d => /SimRuntime\.iOS/.test(d.runtime) && d.state === 'Booted');
-          if (!sim) try { sim = simulator(null); } catch (e) { noSimulator = /^no iPhone simulator/.test(e.message); throw noSimulator ? new Error('no iPhone simulator on an installed iOS runtime') : e; }
+        const placed = route.placed ?? compileProbe(route), compiled = await placed();
+        if (compiled !== true) throw failed('compile', readFileSync(compiled, 'utf8'), log);
+        let text = keptRoster(placed.cached); if (text === undefined && !route.variant) try { const { dlopen, read: at, CString } = import.meta.require('bun:ffi'); text = new CString(at.ptr(dlopen(route.built, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString(); } catch (e) { throw failed('load', e.message, log); }
+        else if (text === undefined && route.variant === 'maccatalyst') text = ran(read(route.built, [], { timeout: 60_000 }), log);
+        else if (text === undefined) { // the iOS simulator named (--sim, EXACT_SIM; a name that is none is not this route's), else any booted
+          const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM, ios = simulators().filter(d => /SimRuntime\.iOS/.test(d.runtime)), named = pick && ios.find(d => d.udid === pick || d.name === pick); let sim = named ? null : ios.find(d => d.state === 'Booted');
+          if (!sim) try { sim = simulator(named?.udid ?? null); } catch (e) { noSimulator = /^no iPhone simulator/.test(e.message); throw noSimulator ? new Error('no iPhone simulator on an installed iOS runtime') : e; }
           try { text = ran(read('xcrun', ['simctl', 'spawn', sim.udid, route.built], { timeout: 60_000 }), log); } finally { if (sim.bootedHere) read('xcrun', ['simctl', 'shutdown', sim.udid]); }
         }
-        try { roster = JSON.parse(text); } catch (e) { throw failed('load', `${e.message}\n${text}`, log); }
+        try { roster = JSON.parse(text); } catch (e) { throw failed('load', `${e.message}\n${text}`, log); } keepRoster(placed.cached, text);
         if (route !== routes[0]) console.log(`host/apple: the module roster was read on ${route.via}`);
         break;
       } catch (e) { causes.push(`${route.via}: ${e.message}`); }
     }
     if (roster) {
-      provided = Object.keys(roster);
+      provided = Object.keys(roster).filter(key => key.includes('-')); // its tags: beside them, `hatches`, `extensions` and `facts`, which no tag can be
       // LLP 1024 D3's first-frame tags, which the host reads before it loads the module.
       const firstFrame = provided.filter(tag => roster[tag].firstFrame === true);
       if (firstFrame.length && !tv) rosterKeys = { ExactFirstFrameModules: firstFrame };

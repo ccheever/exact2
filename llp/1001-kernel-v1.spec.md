@@ -398,7 +398,12 @@ retain the existing editing session on a tap, including a button with gesture
 handlers and no press action. Messages uses it on bubbles and reaction badges
 that open Tapbacks: the panel does not exist yet at pointer down. Web prevents
 the pointer’s default focus change; iOS skips resigning the current responder.
-It neither focuses a field nor opens a keyboard. Messages also declares it on
+On iOS a button keeps the editing session without it, as a `UIButton` leaves the
+first responder alone: a press on a button (one that does not take the focus
+itself) commits what was typed as `change` and blurs nothing; a press on ground
+that presses nothing still ends the editing (LLP 1115, the keyboard is the
+platform's; ruled 2026-10-20). There `retainFocus` also keeps a pressed node
+that asks for focus from taking it. It neither focuses a field nor opens a keyboard. Messages also declares it on
 both Send controls: sending from a retained composer keeps its editing session.
 Other hosts currently ignore it.
 `focusGuide` (prop 241, string) accepts `"auto"` on a container. On tvOS,
