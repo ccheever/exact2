@@ -4,6 +4,7 @@
 import { adaptiveWorkspace, adaptiveInspectorResize, type AdaptiveWorkspaceInput } from './adaptive-workspace';
 import { resolveThreadSelectionNavigationAction, resolveFileSelectionNavigationAction } from './adaptive-navigation';
 import type { WorkspaceAuxiliaryPaneRole } from './layout-mobile';
+import { parseFleetThreadId } from './shared/settings-b-fleet';
 
 export const MOBILE_SIDEBAR_ROUTE_KEY = 't3-workspace-sidebar';
 export interface MobileWorkspaceEntry { id: string; name: string; url: string; params: Record<string, string> }
@@ -139,6 +140,8 @@ function navigationResult(input: unknown, location: string): MobileWorkspaceNavi
  * go keeps the actual anchor id while dismissing overlays; replace preserves
  * that id for the source set-params case. Never reconstruct an Exact Router. */
 export function mobileWorkspaceThreadSelection(input: unknown, usesSplitView: boolean, environmentId: string, threadId: string): MobileWorkspaceNavigation {
+  // Home and sidebar rows name another environment's thread as fleet:<environment>:<thread>.
+  const fleetTarget = parseFleetThreadId(threadId); if (fleetTarget) ({ environmentId, threadId } = fleetTarget);
   const location = `/threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}`;
   const result = navigationResult(input, location), { entries, workspace, index, overlayCount } = mobileWorkspaceLocation(input);
   if (!workspace || !environmentId || !threadId) return { ...result, message: 'Choose an available thread.' };

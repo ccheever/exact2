@@ -81,6 +81,7 @@ import { mobileAgentActivity } from './agent-activity';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTask, mobileNewTaskChooser, mobileNewTaskPrepare, mobileNewTaskCachedPrepare } from './new-task';
 import { mobileThread, mobileThreadPrepare } from './thread';
+import { mobileThreadSelectionFacts } from './thread-selection';
 import { mobileLayoutFacts, mobileScheduledHeader, homeChromeEvent, homeChromeView, settingsRoot, settingsScopeEvent } from './root-presentation';
 import { connectionView } from './presentation';
 import { bridgeReply, ClientError, nativeFiles, type Files, type Native } from './shared/protocol';
@@ -686,7 +687,7 @@ const sources: Sources = {
   },
   threadView: (args, _store, storage, nativeInput) => {
     const native = sourceNative('threadView', args, nativeInput);
-    return threadView(args, native);
+    return threadView(args, native).then(view => ({ ...view, ...mobileThreadSelectionFacts(mobileClient, str(args[3]), str(args[4]), str(args[11])) }));
   },
   threadFork: (args, _store, storage, nativeInput) => {
     const handle = nativeInput?.available ? letGoAware(mobileNative(sourceNative('threadFork', args, nativeInput)!)) : nativeInput;

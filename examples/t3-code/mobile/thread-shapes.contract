@@ -126,6 +126,10 @@ shape ThreadComposerState
 use PendingInputView from "./pending-input-shapes.contract"
 shape ThreadSnapshot
   pendingInput: PendingInputView
+  selectionRoute: string
+  selectionReady: bool
+  selectionReopen: bool
+  selectionKey: string
   queuedCanSelect: bool
   queued: bool
   queuedOwner: string
