@@ -271,7 +271,7 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   // on a dark grey (3.5:1) is held to 4.5:1 there too.
   expect(found([{ ...text, fg: [0, 0, 0, 1], bg: [100, 100, 100], on: 'own' }], { look: 'neutral', scheme: 'dark' })).toEqual(['contrast:1']);
   expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true }])).toEqual(['clipped:1']);
-  expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true, clamp: true }])).toEqual([]);
+  expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true, clamp: true, ellipsis: true }])).toEqual([]);
   // A card on white whose fill is white shows nothing; on grey it shows; with an edge it shows.
   const card = { id: 2, x: 4, y: 4, w: 12, h: 12, fill: [255, 255, 255, 1], radius: 8, fillRole: 'secondary-grouped-background' };
   const invisible = judge(obs([card]), png);
