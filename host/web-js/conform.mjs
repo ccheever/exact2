@@ -755,11 +755,10 @@ async function bootPress(t, report, fail, dist, browser) {
 const linuxRef = argv.includes('--linux') && !crossBrowser;
 const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer', 'drag', 'down', 'move', 'up', 'mediasession', 'midi'];
 // Where an app's drive reaches what only one host has, the Linux comparison
-// stops before that step (null: from the start), saying why (each is a host
-// difference, not the runner's).
-// A target's Linux comparison ends at the step named: [step, why], or
-// [step, why, { slot, value }] where Linux's answer there is specified and
-// held (the step taken, the slot read after it).
+// ends there, saying why (each is a host difference, not the runner's):
+// [step, why] stops before that step (null: from the start); [step, why,
+// { slot, value }], where Linux's answer is specified, takes the step, holds
+// the slot read after it to that value, then stops.
 const LINUX_APART = {
   caltrain: ['tap open-deck', 'its deck screen is an iframe, whose load and message only a browser delivers'],
   'markdown-stress': ['tap toggle-single', "its editor's selection report (formats, links) is the web's markup editor's, which the Linux host's text field does not make"],
