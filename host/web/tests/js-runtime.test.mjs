@@ -1306,7 +1306,7 @@ test('clipboard handlers preserve the default unless prevented and restore the e
       let listener;
       const el = { addEventListener: (_, f) => { listener = f; } };
       on(el, kind, value => {
-        expect(value).toEqual(['clipboard text']);
+        expect(value).toEqual(['clipboard text', []]);
         if (prevent) Hosts.preventDefault();
       }, onClipboard);
       const ev = event();

@@ -39,6 +39,34 @@ fn the_clipboard_events_reach_the_nearest_handler() {
         &format!(r#"{{"op":"type","id":{log},"clipboard":"cut"}}"#),
     );
     assert!(reply.contains("no cut handler"), "{reply}");
+    // The Linux host pastes text only and takes no drag from outside: both
+    // are refused by name, and neither presses nor pastes.
+    let reply = handle(
+        &mut p,
+        &format!(
+            r#"{{"op":"type","id":{cell},"clipboard":"paste","text":"","files":["/tmp/a.png"]}}"#
+        ),
+    );
+    assert!(
+        reply.contains("unsupported: the Linux host pastes text only"),
+        "{reply}"
+    );
+    for form in [
+        r#""drop":["/tmp/a.png"]"#,
+        r#""dragenter":["/tmp/a.png"]"#,
+        r#""dragleave":true"#,
+    ] {
+        let reply = handle(&mut p, &format!(r#"{{"op":"tap","id":{cell},{form}}}"#));
+        assert!(
+            reply.contains("unsupported: the Linux host takes no drag"),
+            "{reply}"
+        );
+    }
+    let k = p.host().kernel();
+    assert_eq!(
+        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
+        Some("grid:a\tb;copy;")
+    );
 }
 
 /// A paste is Ctrl+V first. A `key` handler that `preventDefault()`s that

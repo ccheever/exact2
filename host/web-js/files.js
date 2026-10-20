@@ -10,7 +10,7 @@
 // `tap @t …` / `type @t …` answers it
 // (agent.js). Bundled only for a plan with a file input or one of the
 // commands.
-import { journal, clock, nextTicket, inflight, Hosts, OnHooks, viewId, Views, data } from './rt.js';
+import { journal, clock, nextTicket, inflight, Hosts, OnHooks, viewId, Views, data, painted } from './rt.js';
 import { record } from './pointer.js';
 import { inertAncestor, reportPlace } from './navigation.js';
 import { appGrantSet, coversPath } from './admission.js';
@@ -194,25 +194,47 @@ const docs = () => Docs ??= import(new URL('./documents-glue.js', import.meta.ur
     else el.dispatchEvent(new CustomEvent('change', { detail: payload }));
   },
 }));
-// Files dropped from outside (DOM's `drop`, studio diary R19): Chromium's
-// handles, asked for while the event lasts (`getAsFileSystemHandle`), else
-// each File read-only; of the types `file_handlers` declares, minted as a
-// picker's choice is, and heard with the `DragEvent` record. A `dragover`
-// that carries files is accepted, or the browser would open them itself.
+// Files and folders dropped from outside (DOM's `drop`, studio diary R19),
+// of any type: Chromium's handles, asked for while the event lasts
+// (`getAsFileSystemHandle`), else a folder's entry or each File read-only,
+// minted as a picker's choice is and heard with the `DragEvent` record. The
+// innermost element with the handler takes them, over a text field too (its
+// own drop is the default this prevents). A `dragover` that carries files
+// is accepted, or the browser would open them itself.
+const allowed = e => () => !inertAncestor(e) && !e.matches(':disabled'); // a disabled control, never a box (review b5-b 4)
+// The glue fetched after the first paint, so a drag's enter and a paste find it loaded; the agent waits for it (rt.js `pieces`).
+const warm = (then = () => {}) => { const p = painted().then(docs).then(then); OnHooks.loading = Promise.all([OnHooks.loading, p]); return p; };
 OnHooks.drop = (e, f) => {
-  e.addEventListener('dragover', ev => { if (ev.dataTransfer?.types?.includes('Files') && !inertAncestor(e) && !e.matches(':disabled')) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; } });
+  warm();
+  e.addEventListener('dragover', ev => { if (ev.dataTransfer?.types?.includes('Files') && allowed(e)()) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; } });
   e.addEventListener('drop', ev => {
     const dt = ev.dataTransfer;
-    if (!dt?.files?.length || inertAncestor(e) || e.matches(':disabled')) return; // a disabled control, never a box (review b5-b 4)
+    if (!dt?.types?.includes('Files') || !allowed(e)()) return;
     ev.preventDefault(); ev.stopPropagation();
     const [offsetX, offsetY] = record(e, ev), held = [ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey];
-    const handles = [...dt.items].filter(i => i.kind === 'file').map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null), files = [...dt.files];
-    counted(docs().then(async m => {
-      const found = await m.dropped(await Promise.all(handles), files);
-      if (!found.length) return say('drop: refused: no file of a type this app declares');
+    const items = [...dt.items].filter(i => i.kind === 'file');
+    const handles = items.map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null), entries = items.map(i => i.webkitGetAsEntry?.() ?? null), files = [...dt.files];
+    const delivered = counted(docs().then(async m => {
+      const found = await m.dropped(await Promise.all(handles), files, entries);
+      if (!found.length) return say('drop: refused: the browser handed over no file');
       f([offsetX, offsetY, found, ...held]);
     }));
+    x().documents?.ending?.(delivered);
   });
+};
+// `dragenter` and `dragleave` of a file drag (documents-glue.js `hearDrags`):
+// the point, no files (the DOM's are protected until the drop).
+OnHooks.drag = (e, kind, f) => {
+  warm(() => x().documents.hearDrags(e, kind, allowed(e), ev => f([...record(e, ev).slice(0, 2), [], ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey])));
+};
+// A paste's files (`clipboardData.files`), minted in the paste's own event; none before the glue has loaded.
+OnHooks.pasteWarm = () => warm();
+OnHooks.pasted = ev => {
+  const driver = clock.agent ? x().agentPaste : null;
+  x().agentPaste = null;
+  if (!ev.clipboardData?.files?.length && !driver) return [];
+  if (!x().documents?.pasted) { say('paste: its files came before the page could hold them'); return []; }
+  return x().documents.pasted(ev.clipboardData, driver);
 };
 const PICKERS = { showOpenFilePicker: ['open-file', 'showOpenFilePicker takes (id) or (id, multiple)'], showDirectoryPicker: ['open-directory', 'showDirectoryPicker takes (id)'], showSaveFilePicker: ['save-file', 'showSaveFilePicker takes (id, suggestedName)'] };
 for (const [name, [capability, usage]] of Object.entries(PICKERS)) Hosts[name] = (...args) => {

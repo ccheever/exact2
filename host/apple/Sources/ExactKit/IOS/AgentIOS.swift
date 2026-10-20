@@ -549,6 +549,8 @@ extension Agent {
 
     func tap(_ req: [String: Any]) -> [String: Any] {
         if req["holdState"] != nil { return holdTap(req) } // a held state (LLP 1122 D8, HeldState.swift)
+        // A drag of files from outside the app is the Mac's and the web's (FileDragMac.swift).
+        if req["drop"] != nil || req["dragenter"] != nil || req["dragleave"] != nil { return ["delivery": "unsupported", "reason": "iOS has no drag of files from outside the app: no drop, dragenter or dragleave"] }
         // A header node the app's navigation bar leaves out is not there to
         // tap, whatever the agent's chrome paints (LLP 1116 D2).
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)], let why = presenter.navigation.unshownByBar()[node.id] {
@@ -1046,7 +1048,7 @@ extension Agent {
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         // An inert view takes no input, as a person cannot reach it (HTML inert; a modal presentation's background)
         guard !v.inert else { return ["error": "view \(v.id) is inert"] }
-        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
+        if let edit = req["clipboard"] as? String { return withAgentPasteboard(req) { clipboardType(v, edit, req["text"] as? String, board: $0) } }
         if session.canvases.wantsInput(v.id) {
             if let routed = canvasRouted(v, req) { return routed }
             // The world hears the key a chord names, not the chord's string.

@@ -382,6 +382,14 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             if request.get("close").is_some() {
                 return error("unsupported: the Linux presenter closes no window (no `beforeunload`); close drives a macOS window or the browser's page");
             }
+            // A drag from outside the app: the Linux host takes none (no
+            // `drop`, `dragenter` or `dragleave`, as the guide says).
+            if ["drop", "dragenter", "dragleave"]
+                .iter()
+                .any(|k| request.get(*k).is_some())
+            {
+                return error("unsupported: the Linux host takes no drag from outside the app (no `drop`, `dragenter` or `dragleave`); drop drives the browser's page or a macOS window");
+            }
             // @ref LLP 1116.006 D4 — the platform's Back, as Alt+Left or a Back key takes it.
             if request.get("back").is_some() {
                 if request
@@ -541,6 +549,10 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 return malformed("type needs an id");
             };
             if let Some(edit) = field_str(line, "clipboard") {
+                // The Linux clipboard carries text: a paste's `files` is empty.
+                if line.contains(r#""files":"#) || line.contains(r#""image":"#) {
+                    return error("unsupported: the Linux host pastes text only (a `ClipboardEvent`'s `files` is empty); paste --file and --image drive the browser's page or an Apple host");
+                }
                 let text = field_str(line, "text").unwrap_or_default();
                 return p.clipboard(id, &edit, &text).unwrap_or_else(|e| error(&e));
             }

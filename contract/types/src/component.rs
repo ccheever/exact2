@@ -613,6 +613,8 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "midimessage"
             | "wheel"
             | "drop"
+            | "dragenter"
+            | "dragleave"
             | "swiperight"
             | "refresh"
             | "reachstart"

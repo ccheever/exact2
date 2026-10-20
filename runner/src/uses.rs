@@ -397,8 +397,11 @@ pub fn uses(plan: &Plan) -> Uses {
             | EventKind::Reorderdrop => {
                 uses = uses.with(Capability::Motion).with(Capability::Drag);
             }
-            // Dropped files become `doc:` handles (studio diary R19).
-            EventKind::Drop => uses = uses.with(Capability::Documents),
+            // Dropped and pasted files become `doc:` handles (studio diary
+            // R19); the web's file drag is heard beside its drop (files.js).
+            EventKind::Drop | EventKind::Dragenter | EventKind::Dragleave | EventKind::Paste => {
+                uses = uses.with(Capability::Documents)
+            }
             _ => {}
         }
     }

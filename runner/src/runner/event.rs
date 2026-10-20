@@ -286,6 +286,14 @@ pub enum Event {
     /// Files dropped on the view from outside the app (DOM's `drop`), each
     /// a `doc:` handle the host minted (LLP 1069.010 D1).
     Drop(super::DropEvent),
+    /// A drag of files from outside the app came over the view's box from
+    /// outside it (DOM's `dragenter` as a handler that ignores moves between
+    /// its own descendants hears it); its `files` are empty, as the DOM's are
+    /// until the drop.
+    Dragenter(super::DropEvent),
+    /// That drag left the view's box, was cancelled, or dropped (DOM's
+    /// `dragleave`, likewise; a drop ends it everywhere it was).
+    Dragleave(super::DropEvent),
     /// A double click, or the platform’s double tap.
     Dblclick,
     /// A touch or primary button went down on the view (DOM's
@@ -328,8 +336,9 @@ pub enum Event {
     /// DOM's `copy`, `cut` or `paste` at the focused view (spreadsheet F4,
     /// F14): the clipboard's plain text as the event carries it — what is
     /// pasted; empty on copy and cut, whose action writes the clipboard
-    /// (`copyText`), as a DOM listener's `setData` does.
-    Clipboard(EventKind, String),
+    /// (`copyText`), as a DOM listener's `setData` does — and a paste's files
+    /// (`clipboardData.files`), each a `doc:` handle the host minted.
+    Clipboard(EventKind, String, Vec<String>),
     /// The part of the reader's text selection inside a `text` changed (the
     /// web's `selectionchange`, the reader diary): the selected text and its
     /// UTF-16 start and end in the node's own text; nothing selected there
@@ -535,8 +544,8 @@ impl Event {
     /// (`contract_types::event_record`, `contract/types/src/selection.rs`):
     /// `key`'s and `keyup`'s `KeyboardEvent`, `press`'s `MouseEvent`, the pointer's and
     /// `contextmenu`'s `PointerEvent`, `scroll`'s `ScrollEvent`, the
-    /// clipboard's `ClipboardEvent`, `wheel`'s `WheelEvent` and `drop`'s
-    /// `DragEvent`.
+    /// clipboard's `ClipboardEvent`, `wheel`'s `WheelEvent` and the
+    /// `DragEvent` of `drop`, `dragenter` and `dragleave`.
     pub fn record(&self) -> Option<Value> {
         match self {
             Event::Toggle { old_open, new_open } => Some(Value::record(vec![
@@ -566,7 +575,7 @@ impl Event {
             ),
             Event::Wheel(w) => Some(w.value()),
             Event::MidiMessage(m) => Some(m.value()),
-            Event::Drop(d) => Some(d.value()),
+            Event::Drop(d) | Event::Dragenter(d) | Event::Dragleave(d) => Some(d.value()),
             Event::Resize(r) => Some(r.value()),
             Event::Intersect {
                 is_intersecting,
@@ -576,7 +585,10 @@ impl Event {
                 Value::Number(*intersection_ratio),
             ])),
             Event::Scroll(s) => Some(s.value(None)),
-            Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
+            Event::Clipboard(_, text, files) => Some(Value::record(vec![
+                Value::str(text),
+                Value::list(files.iter().map(|f| Value::str(f)).collect()),
+            ])),
             Event::SelectionChange {
                 text,
                 start,
@@ -1088,6 +1100,8 @@ impl<D: DataSource> Runner<D> {
                 Event::MidiMessage(_) => "midimessage",
                 Event::Wheel(_) => "wheel",
                 Event::Drop(_) => "drop",
+                Event::Dragenter(_) => "dragenter",
+                Event::Dragleave(_) => "dragleave",
                 Event::Dblclick => "dblclick",
                 Event::Pointerdown(_) => "pointerdown",
                 Event::Pointerup(_) => "pointerup",
@@ -1099,7 +1113,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Intersect { .. } => "intersect",
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
-                Event::Media(kind, _) | Event::Clipboard(kind, _) => kind.name(),
+                Event::Media(kind, _) | Event::Clipboard(kind, ..) => kind.name(),
                 Event::SelectionChange { .. } | Event::FieldSelectionChange(..) => {
                     "selectionchange"
                 }
@@ -1263,6 +1277,8 @@ impl<D: DataSource> Runner<D> {
             Event::MidiMessage(_) => (EventKind::Midimessage, None, "midimessage"),
             Event::Wheel(_) => (EventKind::Wheel, None, "wheel"),
             Event::Drop(_) => (EventKind::Drop, None, "drop"),
+            Event::Dragenter(_) => (EventKind::Dragenter, None, "dragenter"),
+            Event::Dragleave(_) => (EventKind::Dragleave, None, "dragleave"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Pointerdown(_) => (EventKind::Pointerdown, None, "pointerdown"),
             Event::Pointerup(_) => (EventKind::Pointerup, None, "pointerup"),
@@ -1284,7 +1300,7 @@ impl<D: DataSource> Runner<D> {
                 },
                 kind.name(),
             ),
-            Event::Clipboard(kind, _) => (*kind, None, kind.name()),
+            Event::Clipboard(kind, ..) => (*kind, None, kind.name()),
             Event::SelectionChange { .. } => (EventKind::Selectionchange, None, "selectionchange"),
             Event::Pan(_, _) => (EventKind::Pan, None, "pan"),
             Event::PanRelease(_, _) => (EventKind::Panrelease, None, "panrelease"),
