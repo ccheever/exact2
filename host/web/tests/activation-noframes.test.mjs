@@ -1,9 +1,10 @@
-// A wasm client page given no frames still activates (QUEUE "The wasm client
-// shell activates only after two animation frames"; LLP 1122 T4's gate): a
-// cross-origin frame scrolled out of view, the design tool's canvas scrolled
-// away, gets no requestAnimationFrame. glue.js activates a second on all the
-// same, once, as the JS page's input does (rt.js `input()`); a page with
-// frames activates after its two frames, as before, and also once.
+// A wasm client page given no frames still activates (LLP 1122's queue item
+// (3), its QUEUE entry "The wasm client shell activates only after two
+// animation frames", from T4's gate): a cross-origin frame scrolled out of
+// view, the design tool's canvas scrolled away, gets no requestAnimationFrame.
+// glue.js activates a second on all the same, once, as the JS page's input
+// does (rt.js `input()`); a page with frames activates after its two frames,
+// as before, and also once.
 import { afterEach, expect, test } from 'bun:test';
 import { createServer } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -35,15 +36,19 @@ const COUNT = () => {
 
 test('a wasm page given no frames activates within its second, once; one with frames after them, once', async () => {
   const dist = mkdtempSync(join(tmpdir(), 'exact-noframes-dist-'));
-  const port = await free(), base = `http://127.0.0.1:${port}`;
-  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let said = '';
-  dev.stdout.on('data', d => { said = (said + d).slice(-8000); });
-  dev.stderr.on('data', d => { said = (said + d).slice(-8000); });
-  // Served, and its first plan ready: a generation published later would restart the page (glue.js), a second activation by design.
-  for (const end = Date.now() + 600_000; !said.includes(`127.0.0.1:${port}/`) || !said.includes('plan ready:');) { if (Date.now() > end || dev.exitCode !== null) throw new Error(`the dev loop never served: ${said}`); await Bun.sleep(100); }
-  const browser = await (await import('playwright-core')).chromium.launch({ executablePath: chromium().executable, headless: true });
+  let dev = null, browser = null;
   try {
+    const port = await free(), base = `http://127.0.0.1:${port}`;
+    dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Served, and its first plan ready, each heard as it is said (the tail kept for a failure is the last 8 KB): a
+    // generation published later would restart the page (glue.js), a second activation by design.
+    let said = '', served = false, planned = false, refused = false;
+    // (A first compile that fails says `error:` (dev.mjs) and never `plan ready:`: said at once, not after the wait.)
+    const hear = d => { said += d; served ||= said.includes(`127.0.0.1:${port}/`); planned ||= said.includes('plan ready:'); refused ||= !planned && /^error: /m.test(said); said = said.slice(-8000); };
+    dev.stdout.on('data', hear);
+    dev.stderr.on('data', hear);
+    for (const end = Date.now() + 600_000; !served || !planned;) { if (Date.now() > end || dev.exitCode !== null || refused) throw new Error(`the dev loop never served: ${said}`); await Bun.sleep(100); }
+    browser = await (await import('playwright-core')).chromium.launch({ executablePath: chromium().executable, headless: true });
     const page = await browser.newPage();
     await page.addInitScript(COUNT);
     const state = () => page.evaluate(() => ({ ready: document.getElementById('exact-root')?.dataset.moduleReady ?? null, frame: document.getElementById('exact-root')?.dataset.frameCallbackMs ?? null, calls: window.__ready, dataReady: window.__dataReady }));
@@ -61,8 +66,8 @@ test('a wasm page given no frames activates within its second, once; one with fr
     const framed = await state();
     expect([framed.ready, framed.frame !== null, framed.calls, framed.dataReady]).toEqual(['true', true, 1, 1]);
   } finally {
-    await browser.close();
-    await dev.stop(15_000);
+    await browser?.close();
+    await dev?.stop(15_000);
     rmSync(dist, { recursive: true, force: true });
   }
 }, 900_000);
