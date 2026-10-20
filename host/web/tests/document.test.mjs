@@ -635,6 +635,25 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
   }, {html});
 });
 
+// A face stacked in a column centres its image on its title when the image is narrower than the title's column, as the
+// Linux host paints it; the face keeps the button's alignment.
+browserCheck('native button stacked image', async () => {
+  // A column's areas and spacing, as `rows` in host/web/src/button_css.rs writes them for `flex-direction: column`.
+  const column = `--exact-button-leading-areas:'image' 'space' 'title';--exact-button-columns:minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-row-space);--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);`;
+  const button = (id, style = '') => `<button id="${id}" data-native data-button-style="filled" style="display:grid;width:160px;font-size:20px;${column}${style}"><img alt=""><span data-exact-text>Unlock now</span></button>`;
+  const html = SHIPPED.replace('<div id="exact-root"></div>', `<div id="exact-root">${button('centre')}${button('start', 'text-align:start;--exact-button-align:start;')}</div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'stacked fixture');
+    const facts = await page(`(() => { const mid = r => Math.round(r.left + r.width / 2); return Object.fromEntries(['centre', 'start'].map(id => { const b = document.getElementById(id); return [id, [b.querySelector('img'), b.querySelector('span'), b].map(e => mid(e.getBoundingClientRect()))]; })); })()`);
+    const [image, title, button] = facts.centre;
+    expect([image, title]).toEqual([button, button]);
+    const [startImage, startTitle, startButton] = facts.start;
+    expect(startImage).toBe(startTitle);
+    expect(startTitle).toBeLessThan(startButton);
+  }, {html});
+});
+
 // LLP 1116.003 D3.1, as the neutral look draws it (LLP 1115.000 D4 part B):
 // the ink on an accent fill is white or black, whichever reads at 4.5:1 or
 // better on the accent as the scheme resolves it. A pale dark-scheme accent
