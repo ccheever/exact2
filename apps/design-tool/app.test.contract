@@ -1998,3 +1998,25 @@ test "T7: the selected view's states side by side, each copy holding one on the 
   clock data
   expect tree missing "build-pin-copy-2"
   request POST "/__stub/restart" {} as ada
+
+test "a folded :disabled row is read as its base, a param's rung, its part beneath it at its place with its own edit (LLP 1122 queue item (2))"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": null, "held": null}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/post.contract", "line": 9, "col": 5, "end_col": 11, "component": "PostButton", "chain": []}, "rows": [{"name": "background_color", "value": "#999999", "source": "dynamic", "origin": "own", "at": {"file": "/stub/post.contract", "line": 10, "col": 7, "end_col": 23, "sha256": "x"}, "attr": "background-color", "editable": {"rung": "param", "param": "post.contract#PostButton.fill", "short": "PostButton.fill", "modes": ""}, "states": [{"state": "disabled", "source": {"file": "/stub/post.contract", "line": 12, "col": 9, "end_col": 25}, "editable": {"rung": "state", "style": "PostButton", "state": "disabled", "row": "background-color", "file": "post.contract", "text": "#999999"}}]}]} as ada
+  clock +1
+  clock data
+  // The base: the param it reads, not a dynamic expression's refusal.
+  expect text "selrow-edit-background-color" == "Edit PostButton.fill"
+  expect tree missing "selrow-reason-background-color"
+  // Its `:disabled` part beneath it: at its own place, set-state's edit.
+  expect text "selrow-source-:disabled background-color" == ":disabled part at post.contract:12"
+  expect text "selrow-state-:disabled background-color" == "Edit PostButton :disabled background-color"
+  request POST "/__stub/restart" {} as ada

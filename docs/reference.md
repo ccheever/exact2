@@ -196,8 +196,10 @@ origin (`own`, `class:<Name>`, or `tag`) and, where an author wrote it, `at`
 and `attr`; and `states`, one `{state, origin, at}` per state part that
 writes the row: `:active`'s (on the press paint row it lowers to), `:hover`'s
 and `:focus-visible`'s (LLP 1121 D8, LLP 1122); a conditional class's
-(`class=(c ? A : B)`) says no `at`, as its base row says none. A row only a
-state part writes, a press row among them, has no base fields. Slots, derives and actions retain their declarations,
+(`class=(c ? A : B)`) says no `at`, as its base row says none; a row a
+`:disabled` or `:checked` part folds over its base says the base's attribute
+as its base and each folded part in `states`. A row only a state part
+writes, a press row among them, has no base fields. Slots, derives and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside

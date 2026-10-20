@@ -71,6 +71,41 @@ test('a selection is joined to its site\'s source, each row\'s origin and editab
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('a folded `:disabled` or `:checked` row is read as its base, its parts beside it in `states`, where the map says both; one it can\'t explain stays dynamic (LLP 1122 queue item (2))', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-folds-'));
+  try {
+    const app = joinPath(dir, 'app.contract');
+    const lines = ['style Tick', '  background-color="#ffffff"', '  :checked', '    background-color="#00ff00"', '', 'component Card', '  params', '    fill: color = "#0a7aff"', '  view', '    box background-color="param.fill" disabled=off', '      :disabled', '        background-color="#999999"', '    box class=Tick aria-checked=on role="checkbox"', '    link href="/x" disabled=off', '      :disabled', '        color="#999999"', ''];
+    const text = lines.join('\n');
+    writeFileSync(app, text);
+    const place = (line, name) => { const col = lines[line - 1].indexOf(name) + 1; return { file: app, line, col, end_col: col + name.length }; };
+    const IR = 'param.f1a2b3c4d.Card.fill';
+    const params = paramsOf({ tokens: [], components: [{ identity: 'app.contract#Card', name: 'Card', params: [{ name: 'app.contract#Card.fill', short: 'Card.fill', token: IR, default: '#0a7aff', set: null }] }] });
+    const node = (line, bindings) => ({ file: app, line, col: 5, end_col: 8, component: 'Card', chain: [], bindings });
+    const map = { digest: 'p1', sources: [{ file: app, sha256: sha(text) }], nodes: [
+      node(10, [{ row: 'background_color', origin: 'own', at: place(10, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: place(12, 'background-color') }] }]),
+      node(13, [{ row: 'background_color', origin: 'class:Tick', at: place(2, 'background-color'), attr: 'background-color', states: [{ state: 'checked', origin: 'class:Tick', at: place(4, 'background-color') }] }]),
+      // A link's colour folded over what it takes unwritten: no base in the map.
+      node(14, [{ row: 'text_color', states: [{ state: 'disabled', origin: 'own', at: place(16, 'color') }] }]),
+    ] };
+    const sel = (site, row) => join({ id: 'web-1' }, { node: site + 1, site, instance: [], rows: [row] }, map, { app: dir, params }).rows[0];
+    // A param's base, folded with `:disabled`: the param rung, its template address the base attribute's, never the part's.
+    const pill = sel(0, { name: 'background_color', value: '#999999', source: 'dynamic', token: { names: [IR], text: `disabled ? "#999999" : ${IR}`, modes: '', implied: false } });
+    expect(pill.editable).toMatchObject({ rung: 'param', param: 'app.contract#Card.fill', short: 'Card.fill', template: { rung: 'template', at: { line: 10 }, row: 'background-color', text: 'param.fill' } });
+    expect(pill.states).toEqual([{ state: 'disabled', source: { file: app, ...place(12, 'background-color') }, editable: { rung: 'template', file: 'app.contract', at: { line: 12, col: place(12, 'background-color').col }, sha256: sha(text), row: 'background-color', state: 'disabled', instances: 1, text: '#999999', component: 'Card' } }]);
+    // A style's base and part: the style rung on its base, set-state on its `:checked` part.
+    const tick = sel(1, { name: 'background_color', value: '#00ff00', source: 'dynamic', token: { names: [], text: 'checked ? "#00ff00" : "#ffffff"', modes: '', implied: false } });
+    expect(tick.editable).toEqual({ rung: 'style', style: 'Tick', row: 'background-color', file: 'app.contract', text: '#ffffff' });
+    expect(tick.states).toEqual([{ state: 'checked', source: { file: app, ...place(4, 'background-color') }, editable: { rung: 'state', style: 'Tick', state: 'checked', row: 'background-color', file: 'app.contract', text: '#00ff00' } }]);
+    // A fold the map can't explain (no base): dynamic, read-only, no parts offered.
+    const lnk = sel(2, { name: 'text_color', value: '#999999', source: 'dynamic' });
+    expect([lnk.editable.rung, lnk.editable.reason, lnk.states]).toEqual([null, 'a dynamic expression: read-only here', undefined]);
+    // A dynamic row with no folded part is dynamic still.
+    const plain = { ...map, nodes: [node(10, [{ row: 'background_color', origin: 'own', at: place(10, 'background-color'), attr: 'background-color' }])] };
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#fff', source: 'dynamic' }] }, plain, { app: dir, params }).rows[0].editable.rung).toBe(null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('a held `:hover` or `:focus-visible` row is joined at its part, keyed by row and state: the template rung on the node\'s own part, the state rung on a style\'s, never the base row\'s place (LLP 1122 queue item (1))', () => {
   const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-looks-'));
   try {

@@ -436,10 +436,34 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       const written = b?.at && !b.state ? { at: { ...b.at, ...(sha(b.at.file) ? { sha256: sha(b.at.file) } : {}) }, attr: b.attr, ...(b.layout ? { layout: true } : {}) } : {};
       const part = b?.state ? { state: b.state, ...(b.at ? { at: b.at } : {}) } : written;
       const { unread, ...row } = r;
-      const offered = editable({ ...row, ...part }, origin, params, unread, stateRung(row, b, app, read, own), rowRung(row, b, map, app, copies, read, own));
-      return { ...row, origin, ...part, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.param ?? offered.token ?? null } : offered };
+      // A folded `:disabled` or `:checked` row (queue item (2)) is the runtime's choice over its base and its parts,
+      // so `dynamic`: where the map says both, it is read as its base, its rung the base's, each part beside it in
+      // `states` with its own (theme2's and review2's 04:24). One the map can't explain stays dynamic, read-only.
+      const folds = asBase(bound.get(r.name)) && row.source === 'dynamic' ? (bound.get(r.name).states ?? []).filter(p => p.state === 'disabled' || p.state === 'checked') : [];
+      const rung = rowRung(row, b, map, app, copies, read, own);
+      const shown = folds.length ? { ...row, source: 'authored', token: writtenToken(row, rung, params) } : row;
+      const offered = editable({ ...shown, ...part }, origin, params, unread, stateRung(row, b, app, read, own), rung);
+      const shut = o => (readOnly ? { rung: null, reason: readOnly, link: o.link ?? o.param ?? o.token ?? null } : o);
+      const states = folds.map(p => {
+        const v = { row: r.name, origin: p.origin, state: p.state, at: p.at }, w = rowRung(row, v, map, app, copies, read, own), st = stateRung(row, v, app, read, own);
+        const e = editable({ ...row, source: 'authored', token: writtenToken(row, st ?? w, params), state: p.state }, p.origin, params, unread, st, w);
+        return { state: p.state, source: p.at ? { file: p.at.file, line: p.at.line, col: p.at.col, end_col: p.at.end_col } : null, editable: shut(e) };
+      });
+      return { ...row, origin, ...part, editable: shut(offered), ...(folds.length ? { states } : {}) };
     }),
   };
+}
+
+/** The token a row's value as written reads (`rung.text`, a rung's), where the row's own names hold it: a param by
+ * its name in its component (`param.fill`, the param whose `short` is `Component.fill`) or a token by its name; else
+ * none, the value itself (a folded row's base or part, queue item (2), whose runtime value is the fold's). */
+function writtenToken(row, rung, params) {
+  const names = row.token?.names ?? [], modes = row.token?.modes ?? '', text = rung?.text;
+  if (typeof text !== 'string') return { names: [], text: '', modes };
+  const short = /^param\.(.+)$/.exec(text)?.[1];
+  const param = short && rung.component ? [...params.values()].find(p => p.short === `${rung.component}.${short}` && names.includes(p.param)) : null;
+  if (param) return { names: [param.param], text: param.param, modes };
+  return names.includes(text) ? { names: [text], text, modes } : { names: [], text, modes };
 }
 
 /** The sites of `map` at `source`'s location: every copy of that node. */
