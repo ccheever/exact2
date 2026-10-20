@@ -36,7 +36,7 @@ import { createHash } from 'node:crypto';
 import { nativeSource, prepareRustBundle } from './rust.mjs';
 import { bakeOutside, linkable } from './linked-plan.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
-import { filesystem, installedModules, removePrivateTree } from './filesystem.mjs';
+import { filesystem, installedModules, removePrivateTree, withHostDeployment } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
@@ -55,7 +55,7 @@ export function cargoOnPath(env = process.env, home = homedir()) {
 }
 cargoOnPath(); process.env.HERMES_LEAN_SYS_OFFLINE = '1';
 /** Every Cargo process Exact starts refuses implicit Hermes acquisition. */
-export function cargoEnvironment(env = process.env) { return { ...env, HERMES_LEAN_SYS_OFFLINE: '1' }; }
+export function cargoEnvironment(env = process.env) { return withHostDeployment({ ...env, HERMES_LEAN_SYS_OFFLINE: '1' }); }
 // @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
 /** Explicit source roots, relative to app.json. Only packaged names reach a host. */
 export function shaderRoots(app) {

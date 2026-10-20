@@ -1,4 +1,5 @@
 // Tooling-only bridge to directory-owned operations. @ref LLP 1030.002.
+// The host deployment target every cargo call shares (`withHostDeployment`).
 // And the one removal the tooling does itself: a private directory its own run made (`removePrivateTree`);
 // and the checkout's node_modules, installed from its lock when it has none or one did not finish (`installedModules`).
 import { spawn, spawnSync } from 'node:child_process';
@@ -8,6 +9,19 @@ import { basename, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
+
+// The macOS deployment target every cargo call on a Mac gives what it builds for the Mac
+// itself: build scripts, proc macros and the developer tools (the bake tool, the filesystem
+// helper). A build script that records MACOSX_DEPLOYMENT_TARGET (ring's, objc2's) is rebuilt
+// whenever two calls sharing a target directory differ in it, so one value for all of them:
+// an iOS build's host side, the bake tool's build and the helper's, from inside a build
+// script or not. A macOS app's own build still says its product's target (host/apple/build.mjs).
+export const HOST_MACOS = '14.0';
+
+/** `env` with the host deployment target when it names none (on a Mac). */
+export function withHostDeployment(env) {
+  return process.platform === 'darwin' && !env.MACOSX_DEPLOYMENT_TARGET ? { ...env, MACOSX_DEPLOYMENT_TARGET: HOST_MACOS } : env;
+}
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 let binary;
@@ -33,7 +47,7 @@ function executable() {
   // on that app build directory lock. Once per Bun process, Cargo checks
   // sources, lockfile and toolchain.
   // An mtime-only shortcut can silently reuse an obsolete helper dependency.
-  const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' };
+  const env = withHostDeployment({ ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' });
   for (const name of ['CARGO_BUILD_TARGET', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTFLAGS', 'RUSTDOCFLAGS']) delete env[name];
   for (const name of ['RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_RUSTC_WRAPPER', 'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER']) {
     if (env[name] && basename(env[name]) === 'clippy-driver') delete env[name];
