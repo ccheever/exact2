@@ -366,9 +366,8 @@ async function seedPullRequestThread(paths, name, conn, projectId, live, { timeo
 export async function seed(paths, name, seeds = SEEDS[name] ?? [{ repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: [`Shared notes on ${name}`] }], { turns = false, limits = false, pullRequest = false } = {}) {
   const running = recorded(paths, name);
   if (!running) throw new Error(`${name}: no fixture server running`);
-  // Turns pin the stand-in provider and limits add usage accounts: both need the settings scopes.
-  const scopes = turns || limits ? `${LANE_SCOPES} settings:write providers:manage` : LANE_SCOPES;
-  const conn = await connect(`http://127.0.0.1:${running.port}`, pairingToken(paths, name, "Fixture seed"), scopes);
+  // Project scripts, the stand-in's provider pin and usage accounts are settings and provider writes.
+  const conn = await connect(`http://127.0.0.1:${running.port}`, pairingToken(paths, name, "Fixture seed"), `${LANE_SCOPES} settings:write providers:manage`);
   try {
     const out = [];
     if (limits) out.push({ usageHub: `http://127.0.0.1:${(await startHub(paths)).port}`, accounts: await addHub(conn, hubPort()) });
