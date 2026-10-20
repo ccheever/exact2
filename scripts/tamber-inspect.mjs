@@ -179,9 +179,17 @@ const scrubbed = (rows, params) => (rows ?? []).map(r => (r.token ? { ...r, toke
 // A held state's rows (LLP 1121 stage 8 E), scrubbed as the selection's.
 const heldOf = (held, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
-// A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below), a look's
-// border side as the `border-color` its part writes whole (contract/lower/src/states.rs `longhands`).
-const authored = name => AUTHORED[name] ?? (/^border_color_(top|right|bottom|left)$/.test(name) ? 'border-color' : String(name).replace(/_/g, '-'));
+// A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below).
+const authored = name => AUTHORED[name] ?? String(name).replace(/_/g, '-');
+// A state part's row as its author wrote it at its place (`at`, in `lines`): a look's border side is the `border-color`
+// written there, its four sides whole, or the side's own longhand (`border-top-color`), as the source says; null for
+// another, which no edit of this row may write. Else its name (`authored`).
+const writtenAs = (lines, at, name) => {
+  const side = /^border_color_(top|right|bottom|left)$/.exec(name)?.[1];
+  if (!side) return authored(name);
+  const said = /^[a-z-]+/.exec((lines[at.line - 1] ?? '').slice(at.col - 1))?.[0];
+  return said === 'border-color' || said === `border-${side}-color` ? said : null;
+};
 
 /** A state part's row as `set-state` addresses it (LLP 1122 T4, tamber/1.12):
  * the style whose part writes it, by the name its file declares it with
@@ -202,9 +210,11 @@ export function stateRung(row, b, app, read = readFileSync, own = null) {
   // Its `style` line: the nearest above the part's row, at the line's start.
   const style = styleAbove(lines, b.at.line);
   if (!style) return null;
+  const written = writtenAs(lines, b.at, row.name);
+  if (!written) return null;
   // The row's value as written, where it is one plain value (`plainAt`); else none, and an editor starts empty.
-  const text = plainAt(lines[b.at.line - 1] ?? '', b.at.col, authored(row.name));
-  return { rung: 'state', style, state: b.state, row: authored(row.name), file: rel, ...(text != null ? { text } : {}) };
+  const text = plainAt(lines[b.at.line - 1] ?? '', b.at.col, written);
+  return { rung: 'state', style, state: b.state, row: written, file: rel, ...(text != null ? { text } : {}) };
 }
 
 /** The style a row on `line` (1-based) is written in: the nearest `style Name` above it at the
@@ -241,16 +251,17 @@ export function rowRung(row, b, map, app, instances = 1, read = readFileSync, ow
   const style = /^class:([A-Za-z_][\w-]*)$/.exec(b.origin ?? '')?.[1] ?? null;
   if (b.origin !== 'own' && !style) return null;
   if (style && b.state) return null;
-  // The attribute as written: the map's `attr`, or, for a state row under the node (which has none), its
-  // authored name (`background-color` for the press paint's `press_background_color`).
-  const attr = b.attr ?? (b.state ? authored(row.name) : null);
-  if (!attr) return null;
+  // (The attribute as written, below: the map's `attr`, or, for a state row under the node (which has none), its
+  // authored name at its place: `background-color` for the press paint's `press_background_color`.)
+  if (!b.attr && !b.state) return null;
   // A layout row (D14, the map's `layout`): the author's, as `set-row` says; a token or param it reads is offered.
-  if (b.layout) return { rung: null, layout: true, reason: `\`${attr}\` is a layout row: layout is the author's (LLP 1122 D14); edit it in the source, or at a param's or token's rung where it reads one` };
+  if (b.layout) return { rung: null, layout: true, reason: `\`${b.attr}\` is a layout row: layout is the author's (LLP 1122 D14); edit it in the source, or at a param's or token's rung where it reads one` };
   const rel = ownFile(b.at.file, app, own);
   if (!rel) return { rung: null, reason: style ? `a package's style (${style}): read-only here` : 'a package\'s component: read-only here' };
   let lines;
   try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
+  const attr = b.attr ?? writtenAs(lines, b.at, row.name);
+  if (!attr) return null;
   const text = plainAt(lines[b.at.line - 1] ?? '', b.at.col, attr);
   if (text == null) return { rung: null, reason: `\`${attr}\` is written as an expression or a name in scope, or over more than one line: edit it in the source` };
   if (style) {
@@ -409,7 +420,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       // (Whether it reads a param not yet read: from the host's own report, before its names were scrubbed.)
       const unread = named(selected.held.rows?.[i]?.token, params).unread;
       const offered = !heldHere || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, unread, stateRung(r, b, app, read, own), b?.state ? rowRung(r, b, map, app, copiesOf(owner), read, own) : null);
-      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state ? b.at ?? null : ownerSource ?? null, ...(offered ? { editable: offered } : {}) };
+      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state && b.at ? b.at : ownerSource ?? null, ...(offered ? { editable: offered } : {}) };
     }) };
   }
   return {

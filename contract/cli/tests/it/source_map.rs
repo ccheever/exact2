@@ -785,3 +785,90 @@ component App
         assert!(r.get("attr").is_none() || r["attr"] == "flex", "{r}");
     }
 }
+
+/// A look row's origin is its part's by its span, as a base row's is: a
+/// class whose animation longhands are composed into one row moves the
+/// node's own rows across the class's count, never their spans, so the
+/// node's own `:hover` row stays its own (Astra, round 1 of LLP 1122's
+/// queue item (1)).
+#[test]
+fn a_look_row_beside_a_composed_animation_is_still_its_nodes() {
+    let app = App::new("looks-animated");
+    app.write(
+        "app.contract",
+        r##"keyframes fade
+  from opacity=0
+  to opacity=1
+
+style Pulse
+  animation-name="fade"
+  animation-duration="1s"
+  :hover
+    background-color="#dddddd"
+component App
+  view
+    column class=Pulse testId="card"
+      :hover
+        opacity=0.5
+      text "c"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = at(&runner, &map, "card")["bindings"].as_array().unwrap();
+    let part = |name: &str| {
+        rows.iter()
+            .find(|r| r["row"] == name)
+            .map(|r| r["states"][0].clone())
+            .unwrap_or_else(|| panic!("{name}: {rows:?}"))
+    };
+    assert_eq!(
+        (
+            part("opacity")["origin"].as_str(),
+            part("opacity")["at"]["line"].as_u64()
+        ),
+        (Some("own"), Some(14))
+    );
+    assert_eq!(
+        (
+            part("background_color")["origin"].as_str(),
+            part("background_color")["at"]["line"].as_u64()
+        ),
+        (Some("class:Pulse"), Some(9))
+    );
+}
+
+/// A conditional class's state part is either style's, as its base row
+/// is: its `states` entry names its state and origin and says nowhere
+/// (Grok, round 1 of LLP 1122's queue item (1)).
+#[test]
+fn a_conditional_class_part_says_nowhere() {
+    let app = App::new("looks-conditional");
+    app.write(
+        "app.contract",
+        r##"style A
+  :hover
+    background-color="#dddddd"
+
+style B
+  :hover
+    background-color="#dddddd"
+
+component App
+  state flag = true
+  view
+    column class=(flag ? A : B) testId="col"
+      text "c"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = at(&runner, &map, "col")["bindings"].as_array().unwrap();
+    let bg = rows
+        .iter()
+        .find(|r| r["row"] == "background_color")
+        .unwrap_or_else(|| panic!("{rows:?}"));
+    assert_eq!(bg["states"][0]["state"], "hover", "{bg}");
+    assert_eq!(bg["states"][0]["origin"], "class:A/B", "{bg}");
+    assert!(bg["states"][0].get("at").is_none(), "{bg}");
+}

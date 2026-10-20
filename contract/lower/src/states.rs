@@ -62,9 +62,8 @@ pub(crate) struct Folded {
     /// The base rows, then each runner-known state's folded longhand.
     pub attrs: Vec<Attr>,
     /// Each host-known state's rows by longhand, the class's then the
-    /// node's, in the order written: `(state, rows)`, each row with
-    /// whether its class (or sheet) wrote it, for the map.
-    pub looks: Vec<(String, Vec<(Attr, bool)>)>,
+    /// node's, in the order written: `(state, rows)`.
+    pub looks: Vec<(String, Vec<Attr>)>,
     /// The author's own disabled look: a `:disabled` part, or what the
     /// heuristic reads in the base (never a fold's own rows).
     pub disabled_look: bool,
@@ -436,8 +435,8 @@ impl Lowerer<'_> {
         // Each folded longhand: its value, where, written, and whether its
         // class wrote every state row in it.
         let mut folded: Vec<(String, Expr, Span, bool, bool)> = Vec::new();
-        let mut looks: Vec<(String, Vec<(Attr, bool)>)> = Vec::new();
-        for (state, row, class) in &parts {
+        let mut looks: Vec<(String, Vec<Attr>)> = Vec::new();
+        for (state, row, _) in &parts {
             if !matches!(*state, "disabled" | "checked" | "active") {
                 let rows = match looks.iter_mut().find(|(s, _)| s == state) {
                     Some((_, rows)) => rows,
@@ -447,15 +446,12 @@ impl Lowerer<'_> {
                     }
                 };
                 for (l, v) in longhands(row)? {
-                    rows.retain(|(r, _)| r.name != l);
-                    rows.push((
-                        Attr {
-                            name: l,
-                            value: v,
-                            ..row.clone()
-                        },
-                        *class,
-                    ));
+                    rows.retain(|r| r.name != l);
+                    rows.push(Attr {
+                        name: l,
+                        value: v,
+                        ..row.clone()
+                    });
                 }
             }
         }

@@ -747,13 +747,15 @@ impl Lowerer<'_> {
         let (mut look_rows, mut look_sites) = (Vec::new(), Vec::new());
         for (state, attrs) in states.as_ref().map_or(&[][..], |s| s.looks.as_slice()) {
             let mut bindings = Vec::new();
-            // Each row's origin, for the map: its part's place, the class's or the node's.
+            // Each row's origin, for the map: its part's place, the class's
+            // (by its span, as a base row's: a rewrite moves rows across
+            // `class_len`, never their spans) or the node's.
             let mut origins = Vec::new();
             let named = match state.as_str() {
                 "hover" => "hover",
                 _ => "focus-visible",
             };
-            for (a, class) in attrs {
+            for a in attrs {
                 let (mut handlers, mut surface) = (Vec::new(), None);
                 self.attr(
                     tag,
@@ -766,8 +768,13 @@ impl Lowerer<'_> {
                     &mut surface,
                     &font,
                 )?;
-                let of = match (class, &class_label) {
-                    (true, Some(label)) => Origin::Class(label.clone(), None),
+                if self.sites.is_none() {
+                    continue;
+                }
+                let of = match &class_label {
+                    Some(label) if class_spans.contains(&a.span) => {
+                        Origin::Class(label.clone(), None)
+                    }
                     _ => Origin::Own(None),
                 };
                 origins.resize(

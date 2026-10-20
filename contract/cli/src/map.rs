@@ -316,9 +316,14 @@ impl SourceMap {
                     quote(&mut out, state);
                     out.extend_from_slice(b",\"origin\":");
                     quote(&mut out, &of.label());
-                    out.extend_from_slice(b",\"at\":{");
-                    self.at(&mut out, *span);
-                    out.extend_from_slice(b"}}");
+                    // (A conditional class's part is either style's, as its
+                    // base row is: it says nowhere.)
+                    if !matches!(&**of, Origin::Class(label, _) if label.contains('/')) {
+                        out.extend_from_slice(b",\"at\":{");
+                        self.at(&mut out, *span);
+                        out.push(b'}');
+                    }
+                    out.push(b'}');
                 }
                 if !states.is_empty() {
                     out.push(b']');

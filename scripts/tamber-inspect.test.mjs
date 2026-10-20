@@ -75,37 +75,44 @@ test('a held `:hover` or `:focus-visible` row is joined at its part, keyed by ro
   const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-looks-'));
   try {
     const app = joinPath(dir, 'app.contract');
-    const lines = ['style Card', '  background-color="#eeeeee"', '  :hover', '    border-color="#111111"', '', 'component App', '  view', '    box class=Card background-color="#ffffff"', '      :hover', '        background-color="#dddddd"', '      :focus-visible', '        opacity=0.5', ''];
+    const lines = ['style Card', '  background-color="#eeeeee"', '  :hover', '    border-color="#111111"', '    border-top-color="#444444"', '', 'component App', '  view', '    box class=Card background-color="#ffffff"', '      :hover', '        background-color="#dddddd"', '        border-left-color="#333333"', '      :focus-visible', '        opacity=0.5', ''];
     const text = lines.join('\n');
     writeFileSync(app, text);
     const place = (line, name) => { const col = lines[line - 1].indexOf(name) + 1; return { file: app, line, col, end_col: col + name.length }; };
-    const hoverAt = place(10, 'background-color'), sideAt = place(4, 'border-color');
+    const hoverAt = place(11, 'background-color'), topAt = place(5, 'border-top-color');
+    // As the compiler maps it: the style's top side from its later longhand, its right from the shorthand, the node's left its own.
     const map = { digest: 'p1', sources: [{ file: app, sha256: sha(text) }], nodes: [
-      { file: app, line: 8, col: 5, end_col: 8, component: 'App', chain: [], bindings: [
-        { row: 'background_color', origin: 'own', at: place(8, 'background-color'), attr: 'background-color', states: [{ state: 'hover', origin: 'own', at: hoverAt }] },
-        { row: 'border_color_top', states: [{ state: 'hover', origin: 'class:Card', at: sideAt }] },
-        { row: 'opacity', states: [{ state: 'focus-visible', origin: 'own', at: place(12, 'opacity') }] },
+      { file: app, line: 9, col: 5, end_col: 8, component: 'App', chain: [], bindings: [
+        { row: 'background_color', origin: 'own', at: place(9, 'background-color'), attr: 'background-color', states: [{ state: 'hover', origin: 'own', at: hoverAt }] },
+        { row: 'border_color_top', states: [{ state: 'hover', origin: 'class:Card', at: topAt }] },
+        { row: 'border_color_right', states: [{ state: 'hover', origin: 'class:Card', at: place(4, 'border-color') }] },
+        { row: 'border_color_left', states: [{ state: 'hover', origin: 'own', at: place(12, 'border-left-color') }] },
+        { row: 'opacity', states: [{ state: 'focus-visible', origin: 'own', at: place(14, 'opacity') }] },
       ] },
     ] };
     const selected = { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#ffffff', source: 'authored' }] };
     const hold = (state, rows) => join({ id: 'web-1' }, { ...selected, held: { state, node: 1, site: 0, instance: [], rows } }, map, { app: dir });
-    const hover = hold('hover', [{ name: 'background_color', value: '#dddddd' }, { name: 'border_color_top', value: '#111111' }, { name: 'opacity', value: 0.9 }]);
+    const hover = hold('hover', ['background_color', 'border_color_top', 'border_color_right', 'border_color_left', 'opacity'].map(name => ({ name, value: '#000000' })));
     // Each at its part's place, in the held state; the base row's own place never stands in for it.
-    expect(hover.held.rows.map(r => [r.name, r.state, r.source?.line])).toEqual([['background_color', 'hover', 10], ['border_color_top', 'hover', 4], ['opacity', 'hover', 8]]);
+    expect(hover.held.rows.map(r => [r.name, r.state, r.source?.line])).toEqual([['background_color', 'hover', 11], ['border_color_top', 'hover', 5], ['border_color_right', 'hover', 4], ['border_color_left', 'hover', 12], ['opacity', 'hover', 9]]);
     // The node's own part: set-row at its place with its state (T5's template rung).
-    expect(hover.held.rows[0].editable).toEqual({ rung: 'template', file: 'app.contract', at: { line: 10, col: hoverAt.col }, sha256: sha(text), row: 'background-color', state: 'hover', instances: 1, text: '#dddddd', component: 'App' });
-    // A style's part: set-state on the style, a border side as the `border-color` the part writes whole.
-    expect(hover.held.rows[1].editable).toEqual({ rung: 'state', style: 'Card', state: 'hover', row: 'border-color', file: 'app.contract', text: '#111111' });
+    expect(hover.held.rows[0].editable).toEqual({ rung: 'template', file: 'app.contract', at: { line: 11, col: hoverAt.col }, sha256: sha(text), row: 'background-color', state: 'hover', instances: 1, text: '#dddddd', component: 'App' });
+    // A style's part: set-state on the style, a border side as written there: its own longhand, or the shorthand whole.
+    expect(hover.held.rows[1].editable).toEqual({ rung: 'state', style: 'Card', state: 'hover', row: 'border-top-color', file: 'app.contract', text: '#444444' });
+    expect(hover.held.rows[2].editable).toEqual({ rung: 'state', style: 'Card', state: 'hover', row: 'border-color', file: 'app.contract', text: '#111111' });
+    expect(hover.held.rows[3].editable).toMatchObject({ rung: 'template', row: 'border-left-color', state: 'hover', text: '#333333', at: { line: 12 } });
     // A held row the map gives no part in that state (opacity's is focus-visible's): no rung, never the base's.
-    expect(hover.held.rows[2].editable.rung).toBe(null);
+    expect(hover.held.rows[4].editable.rung).toBe(null);
+    // A side whose place says neither its longhand nor `border-color` is offered nothing a write could get wrong.
+    expect(stateRung({ name: 'border_color_top' }, { state: 'hover', origin: 'class:Card', at: place(2, 'background-color') }, dir)).toBe(null);
     const focus = hold('focus-visible', [{ name: 'opacity', value: 0.5 }]);
-    expect(focus.held.rows[0]).toMatchObject({ source: { line: 12 }, editable: { rung: 'template', row: 'opacity', state: 'focus-visible', at: { line: 12 } } });
+    expect(focus.held.rows[0]).toMatchObject({ source: { line: 14 }, editable: { rung: 'template', row: 'opacity', state: 'focus-visible', at: { line: 14 } } });
     // The selection's own row is the base value's, at its own place, with no state.
     const base = join({ id: 'web-1' }, selected, map, { app: dir }).rows[0];
-    expect([base.state, base.at?.line, base.editable.rung, base.editable.state]).toEqual([undefined, 8, 'template', undefined]);
+    expect([base.state, base.at?.line, base.editable.rung, base.editable.state]).toEqual([undefined, 9, 'template', undefined]);
     // `uses` names a look row's part: outlining it finds the node.
     expect(sitesAt(map, hoverAt)).toEqual([0]);
-    expect(sitesAt(map, sideAt)).toEqual([0]);
+    expect(sitesAt(map, topAt)).toEqual([0]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -254,7 +261,7 @@ test('a style\'s state part row joins on the state rung for set-state, the defau
       { file: post, line: 3, col: 5, end_col: 11, component: 'X', chain: [], bindings: [
         { row: 'press_background_color', states: [{ state: 'active', origin: 'class:Card__post', at: at(8, 'background-color="primary_600"') }] },
         { row: 'press_opacity_to', states: [{ state: 'active', origin: 'class:Card__post', at: at(9, 'opacity=0.8') }] },
-        { row: 'press_color', states: [{ state: 'active', origin: 'class:A/B', at: at(10, 'color="red"') }] },
+        { row: 'press_color', states: [{ state: 'active', origin: 'class:A/B' }] }, // (a conditional class's part says nowhere)
         { row: 'press_scale', states: [{ state: 'active', origin: 'class:Pkg', at: { file: pkg, line: 3, col: 5, end_col: 9 } }] },
       ] },
       { file: post, line: 1, col: 1, end_col: 2, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', states: [{ state: 'active', origin: 'class:Card__post', at: at(9, 'opacity=0.8') }] }] },
