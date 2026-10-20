@@ -271,7 +271,8 @@ statuses:
   reads it, every rule pinning this account and `validationmethods=dns-01`, each tag once and in
   lower case as Let's Encrypt reads them, at a CA known to honour those parameters (RFC 8657;
   `letsencrypt.org`, until every public CA must, 2027-03-15), or forbidding issuance; a CNAME on
-  the way up never pinned; a kept certificate whose account URL isn't kept is not pinned either):
+  the way up never pinned; a kept certificate whose account URL isn't kept is not pinned either; all
+  of one check's lookups within 5 s, past which it is not pinned):
   each answer is shown at once, and until they pin, the start-up line says
   plainly "not zero-trust", naming the name left open, and `pair-code`'s relay entry carries `caa: false` (*1.15*; `caa: true`
   once it is), and with `--require-caa` no order runs at all until it is, and a later check that

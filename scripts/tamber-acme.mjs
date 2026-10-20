@@ -335,11 +335,18 @@ export async function caaPinned(name, accountUri, { resolveCaa, resolveCname, ho
 /** Whether only this account, by DNS-01, can get a certificate for any of
  * `names` (each governed by its own records: a wildcard's `issuewild`
  * covers no host, a host's `issue` no wildcard). `{pinned, unpinned}`, the
- * first name that isn't with its reason. */
-export async function caaGoverns(names, accountUri, options = {}) {
-  for (const n of names) {
-    const c = await caaPinned(n, accountUri, options);
-    if (!c.pinned) return { pinned: false, unpinned: { name: n, ...c } };
-  }
-  return { pinned: true, unpinned: null };
+ * first name that isn't with its reason. Every lookup together within
+ * `ms` (a resolver that hangs can't stall a start or a renewal): past it,
+ * not pinned (`unpinned.timeout`). */
+export async function caaGoverns(names, accountUri, { ms = 5000, ...options } = {}) {
+  let timer;
+  const late = new Promise(ok => { timer = setTimeout(() => ok({ pinned: false, unpinned: { name: names[0], pinned: false, at: null, timeout: true } }), ms); });
+  const all = (async () => {
+    for (const n of names) {
+      const c = await caaPinned(n, accountUri, options);
+      if (!c.pinned) return { pinned: false, unpinned: { name: n, ...c } };
+    }
+    return { pinned: true, unpinned: null };
+  })();
+  try { return await Promise.race([all, late]); } finally { clearTimeout(timer); }
 }

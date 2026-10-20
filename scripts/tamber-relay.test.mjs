@@ -791,7 +791,7 @@ test('R2 (theme2 09:57): a CAA record pinning this account and DNS-01 makes it z
     const relay = await fakeRelay({ greet: `READY ${byo.tool} ${byo.canvas}\n` });
     const warned = [];
     const args = { host: 'relay.test', port: relay.control, account: 'acct', token: TOKEN, names: byo, acme: acme.directory, hook, requireCaa, dir: join(home, tag) };
-    const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relay.control), say: () => {}, warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa, resolveCname, caaHonouring: ['acme.test'] } });
+    const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relay.control), say: () => {}, warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa, resolveCname, caaHonouring: ['acme.test'], caaMs: 300 } });
     closing.push(() => doors.close());
     return { acme, doors, warned };
   };
@@ -821,6 +821,14 @@ test('R2 (theme2 09:57): a CAA record pinning this account and DNS-01 makes it z
   const unknownCa = await run(async d => (d === 'example.com' ? [{ issue: rule.replace('acme.test', 'other-ca.test') }, { issuewild: rule.replace('acme.test', 'other-ca.test') }] : []), false, 'e');
   await until(() => unknownCa.doors.relay() !== null, 10_000);
   expect(unknownCa.doors.relay().caa).toBe(false);
+  // A resolver that never answers (theme2's 14:20): not pinned within the deadline, and refused under --require-caa.
+  const hung = await run(() => new Promise(() => {}), false, 'f');
+  await until(() => hung.doors.relay() !== null, 10_000);
+  expect(hung.doors.relay().caa).toBe(false);
+  expect(hung.warned).toEqual(['tamber: not zero-trust: the relay could obtain a certificate for *.example.com (its CAA lookups did not answer in time) until the CAA records above govern it']);
+  const hungRequired = await run(() => new Promise(() => {}), true, 'g');
+  await until(() => hungRequired.warned.some(l => l.includes('--require-caa')), 10_000);
+  expect(hungRequired.acme.orders.length).toBe(0);
   // A kept certificate whose account URL is not kept (round 3): with --require-caa, refused, never served unchecked.
   const { unlinkSync } = await import('node:fs');
   unlinkSync(join(home, 'a', 'account-uri'));

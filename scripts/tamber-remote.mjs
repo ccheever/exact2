@@ -475,8 +475,8 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
           const rule = `"${issuer ?? '<your CA\'s CAA name>'}; validationmethods=dns-01; accounturi=${uri}"`;
           say(`  for names of your own, set these CAA records on ${parent}, so only this account, by DNS-01, can get a certificate for them: 0 issue ${rule} and 0 issuewild ${rule}; and point ${names.tool} and ${names.canvas} at the relay by A/AAAA records, never a CNAME (a CA reads a CNAME's target's CAA, which the relay writes)`);
         }
-        const c = await caaGoverns(caaNames, uri, { ...resolvers, ...honouring }).catch(() => ({ pinned: false, unpinned: null }));
-        const why = c.unpinned?.cname ? ` (${c.unpinned.at} is a CNAME, to ${c.unpinned.cname.replace(/[^\x21-\x7e]/g, '?').slice(0, 100)})` : '';
+        const c = await caaGoverns(caaNames, uri, { ...resolvers, ...honouring, ...(acmeOptions.caaMs ? { ms: acmeOptions.caaMs } : {}) }).catch(() => ({ pinned: false, unpinned: null }));
+        const why = c.unpinned?.cname ? ` (${c.unpinned.at} is a CNAME, to ${c.unpinned.cname.replace(/[^\x21-\x7e]/g, '?').slice(0, 100)})` : c.unpinned?.timeout ? ' (its CAA lookups did not answer in time)' : '';
         if (!c.pinned) warn(`tamber: not zero-trust: the relay could obtain a certificate for ${c.unpinned?.name ?? parent}${why} until the CAA records above govern it`);
         if (!c.pinned) answer(false, `--require-caa: the CAA that governs ${c.unpinned?.name ?? parent}${why} does not pin this account and DNS-01 at a CA known to honour that (${(acmeOptions.caaHonouring ?? CAA_HONOURING).join(', ')})`);
         else answer(true);
