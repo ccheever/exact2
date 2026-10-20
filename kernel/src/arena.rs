@@ -1233,6 +1233,7 @@ mod tests {
             (StyleId::FontSize, number(24.0)),
             (StyleId::FontWeight, number(700.0)),
             (StyleId::FontStyle, text("italic")),
+            (StyleId::FontStretch, text("75%")),
             (StyleId::FontFamily, number(3.0)),
             (StyleId::Cursor, text("grab")),
             (StyleId::TextAlign, text("right")),

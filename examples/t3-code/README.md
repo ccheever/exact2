@@ -76,8 +76,9 @@ desktop envelope; it restarts the server with T3 Code's backoff, keeps its failu
 running, as the reference's (`DesktopLifecycle.ts`: `window-all-closed` quits only off macOS). The
 reopen event (a Dock click, `open -a`) and a `t3 app` request show the window again; with it
 hidden, ⌘Q quits at once, as the reference's menu Quit does with no page to hold it. The reference
-builds a new window on a new draft, its other threads' drafts kept; the clone's window comes back as
-it was, on the thread and draft it closed on. A development build
+builds a new window on the most recent project's draft, its other threads' drafts kept. The clone
+opens that same draft on a close/reopen, using `exactPage().restores`; minimizing or hiding the app
+and showing it again keeps the current thread and draft. A development build
 starts it only with an isolated home and a lane port, never `~/.t3` or 3773:
 
 ```sh
@@ -1006,7 +1007,7 @@ layout still need the AppKit tests or an app drive; passing a source scan does n
 
 ```sh
 bun examples/t3-code/tools/generate/generate.mjs   # the generated sources, first
-bun test examples/t3-code
+bun test ./examples/t3-code
 bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2023 --module ESNext --moduleResolution bundler --skipLibCheck --lib ES2023,DOM examples/t3-code/app.ts
 cargo run -q -p contract -- build examples/t3-code/app.contract -o /tmp/t3-code.plan
 cargo test -p contract --test it button_migration -- --ignored   # the async lane's sweep of this app: app.contract and its imports (minutes)

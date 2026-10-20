@@ -39,3 +39,19 @@ pyftsubset NotoSansCJKsc-Regular.otf --unicodes=U+4E2D,U+65E5 --output-file=Noto
 The declared-weight tests reuse `host/apple/tests/fonts/InterVariable.ttf`
 in place, with its `Inter-LICENSE` beside it. Its `wght` axis spans 100–900
 and defaults to 400.
+
+# Variable width fixture
+
+`RobotoFlex-subset.ttf` holds the glyphs of "Hamburgefonts EXACT" from Roboto
+Flex, with every axis kept: `wght` 100–1000 and `wdth` 25–151 among them. The
+declared-range tests draw it on both. Copyright 2017 The Roboto Flex Project
+Authors (https://github.com/TypeNetwork/Roboto-Flex). The font is licensed
+under the SIL Open Font License 1.1; see `RobotoFlex-LICENSE`.
+
+Source: the copy at [SchroederNathan/react-native-motion@984e7c3](https://github.com/SchroederNathan/react-native-motion/blob/984e7c38884b95dae72e9c27259b7ef7d8287de8/apps/expo/components/animations/variable-font/assets/RobotoFlex.ttf),
+SHA-256 `9b523f7d82593df0107173849ebb8c817471a1df4b4fb2c3cbf40cfd810c8281`.
+Reproduce with fonttools 4.67.0:
+
+```sh
+pyftsubset RobotoFlex.ttf --text="Hamburgefonts EXACT" --layout-features='*' --output-file=RobotoFlex-subset.ttf
+```

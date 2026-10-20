@@ -124,8 +124,9 @@ anything else changes the router, which the router refuses (`lower-replace-root`
 `users.filter(u => u.id == p.userId)` in `for p in posts` (`lower-row-lookup`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
 `performanceNow()` time sent to a source (`type-performance-now-persisted`), the
-launch's `time.epochAtZero` or `time.seed` as a resource's identifying argument, which
-keeps its kept answer from ever showing at launch: pass it after `with`
+launch's `time.epochAtZero` or `time.seed` as a resource's identifying argument, or a
+value equal to one at launch (`time.epochAtZero + tick * 60000` while `tick` starts at
+0), which keeps its kept answer from ever showing at launch: pass it after `with`
 (`lower-resource-launch-identity`), a
 state read after its own action assigned it (`analyze-read-after-assign`), a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
@@ -198,6 +199,10 @@ record, even where a view carries the same name. Every other reply is one line t
 1206×2622 at its own 3, 402×874 with `--scale 1`, one pixel a point as on the
 web, at about a ninth of the pixels. An app's `bun exact.mjs agent ios|macos`
 takes `--scale 1` unless told otherwise; ask for more only to check fine pixels.
+On a simulator a `window` screenshot's pixels are the display's (`pixels="display"`):
+glass, blur and the keyboard as the device draws them. So are a plain one's where glass
+or a blur lies in the page; where the display cannot be read (the app not in front, an
+overlay) the reply says its materials are approximate, and why.
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -1118,7 +1123,7 @@ A token, a password or a key the module keeps is a secret, not a file: grant
 `store.forget(name)` in an answer (LLP 1018). It is the Keychain on Apple; on the
 web, the page's `localStorage`, readable by any script on that origin; a Linux
 launch keeps it only until the app exits for now. A drive keeps it, by default,
-only in a named `--storage` store (`EXACT_STORE=real` gives an Apple drive the Keychain).
+only in a named `--storage` store (`EXACT_STORE=real` gives an Apple drive, on a Mac, a simulator or a phone, the Keychain a normal launch reads).
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain
@@ -1759,8 +1764,9 @@ of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled|ed
 `state sounds` lists the last 64 voices, `state transport` the transport.
 
 MIDI is Web MIDI's, and the runner keeps its queue as it keeps the voices (LLP
-1125 D6–D8). Grant `device.midi purpose.midi` (the data source's `grants()`, the
-text in `strings/en.json`). Read the ports with `resource midi = exactMIDI() as
+1125 D6–D8). Grant `device.midi purpose.midi`, a line of the data module's grants
+(`export const grants` in `app.ts`, `grants()` in Rust) whose second word is a key of
+`strings/en.json`: `"purpose.midi": "…"`, the text the person is shown when asked. Read the ports with `resource midi = exactMIDI() as
 shape MIDI` (`state`: `prompt`, `granted`, `denied`, `unavailable`; `outputs` and
 `inputs`, each `{id, name, manufacturer, state}`), ask for them from a press with
 `requestMIDIAccess()`, and let the person pick an output (a `select` of
@@ -2612,7 +2618,12 @@ Firefox and WebKit carriers refuse both.
 `app:/` files and an element's `"#id"`; the web never takes a picture),
 `canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
 system's focus; false while another app or window is in front, so an app can
-choose an in-window message over a system notification). A reminder that should
+choose an in-window message over a system notification), `persisted` and
+`restores` (the back/forward cache: `persisted` is true while the page is put
+away, from a `pagehide` with `persisted` until the `pageshow`; `restores`
+counts those `pageshow` events, so `task t when page.restores > 0
+key=page.restores` runs once for each return, never at launch; a Mac window a
+`keepRunning` close hid is put away, a minimized one only hidden). A reminder that should
 open a route uses `showNotification(title="Done", navigate="/thread/42")`;
 its click reaches the navigation root as a warm `navigate` event or a cold
 launch location. Under the agent `state.notifications` lists `navigate`, and
@@ -3546,7 +3557,8 @@ a callback), or that a child reads otherwise than as a row's value, is refused
 (`tamber-param-scope`). A param no
 row of its component reads (a state part's row counts: `:active`'s
 `background-color = "param.pressed"`), directly or through another param, is refused
-(`tamber-param-unused`); a ranged length is px (`tamber-range-unit`) and its
+(`tamber-param-unused`); a ranged length is px (`tamber-range-unit`), or a base
+name or an expression over one, checked in every platform's column, and its
 default must be inside the range in every mode; `control` follows the kind
 (`color`, `slider`, `stepper`, `token`, `select` with `options="a|b"`, `none`),
 and `priority` is 1 to 3. A design token may not be named `param.…`.
@@ -3583,6 +3595,12 @@ alike (`@acme/reading` and `@other/reading`) when both ship a design. A
 refusal points at its line in the package's file. `contract tamber
 check|eval|ir|gen` and the design server fold the app's design with its
 packages' tokens, as the build does.
+A length token may name a base name bare (`card.pad: length = space.md`) or in
+a `calc()`, `min()`, `max()` or `clamp()` with px and numbers
+(`calc(space.md * 2 + 4px)`): each host reads it in its own column, and the
+compiler checks every column, naming the one a row refuses (a padding that is
+negative on mac). A base name times a length, `rem`, `em` or `%` beside one,
+and a shadow over one are refused.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into

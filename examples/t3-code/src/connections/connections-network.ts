@@ -25,6 +25,7 @@ import { access, createdCredentials, createPairingCredential, revokeClientSessio
   summarizeAuthorizedClients, watchAccess, type AuthClientSession, type AuthPairingLink } from './auth-access';
 import { qrCells, type QrCell } from '../settings/settings-qr';
 import { focusedOnPrimary, primary } from './local-primary';
+import { fleet } from './settings-b-fleet';
 import type { ConnectionResult } from './connections';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
@@ -297,10 +298,12 @@ export async function networkPage(client: T3Client, native: Native, open: boolea
   if (Number.isFinite(now)) live.now = now;
   access.wanted = open && canManage && primary.connectable;
   access.changed = () => { client.revision++; };
+  // A page change need not refresh the snapshot that runs the fleet's keep-alive pass.
+  if (focusedOnPrimary(client)) {
+    if (client.connection === 'connected') await watchAccess(client, request => client.restAccess(native).call(request)).catch(error => { if (letGo(error)) throw error; });
+  } else await fleet.watchPrimaryAccess(native).catch(error => { if (letGo(error)) throw error; });
   if (!open || !canManage) return networkProjection({ canManage: false, state: null, endpoints: [], defaultKey: null, access: { loaded: false, error: '', pairingLinks: [], clientSessions: [] }, credentials: createdCredentials, now });
   native.watch('t3.local');
-  // Subscribe at once when this machine is the focus (the fleet's pass follows its own sync).
-  if (focusedOnPrimary(client) && client.connection === 'connected') await watchAccess(client, request => client.restAccess(native).call(request)).catch(error => { if (letGo(error)) throw error; });
   await readNetwork(client, native, opened);
   const sameMachine = access.environmentId === primary.target?.environmentId;
   return networkProjection({ canManage, state: live.snapshot?.state ?? null, endpoints: live.snapshot?.endpoints ?? [], defaultKey: defaultEndpointKey(client),

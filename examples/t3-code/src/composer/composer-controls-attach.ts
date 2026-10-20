@@ -11,7 +11,7 @@ import { arr, obj, str, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { acceptAttachedFile, attachStagingLimit, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments } from './composer-editor-attach';
-import type { DraftFile } from './composer-editor-files';
+import { holdDraftFiles, type DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from './image-attachment-size';
 import { composerFieldOwner } from './auto-balance-owner';
@@ -75,28 +75,31 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
   let error = '';
   const accepted: Obj[] = [], chips: DraftFile[] = [];
   let reserved = reservedAttachments(client);
-  for (const file of files) {
-    if (!current()) {
-      if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id));
-      await releaseStagedFile(native, file);
-      continue;
+  const release = holdDraftFiles(client.local, key);
+  try {
+    for (const file of files) {
+      if (!current()) {
+        if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id));
+        await releaseStagedFile(native, file);
+        continue;
+      }
+      const name = str(file.name, 'file');
+      if (reserved >= MAX_ATTACHMENTS) {
+        if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id)); // staged bytes nothing will reference
+        await releaseStagedFile(native, file);
+        error = `You can attach up to ${MAX_ATTACHMENTS} files per message.`; continue;
+      }
+      if (file.kind === 'unsupported-image') { error = `'${name}' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.`; continue; }
+      if (file.kind === 'unreadable') { error = `'${name}' is empty or could not be read.`; continue; }
+      if (file.kind === 'too-large') { error = `'${name}' is too large to attach. Images can be up to 10 MB.`; continue; }
+      if (file.kind === 'file') { const staged = acceptAttachedFile(client, file); if (staged.file) { chips.push(staged.file); reserved += 1; rememberVideoFrame(client, file); } else error = staged.error; continue; }
+      if (file.kind !== 'image' || !/^[a-f0-9-]{36}$/i.test(str(file.id))) { error = `'${name}' can't be attached here: this app attaches images only.`; continue; }
+      accepted.push({ id: str(file.id), name, mimeType: 'image/png', sizeBytes: num(file.sizeBytes),
+        ...(file.downscalable === false ? { downscalable: false } : {}) });
+      reserved += 1;
     }
-    const name = str(file.name, 'file');
-    if (reserved >= MAX_ATTACHMENTS) {
-      if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id)); // staged bytes nothing will reference
-      await releaseStagedFile(native, file);
-      error = `You can attach up to ${MAX_ATTACHMENTS} files per message.`; continue;
-    }
-    if (file.kind === 'unsupported-image') { error = `'${name}' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.`; continue; }
-    if (file.kind === 'unreadable') { error = `'${name}' is empty or could not be read.`; continue; }
-    if (file.kind === 'too-large') { error = `'${name}' is too large to attach. Images can be up to 10 MB.`; continue; }
-    if (file.kind === 'file') { const staged = acceptAttachedFile(client, file); if (staged.file) { chips.push(staged.file); reserved += 1; rememberVideoFrame(client, file); } else error = staged.error; continue; }
-    if (file.kind !== 'image' || !/^[a-f0-9-]{36}$/i.test(str(file.id))) { error = `'${name}' can't be attached here: this app attaches images only.`; continue; }
-    accepted.push({ id: str(file.id), name, mimeType: 'image/png', sizeBytes: num(file.sizeBytes),
-      ...(file.downscalable === false ? { downscalable: false } : {}) });
-    reserved += 1;
-  }
-  if (accepted.length) client.local.snapshotDrafts[key] = [...(client.local.snapshotDrafts[key] ?? []), ...accepted];
-  const inserted = await insertFileChips(client, native, chips, imageChips ? accepted : [], owner || identity.snapshotOwner);
-  if (current()) client.error = error || (!inserted ? 'The prompt changed before attachment references could be inserted. Attach the files again.' : '');
+    if (accepted.length) client.local.snapshotDrafts[key] = [...(client.local.snapshotDrafts[key] ?? []), ...accepted];
+    const inserted = await insertFileChips(client, native, chips, imageChips ? accepted : [], owner || identity.snapshotOwner);
+    if (current()) client.error = error || (!inserted ? 'The prompt changed before attachment references could be inserted. Attach the files again.' : '');
+  } finally { release(); }
 }

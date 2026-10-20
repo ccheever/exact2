@@ -748,6 +748,10 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
                 num_into(out, *n as f32);
                 out.push_str("deg");
             }
+            StyleId::FontStretch => {
+                num_into(out, *n as f32);
+                out.push('%');
+            }
             _ => {
                 num_into(out, *n as f32);
                 out.push_str("px");

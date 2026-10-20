@@ -218,18 +218,22 @@ fn a_task_fires_each_frame_with_every_frame() {
 }
 
 #[test]
-fn static_font_declarations_parse_in_shorthand_and_block_forms() {
+fn font_declarations_parse_in_shorthand_and_block_forms() {
     let file = parse(
-        "font \"Body\" = \"assets/Body.ttf\"\nfont \"Display\"\n  400 = \"assets/Display.ttf\"\n  700 = \"assets/Display-Bold.otf\"\n  400 italic = \"assets/Display-Italic.ttf\"\ncomponent App\n  view\n    text \"hello\"\n",
+        "font \"Body\" = \"assets/Body.ttf\"\nfont \"Display\"\n  400 = \"assets/Display.ttf\"\n  700 = \"assets/Display-Bold.otf\"\n  400 italic = \"assets/Display-Italic.ttf\"\n  100 900 = \"assets/Display-Variable.ttf\"\ncomponent App\n  view\n    text \"hello\"\n",
     )
     .unwrap();
     assert_eq!(file.fonts.len(), 2);
-    assert_eq!(file.fonts[0].faces[0].weight, 400);
+    assert_eq!(file.fonts[0].faces[0].weight, None, "the file's own range");
+    assert_eq!(file.fonts[1].faces[0].weight, Some([400, 400]));
+    assert_eq!(file.fonts[1].faces[3].weight, Some([100, 900]));
     assert!(!file.fonts[0].faces[0].italic);
-    assert_eq!(file.fonts[1].faces.len(), 3);
+    assert_eq!(file.fonts[1].faces.len(), 4);
     assert!(file.fonts[1].faces[2].italic);
 
     let error = parse("font \"Bad\"\n  1001 = \"assets/Bad.ttf\"\n").unwrap_err();
+    assert_eq!(error.id, "syntax-font-weight");
+    let error = parse("font \"Bad\"\n  700 400 = \"assets/Bad.ttf\"\n").unwrap_err();
     assert_eq!(error.id, "syntax-font-weight");
 }
 

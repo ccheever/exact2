@@ -9,6 +9,96 @@ import { contractComponent } from '../support/contract-action-fixture';
 import { contractFns } from '../support/contract-fn-fixture';
 import { toasts } from '../../src/shell/toast';
 import { appPath } from '../support/app-files';
+import { obj } from '../../src/client/domain';
+import { contextId, contextLink } from '../../src/composer/composer-editor-menu';
+import { ATTACHMENT_ONLY_PROMPT } from '../../src/composer/queued-edit-attachments';
+import { acceptAttachedFile } from '../../src/composer/composer-editor-attach';
+import { fileChipLink } from '../../src/composer/composer-editor-files';
+
+describe('submission text (ChatView onSend, 9c161462c9)', () => {
+  for (const existing of [true, false]) {
+    const setup = existing ? opened : connected;
+    const route = existing ? 'an existing thread' : 'a new thread';
+    const sentMessage = (payload: unknown) => existing ? obj(payload) : obj(obj(payload).initialMessage);
+    test.each([
+      { label: 'plain text', prompt: '  fresh spaced text  ', text: 'fresh spaced text', title: 'fresh spaced text' },
+      { label: 'multiline Markdown', prompt: '\t\n  # Heading\n\nKeep  two spaces.  \nNext line.\n\n```ts\n  indent();\n```\n \t', text: '# Heading\n\nKeep  two spaces.  \nNext line.\n\n```ts\n  indent();\n```' },
+    ])(`trims outer whitespace for ${route} while retaining inner whitespace: $label`, async ({ prompt, text, title }) => {
+      const { client, native, command } = await setup();
+      await command('draft', '', prompt);
+      await command('send', '', prompt);
+      const sent = native.committed.at(-1);
+      expect(client.error).toBe('');
+      expect(sentMessage(sent)).toMatchObject({ text, attachments: [] });
+      if (title) expect(existing ? sent?.titleSeed : sent?.title).toBe(title);
+      expect(client.draft).toBe('');
+    });
+    test(`preserves context references and their records for ${route} after trimming`, async () => {
+      const { client, native, command } = await setup();
+      const id = contextId('thread', 't2'), link = contextLink('thread', id, 'Thread t2');
+      await command('send', '', ` \n ${link}  review this \n `);
+      expect(client.error).toBe('');
+      expect(sentMessage(native.committed.at(-1))).toMatchObject({
+        text: `${link}  review this`,
+        context: { version: 1, records: [{ kind: 'thread', contextId: id, threadId: 't2', environmentId: 'env1' }] },
+      });
+    });
+    test(`trims whitespace exposed by an expired terminal reference for ${route}`, async () => {
+      const { client, native, command } = await setup();
+      await command('send', '', ' [old terminal](t3-context://v1/terminal/terminal_old)\n  Keep  this  ');
+      expect(client.error).toBe('');
+      expect(sentMessage(native.committed.at(-1))).toMatchObject({ text: 'Keep  this' });
+      expect(sentMessage(native.committed.at(-1)).context).toBeUndefined();
+    });
+    test(`sends the attachment-only prompt for ${route} without replacing its image title`, async () => {
+      const { client, native, command } = await setup();
+      const key = client.draftKey;
+      client.local.snapshotDrafts[key] = [{ id: 'image-local', uploadId: 'image-upload', name: 'screen.png', mimeType: 'image/png', sizeBytes: 64 }];
+      await command('send', '', ' \t\n ');
+      const sent = native.committed.at(-1);
+      expect(client.error).toBe('');
+      expect(sentMessage(sent)).toMatchObject({ text: ATTACHMENT_ONLY_PROMPT, attachments: [{ id: 'image-upload', type: 'image', name: 'screen.png' }],
+        context: { version: 1, records: [{ kind: 'image', contextId: 'image_image-local', attachmentId: 'image-upload', name: 'screen.png', sizeBytes: 64 }] } });
+      expect(existing ? sent?.titleSeed : sent?.title).toBe('Image: screen.png');
+      expect(client.local.snapshotDrafts[key]).toEqual([]);
+      expect(client.draft).toBe('');
+    });
+    test(`rejects whitespace without attachments for ${route}`, async () => {
+      const { native, command } = await setup();
+      const before = native.committed.length;
+      const result = await command('send', '', ' \t\n ');
+      expect(result.message).toBe('Write a message or attach an image first.');
+      expect(native.committed.length).toBe(before);
+    });
+    test.each([{ label: 'file only', withImage: false }, { label: 'file and image', withImage: true }])(`uploads and binds attachments for ${route}: $label`, async ({ withImage }) => {
+      const { client, native, command } = await setup();
+      const file = acceptAttachedFile(client, { kind: 'file', id: '00000000-0000-4000-8000-000000000001', name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 5 }).file!;
+      const later = native.later.bind(native), uploaded: unknown[] = [], released: unknown[] = [];
+      native.later = async input => {
+        const request = obj(input);
+        if (request.op === 'composerAttachRead') return native.ok({ base64: 'aGVsbG8=', sizeBytes: 5 });
+        if (request.op === 'request' && request.method === 'attachments.createUploadUrl') return native.ok({ attachmentId: 'file-upload', relativeUrl: '/api/attachments/upload/file-upload' });
+        if (request.op === 'uploadAttachment') { uploaded.push(request); return native.ok({}); }
+        if (request.op === 'composerAttachRemove') { released.push(request); return native.ok({}); }
+        return later(input);
+      };
+      if (withImage) client.local.snapshotDrafts[client.draftKey] = [{ id: 'image-local', uploadId: 'image-upload', name: 'screen.png', mimeType: 'image/png', sizeBytes: 64 }];
+      await command('send', '', ` \n ${fileChipLink(file)}  `);
+      const sent = sentMessage(native.committed.at(-1));
+      expect(client.error).toBe('');
+      expect(sent).toMatchObject({
+        text: fileChipLink(file),
+        context: { version: 1, records: [...(withImage ? [{ kind: 'image', contextId: 'image_image-local', attachmentId: 'image-upload', name: 'screen.png', sizeBytes: 64 }] : []),
+          { kind: 'file', contextId: file.contextId, attachmentId: 'file-upload', sizeBytes: 5 }] },
+      });
+      expect(sent.attachments).toEqual([...(withImage ? [expect.objectContaining({ id: 'image-upload', type: 'image' })] : []),
+        { type: 'file', id: 'file-upload', name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 5 }]);
+      expect(uploaded).toMatchObject([{ base64: 'aGVsbG8=', contentType: 'text/plain', path: '/api/attachments/upload/file-upload' }]);
+      expect(released).toMatchObject([{ id: file.id }]);
+      expect(client.draft).toBe('');
+    });
+  }
+});
 
 describe('send gestures through the server keybindings', () => {
   test('⌥⌘↩ on an existing thread sends there, then opens a fresh composer in its project', async () => {

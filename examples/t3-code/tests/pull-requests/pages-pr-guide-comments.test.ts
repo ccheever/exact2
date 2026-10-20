@@ -79,7 +79,7 @@ test('overlapping guide excerpts share pending comments but mount only the selec
   const { decodeGuideResult } = await import('../../src/pull-requests/pages-pr-guide-logic');
   const { presentGuideDiff, guideDiffLocal } = await import('../../src/pull-requests/pages-pr-guide-diff');
   const { client, native } = await connected(), entry = guideEntry(client, reference);
-  entry.result = decodeGuideResult({ guide: { headSha: 'head', generatedAt: '2026-10-18T01:00:00Z', modelSelection: { instanceId: 'claude', model: 'sonnet' }, stops: [{ title: 'Contract', summary: '', attention: null, excerpts: ['old', 'new'].map(side => ({ path: 'src/a.ts', side, start: 2, end: 2, caption: '' })), files: [], notes: [], questions: [] }] }, run: null, currentHeadSha: 'head' });
+  entry.result = decodeGuideResult({ guide: { headSha: 'head', generatedAt: '2026-10-18T01:00:00Z', modelSelection: { instanceId: 'claude', model: 'sonnet' }, stops: [{ title: 'Contract', summary: '', attention: null, excerpts: ['old', 'new'].map(side => ({ path: 'src/a.ts', side, start: 2, end: 2, caption: '' })), files: [], notes: [{ path: 'src/a.ts', line: 2, title: 'Contract note', body: '' }], questions: [] }] }, run: null, currentHeadSha: 'head' });
   const code = entry.code = createCodeState(client, 'guide-overlap'); code.mounted = true; code.foldOverride = 'expanded'; code.slices = [{ cursor: null, patch: patch(), truncated: false, nextCursor: null, omittedFileStats: [] }]; code.diffDue = false;
   const permitted = { ...detail, capabilities: { ...detail.capabilities, review: { inlineComment: true } }, viewerPermissions: { comment: true } }, ctx = { client, native, reference, detail: permitted, now: 0 };
   const cards = presentGuideDiff(ctx, entry).cards;
@@ -87,8 +87,13 @@ test('overlapping guide excerpts share pending comments but mount only the selec
   const selected = presentGuideDiff(ctx, entry).cards;
   expect(selected[0].items.some(item => item.kind === 'pr-draft')).toBe(false);
   expect(selected[1].items.filter(item => item.kind === 'pr-draft')).toHaveLength(1);
+  const markerIndex = selected[1].items.findIndex(item => item.id === selected[1].rowNotes[0].row);
+  expect(selected[1].items[markerIndex]).toMatchObject({ tone: 'addition', line: 2 });
+  expect(selected[1].items[markerIndex + 1].kind).toBe('pr-draft');
   await guideDiffLocal(ctx, entry, 'add', 'Keep the contract.');
-  expect(presentGuideDiff(ctx, entry).cards.every(card => card.items.some(item => item.kind === 'pr-pending'))).toBe(true);
+  const pending = presentGuideDiff(ctx, entry).cards;
+  expect(pending.every(card => card.items.some(item => item.kind === 'pr-pending'))).toBe(true);
+  expect(pending[1].items[markerIndex + 1].kind).toBe('pr-pending');
 });
 
 test('Guide excerpts and full files emit the strict diff segment shape without an active search', async () => {
@@ -105,6 +110,8 @@ test('Guide excerpts and full files emit the strict diff segment shape without a
   await guideDiffLocal(ctx, entry, 'file-toggle', 'src/a.ts');
   const cards = presentGuideDiff(ctx, entry).cards;
   expect(cards.map(card => ({ missing: card.missing, full: card.full }))).toEqual([{ missing: false, full: false }, { missing: false, full: false }, { missing: false, full: true }]);
+  expect(cards.map(card => [card.shown, card.total])).toEqual([[2, 4], [2, 4], [4, 4]]);
+  expect(cards.map(card => [card.status, card.additions, card.deletions])).toEqual([['modified', 1, 1], ['modified', 1, 1], ['modified', 1, 1]]);
   const contract = await Bun.file(appPath('diff-find.contract')).text();
   const fields = contract.match(/shape FindDiffSegment\n([\s\S]*?)(?=\nshape )/)?.[1];
   expect(fields).toBeDefined();
@@ -118,9 +125,29 @@ test('Guide excerpts and full files emit the strict diff segment shape without a
     }
     expect(card.items.filter(item => item.tone === 'deletion').map(item => item.segments.map(segment => segment.text).join(''))).toContain('old contract');
     expect(card.items.filter(item => item.tone === 'addition').map(item => item.segments.map(segment => segment.text).join(''))).toContain('new contract');
+    expect(card.items.some(item => item.segments.some(segment => segment.mark))).toBe(true);
   }
   expect(cards[0].items.find(item => item.id === cards[0].rowNotes[0]?.row)).toMatchObject({ tone: 'deletion', line: 2 });
   expect(cards[2].items.filter(item => item.tone === 'context').map(item => item.segments.map(segment => segment.text).join(''))).toEqual(['before', 'after']);
+});
+
+test('Guide header metadata describes the excerpt slice while a full file keeps its original status and totals', async () => {
+  const { guideEntry } = await import('../../src/pull-requests/pages-pr-guide');
+  const { decodeGuideResult } = await import('../../src/pull-requests/pages-pr-guide-logic');
+  const { presentGuideDiff, guideDiffLocal } = await import('../../src/pull-requests/pages-pr-guide-diff');
+  const { client, native } = await connected(), entry = guideEntry(client, reference);
+  entry.result = decodeGuideResult({ guide: { headSha: 'head', generatedAt: '2026-10-18T01:00:00Z', modelSelection: { instanceId: 'claude', model: 'sonnet' }, stops: [{ title: 'Version', summary: '', attention: null,
+    excerpts: [{ path: 'version.ts', side: 'new', start: 2, end: 2, caption: 'The exported version.' }], files: [{ path: 'version.ts', note: 'Full file' }], notes: [], questions: [] }] }, run: null, currentHeadSha: 'head' });
+  const code = entry.code = createCodeState(client, 'guide-header');
+  code.mounted = true; code.diffDue = false; code.slices = [{ cursor: null, patch: 'diff --git a/version.ts b/version.ts\nnew file mode 100644\n--- /dev/null\n+++ b/version.ts\n@@ -0,0 +1,2 @@\n+// Public version\n+export const VERSION = 2;\n', truncated: false, nextCursor: null, omittedFileStats: [] }];
+  const ctx = { client, native, reference, detail, now: 0 };
+  const cards = presentGuideDiff(ctx, entry).cards;
+  expect(cards[0]).toMatchObject({ status: 'modified', additions: 1, deletions: 0, shown: 1, total: 2, caption: 'The exported version.', open: true });
+  expect(cards[1]).toMatchObject({ status: 'added', additions: 2, deletions: 0, shown: 2, total: 2, open: false, items: [] });
+  await guideDiffLocal(ctx, entry, 'file-toggle', 'version.ts');
+  expect(presentGuideDiff(ctx, entry).cards[1].items.filter(item => item.kind === 'line')).toHaveLength(2);
+  await guideDiffLocal(ctx, entry, 'file-toggle', 'version.ts');
+  expect(presentGuideDiff(ctx, entry).cards[1].items).toEqual([]);
 });
 
 

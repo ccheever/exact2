@@ -23,3 +23,5 @@ serde_json = "1.0"
 
 [dev-dependencies]
 exact-kernel = { path = "../kernel" }
+# The scale tests time the thread's own CPU, which load elsewhere leaves be.
+libc = "0.2"

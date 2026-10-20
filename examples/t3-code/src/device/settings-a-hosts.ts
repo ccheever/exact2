@@ -1,4 +1,4 @@
-// Integrations → Device hosts. Reference DeviceHostsSettings.tsx,
+// Integrations → Device hosts. Reference T3 Code 9c161462c9 DeviceHostsSettings.tsx,
 // DeviceHostEditor.tsx, deviceHostsSettings.logic.ts, deviceHostConnectionChecks.ts
 // and DeviceToolVersions.tsx. Hosts are the environment's `deviceHosts` setting;
 // a connection check is `device.testHost`, a failed host's retry is
@@ -66,6 +66,7 @@ const toolLines = (tools: Obj | null): ToolLine[] => tools ? [['hub', 'Device hu
 }) : [];
 const platformsOf = (platforms: Obj[]): Platform[] => platforms.filter(platform => platform.available === true)
   .map(platform => str(platform.platform) === 'ios' ? { id: 'ios', label: 'iOS available' } : { id: 'android', label: 'Android available' });
+const summarizeLabels = (labels: string[]): string => `${labels.slice(0, 2).join(', ')}${labels.length > 2 ? ` +${labels.length - 2}` : ''}`;
 
 export function deviceHostsView(client: T3Client, settings: Obj, deviceState: Obj | null, projectScope: boolean, connected: boolean): DeviceHostsView {
   const state = stateOf(client), label = envLabel(client);
@@ -121,7 +122,7 @@ export function scopedDeviceHostsView(client: T3Client, native: Native, environm
   const groups = groupDeviceHosts(targets.map(target => ({ environmentId: target.client.environmentId, label: target.label, hosts: hostsOf(obj(target.client.config.settings)) })));
   const decorate = (row: HostRow, target: HostTarget) => ({ ...row, environment: target.client.environmentId, hostId: row.id, id: `${target.client.environmentId}-${row.id}`, menuId: `device-host-menu-${target.client.environmentId}-${row.id}`, owner: target.label });
   if (targets.length > 1 && groups === null) return { ...base, hosts: [], groups: views.map(({ target, view }) => ({ id: target.client.environmentId, label: target.label, secondary: target.secondary,
-    summary: view.hosts.length ? `${view.hosts.length} host${view.hosts.length === 1 ? '' : 's'}` : 'No device hosts', hosts: view.hosts.map(row => decorate(row, target)) })) };
+    summary: summarizeLabels(view.hosts.map(host => host.label)) || 'No device hosts', hosts: view.hosts.map(row => decorate(row, target)) })) };
   return { ...base, hosts: (groups ?? []).map(group => {
     const member = group.members[0]!, { target, view } = views.find(view => view.target.client.environmentId === member.environmentId)!;
     const row = view.hosts.find(row => row.id === member.host.id)!;

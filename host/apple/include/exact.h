@@ -99,6 +99,7 @@ typedef struct ExactTextRun {
     float line_height;     /* points; zero is a real length */
     float letter_spacing;  /* points per glyph */
     uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums (the face's tnum) */
+    float font_stretch;    /* CSS font-stretch, percent of normal width */
 } ExactTextRun;
 
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
@@ -256,7 +257,10 @@ typedef struct ExactFontFace {
     const uint8_t *source;
     size_t source_len;
     uint16_t stack;
-    uint16_t weight;
+    uint16_t weight;       /* CSS weight, or the low end of a variable face's range */
+    uint16_t weight_max;   /* the range's high end; equal to weight for one weight */
+    uint16_t stretch_min;  /* widths in tenths of a percent; 1000 is normal */
+    uint16_t stretch_max;
     uint8_t italic;
 } ExactFontFace;
 

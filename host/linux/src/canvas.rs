@@ -24,7 +24,8 @@
 //! - `10 FONT key index weight len utf8-path(padded to 4)` — once per face
 //! - `41 FONT_AXES key index weight n (tag value)×n len utf8-path(padded to 4)` — `FONT` for a
 //!   face drawn at variation settings fontique chose (`tag` an OpenType axis tag as a big-endian
-//!   `u32`, `value` in the axis's units: `ital` 1 for Roboto's italic, `wght`, `slnt`, `wdth`).
+//!   `u32`, `value` in the axis's units: `ital` 1 for Roboto's italic, `wght`, `slnt`, `wdth`),
+//!   and `opsz` the size, where the face has the axis (`font-optical-sizing: auto`).
 //!   The reader sets them on its `Font`; `wght`, when absent, is `weight` as for `FONT`. In
 //!   place of `FONT` for such a face, so a reader that predates it stops rather than drawing
 //!   the default instance at the instance's advances. GLYPHS' `skew` stays for an oblique
@@ -247,6 +248,8 @@ pub struct Recorder {
     fonts: HashMap<FontKey, u32>,
     /// Files standing in for faces loaded from bytes, by blob id.
     face_files: HashMap<u64, Option<Arc<str>>>,
+    /// Whether a face has an `opsz` axis, by blob id and index.
+    optical: HashMap<(u64, u32), bool>,
     /// Pictures announced to the reader, by allocation, with a weak handle
     /// so a dropped picture is freed on the reader too, and the frame each
     /// was last drawn in.
@@ -294,7 +297,7 @@ type SlotRecording = (u32, Vec<u32>, Option<[f32; 6]>, Vec<bool>);
 
 /// A face as the reader makes it: file, collection index, weight, and up to
 /// three axes as (tag, value bits), unused ones zero.
-type FontKey = (Arc<str>, u32, u16, [(u32, u32); 3]);
+type FontKey = (Arc<str>, u32, u16, [(u32, u32); 4]);
 
 struct RowRecording {
     clips: Vec<clip::Clip>,
@@ -322,6 +325,7 @@ impl Recorder {
             matrix: None,
             fonts: HashMap::new(),
             face_files: HashMap::new(),
+            optical: HashMap::new(),
             images: HashMap::new(),
             next_image: 1,
             frames: 0,
@@ -428,38 +432,6 @@ impl Recorder {
         let path: Option<Arc<str>> = ok.then(|| Arc::from(path.to_string_lossy().as_ref()));
         self.face_files.insert(blob, path.clone());
         path.map(|p| (p, font.index))
-    }
-
-    fn font(
-        &mut self,
-        file: &(Arc<str>, u32),
-        weight: u16,
-        synthesis: &fontique::Synthesis,
-    ) -> u32 {
-        // Fontique sets at most three axes (`wdth`, `wght`, `ital` or `slnt`).
-        let mut axes = [(0u32, 0u32); 3];
-        let vars = synthesis.variation_settings();
-        for (slot, (tag, value)) in axes.iter_mut().zip(vars) {
-            *slot = (u32::from_be_bytes(tag.to_be_bytes()), value.to_bits());
-        }
-        let n = vars.len().min(axes.len());
-        let key = (file.0.clone(), file.1, weight, axes);
-        if let Some(k) = self.fonts.get(&key) {
-            return *k;
-        }
-        let k = self.fonts.len() as u32 + 1;
-        self.fonts.insert(key, k);
-        if n == 0 {
-            self.ops.extend([FONT, k, file.1, u32::from(weight)]);
-        } else {
-            self.ops
-                .extend([FONT_AXES, k, file.1, u32::from(weight), n as u32]);
-            for (tag, value) in &axes[..n] {
-                self.ops.extend([*tag, *value]);
-            }
-        }
-        self.string(&file.0);
-        k
     }
 
     /// Length, then UTF-8 bytes padded to whole words.

@@ -14,7 +14,7 @@ import { pullRequestReviewKey, pullRequestReviewStore } from './pages-pr-writes-
 import type { WriteReference } from './pages-pr-writes';
 import { hiddenCount } from './pages-pr-code-rows';
 
-export type GuideDiffCard = { id: string; path: string; caption: string; range: string; removed: boolean; missing: boolean; full: boolean; note: string; open: boolean; expandable: boolean; shown: number; total: number; items: CodeItem[]; rowNotes: { key: string; row: string; marker: string; title: string }[] };
+export type GuideDiffCard = { id: string; path: string; caption: string; status: string; additions: number; deletions: number; removed: boolean; missing: boolean; full: boolean; note: string; open: boolean; expandable: boolean; shown: number; total: number; items: CodeItem[]; rowNotes: { key: string; row: string; marker: string; title: string }[] };
 const cardStates = new WeakMap<GuideEntry, { open: Set<string>; expansions: Record<string, Expansion>; activeCard: string }>();
 const localState = (entry: GuideEntry) => { let state = cardStates.get(entry); if (!state) { state = { open: new Set(), expansions: {}, activeCard: '' }; cardStates.set(entry, state); } return state; };
 const contentsKey = (entry: GuideEntry, path: string) => `${entry.code?.key}@all::${path}`;
@@ -35,8 +35,8 @@ export function presentGuideDiff(ctx: { client: T3Client; reference: GuideRefere
     const rows = source ? fileDiffRows(source) : [], sliced = !full && excerpt ? excerptRows(rows, excerpt) : rows;
     const parsed = source && (full || sliced.length) ? full ? { kind: 'files' as const, files: [source] } : renderablePatch(rowsToPatch(path, source.previous || path, sliced), false) : null;
     const id = `${guide.headSha}:${guideProgress(client, entry).position}:${full ? 'file' : 'excerpt'}:${index}`, file = parsed?.kind === 'files' ? parsed.files[0] : undefined;
-    const card: GuideDiffCard = { id, path, caption, range: !full && excerpt ? `${excerpt.start}–${excerpt.end}` : '', removed: !full && excerpt?.side === 'old', missing: !file, full, note,
-      open: !full || state.open.has(path), expandable: !full && new Set(sliced.map(row => row.hunk)).size === 1, shown: sliced.filter(row => row.kind !== 'context').length, total: rows.filter(row => row.kind !== 'context').length, items: [], rowNotes: [] };
+    const card: GuideDiffCard = { id, path, caption, status: file?.status ?? '', additions: file?.additions ?? 0, deletions: file?.deletions ?? 0, removed: !full && excerpt?.side === 'old', missing: !file, full, note,
+      open: !full || state.open.has(path), expandable: !full && new Set(sliced.map(row => row.hunk)).size === 1, shown: sliced.length, total: rows.length, items: [], rowNotes: [] };
     if (file && card.open) {
       const rawContents = code.contents[contentsKey(entry, path)];
       const oldContents = !full && rawContents?.state === 'loaded' ? excerptExpansionOldContents(rawContents.newContents, sliced) : null;

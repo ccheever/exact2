@@ -17,6 +17,13 @@ test('tap midi is a MIDI input\'s message, its bytes two hex digits each; a test
   expect(clockSlices({ bpm: 125, ms: 110 })).toEqual([{ to: 50, ticks: [20, 40] }, { to: 100, ticks: [60, 80, 100] }, { to: 110, ticks: [] }]);
 });
 
+test('a held contact\'s phase after a target says the phase takes none (euxy port: `tap dice-key up`)', () => {
+  expect(() => tapWords(['dice-key', 'up'], true)).toThrow("a held contact's phases take no target: `tap up`");
+  expect(() => tapWords(['dice-key', 'hold', '300'], true)).toThrow('`tap hold 300`');
+  expect(() => tapWords(['dice-key', 'up'], false)).toThrow('`tap <target> down`, then `tap up`');
+  expect(tapWords(['up'], true)).toEqual([null, { phase: 'up' }]);
+});
+
 test('into accepts CSS alignments and labels invalid values in the shared check and CLI', () => {
   expect(() => intoArguments({ key: 'row' })).not.toThrow();
   expect(tapWords(['list', 'into', 'row'])).toEqual(['list', { into: { key: 'row' } }]);

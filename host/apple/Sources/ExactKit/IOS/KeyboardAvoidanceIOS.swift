@@ -341,6 +341,19 @@ extension NavigationHost {
         if owner === tabOwner, !ExactEnv.authoredChrome, !presenter.modals.active, presenter.keyboardPolicy == "resizes-content" {
             frame.size.height += presenter.keyboardInset
         }
+        // The authored tablist the agent paints takes its own place in the
+        // root, as on the web; the routes end at its edge, not under it.
+        if owner === tabOwner, ExactEnv.authoredChrome, let list = adoptedTablist.flatMap({ presenter.views[$0] }),
+           list.style["display"]?.string != "none", list.isDescendant(of: root) {
+            let rect = list.convert(list.bounds, to: root)
+            if rect.height > 0, rect.minY >= frame.midY {
+                frame.size.height = max(0, min(frame.maxY, rect.minY) - frame.minY)
+            } else if rect.height > 0, rect.maxY <= frame.midY {
+                let cut = max(0, rect.maxY - frame.minY)
+                frame.origin.y += cut
+                frame.size.height = max(0, frame.height - cut)
+            }
+        }
         return frame
     }
 

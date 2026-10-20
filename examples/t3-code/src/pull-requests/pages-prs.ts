@@ -2,7 +2,7 @@ import { sourceControlHostName } from '../shared/source-control-hosts';
 import { sharedPullRequestSummary } from './pages-pr-shared';
 // The Pull Requests page: pullRequests.list / listStats /
 // detail / activity, grouped, sorted and presented as the reference page does.
-// Sources: T3 Code (MIT, see LICENSE-T3) apps/web/src/routes/_chat.pull-requests.tsx
+// Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3) apps/web/src/routes/_chat.pull-requests.tsx
 // and components/pullRequest/{pullRequestList.logic,pullRequestListPreferences,
 // PullRequestListFilters,PullRequestListRow,pullRequestPresentation,
 // pullRequestIcons,PullRequestDetailPanel,PullRequestListEmptyState}.tsx.
@@ -393,11 +393,13 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   // usePullRequestScope: the servers that read pull requests, by id; a saved server none of them is scopes nothing.
   const capable = prEnvironments(client).filter(readsPullRequests).sort((left, right) => left.id.localeCompare(right.id));
   const scopedServer = capable.some(environment => environment.id === prefs.environmentId) ? prefs.environmentId : '';
+  const scoped = scopedServer ? capable.filter(environment => environment.id === scopedServer) : capable;
+  const carried = lastDrawn.get(client);
   const view = emptyList({ ...prefs, environmentId: scopedServer }, query);
   view.diffScheme = diffSchemeOf(client);
   view.available = obj(obj(client.config.environment).capabilities).pullRequests === true;
   const projects = pullRequestProjects(client);
-  view.hasProjects = projects.length > 0;
+  view.hasProjects = scoped.some(environment => environment.projects.some(project => !isScratchProject(project, scratchRoot(environment.config))));
   view.projects = projects.map(project => {
     const identity = projectIdentity(str(project.title));
     return { id: str(project.id), name: str(project.title), mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface, selected: prefs.projectId === project.id, unavailable: '' };
@@ -407,11 +409,13 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   const chosenServer = view.servers.find(server => server.selected);
   view.serverLabel = chosenServer?.label ?? 'All servers'; view.serverIcon = chosenServer?.icon ?? 'layers';
   // hostMenuOptions before a list answers, or when it failed: the hosts the servers' projects expect (expectedHosts).
-  view.hosts = hostOptions([], expectedHosts(scopedServer ? capable.filter(environment => environment.id === scopedServer) : capable), prefs.host);
+  view.hosts = hostOptions([], expectedHosts(scoped), prefs.host);
+  if (view.hosts.length === 1 && carried?.environmentId === client.environmentId) {
+    view.hosts = carried.view.hosts.map(host => ({ ...host, selected: host.value === prefs.host }));
+  }
   view.hostLabel = view.hosts.find(host => host.selected)?.label ?? 'All';
   if (!input.open) listLiveAsk(client, input);
   if (!input.open && native?.available && client.ready) await holdPullRequestRefreshes(client, native, 'list', false);
-  const carried = lastDrawn.get(client);
   if (input.open && native?.available && !client.ready && client.environmentId && carried?.environmentId === client.environmentId) return carried.view;
   if (!input.open || !native?.available || !client.ready) { view.loading = input.open && client.ready; return view; }
   if (!view.available) { view.empty = 'Pull requests unavailable'; view.emptyDetail = 'Update your T3 Code servers to browse pull requests.'; return view; }
