@@ -267,3 +267,109 @@ impl Server {
         params.1.clone()
     }
 }
+
+/// What of the designs (`texts`: the app's and each package's) the plan's
+/// retention and synthetic tokens can depend on, parsed, never compiled
+/// (stage 12 B1, theme2's sign-off): each token's and icon's name, written
+/// kind, and the names its value and `when` values reference (whole aliases
+/// and words naming a token, an icon or a dial of any of them), with its
+/// `when` conditions; the `params` entries, name to value; each component's
+/// params with their defaults; the axes, dials and `exports`. A value that
+/// names nothing (a hex, a length) is left out, so editing it keeps the
+/// server's cached retention. A design that does not parse is keyed whole.
+pub(super) fn retention_key(texts: &[&str]) -> String {
+    let parsed: Vec<Option<exact_tamber::Design>> =
+        texts.iter().map(|t| exact_tamber::parse(t).ok()).collect();
+    let names: std::collections::HashSet<&str> = parsed
+        .iter()
+        .flatten()
+        .flat_map(|d| {
+            d.tokens
+                .iter()
+                .chain(&d.icons)
+                .map(|t| t.name.value.as_str())
+                .chain(d.dials.iter().map(|x| x.name.value.as_str()))
+        })
+        .collect();
+    let refs = |text: &str| -> String {
+        let words = text
+            .split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
+            .filter(|w| names.contains(w));
+        words.collect::<Vec<_>>().join(" ")
+    };
+    // A value's rough kind, as an unwritten kind is inferred from it: a
+    // value edit that turns a colour into a length moves which rows may read
+    // the token, so it keys too.
+    let class = |text: &str| {
+        let t = text.trim();
+        let digits = t
+            .trim_start_matches(['-', '+'])
+            .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%');
+        let colour = [
+            "#",
+            "rgb",
+            "hsl",
+            "oklch",
+            "oklab",
+            "lab(",
+            "lch(",
+            "color",
+            "light-dark",
+        ];
+        if colour.iter().any(|p| t.starts_with(p)) {
+            "colour"
+        } else if !digits.is_empty() && digits.parse::<f64>().is_ok() {
+            if t.len() == digits.len() {
+                "number"
+            } else {
+                "length"
+            }
+        } else {
+            "other"
+        }
+    };
+    let mut key = String::new();
+    for (text, design) in texts.iter().zip(&parsed) {
+        let Some(d) = design else {
+            key.push_str(&format!("whole {}\n", digest(text.as_bytes())));
+            continue;
+        };
+        key.push_str("design\n");
+        for t in d.tokens.iter().chain(&d.icons) {
+            let (v, n) = (&t.value.value, &t.name.value);
+            key.push_str(&format!("{n} {:?} {} [{}]", t.kind, class(v), refs(v)));
+            for w in &t.whens {
+                let v = &w.value.value;
+                key.push_str(&format!(" when {:?} {} [{}]", w.conds, class(v), refs(v)));
+            }
+            key.push('\n');
+        }
+        for e in &d.params {
+            key.push_str(&format!("param {} = {}", e.name.value, e.value.value));
+            for w in &e.whens {
+                key.push_str(&format!(" when {:?} {}", w.conds, w.value.value));
+            }
+            key.push('\n');
+        }
+        for c in &d.components {
+            key.push_str(&format!("component {}", c.name.value));
+            for p in &c.params {
+                key.push_str(&format!(
+                    " {}:{}={} {:?}",
+                    p.name.value, p.kind, p.value.value, p.range
+                ));
+            }
+            key.push('\n');
+        }
+        let axes: Vec<_> = d.axes.iter().map(|a| (&a.name.value, &a.values)).collect();
+        let dials: Vec<_> = d.dials.iter().map(|x| &x.name.value).collect();
+        let exports: Option<Vec<_>> = d
+            .exports
+            .as_ref()
+            .map(|e| e.iter().map(|x| &x.value).collect());
+        key.push_str(&format!(
+            "axes {axes:?} dials {dials:?} exports {exports:?}\n"
+        ));
+    }
+    key
+}

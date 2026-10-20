@@ -579,3 +579,60 @@ fn the_apps_design_whole_keys_what_its_params_keep() {
     assert_eq!(expected[2]["ok"]["class"], "rebuild", "{}", expected[2]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// theme2's sign-off of B1: the server's cached retention is keyed by what
+/// can move it, parsed. A value edit that names nothing (a hex, a length)
+/// reuses it, where a whole compile of a large app costs seconds; an alias
+/// moved, or a param set, builds it again. Counted by the server's own
+/// hook (`EXACT_TAMBER_RETENTION_LOG`, a line a build), not timed.
+#[test]
+fn a_value_edit_naming_nothing_keeps_the_cached_retention() {
+    let dir = reading("pkg-params-cache-hit");
+    let file = dir.join("app.tamber");
+    let log = dir.join("retention.log");
+    let builds = || std::fs::read_to_string(&log).map_or(0, |t| t.lines().count());
+    std::fs::write(&file, "tamber t\n\ntheme\n  ink = #111111\n  ink2 = #222222\n  gap = 8px\n  reading.pin = reading.pin.base\n  reading.pin.base = #333333\n").unwrap();
+    let mut s = Serve::start(
+        &dir,
+        &[("EXACT_TAMBER_RETENTION_LOG", log.to_str().unwrap())],
+    );
+    let propose = |s: &mut Serve| {
+        let (r, _) = s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+        assert!(r.get("ok").is_some(), "{r}");
+    };
+    propose(&mut s);
+    assert_eq!(builds(), 1);
+    // Values that name nothing: a hex, a length, the colour an alias's target holds.
+    for (from, to) in [
+        ("#222222", "#232323"),
+        ("8px", "10px"),
+        ("#333333", "#343434"),
+    ] {
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, text.replacen(from, to, 1)).unwrap();
+        propose(&mut s);
+        assert_eq!(builds(), 1, "{from} → {to} is a value edit: kept");
+    }
+    // An alias moved: what a token names is retention's.
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(
+        &file,
+        text.replacen("reading.pin = reading.pin.base", "reading.pin = ink2", 1),
+    )
+    .unwrap();
+    propose(&mut s);
+    assert_eq!(builds(), 2, "an alias moved");
+    // A param set to a token, and a colour turned into a length.
+    let (set, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [{"op": "set-param", "name": "Map.pin", "value": "ink"}]}));
+    assert!(set.get("ok").is_some(), "{set}");
+    propose(&mut s);
+    assert_eq!(builds(), 3, "a param set");
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(&file, text.replacen("ink2 = #232323", "ink2 = 12px", 1)).unwrap();
+    s.ask(
+        json!({"method": "propose", "ops": [{"op": "set-token", "name": "gap", "value": "11px"}]}),
+    );
+    assert_eq!(builds(), 4, "a colour turned into a length");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}

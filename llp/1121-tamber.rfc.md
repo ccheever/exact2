@@ -5302,3 +5302,35 @@ Stage 12 §B's first commit, under no wire change (the server's existing fields 
     set `Map.pin = ink2`. The overrides of `reading.old` and `ink2` over an axis are classed as a fresh server
     classes them (`ink2`'s `rebuild`). With the names-and-components key it fails, checked by hand.
   - **§10's round-2 note corrected** (Grok 2): the package's digest is what makes round 2's classes match.
+- **theme2's sign-off condition: the server's retention, timed on the clone, keyed narrower.** Round 3 keyed the
+  server's cached retention (`Server::synthetic`) by each design's digest, so any design edit rebuilt it, a whole
+  compile of the app. On the clone that added seconds to the next `propose`. The key is now what can move retention
+  or the synthetic tokens (`tamber_walk::retention_key`), parsed, never compiled: for the app's design and each
+  package's, each token's and icon's name, written kind, a value's rough kind (a colour, a length, a number, other),
+  the names its value and `when` values reference, and its `when` conditions; the `params` entries, name to value;
+  each component's params with their defaults; and the axes, dials and `exports`. A value that names nothing (a
+  hex, a length) is left out, so editing it keeps the cache. A design that does not parse is keyed whole.
+  - **Test:** `a_value_edit_naming_nothing_keeps_the_cached_retention` counts builds by the server's hook
+    (`EXACT_TAMBER_RETENTION_LOG`, one line a build), not by time. A primed server keeps its one build through
+    three value edits (a hex, a length, an alias target's colour). An alias moved, a param set to a token, and a
+    colour turned into a length each build again. Round 3's alias-move and set-param tests still pass.
+  - **Timed:** `/tmp/bsky-bench.py` on `/tmp/bsky-retention`, a copy of the clone's sources (the clone itself
+    untouched). It uses debug builds, as the dev loop runs `cargo run -p contract`. A server is primed with a
+    `propose`; then five times: an edit written to `app.tamber`, the next `propose` timed (after edit), and one
+    more with no edit (warm). The value edit flips `contrast_25`'s light hex; the alias edit makes `white_50` name
+    `black_20` and back. Medians of 5, in ms:
+
+    | binary | edit | prime (cold) | after edit | warm |
+    |---|---|---|---|---|
+    | old key (token names and components; the stage-11 path fix's build) | value | 2621 | 220 | 6 |
+    | old key | alias | 2528 | 222 (no rebuild: the stale case round 3 fixed) | 6 |
+    | round 3's key (each design's digest) | value | 2607 | 3433 | 8 |
+    | round 3's key | alias | 2717 | 2493 | 7 |
+    | this key | value | 3107 | 238 | 8 |
+    | this key | alias | 2507 | 2519 | 7 |
+
+    Two more value runs, the old key and this key back to back: 223 and 224, then 224 and 221. A value edit's
+    `propose` is the old key's (within 20 ms; the limit was 50). An edit that can move retention rebuilds it, a
+    compile, as round 3's key did, in the same time. The old key took 222 ms there only because it did not rebuild
+    and kept a stale retention. (An earlier run, under heavier load, had the old key at 469 ms after a value edit and
+    round 3's at 5639 and 7695.)

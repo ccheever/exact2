@@ -368,30 +368,28 @@ impl Server {
     /// write, folding or not, as the compiler finds them (the plan keeps
     /// only those that fold), and the plan's retention beside them. Read
     /// again when a Contract source or what resolved its imports changes, or
-    /// the app's or a package's design text does (each design's digest is
-    /// in the key): a design edit builds them again on the next propose.
+    /// what of the app's or a package's design can move them does
+    /// (`walk::retention_key`): an edit of a value that names nothing
+    /// keeps them; one that moves an alias, a `params` entry or a component's
+    /// param builds them again on the next propose.
     /// None when the build stopped before the design: not kept, and tried
     /// again.
     fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
         let root = self.dir.join("app.contract");
         let mut key = self.sources_key();
-        // The app's design, whole (stage 12 B1 round 3): its tokens, its
-        // components' params and what their defaults read, and its `params`
-        // block (an app value of a package's param roots what it names).
-        if let Some((_, text, _)) = snap.iter().find(|(f, _, _)| *f == self.design) {
-            key.push_str(&format!("design {}\n", digest(text.as_bytes())));
-        }
-        // A package design too, whole (stage 12 B1 rounds 1 and 2): its
-        // components' params are roots of retention and its tokens what
-        // their defaults read, which the walk's key (it leaves design files
-        // out) does not see move.
-        for package in &self.app_params().packages {
-            key.push_str(&format!(
-                "{} {}\n",
-                package.home,
-                digest(package.text.as_bytes())
-            ));
-        }
+        // What of the app's design and each package's can move them
+        // (`retention_key`: names and what values name, the `params` block,
+        // components' params), parsed: a value edit naming nothing (a hex)
+        // keeps them, where a whole compile of the clone costs seconds.
+        let app = self.app_params();
+        let texts: Vec<&str> = snap
+            .iter()
+            .find(|(f, _, _)| *f == self.design)
+            .map(|(_, t, _)| t.as_str())
+            .into_iter()
+            .chain(app.packages.iter().map(|p| p.text.as_str()))
+            .collect();
+        key.push_str(&walk::retention_key(&texts));
         if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
                 return Some(exprs.clone());
@@ -399,6 +397,15 @@ impl Server {
         }
         let _ = contract_lower::synthetic_candidates();
         let _ = contract_lower::retention();
+        // A test reads how often they are built (`EXACT_TAMBER_RETENTION_LOG`, a line each).
+        if let Some(log) = std::env::var_os("EXACT_TAMBER_RETENTION_LOG") {
+            use std::io::Write;
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log);
+            let _ = file.and_then(|mut f| f.write_all(b"built\n"));
+        }
         let built = contract::compile_path_all(&root, false);
         let exprs = contract_lower::synthetic_candidates();
         let retention = contract_lower::retention();
