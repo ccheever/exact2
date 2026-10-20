@@ -13,7 +13,13 @@ port's screens with the original's ([ios-driving](ios-driving.md)). Porting a Re
 read [its pitfalls](../agent-pitfalls.md#porting-a-react-native-app) first.
 
 **What ships.** `ios --release` builds what ships (`--prebuild --release` early: its first build
-is minutes; `EXACT_UPDATE_TRUST=production bun exact.mjs agent ios …` drives it).
+is minutes; `EXACT_UPDATE_TRUST=production bun exact.mjs agent ios …` drives it). Time launches
+on a simulator no `--touch platform` drive has used: it leaves accessibility on, about 1 s slower.
+
+**Sound, MIDI and a transport are Exact's** (`sequence`, `play(tracks…)`, `exactMIDI()`,
+`sendMIDI`, `midimessage`: [the guide's "A sound effect"](../contract-for-agents.md#time-motion-graphics-and-platform-facts),
+`apps/metronome`). A [native module](native-module.md) is for what Exact lacks; never port an
+audio or MIDI engine into one.
 
 **Splitting a port among helpers:** commit the seam between the halves first (the shared types,
 the native module's interface), then start each helper in the background from that commit,

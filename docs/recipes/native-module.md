@@ -1,6 +1,8 @@
 # Recipe: a native module in Swift
 
-A platform API with no view (audio, MIDI, a measurement hook) is the app's one module, which
+**Sound, MIDI and a transport are built in** (`sequence`, `sendMIDI`: the
+guide's "A sound effect", `apps/metronome`): write no module for them. Another platform API
+with no view (a measurement hook) is the app's one module, which
 `app.ts` asks: `modules/apple/*.swift`, one `ExactModule` subclass that `let exactModule` names.
 app.json needs nothing for it ([app-json](app-json.md)).
 
@@ -67,8 +69,7 @@ export const answer: Answer = (source, args, store, storage, native) =>
   `NSLog` not.
 - **`app.onLine`** (app hatch) is watched from its first read: read it once, even when
   `isNew`, to hear changes.
-- **Exiting:** iOS has no quit. `exit(0)` ends the process without waiting for the app's
-  writes: keep it to a measurement hook, after `fflush(stdout)`. Time launches on a simulator
-  no `--touch platform` drive has used: it leaves accessibility on, about 1 s slower.
+- **Exiting:** iOS has no quit. `exit(0)` skips the app's pending writes: keep it to a
+  measurement hook, after `fflush(stdout)`.
 - **A Swift edit rebuilds** (`bun exact.mjs ios`); views from the same module are
   [native-views](native-views.md).
