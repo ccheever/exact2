@@ -8,7 +8,9 @@
 #[path = "fixture/device.rs"]
 mod test_device;
 use exact_game::*;
-use exact_game_render::{Feed, Renderer, WaterEffects, WorldSurface};
+use exact_game_render::{
+    Feed, FrameView, Hooks, Needs, RenderError, Renderer, WaterEffects, WorldSurface,
+};
 use exact_gpu::{fixture, wgpu, Gpu, Surface, Value};
 
 fn gpu() -> Option<Gpu> {
@@ -21,7 +23,7 @@ const HEIGHT: f32 = 6.;
 const W: u32 = 320;
 const H: u32 = 180;
 
-#[derive(Default, Args)]
+#[derive(Clone, Copy, Default, Args)]
 struct PoolArgs {
     water: bool,
     /// The caustics' strength; negative for none.
@@ -40,13 +42,31 @@ struct PoolArgs {
     flat: bool,
     /// A translucent red box straddling the surface ahead.
     glass: bool,
+    /// The sun's elevation in degrees, from straight ahead.
+    sun: f32,
+    /// `Fog::linear(1, 15)` in place of the preset's exponential fog.
+    linear: bool,
+    /// Water that hides what is beneath from above: clarity 0, black.
+    murk: bool,
+    /// A glowing white pillar 30 m ahead, standing out of the water.
+    pillar: bool,
+    /// An orthographic camera this many metres tall; 0 for perspective.
+    ortho: f32,
 }
+type Shot = PoolArgs;
 struct Pool;
 impl Game for Pool {
     const ID: &'static str = "water-pool";
     type Args = PoolArgs;
     fn setup(w: &mut World, a: &PoolArgs) {
-        w.insert_resource(Environment::underwater());
+        w.insert_resource(Environment {
+            fog: if a.linear {
+                Some(Fog::linear(1., 15.))
+            } else {
+                Environment::underwater().fog
+            },
+            ..Environment::underwater()
+        });
         if a.water {
             let mut water = Water::at(HEIGHT);
             water.caustics = (a.caustics >= 0.).then_some(Caustics {
@@ -56,9 +76,13 @@ impl Game for Pool {
             if !a.shafts {
                 water.shafts = None;
             }
+            if a.murk {
+                (water.clarity, water.color) = (0., [0.; 3]);
+            }
             w.insert_resource(water);
         }
-        let to_sun = Vec3::new(0., 35f32.to_radians().sin(), -35f32.to_radians().cos());
+        let elevation = a.sun.to_radians();
+        let to_sun = Vec3::new(0., elevation.sin(), -elevation.cos());
         w.spawn_named(
             "sun",
             (
@@ -89,45 +113,39 @@ impl Game for Pool {
                 Material::rgb(0.45, 0.38, 0.24),
             ),
         );
+        let grey = |v: f32| Material::rgb(v, v, v);
         if a.slab {
-            let size = Vec3::new(60., 0.2, 60.);
             box_at(
                 w,
                 "slab",
                 Vec3::new(0., 5.3, 0.),
-                size,
-                Material::rgb(0.2, 0.2, 0.2),
+                Vec3::new(60., 0.2, 60.),
+                grey(0.2),
             );
         }
         if a.occluder {
             let size = Vec3::new(1.2, 0.4, 1.2);
-            box_at(
-                w,
-                "occluder",
-                Vec3::new(-8., 5.3, -3.),
-                size,
-                Material::rgb(0.1, 0.1, 0.1),
-            );
+            box_at(w, "occluder", Vec3::new(-8., 5.3, -3.), size, grey(0.1));
         }
         if a.flat {
             let size = Vec3::new(400., 0.01, 400.);
+            let pale = Material::rgb(0.6, 0.9, 0.95);
+            box_at(w, "flat", Vec3::new(0., HEIGHT, 0.), size, pale);
+        }
+        if a.pillar {
+            let white = Material::glow([1., 1., 1.]);
             box_at(
                 w,
-                "flat",
-                Vec3::new(0., HEIGHT, 0.),
-                size,
-                Material::rgb(0.6, 0.9, 0.95),
+                "pillar",
+                Vec3::new(0., HEIGHT, -30.),
+                Vec3::new(2., 8., 2.),
+                white,
             );
         }
         if a.glass {
             let red = Material::rgb(1., 0.05, 0.05).alpha(0.6);
-            box_at(
-                w,
-                "glass",
-                Vec3::new(0., HEIGHT, -4.),
-                Vec3::new(1.5, 2., 0.4),
-                red,
-            );
+            let (at, size) = (Vec3::new(0., HEIGHT, -4.), Vec3::new(1.5, 2., 0.4));
+            box_at(w, "glass", at, size, red);
         }
         let rotation = Quat::from_euler(
             glam::EulerRot::YXZ,
@@ -140,7 +158,12 @@ impl Game for Pool {
             rotation,
             scale: Vec3::ONE,
         };
-        w.spawn_named("camera", (eye, Camera::default()));
+        let camera = if a.ortho > 0. {
+            Camera::orthographic(a.ortho)
+        } else {
+            Camera::default()
+        };
+        w.spawn_named("camera", (eye, camera));
     }
     fn tick(w: &mut World, _: &Input, a: &PoolArgs) {
         if a.occluder {
@@ -149,21 +172,7 @@ impl Game for Pool {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Shot {
-    water: bool,
-    caustics: f32,
-    shafts: bool,
-    y: f32,
-    yaw: f32,
-    pitch: f32,
-    floor: f32,
-    slab: bool,
-    occluder: bool,
-    flat: bool,
-    glass: bool,
-}
-/// From 2 m below the surface, level, towards the sun.
+/// From 2 m below the surface, level, towards the sun 35° up.
 const BELOW: Shot = Shot {
     water: true,
     caustics: 0.45,
@@ -176,6 +185,11 @@ const BELOW: Shot = Shot {
     occluder: false,
     flat: false,
     glass: false,
+    sun: 35.,
+    linear: false,
+    murk: false,
+    pillar: false,
+    ortho: 0.,
 };
 impl Shot {
     fn args(self) -> Vec<Value> {
@@ -192,6 +206,11 @@ impl Shot {
             b(self.occluder),
             b(self.flat),
             b(self.glass),
+            n(self.sun),
+            b(self.linear),
+            b(self.murk),
+            b(self.pillar),
+            n(self.ortho),
         ]
     }
 }
@@ -472,13 +491,16 @@ fn caustics_net_the_lit_floor_and_leave_the_shadowed_floor_as_it_was() {
     );
     eprintln!(
         "caustics, a 64 x 64 patch of lit sand: variance {:.6} against {:.6} without ({:.1}x; \
-         strength 0, a constant: {:.6}); in shadow, mean {:.4} against {:.4} without",
+         strength 0, a constant: {:.6}); in shadow, mean {:.4} against {:.4} without, \
+         variance {:.7} against {:.7}",
         lit.1,
         plain.1,
         lit.1 / plain.1,
         constant.1,
         shade.0,
-        shade_plain.0
+        shade_plain.0,
+        shade.1,
+        shade_plain.1
     );
     assert!(
         lit.1 >= 4. * plain.1,
@@ -491,6 +513,11 @@ fn caustics_net_the_lit_floor_and_leave_the_shadowed_floor_as_it_was() {
     assert!(
         (shade.0 - shade_plain.0).abs() <= 0.05 * shade_plain.0,
         "none in shadow: {shade:?} {shade_plain:?}"
+    );
+    // Nor a pattern that keeps the mean: the shadowed patch is as even as without.
+    assert!(
+        shade.1 <= 1.05 * shade_plain.1 + 1e-6,
+        "no net in shadow: {shade:?} {shade_plain:?}"
     );
 }
 
@@ -595,24 +622,12 @@ fn the_surface_hides_what_is_above_it_and_translucency_below_draws_over_it() {
         red(&clear, over)
     );
     assert!(red(&glass, under) > red(&clear, under) + 0.05);
-    assert_eq!(glass.linear(W / 2, over), clear.linear(W / 2, over));
+    // Over the surface the glass is hidden: the frame is the clear one's, within
+    // what another GPU's bloom may move.
+    let (a, b) = (glass.linear(W / 2, over), clear.linear(W / 2, over));
+    assert!((0..3).all(|c| (a[c] - b[c]).abs() < 0.01), "{a:?} {b:?}");
 }
 
-fn args(shot: Shot) -> PoolArgs {
-    PoolArgs {
-        water: shot.water,
-        caustics: shot.caustics,
-        shafts: shot.shafts,
-        y: shot.y,
-        yaw: shot.yaw,
-        pitch: shot.pitch,
-        floor: shot.floor,
-        slab: shot.slab,
-        occluder: shot.occluder,
-        flat: shot.flat,
-        glass: shot.glass,
-    }
-}
 /// The pool hostless, drawn by a renderer of its own with `effects`.
 fn draw(gpu: &Gpu, sim: &Sim<Pool>, effects: WaterEffects, name: &str) -> fixture::Pixels {
     draw_with(gpu, sim, effects, SceneSamples::Four, name)
@@ -658,7 +673,7 @@ fn clearing_an_effect_at_present_time_draws_the_frame_without_it_and_keeps_the_r
         ..BELOW
     };
     let run = |shot: Shot| {
-        let mut sim = Sim::<Pool>::new(args(shot)).unwrap();
+        let mut sim = Sim::<Pool>::new(shot).unwrap();
         sim.run(1500.);
         sim
     };
@@ -709,24 +724,291 @@ fn clearing_an_effect_at_present_time_draws_the_frame_without_it_and_keeps_the_r
 }
 
 #[test]
-fn a_restored_world_draws_the_same_water() {
+fn a_restored_world_draws_the_same_water_and_its_waves_move_on() {
+    let Some(gpu) = gpu() else { return };
+    // A still scene: nothing moves but the water.
+    let toward = Shot {
+        pitch: 20.,
+        ..BELOW
+    };
+    let mut first = Sim::<Pool>::new(toward).unwrap();
+    // Fields away from their defaults, which only the save carries.
+    *first.world_mut().resource_mut::<Water>() = Water {
+        clarity: 0.7,
+        waves: Waves {
+            amplitude: 0.05,
+            wavelength: 1.3,
+            speed: 0.9,
+        },
+        caustics: Some(Caustics {
+            strength: 0.3,
+            scale: 2.2,
+        }),
+        shafts: Some(Shafts {
+            intensity: 0.9,
+            length: 0.4,
+        }),
+        ..Water::at(5.5)
+    };
+    first.run(1500.);
+    let saved = first.save().unwrap();
+    let mut second = Sim::<Pool>::new(toward).unwrap();
+    second.restore(&saved).unwrap();
+    assert_eq!(second.world().hash(), first.world().hash());
+    assert_eq!(
+        *second.world().resource::<Water>(),
+        *first.world().resource::<Water>()
+    );
+    let effects = WaterEffects::default();
+    let a = draw(&gpu, &first, effects, "water-saved");
+    let b = draw(&gpu, &second, effects, "water-restored");
+    assert!(a.data == b.data, "the restored frame differs");
+    // Both run on: the same frame again, and another than 100 ms before, which
+    // only the waves, the caustics and the shafts' drift can make.
+    first.run(100.);
+    second.run(100.);
+    let c = draw(&gpu, &first, effects, "water-later");
+    let d = draw(&gpu, &second, effects, "water-restored-later");
+    assert!(c.data == d.data, "the restored world ran on differently");
+    let changed = a.data.iter().zip(&c.data).filter(|(x, y)| x != y).count();
+    eprintln!(
+        "water 100 ms on: {changed} bytes of {} changed",
+        a.data.len()
+    );
+    assert!(
+        changed > a.data.len() / 20,
+        "the water stood still: {changed}"
+    );
+}
+
+/// A hook that asks for the scene copy and nothing after it.
+#[derive(Default)]
+struct CopyHook;
+impl Hooks for CopyHook {
+    fn needs(&self) -> Needs {
+        Needs::SCENE_COPY
+    }
+}
+/// A background hook that leaves a quarter-size viewport and scissor behind.
+#[derive(Default)]
+struct CornerHook;
+impl Hooks for CornerHook {
+    fn background(
+        &mut self,
+        pass: &mut wgpu::RenderPass<'_>,
+        view: &FrameView<'_>,
+    ) -> Result<(), RenderError> {
+        let (w, h) = (view.pixels.0 / 4, view.pixels.1 / 4);
+        pass.set_viewport(0., 0., w as f32, h as f32, 0., 1.);
+        pass.set_scissor_rect(0, 0, w, h);
+        Ok(())
+    }
+}
+/// The shot on a canvas that draws, through `H`, at 500 ms.
+fn drawn<H: Hooks>(gpu: &Gpu, shot: Shot, name: &str) -> fixture::Pixels {
+    let mut s = WorldSurface::<Pool, (), false, H>::default();
+    s.bind(&shot.args(), None).unwrap();
+    let frame = |now_ms| exact_gpu::Frame {
+        width: W as f32,
+        height: H as f32,
+        scale: 1.,
+        now_ms,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+        headroom: 1.,
+    };
+    let mut pixels = None;
+    for at in [0., 500.] {
+        pixels = Some(fixture::render(gpu, &mut s, &frame(at)).unwrap().0);
+        assert!(s.error().is_none(), "{:?}", s.error());
+    }
+    let pixels = pixels.unwrap();
+    pixels.save(name);
+    pixels
+}
+
+#[test]
+fn a_hook_s_scene_copy_or_background_leaves_the_water_whole() {
     let Some(gpu) = gpu() else { return };
     let toward = Shot {
         pitch: 20.,
-        occluder: true,
         ..BELOW
     };
-    let mut first = Sim::<Pool>::new(args(toward)).unwrap();
-    first.run(1500.);
-    let saved = first.save().unwrap();
-    let mut second = Sim::<Pool>::new(args(toward)).unwrap();
-    second.restore(&saved).unwrap();
-    assert_eq!(second.world().hash(), first.world().hash());
-    let a = draw(&gpu, &first, WaterEffects::default(), "water-saved");
-    let b = draw(&gpu, &second, WaterEffects::default(), "water-restored");
-    assert!(a.data == b.data, "the restored frame differs");
-    // The waves move: the same world 100 ms on draws another frame.
-    second.run(100.);
-    let c = draw(&gpu, &second, WaterEffects::default(), "water-later");
-    assert!(a.data != c.data);
+    let plain = drawn::<()>(&gpu, toward, "water-hook-none");
+    let copy = drawn::<CopyHook>(&gpu, toward, "water-hook-copy");
+    let corner = drawn::<CornerHook>(&gpu, toward, "water-hook-corner");
+    let differ = |a: &fixture::Pixels, b: &fixture::Pixels| {
+        let n = a
+            .data
+            .iter()
+            .zip(&b.data)
+            .filter(|(x, y)| x.abs_diff(**y) > 2)
+            .count();
+        n as f32 / a.data.len() as f32
+    };
+    let (copied, cornered) = (differ(&plain, &copy), differ(&plain, &corner));
+    eprintln!(
+        "water under hooks: {:.4} of bytes differ under a scene copy, {:.4} after a background \
+         hook's viewport",
+        copied, cornered
+    );
+    // The scene copy keeps the depth the shafts read; the surface draws whole.
+    assert!(copied < 0.01, "scene copy: {copied}");
+    assert!(cornered < 0.01, "background viewport: {cornered}");
+}
+
+#[test]
+fn no_shafts_from_a_sun_below_the_horizon() {
+    let Some(_gpu) = gpu() else { return };
+    let under = Shot {
+        pitch: 20.,
+        sun: -20.,
+        ..BELOW
+    };
+    let shafts = shoot(under, "water-sunset");
+    let none = shoot(
+        Shot {
+            shafts: false,
+            ..under
+        },
+        "water-sunset-none",
+    );
+    let differ = shafts
+        .rgba
+        .iter()
+        .zip(&none.rgba)
+        .filter(|(a, b)| a != b)
+        .count();
+    eprintln!("a sun 20° below the horizon: {differ} bytes differ with shafts");
+    assert_eq!(differ, 0, "shafts from a sun below the horizon");
+}
+
+#[test]
+fn an_orthographic_camera_meets_the_water_at_each_ray() {
+    let Some(_gpu) = gpu() else { return };
+    // Looking up 46° from 2 m under, 20 m tall: every parallel ray is near the
+    // window's edge, so the waves turn parts of the surface into mirrors.
+    let up = Shot {
+        pitch: 44.,
+        ortho: 20.,
+        shafts: false,
+        ..BELOW
+    };
+    let p = shoot(up, "water-ortho-up");
+    // The lower rays start under the surface (the upper ones on the camera's
+    // plane are above it and see the sky).
+    let surface = p.variance(0..W, H * 5 / 8..H);
+    // The plan view, from above: the floor's caustics vary across it.
+    let mut s = pool(BELOW);
+    s.agent(r#"{"op":"clock","now":500}"#).unwrap();
+    let request = format!(
+        r#"{{"op":"screenshot","form":"look","now":500,"width":{W},"height":{H},"top":30}}"#
+    );
+    let reply: serde_json::Value = serde_json::from_str(&s.agent(&request).unwrap()).unwrap();
+    let plan = Picture {
+        rgba: base64(reply["data"].as_str().unwrap()),
+    };
+    fixture::Pixels {
+        width: W,
+        height: H,
+        data: plan.rgba.clone(),
+    }
+    .save("water-ortho-plan");
+    let floor = plan.variance(W / 4..W * 3 / 4, H / 4..H * 3 / 4);
+    eprintln!(
+        "orthographic: the surface from below, variance {surface:.6}; the plan's floor {floor:.6}"
+    );
+    assert!(
+        surface > 1e-4,
+        "one hit for every ray paints a flat tint: {surface}"
+    );
+    assert!(floor > 5e-5, "the plan's floor is flat: {floor}");
+}
+
+#[test]
+fn linear_fog_under_water_scatters_shafts_and_stops_at_the_surface() {
+    let Some(_gpu) = gpu() else { return };
+    // From 1 m over the water, level: a white pillar 30 m off stands out of it.
+    let above = Shot {
+        y: 7.,
+        floor: 5.,
+        linear: true,
+        pillar: true,
+        shafts: false,
+        ..BELOW
+    };
+    // The pillar's row 3 m over the surface, 30 m off.
+    let row = (H as f32 / 2. * (1. - (3f32 / 30.).atan().tan() / 30f32.to_radians().tan())) as u32;
+    let pillar = |p: &Picture| p.mean(W / 2 - 2..W / 2 + 2, row - 1..row + 2);
+    let dry = pillar(&shoot(above, "water-linear-pillar"));
+    let fogged = pillar(&shoot(
+        Shot {
+            water: false,
+            ..above
+        },
+        "water-linear-pillar-none",
+    ));
+    // From below, towards the sun: shafts scatter in the linear fog.
+    let toward = Shot {
+        pitch: 20.,
+        linear: true,
+        ..BELOW
+    };
+    let column = |p: &Picture| p.mean(W / 2 - 12..W / 2 + 12, H / 4..H / 2);
+    let lit = column(&shoot(toward, "water-linear-shafts"));
+    let dark = column(&shoot(
+        Shot {
+            shafts: false,
+            ..toward
+        },
+        "water-linear-shafts-none",
+    ));
+    eprintln!(
+        "linear fog: the pillar over the water {dry:.3} (fogged without water {fogged:.3}); \
+         the column towards the sun {lit:.3} with shafts, {dark:.3} without"
+    );
+    assert!(dry > fogged + 0.2, "linear fog stops at the surface");
+    assert!(lit > dark + 0.02, "shafts scatter in linear fog");
+}
+
+#[test]
+fn from_above_murky_water_reflects_more_at_a_grazing_angle() {
+    let Some(_gpu) = gpu() else { return };
+    // From 1 m over water that hides the floor and is black itself, pitched
+    // 15° down: what shows is the sky's reflection, by Fresnel.
+    let above = Shot {
+        y: 7.,
+        pitch: -15.,
+        floor: 5.,
+        murk: true,
+        ..BELOW
+    };
+    let murk = shoot(above, "water-murk");
+    let clear = shoot(
+        Shot {
+            murk: false,
+            ..above
+        },
+        "water-murk-clear",
+    );
+    // The horizon is at row 48; just below it the view grazes the surface.
+    let (grazing, steep) = (H / 4 + 8..H / 4 + 16, H - 20..H);
+    let band = |p: &Picture, rows: Span| p.mean(0..W, rows);
+    eprintln!(
+        "from above, murky: grazing {:.3}, steep {:.3}; clear water's steep band {:.3}",
+        band(&murk, grazing.clone()),
+        band(&murk, steep.clone()),
+        band(&clear, steep.clone())
+    );
+    assert!(
+        band(&murk, steep.clone()) < 0.03,
+        "steep: about 2% reflected"
+    );
+    assert!(
+        band(&murk, grazing) > band(&murk, steep.clone()) + 0.03,
+        "grazing: more reflected"
+    );
+    assert!(band(&clear, steep) > 0.1, "clear water shows the floor");
 }

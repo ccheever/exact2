@@ -43,13 +43,15 @@ impl Default for WaterEffects {
 }
 
 /// Whether this frame draws shafts: the camera is below a surface whose
-/// shafts are on and allowed, with a sun to scatter.
+/// shafts are on and allowed, with a sun shining down on it.
 pub(crate) fn shafts(frame: &FrameInput<'_>, effects: WaterEffects) -> bool {
     frame.water.is_some_and(|w| {
         effects.shafts
             && w.shafts.is_some_and(|s| s.intensity > 0. && s.length > 0.)
             && frame.camera_position.y < w.height
-            && frame.sun.is_some_and(|s| s.illuminance > 0.)
+            && frame
+                .sun
+                .is_some_and(|s| s.illuminance > 0. && s.direction.y < 0.)
     })
 }
 
@@ -200,6 +202,7 @@ impl Passes {
         encoder: &mut wgpu::CommandEncoder,
         color: &wgpu::TextureView,
         size: (u32, u32),
+        timestamps: Option<&wgpu::QuerySet>,
     ) {
         let shafts = self.shafts.as_ref().expect("prepared with shafts");
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -214,7 +217,7 @@ impl Passes {
                 },
             })],
             depth_stencil_attachment: None,
-            timestamp_writes: None,
+            timestamp_writes: crate::timing::writes(timestamps, crate::timing::WATER_SHAFTS),
             occlusion_query_set: None,
             multiview_mask: None,
         });

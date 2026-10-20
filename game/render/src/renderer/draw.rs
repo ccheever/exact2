@@ -10,6 +10,9 @@ pub(super) struct Resolved {
     /// Something after the forward pass reads its depth this frame (a scene
     /// copy, final depth, SSAO, soft particles): the pass stores it.
     pub depth_read: bool,
+    /// An engine pass after the scene-copy continuation reads its depth (SSAO,
+    /// the water's shafts): the continuation stores it.
+    pub depth_after: bool,
     /// Shared forward bits: shadowed, fogged and PCF-soft.
     pub variant: usize,
     /// Primitive forward bits beyond `variant` (pipeline.rs `LEAN`, `EARLY`, `DIRECT`,
@@ -289,6 +292,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 || soft
                 || counting
                 || shafts,
+            depth_after: frame.ambient_occlusion.is_some() || shafts,
             variant: usize::from(self.shadows.is_some())
                 + 2 * usize::from(frame.environment.fog.is_some())
                 + crate::pipeline::PCF_SOFT
@@ -404,8 +408,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         if shafts {
             self.probe_note(|| super::probe::Drew::Summary("water shafts"));
-            self.water
-                .encode_shafts(encoder, &self.targets.resolved, size);
+            if frame.timestamps.is_some() {
+                self.mark(timing::WATER_SHAFTS);
+            }
+            (self.water).encode_shafts(encoder, &self.targets.resolved, size, frame.timestamps);
             state.draws += 1;
         }
         if !state.direct {

@@ -386,3 +386,79 @@ fn luminance_at(p: &fixture::Pixels, x: u32, y: u32) -> f32 {
     let [r, g, b, _] = p.at(x, y);
     luminance([r, g, b])
 }
+
+/// The fog probe with `Water` 1 m under the eye: a ray that crosses the
+/// surface is fogged over its submerged part only. The sky is black, so the
+/// surface from above adds nothing, and its reflectance dims the probe and
+/// the open water beside it alike (the surface is still, and the two rays
+/// mirror each other about the frame's centre column).
+struct CrossingProbe;
+/// The probe pixel, 15° down, and the open-water pixel mirroring it.
+const CROSSING: (u32, u32, f32) = (44, 94, 20.);
+const OPEN: (u32, u32) = (84, 94);
+const SURFACE: f32 = 1.;
+impl Game for CrossingProbe {
+    const ID: &'static str = "underwater-crossing-probe";
+    type Args = ProbeArgs;
+    fn setup(w: &mut World, _: &ProbeArgs) {
+        w.insert_resource(Environment {
+            zenith: [0.; 3],
+            horizon: [0.; 3],
+            ground: [0.; 3],
+            ambient: 0.,
+            exposure: 4.,
+            tone_mapping: ToneMapping::None,
+            bloom: None,
+            fog: Some(Fog {
+                color: Some([0.03, 0.16, 0.2].into()),
+                ..Fog::new(0.07, 0.)
+            }),
+            ..Environment::underwater()
+        });
+        // Still, so the probe's and the open water's reflectance are the same.
+        w.insert_resource(Water {
+            waves: Waves {
+                amplitude: 0.,
+                ..Waves::default()
+            },
+            caustics: None,
+            shafts: None,
+            ..Water::at(SURFACE)
+        });
+        w.spawn((
+            Transform::at(EYE.x, EYE.y, EYE.z).looking_at(EYE - Vec3::Z, Vec3::Y),
+            Camera::default(),
+        ));
+        let (x, y, distance) = CROSSING;
+        let hit = EYE + ray(x, y) * distance;
+        let half = distance / 16.;
+        w.spawn((
+            Transform::at(hit.x, hit.y, hit.z - half),
+            Mesh::cube(2. * half),
+            Material::rgb(0., 0., 0.).rough(1.),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &ProbeArgs) {}
+}
+
+#[test]
+fn with_water_a_ray_that_crosses_the_surface_is_fogged_only_under_it() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<CrossingProbe>::default();
+    s.bind(&[], None).unwrap();
+    let size = PROBE as f32;
+    let (p, _) = fixture::render(&gpu, &mut s, &frame(size, size, 0.)).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    p.save("underwater-crossing-probe");
+    let (x, y, distance) = CROSSING;
+    let direction = ray(x, y);
+    let submerged = distance - (EYE.y - SURFACE) / -direction.y;
+    let measured = 1. - luminance_at(&p, x, y) / luminance_at(&p, OPEN.0, OPEN.1);
+    let expected = (-0.07 * submerged).exp();
+    let whole = (-0.07 * distance).exp();
+    eprintln!(
+        "underwater fog across the surface: transmittance {measured:.3} over {distance} m, \
+         {submerged:.2} m of it submerged: expected {expected:.3} (the whole ray's {whole:.3})"
+    );
+    assert!((measured - expected).abs() < 0.02, "{measured} {expected}");
+}

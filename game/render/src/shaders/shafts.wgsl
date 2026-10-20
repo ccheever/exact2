@@ -65,9 +65,8 @@ fn shaft_source(pixel: vec2<f32>) -> f32 {
 }
 @fragment fn fs(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let pixel = position.xy;
-    let eye = frame.camera_alpha.xyz;
     let scene = shaft_scene(pixel, 1.0e4);
-    let scattered = 1.0 - fog_transmission(scene);
+    let scattered = fog_amount(scene);
     let sun = frame.sun_direction_illuminance;
     // The sun's light under a flat surface, and the screen direction towards it
     // through this pixel: towards its vanishing point when that is ahead,
@@ -76,7 +75,10 @@ fn shaft_source(pixel: vec2<f32>) -> f32 {
     let towards = frame.view_proj * vec4(-travel, 0.0);
     let ndc = shaft_ndc(pixel);
     let screen = (towards.xy - ndc * towards.w) * vec2(1.0, -1.0) * frame.logical_size.xy;
-    if scattered <= 0.0 || sun.w <= 0.0 || dot(screen, screen) < 1.0e-12 { return vec4(0.0); }
+    // Only sunlight that reaches the surface from above enters the water.
+    if scattered <= 0.0 || sun.w <= 0.0 || sun.y >= 0.0 || dot(screen, screen) < 1.0e-12 {
+        return vec4(0.0);
+    }
     // Up to `length` of the frame's height; no further than the sun's own
     // point when it is ahead, where every streak meets.
     var span = frame.water_light.z * frame.logical_size.y;
@@ -90,7 +92,8 @@ fn shaft_source(pixel: vec2<f32>) -> f32 {
         total += weight;
         weight *= SHAFT_DECAY;
     }
-    let view = normalize(scene - eye);
+    // The pixel's own ray, parallel to every other under an orthographic camera.
+    let view = normalize(shaft_point(ndc, 0.5) - shaft_point(ndc, 0.0));
     let g2 = SHAFT_G * SHAFT_G;
     let phase = pow((1.0 + g2 - 2.0 * SHAFT_G) / (1.0 + g2 - 2.0 * SHAFT_G * dot(view, -travel)), 1.5);
     let radiance = frame.sun_color_count.xyz * sun.w * frame.water_light.y * phase * scattered * light / total;
