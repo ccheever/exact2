@@ -12,6 +12,12 @@
 | — | prefab | scene instance | A `Bundle` row; tuples work today, authored bundle derive awaits LLP 1127.001 D4 |
 | — | Input System action | `InputMap` | `Actions` |
 | `renderer.info` | Frame Debugger | — | `state world draws` (draw diagnostics depend on LLP 1127.000 D4) |
+| Yuka `SeekBehavior`, `ArriveBehavior`, `FleeBehavior`, `WanderBehavior` | `Vector3.RotateTowards` | `Vector3.move_toward` | `steer::seek`, `steer::arrive`, `steer::flee`, `steer::wander`: this tick's `steer::Steer { velocity, facing }` |
+| Yuka `SeparationBehavior`, `AlignmentBehavior`, `CohesionBehavior` | boids | boids | `steer::school(&pose, w.near_xz::<Fish>(e, radius).limit(7), separation, alignment, cohesion, …)` |
+| Yuka `vehicle.neighbors` | `Physics.OverlapSphere` | `Area3D.get_overlapping_bodies` | `w.near_xz::<C>(e, radius)`; `.limit(n)` keeps the `n` nearest, in entity order |
+| — | `Vector3.MoveTowards` on a pickup | `move_toward` on a pickup | `collect::drift(item, collector, radius, speed, dt)`; `collect::Collectable` marks pickups |
+| `setInterval` | `InvokeRepeating` | `Timer` | `spawn::Spawner::every(ticks)` in a resource; `while let Some(serial) = spawner.due(w.tick())` |
+| — | — | — | A shop: `Actions` bound to `Digit1`…`Digit9`, rows published to the HUD ([shop recipe](recipes/shop.md)) |
 
 LÖVE's `love.update` corresponds to `Game::tick`. Its `love.draw` correspondence
 will be added when the 2D `Game::draw` hook ships; that hook is not present today.
