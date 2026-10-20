@@ -97,7 +97,7 @@ Once the game plays and its `proof.mjs` describes it, establish its proof baseli
 bun game/prove.mjs ./my-game
 ```
 
-`prove` pins your game while you build it (about a minute with warm builds);
+`prove` takes the first development baseline while you build your game;
 `prove --release` checks the shipping matrix before you ship. A first baseline and
 `--repin` run Linux and web under `gpu-dev` in continuous, Save and FreshGame modes.
 `--release` adds native release and shipping-profile web runs in continuous mode.
@@ -404,7 +404,10 @@ on the native host and web when requested. Missing `modes` or `profiles` means
 the full matrix that older files used; `hosts` still bounds their host coverage.
 A development baseline has its own publication verdict and reports `release not
 pinned`. `proof.mjs` names missing host, mode and release coverage separately from
-the simulation checks it ran. Deploy and push refuse pins without release coverage.
+the simulation checks it ran. Deploy and push require a native host, web, all three
+development modes and release. Native-only repins remain available but cannot ship.
+An absent `profiles` field counts as release-covered under the legacy rule;
+missing hosts never gain coverage.
 The generated proof uses `pin(tick, snapshot)` and `pinSave(name, path)`;
 Rust tests use `sim.assert_pin(include_str!("../../pins.json"))`.
 
@@ -485,12 +488,19 @@ each Linux proof then executes private products under its source copy's
 Linux GPU receipt hits restore the surface declaration and generated runtime assets.
 The web leg can copy a completed resident producer build from the game's target
 cache when its portable execution-input identity, mode and build configuration
-match. It checks the copied product digests before driving the snapshot. A changed
+match. The cache is populated from the invocation's private stage before publishing
+the shared output. Reuse revalidates recorded compiler and build-script environment
+dependencies, compiler identity and copied product digests before driving the snapshot. A changed
 source, damaged product or different profile is a cache miss and builds normally;
 the proof never reads the live world's state. Release builds do not use this cache.
 Web GPU modules compile their paranoid mode into `Sim`; a continuous-mode
 module cannot serve a Save or FreshGame proof. Those modes build separately
-unless a completed receipt for that same mode matches.
+unless a completed receipt for that same mode matches. The seven-leg development
+matrix reuses a warm continuous web leg, but that hit does not warm the Save or
+FreshGame compilation. GPU-only hot-swap wasm is not reused; it needs a completed
+page bake. The cache keeps six keys, evicting by receipt publication mtime.
+Every proof leg checks each observed simulation's reported mode; Save and FreshGame
+require completed reconstruction samples, including for each advanced world.
 Game-local `.ts` proof helpers are relocated like `.js` and `.mjs`; an unsupported
 `proofData` declaration is refused by name.
 Direct `proof.mjs` runs use `artifacts/<host>/`.

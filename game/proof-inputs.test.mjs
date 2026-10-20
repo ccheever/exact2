@@ -738,6 +738,15 @@ impl Game for Carriers {
   } finally {rmSync(dir,{recursive:true,force:true});}
 }, 120000);
 
+function warmBuild(env, units = [{package:'fixture', role:'wasm32-unknown-unknown', environment:[]}], builders = []) {
+  const {warmGameEnvironment} = require('../host/web-js/module.mjs');
+  const effective = warmGameEnvironment(env);
+  const compiler = spawnSync('rustc', ['-vV'], {env:effective, encoding:'utf8'});
+  expect(compiler.status).toBe(0);
+  return {binary:{configuration:{target:'wasm32-unknown-unknown', rustc:compiler.stdout, units, builders,
+    flags:Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET','EXACT_WEB_LINK','EXACT_WEB_SIZE'].map(key => [key,effective[key] ?? null]))}}};
+}
+
 test('a warm web generation is reused only for matching sources, mode, profile and intact products', async () => {
   const {warmGameInputs, keepWarmGame, takeWarmGame} = await import('../host/web-js/module.mjs');
   const root = mkdtempSync(resolve(tmpdir(), 'warm-proof-'));
@@ -749,7 +758,7 @@ test('a warm web generation is reused only for matching sources, mode, profile a
   writeFileSync(resolve(dist,'gpu_bg.wasm'),'compiled source one');
   try {
     const before = warmGameInputs(app,env);
-    const kept = keepWarmGame(app,dist,before,env); expect(kept).toBeTruthy();
+    const kept = keepWarmGame(app,dist,before,env,warmBuild(env)); expect(kept).toBeTruthy();
     expect(takeWarmGame(app,out,env)).toBe(true);
     expect(readFileSync(resolve(out,'gpu_bg.wasm'),'utf8')).toBe('compiled source one');
     expect(takeWarmGame(app,out,{...env,EXACT_GAME_PARANOID:'1'})).toBe(false);
@@ -758,7 +767,7 @@ test('a warm web generation is reused only for matching sources, mode, profile a
     expect(takeWarmGame({...app,manifest:{...app.manifest,name:'Different'}},out,env)).toBe(false);
     writeFileSync(logic,'source two');
     expect(takeWarmGame(app,out,env)).toBe(false);
-    expect(keepWarmGame(app,dist,before,env)).toBe(false);
+    expect(keepWarmGame(app,dist,before,env,warmBuild(env))).toBe(false);
     writeFileSync(logic,'source one');
     writeFileSync(resolve(kept,'gpu_bg.wasm'),'corrupt');
     expect(takeWarmGame(app,out,env)).toBe(false);
@@ -806,7 +815,7 @@ test('replacing a warm web receipt removes its old products only after publishin
     let previous;
     for (let generation = 0; generation < 8; generation++) {
       writeFileSync(resolve(dist,'gpu_bg.wasm'),`product ${generation}`);
-      const kept = keepWarmGame(app,dist,inputs,env);
+      const kept = keepWarmGame(app,dist,inputs,env,warmBuild(env));
       expect(kept).toBeTruthy();
       if (previous) expect(existsSync(previous)).toBe(false);
       expect(takeWarmGame(app,out,env)).toBe(true);
@@ -815,10 +824,73 @@ test('replacing a warm web receipt removes its old products only after publishin
       previous = kept;
     }
     writeFileSync(source,'changed during bake');
-    expect(keepWarmGame(app,dist,inputs,env)).toBe(false);
+    expect(keepWarmGame(app,dist,inputs,env,warmBuild(env))).toBe(false);
     expect(existsSync(previous)).toBe(true);
     writeFileSync(source,'source');
     expect(takeWarmGame(app,out,env)).toBe(true);
     expect(readFileSync(resolve(out,'gpu_bg.wasm'),'utf8')).toBe('product 7');
   } finally { rmSync(root,{recursive:true,force:true}); }
+}, 30000);
+
+
+test('warm web publication keeps its owned stage when another configuration replaces dist', async () => {
+  const {warmGameInputs, publishWarmGame, takeWarmGame} = await import('../host/web-js/module.mjs');
+  const {replaceBuild} = await import('../host/web/serve.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'warm-publication-'));
+  const app = {dir, target:resolve(dir,'target'), id:'publication', manifest:{game:{}}};
+  const env = {...process.env, EXACT_GAME_PROOF_PROFILE:'gpu-dev', EXACT_GAME_PARANOID:'0'};
+  const other = {...env, EXACT_GAME_PARANOID:'1'};
+  const stage = resolve(app.target,'stage'), competing = resolve(app.target,'competing'), dist = resolve(app.target,'dist');
+  try {
+    writeFixtureFile(dir,'logic/src/lib.rs','source');
+    writeFixtureFile(stage,'gpu_bg.wasm','continuous'); writeFixtureFile(competing,'gpu_bg.wasm','Save');
+    const before = warmGameInputs(app,env), next = warmGameInputs(app,other);
+    // A deterministic interleaving: publication releases ownership, then the
+    // competing invocation replaces the shared output before returning.
+    publishWarmGame(app,stage,dist,before,warmBuild(env),env,(owned,shared) => {
+      replaceBuild(owned,shared);
+      publishWarmGame(app,competing,dist,next,warmBuild(other),other);
+    });
+    expect(readFileSync(resolve(dist,'gpu_bg.wasm'),'utf8')).toBe('Save');
+    const out = resolve(app.target,'proof');
+    expect(takeWarmGame(app,out,env)).toBe(true);
+    expect(readFileSync(resolve(out,'gpu_bg.wasm'),'utf8')).toBe('continuous');
+    expect(takeWarmGame(app,out,other)).toBe(true);
+    expect(readFileSync(resolve(out,'gpu_bg.wasm'),'utf8')).toBe('Save');
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+}, 30000);
+
+test('warm web reuse validates env! dependencies, build-script inputs and compiler identity', async () => {
+  const {warmGameInputs, warmGameEnvironment, keepWarmGame, takeWarmGame} = await import('../host/web-js/module.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'warm-environment-'));
+  const app = {dir, target:resolve(dir,'target'), id:'environment', manifest:{game:{}}};
+  const env = {...process.env, EXACT_GAME_PROOF_PROFILE:'gpu-dev', GAME_VARIANT:'alpha', BUILD_VARIANT:'blue'};
+  const dist = resolve(app.target,'dist'), out = resolve(app.target,'proof');
+  try {
+    const source = writeFixtureFile(dir,'logic/src/lib.rs','#[no_mangle] pub extern "C" fn variant() -> u32 { env!("GAME_VARIANT").as_bytes()[0] as u32 }');
+    mkdirSync(dist,{recursive:true});
+    const compile = spawnSync('rustc',['--crate-type','cdylib','--target','wasm32-unknown-unknown','--emit',`link=${resolve(dist,'gpu_bg.wasm')},dep-info=${resolve(dist,'gpu_bg.d')}`,source],{env:warmGameEnvironment(env),encoding:'utf8'});
+    expect(compile.status,compile.stderr).toBe(0);
+    const dep = readFileSync(resolve(dist,'gpu_bg.d'),'utf8');
+    expect(dep).toContain('# env-dep:GAME_VARIANT=alpha');
+    const hash = value => createHash('sha256').update(value).digest('hex');
+    const environment = dep.split('\n').filter(line => line.startsWith('# env-dep:')).map(line => {
+      const pair = line.slice(10), at = pair.indexOf('='); return [pair.slice(0,at),hash(pair.slice(at+1))];
+    });
+    const build = warmBuild(env,[{package:'fixture',role:'wasm32-unknown-unknown',environment}],
+      [{package:'fixture',role:'wasm32-unknown-unknown',environment:[['BUILD_VARIANT',hash('blue')]],env:[]}]);
+    expect(keepWarmGame(app,dist,warmGameInputs(app,env),env,build)).toBeTruthy();
+    expect(takeWarmGame(app,out,env)).toBe(true);
+    const {instance} = await WebAssembly.instantiate(readFileSync(resolve(out,'gpu_bg.wasm')),{});
+    expect(instance.exports.variant()).toBe('a'.charCodeAt(0));
+    expect(takeWarmGame(app,out,{...env,GAME_VARIANT:'beta'})).toBe(false);
+    expect(takeWarmGame(app,out,{...env,BUILD_VARIANT:'red'})).toBe(false);
+    expect(keepWarmGame(app,dist,warmGameInputs(app,env),env)).toBe(false);
+    const receipt = resolve(app.target,'proof-web',warmGameInputs(app,env).key+'.json');
+    const saved = JSON.parse(readFileSync(receipt));
+    saved.configuration.rustc = 'another compiler'; writeFileSync(receipt,JSON.stringify(saved));
+    expect(takeWarmGame(app,out,env)).toBe(false);
+    delete saved.configuration; writeFileSync(receipt,JSON.stringify(saved));
+    expect(takeWarmGame(app,out,env)).toBe(false);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 }, 30000);

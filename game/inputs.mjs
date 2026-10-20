@@ -87,14 +87,22 @@ export function executionInputFiles(root, app, inventory, ignoredDirectories, au
   return [...new Set(files)].sort();
 }
 
-/** Delivery requires a published release baseline; older pins used that matrix. */
+/** Missing modes/profiles mean legacy full coverage; hosts are never inferred. */
+export function releasePinGaps(pins = {}) {
+  const gaps = [];
+  if (!(pins.hosts ?? []).includes('web')) gaps.push('web not pinned');
+  if (!(pins.hosts ?? []).some(host => ['linux','windows'].includes(host))) gaps.push('native host not pinned');
+  for (const mode of ['0', '1', 'fresh-game']) if (!(pins.modes ?? ['0', '1', 'fresh-game']).includes(mode)) gaps.push(`mode ${mode} not pinned`);
+  for (const profile of ['gpu-dev', 'release']) if (!(pins.profiles ?? ['gpu-dev', 'release']).includes(profile)) gaps.push(`${profile === 'release' ? 'release' : 'development'} not pinned`);
+  return gaps;
+}
 export function requireReleasePins(app) {
   if (!app.manifest?.game) return;
   let pins;
   try { pins = JSON.parse(readFileSync(resolve(app.dir, 'pins.json'), 'utf8')); } catch { /* Refuse below. */ }
-  if (!Object.keys(pins?.ticks ?? {}).length || !Object.keys(pins?.saves ?? {}).length
-      || !(pins.profiles ?? ['gpu-dev', 'release']).includes('release'))
-    throw new Error('game delivery refused: release not pinned; run prove --release (with --repin for existing pins)');
+  const gaps = releasePinGaps(pins);
+  if (!Object.keys(pins?.ticks ?? {}).length || !Object.keys(pins?.saves ?? {}).length) gaps.push('release not pinned');
+  if (gaps.length) throw new Error(`game delivery refused: ${gaps.join('; ')}; run prove --release (with --repin for existing pins)`);
 }
 
 // Clean tracked bytes are identified by Git blobs. Dirty app inputs and

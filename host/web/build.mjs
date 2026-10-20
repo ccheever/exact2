@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { warmGameInputs, keepWarmGame } from '../web-js/module.mjs';
+import { warmGameInputs, warmGameEnvironment, publishWarmGame } from '../web-js/module.mjs';
 // Build the web app (LLP 1071): the JS target, `host/web-js/build.mjs`, the
 // plan compiled to one ES module over a small runtime, into the same dist;
 // what it refuses (a capability the runtime lacks, named) fails the build.
@@ -117,6 +117,11 @@ if (!existsSync(dist) && existsSync(previous)) renameSync(previous, dist);
 else if (existsSync(dist) && existsSync(previous)) rmSync(previous, { recursive: true, force: true });
 const buildEnv = developmentBuildEnv();
 buildEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, buildEnv);
+// Proofs select the requested game profile under either trust mode; ordinary builds ship web.
+const proofProfile = game ? process.env.EXACT_GAME_PROOF_PROFILE : undefined;
+if (proofProfile && !['gpu-dev', 'release'].includes(proofProfile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
+const gpuProfile = proofProfile === 'gpu-dev' ? 'gpu-dev' : 'web';
+if (proofProfile === 'gpu-dev') Object.assign(buildEnv, warmGameEnvironment(buildEnv));
 // `EXACT_WEB_NAMES=1` keeps the wasm's name section for attribution (LLP 1047
 // D9, metrics.mjs --long): rustc strips only DWARF, which would stop binaryen's
 // duplicate-function elimination, and wasm-opt keeps names. The code is the
@@ -126,12 +131,8 @@ const keepNames = process.env.EXACT_WEB_NAMES === '1';
 // (LLP 1047.000 §9), which needs the names too; they are stripped after the
 // split. The dev loop's `EXACT_WEB_LINK=all` build and the names build stay
 // whole, as does a machine whose binaryen isn't the pinned one.
-const unsplit = keepNames || process.env.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
+const unsplit = keepNames || buildEnv.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
 if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
-// Proofs select the requested game profile under either trust mode; ordinary builds ship web.
-const proofProfile = game ? process.env.EXACT_GAME_PROOF_PROFILE : undefined;
-if (proofProfile && !['gpu-dev', 'release'].includes(proofProfile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
-const gpuProfile = proofProfile === 'gpu-dev' ? 'gpu-dev' : 'web';
 const warmInputs = !bakeOnly ? warmGameInputs(app, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile}) : null;
 const buildReceipt = contractLast(() => buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly, gpuProfile}));
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
@@ -502,9 +503,8 @@ writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   inputs: webInputDigests(app, false),
 }) + '\n');
 // In place in one step where the system has one (serve.mjs `replaceBuild`).
-replaceBuild(stage, dist);
+publishWarmGame(app, stage, dist, warmInputs, buildReceipt, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile});
 stage = null;
-keepWarmGame(app, dist, warmInputs, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile});
 if (bakeOnly) { console.log(`${relative(process.cwd(), dist) || "."}: the bake (no wasm): app.plan ${kib(planBytes.length)}, exact.json, index.html; documents: ${documentNote}${authNote}; modules: ${moduleNote}`); process.exit(0); }
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));

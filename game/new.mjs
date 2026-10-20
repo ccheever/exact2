@@ -119,7 +119,9 @@ export function createGame(destination, directory = import.meta.dir, options = {
   bun exact.mjs agent web tree  inspect or drive the game
   bun exact.mjs mac --run     build and launch on this Mac
   bun exact.mjs windows --run build and launch on Windows
-  bun exact.mjs prove         pin your game while you build it (a minute); prove --release before you ship it`;
+  bun exact.mjs prove         take the first development baseline; prove --repin --release before you ship it
+  First publication runs seven legs. A warm continuous web leg is reused; Save and FreshGame
+  still compile their own wasm (the mode is compile-time). Hot-swap wasm is not reused.`;
   }
   return `Created ${local ? destination : `game/games/${name}`}\n  bun ${script('dev.mjs')} ${argument}\n  bun ${script('prove.mjs')} ${argument}
   bun ${proof} web --screenshot-only`;
@@ -1065,7 +1067,7 @@ you name where you are, else here):
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
 | \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |
 | \`bun exact.mjs windows --run\` | build and launch the standalone Windows game; omit \`--run\` to package only |
-| \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | \`prove\` to pin your game while you build it (a minute); \`prove --release\` before you ship it. Existing pins are checked; \`--repin\` publishes intentional changes or release coverage |
+| \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | \`prove\` takes the first development baseline (seven legs); \`prove --release\` before you ship it. Existing pins are checked; \`--repin\` publishes intentional changes or release coverage. A warm continuous web leg is reused; Save and FreshGame compile their own wasm because the mode is compile-time. Hot-swap wasm is not reused |
 | \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block, and says when \`Cargo.lock\` needs \`lock\` |
 | \`bun exact.mjs lock\` | when a build says exact2 moved since the game's \`Cargo.lock\` was captured, or after adding a dependency: fetches (the network), resolves again and prints what changed; builds never change the lock |
 | \`bun exact.mjs shells\` | write \`.shells/\`, the generated workspace a crate here names, without a build (\`cargo run --example\` in \`render/\` needs it) |

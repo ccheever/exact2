@@ -186,6 +186,8 @@ impl<G: Game> Sim<G> {
         // before the presenter has drained that payload into the current device.
         next.textures = std::mem::take(&mut self.textures);
         next.paranoid = self.paranoid;
+        next.paranoid_mode = self.paranoid_mode;
+        next.paranoid_checked = self.paranoid_checked;
         next.development_edits = self.development_edits;
         next.edits_admitted =
             self.edits_admitted || self.world.set_seen.get() || next.world.set_seen.get();

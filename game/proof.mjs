@@ -1,6 +1,6 @@
 export const proofSDK = import.meta.dir + "/..";
 import {refusalMessage} from '../scripts/agent-keys.mjs';
-import {statKey, proofInputs, proofInputReader, proofInputFiles, proofInputExcluded, executionInputFiles} from './inputs.mjs';
+import {releasePinGaps, statKey, proofInputs, proofInputReader, proofInputFiles, proofInputExcluded, executionInputFiles} from './inputs.mjs';
 export {proofInputs, proofInputReader, proofInputFiles, proofInputExcluded} from './inputs.mjs';
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
@@ -279,15 +279,7 @@ export function agreePins(rows, previous, hosts, app, {release: checkRelease = t
   }
   return {...reference.pins, hosts, modes, profiles:checkRelease ? ['gpu-dev', 'release'] : ['gpu-dev']};
 }
-// Missing coverage fields describe the full matrix used by older pin files.
-export function pinCoverageGaps(pins) {
-  const gaps = [];
-  if (!(pins.hosts ?? []).includes('web')) gaps.push('web not pinned');
-  if (!nativeProofHost(pins.hosts ?? [])) gaps.push('native host not pinned');
-  for (const mode of ['0', '1', 'fresh-game']) if (!(pins.modes ?? ['0', '1', 'fresh-game']).includes(mode)) gaps.push(`mode ${mode} not pinned`);
-  if (!(pins.profiles ?? ['gpu-dev', 'release']).includes('release')) gaps.push('release not pinned');
-  return gaps;
-}
+export const pinCoverageGaps = releasePinGaps;
 export function pinInputs(rows) {
   const inputs=rows[0]?.inputs;
   if(!/^[a-f0-9]{64}$/.test(inputs ?? '') || rows.some(row=>row.inputs!==inputs))
@@ -755,6 +747,39 @@ export function worldObservations(observations, session) {
   };
 }
 
+// Read every world's executor, including worlds removed before the session closes.
+export function executedModes(mode) {
+  const records = new Map();
+  return {
+    observe(state, session) {
+      for (const world of Array.isArray(state?.world) ? state.world : []) {
+        if (!world?.hash) continue;
+        const p = world.paranoid;
+        if (p?.mode !== mode) throw new Error(`executed mode ${p?.mode ?? 'missing'} differs from requested ${mode} (session ${session}, canvas ${world.canvas})`);
+        if (!Number.isSafeInteger(p.checked) || p.checked < 0 || typeof p.owed !== 'boolean')
+          throw new Error('paranoid reconstruction evidence missing');
+        const key = JSON.stringify([session, world.canvas, world.restarted]);
+        const previous = records.get(key);
+        records.set(key, {session, canvas:world.canvas, restarted:world.restarted, firstTick:previous?.firstTick ?? world.tick,
+          firstChecked:previous?.firstChecked ?? p.checked, tick:world.tick, ...p});
+      }
+    },
+    rows:() => [...records.values()],
+    assert() {
+      const rows = [...records.values()];
+      if (!rows.length) throw new Error('executed mode evidence missing: no worlds observed');
+      if (mode !== '0') {
+        if (!rows.some(p => p.checked > p.firstChecked)) throw new Error(`paranoid ${mode}: no completed reconstruction samples`);
+        for (const p of rows) {
+          if (p.owed) throw new Error(`paranoid ${mode}: sample still owed (session ${p.session}, canvas ${p.canvas})`);
+          if (p.tick > p.firstTick && p.checked <= p.firstChecked)
+            throw new Error(`paranoid ${mode}: advanced world has no reconstruction samples (session ${p.session}, canvas ${p.canvas})`);
+        }
+      }
+    },
+  };
+}
+
 /** What a screenshot shows of a world canvas: the canvas's box from `layout()`, less
  * the boxes of every node inside the canvas's subtree in `tree()` (its HUD, masked
  * whatever its size or overflow; a sibling or ancestor is not masked), and the share of
@@ -866,7 +891,8 @@ async function runProof(meta, script) {
     console.log(`PROOF ${failed ? 'FAIL' : unverified ? 'UNVERIFIED' : 'PASS'} ${name}: paranoid modes ${failed ? 'failed' : unverified ? 'completed without a complete baseline' : 'checked the baseline'}`);
     process.exit(failed ? 1 : unverified ? 3 : 0);
   }
-  const finalWorlds = [], paranoidSamples = [], observations = new Map();
+  const finalWorlds = [], observations = new Map();
+  const modes = executedModes(process.env.EXACT_GAME_PARANOID ?? '0');
   const previousPins = JSON.parse(readFileSync(resolve(app, 'pins.json'), 'utf8'));
   const collecting = process.env.EXACT_PROOF_REPIN === '1';
   const compareParanoid = process.env.EXACT_GAME_PARANOID_COMPARE === '1';
@@ -954,6 +980,7 @@ async function runProof(meta, script) {
       try {
         const journal = (await raw.logs({all:true})).world ?? [];
         const state = await raw.state();
+        modes.observe(state, id);
         try { provenance.observe(state, journal, id); provenance.assert(); } catch (error) { check(error.message, false); }
         if (compareParanoid || process.env.EXACT_PROOF_COMPARE === '1') {
           const state = await raw.op({op:'state', ...await raw.target('world'), world:true});
@@ -967,7 +994,6 @@ async function runProof(meta, script) {
             journal:worldJournal([...replies.filter(r => r.session === id && r.method === 'logs')
               .flatMap(r => r.reply?.world ?? []), ...logs])});
           if (!world?.hash) throw new Error('paranoid comparison: final world hash missing');
-          if (world.paranoid) paranoidSamples.push({session:id, ...world.paranoid});
         }
         if (looking) await lookStep(raw, id);
         sample();
@@ -986,9 +1012,13 @@ async function runProof(meta, script) {
       if (!['op','tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
       return async (...args) => {
         try {
-          provenance.observe(await raw.state(), [], id);
+          const before = await raw.state();
+          modes.observe(before, id);
+          provenance.observe(before, [], id);
           const reply = await target[method](...args);
-          provenance.observe(await raw.state(), method === 'logs' ? reply.world : [], id);
+          const after = await raw.state();
+          modes.observe(after, id);
+          provenance.observe(after, method === 'logs' ? reply.world : [], id);
           if (method === 'state') worldObservations(observations, id)(reply);
           replies.push({session:id, method, args, reply, clock:target.now});
           return reply;
@@ -1098,7 +1128,12 @@ async function runProof(meta, script) {
     }
     if (auditUnavailable) say('SKIP descendant process audit: ps stalled; carrier close still awaited every recorded host process.');
     check('all recorded children exited', remaining.length === 0, remaining);
+    if (!process.argv.includes('--build-only')) {
+      try { modes.assert(); check('executed mode and reconstruction evidence', true); }
+      catch (error) { check(error.message, false); }
+    }
     if (compareParanoid) {
+      const paranoidSamples = modes.rows();
       // A sample owed at the end is an asset that never landed: its save was never checked.
       const skipped = paranoidSamples.reduce((n, p) => n + p.skipped, 0);
       if (skipped) say(`PARANOID ${skipped} samples deferred while shown assets were in flight`);
@@ -1135,7 +1170,7 @@ async function runProof(meta, script) {
     const status = lookFailed ? 'FAIL' : simulation;
     const reason = lookFailed ? `${verdict.reason}; the look failed` : verdict.reason;
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable, simulation, ...(looking ? {look:{status:seen.status, detail:seen.detail, failures:lookFailures, tells:looks.tells, silenced:seen.quiet.map(t => t.name), missing:seen.missing, frames:looks.frames, worlds, pictures:looks.pictures, pages:looks.pages, sheets:looks.sheets}} : {})}, null, 2)+'\n');
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, paranoid:modes.rows(), facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable, simulation, ...(looking ? {look:{status:seen.status, detail:seen.detail, failures:lookFailures, tells:looks.tells, silenced:seen.quiet.map(t => t.name), missing:seen.missing, frames:looks.frames, worlds, pictures:looks.pictures, pages:looks.pages, sheets:looks.sheets}} : {})}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     if (looking) {
       say(`simulation: ${simulation} · look: ${seen.status}, ${seen.detail}`);

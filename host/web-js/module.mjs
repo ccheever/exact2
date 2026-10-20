@@ -13,7 +13,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // Also for its PATH: the pinned binaryen (and Cargo) as every web build has
 // them, so a prebuild optimizes and keeps what an app's build would.
-import { WEB_STD, WEB_TOOLCHAIN, wasmRemapFlags } from '../../scripts/app.mjs';
+import { WEB_STD, WEB_SIZE, WEB_TOOLCHAIN, wasmRemapFlags } from '../../scripts/app.mjs';
+import { replaceBuild } from '../web/serve.mjs';
 import { proofInputs } from '../../game/inputs.mjs';
 import { keptProducts } from '../../scripts/kept.mjs';
 import { BINARYEN_DOWNLOAD } from '../web/stages.mjs';
@@ -404,12 +405,53 @@ async function prebuild() {
 
 // A game's resident producer and its proof share completed development web
 // products locally. The snapshot supplies its own inputs; the live world is never read.
+export function warmGameEnvironment(env) {
+  return {...env, EXACT_UPDATE_TRUST:env.EXACT_UPDATE_TRUST ?? 'development',
+    EXACT_GAME_PARANOID:env.EXACT_GAME_PARANOID ?? '0', EXACT_WEB_LINK:env.EXACT_WEB_LINK ?? 'all',
+    RUSTUP_TOOLCHAIN:WEB_TOOLCHAIN, EXACT_WEB_SIZE:WEB_SIZE};
+}
+// Cargo-provided paths and package metadata follow the captured sources. Other
+// compiler env-deps must match the caller or a recorded build-script output;
+// the script's own watched environment must match the caller in either case.
+function warmConfigurationMatches(app, configuration, environment) {
+  if (!configuration || configuration.target !== 'wasm32-unknown-unknown'
+      || !Array.isArray(configuration.units) || !Array.isArray(configuration.builders)
+      || !configuration.units.length || !configuration.rustc || !configuration.flags) return false;
+  const env = warmGameEnvironment(environment);
+  const hash = value => value == null ? null : createHash('sha256').update(value).digest('hex');
+  for (const [key,value] of Object.entries(configuration.flags)) if ((env[key] ?? null) !== value) return false;
+  for (const builder of configuration.builders) {
+    if (!Array.isArray(builder.environment) || !Array.isArray(builder.env)) return false;
+    for (const [key,value] of builder.environment) if (hash(env[key]) !== value) return false;
+  }
+  for (const unit of configuration.units) {
+    if (!Array.isArray(unit.environment)) return false;
+    for (const [key,value] of unit.environment) {
+      if (key === 'OUT_DIR' && value === `generated:${unit.package}:${unit.role}/`) continue;
+      if (key === 'CARGO_MANIFEST_DIR' && /^crate:[^/]+\/$/.test(value ?? '')) continue;
+      if (/^CARGO_PKG_(VERSION(?:_MAJOR|_MINOR|_PATCH|_PRE)?|NAME|AUTHORS|DESCRIPTION|HOMEPAGE|REPOSITORY|LICENSE|LICENSE_FILE|RUST_VERSION|README)$/.test(key)) continue;
+      const generated = configuration.builders.filter(b => b.package === unit.package && b.role === unit.role)
+        .flatMap(b => b.env).filter(([name]) => name === key);
+      if (generated.length) { if (generated.some(([,v]) => v !== value)) return false; }
+      else if (hash(env[key]) !== value) return false;
+    }
+  }
+  const compiler = spawnSync('rustc', ['-vV'], {cwd:app.workspace ?? root, env, encoding:'utf8'});
+  return compiler.status === 0 && compiler.stdout === configuration.rustc;
+}
+
+// Cache the owned stage before the directory swap can expose another build's dist.
+export function publishWarmGame(app, stage, dist, before, build, env = process.env, publish = replaceBuild) {
+  keepWarmGame(app, stage, before, env, build);
+  publish(stage, dist);
+}
 export function warmGameInputs(app, env = process.env) {
   if (!app.manifest.game || env.EXACT_GAME_PROOF_PROFILE !== 'gpu-dev'
       || (env.EXACT_UPDATE_TRUST ?? 'development') !== 'development') return null;
+  env = warmGameEnvironment(env);
   const inputs = proofInputs(root, app.dir, resolve(app.target, 'proof-web-inputs.json'));
   const flags = Object.entries(env).filter(([key]) => /^(RUST|CARGO_PROFILE_|CARGO_ENCODED_|CARGO_TARGET_.*_(RUSTFLAGS|LINKER)$|EXACT_GAME_PARANOID_COMPARE$)/.test(key)).sort();
-  const configuration = JSON.stringify([app.id, app.manifest, env.EXACT_GAME_PARANOID ?? '0', env.EXACT_UPDATE_ORIGIN ?? null, env.EXACT_BACKEND_ORIGIN ?? null, flags]);
+  const configuration = JSON.stringify([app.id, app.manifest, env.EXACT_GAME_PARANOID ?? '0', env.EXACT_UPDATE_ORIGIN ?? null, env.EXACT_BACKEND_ORIGIN ?? null, env.EXACT_WEB_LINK, env.EXACT_WEB_NAMES ?? null, flags]);
   return {...inputs, configuration, key:createHash('sha256').update(inputs.all + configuration).digest('hex')};
 }
 function warmFiles(directory) {
@@ -425,8 +467,8 @@ function warmFiles(directory) {
   walk(directory);
   return files;
 }
-export function keepWarmGame(app, dist, before, env = process.env) {
-  if (!before) return false;
+export function keepWarmGame(app, dist, before, env = process.env, build) {
+  if (!before || !warmConfigurationMatches(app, build?.binary?.configuration, env)) return false;
   let stage;
   try {
     const after = warmGameInputs(app, env);
@@ -439,7 +481,7 @@ export function keepWarmGame(app, dist, before, env = process.env) {
     cpSync(dist, copied, {recursive:true});
     const current = warmGameInputs(app, env);
     if (current?.key !== after.key || current.authoredState !== after.authoredState || current.assetState !== after.assetState) return false;
-    const receipt = {key:after.key, directory:stage, files:warmFiles(copied)};
+    const receipt = {key:after.key, directory:stage, files:warmFiles(copied), configuration:build.binary.configuration};
     const path = resolve(cache, `${after.key}.json`);
     let previous;
     try { previous = JSON.parse(readFileSync(path, 'utf8')); } catch {}
@@ -447,6 +489,7 @@ export function keepWarmGame(app, dist, before, env = process.env) {
     stage = null;
     if (typeof previous?.directory === 'string' && previous.directory !== receipt.directory && dirname(previous.directory) === cache)
       rmSync(previous.directory, {recursive:true,force:true});
+    // Evict by receipt publication mtime; this never enters simulation state.
     const entries = readdirSync(cache).filter(name => /^[a-f0-9]{64}\.json$/.test(name)).sort((a,b) => statSync(resolve(cache,b)).mtimeMs - statSync(resolve(cache,a)).mtimeMs);
     for (const name of entries.slice(6)) {
       const old = JSON.parse(readFileSync(resolve(cache,name),'utf8'));
@@ -464,7 +507,8 @@ export function takeWarmGame(app, dist, env = process.env) {
   try {
     const cache = resolve(app.target, 'proof-web');
     const receipt = JSON.parse(readFileSync(resolve(cache, `${inputs.key}.json`), 'utf8'));
-    if (receipt.key !== inputs.key || dirname(receipt.directory) !== cache) return false;
+    if (receipt.key !== inputs.key || dirname(receipt.directory) !== cache
+        || !warmConfigurationMatches(app, receipt.configuration, env)) return false;
     stage = mkdtempSync(resolve(app.target, 'proof-web-copy-'));
     cpSync(resolve(receipt.directory, 'dist'), stage, {recursive:true});
     if (JSON.stringify(warmFiles(stage)) !== JSON.stringify(receipt.files)) return false;
