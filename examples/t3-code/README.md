@@ -150,6 +150,11 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   out a pull request requires a choice. The palette and user messages offer Copy
   prompt link. Development and lane bundles register no scheme; test the handler
   through `/open?u=<percent-encoded-link>` directly.
+- Web links: packaged builds also claim `http`, `https` and HTML files, so a person can
+  pick the app in System Settings › Desktop & Dock › Default web browser; the app never
+  asks to become the default. A link or a page opens as a new Browser tab beside the
+  thread on screen when its panel shows a Browser tab, else in a new thread without a
+  project with the panel maximized (`prompt-link-handler.ts`).
 - Sidebar: grouped projects, Working/active/Settled/Snoozed shelves, search, pin,
   settle/un-settle, snooze (presets and custom), Woke and Done pills (Woke dismissal
   syncs through `thread.visit`), project glyph overrides and favicons, Project order,
@@ -515,8 +520,8 @@ Differences that belong to the app:
   ids also come from the driver's repeatable random stream, so drives of one persistent server use a
   different `--seed` each launch, or the server takes a repeated command id for the command it
   already ran and does nothing.
-- The Browser surface is WebKit, not Chromium (#100 was closed as not planned). It has no
-  "Open DevTools" item, and pages get no Notification API or geolocation.
+- The Browser surface is WebKit, not Chromium (#100 was closed as not planned). Pages get no
+  Notification API or geolocation.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
@@ -568,6 +573,20 @@ above.
   AppKit posts only `AXSelectedTextChanged`, and VoiceOver speaks the text removed from an AppKit text
   view however it is replaced; Chromium reports the change as an `AXValueChanged` edit naming the
   removed text, which VoiceOver does not read.
+- The Browser tab's ⋮ menu has no "Open DevTools": macOS has no public API that opens Web Inspector
+  from code. A development build's page is inspectable from Safari › Develop.
+- A server-rendered Browser tab has no picture-in-picture window: Exact has no source that turns its
+  JPEG frames into a video, which the reference's `canvas.captureStream()` does. Its in-app
+  floating preview works.
+- No development web view inspection on Android: the clone does not run on Android yet.
+- A citation or an attached file is a link label in the composer and a chip in the References row
+  below it, not the reference's inline chip: the Markdown editor has no atomic links.
+- Held Shift or ⌘ does nothing after the focused control unmounts (opening Linked pull requests from
+  the panel launcher, or at launch with no thread open) until the next click: with nothing focused,
+  the window root hears no keys, where Chromium's `window` listeners hear every key.
+- Edit › Paste is enabled after a click on blank ground, and choosing it only forgets the held
+  keys: the window root takes that focus and hears `paste`. Elsewhere AppKit disables Paste when
+  nothing can take it. The reference's Paste is always enabled.
 
 **Not failures:**
 

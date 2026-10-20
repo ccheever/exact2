@@ -1,4 +1,5 @@
-// T3 Code 9c161462c9 (MIT, LICENSE-T3): components/promptLinks/{NewThreadLinkView,ThreadLinkPrompt}.tsx.
+// T3 Code 9c161462c9 (MIT, LICENSE-T3): components/promptLinks/{NewThreadLinkView,ThreadLinkPrompt}.tsx, and
+// components/desktop/DesktopWebLinkCoordinator.tsx for a web link or an HTML file the system hands the app.
 // The connection fleet supplies the reference's environment registry; draft and checkout operations are shared with the app.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -19,6 +20,11 @@ import { findPromptLinkProject, findPromptLinkPullRequestThread, resolvePromptLi
 import { primaryEnvironmentId } from '../connections/local-primary';
 import { placeLinkedPrompt, warnAboutHiddenCharacters } from './linked-prompt';
 import { parseNewThreadLink, parseThreadLinkPrompt, promptLinkAppPath, promptLinkPullRequestUrl, type NewThreadLink, type PromptLinkRepository } from './prompt-links';
+import { isWebUrl, openFileInPreview, openUrlInPreview } from '../browser/browser-links';
+import { activeRef } from '../terminal/terminal-drawer-view';
+import type { ScopedThreadRef } from '../terminal/terminal-ui-state';
+import { surfaceStore } from '../panel/panel-surfaces';
+import { ensureDraftThreadId } from '../composer/draft-thread-id';
 
 type Project = Obj & { environmentId: string };
 type Pending = { link: NewThreadLink; repository: PromptLinkRepository; project?: Project };
@@ -95,7 +101,68 @@ async function openThread(client: T3Client, native: Native, storage: Files, envi
   }
 }
 
+/** threadShowingBrowser: the thread on screen, when its panel is open on a Browser tab. An HTML file is served by this
+ *  machine's environment, so only that environment's threads take one. */
+function threadShowingBrowser(client: T3Client, native: Native, fileEnvironmentId: string | null): ScopedThreadRef | null {
+  const ref = activeRef(client);
+  const serverBrowser = obj(obj(client.config.environment).capabilities).serverBrowser === true;
+  if (!ref || !(native.available || serverBrowser)) return null;
+  if (fileEnvironmentId !== null && ref.environmentId !== fileEnvironmentId) return null;
+  const panel = surfaceStore(client).panels.get(`${ref.environmentId}:${ref.threadId}`);
+  return panel?.visible && panel.surfaces.find(surface => surface.id === panel.active)?.kind === 'browser' ? ref : null;
+}
+/** startLinkThread (the reference's startThread): a new thread without a project on this machine's environment, or on the one environment that offers
+ *  threads without a project when there is no such machine. */
+async function startLinkThread(client: T3Client, native: Native, storage: Files, report: (description?: string) => void): Promise<ScopedThreadRef | null> {
+  const primary = primaryEnvironmentId(), offering = environments(client).filter(environment => !!str(environment.config.scratchWorkspaceRoot));
+  const environment = primary !== null ? offering.find(candidate => candidate.id === primary) : offering.length === 1 ? offering[0] : undefined;
+  if (!environment) { report(); return null; }
+  try {
+    let id: string;
+    if (environment.id === client.environmentId) id = await openScratchProject(client, native);
+    else {
+      const entry = [...fleet.entries.values()].find(candidate => candidate.environmentId === environment.id);
+      if (!entry) throw new ClientError('That environment is no longer connected.');
+      id = await openRemoteScratch(client, native, entry);
+    }
+    await openProject(client, native, storage, { id, environmentId: environment.id });
+    // The reference's new draft has its thread id from the start; here it is allocated now.
+    if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
+  } catch (error) {
+    if (letGo(error)) throw error;
+    report(error instanceof Error ? error.message : 'An error occurred.');
+    return null;
+  }
+  const ref = activeRef(client);
+  if (!ref) report();
+  return ref;
+}
+/** openLink: the browser panel of the thread on screen takes the link; else a new thread without a project opens with
+ *  the panel maximized. A failure is a toast that names the link. */
+async function openWebLink(client: T3Client, native: Native, storage: Files, url: string): Promise<string> {
+  const report = (description = url) => { pushToast(client, { kind: 'error', title: 'Could not open the link', description, stacked: true }); };
+  const isFile = url.startsWith('file:'), primary = primaryEnvironmentId();
+  // This machine's environment serves an HTML file (httpBaseUrl): with none, no server can.
+  if (isFile && primary === null) { report(); return ''; }
+  const shown = threadShowingBrowser(client, native, isFile ? primary : null);
+  const ref = shown ?? await startLinkThread(client, native, storage, report);
+  if (!ref) return '';
+  try {
+    if (isFile) await openFileInPreview(client, native, ref, decodeURIComponent(new URL(url).pathname), '');
+    else await openUrlInPreview(client, native, ref, url);
+  } catch (error) {
+    if (letGo(error)) throw error;
+    report(error instanceof Error ? error.message : url);
+  }
+  // rightPanelStore.requestMaximize: a new thread's panel opens maximized.
+  const panel = shown ? undefined : surfaceStore(client).panels.get(`${ref.environmentId}:${ref.threadId}`);
+  if (panel?.surfaces.length) panel.maximized = true;
+  return shown ? '' : 'sidebar:new-thread';
+}
+
 export async function openPromptLink(client: T3Client, native: Native, storage: Files, value: string): Promise<string> {
+  // A web link leaves an open prompt-link dialog open, as the reference's does.
+  if (!promptLinkAppPath(value) && (isWebUrl(value) || value.startsWith('file:'))) return await openWebLink(client, native, storage, value);
   dismissPromptLink(client);
   try {
     const path = promptLinkAppPath(value);
