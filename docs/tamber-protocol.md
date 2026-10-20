@@ -116,7 +116,8 @@ on macOS and Linux.
   state: a binding's `states`, `[{state, origin, at?}]` (no `at` for a conditional class's part,
   either style's).
 - `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
-  values for a length over unset base names (stage 12 D1); and names this machine's files in no answer:
+  values for a length over unset base names (stage 12 D1); a relay session's `spki` with its
+  certificate got by ACME (stage 10c R2); and names this machine's files in no answer:
   every `file` field and file name in an answer or event is app-relative, or `<package>/<path inside it>`
   for a package's file (a package linked from outside the app included), never absolute, `hello`'s `app`
   is absolute only for the local client, and a client that is not local gets machine-written messages
@@ -242,10 +243,19 @@ statuses:
   paired token works, never the local one. No other path gives a sandboxed page CORS: the token
   route keeps the dev gate's rule, so such a page cannot read it.
 - **A hosted relay** (*1.14*; stage 10c R1, LLP 1121 §5 10c): `--relay <host[:port]> --relay-account
-  <label>` with `--relay-cert`/`--relay-key` (PEM files for the relay's names) dials out to a relay
-  that hands each client's TCP stream down unopened; the client's TLS ends in this server, on that
-  certificate, so the relay reads only the ClientHello's name and never a token, a design or a
-  canvas. The account's token is `EXACT_RELAY_TOKEN` or `~/.exact/relay/<label>/token` (refused
+  <label>` dials out to a relay that hands each client's TCP stream down unopened; the client's TLS
+  ends in this server, so the relay reads only the ClientHello's name and never a token, a design or
+  a canvas. The certificate it ends on (R2, *1.15*) is got here by ACME (Let's Encrypt, or
+  `--relay-acme <directory>`): one wildcard for the account's names (`*.<label>.<relay>`), by
+  DNS-01, its record put up by the relay (which serves only names under the connector's own
+  account) and taken down after; its key made here, kept with the ACME account's key and the
+  certificate under `~/.exact/relay/<label>/` (0600 in a 0700 directory), never sent anywhere; got
+  again 30 days before it ends (checked daily). With `--relay-name <tool> <canvas>` (names of the
+  developer's own domain, one parent), the record is put up by `--relay-dns-hook <command>`, run
+  here with `EXACT_ACME_ACTION` (`publish`|`clear`), `EXACT_ACME_RECORD` and `EXACT_ACME_VALUE`,
+  its output never logged: their DNS credentials never pass through the relay, and the relay
+  operator can't get a certificate for those names. `--relay-cert`/`--relay-key` (PEM files) give
+  one of the developer's own instead. The account's token is `EXACT_RELAY_TOKEN` or `~/.exact/relay/<label>/token` (refused
   unless only its owner may read it), never logged, never in a URL. A relay whose own certificate
   fails WebPKI is never sent it, and no flag turns that check off. The session's names are the
   relay's (`<id>-tool.<label>.<relay>`), or the developer's own with `--relay-name <tool>
@@ -287,7 +297,9 @@ statuses:
   remote?}`. `remote` lists the remote doors open (stage 10 B), for the tool to show beside the
   code: `{origin, fingerprint}` for the TLS listener, whose certificate's SHA-256 the other machine
   checks before it pairs (the lead's ruling 2), and `{origin, tunnel: true}` for a trusted tunnel's
-  local end, and `{origin, fingerprint, relay: true}` for a relay's session (*1.14*). It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
+  local end, and `{origin, fingerprint, spki, relay: true}` for a relay's session (*1.14*; `spki`,
+  the base64 SHA-256 of its certificate's public key, the same across renewals with the account's
+  one key, a non-browser client's pin, *1.15*). It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
   read|propose|write [--name <name>]` mints one from this machine and prints them. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,
   `L` and `O` forgiven), valid two minutes, used once. At most 8 are live: a ninth replaces the
   oldest.
