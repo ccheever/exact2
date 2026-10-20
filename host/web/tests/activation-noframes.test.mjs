@@ -98,9 +98,11 @@ test('a Canvas 2D page in a cross-origin frame scrolled out of view (no frames, 
     // In the framed page, from its first script: every animation-frame callback and ResizeObserver delivery, counted.
     await page.addInitScript(() => {
       if (location.hostname !== 'localhost') return;
-      window.__frames = 0; window.__sizes = 0;
+      const frames = new Set(); window.__sizes = 0;
+      Object.defineProperty(window, '__frames', { get: () => frames.size });
+      // (Frames, not callbacks: one frame runs every callback queued for it, its timestamp theirs.)
       const raf = window.requestAnimationFrame.bind(window), Observer = window.ResizeObserver;
-      window.requestAnimationFrame = fn => raf(t => { window.__frames++; fn(t); });
+      window.requestAnimationFrame = fn => raf(t => { frames.add(t); fn(t); });
       window.ResizeObserver = class extends Observer { constructor(fn) { super((...a) => { window.__sizes++; fn(...a); }); } };
     });
     await page.goto(`http://127.0.0.1:${toolPort}/`);
