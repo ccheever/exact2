@@ -681,3 +681,23 @@ test('an own or class row carries the attribute it came from, with that file\'s 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a library node\'s selection names its exported component and part, apart from the call site\'s component; a fill\'s does not (LLP 1139 D5, *1.15*)', () => {
+  const map = { digest: 'p1', sources: [], nodes: [
+    { file: 'node_modules/@acme/lib/index.contract', line: 4, col: 5, end_col: 11, component: 'Box', library: '@acme/lib/index.contract#Card', part: 'body', chain: [{ file: 'app.contract', line: 5, col: 5, component: 'App' }], bindings: [{ row: 'padding', origin: 'own' }] },
+    { file: 'node_modules/@acme/lib/index.contract', line: 3, col: 5, end_col: 11, component: 'Box', library: '@acme/lib/index.contract#Card', chain: [], bindings: [] },
+    { file: 'app.contract', line: 6, col: 7, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'color', origin: 'own' }] },
+  ] };
+  const read = () => '';
+  const on = (site, rows) => join({ id: 'web-1' }, { node: 1, site, instance: [], tuple: {}, rows }, map, { read });
+  const part = on(0, [{ name: 'padding', value: 8, source: 'authored' }, { name: 'color', value: '#000', source: 'inherited', from: 3 }]);
+  // (the call site's use-site name stays `component`; `library` is the declaring identity)
+  expect(part.source).toMatchObject({ component: 'Box', library: { identity: '@acme/lib/index.contract#Card', part: 'body' } });
+  expect(part.rows.map(r => [r.name, r.library ?? null])).toEqual([['padding', { identity: '@acme/lib/index.contract#Card', part: 'body' }], ['color', null]]);
+  // A node of the library's view that is no part: its identity, part null.
+  expect(on(1, []).source.library).toEqual({ identity: '@acme/lib/index.contract#Card', part: null });
+  // The slot's fill (the caller's own nodes): none.
+  const fill = on(2, [{ name: 'color', value: '#000', source: 'authored' }]);
+  expect(fill.source.library).toBeUndefined();
+  expect(fill.rows[0].library).toBeUndefined();
+});

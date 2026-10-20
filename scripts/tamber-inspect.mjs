@@ -405,7 +405,11 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   const placed = n => n ? [n.file, ...(n.chain ?? []).map(c => c.file), ...(n.bindings ?? []).flatMap(b => [b.at, ...(b.states ?? []).map(p => p.at)].flatMap(at => at ? [at.file] : []))] : [];
   const files = [...new Set([...placed(node), ...(owner !== node ? placed(owner) : [])])];
   const readOnly = files.map(f => moved(map, f, read, app)).find(Boolean) || designMoved(map, build, served, design, read, app) || null;
-  const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [] };
+  // The exported library component whose own view the node is of, and its part (LLP 1139 D5, *1.15*): from the map
+  // (`part=` never reaches a host), apart from `component`, the call site's name; absent outside one (a slot's fill is
+  // the caller's).
+  const library = typeof node.library === 'string' ? { identity: node.library, part: typeof node.part === 'string' ? node.part : null } : null;
+  const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [], ...(library ? { library } : {}) };
   // A source node's copies (a template edit is every one's): one a call-site chain, as a hold's replay
   // counts them (a `button "…"`'s label shares its span and chain, and is no second copy).
   const copiesOf = n => Math.max(1, new Set(sitesAt(map, n).filter(i => same(map.nodes[i], n)).map(i => JSON.stringify((map.nodes[i].chain ?? []).map(c => [c.file, c.line, c.col])))).size);
@@ -462,7 +466,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
         const at = p.at ?? node;
         return { state: p.state, source: { file: at.file, line: at.line, col: at.col, end_col: at.end_col }, editable: shut(e) };
       });
-      return { ...row, origin, ...part, editable: shut(offered), ...(folds.length ? { states } : {}) };
+      return { ...row, origin, ...part, ...(origin && library ? { library } : {}), editable: shut(offered), ...(folds.length ? { states } : {}) };
     }),
   };
 }
