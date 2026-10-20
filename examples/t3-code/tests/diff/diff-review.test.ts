@@ -82,7 +82,7 @@ describe('diff review engine', () => {
     const { client, command, calls } = harness(false);
     await command('diff'); await command('diffreview', 'reveal', 'a.ts');
     let gaps = snapshot(client).diffItems.filter(item => item.kind === 'gap');
-    expect(gaps.map(item => [item.label, item.expandable])).toEqual([['2 unmodified lines', true], ['4 unmodified lines', true]]);
+    expect(gaps.map(item => [item.label, item.expandable])).toEqual([['2 unmodified lines', true], ['4 unmodified lines', true], ['More unchanged context may be available', true]]);
     await command('diffreview', 'expand', 'a.ts', 1);
     expect(calls.filter(call => call.method === 'review.getDiffFileContents').map(call => call.payload)).toEqual([
       { cwd: '/repo', sourceKind: 'branch-range', changeType: 'change', baseRef: 'main', headRef: 'feat', oldPath: 'a.ts', newPath: 'a.ts' }]);

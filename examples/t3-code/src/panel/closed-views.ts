@@ -14,7 +14,8 @@ import { INCOGNITO_BROWSER_PROFILE_ID } from '../browser/browser-profiles';
 import { parseSelection } from '../pull-requests/pages-pr-detail';
 import { prSurfaceId } from './pr-surface';
 import { savedPanel } from './saved-panel';
-import { panelState, surfaceStore, surfaceLocal, openFileSurface, type PanelState, type Surface } from './panel-surfaces';
+import { panelState, surfaceStore, surfaceLocal, openFileIn, type PanelState, type Surface } from './panel-surfaces';
+import { ensureFile } from './files-surface';
 
 export type ClosedView = { id: string; key: string; surface: Surface; snapshot?: PreviewSessionSnapshot; draft?: true; projectId?: string; page?: string };
 export type ReopenOwner = { environmentKnown: boolean; catalogReady: boolean; ownerExists: boolean; shellLive: boolean; panel: Pick<PanelState, 'visible' | 'surfaces'> };
@@ -100,10 +101,21 @@ export async function reopenClosedView(client: T3Client, native: Native, storage
   const ref = parseScopedThreadKey(entry.key)!;
   const draft = entry.draft === true || ref.threadId.startsWith('new:');
   const id = ref.environmentId === client.environmentId ? ref.threadId : `fleet:${ref.environmentId}:${ref.threadId}`;
+  const surface = entry.surface;
+  // ReopenClosedViewShortcut's `workspaceAvailable: project !== null`: the owner's project, read before any navigation. A
+  // Files or file tab whose owner has none is not reopened, and its entry is deferred to the end.
+  const shell = ref.environmentId === client.environmentId ? client.shell : [...fleet.entries.values()].find(candidate => candidate.environmentId === ref.environmentId)?.shell;
+  const ownerProject = draft ? entry.projectId || ref.threadId.slice(4) : str(shell?.threads.find(thread => thread.id === ref.threadId)?.projectId);
+  if ((surface.kind === 'files' || (surface.kind === 'file' && !surface.attachment)) && !shell?.projects.some(project => project.id === ownerProject)) {
+    replace(client, [...closedViews(client).filter(other => other.id !== entry.id), entry]);
+    return '';
+  }
   try {
     const target = draft ? (ref.environmentId === client.environmentId ? (entry.projectId || ref.threadId.slice(4)) : `fleet:${ref.environmentId}:${entry.projectId || ref.threadId.slice(4)}`) : id;
-    await threadOps.call(client, draft ? 'new-thread' : 'select-thread', target, '', 0, native, storage, { message: '', id: target, value: '' });
-    const state = panelState(client), surface = entry.surface;
+    // The owning thread already shown is not selected again: that would hide its Diff and restart its stream.
+    const shown = !draft && ref.environmentId === client.environmentId && ref.threadId === client.threadId;
+    if (!shown) await threadOps.call(client, draft ? 'new-thread' : 'select-thread', target, '', 0, native, storage, { message: '', id: target, value: '' });
+    const state = panelState(client);
     if (entry.snapshot) {
       const snapshot = entry.snapshot;
       if (!client.threadId && !activeRef(client)) await ensureDraftThreadId(client, native);
@@ -113,7 +125,12 @@ export async function reopenClosedView(client: T3Client, native: Native, storage
         { ...(snapshot.navStatus._tag === 'Idle' ? {} : { url: snapshot.navStatus.url }), viewport: snapshot.viewport, profileId: snapshot.profileId });
       client.diffOpen = false; openBrowserIn(state, reopened.tabId, `${restoredRef.environmentId}:${restoredRef.threadId}`);
       await syncNativeSessions(client, native);
-    } else if (surface.kind === 'file') await openFileSurface(client, native, surface.path, surface.line);
+    } else if (surface.kind === 'file' && !surface.attachment) {
+      // panels.openFile on the owning thread: the tab goes back at the end, active; its read follows.
+      client.diffOpen = false;
+      const opened = openFileIn(state, surface.path, surface.line);
+      if (opened.kind === 'file') await ensureFile(client, native, opened.path, true);
+    }
     else {
       if (!state.surfaces.some(other => other.id === surface.id)) state.surfaces.push({ ...surface });
       await surfaceLocal(client, native, 'activate', surface.id, '');
