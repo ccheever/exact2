@@ -1266,7 +1266,9 @@ component PostButton
   modes, and a change to it re-folds every param and token that reads it.
 - **Its identity is stable.** A component's identity is its declaring file, relative to its
   app or package root, and its name: `post.contract#PostButton`, or
-  `@scope/reading/article.contract#Article` for a package's. A param's full name is that
+  `@scope/reading/article.contract#Article` for a package's. A package outside the app needs a
+  name in its `package.json` (`contract-package-unnamed`, the path fix): its place from the app
+  would spell this machine's directories. A param's full name is that
   identity and the param (`post.contract#PostButton.radius`). The short form
   `PostButton.radius` is accepted wherever it is unambiguous and refused where two
   components share the name (`tamber-param-ambiguous`); an import alias (`use X as Y`)
@@ -4604,6 +4606,134 @@ the re-run met every line.
 the loopback rewrite is functional, not a security boundary; the hosted relay is stage 10c.
 
 **Stage 10 is closed.** The `tamber/1.13` window is closed; the next wire change takes `tamber/1.14` (stage 11).
+
+**A fix after the close, under `tamber/1.15` (it opens the version; stage 11 closed `tamber/1.14`): no answer names the machine's directories.** It changes what every client reads in a `file` field (a local one too: app-relative or `<package>/<path>`, no longer absolute), so it is a version, not a fix inside 1.14. `hello` reports `tamber/1.15`; docs/tamber-protocol.md opens its bullet.
+`uses` gave a site's `file` as the source map's absolute path for a package's file and, past a link such as macOS's
+`/tmp`, for the app's own. A remote client saw the machine's directories. Every site file in `uses` and in
+`explain`'s icon sites is now named from the app's directory, as `explain` names a param's file
+(`node_modules/@acme/reading/index.contract`), by one helper (`tamber_uses::shown`); a package linked from outside
+the app keeps its path from `node_modules` on. A transaction's refusal names its file the same way. As a backstop,
+the server drops the app's directory, as given or canonical, from every answer's text, so a read error says
+`app.tamber: Permission denied`. Test: `tamber_serve_packages.rs` `no_answer_names_the_machines_directories`:
+`uses` on a package component's param gives the relative path, and ten answers and their events, plus a read error,
+hold neither form of the directory. It fails without the fix, checked by hand.
+The JS server (theme2's ruling: leaking local directories to remote clients is a fix): `hello`'s `app` stays the
+path for the local client, which `tamber tool` tells its own server by, and is the directory's name for any other
+(paired, through B's door or a tunnel; stage 10c's relay has no door on main yet). Every reply, stream event and
+long poll a client that is not local gets has the app's directory (as given and real) and the home directory
+dropped (a selection's source in a package was the map's absolute path). docs/tamber-protocol.md says so. Test:
+`tamber-remote.test.mjs`'s `no answer to a remote client names this machine's directories`, through the real design
+server with the app under the home directory. A paired client through B's TLS door asks hello, describe, resolve,
+explain, uses, a refused `set-row` on a package's file and a checker refusal with spans (`propose`, `transaction`),
+then hello through the tunnel and a long poll. No reply holds the app's or the home directory in either form,
+`hello.app` is the name, `uses` names `node_modules/@acme/reading/index.contract`, and the local hello is unchanged.
+It fails without the fix, checked by hand. `outline`, which takes `uses`'s sites, reads a file named from the app's
+directory as well as the map's own (its path, as given and real), so the design tool's outline of a token's sites
+still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it).
+
+**After the path fix's review round 1 (Astra WRONG; Grok RIGHT WITH CHANGES; one rework):**
+- **No blanket replacement.** The Rust backstop in `Server::handle` and the JS one over replies, events and long polls
+  replaced the app's and home directory's text anywhere. That corrupted authored data: a token value holding
+  `<app>/assets/icon.svg`, a history's text, `/tmp/x` inside `/private/tmp/x`, and `/Users/admin` inside
+  `/Users/administrator`. The Rust one hit local clients too. Both are gone.
+- **Path metadata through one rule.** A file is named from the app's directory where it is in it (as given or
+  real); else from its package, the nearest directory above it whose `package.json` has a name
+  (`<name>/<path inside it>`, as D15's `sources::home` names a package's file, so a `file:` link outside the app and
+  the home directory is unique and stable); else `<outside>/<its name>`. Rust keeps it in `tamber_uses::shown` (for
+  `uses`, explain's icon sites and param file through `AppParams.files`, and a refusal's diagnostics), and JS in
+  `scripts/tamber-paths.mjs` `pathName`. JS applies it, by `file` fields only, to every reply and every event for
+  every client: a selection's source and chain, `inspect`, and the long poll. The stale-map and moved-file messages
+  of `tamber-inspect.mjs` name their file the same way.
+- **Machine-written messages are scrubbed at path boundaries,** for a client that is not local. The app's
+  directory becomes `<app>` and the home directory `~`, longest first, in the given and real forms, only where a
+  whole path starts and ends. It applies only to an `error`'s messages (and its diagnostics') and the `down` event's,
+  including the two 503s that bypassed it: a subscribe while down, and a long poll past the `down` event. Authored
+  text is not read.
+- **`outline` matches by the rule.** Each location's file and each map node's file are named by `pathName` and
+  compared, so a package linked from outside the app round-trips and two packages' same-named files stay apart. A
+  map's named nodes are kept per map read, since a map can move under one plan digest.
+- **Tests:**
+  - `scripts/tamber-paths.test.mjs`: the rule (inside the app, through its real path, through a link inside it, a
+    package's own path outside it, outside both); the boundaries (`/private/tmp/xy`, `<home>istrator`); and that
+    only an error's and `down`'s messages are scrubbed, never a commit's.
+  - `tamber-remote.test.mjs`, through the real design server, with the app under the home directory and
+    `@acme/linked` linked from outside both. A build is registered on the dev loop's channel whose map names the
+    package's real path. A paired client through B's door asks hello, describe, resolve, explain, uses ×2, a
+    refused `set-row` and a checker refusal (propose, transaction), and inspect. It also reads the selection in the
+    long poll (`@acme/linked/index.contract`), outlines `uses`'s site (it reaches the build: sites `[0]`), and asks
+    hello through the tunnel. No reply holds the app's, the home or the linked directory in either form, except
+    describe's authored metadata. Authored text (the token's `help` holding the app's path, the commit's message
+    naming it) is byte-identical to the local and the remote client.
+  - A design server that is down (it says the app's path on stderr): the remote subscribe and long poll are 503 with
+    `<app>`, and the `down` event in a long poll from the start is scrubbed too. Both tests fail without the
+    rework, checked by hand.
+  - `tamber_serve_packages.rs` `authored_text_holding_the_apps_path_is_kept`: a local proposal's diff, describe's
+    metadata and a scrub's fold keep a `help` value holding the app's path byte for byte.
+  - `tamber-server.test.mjs`'s wasm inspect test now expects the selection's file as `app.contract`.
+- **Not covered (round 1's view; wrong, see round 2):** a machine message naming a linked package's directory outside
+  the app and the home directory. A compile refusal does name one.
+
+**After the path fix's review round 2 (Astra WRONG; Grok RIGHT WITH CHANGES; their findings overlap):**
+- **A linked package's directory in a message is its name.** A compile or load refusal names a file by its path: a
+  missing named design (`sources/packages.rs`), an unreadable `use` target (`sources.rs`), resolution
+  (`resolve.rs`), and a transaction's diagnostics, which `uses`, `explain` and the others carry as `the app does
+  not build: …`. Round 2 rewrote each package root found under the app's `node_modules`. Its quick re-check found
+  that misses a nested dependency, a `node_modules` installed above the app, and Bun's per-file links (whose files
+  link into a store). So the scrubber no longer lists roots. In a machine message to a client that is not local,
+  every absolute path (a run from `/`, `~/` or a drive letter, up to white space, a quote, a backtick, `)` or a `:`
+  before a line number) is named by `pathName`, but a server's route (`/__…`), exempted by name: app-relative, its
+  package's `<name>/<path inside>`, or `<outside>/<name>`. It resolves from the path's nearest existing ancestor
+  (realpath, then the nearest named `package.json`), so a missing file under a missing directory of a package is
+  still the package's. (Re-check 2: a guard that kept a token unless it or its parent existed let a manifest's
+  `dist/theme.tamber`, never built, through whole.) Rust's `shown` resolves the same way. A `:line:col` after it
+  stays, and so does a sentence's full stop. The app's directory itself reads `<app>`, the home directory `~`, and
+  the app and home rule stays as a backstop for any other mention.
+- **Motion sites through a linked package keep their site.** `motion_sites` named its files for the reply before
+  `motion_instances` joined them against the elements' paths, so a linked package's duration or easing use lost its
+  instance (`site: null`) and its outline. It keeps the loader's path through the join; the finished reply is named
+  (`relative_files`).
+- **explain reads where the file is.** `AppParams` keeps each source's path on this machine (`paths`) beside its
+  name (`files`). explain reads a param's default as written through the path, so an outside package's `"4px"` keeps
+  its spelling. Only the emitted `file` is the name.
+- **The rest named too:** the subscribe snapshot (named, and scrubbed for a client that is not local), the long
+  poll's `proposals`, and export's `baseline` (`shown`, no `unwrap_or` to the absolute path).
+- **Tests:**
+  - `tamber-paths.test.mjs`: each path in a message is named and keeps its `:line:col` (`app.contract:3:7`); a
+    route is left, and a missing file under a missing directory is still named (`dist/theme.tamber`); a longer name
+    beside the app's or the home's is named from what exists above it (`<outside>/…`). A package's file is `<name>/…` however it is installed: a
+    link outside the app, a dependency nested in its `node_modules`, a `node_modules` above the app, and a Bun-style
+    per-file link into a store.
+  - `tamber-remote.test.mjs`: a design server that is down, whose stderr names a package's file outside the app
+    and the home directory, reads `… writes <app> (it read @acme/far/index.contract:2:1; no @acme/far/dist/theme.tamber)` to a remote client, in the
+    503s and the `down` event. `@acme/linked`, outside the app and the home directory, names a design under a `dist/` that was
+    never built (`dist/theme.tamber`). The local client's `uses` refusal holds the path; a paired client's refusals (`uses`, `explain`) hold
+    neither the outside directory nor the app's nor the home's, and `uses` says `@acme/linked/missing.tamber`. It
+    fails without the package rewrite.
+  - `tamber_serve_packages.rs` `a_package_linked_from_outside_keeps_its_motion_sites_and_its_defaults`: a linked
+    package outside the app. `uses` of a duration its view writes finds each instance (`site` set), named
+    `@acme/linked/index.contract`; `explain` gives the param's default as written (`"4px"`); neither names the
+    outside directory. It fails with either fix reverted.
+
+**After the path fix's re-check 3 (Astra; theme2's ruling: refuse it):**
+- **A package outside the app needs a name.** A linked package whose `package.json` has no `name` got an identity from its place from the app (`../../../Users/alice/shared/cards/index.contract#Card`),
+  which `describe` and `explain` sent whole and every param's full name carried. It is now a compile refusal,
+  `contract-package-unnamed`, at the `use` that reaches it: "the package `a` is outside the app and its `package.json`
+  has no `name`: a package outside the app needs a name in its package.json", naming the package as the `use` does,
+  never its path. `sources::home` answers none for it and the loader refuses, so no relative identity is made.
+- **A linked package ends at its root.** `home` walked every directory above a file to the app's, so a package with no
+  name inside an outer directory whose `package.json` has a name took that name: the same leak by another route. A
+  package's file is now named only by a directory between it and its package's root. A package that holds its own
+  test app (`packages/geolocation/test/fixture`) is its own: its root's name names it, where it was `../../…` before.
+- **Apps unchanged.** `contract build --json --errors-only` of all 90 `app.contract` roots in the checkout, before and
+  after: the same diagnostics (74 build, 16 refused as before). None hits the refusal; the geolocation fixture did
+  until the package-holds-the-app case above.
+- **Tests:** `tamber_params_tools.rs` `an_unnamed_package_outside_the_app_is_refused_even_inside_a_named_directory`
+  (two unnamed linked packages, refused at the app's `use` line with the package's `use` name and no directory of
+  theirs; again inside an outer named directory; named, two identities by their names) and
+  `a_package_holding_its_own_test_app_names_its_files_by_its_name`; `tamber-remote.test.mjs`'s
+  unnamed `@acme/linked` linked from outside the app and the home directory: a paired client's hello, describe,
+  explain, resolve and uses hold neither its directories nor its name nor any `../`, and `uses` says the refusal. Each
+  fails without the change.
 
 ### Stage 11, commit B1: the base scale table (draft for theme2)
 

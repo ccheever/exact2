@@ -24,6 +24,7 @@
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
 import { readFileSync, realpathSync } from 'node:fs';
+import { pathName } from './tamber-paths.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
@@ -71,14 +72,16 @@ export function mapFor(bytes, digest) {
 }
 
 /** Why a file the map names has moved since it was compiled, or ''. */
-function moved(map, file, read) {
+function moved(map, file, read, app = null) {
+  // Named as an answer names a file (`tamber-paths.mjs`), never this machine's path.
+  const shown = app ? pathName(file, app) : file;
   const known = (map.sources ?? []).find(s => s.file === file);
-  if (!known) return `${file} is not in the build's source map`;
+  if (!known) return `${shown} is not in the build's source map`;
   // A compiled-in module is nowhere on disk, and cannot move.
   if (!file.startsWith('/')) return '';
   let now;
-  try { now = sha256(read(file)); } catch { return `${file} is gone since this build`; }
-  return now === known.sha256 ? '' : `${file} changed since this build: select it again once it has reloaded`;
+  try { now = sha256(read(file)); } catch { return `${shown} is gone since this build`; }
+  return now === known.sha256 ? '' : `${shown} changed since this build: select it again once it has reloaded`;
 }
 
 /** Why the design a token rung would edit is not the one the build runs,
@@ -87,19 +90,21 @@ function moved(map, file, read) {
  * design it serves now (`served {digest, source}`, a value edit the build
  * took live), when the build reports running that. Fails closed: a design
  * the map does not name, or one that cannot be read, is a reason. */
-function designMoved(map, build, served, file, read) {
+function designMoved(map, build, served, file, read, app = null) {
   // Gone from where the server looks (a deleted file): the map's own entry,
   // whose read then fails.
   file ??= (map.sources ?? []).find(s => /\.tamber$/.test(s.file))?.file ?? null;
   if (!file) return '';
+  // Named as an answer names a file (`tamber-paths.mjs`), never this machine's path.
+  const shown = app ? pathName(file, app) : file;
   const real = f => { try { return realpathSync(f); } catch { return f; } };
   const known = (map.sources ?? []).find(s => s.file === file || real(s.file) === real(file));
-  if (!known) return `the app's design ${file} is not in the build's source map`;
+  if (!known) return `the app's design ${shown} is not in the build's source map`;
   let now;
-  try { now = sha256(read(file)); } catch { return `${file} is gone since this build`; }
+  try { now = sha256(read(file)); } catch { return `${shown} is gone since this build`; }
   if (now === known.sha256) return '';
   if (served?.digest && served.source === now && build.design === served.digest) return '';
-  return `${file} changed since this build, which has not taken it: select again once it has`;
+  return `${shown} changed since this build, which has not taken it: select again once it has`;
 }
 
 // A declared token's name (a dotted word, a role's spelling); a synthetic
@@ -399,7 +404,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   // An `:active` row is written in its part (LLP 1121 D8): its file counts too, and the held node's.
   const placed = n => n ? [n.file, ...(n.chain ?? []).map(c => c.file), ...(n.bindings ?? []).flatMap(b => [b.at, ...(b.states ?? []).map(p => p.at)].flatMap(at => at ? [at.file] : []))] : [];
   const files = [...new Set([...placed(node), ...(owner !== node ? placed(owner) : [])])];
-  const readOnly = files.map(f => moved(map, f, read)).find(Boolean) || designMoved(map, build, served, design, read) || null;
+  const readOnly = files.map(f => moved(map, f, read, app)).find(Boolean) || designMoved(map, build, served, design, read, app) || null;
   const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [] };
   // A source node's copies (a template edit is every one's): one a call-site chain, as a hold's replay
   // counts them (a `button "…"`'s label shares its span and chain, and is no second copy).
@@ -595,13 +600,14 @@ export function current(build, report) {
 /** Why `map` is not the sources as they are now (a file it compiled has
  * changed or gone since), or '': a span from a fresh compile (`uses`) is
  * looked up in it only while it is. */
-export function staleMap(map, read = readFileSync) {
+export function staleMap(map, read = readFileSync, app = null) {
   for (const { file, sha256: digest } of map.sources ?? []) {
     // A design edit moves no span (and a live one keeps the plan).
     if (!file.startsWith('/') || /\.tamber$/.test(file)) continue;
+    const shown = app ? pathName(file, app) : file;
     let now;
-    try { now = sha256(read(file)); } catch { return `${file} is gone since the running plan`; }
-    if (now !== digest) return `${file} changed since the running plan: outline once it has reloaded`;
+    try { now = sha256(read(file)); } catch { return `${shown} is gone since the running plan`; }
+    if (now !== digest) return `${shown} changed since the running plan: outline once it has reloaded`;
   }
   return '';
 }

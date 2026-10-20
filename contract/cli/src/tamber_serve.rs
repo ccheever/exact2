@@ -801,7 +801,7 @@ impl Server {
             .map_err(|e| json!({"message": format!("the baseline: {e}")}))?;
         Ok(json!({
             "kind": "dtcg", "text": text, "digest": digest,
-            "baseline": kept.strip_prefix(&self.dir).unwrap_or(&kept).to_string_lossy(),
+            "baseline": contract::tamber_uses::shown(&kept, &self.dir),
         }))
     }
 
@@ -871,12 +871,13 @@ impl Server {
                 )?;
             let map: Value = serde_json::from_str(&map.json(&plan.encode()))
                 .map_err(|e| json!({"message": format!("source map: {e}")}))?;
-            let sites = contract::tamber_uses::motion_instances(
+            let mut sites = contract::tamber_uses::motion_instances(
                 &self.dir.join("app.contract"),
                 sites,
                 &map,
             )
             .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
+            contract::tamber_uses::relative_files(&mut sites, &self.dir);
             return Ok(
                 json!({"token": name, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
             );
@@ -885,7 +886,9 @@ impl Server {
             .map_err(|e| json!({"message": format!("the app does not build: {}", e.message)}))?;
         let map: Value = serde_json::from_str(&map.json(&plan.encode()))
             .map_err(|e| json!({"message": format!("source map: {e}")}))?;
-        let sites = contract::tamber_uses::sites(&plan, &map, &name, &aliases, &synthetic);
+        let mut sites = contract::tamber_uses::sites(&plan, &map, &name, &aliases, &synthetic);
+        // Each site's file as the app names it, never the machine's path.
+        contract::tamber_uses::relative_files(&mut sites, &self.dir);
         Ok(
             json!({"token": name, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
         )

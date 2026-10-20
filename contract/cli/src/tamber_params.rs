@@ -22,6 +22,9 @@ pub struct AppParams {
     /// Each source's file, by source id, as a diagnostic names it: relative
     /// to the app's directory where it is inside it.
     pub files: Vec<String>,
+    /// Each source's path on this machine, by source id: what is read (an
+    /// authored default's text), never what an answer says.
+    pub paths: Vec<std::path::PathBuf>,
     /// The app's Contract did not load (the build says why): its params are
     /// unknown, not none.
     pub failed: bool,
@@ -72,13 +75,11 @@ pub fn params_of(app_contract: &Path) -> AppParams {
             files: sources
                 .paths()
                 .iter()
-                .map(|p| {
-                    p.strip_prefix(&dir)
-                        .unwrap_or(p)
-                        .to_string_lossy()
-                        .into_owned()
-                })
+                // As every answer names a file (`tamber_uses::shown`): never
+                // with this machine's directories.
+                .map(|p| crate::tamber_uses::shown(p, &dir))
                 .collect(),
+            paths: sources.paths().to_vec(),
             failed: false,
         },
         // Its packages' roots as far as it loaded (a source past them can't be read): still the server's
