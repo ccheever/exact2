@@ -678,8 +678,32 @@ function documentTypeProblems(manifest) {
       : ![extensions].flat().some((e) => /^\.[^./]+$/.test(e)) ? [`file_handlers[${i}].accept: ${mime}, the app's own type, names no extension (".board")`]
       : []));
 }
+/** Whether a `protocol_handlers` scheme is the web's own: `http` and
+ * `https` make a native app a web browser (LLP 1030 D2, 2026-10-20), and
+ * no browser registers them (WHATWG HTML's protocol handler safelist). */
+export const isWebScheme = (protocol) => ['http', 'https'].includes(protocol.toLowerCase());
 function protocolHandlerProblems({ protocol_handlers = [] }) {
-  return protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]);
+  const web = protocol_handlers.filter((h) => isWebScheme(h.protocol));
+  const pair = web.length && (new Set(web.map((h) => h.protocol.toLowerCase())).size !== 2 || web.some((h) => h.url !== web[0].url || !h.distribution_only !== !web[0].distribution_only));
+  return [...protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]),
+    ...(pair ? ['protocol_handlers: http and https come together, with one url and one distribution_only: a web browser claims both'] : [])];
+}
+/** The W3C keys of `app.json`, as the web builds write `manifest.json`
+ * (LLP 1030 D2/D10; 1030.000 D7). A browser opens files only, so
+ * `inode/directory` (the Apple bake's word for a folder) goes, and it
+ * registers neither `http` nor `https`, so those handlers go too. */
+export function webAppManifest(manifest, name) {
+  const keys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler'];
+  const web = Object.fromEntries(keys.filter((k) => manifest[k] !== undefined).map((k) => [k, manifest[k]]));
+  if (web.file_handlers) web.file_handlers = web.file_handlers.filter((h) => !Object.keys(h.accept ?? {}).includes('inode/directory'));
+  if (web.protocol_handlers) web.protocol_handlers = web.protocol_handlers.filter((h) => !isWebScheme(h.protocol));
+  for (const key of ['file_handlers', 'protocol_handlers']) if (!web[key]?.length) delete web[key];
+  web.name ??= name;
+  web.start_url ??= '/';
+  // The document's language (`<html lang>`, WCAG 3.1.1). Every app here is in
+  // English, so an app that declares none is `en`.
+  web.lang ??= 'en';
+  return web;
 }
 export function nativeManifestMetadata(manifest, platform) { return {app:manifest.app,host:manifest.host?.[platform]??{},icons:manifest.icons??[],...(['macos','ios'].includes(platform) && manifest.protocol_handlers?.length ? {protocol_handlers:manifest.protocol_handlers} : {}),...(['ios','android'].includes(platform) && manifest.orientation ? {orientation:manifest.orientation} : {})}; }
 let cachedSchema = null;

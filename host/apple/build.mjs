@@ -44,7 +44,8 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { evictArms, snapshotSources } from './arms.mjs';
-import { DOCUMENT_UTIS, executableName, ownDocumentType, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { documentTypes, exportedTypes, importedTypes, openingLinks, webPageTypes } from './documents.mjs';
+import { executableName, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
@@ -57,7 +58,7 @@ import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
 import { linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
-export { appIcon, iosAssets };
+export { appIcon, iosAssets, documentTypes, exportedTypes, importedTypes };
 import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
@@ -313,13 +314,6 @@ export function developmentLinks(app, page, access) {
     return [{ destination, href: `${admitted.scheme}://open?url=${encodeURIComponent(page)}&token=${admitted.token}` }];
   });
 }
-function openingLinks(app, platform, development, distributed) {
-  const handlers = (app.manifest.protocol_handlers ?? []).filter((h) => !h.distribution_only || distributed).map(({ protocol, url }) => ({ protocol, url }));
-  const schemes = [...new Map([...(app.manifest.host?.[platform]?.urlSchemes ?? []), ...handlers.map((h) => h.protocol), ...(development ? [development.scheme] : [])].map((s) => [s.toLowerCase(), s])).values()];
-  return { ...(schemes.length ? { CFBundleURLTypes: [{ CFBundleURLName: app.id, CFBundleURLSchemes: schemes }] } : {}), ...(handlers.length ? { ExactProtocolHandlers: handlers } : {}),
-    ...(development ? { ExactDevelopmentURLScheme: development.scheme, ExactDevelopmentOrigins: development.origins, ExactDevelopmentToken: development.token } : {}) };
-}
-
 /** A simulator build's App ID prefix: ten characters, a Team ID's shape,
  * which HealthKit splits the identifier by (LLP 1069.008.000 D3). */
 export const SIMULATOR_PREFIX = 'SIMULATORX';
@@ -497,72 +491,6 @@ export function distributionKeys(sdkName = 'iphoneos') {
   };
 }
 
-// The types iOS does not declare itself, which the bundle imports.
-const IMPORTED = new Set(['net.daringfireball.markdown']);
-
-/** `CFBundleDocumentTypes` from the manifest's `file_handlers` (LLP 1033 D1):
- *  per handler, its system types as `Viewer` and `Alternate`, so declaring
- *  one never takes it away from whatever already owns it, and its app-owned
- *  types (`ownDocumentType`) as the `Editor` and `Owner` an app is of its
- *  own format (studio diary R13). */
-export function documentTypes(app) {
-  return (app.manifest.file_handlers ?? []).flatMap((handler) => {
-    const accept = Object.entries(handler.accept);
-    const extensionsOf = (entries) => [...new Set(entries.flatMap(([, e]) => [e].flat()).map((e) => e.replace(/^\./, '')).filter(Boolean))];
-    const entry = (entries, types, role, rank) => {
-      const extensions = extensionsOf(entries);
-      return {
-        CFBundleTypeName: handler.name ?? `${app.displayName} document`,
-        CFBundleTypeRole: role,
-        LSHandlerRank: rank,
-        LSItemContentTypes: types,
-        ...(extensions.length ? { CFBundleTypeExtensions: extensions } : {}),
-      };
-    };
-    // readManifest refused a type that is neither (DOCUMENT_UTIS, ownDocumentType).
-    const system = accept.filter(([mime]) => Object.hasOwn(DOCUMENT_UTIS, mime));
-    const own = accept.filter(([mime]) => !Object.hasOwn(DOCUMENT_UTIS, mime));
-    return [
-      ...(own.length ? [entry(own, own.map(([mime]) => ownDocumentType(app.id, mime).identifier), 'Editor', 'Owner')] : []),
-      ...(system.length ? [entry(system, system.map(([mime]) => DOCUMENT_UTIS[mime]), 'Viewer', 'Alternate')] : []),
-    ];
-  });
-}
-
-/** `UTExportedTypeDeclarations` for the app's own formats (studio diary
- *  R13): each type `ownDocumentType` names, with its extensions and MIME
- *  type, so Finder, the open panel and Launch Services know the format is
- *  this app's. An extension another app's type already has on a Mac (Freeform
- *  has `.board`) may still resolve to that one; the hosts' panels and drops
- *  accept the declared extensions whichever type the Mac gives them. */
-export function exportedTypes(app) {
-  return (app.manifest.file_handlers ?? []).flatMap((handler) => Object.entries(handler.accept)
-    .filter(([mime]) => !Object.hasOwn(DOCUMENT_UTIS, mime))
-    .map(([mime, extensions]) => {
-      const own = ownDocumentType(app.id, mime);
-      return {
-        UTTypeIdentifier: own.identifier,
-        UTTypeDescription: handler.name ?? mime,
-        UTTypeConformsTo: own.conformsTo,
-        UTTypeTagSpecification: { 'public.filename-extension': [extensions].flat().map((e) => e.replace(/^\./, '')), 'public.mime-type': [mime] },
-      };
-    }));
-}
-
-/** `UTImportedTypeDeclarations` for the types `file_handlers` names that
- *  iOS does not declare itself (Markdown's `net.daringfireball.markdown`):
- *  its extensions and MIME type, conforming to plain text. */
-export function importedTypes(app) {
-  return (app.manifest.file_handlers ?? []).flatMap((handler) => Object.entries(handler.accept)
-    .filter(([mime]) => IMPORTED.has(DOCUMENT_UTIS[mime]))
-    .map(([mime, extensions]) => ({
-      UTTypeIdentifier: DOCUMENT_UTIS[mime],
-      UTTypeDescription: handler.name ?? mime,
-      UTTypeConformsTo: ['public.plain-text'],
-      UTTypeTagSpecification: { 'public.filename-extension': extensions.map((e) => e.replace(/^\./, '')), 'public.mime-type': [mime] },
-    })));
-}
-
 /** The manifest's `launch_handler.client_mode` (LLP 1069.010 D4): the first
  *  mode the Mac host has, as the W3C list is read; `auto` and absence are
  *  the host's default, `navigate-existing`. */
@@ -619,7 +547,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null,
   ...usageKeys(reach),
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
   ...transportSecurity(app.manifest.host?.macos),
-  ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app) } : {}),
+  ...([...documentTypes(app), ...webPageTypes(app, distributed)].length ? { CFBundleDocumentTypes: [...documentTypes(app), ...webPageTypes(app, distributed)] } : {}),
   ...(exportedTypes(app).length ? { UTExportedTypeDeclarations: exportedTypes(app) } : {}),
   // Where a launch lands (LLP 1069.010 D4) is the manifest's `launch_handler`'s, with or
   // without `file_handlers`: File ▸ New Window needs no document type. Always written, so
@@ -627,6 +555,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null,
   ExactLaunchMode: launchMode(app),
   ...updateActivation(app),
   ...openingLinks(app, 'macos', development, distributed),
+  ...(app.manifest.host?.macos?.oneTimeCodeAutofill === 'marked' ? { NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true } : {}),
 });
 
 const updateActivation = (app) => app.manifest.deploy?.activate ? { ExactUpdateActivate: app.manifest.deploy.activate } : {}; // `deploy.activate`, for ExactUpdates

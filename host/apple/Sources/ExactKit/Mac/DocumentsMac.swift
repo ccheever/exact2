@@ -5,7 +5,8 @@
 // README.md`, or `mdview` through the shim), every `file:` URL Launch
 // Services delivers (a Finder double-click, an Open With, a second `mdview`
 // while this one runs), File ▸ Open… (⌘O), and a link followed inside a
-// document that turns out to name a file.
+// document that turns out to name a file. The exception is an HTML file
+// brought to a web browser, which is a link (`isWebPageFile`).
 //
 // A path reaches the app the way any embedder's value does (LLP 1031 D1):
 // as the value of the one live node whose `testId` is `open-file`. The host
@@ -68,8 +69,7 @@ public enum ExactDocuments {
     /// Mac (`.board`, Freeform's) still counts when the manifest names it.
     public static func accepts(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
-        let declarations = ExactEnv.appMetadata["CFBundleDocumentTypes"] as? [[String: Any]] ?? []
-        if !ext.isEmpty, declarations.contains(where: { ($0["CFBundleTypeExtensions"] as? [String] ?? []).contains { $0.lowercased() == ext } }) { return true }
+        if !ext.isEmpty, Picker.declarations.contains(where: { ($0["CFBundleTypeExtensions"] as? [String] ?? []).contains { $0.lowercased() == ext } }) { return true }
         let type = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType) ?? UTType(filenameExtension: ext)
         return type.map { t in types.contains { t.conforms(to: $0) } } ?? false
     }

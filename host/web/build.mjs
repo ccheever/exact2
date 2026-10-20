@@ -30,7 +30,7 @@ import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { compilerWarnings, webInputDigests } from '../../scripts/agent-launch.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, markWorlds, rustPolicy, webGpuArtifacts, webHostFiles, worldSurfaces } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
-import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { webAppManifest, webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { buildEditor, buildFlow } from '../web-js/module.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
@@ -304,17 +304,7 @@ writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app,
 // name as the title, and its first icon as the favicon. An installed PWA's
 // icon and name are the browser's cached copies of these — the origin's
 // carrier, at its real strength.
-const webKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler'];
-const webManifest = Object.fromEntries(webKeys.filter((k) => app.manifest[k] !== undefined).map((k) => [k, app.manifest[k]]));
-// `inode/directory` is the Apple bake's word for a folder; a browser's
-// file handler opens files only (LLP 1069.010 slice 4).
-if (webManifest.file_handlers) webManifest.file_handlers = webManifest.file_handlers.filter((h) => !Object.keys(h.accept ?? {}).includes('inode/directory'));
-if (!webManifest.file_handlers?.length) delete webManifest.file_handlers;
-webManifest.name ??= app.displayName;
-webManifest.start_url ??= '/';
-// The document's language (`<html lang>`, WCAG 3.1.1). Every app here is in
-// English, so an app that declares none is `en`.
-webManifest.lang ??= 'en';
+const webManifest = webAppManifest(app.manifest, app.displayName);
 writeFileSync(resolve(stage, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
 const sourceRevision = spawnSync('git', ['rev-parse', '--short=10', 'HEAD'], {cwd:app.dir,encoding:'utf8'});
 const sourceChanges = spawnSync('git', ['status', '--porcelain'], {cwd:app.dir,encoding:'utf8'});

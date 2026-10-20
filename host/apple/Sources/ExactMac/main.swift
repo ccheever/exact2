@@ -630,7 +630,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if !session.booted { launchDevelopmentURL = url }
             else { ExactDevelopmentLink.open(url); frontWindow()?.front() }
             return true
-        }, document: { files.append($0) }, location: { url in
+        }, webPage: session.isWebPageFile, document: { files.append($0) }, location: { url in
             // The first window's session may have closed with its window.
             let target = frontWindow() ?? openWindow()
             if target.session.openURL(url) { target.front() }

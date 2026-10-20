@@ -203,6 +203,64 @@ final class LaunchURLMacTests: XCTestCase {
         XCTAssertEqual(session.launchLocation, "/open?u=exacttest%3A%2F%2Fauth%2Ffirst%23one")
     }
 
+    /// A Mac browser (LLP 1030 D2): an `https` link cold and an `http` one
+    /// warm reach the template whole, and so does an HTML file Finder
+    /// brings, as its `file:` URL; any other file stays a document, and an
+    /// HTML file is one too for an app that claims no web links.
+    func testABrowserTakesWebLinksAndHTMLFilesAtItsTemplate() throws {
+        let source = """
+            routes nav
+              home "/"
+              opened "/open"
+
+            component App
+              state seen = ""
+              action back
+                nav = back(nav)
+              action follow(location: string)
+                seen = `${seen}|${location}`
+              view
+                main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow
+                  text `${top(nav).url}` testId="where"
+                  text `${seen}` testId="seen"
+                  for e in stack(nav) key=e.id
+                    column navigationKey=`${e.id}`
+                      text `${e.name}`
+
+            """
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("weblinks-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let page = dir.appendingPathComponent("page.html"), xhtml = dir.appendingPathComponent("page.xhtml"), notes = dir.appendingPathComponent("notes.txt")
+        for file in [page, xhtml, notes] { try Data("<p>hi</p>".utf8).write(to: file) }
+
+        let session = ExactApp.shared.makeSession()
+        session.protocolHandlers = [["protocol": "https", "url": "/open?u=%s"], ["protocol": "http", "url": "/open?u=%s"]]
+        defer { session.destroy() }
+        var documents: [URL] = []
+        func deliver(_ urls: [URL]) {
+            IncomingURLBatch.deliver(urls, development: { _ in false }, webPage: session.isWebPageFile,
+                                     document: { documents.append($0) }, location: { XCTAssertTrue(session.openURL($0)) })
+        }
+        deliver([try XCTUnwrap(URL(string: "https://example.com/a?b=1#c"))])
+        XCTAssertEqual(session.launchLocation, "/open?u=https%3A%2F%2Fexample.com%2Fa%3Fb%3D1%23c")
+        XCTAssertNil(session.boot(plan: try plan(source), size: CGSize(width: 390, height: 844)).error)
+        XCTAssertTrue(session.agent(#"{"op":"tree"}"#).contains("/open?u=https%3A%2F%2Fexample.com%2Fa%3Fb%3D1%23c"))
+
+        deliver([try XCTUnwrap(URL(string: "http://example.com/")), page, notes, xhtml])
+        XCTAssertEqual(documents, [notes])
+        let seen = session.agent(#"{"op":"state"}"#)
+        let encoded = { (url: URL) in "/open?u=" + (url.absoluteString.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-_.!~*'()"))) ?? "") }
+        XCTAssertTrue(seen.contains("|/open?u=http%3A%2F%2Fexample.com%2F|\(encoded(page))|\(encoded(xhtml))"), seen)
+        XCTAssertEqual(session.typedLocation("https://example.com/"), "/open?u=https%3A%2F%2Fexample.com%2F")
+
+        let plain = ExactApp.shared.makeSession()
+        plain.protocolHandlers = handlers
+        defer { plain.destroy() }
+        XCTAssertFalse(plain.isWebPageFile(page))
+        XCTAssertEqual(plain.typedLocation("https://example.com/a"), "/a")
+    }
+
     func testNotificationClickUsesLaunchLocationThenWarmNavigateOnce() throws {
         let bytes = try plan(routed)
         let session = ExactApp.shared.makeSession(label: "notification-\(UUID().uuidString)")

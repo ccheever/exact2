@@ -344,6 +344,20 @@ The web manifest carries the same entries; browser registration is subject to
 the browser's supported schemes and installation behavior. Linux's CLI URL
 argument retains the ordinary location conversion because it does not
 register OS protocol handlers.
+
+`http` and `https` are the web's own schemes. An app declares both or
+neither, with one `url` and one `distribution_only`, and the build refuses
+any other form. They make the app a web browser:
+
+| host | what the pair does |
+| --- | --- |
+| macOS | a second URL type, `Web site URL`, role `Viewer`, and a `Web page` document type (`public.html`, `public.xhtml`; `Viewer`, rank `Alternate`), without which macOS lists no browser. The person chooses the app in System Settings › Desktop & Dock › Default web browser; the app never asks to become the default. A link arrives at the template. An HTML file that Finder opens in the app arrives there too, as its `file:` URL (`/open?u=file%3A%2F%2F%2F…`), unless the app's own `file_handlers` accept it. The web-page type is not offered by the app's pickers and does not widen what `drop` accepts. |
+| iOS, tvOS | refused: the bundle registers neither, and the build says so. A default browser on iOS needs Apple's managed `com.apple.developer.web-browser` entitlement. |
+| web | dropped from `manifest.json`: HTML's protocol handler safelist has neither. |
+| Linux, Windows, Android | not registered, as no protocol handler is there. |
+
+A Mac build for others carries the pair with `distribution_only`, so the
+development build does not join this Mac's browser list.
 For packaged-only Apple registration, add `"distribution_only": true` to an
 entry, for example `{"protocol":"notes","url":"/open?u=%s","distribution_only":true}`.
 Archives and `--distribution` builds include it; local builds, including
@@ -1239,6 +1253,18 @@ its older one, `closeNotification` removing it), so a drive reads a reminder
 without a permission prompt. A drive can then `type` the listed location into
 the navigation root to check its screen. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
+
+### Local network
+
+The grant `device.local-network purpose.<key>` writes the strings key's text
+as `NSLocalNetworkUsageDescription` on macOS, iOS and tvOS (with each table's
+translation in `InfoPlist.strings`). That text is the prompt the platform
+shows before the app first reaches an address on the local network (macOS 15
+and later, iOS 14 and later; Apple TN3179). Exact adds no gate of its own:
+the platform asks and refuses. On iOS the grant's text replaces the
+development client's default prompt from `host.ios.localNetworking`, which
+still adds `NSAllowsLocalNetworking`. The web, Linux, Windows and Android
+get nothing: a browser asks with its own Local Network Access prompt.
 
 ### Apple Health
 
