@@ -51,7 +51,12 @@ function fixture(options: FixtureOptions = {}) {
   const open = async (name: string, query = '?environmentId=a') => { const active = route(name, query); mobileAddProjectObserve(owner, [root, active], active.id); await mobileAddProjectPrepare(owner, active.id, native); return active; };
   const view = (id?: string) => mobileAddProjectSnapshot().screens.find(screen => screen.id === (id ?? mobileAddProjectSnapshot().activeId))!;
   const submit = (id: string) => mobileAddProjectAction(owner, id, 'submit', '', native);
-  return { owner, calls, rows, bRows, entry, native, root, route, open, view, submit };
+  const enterURL = async () => {
+    mobileAddProjectObserve(owner, [root], root.id); await mobileAddProjectPrepare(owner, root.id, native);
+    expect((await mobileAddProjectAction(owner, root.id, 'repository', 'url', native)).navigation).toMatchObject({ kind: 'repository', environmentId: 'a', source: 'url' });
+    return open('addProjectRepository', '?environmentId=a&source=url');
+  };
+  return { owner, calls, rows, bRows, entry, native, root, route, open, view, submit, enterURL };
 }
 
 test('connected saved environments sort by label; explicit missing child does not use another machine', async () => {
@@ -73,6 +78,44 @@ test('route query uses first values and retained inputs survive child Back but n
   expect(f.view(repository.id).input).toBe('owner/repo'); expect(f.view(destination.id).input).toBe('/work/repo');
   mobileAddProjectObserve(f.owner, [f.root, repository], repository.id); expect(f.view().input).toBe('owner/repo');
   mobileAddProjectObserve(`${f.owner}-new`, [f.root, repository], repository.id); expect(f.view().input).toBe('');
+});
+
+test('local URL Continue ignores a refused future authorization read after legitimate entry', async () => {
+  let refuse = false;
+  const f = fixture({ hook: request => refuse && request.path === '/api/auth/session'
+    ? { ok: false, generation: 31, error: { kind: 'network', message: 'Authorization read refused' } } : undefined });
+  const page = await f.enterURL(); mobileAddProjectEdit(f.owner, page.id, 'input', ' owner/repo ');
+  refuse = true; f.calls.length = 0;
+  const result = await f.submit(page.id);
+  expect({ kind: result.navigation.kind, environmentId: result.navigation.environmentId, source: result.navigation.source,
+    remoteUrl: result.navigation.remoteUrl, repositoryName: result.navigation.repositoryName, error: f.view().error, calls: f.calls })
+    .toEqual({ kind: 'destination', environmentId: 'a', source: 'url', remoteUrl: 'https://github.com/owner/repo.git', repositoryName: 'repo', error: '', calls: [] });
+});
+
+test('local URL Continue completes before a held future authorization read without native calls', async () => {
+  const gate = deferred<unknown>(), started = deferred<void>(); let hold = false;
+  const f = fixture({ hook: request => { if (hold && request.path === '/api/auth/session') { started.resolve(); return gate.promise; } } });
+  const page = await f.enterURL(); mobileAddProjectEdit(f.owner, page.id, 'input', 'git@github.com:owner/repo.git');
+  hold = true; f.calls.length = 0;
+  const operation = f.submit(page.id);
+  try {
+    const first = await Promise.race([operation.then(() => 'completed'), started.promise.then(() => 'authorization')]);
+    expect({ first, kind: mobileAddProjectSnapshot().navigation.kind, calls: f.calls })
+      .toEqual({ first: 'completed', kind: 'destination', calls: [] });
+  } finally {
+    gate.resolve({ ok: true, generation: 31, value: { authenticated: true, permissions } });
+    await operation;
+  }
+});
+
+test('local URL Continue stays enabled without clone grants after legitimate entry', async () => {
+  let deny = false;
+  const f = fixture({ hook: request => deny && request.path === '/api/auth/session'
+    ? { ok: true, generation: 31, value: { authenticated: true, permissions: [] } } : undefined });
+  const page = await f.enterURL(); mobileAddProjectEdit(f.owner, page.id, 'input', 'owner/repo');
+  deny = true; mobileAddProjectEdit(f.owner, page.id, 'refresh', ''); await mobileAddProjectPrepare(f.owner, page.id, f.native);
+  expect({ available: f.view().available, canClone: f.view().canClone, primaryDisabled: f.view().primaryDisabled })
+    .toEqual({ available: true, canClone: false, primaryDisabled: false });
 });
 
 test('folder reads require live filesystem permission, and explicit empty permissions deny all writes', async () => {
