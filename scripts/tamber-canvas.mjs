@@ -486,7 +486,9 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
     // an image, a script), its cookie sent along because the two are
     // same-site (another relay account's canvas, stage 10c R1b's round 2):
     // refused, as Fetch metadata says it; only this origin's own requests
-    // and navigations are answered.
+    // and navigations are answered. A request with no Fetch metadata (an
+    // older browser, a driver) is handled as stage 10 handled it, the
+    // answer's CORP covering the browsers.
     const site = req.headers['sec-fetch-site'];
     if (site !== undefined && site !== 'same-origin' && site !== 'none' && req.headers['sec-fetch-mode'] !== 'navigate') { notFound(res); return true; }
     if (!session || !need) { notFound(res); return true; }
