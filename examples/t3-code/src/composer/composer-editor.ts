@@ -275,7 +275,8 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     // Files a paste took from the pasteboard (onComposerPaste) are attached as Attach files' are.
     if (Number(state.pastes) > 0) await takePastedFiles(client, native, key, { snapshotOwner, fieldOwner }).catch(() => undefined);
     // A dropped attached file's staged copy goes with it (composer-editor-attach.ts).
-    for (const dropped of pruneFiles(client.local, client.local.drafts, observed?.value === '' ? '' : client.draftKey, files)) {
+    const current = composerFieldCurrent(client, composerFieldOwner(client));
+    for (const dropped of pruneFiles(client.local, client.local.drafts, current?.value === '' ? '' : client.draftKey, files)) {
       if (dropped.source === 'attached' && dropped.status === 'staged') await bridgeReply(native, { op: 'composerAttachRemove', id: dropped.id }).catch(() => undefined);
     }
   }
