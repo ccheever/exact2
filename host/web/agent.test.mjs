@@ -852,7 +852,7 @@ test('a pressable that is no button activates by Enter or Space', () => {
 const checkpoint = () => new Promise(resolve => setImmediate(resolve));
 async function startupFixture(rustOnly = false, served = null) {
   const data = deferred(), input = deferred(), timer = deferred();
-  const frames = [], loads = [], errors = [], events = [];
+  const frames = [], timeouts = [], loads = [], errors = [], events = [];
   const exports = { memory: {}, exact_compat: () => '{"inputs":{}}',
     exact_logic: () => '{"appId":"test.startup"}',
     exact_data_ready: () => { events.push('activate'); return '{"ops":[]}'; },
@@ -867,7 +867,7 @@ async function startupFixture(rustOnly = false, served = null) {
     fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [], imports: () => [] } },
     moduleCall() {}, rustImports: {}, dataImports: {}, grantOrigins, readOut: value => value,
     boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {}, pieces: { pending: () => null },
-    requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
+    requestAnimationFrame: fn => frames.push(fn), setTimeout: (fn, ms) => timeouts.push([fn, ms]), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, editMenu: () => false, focusAutofocus() {},
     resolveModuleReady: () => events.push('ready'), page: served && { holding: true, early: [] }, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
@@ -890,7 +890,7 @@ async function startupFixture(rustOnly = false, served = null) {
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
   frames.shift()();
   expect(loads).toEqual([]);
-  const activation = frames.shift()();
+  const activation = frames.shift()(); expect(timeouts.map(([, ms]) => ms)).toEqual([1000]); expect(timeouts[0][0]()).toBe(activation); // a frameless page's second (glue.js activateOnce): the same activation
   return { f, data, input, timer, activation };
 }
 

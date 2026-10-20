@@ -1487,10 +1487,10 @@ async function main() {
       }
     }
   };
-  // Nested rAF gives a client page's baked DOM a rendering opportunity before
-  // activation; a served document has painted already.
-  if (page) activate();
-  else requestAnimationFrame(() => { root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1); requestAnimationFrame(activate); });
+  // Nested rAF gives a client page's baked DOM a rendering opportunity before activation (a served document has painted already);
+  // a page given no frames (a cross-origin frame out of view: the design tool's canvas) activates a second on, once, as rt.js `input()`; not under the agent.
+  let activated; const activateOnce = () => activated ??= activate();
+  if (page) activateOnce(); else { requestAnimationFrame(() => { root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1); requestAnimationFrame(activateOnce); }); if (!agentMode) setTimeout(activateOnce, 1000); }
 }
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
