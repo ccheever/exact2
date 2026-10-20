@@ -72,6 +72,13 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
   during a fast flick. [Same-tick press](../game/recipes/same-tick-press.md) is the
   doc-test that shows both. (Rivals diary; Fishslop run 1, 2026-10-18.)
 
+- **`clock settle` after a post into a paused world reports `NOT settled (world)`,
+  `changing: ["paused","input queued"]`.** Cause: a paused world holds a posted message
+  (the page's `postMessage` or the driver's `post`) for its first tick after the pause,
+  and a held input counts as work. Fix: resume first (`tap pause` in the starter), or
+  advance with `clock +<ms>` while paused; the message is delivered once either way.
+  (LLP 1139.004's drive, 2026-10-19.)
+
 ## Tests, the proof and setup
 
 - **A continued proof uses its saved source copy.** Keep the SDK unchanged until
