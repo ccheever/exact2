@@ -312,7 +312,8 @@ engine's saved types.
   Fog is enabled by default. Default density is 0.012/m and height falloff 0.1/m; absent fog colour uses horizon.
   `Fog::linear(near, far)` selects three.js-style near/far fog instead: smoothstep
   of camera-space forward depth, not radial distance. Set `color: Some(clear)`
-  to match a flat background. Linear fog leaves the sky unchanged. Both fog modes
+  to match a flat background. Linear fog leaves the sky unchanged (but under
+  [water](#water)). Both fog modes
   apply to primitive/model surfaces, outline hulls, sprites and particles.
 - `Environment.tone_mapping = ToneMapping::None` skips ACES; exposure and bloom
   still precede the linear-to-sRGB transfer. Disable bloom and use exposure 1
@@ -360,10 +361,10 @@ uniform's water words (`water.rs`), so no pipeline varies with them:
 
 - **The surface** (`shaders/water.wgsl`): one full-screen triangle in the forward
   pass after the sky and the hook's background, before translucency. Each pixel
-  meets its ray with the plane at `height`, writes that point's depth (so opaque and
-  translucent objects on either side sort by depth as before: the part of an object
-  beyond the surface is hidden, the part on the camera's side draws over it) and
-  shades it. From below: inside Snell's window (48.6° from the zenith at an index
+  meets its ray with the plane at `height` and shades it. From below it writes that
+  point's depth: the part of an object beyond the surface is hidden, the part on the
+  camera's side draws over it. From above it writes none, so translucency drawn
+  after it under the surface shows as an opaque object there does. From below: inside Snell's window (48.6° from the zenith at an index
   of 1.333) the sky as the sky pass draws it, by Schlick's transmittance; outside
   it, total reflection of the environment's lower hemisphere; then the fog over
   the distance to the surface. From above: the sky's reflection, premultiplied
@@ -373,8 +374,10 @@ uniform's water words (`water.rs`), so no pipeline varies with them:
 - **Fog under water**: with water, `frame.wgsl`'s fog counts only the part of each
   ray below the height, for every surface, the sky and the water itself, wherever
   the camera is: exponential fog integrates over it, linear fog (`Fog::linear`)
-  takes its view depth. An orthographic camera's rays start on its plane, not at
-  its position.
+  takes its view depth. With water, linear fog covers the sky's submerged rays too
+  (open water fades to the fog's colour as under exponential fog), and still leaves
+  rays over the water alone. An orthographic camera's rays each start on its own
+  point of the near plane, not at the camera's position.
 - **Caustics** (`shaders/caustics.wgsl`): a factor on the sun's direct term in the
   primitive and model forward shaders, for fragments below the height: two layers
   of a tiling cell net, scrolled apart by the wave speed, read where the
@@ -385,8 +388,9 @@ uniform's water words (`water.rs`), so no pipeline varies with them:
   `water_caustics(world)` for them to multiply in. Translucent primitives
   (`quad.wgsl`'s lit quads) take none.
 - **Shafts** (`shaders/shafts.wgsl`): an HDR pass after ambient occlusion and before
-  the hook's post and bloom, only with the camera below the surface and the sun
-  shining down on it (a sun below the horizon sends none). Each pixel
+  the hook's post and bloom, for rays that start below the surface (a perspective
+  camera's all start at its position; an orthographic camera's each at its own
+  point) with the sun shining down (a sun below the horizon sends none). Each pixel
   marches 24 steps towards the sun's refracted direction on screen (up to `length`
   of the frame's height, and no further than the sun's own point) through the
   forward pass's depth, which it keeps for the pass: where the surface is in sight
@@ -418,15 +422,18 @@ ahead (Apple M5 Max, Metal; the oracles are bands, which every host is held to):
 | From 1 m above a floor 1 m down: lower half's hue within 10° of the floor's without water | 135.5° against 136.5° | flat quad 188.6° |
 | The window's look frame: no tell | none | |
 | Lit sand, 64 × 64 patch: variance at least 4× that without caustics | 0.00609 against 0.000206 (29.5×) | strength 0, a constant: 1× |
-| The same patch in the sun's shadow: variance at most 1.05× and mean within 5% | 0.0000010 and 0.1245 both | a net on the ambient light: variance 0.0035 |
+| The same patch in the sun's shadow: variance at most 1.05 × that without caustics + 1e-6 (the absolute term covers 8-bit quantization of a near-flat patch), and mean within 5% | 0.0000010 against 0.0000010; 0.1245 both | a net on the ambient light: variance 0.0035 |
 | Murky water (`clarity` 0, black) from 1 m above, pitched 15° down: steep band under 0.03, grazing band 0.03 brighter | 0.005, 0.148 | nothing drawn from above: steep 0.317 |
 | Orthographic camera from below, 44° up: the surface's variance above 1e-4 | 0.0050 | one hit for every ray: 0.0000 |
 | A sun 20° below the horizon: the frame with shafts is the frame without | 0 bytes differ | |
 | Linear fog: a glowing pillar 3 m over the water, 30 m off, brighter than with no water's clip; shafts add over 0.02 | 0.685 against 0.186; 0.196 against 0.114 | |
 | A scene-copy hook, and a background hook that leaves a quarter viewport: bytes that differ from no hook | under 1% (0 measured) | 75% and 65% |
-| Still water 100 ms on: bytes changed; a restored non-default `Water` runs on to the same frame | 55% | frozen time: 0 |
-| A 24-pixel column, pitched 20°: towards the sun less turned 40°, at least 0.05 | 0.100 | without shafts 0.000 (held within 0.01) |
-| Below a dark box crossing that column at 4 m/s, darker than open water | 0.235 against 0.264 at 2 s; 0.254 both at 4 s | |
+| Water with neither caustics nor shafts in a still scene, 100 ms on: bytes changed; a restored non-default `Water` runs on to the same frame | 28% | |
+| From above, a red cube under clear water at alpha 0.99 and opaque: each against itself with no water | 1.052 and 1.063 | the surface writing depth: the translucent cube hidden |
+| Orthographic, 44° up, rays starting over and under the water: the dry top band against an all-dry frame; shafts' change to it; their change to the wet bottom band, also with the camera's centre over the water; under an opaque ceiling just beneath the surface, their change (none can have a source) | 0.5099 both; 0; 0.173 and 0.183; 0.0012 | a source found behind its ray: 0.042 under the ceiling |
+| Linear fog under water, no floor, 30° down: the open water against exponential fog's; and without water | 0.1694 both; 0.0786 | |
+| A 24-pixel column, pitched 20°: towards the sun less turned 40°, at least 0.05 | 0.098 | without shafts 0.000 (held within 0.01) |
+| Below a dark box crossing that column at 4 m/s, darker than open water | 0.221 against 0.245 at 2 s; 0.236 both at 4 s | |
 
 ### Toon models
 

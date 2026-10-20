@@ -42,13 +42,16 @@ impl Default for WaterEffects {
     }
 }
 
-/// Whether this frame draws shafts: the camera is below a surface whose
-/// shafts are on and allowed, with a sun shining down on it.
+/// Whether this frame draws shafts: its rays can start below a surface whose
+/// shafts are on and allowed, with a sun shining down on it. A perspective
+/// camera's all start at its position; an orthographic camera's start across its
+/// plane, and the pass tells each pixel's apart (`shafts.wgsl`).
 pub(crate) fn shafts(frame: &FrameInput<'_>, effects: WaterEffects) -> bool {
+    let orthographic = frame.proj.w_axis.w == 1.;
     frame.water.is_some_and(|w| {
         effects.shafts
             && w.shafts.is_some_and(|s| s.intensity > 0. && s.length > 0.)
-            && frame.camera_position.y < w.height
+            && (orthographic || frame.camera_position.y < w.height)
             && frame
                 .sun
                 .is_some_and(|s| s.illuminance > 0. && s.direction.y < 0.)
@@ -129,10 +132,19 @@ pub(crate) fn write(data: &mut [f32], frame: &FrameInput<'_>, effects: WaterEffe
     data[WORDS].copy_from_slice(&words);
 }
 
+/// Whether the camera is over the surface: it is seen from above, and writes no
+/// depth, so translucency beneath it draws over what clear water shows.
+pub(crate) fn from_above(frame: &FrameInput<'_>) -> bool {
+    frame
+        .water
+        .is_some_and(|w| frame.camera_position.y >= w.height)
+}
+
 /// The water's pipelines, made on a frame that first needs each.
 #[derive(Default)]
 pub(crate) struct Passes {
-    surface: Option<wgpu::RenderPipeline>,
+    /// The surface seen from below (writing depth) and from above (not).
+    surface: [Option<wgpu::RenderPipeline>; 2],
     shafts: Option<Shafts>,
 }
 
@@ -144,19 +156,21 @@ struct Shafts {
 }
 
 impl Passes {
-    /// Make what this frame draws: the surface's pipeline with water, the
-    /// shafts' and their bindings over `targets` when `shafts`.
+    /// Make what this frame draws: the surface's pipeline from `side` (Some
+    /// above, with water), the shafts' and their bindings over `targets` when
+    /// `shafts`.
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
         pipelines: &crate::pipeline::Pipelines,
         uniform: &wgpu::Buffer,
         targets: &Targets,
-        water: bool,
+        side: Option<bool>,
         shafts: bool,
     ) {
-        if water && self.surface.is_none() {
-            self.surface = Some(surface_pipeline(device, pipelines));
+        if let Some(above) = side {
+            self.surface[usize::from(above)]
+                .get_or_insert_with(|| surface_pipeline(device, pipelines, !above));
         }
         if !shafts {
             return;
@@ -190,8 +204,14 @@ impl Passes {
     }
 
     /// Draw the surface into the forward pass, with the scene group bound.
-    pub fn draw_surface(&self, pass: &mut wgpu::RenderPass<'_>, scene: &wgpu::BindGroup) {
-        pass.set_pipeline(self.surface.as_ref().expect("prepared with water"));
+    pub fn draw_surface(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        scene: &wgpu::BindGroup,
+        above: bool,
+    ) {
+        let pipeline = self.surface[usize::from(above)].as_ref();
+        pass.set_pipeline(pipeline.expect("prepared from this side"));
         pass.set_bind_group(0, scene, &[0]);
         pass.draw(0..3, 0..1);
     }
@@ -228,9 +248,12 @@ impl Passes {
     }
 }
 
+/// From below the surface is opaque and writes its depth, hiding what is over
+/// it; from above it is a blend over what lies beneath and writes none.
 fn surface_pipeline(
     device: &wgpu::Device,
     pipelines: &crate::pipeline::Pipelines,
+    write_depth: bool,
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("game water surface"),
@@ -256,7 +279,7 @@ fn surface_pipeline(
         Some("water_fs"),
         &[Some(&pipelines.scene_layout)],
         &[],
-        crate::pipeline::scene_depth(true, wgpu::CompareFunction::Less, Default::default()),
+        crate::pipeline::scene_depth(write_depth, wgpu::CompareFunction::Less, Default::default()),
         pipelines.samples,
         wgpu::TextureFormat::Rgba16Float,
         Some(wgpu::BlendState {

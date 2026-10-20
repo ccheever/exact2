@@ -195,7 +195,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &self.pipelines,
             &self.uniform,
             &self.targets,
-            frame.water.is_some(),
+            frame.water.map(|_| crate::water::from_above(frame)),
             shafts,
         );
         let cascades = self.prepare_effects(frame);

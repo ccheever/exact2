@@ -133,8 +133,8 @@ impl Default for AmbientOcclusion {
     }
 }
 /// Water with a flat surface at `height`, an optional effect: inserting this
-/// resource draws the surface and confines `Environment`'s exponential fog to
-/// the part of each view ray below it. From below, the surface shows the sky
+/// resource draws the surface and confines `Environment`'s fog, either mode,
+/// to the part of each view ray below it. From below, the surface shows the sky
 /// through Snell's window and reflects the depths outside it; from above, it
 /// reflects the sky over what lies beneath. `caustics` and `shafts` add the
 /// sun's light through the moving surface. Saved and hashed like any resource;

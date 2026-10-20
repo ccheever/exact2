@@ -52,6 +52,12 @@ struct PoolArgs {
     pillar: bool,
     /// An orthographic camera this many metres tall; 0 for perspective.
     ortho: f32,
+    /// A red cube under the surface with this alpha (1 opaque); 0 for none.
+    sunk: f32,
+    /// No sand: open water to the far plane.
+    floorless: bool,
+    /// An opaque ceiling just under the surface, hiding it from below.
+    ceiling: bool,
 }
 type Shot = PoolArgs;
 struct Pool;
@@ -105,14 +111,23 @@ impl Game for Pool {
                 ),
             );
         };
-        w.spawn_named(
-            "sand",
-            (
-                Transform::at(0., a.floor, 0.),
-                Mesh::plane(400., 400.),
-                Material::rgb(0.45, 0.38, 0.24),
-            ),
-        );
+        if !a.floorless {
+            w.spawn_named(
+                "sand",
+                (
+                    Transform::at(0., a.floor, 0.),
+                    Mesh::plane(400., 400.),
+                    Material::rgb(0.45, 0.38, 0.24),
+                ),
+            );
+        }
+        if a.sunk > 0. {
+            // On the view's centre from 1 m over the water, pitched 60° down.
+            let red = Material::rgb(0.8, 0.1, 0.1);
+            let red = if a.sunk < 1. { red.alpha(a.sunk) } else { red };
+            let (at, size) = (Vec3::new(0., 5.35, -0.92), Vec3::splat(0.5));
+            box_at(w, "sunk", at, size, red);
+        }
         let grey = |v: f32| Material::rgb(v, v, v);
         if a.slab {
             box_at(
@@ -131,6 +146,10 @@ impl Game for Pool {
             let size = Vec3::new(400., 0.01, 400.);
             let pale = Material::rgb(0.6, 0.9, 0.95);
             box_at(w, "flat", Vec3::new(0., HEIGHT, 0.), size, pale);
+        }
+        if a.ceiling {
+            let (at, size) = (Vec3::new(0., 5.95, 0.), Vec3::new(400., 0.05, 400.));
+            box_at(w, "ceiling", at, size, grey(0.2));
         }
         if a.pillar {
             let white = Material::glow([1., 1., 1.]);
@@ -190,6 +209,9 @@ const BELOW: Shot = Shot {
     murk: false,
     pillar: false,
     ortho: 0.,
+    sunk: 0.,
+    floorless: false,
+    ceiling: false,
 };
 impl Shot {
     fn args(self) -> Vec<Value> {
@@ -211,6 +233,9 @@ impl Shot {
             b(self.murk),
             b(self.pillar),
             n(self.ortho),
+            n(self.sunk),
+            b(self.floorless),
+            b(self.ceiling),
         ]
     }
 }
@@ -724,7 +749,7 @@ fn clearing_an_effect_at_present_time_draws_the_frame_without_it_and_keeps_the_r
 }
 
 #[test]
-fn a_restored_world_draws_the_same_water_and_its_waves_move_on() {
+fn a_restored_world_draws_the_same_water_and_its_surface_moves_on() {
     let Some(gpu) = gpu() else { return };
     // A still scene: nothing moves but the water.
     let toward = Shot {
@@ -763,21 +788,34 @@ fn a_restored_world_draws_the_same_water_and_its_waves_move_on() {
     let a = draw(&gpu, &first, effects, "water-saved");
     let b = draw(&gpu, &second, effects, "water-restored");
     assert!(a.data == b.data, "the restored frame differs");
-    // Both run on: the same frame again, and another than 100 ms before, which
-    // only the waves, the caustics and the shafts' drift can make.
+    // Both run on to the same frame again.
     first.run(100.);
     second.run(100.);
     let c = draw(&gpu, &first, effects, "water-later");
     let d = draw(&gpu, &second, effects, "water-restored-later");
     assert!(c.data == d.data, "the restored world ran on differently");
-    let changed = a.data.iter().zip(&c.data).filter(|(x, y)| x != y).count();
+    // The surface alone moves: water with neither caustics nor shafts, in a
+    // scene where nothing else does, is another frame 100 ms on.
+    let mut still = Sim::<Pool>::new(Shot {
+        caustics: -1.,
+        shafts: false,
+        ..toward
+    })
+    .unwrap();
+    still.run(1500.);
+    let before = draw(&gpu, &still, effects, "water-waves");
+    still.run(100.);
+    let after = draw(&gpu, &still, effects, "water-waves-later");
+    let changed = (before.data.iter().zip(&after.data))
+        .filter(|(x, y)| x != y)
+        .count();
     eprintln!(
-        "water 100 ms on: {changed} bytes of {} changed",
-        a.data.len()
+        "the surface alone, 100 ms on: {changed} bytes of {} changed",
+        before.data.len()
     );
     assert!(
-        changed > a.data.len() / 20,
-        "the water stood still: {changed}"
+        changed > before.data.len() / 20,
+        "the waves stood still: {changed}"
     );
 }
 
@@ -1011,4 +1049,176 @@ fn from_above_murky_water_reflects_more_at_a_grazing_angle() {
         "grazing: more reflected"
     );
     assert!(band(&clear, steep) > 0.1, "clear water shows the floor");
+}
+
+#[test]
+fn from_above_clear_water_shows_a_translucent_object_under_it_as_an_opaque_one() {
+    let Some(_gpu) = gpu() else { return };
+    // From 1 m over water 1 m deep, pitched 60° down at a red cube under it.
+    // No caustics: the translucent primitive takes none (`quad.wgsl`).
+    let above = Shot {
+        y: 7.,
+        pitch: -60.,
+        floor: 5.,
+        shafts: false,
+        caustics: -1.,
+        ..BELOW
+    };
+    let redness = |p: &Picture| {
+        let at = Picture::region(W / 2 - 4..W / 2 + 4, H / 2 - 4..H / 2 + 4);
+        let sum = at.iter().map(|&(x, y)| {
+            let [r, g, b] = p.linear(x, y);
+            r - (g + b) / 2.
+        });
+        sum.sum::<f32>() / at.len() as f32
+    };
+    let [opaque, blended, none] = [1., 0.99, 0.].map(|sunk| {
+        redness(&shoot(
+            Shot { sunk, ..above },
+            &format!("water-sunk-{sunk}"),
+        ))
+    });
+    // The renderer shades a translucent primitive otherwise than an opaque one,
+    // so each is measured against itself with no water.
+    let [dry_opaque, dry_blended] = [1., 0.99].map(|sunk| {
+        let dry = Shot {
+            sunk,
+            water: false,
+            ..above
+        };
+        redness(&shoot(dry, &format!("water-sunk-dry-{sunk}")))
+    });
+    let (kept_opaque, kept_blended) = (opaque / dry_opaque, blended / dry_blended);
+    eprintln!(
+        "a cube under clear water from above: redness {opaque:.3} opaque, {blended:.3} at alpha \
+         0.99, {none:.3} with none; of each without water, {kept_opaque:.3} and {kept_blended:.3}"
+    );
+    assert!(
+        opaque > none + 0.1,
+        "the opaque cube shows: {opaque} {none}"
+    );
+    assert!(
+        (kept_opaque - kept_blended).abs() < 0.05,
+        "the water shows the translucent cube as it shows the opaque one: \
+         {kept_opaque} {kept_blended}"
+    );
+}
+
+#[test]
+fn an_orthographic_frame_across_the_surface_treats_each_ray_by_where_it_starts() {
+    let Some(_gpu) = gpu() else { return };
+    // 44° up, 20 m tall: rays at the top start over the water, at the bottom under it.
+    let straddle = Shot {
+        pitch: 44.,
+        ortho: 20.,
+        ..BELOW
+    };
+    let off = Shot {
+        shafts: false,
+        ..straddle
+    };
+    // The camera's centre over the water, the lower rays still under it.
+    let lifted = Shot { y: 6.5, ..straddle };
+    let dry = Shot { y: 20., ..straddle };
+    let names = ["straddle", "straddle-off", "lifted", "lifted-off", "dry"];
+    let shots = [straddle, off, lifted, Shot { y: 6.5, ..off }, dry];
+    let [on, off, lifted, lifted_off, dry] =
+        std::array::from_fn(|i| shoot(shots[i], &format!("water-ortho-{}", names[i])));
+    let top = |p: &Picture| p.mean(0..W, 0..H / 4);
+    let differ = |a: &Picture, b: &Picture, rows: Span| {
+        let at = Picture::region(0..W, rows);
+        at.iter()
+            .map(|&(x, y)| (a.luminance(x, y) - b.luminance(x, y)).abs())
+            .sum::<f32>()
+            / at.len() as f32
+    };
+    let bottom = H * 3 / 4..H;
+    eprintln!(
+        "orthographic across the surface: the dry top band {:.4} (all rays dry {:.4}), shafts \
+         change it by {:.5}; under it shafts change the bottom band by {:.4}, and with the \
+         centre over the water by {:.4}",
+        top(&on),
+        top(&dry),
+        differ(&on, &off, 0..H / 4),
+        differ(&on, &off, bottom.clone()),
+        differ(&lifted, &lifted_off, bottom.clone())
+    );
+    // A ray starting over the water sees the sky unfogged and scatters no shaft.
+    assert!(
+        (top(&on) - top(&dry)).abs() < 0.005,
+        "the dry sky is fogged"
+    );
+    assert_eq!(differ(&on, &off, 0..H / 4), 0., "shafts over the water");
+    // A ray starting under it scatters them, wherever the camera's centre is.
+    assert!(
+        differ(&on, &off, bottom.clone()) > 0.005,
+        "no shafts under the water"
+    );
+    assert!(
+        differ(&lifted, &lifted_off, bottom.clone()) > 0.005,
+        "the centre decided for every ray"
+    );
+    // Under a ceiling that hides the surface from every ray starting under it,
+    // no shaft has a source: a ray starting over the water, whose surface lies
+    // behind it, is none.
+    let covered = Shot {
+        ceiling: true,
+        ..straddle
+    };
+    let lit = shoot(covered, "water-ortho-ceiling");
+    let unlit = shoot(
+        Shot {
+            shafts: false,
+            ..covered
+        },
+        "water-ortho-ceiling-off",
+    );
+    let change = differ(&lit, &unlit, bottom);
+    eprintln!("orthographic under a ceiling: shafts change the bottom band by {change:.5}");
+    assert!(
+        change < 0.002,
+        "a surface behind its ray lit the shafts: {change}"
+    );
+}
+
+#[test]
+fn under_water_linear_fog_fogs_the_open_water_as_exponential_fog_does() {
+    let Some(_gpu) = gpu() else { return };
+    // No floor: looking 30° down from under the surface, nothing but water.
+    let down = Shot {
+        pitch: -30.,
+        floorless: true,
+        shafts: false,
+        caustics: -1.,
+        ..BELOW
+    };
+    let band = |p: &Picture| p.mean(0..W, H / 2..H);
+    let linear = band(&shoot(
+        Shot {
+            linear: true,
+            ..down
+        },
+        "water-open-linear",
+    ));
+    let exponential = band(&shoot(down, "water-open-exponential"));
+    let dry = band(&shoot(
+        Shot {
+            linear: true,
+            water: false,
+            ..down
+        },
+        "water-open-linear-none",
+    ));
+    eprintln!(
+        "open water looking down: linear fog {linear:.4}, exponential {exponential:.4}; linear \
+         fog without water (the sky unfogged) {dry:.4}"
+    );
+    assert!(
+        (linear - exponential).abs() < 0.01,
+        "both are the fog's colour"
+    );
+    assert!(
+        (linear - dry).abs() > 0.02,
+        "without water linear fog leaves the sky"
+    );
 }

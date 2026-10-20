@@ -51,11 +51,14 @@ fn shaft_source(pixel: vec2<f32>) -> f32 {
     let ndc = shaft_ndc(pixel);
     let origin = shaft_point(ndc, 0.0);
     let d = normalize(shaft_point(ndc, 0.5) - origin);
-    if d.y <= 0.0 { return 0.0; }
     let t = (frame.water.x - origin.y) / d.y;
+    // A ray that does not rise to the surface ahead of it: one heading down, or
+    // an orthographic ray starting over the water.
+    if d.y <= 0.0 || t <= 0.0 { return 0.0; }
     let size = frame.logical_size.xy;
     if all(pixel >= vec2(0.0)) && all(pixel < size) {
-        if distance(shaft_scene(pixel, 1.0e4), origin) < t * 0.99 - 0.02 { return 0.0; }
+        // What the pixel shows lies under the surface, so before it on the rising ray.
+        if shaft_scene(pixel, 1.0e4).y < frame.water.x - 0.01 { return 0.0; }
     }
     // Three cells a wavelength, and a finer layer 1.27 times smaller (water.rs).
     let hit = (origin + d * t).xz / max(frame.water_waves.x, 0.01) * 3.0;
@@ -65,6 +68,8 @@ fn shaft_source(pixel: vec2<f32>) -> f32 {
 }
 @fragment fn fs(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let pixel = position.xy;
+    // An orthographic ray that starts over the water scatters nothing in it.
+    if shaft_point(shaft_ndc(pixel), 0.0).y >= frame.water.x { return vec4(0.0); }
     let scene = shaft_scene(pixel, 1.0e4);
     let scattered = fog_amount(scene);
     let sun = frame.sun_direction_illuminance;

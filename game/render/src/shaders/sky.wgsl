@@ -46,8 +46,16 @@ fn view_ray(ndc: vec2<f32>) -> vec3<f32> {
 @fragment fn sky_fs(input: SkyVarying) -> @location(0) vec4<f32> {
     let direction = view_ray(input.ndc);
     var color = sky_radiance(direction);
-    if frame.toon.y <= frame.toon.x && frame.fog_color_density.w > 0.0 {
-        color = height_fog(color, frame.camera_alpha.xyz + direction * 10000.0);
+    // Linear fog leaves the sky as it is, but for the part of a ray under water;
+    // with water an orthographic ray starts on its own point of the near plane.
+    let water = frame.water.y > 0.0;
+    if (frame.toon.y <= frame.toon.x && frame.fog_color_density.w > 0.0) || water {
+        var origin = frame.camera_alpha.xyz;
+        if water && frame.toon.w > 0.5 {
+            let near = frame.inverse_view_proj * vec4(input.ndc, 0.0, 1.0);
+            origin = near.xyz / near.w;
+        }
+        color = height_fog(color, origin + direction * 10000.0);
     }
     if DIRECT { return tonemap(color); }
     return vec4(color, 1.0);

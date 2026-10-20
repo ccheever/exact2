@@ -482,8 +482,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if frame.water.is_some() {
             // A background hook may have left its own viewport and scissor.
             self.scene_viewport(&mut pass, state.size, false);
-            self.water
-                .draw_surface(&mut pass, &self.scene_binds[self.current]);
+            let above = crate::water::from_above(frame);
+            (self.water).draw_surface(&mut pass, &self.scene_binds[self.current], above);
             self.probe_note(|| Drew::Fixed("water surface"));
             state.draws += 1;
         }
