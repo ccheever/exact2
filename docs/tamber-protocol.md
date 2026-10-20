@@ -1440,10 +1440,10 @@ The tool drives no input into an app; a command changes only what `prefer` would
   a look's row is never offered at its base row's place. A row a `:disabled` or `:checked` part
   folds over its base (one value, `disabled ? D : B`, the runtime's `dynamic`) is read through the
   map (*1.14*, LLP 1122's queue item (2)) where it says both the base and the parts: its `editable`
-  is its base's rung, whichever branch the runtime shows now (param, named from the base as written
-  and the component it is in, its template address the base attribute's, never a part's; template,
-  style or token), and it adds `states: [{state, source, editable}]`, one per folded part
-  (`disabled`, `checked`; a later part of a state, the node's over its class's, stands for it),
+  is its base's rung, whichever branch the runtime shows now (param, one `param.<name>` as written,
+  by its full name among the params read for the component it is written in, a package's included,
+  its template address the base attribute's, never a part's; template, style or token), and it adds `states: [{state, source, editable}]`, one per folded part
+  (`disabled`, `checked`; two of one state, a class's and the node's, each),
   `source` the part's place in the form a held row's has (its node's for a part with none: a
   conditional class's), `editable` that part's own edit: `set-state` on a style's part or
   `set-row` with `state` on the node's own, never a param it names (the base's and every other

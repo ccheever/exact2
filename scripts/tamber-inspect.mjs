@@ -444,14 +444,15 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       const folds = asBase(bound.get(r.name)) && row.source === 'dynamic' ? (bound.get(r.name).states ?? []).filter(p => p.state === 'disabled' || p.state === 'checked') : [];
       const rung = rowRung(row, b, map, app, copies, read, own);
       // (Its base's token, from the base as written, whichever branch the runtime shows now.)
-      const base = folds.length ? writtenToken(row, rung, params) : null;
+      const base = folds.length ? writtenToken(row, writtenAt(b, b.attr, read), params) : null;
       const shown = base ? { ...row, source: 'authored', token: base.token } : row;
-      const offered = editable({ ...shown, ...part }, origin, params, unread || !!base?.unread, stateRung(row, b, app, read, own), rung);
+      const offered = base?.reason ? { rung: null, reason: base.reason } : editable({ ...shown, ...part }, origin, params, unread || !!base?.unread, stateRung(row, b, app, read, own), rung);
       const shut = o => (readOnly ? { rung: null, reason: readOnly, link: o.link ?? o.param ?? o.token ?? null } : o);
       const states = folds.map(p => {
         const v = { row: r.name, origin: p.origin, state: p.state, at: p.at }, w = rowRung(row, v, map, app, copies, read, own), st = stateRung(row, v, app, read, own);
-        // A part's edit is that part's alone: never a param its value names, which the base and every other use share.
-        const e = editable({ ...row, source: 'authored', token: writtenToken(row, st ?? w, params, true).token, state: p.state }, p.origin, params, unread, st, w);
+        // A part's edit is that part's alone: never a param its value names, which the base and every other use share
+        // (nor refused for one the row the host shows reads).
+        const e = editable({ ...row, source: 'authored', token: writtenToken(row, writtenAt(v, null, read), params, true).token, state: p.state }, p.origin, params, false, st, w);
         // (Its place; a part with none, a conditional class's, its node's.)
         const at = p.at ?? node;
         return { state: p.state, source: { file: at.file, line: at.line, col: at.col, end_col: at.end_col }, editable: shut(e) };
@@ -461,24 +462,45 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   };
 }
 
-/** The token a folded row's base or part reads, from its value as written (`rung.text`, a rung's), and whether it
- * names a param this server has not read: a param by its full name, the base attribute's file, component and
- * `param.<name>` (never from the runtime's names, which are the branch it shows now's), never for a part (`part`),
- * whose edit is its own; a token by its name or role spelling where the row's names hold it; else none (queue
- * item (2)). */
-function writtenToken(row, rung, params, part = false) {
-  const names = row.token?.names ?? [], modes = row.token?.modes ?? '', text = rung?.text;
-  const none = t => ({ token: { names: [], text: t, modes }, unread: false });
-  if (typeof text !== 'string') return none('');
-  const name = /^param\.(.+)$/.exec(text)?.[1];
-  if (name) {
-    if (part) return none(text);
-    const full = rung.file && rung.component ? `${rung.file}#${rung.component}.${name}` : null;
-    const param = full && [...params.values()].find(p => p.param === full);
-    return param ? { token: { names: [param.param], text: param.param, modes }, unread: false } : { ...none(text), unread: true };
+/** A row's value as written at its place (`b.at`), its base attribute's (`attr`) or, for a part, by the name written
+ * there (`writtenAs`), and the component it is written in (the top-level `component` above it, none under another
+ * declaration); null where the file can't be read or the place says no such name. Read whether or not the file is
+ * the app's own: a param a package's component reads is overridden in the app's design. */
+function writtenAt(b, attr, read) {
+  if (!b?.at?.file) return null;
+  let lines;
+  try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
+  const name = attr ?? writtenAs(lines, b.at, b.row);
+  if (!name) return null;
+  let component = null;
+  for (let i = b.at.line - 2; i >= 0; i--) {
+    const l = lines[i] ?? '';
+    if (/^\S/.test(l) && !/^\/\//.test(l)) { component = /^component\s+([A-Za-z_][\w-]*)/.exec(l)?.[1] ?? null; break; }
   }
-  const token = names.find(n => n === text || text.replace(/^-exact-/, '') === n);
-  return token ? { token: { names: [token], text, modes }, unread: false } : none(text);
+  return { text: plainAt(lines[b.at.line - 1] ?? '', b.at.col, name), component };
+}
+
+/** The token a folded row's base or part reads, from its value as written (`w`, `writtenAt`'s), whichever branch the
+ * runtime shows now (queue item (2)): a param, one `param.<name>`, by its full name, `<identity>#<component>.<name>`
+ * among the params read (the runtime's names choose between several), never for a part (`part`), whose edit is its
+ * own; a token by its name or its role's spelling (any case, `-exact-`) where the row's names hold it; else none.
+ * `unread` where no param of that name is read yet; `reason` where several are and nothing chooses. */
+function writtenToken(row, w, params, part = false) {
+  const names = row.token?.names ?? [], modes = row.token?.modes ?? '';
+  const text = typeof w?.text === 'string' ? w.text.trim() : null;
+  const none = { token: { names: [], text: text ?? '', modes } };
+  if (text == null) return none;
+  const name = /^param\.([A-Za-z_][\w-]*)$/.exec(text)?.[1];
+  if (name) {
+    if (part) return none;
+    const of = w.component ? [...params.values()].filter(p => String(p.param).endsWith(`#${w.component}.${name}`)) : [];
+    const param = of.find(p => names.includes(p.param)) ?? (of.length === 1 ? of[0] : null);
+    if (param) return { token: { names: [param.param], text: param.param, modes } };
+    if (of.length) return { ...none, reason: `\`${text}\` is one of ${of.length} params of components named ${w.component}: select it while it shows the param, or edit it in the source` };
+    return { ...none, unread: true };
+  }
+  const low = text.toLowerCase(), token = names.find(n => n === text || (low.startsWith('-exact-') && low.slice(7) === n));
+  return token ? { token: { names: [token], text: token, modes } } : none;
 }
 
 /** The sites of `map` at `source`'s location: every copy of that node. */

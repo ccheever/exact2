@@ -1010,12 +1010,13 @@ component Pill
     );
 }
 
-/// A folded row has one part a state: the node's `:disabled` over its
-/// class's shadows it (the value never shows the class's), so `states`
-/// names the node's alone (Grok, round 1 of LLP 1122's queue item (2)).
+/// Two parts of one state on one row each stay in `states`: the node's
+/// `:disabled border-top-color` with a `none` arm leaves its class's
+/// `:disabled border-color` showing on that side when it is `none`
+/// (Astra and Grok, round 2 of LLP 1122's queue item (2)).
 #[test]
-fn a_folded_row_has_one_part_a_state() {
-    let app = App::new("folds-one-part");
+fn a_folded_row_keeps_each_part_of_a_state() {
+    let app = App::new("folds-two-parts");
     app.write(
         "app.contract",
         r##"component App
@@ -1023,13 +1024,13 @@ fn a_folded_row_has_one_part_a_state() {
   view
     box class=Card disabled=flag testId="card"
       :disabled
-        background-color = "#999999"
+        border-top-color = (flag ? "#999999" : none)
       text "c"
 
 style Card
-  background-color="#ffffff"
+  border-color="#ffffff"
   :disabled
-    background-color="#111111"
+    border-color="#111111"
 "##,
     );
     let (plan, map) = app.compile();
@@ -1038,20 +1039,33 @@ style Card
         .as_array()
         .unwrap()
         .clone();
-    let bg = rows
-        .iter()
-        .find(|r| r["row"] == "background_color")
-        .unwrap_or_else(|| panic!("{rows:?}"));
-    let parts = bg["states"].as_array().unwrap();
-    assert_eq!(parts.len(), 1, "{bg}");
+    let parts = |name: &str| {
+        let r = rows
+            .iter()
+            .find(|r| r["row"] == name)
+            .unwrap_or_else(|| panic!("{name}: {rows:?}"));
+        r["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| {
+                (
+                    p["state"].as_str().unwrap().to_string(),
+                    p["origin"].as_str().unwrap().to_string(),
+                    p["at"]["line"].as_u64(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
     assert_eq!(
-        (parts[0]["origin"].as_str(), parts[0]["at"]["line"].as_u64()),
-        (Some("own"), Some(6)),
-        "{bg}"
+        parts("border_color_top"),
+        [
+            ("disabled".to_string(), "class:Card".to_string(), Some(12)),
+            ("disabled".to_string(), "own".to_string(), Some(6))
+        ]
     );
     assert_eq!(
-        (bg["origin"].as_str(), bg["at"]["line"].as_u64()),
-        (Some("class:Card"), Some(10)),
-        "{bg}"
+        parts("border_color_right"),
+        [("disabled".to_string(), "class:Card".to_string(), Some(12))]
     );
 }

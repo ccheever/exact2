@@ -75,7 +75,7 @@ test('a folded `:disabled` or `:checked` row is read as its base, its parts besi
   const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-folds-'));
   try {
     const app = joinPath(dir, 'app.contract');
-    const lines = ['style Tick', '  background-color="#ffffff"', '  :checked', '    background-color="#00ff00"', '', 'component Card', '  params', '    fill: color = "#0a7aff"', '  view', '    box background-color="param.fill" disabled=off', '      :disabled', '        background-color="#999999"', '    box class=Tick aria-checked=on role="checkbox"', '    link href="/x" disabled=off', '      :disabled', '        color="#999999"', '    box background-color="-exact-secondary-label" disabled=off', '      :disabled', '        background-color="param.fill"', '    text "t" color="#111111" disabled=off', '      :disabled', '        color="#999999"', ''];
+    const lines = ['style Tick', '  background-color="#ffffff"', '  :checked', '    background-color="#00ff00"', '', 'component Card', '  params', '    fill: color = "#0a7aff"', '  view', '    box background-color="param.fill" disabled=off', '      :disabled', '        background-color="#999999"', '    box class=Tick aria-checked=on role="checkbox"', '    link href="/x" disabled=off', '      :disabled', '        color="#999999"', '    box background-color="-Exact-Secondary-Label" disabled=off', '      :disabled', '        background-color="param.fill"', '    text "t" color="#111111" disabled=off', '      :disabled', '        color="#999999"', '    box background-color=" param.fill " disabled=off', '      :disabled', '        background-color="#999999"', ''];
     const text = lines.join('\n');
     writeFileSync(app, text);
     const place = (line, name) => { const col = lines[line - 1].indexOf(name) + 1; return { file: app, line, col, end_col: col + name.length }; };
@@ -87,6 +87,7 @@ test('a folded `:disabled` or `:checked` row is read as its base, its parts besi
       node(13, [{ row: 'background_color', origin: 'class:Tick', at: place(2, 'background-color'), attr: 'background-color', states: [{ state: 'checked', origin: 'class:Tick', at: place(4, 'background-color') }] }]),
       // A link's colour folded over what it takes unwritten: no base in the map.
       node(14, [{ row: 'text_color', states: [{ state: 'disabled', origin: 'own', at: place(16, 'color') }] }]),
+      node(23, [{ row: 'background_color', origin: 'own', at: place(23, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: place(25, 'background-color') }] }]),
       node(17, [{ row: 'background_color', origin: 'own', at: place(17, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: place(19, 'background-color') }] }]),
       node(20, [{ row: 'text_color', origin: 'own', at: place(20, 'color'), attr: 'color', states: [{ state: 'disabled', origin: 'own', at: place(22, 'color') }] }]),
       // A conditional class's base and part: no place either.
@@ -105,17 +106,37 @@ test('a folded `:disabled` or `:checked` row is read as its base, its parts besi
     expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] }, map, { app: dir, params: shared }).rows[0].editable).toMatchObject({ rung: 'param', param: 'app.contract#Card.fill' });
     // A param this server has not read yet: refused, never a template edit of `param.fill` as text.
     expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] }, map, { app: dir, params: new Map() }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('not read yet') });
-    // A role's spelling offers its token beside the base's own edit; a part naming the param edits that part alone.
-    const role = sel(3, { name: 'background_color', value: '#888888', source: 'dynamic', token: { names: ['secondary-label'], text: 'disabled ? ... : secondary-label', modes: '', implied: false } });
-    expect(role.editable).toMatchObject({ rung: 'template', row: 'background-color', text: '-exact-secondary-label', token: 'secondary-label' });
+    // One `param.<name>`, spaces around it as a string may hold them: the param still.
+    expect(sel(3, { name: 'background_color', value: '#999999', source: 'dynamic' }).editable).toMatchObject({ rung: 'param', param: 'app.contract#Card.fill' });
+    // Two params of components named alike, and nothing to choose between them: said so, no template edit of the text.
+    const two = new Map([['x', { param: 'a.contract#Card.fill', short: null }], ['y', { param: 'b.contract#Card.fill', short: null }]]);
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] }, map, { app: dir, params: two }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('one of 2 params') });
+    // ... the runtime's names choosing, where the row shows the param.
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#0a7aff', source: 'dynamic', token: { names: ['b.contract#Card.fill'], text: 'b.contract#Card.fill', modes: '', implied: false } }] }, map, { app: dir, params: two }).rows[0].editable).toMatchObject({ rung: 'param', param: 'b.contract#Card.fill' });
+    // A part's own edit stands while the row the host shows reads a param this server has not read.
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#0a7aff', source: 'dynamic', token: { names: [IR], text: IR, modes: '', implied: false } }] }, map, { app: dir, params: new Map() }).rows[0].states[0].editable).toMatchObject({ rung: 'template', state: 'disabled', text: '#999999' });
+    // A role's spelling, any case, offers its token beside the base's own edit; a part naming the param edits that part alone.
+    const role = sel(4, { name: 'background_color', value: '#888888', source: 'dynamic', token: { names: ['secondary-label'], text: 'disabled ? ... : secondary-label', modes: '', implied: false } });
+    expect(role.editable).toMatchObject({ rung: 'template', row: 'background-color', text: '-Exact-Secondary-Label', token: 'secondary-label' });
     expect(role.states[0].editable).toMatchObject({ rung: 'template', row: 'background-color', state: 'disabled', text: 'param.fill', at: { line: 19 } });
     expect(role.states[0].editable.param).toBe(undefined);
     // A text colour's part is the `color` its author wrote.
-    expect(sel(4, { name: 'text_color', value: '#999999', source: 'dynamic' }).states[0].editable).toMatchObject({ rung: 'template', row: 'color', state: 'disabled', text: '#999999' });
+    expect(sel(5, { name: 'text_color', value: '#999999', source: 'dynamic' }).states[0].editable).toMatchObject({ rung: 'template', row: 'color', state: 'disabled', text: '#999999' });
     // A part with no place (a conditional class's): its node's, its edit refused.
-    const either = sel(5, { name: 'background_color', value: '#999999', source: 'dynamic' });
+    const either = sel(6, { name: 'background_color', value: '#999999', source: 'dynamic' });
     expect(either.states[0].source).toEqual({ file: app, line: 13, col: 5, end_col: 8 });
     expect(either.states[0].editable.rung).toBe(null);
+    // A package's component: its param, overridden in the app's design, offered though its source is read-only here.
+    const pkg = joinPath(dir, 'node_modules', 'ui', 'card.contract'), pkgLines = ['component Card', '  params', '    fill: color = "#0a7aff"', '  view', '    box background-color="param.fill" disabled=off', '      :disabled', '        background-color="#999999"', ''];
+    mkdirSync(joinPath(dir, 'node_modules', 'ui'), { recursive: true });
+    writeFileSync(pkg, pkgLines.join('\n'));
+    const at = (line, name) => { const col = pkgLines[line - 1].indexOf(name) + 1; return { file: pkg, line, col, end_col: col + name.length }; };
+    const pmap = { digest: 'p2', sources: [{ file: pkg, sha256: sha(pkgLines.join('\n')) }], nodes: [{ file: pkg, line: 5, col: 5, end_col: 8, component: 'Card', chain: [], bindings: [{ row: 'background_color', origin: 'own', at: at(5, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: at(7, 'background-color') }] }] }] };
+    const vendored = new Map([['z', { param: '@acme/ui/card.contract#Card.fill', short: 'Card.fill' }]]);
+    const inPkg = join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] }, pmap, { app: dir, params: vendored }).rows[0];
+    expect(inPkg.editable).toMatchObject({ rung: 'param', param: '@acme/ui/card.contract#Card.fill' });
+    expect(inPkg.editable.template).toBe(undefined);
+    expect(inPkg.states[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining("a package's component") });
     // A style's base and part: the style rung on its base, set-state on its `:checked` part.
     const tick = sel(1, { name: 'background_color', value: '#00ff00', source: 'dynamic', token: { names: [], text: 'checked ? "#00ff00" : "#ffffff"', modes: '', implied: false } });
     expect(tick.editable).toEqual({ rung: 'style', style: 'Tick', row: 'background-color', file: 'app.contract', text: '#ffffff' });
