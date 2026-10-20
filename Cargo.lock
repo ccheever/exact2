@@ -5463,6 +5463,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
+name = "variable-type-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
+
+[[package]]
 name = "variable-type-apple"
 version = "0.1.0"
 dependencies = [
