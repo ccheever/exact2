@@ -310,15 +310,16 @@ display's 90 under `Low`; the world's `state` reports its row as `quality`
 remakes each world's renderer at the new rung, on the same device and under the
 same world, on every host.
 
-On a browser without WebGPU (or with no adapter) a game's web page (its build
-marks it `data-exact-game`) shows, in each world canvas's box, a `role=status` page that names WebGPU and the browsers that have
+On a browser without WebGPU (or with no adapter) a game's web page shows, in the
+box of each world surface (its build names them on the page's root,
+`data-exact-worlds`, from the game's GPU declaration), a `role=status` page that names WebGPU and the browsers that have
 it, and the game's iOS and macOS installs when `app.json`'s `install` lists any;
 the canvas's own HUD is inert under it, the rest of the app keeps working, and a
 world request answers `host web refused (gpu): no adapter: …`, which the proof's
 web leg reports as its result. The page waits at most a second for the install
-data, and goes, with the HUD's inertness, when its surface does. An app's GPU
-surface (a decorative backdrop, such as Caltrain's sky) shows no page: its content
-stays live over the empty canvas. No WebGL renderer
+data, and goes, with the HUD's inertness, when its surface does. Any other GPU
+surface, a game's or an app's (a decorative backdrop, such as Caltrain's sky), shows
+no page: its content stays live over the empty canvas. No WebGL renderer
 exists (LLP 1128 I6).
 
 After the first GPU build, the compiler and dev loop check surface names and

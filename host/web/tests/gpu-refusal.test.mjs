@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {mkdtempSync, mkdirSync, readFileSync, rmSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fixture} from './surface.mjs';
 import {open} from '../../../scripts/agent.mjs';
@@ -134,20 +134,19 @@ test('a Rust-edit candidate trap leaves the committed world driveable and skips 
 async function noWebGPU(install, run) {
   const {cdpBrowser} = await import('../../../scripts/agent-launch.mjs');
   const web = resolve(import.meta.dir,'..');
-  // A game's world (its web build marks the page) with an in-flow label and an overlaid button, as
-  // game/games/placement-fixture has; and a decorative canvas of an app page, its content overlaid.
+  // On one game page (its web build names its world surfaces on the root): a world with an in-flow label and
+  // an overlaid button, as game/games/placement-fixture has; and a decorative surface with overlaid controls.
   const html = `<button id="menu">Menu</button>
     <div id="host" style="width:300px;height:200px"><canvas data-surface></canvas><p id="label">Pull the lever</p><button id="hud" style="position:absolute;top:0">Play</button></div>
     <div id="sky" style="width:300px;height:200px;position:relative"><canvas data-surface></canvas><div id="content" style="position:absolute;inset:0"><button id="change">Change station</button></div></div><script type="module">
     Object.defineProperty(Navigator.prototype,'gpu',{get(){return undefined;},configurable:true});
-    document.documentElement.setAttribute('data-exact-game','');
+    document.documentElement.setAttribute('data-exact-worlds','world arena');
     const host=document.getElementById('host');
     globalThis.exact={views:new Map([[1,host],[2,document.getElementById('sky')]]),root:document.body,devAssets:[],generation:0,pageFacts:{agent:false,read:()=>({}),tell(){},changed(){}},
       wasm:{exact_surface_record:()=>0},writeIn:x=>x,send(){}};
     await import('/gpu-glue.js'); exact.gpu.surface(1,'world',[]);
     const started=performance.now(); await exact.gpu.settled(); globalThis.settleMs=performance.now()-started;
-    // The same document without a game's mark: an app's surface is decoration.
-    document.documentElement.removeAttribute('data-exact-game'); exact.gpu.surface(2,'glass',[]); await exact.gpu.settled();
+    exact.gpu.surface(2,'glass',[]); await exact.gpu.settled();
     globalThis.ready=true;
   </script>`;
   const server=Bun.serve({port:0,hostname:'127.0.0.1',fetch(req){
@@ -191,14 +190,21 @@ test('a browser without WebGPU shows the refusal page in a world\'s box and refu
     // The agent's settle waited for the install links, so `tree` names them.
     const tree=await evaluate(`exact.gpu.decorate({op:'tree'},{nodes:[{id:1},{id:2}]})`);
     expect(tree.nodes[0].status).toContain('View in the App Store');
-    // An app's decorative surface shows no page; its content stays live over the empty canvas.
+    // A decorative surface on the same game page shows no page; its controls stay live over the empty canvas.
     expect(tree.nodes[1].status).toBeUndefined();
     expect(await evaluate(`[document.querySelector('#sky > [role=status]'), document.getElementById('content').inert]`)).toEqual([null, false]);
-    // A surface replaced on the same element takes its page with it: one page, its links live.
-    await evaluate(`document.documentElement.setAttribute('data-exact-game',''); exact.gpu.surface(1,'arena',[]); exact.gpu.settled()`);
-    expect(await evaluate(`[document.querySelectorAll('#host > [role=status]').length, document.querySelector('#host > [role=status] a')?.closest('[inert]') ?? null, document.getElementById('label').inert]`)).toEqual([1, null, true]);
-    // Destroyed, the page goes and the HUD comes back as it was.
-    expect(await evaluate(`exact.gpu.destroy(1), [document.querySelectorAll('#host > [role=status]').length, document.getElementById('label').inert, document.getElementById('hud').inert]`)).toEqual([0, false, false]);
+    // A surface replaced on the same element takes its page with it: one page, its links there and live.
+    await evaluate(`exact.gpu.surface(1,'arena',[]); exact.gpu.settled()`);
+    expect(await evaluate(`(() => { const a = document.querySelector('#host > [role=status] a');
+      return [document.querySelectorAll('#host > [role=status]').length, !!a, !!a && !a.closest('[inert]'), document.getElementById('label').inert]; })()`)).toEqual([1, true, true, true]);
+    // The app's own updates while the page stands, as glue.js applies them: clearing the label's inertness does
+    // not re-enable it under the page; the button made inert and the host's position are the app's afterwards.
+    expect(await evaluate(`(async () => { const label = document.getElementById('label'), hud = document.getElementById('hud');
+      label.authoredInert = false; label.inert = false; hud.authoredInert = true; hud.inert = true;
+      document.getElementById('host').style.position = 'absolute';
+      await new Promise(r => setTimeout(r, 0)); return label.inert; })()`)).toBe(true);
+    // Destroyed, the page goes, and each child has the app's inertness and the host its position.
+    expect(await evaluate(`exact.gpu.destroy(1), [document.querySelectorAll('#host > [role=status]').length, document.getElementById('label').inert, document.getElementById('hud').inert, document.getElementById('host').style.position]`)).toEqual([0, false, true, 'absolute']);
     expect(globalThis.moduleFetched).toBeUndefined();
     expect(lines.join('\n')).not.toContain('No available adapters');
   }), 120000);
@@ -211,3 +217,20 @@ test('install data that never answers delays no agent reply past its bound', () 
     expect(tree.nodes[0].status).toContain('needs WebGPU');
     expect(tree.nodes[0].status).not.toContain('App Store');
   }), 120000);
+
+// The shell's root carries a game's world surfaces beside the manifest's language (host/web/build.mjs writes
+// the language, then the worlds after the GPU build, by attribute); an app's root carries none.
+test('a game shell names its world surfaces without losing its language', async () => {
+  const {markWorlds, worldSurfaces} = await import('../../../scripts/app.mjs');
+  const shell = readFileSync(resolve(import.meta.dir, '../index.html'), 'utf8');
+  const lang = html => html.replace('<html lang="en">', '<html lang="fr">');
+  expect(markWorlds(lang(shell), ['world', 'arena'])).toContain('<html data-exact-worlds="world arena" lang="fr">');
+  expect(markWorlds(lang(shell), [])).toBe(lang(shell));
+  const dir = mkdtempSync('/tmp/exact-worlds-');
+  try {
+    expect(worldSurfaces(dir)).toEqual([]);
+    mkdirSync(resolve(dir, '.shells'));
+    writeFileSync(resolve(dir, '.shells/surfaces.json'), JSON.stringify({world: [{name: 'seed', default: 0}]}));
+    expect(worldSurfaces(dir)).toEqual(['world']);
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+});

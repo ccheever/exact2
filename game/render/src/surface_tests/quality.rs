@@ -4,7 +4,7 @@ use exact_game::{DirectionalLight, Material, Quality, Shadows};
 
 #[derive(Default, exact_game::Args)]
 struct LadderArgs {
-    /// 1 asks for `Quality::Low`, 2 `Auto`, anything else `High`.
+    /// 1 asks for `Quality::Low`, 2 `Auto`, 3 `Mid`, anything else `High`.
     q: u32,
     /// 1 inserts the game's own `Shadows`.
     authored: u32,
@@ -18,6 +18,7 @@ impl Game for Ladder {
         match args.q {
             1 => Quality::Low,
             2 => Quality::Auto,
+            3 => Quality::Mid,
             _ => Quality::High,
         }
     }
@@ -89,12 +90,15 @@ fn a_rung_changes_the_picture_and_never_the_world_hash() {
     let Some(gpu) = gpu() else { return };
     let (high_hash, high_tick, high_row, high_scale, high_mean) = run(&gpu, 0, 0);
     let (low_hash, low_tick, low_row, low_scale, low_mean) = run(&gpu, 1, 0);
+    let (mid_hash, mid_tick, mid_row, mid_scale, _) = run(&gpu, 3, 0);
     let (_, _, kept_row, _, kept_mean) = run(&gpu, 1, 1);
-    assert_eq!((high_tick, low_tick), (600, 600));
+    assert_eq!((high_tick, mid_tick, low_tick), (600, 600, 600));
     assert_eq!(
-        high_hash, low_hash,
+        (&high_hash, &high_hash),
+        (&mid_hash, &low_hash),
         "the world hash is the same on every rung"
     );
+    assert_eq!((mid_row["rung"].as_str(), mid_scale), (Some("mid"), 0.75));
     assert_eq!(high_row["rung"], "high");
     assert_eq!(high_row["samples"], 4);
     assert_eq!(low_row["rung"], "low");
@@ -235,51 +239,85 @@ struct WithLabel;
 impl Game for WithLabel {
     const ID: &'static str = "quality-placed";
     type Args = PlacedArgs;
-    fn quality(_: &PlacedArgs) -> Quality {
-        Quality::Auto
-    }
     fn setup(w: &mut World, _: &PlacedArgs) {
-        w.spawn((Transform::at(0., 0., -4.), exact_game::Placed::child(0)));
-        w.spawn((Transform::at(0., 0., 6.), Camera::default()));
+        w.insert_resource(exact_game::Environment {
+            background: Some([0.; 3].into()),
+            fog: None,
+            bloom: None,
+            ..Default::default()
+        });
+        w.spawn((Transform::at(0., 0., 5.), Camera::orthographic(4.)));
+        // A child stands on its transform: 2 m wide and tall, centred on the origin.
+        w.spawn((
+            Transform::at(0., -1., 0.),
+            exact_game::Placed::child(0).width(2.),
+        ));
     }
     fn tick(_: &mut World, _: &Input, _: &PlacedArgs) {}
 }
 
 /// LLP 1139.003 D2: a new rung remakes the renderer and keeps the textures
 /// the host captured for its placed children (an in-world label): the host
-/// does not capture them again, and they stay on screen.
+/// does not capture them again, and the label stays on screen.
 #[test]
-fn a_new_tier_keeps_the_placed_childrens_textures() {
+fn a_new_tier_keeps_the_placed_childrens_pixels() {
     let Some(gpu) = gpu() else { return };
-    exact_gpu::set_thread_tier(Some(exact_gpu::GpuTier::High));
-    let mut s = WorldSurface::<WithLabel>::default();
-    s.bind(&[], None).unwrap();
-    let label = gpu.device.create_texture(&wgpu::TextureDescriptor {
+    let red = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("placed label"),
         size: wgpu::Extent3d {
-            width: 16,
-            height: 8,
+            width: 1,
+            height: 1,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    let view = label.create_view(&Default::default());
-    exact_gpu::Surface::child(&mut s, 0, "label", Some(&view), [0., 0., 16., 8.]);
-    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    gpu.queue.write_texture(
+        red.as_image_copy(),
+        &[255, 0, 0, 255],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: None,
+        },
+        red.size(),
+    );
+    let view = red.create_view(&Default::default());
+    exact_gpu::set_thread_tier(Some(exact_gpu::GpuTier::High));
+    let mut s = WorldSurface::<WithLabel>::default();
+    s.bind(&[], None).unwrap();
+    exact_gpu::set_thread_tier(None);
+    exact_gpu::Surface::child(&mut s, 0, "label", Some(&view), [0., 0., 100., 100.]);
+    let at = Frame {
+        width: 100.,
+        height: 100.,
+        ..frame(0.)
+    };
+    let centre = |s: &mut WorldSurface<WithLabel>, now: f64| {
+        let pixels = fixture::render(&gpu, s, &Frame { now_ms: now, ..at })
+            .unwrap()
+            .0;
+        assert!(s.error().is_none(), "{:?}", s.error());
+        let p = pixels.at(50, 50);
+        [p[0], p[1], p[2]]
+    };
+    let before = centre(&mut s, 0.);
+    assert!(
+        before[0] > 200 && before[1] < 40,
+        "the label is drawn: {before:?}"
+    );
     exact_gpu::set_thread_tier(Some(exact_gpu::GpuTier::Low));
     assert!(exact_gpu::Surface::retier(&mut s));
     exact_gpu::set_thread_tier(None);
+    let after = centre(&mut s, 100.);
     assert!(
-        s.placed.children[0].texture.is_some(),
-        "the label's texture stays"
+        after[0] > 200 && after[1] < 40,
+        "and still drawn at the new rung: {after:?}"
     );
-    fixture::render(&gpu, &mut s, &frame(100.)).unwrap();
-    assert!(s.error().is_none(), "{:?}", s.error());
     assert_eq!(state(&mut s)["quality"]["rung"], "low");
 }
 
@@ -320,12 +358,12 @@ fn a_new_tier_remakes_a_headless_look_renderer() {
     }
 }
 
-/// LLP 1139.003 D3: through the module, a Low world's drawable is half its
-/// canvas's device pixels: `Module::render_scale` is what `Module::render`
-/// sizes the drawable by (gpu/src/hdr_tests.rs) and what the web glue sizes
-/// the canvas's backing store by.
+/// LLP 1139.003 D3: through the module, a Low world's raster scale is a half:
+/// `Module::render_scale` is what `Module::render` sizes the drawable by
+/// (gpu/src/hdr_tests.rs) and what the web glue sizes the canvas's backing
+/// store by.
 #[test]
-fn the_module_sizes_a_low_worlds_drawable_by_half() {
+fn the_module_reports_a_low_worlds_raster_at_half_scale() {
     static REGISTRY: exact_gpu::Registry = exact_gpu::Registry {
         surfaces: &[("world", 2, || Box::<WorldSurface<Ladder>>::default())],
         shaders: &[],

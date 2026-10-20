@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { compilerWarnings, webInputDigests } from '../../scripts/agent-launch.mjs';
-import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webGpuArtifacts, webHostFiles } from '../../scripts/app.mjs';
+import { authClientMetadata, checkModuleRoster, gpuModules, markWorlds, rustPolicy, webGpuArtifacts, webHostFiles, worldSurfaces } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { buildEditor, buildFlow } from '../web-js/module.mjs';
@@ -187,10 +187,7 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 // — never a string in the wasm.
 copyShaders(app, resolve(stage, 'shaders'));
 // The neutral sheet follows the browser resets (LLP 1115.000 D4 part B; look.mjs).
-// A game's page says so (`data-exact-game`): its GPU surfaces are worlds, which a browser without WebGPU replaces
-// with the refusal page (gpu-refusal.js, LLP 1139.003 D1); an app's are decoration its content stays live over.
-const shellPage = withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8'));
-writeFileSync(resolve(stage, 'index.html'), game ? shellPage.replace('<html lang="en">', '<html lang="en" data-exact-game>') : shellPage);
+writeFileSync(resolve(stage, 'index.html'), withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8')));
 // A production bake never enters agent mode (LLP 1069.007 D2, ruled): every
 // host file that reads `?agent` declares `AGENT_ADMITTED`, and this build
 // ships it false, so the minifier drops the agent's paths from a release.
@@ -477,6 +474,9 @@ if (gpu.built) {
   copyHostFiles('gpu');
   if (gpuModules(app.manifest).length) copyHostFiles('gpuModules');
   gpuNote += ', on demand';
+  // A game's world surfaces, by name, as its GPU build declared them (`.shells/surfaces.json`): a browser without
+  // WebGPU shows the refusal page over these and no other canvas (gpu-refusal.js, LLP 1139.003 D1).
+  if (game) writeFileSync(resolve(stage, 'index.html'), markWorlds(readFileSync(resolve(stage, 'index.html'), 'utf8'), worldSurfaces(app.dir)));
 }
 // @ref LLP 1024 D3/D5 — the app's module table, beside the page only when the
 // app has modules (the GPU gate): its web executor under `modules/`, fetched

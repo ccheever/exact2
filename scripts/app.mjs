@@ -338,6 +338,18 @@ const WEB_HOST_GROUPS = {
   development: ['frames.js'],
 };
 
+/** A game's world surfaces by name, as its last GPU build declared them (`.shells/surfaces.json`); none before one. */
+export function worldSurfaces(dir) {
+  try { return Object.keys(JSON.parse(readFileSync(resolve(dir, '.shells/surfaces.json'), 'utf8'))); } catch { return []; }
+}
+
+/** The shell page with its world surfaces on its root (`<html data-exact-worlds="world …">`, LLP 1139.003 D1),
+ * inserted into the `<html>` tag whatever its other attributes (the manifest's `lang`). */
+export function markWorlds(html, names) {
+  const value = names.join(' ').replace(/[&"<>]/g, c => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' })[c]);
+  return names.length ? html.replace(/<html\b/, `<html data-exact-worlds="${value}"`) : html;
+}
+
 /** The AT Protocol client-metadata documents an app with auth sessions
  * serves beside its callback page (LLP 1069.006 D6; after review, item 3):
  * one per `application_type`, since a document names one type and a `web`
