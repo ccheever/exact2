@@ -315,6 +315,16 @@ impl Em<'_> {
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
         let mut writes: Vec<(String, String, Option<String>)> = match id {
+            // Safari selects by WebKit's prefixed property alone; `auto` and a
+            // clear write nothing, as the page's CSS does (css/selection.rs,
+            // css/clears.rs).
+            StyleId::UserSelect => {
+                let unsaid = || Some("v=>/^\\s*(auto|initial|unset)\\s*$/i.test(v)?null:v".to_string());
+                vec![
+                    ("-webkit-user-select".into(), String::new(), unsaid()),
+                    ("user-select".into(), String::new(), unsaid()),
+                ]
+            }
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
@@ -336,8 +346,6 @@ impl Em<'_> {
                 }
                 one("-webkit-text-stroke", Some(self.uses.constant("$cm", || style::color_map(plan))))
             }
-            // Both names, as css.rs writes them: WebKit selects by the prefixed one.
-            StyleId::UserSelect => ["-webkit-user-select", "user-select"].map(|n| (n.into(), String::new(), None)).into(),
             // @ref LLP 1077 D8 — 0 is `none`, as css.rs writes it.
             StyleId::Perspective => one(
                 "perspective",
