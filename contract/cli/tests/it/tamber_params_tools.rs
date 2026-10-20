@@ -500,5 +500,36 @@ fn a_file_linked_into_the_app_is_the_apps_own_named_where_it_sits() {
     let params = contract::tamber_params::params_of(&path);
     let ids: Vec<&str> = params.tokens.iter().map(|p| p.identity.as_str()).collect();
     assert_eq!(ids, ["tabs.contract#Card"]);
+    // `contract sources` reads it as the build does, and so does a bare
+    // file name, from the app's directory.
+    let graph = contract::source_graph(&path);
+    assert!(graph.errors.is_empty(), "{:?}", graph.errors);
+    for args in [
+        &["build", "tabs.contract", "-o", "tabs.plan"][..],
+        &["sources", "tabs.contract"],
+    ] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(args)
+            .current_dir(root.join("app"))
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    // A file a `use` reaches through a link outside the app is still the
+    // link's target's, refused at the `use`.
+    std::os::unix::fs::symlink("../corpus/fixture.contract", root.join("app/card.contract"))
+        .unwrap();
+    let app = root.join("app/app.contract");
+    std::fs::write(
+        &app,
+        "use Card from \"./card.contract\"\n\ncomponent Main\n  view\n    column\n      Card()\n",
+    )
+    .unwrap();
+    let e = contract::compile_path(&app).unwrap_err();
+    assert_eq!(e.id, "contract-use-path", "{e:?}");
     let _ = std::fs::remove_dir_all(&root);
 }
