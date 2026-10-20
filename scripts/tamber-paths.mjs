@@ -3,7 +3,7 @@
 // `contract/cli/src/tamber_uses.rs` `shown` keeps for the design server, and
 // machine-written messages scrubbed at path boundaries. Authored values and
 // file contents are never touched.
-import { readFileSync, realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, sep } from 'node:path';
 
@@ -48,12 +48,32 @@ export function namedPaths(value, appDir) {
  * first, only where a whole path starts and ends (a path inside another, or
  * a longer name, is not one). */
 export function messageScrubber(appDir) {
-  const needles = [...new Map([
-    [appDir, '<app>'], [real(appDir), '<app>'], [homedir(), '~'], [real(homedir()), '~'],
-  ].filter(([d]) => d && d.length > 1)).entries()].sort((a, b) => b[0].length - a[0].length);
   const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const patterns = needles.map(([d, to]) => [new RegExp(`(?<![\\w.~/-])${escape(d)}(?=$|/|[^\\w.~-])`, 'g'), to]);
-  return text => (typeof text === 'string' ? patterns.reduce((t, [re, to]) => t.replace(re, to), text) : text);
+  const patternsNow = () => {
+    // Each package the app links (round 2: a compile refusal names a linked
+    // package's file by its path): its root, there and real, as its name.
+    const packages = packageRoots(appDir).flatMap(([root, name]) => [[root, name], [real(root), name]]);
+    const needles = [...new Map([
+      ...packages, [appDir, '<app>'], [real(appDir), '<app>'], [homedir(), '~'], [real(homedir()), '~'],
+    ].filter(([d]) => d && d.length > 1)).entries()].sort((a, b) => b[0].length - a[0].length);
+    return needles.map(([d, to]) => [new RegExp(`(?<![\\w.~/-])${escape(d)}(?=$|/|[^\\w.~-])`, 'g'), to]);
+  };
+  // Read again for each message (a package linked since), which are few.
+  return text => (typeof text === 'string' && text.includes('/') ? patternsNow().reduce((t, [re, to]) => t.replace(re, to), text) : text);
+}
+
+/** Each package under the app's `node_modules` (an `@scope`'s too), linked
+ * or not: `[its directory there, its package.json name]`. */
+export function packageRoots(appDir) {
+  const modules = `${appDir}/node_modules`, out = [];
+  const nameOf = dir => { try { const n = JSON.parse(readFileSync(`${dir}/package.json`, 'utf8')).name; return typeof n === 'string' && n ? n : null; } catch { return null; } };
+  let entries = [];
+  try { entries = readdirSync(modules); } catch { return out; }
+  for (const entry of entries) {
+    const dirs = entry.startsWith('@') ? (() => { try { return readdirSync(`${modules}/${entry}`).map(e => `${modules}/${entry}/${e}`); } catch { return []; } })() : [`${modules}/${entry}`];
+    for (const dir of dirs) { const name = nameOf(dir); if (name) out.push([dir, name]); }
+  }
+  return out;
 }
 
 /** A copy of `value` with every `message` string inside an `error` (any

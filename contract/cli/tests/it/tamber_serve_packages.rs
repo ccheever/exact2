@@ -936,3 +936,55 @@ fn authored_text_holding_the_apps_path_is_kept() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Round 2 of the path fix (Astra 2 and 3): a package linked from outside
+/// the app. A motion token its view writes keeps its sites (`motion_sites`
+/// keeps the loader's paths through the join; the reply names them), and
+/// `explain` reads a param's default as written from where the file is.
+#[test]
+fn a_package_linked_from_outside_keeps_its_motion_sites_and_its_defaults() {
+    let dir = app(
+        "pkg-linked-outside",
+        "tamber t\n\ntheme\n  duration.fade: duration = 200ms\n",
+    );
+    let outside =
+        std::env::temp_dir().join(format!("exact2-linked-outside-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&outside);
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("package.json"),
+        r#"{"name":"@acme/linked","version":"1.0.0","exports":{".":"./index.contract"}}"#,
+    )
+    .unwrap();
+    std::fs::write(outside.join("index.contract"), "component LinkedCard\n  params\n    inset: length = \"4px\"\n  view\n    column padding=\"param.inset\" transition=\"opacity duration.fade\"\n      text \"x\"\n").unwrap();
+    std::fs::create_dir_all(dir.join("node_modules/@acme")).unwrap();
+    std::os::unix::fs::symlink(&outside, dir.join("node_modules/@acme/linked")).unwrap();
+    std::fs::write(dir.join("app.contract"), "use LinkedCard from \"@acme/linked\"\ncomponent App\n  view\n    column\n      LinkedCard()\n").unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (uses, _) = s.ask(json!({"method": "uses", "token": "duration.fade"}));
+    let sites = uses["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{uses}"));
+    assert!(!sites.is_empty(), "{uses}");
+    for site in sites {
+        assert!(!site["site"].is_null(), "an instance found: {site}");
+        let file = site["file"].as_str().unwrap();
+        assert!(
+            file == "@acme/linked/index.contract"
+                || file == "node_modules/@acme/linked/index.contract",
+            "{site}"
+        );
+    }
+    let (explained, _) = s.ask(json!({"method": "explain", "token": "LinkedCard.inset"}));
+    assert_eq!(
+        explained["ok"]["param"]["default"], "\"4px\"",
+        "{explained}"
+    );
+    let text = format!("{uses} {explained}");
+    for d in [outside.clone(), outside.canonicalize().unwrap()] {
+        assert!(!text.contains(&*d.to_string_lossy()), "{text}");
+    }
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&outside);
+}

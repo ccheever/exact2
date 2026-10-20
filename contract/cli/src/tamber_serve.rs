@@ -801,7 +801,7 @@ impl Server {
             .map_err(|e| json!({"message": format!("the baseline: {e}")}))?;
         Ok(json!({
             "kind": "dtcg", "text": text, "digest": digest,
-            "baseline": kept.strip_prefix(&self.dir).unwrap_or(&kept).to_string_lossy(),
+            "baseline": contract::tamber_uses::shown(&kept, &self.dir),
         }))
     }
 

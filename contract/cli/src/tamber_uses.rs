@@ -480,7 +480,6 @@ pub fn motion_sites(
     let src = std::fs::read_to_string(app).map_err(|e| format!("{}: {e}", app.display()))?;
     let root = crate::app_root(app).map_err(first)?;
     let (_, sources) = crate::sources::load(app, &src, &root).map_err(first)?;
-    let dir = app.parent().unwrap_or(app);
     let mut out = Vec::new();
     for site in &sources.motion {
         let via = if site.tokens.iter().any(|t| t == token) {
@@ -491,7 +490,10 @@ pub fn motion_sites(
                 None => continue,
             }
         };
-        let shown = shown(sources.path(site.span), dir);
+        // The loader's path, which `motion_instances` joins against the
+        // elements' (round 2, Astra 2): the finished reply names it
+        // (`relative_files`), never this list.
+        let shown = sources.path(site.span).to_string_lossy().into_owned();
         let mut v = json!({
             "site": Value::Null,
             "row": match site.component {

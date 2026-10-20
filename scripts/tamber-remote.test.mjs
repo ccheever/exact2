@@ -856,3 +856,38 @@ test('a design server that is down says so to a remote client without this machi
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Round 2 (Astra 1 = Grok 1): a compile refusal names a linked package's file
+// by its path; to a remote client that package, outside the app and the home
+// directory, is named by its package's name.
+test('a linked package outside the app whose design is missing is named by its package to a remote client', async () => {
+  const { homedir } = await import('node:os');
+  const { realpathSync } = await import('node:fs');
+  const { dir, outside } = await machineApp();
+  // Its manifest names a design that is not there: refused with that design's path.
+  writeFileSync(join(outside, 'package.json'), '{"name":"@acme/linked","version":"1.0.0","exports":{".":"./index.contract"},"tamber":"missing.tamber"}');
+  const app = await pairedApp(dir);
+  try {
+    const writer = await app.pair('write');
+    const machine = [...new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir()), outside, realpathSync(outside)])];
+    const local = JSON.parse(await app.local({ method: 'uses', token: 'ink' }));
+    expect(JSON.stringify(local)).toContain(realpathSync(outside));
+    let refused = 0;
+    for (const request of [{ method: 'uses', token: 'ink' }, { method: 'explain', token: 'LinkedCard.inset' }, { method: 'describe' }]) {
+      const r = await app.remote(writer, request);
+      const answer = JSON.parse(r.text);
+      // (An answer that is no refusal holds the authored path, which goes as written.)
+      if (!answer.error) continue;
+      refused += 1;
+      if (request.method === 'uses') expect(r.text).toContain('@acme/linked/missing.tamber');
+      for (const m of machine) expect([request.method, m, r.text.includes(m)]).toEqual([request.method, m, false]);
+    }
+    expect(refused).toBeGreaterThan(0);
+    // The local tool reads the path itself.
+  } finally {
+    await app.doors.close();
+    await app.wire.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+}, 600_000);

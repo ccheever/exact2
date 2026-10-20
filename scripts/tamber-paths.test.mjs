@@ -50,3 +50,19 @@ test('a machine message loses whole paths only, longest first; authored text is 
   expect(scrubbedMessages(reply, scrub)).toEqual({ ok: { commits: [{ message: `moved ${home}/x` }] }, error: { message: '~/a', diagnostics: [{ message: '~/b' }] } });
   expect(scrubbedMessages({ event: 'down', message: `${home}/c` }, scrub)).toEqual({ event: 'down', message: '~/c' });
 });
+
+test('a machine message names a linked package by its name, wherever it lies', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tamber-paths-pkg-'));
+  try {
+    const app = join(root, 'app'), linked = join(root, 'libs/linked');
+    mkdirSync(join(app, 'node_modules/@acme'), { recursive: true });
+    mkdirSync(linked, { recursive: true });
+    writeFileSync(join(linked, 'package.json'), '{"name":"@acme/linked"}');
+    symlinkSync(linked, join(app, 'node_modules/@acme/linked'));
+    const scrub = messageScrubber(app);
+    expect(scrub(`${realpathSync(linked)}/index.contract:3:1 [syntax] expected a view`)).toBe('@acme/linked/index.contract:3:1 [syntax] expected a view');
+    expect(scrub(`${app}/node_modules/@acme/linked/index.contract: gone`)).toBe('@acme/linked/index.contract: gone');
+    // A longer name beside it is not the package's.
+    expect(scrub(`${realpathSync(linked)}-old/a.contract`)).toBe(`${realpathSync(linked)}-old/a.contract`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

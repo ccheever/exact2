@@ -4668,8 +4668,37 @@ still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it)
   - `tamber_serve_packages.rs` `authored_text_holding_the_apps_path_is_kept`: a local proposal's diff, describe's
     metadata and a scrub's fold keep a `help` value holding the app's path byte for byte.
   - `tamber-server.test.mjs`'s wasm inspect test now expects the selection's file as `app.contract`.
-- **Not covered:** a machine message naming a linked package's directory outside the app and the home directory
-  (the design server's stderr, say) is not scrubbed. No message the servers write names one today.
+- **Not covered (round 1's view; wrong, see round 2):** a machine message naming a linked package's directory outside
+  the app and the home directory. A compile refusal does name one.
+
+**After the path fix's review round 2 (Astra WRONG; Grok RIGHT WITH CHANGES; their findings overlap):**
+- **A linked package's directory in a message is its name.** A compile or load refusal names a file by its path: a
+  missing named design (`sources/packages.rs`), an unreadable `use` target (`sources.rs`), resolution
+  (`resolve.rs`), and a transaction's diagnostics, which `uses`, `explain` and the others carry as `the app does
+  not build: …`. Besides the app and the home directory, the message scrubber now rewrites each package the app links
+  (`packageRoots`: every entry of its `node_modules`, an `@scope`'s too, with a named `package.json`), at its path
+  there and its real path, to its name. That rewrite is at path boundaries, longest first, and read again for each
+  message, so `/var/…/linked/missing.tamber` becomes `@acme/linked/missing.tamber`. The local tool reads the path.
+- **Motion sites through a linked package keep their site.** `motion_sites` named its files for the reply before
+  `motion_instances` joined them against the elements' paths, so a linked package's duration or easing use lost its
+  instance (`site: null`) and its outline. It keeps the loader's path through the join; the finished reply is named
+  (`relative_files`).
+- **explain reads where the file is.** `AppParams` keeps each source's path on this machine (`paths`) beside its
+  name (`files`). explain reads a param's default as written through the path, so an outside package's `"4px"` keeps
+  its spelling. Only the emitted `file` is the name.
+- **The rest named too:** the subscribe snapshot (named, and scrubbed for a client that is not local), the long
+  poll's `proposals`, and export's `baseline` (`shown`, no `unwrap_or` to the absolute path).
+- **Tests:**
+  - `tamber-paths.test.mjs`: a linked package's real path and its `node_modules` path, in a message, become
+    `@acme/linked/…`; a longer name beside it does not.
+  - `tamber-remote.test.mjs`: `@acme/linked`, outside the app and the home directory, names a design that is not
+    there. The local client's `uses` refusal holds the path; a paired client's refusals (`uses`, `explain`) hold
+    neither the outside directory nor the app's nor the home's, and `uses` says `@acme/linked/missing.tamber`. It
+    fails without the package rewrite.
+  - `tamber_serve_packages.rs` `a_package_linked_from_outside_keeps_its_motion_sites_and_its_defaults`: a linked
+    package outside the app. `uses` of a duration its view writes finds each instance (`site` set), named
+    `@acme/linked/index.contract`; `explain` gives the param's default as written (`"4px"`); neither names the
+    outside directory. It fails with either fix reverted.
 
 ### Stage 11, commit B1: the base scale table (draft for theme2)
 

@@ -549,7 +549,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     else if (request && !(url.pathname === '/__tamber' && request.method === 'revoke') && typeof request.client === 'string' && request.client.startsWith(REMOTE)) { json(res, 400, { error: { message: `a client named \`${REMOTE}…\` is a paired client's; name yours otherwise` } }); return true; }
     if (url.pathname === '/__tamber/subscribe') {
       if (down) { json(res, 503, { error: { message: who.local ? down : scrubText(down) } }); return true; }
-      const hello = `data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() })}\n\n`;
+      const snapshot = namedPaths({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() }, appDir);
+      const hello = `data: ${JSON.stringify(who.local ? snapshot : forRemote(snapshot))}\n\n`;
       if (!fits(Buffer.byteLength(hello))) { json(res, 503, { error: { message: 'too much is queued to slow readers: try again shortly' } }); return true; }
       track(res);
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -590,7 +591,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         // Missed: no events to apply, the files to start again from.
         // The held list, unless the client named its revision in this run (1.12).
         const has = request?.held === heldRevision && request?.epoch === epoch;
-        const body = { events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), held: heldRevision, ...(has ? {} : { proposals: held() }) };
+        const body = namedPaths({ events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), held: heldRevision, ...(has ? {} : { proposals: held() }) }, appDir);
         if (!fits(Buffer.byteLength(JSON.stringify(body)))) return json(res, 503, { error: { message: 'too much is queued to slow readers: try again shortly' } }); else track(res);
         json(res, 200, who.local ? body : forRemote(body));
       };
