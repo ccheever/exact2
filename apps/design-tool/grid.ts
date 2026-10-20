@@ -224,7 +224,9 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
         facts: b ? [factsText(st), heldText(b.holding), back ? 'reloaded there: its build can\'t navigate' : ''].filter(Boolean).join(' · ') : '',
         note: !b ? 'Waiting for this copy\'s build to say which it is.'
           : !canWrite ? 'Pins need write scope: this copy shows the app\'s own mode.'
-          : words || (st?.app && b.pin ? `The app set ${appText(st.app)}; pinned to ${pinWords(b.pin)}.` : '') || (reason ? `It said: ${reason}` : ''),
+          : words || (reason ? `It said: ${reason}` : ''),
+        // (theme2's F2 condition 5: nothing the app asked is hidden by the pin.)
+        app: st?.app && b?.pin ? `The app set ${appText(st.app)}; pinned to ${pinWords(b.pin)}.` : '',
       });
     }
     return { ok: true, error: '', note, tiles: views };

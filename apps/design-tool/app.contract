@@ -73,6 +73,8 @@ shape GridTile
   ready: bool
   facts: string
   note: string
+  // What the app asked that the copy's pin holds over (theme2's F2 ruling), or "".
+  app: string
 
 shape Grid
   ok: bool
@@ -1578,6 +1580,8 @@ component DesignTool
                         text t.label font="-exact-headline" testId=`grid-label-${t.name}`
                         iframe name=t.name src=t.src width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId=`grid-frame-${t.name}`
                         text (t.note != "" ? t.note : t.facts) color=(t.note != "" ? "-exact-system-orange" : "-exact-secondary-label") font="-exact-caption1" max-width=390 testId=`grid-note-${t.name}`
+                        if t.app != ""
+                          text t.app color="-exact-secondary-label" font="-exact-caption1" max-width=390 testId=`grid-app-${t.name}`
             // The builds (LLP 1122 D4): every running copy, its effective
             // facts from its own report, and pins, which last while the tool
             // runs (its long poll names it) and are handed back when it stops.

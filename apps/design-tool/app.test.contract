@@ -1966,7 +1966,8 @@ test "T7: a grid of live copies, each pinned to its mode on the build its own fr
   request POST "/__stub/event" {"event": "build-status", "build": {"id": "copy-2", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0, "location": "/", "app": {"mode": {"dark-style": "dim"}}}}} as ada
   clock +1000 real
   clock data
-  expect text "grid-note-exact-copy-2" == "The app set dark-style=dim; pinned to dark, dark-style=black."
+  expect text "grid-app-exact-copy-2" == "The app set dark-style=dim; pinned to dark, dark-style=black."
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
   request POST "/__stub/event" {"event": "build-status", "build": {"id": "copy-2", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0, "location": "/"}}} as ada
   // The person moves copy 2: the others follow; copy 3's build can't navigate, so its frame reloads there, and says so.
   request POST "/__stub/move" {"build": "copy-2", "location": "/post/3"} as ada
