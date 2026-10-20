@@ -323,6 +323,42 @@ layout agrees; no browser was run) and
 `testAnAuthoredSpaceUnderTheLastSectionIsUnderItsFooter`; the Signal clone's settings sheet on the iOS 27 simulator (20-point
 gaps, a titled section's header 20 under the card above).
 
+## 6.5 The list's authored ground (2026-10-20, a guidance evaluation)
+
+An app drew decorative art, an `aria-hidden` `svg` at `z-index=-1`, behind a
+native inset-grouped list and wrote `background-color="transparent"` on the
+list. On the other hosts that background replaces the sheet's grouped one
+(D7); iOS kept UIKit's grey, and the art showed only in the status bar's
+strip.
+- **iOS.** Where the list's author writes `background-color` (`wrote`, LLP
+  1115.000 D2), UIKit's grounds are clear and the list's own layer paints the
+  background in its box, as any node's: contrast, elevation and wide colour
+  follow as elsewhere. UIKit's grounds are two: the list configuration's
+  `backgroundColor`, which it paints behind each section, and the collection
+  view's own background, which shows through a clear section ground and
+  below a short list. UIKit gives the collection view the appearance's
+  ground only for a layout with none of its own and leaves its default
+  `systemBackground` for one with a ground, so the host sets it from the
+  first layout on: clear, else the theme's ground for the appearance (LLP
+  1095 D4: `grouped-background`, or for a plain list the page's,
+  `background` else `Canvas`), else UIKit's (`systemGroupedBackground`, or
+  `systemBackground`). The cards keep their
+  own background, as UIKit's list cells keep theirs over a clear collection
+  view.
+- **Past the box.** The list's background past the viewport's edge (§6
+  amended 2026-10-11, `hem`) is masked to what lies outside the list's box,
+  where the list itself paints, so a translucent colour is not laid over
+  itself; it resolves the colour as the list's layer does, and a background
+  written with no colour leaves it clear, as the box is.
+
+Proofs: `GroupedGroundIOSTests` (UIKit's grounds with nothing written,
+light and dark; a translucent colour on the list's layer around opaque
+cards, UIKit's grounds clear, and UIKit's again once unwritten; a ground
+written from the first layout; a plain list's system background, and a
+themed one's `Canvas`; a theme's grouped ground from the first layout);
+`GroupedListSkirtIOSTests` (the mask); the evaluation's app on an iPhone 17
+Pro simulator (iOS 27.0), its art behind the list.
+
 ## 7. Open
 
 - **A real touch's identity when a row's control is replaced.** §6.3's `projected: {row, part}` tells rows and parts apart, not the authored control behind one switch: a `when` that replaces a row's control between the aim and the touch passes as the old one (the switch the finger meets is the same one). Carrying the target id needs the host's model in the dispatch log's landing (astra, round 3 of `code-2026-10-04-grouped-platform-tap`, deferred).
@@ -333,6 +369,10 @@ gaps, a titled section's header 20 under the card above).
   on the web. Contract could refuse it, or the kernel follow the display.
 - **A browser's boundaries.** §6.4's proofs read the kernel's layout and
   UIKit's; a fixture compared in a browser beside UIKit would close it.
+- **A background image or radius without a colour.** §6.5 clears UIKit's
+  grounds only for a written `background-color`: a list's `background-image`
+  or `border-radius` alone stays under UIKit's square grey on iOS, where the
+  web draws the image over the sheet's grey and rounds the corners.
 
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.
 - ~~**Swipe actions on rows.**~~ Built 2026-10-11 (LLP 1116.001 D1; §6.2's entry).
