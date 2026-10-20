@@ -50,6 +50,9 @@ component App
   words a hatch reads), `tamber` (the design's file, else `app.tamber`), `strings` (string
   tables), `typescript.sources` (directories outside the app that `app.ts` imports),
   `commands` (the app's own `bun exact.mjs <verb>`).
+- **`host.ios.appClip`**: `{}` (or `id` and `name`; defaults `<app id>.Clip` and the app's name)
+  embeds an App Clip: the whole app a second time at `Euxy.app/AppClips/Euxy.app`, each
+  `applinks:` domain its `appclips:` one. A device build takes a profile for the clip's App ID.
 - **Not here:** grants (`app.ts`'s `export const grants`), fonts and sounds (Contract).
 - **A change to `app.json`, `assets/`, Swift, grants, `appId`, fonts or strings rebuilds** the
   native app (`bun exact.mjs ios`). An edit to `.contract` files, to `app.ts` (short of its

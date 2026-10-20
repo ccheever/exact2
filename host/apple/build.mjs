@@ -275,9 +275,9 @@ export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets
 }
 
 /** Install the assembled bundle on the simulator, saying a development build put over another kind (`replacedNote`) unless the caller kept that one (`said`). */
-export function install(dev, bundle, app, host = false, said = false) {
+export function install(dev, bundle, app, host = false, said = false, executable = host ? 'ExactHostIOS' : executableName(app)) {
   if (!bundle || !existsSync(bundle)) throw new Error('build the selected app with --ios first');
-  assertAppleIdentity(app, resolve(bundle, host ? 'ExactHostIOS' : executableName(app)));
+  assertAppleIdentity(app, resolve(bundle, executable));
   const replaced = !host && !said && bundle.includes('/development/') ? installedBuild(dev.udid, app.id) : null, r = read('xcrun', ['simctl', 'install', dev.udid, bundle]);
   if (r.status !== 0) throw new Error('simctl install: ' + r.stderr);
   if (replaced && replaced.trust !== 'development') console.error(replacedNote(dev.udid, app, replaced, appleArtifacts(app, { destination: 'ios-simulator', trust: 'production' }).bundle)); }
@@ -318,6 +318,16 @@ export function developmentLinks(app, page, access) {
  * which HealthKit splits the identifier by (LLP 1069.008.000 D3). */
 export const SIMULATOR_PREFIX = 'SIMULATORX';
 
+/** The App Clip `host.ios.appClip` declares, or null: its bundle id (`<app id>.Clip`, as Xcode names one), its
+ * name (the app's) and the executable's name. An App Clip is an app (LLP 1126 D12): the clip bundle runs the whole
+ * app's executable under this second identity, so nothing here is a target of its own. */
+export const appClip = (app) => {
+  const clip = app.manifest.host?.ios?.appClip;
+  if (!clip) return null;
+  const id = clip.id ?? `${app.id}.Clip`, name = clip.name ?? app.displayName;
+  return { id, name, executable: executableName({ id, displayName: name ?? '' }) };
+};
+
 /** Device identity comes from the profile. Simulators need an app identity too:
  * Keychain's default access group is the application-identifier. A
  * simulator's is `SIMULATORX.<id>`, with the bare id it had before kept as a
@@ -334,19 +344,28 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
     // A distribution profile grants no debugger; its entitlements must not ask.
     'get-task-allow': debuggable,
   };
+  // The clip (`clipParent`, the app's id) is its parent's App Clip: the parent's entitlements, the App Group and
+  // Keychain group of the parent's included (how a clip shares data with its app), under the clip's own
+  // application-identifier (Apple, "Creating an App Clip with Xcode", the App Clip entitlement).
+  if (app.clipParent) dict['com.apple.developer.parent-application-identifiers'] = [`${prefix ?? SIMULATOR_PREFIX}.${app.clipParent}`];
   if (hasEntries(app) && !app.widgetTV && !app.widgetHost) {
     dict['com.apple.security.application-groups'] = [widgetGroup(app)];
-    const owner = app.widgetAppId ?? app.id;
+    const owner = app.widgetAppId ?? app.clipParent ?? app.id;
     dict['keychain-access-groups'] = [`${prefix ?? SIMULATOR_PREFIX}.${owner}`, ...(simulator && !team ? [owner] : [])];
     // An activity a server advances (LLP 1126 D9): the app alone reads the update tokens, so the extension
     // (`widgetAppId`) signs none. A development profile grants the sandbox, a distribution one production.
-    if (!app.widgetAppId && activityEntries(app).some(entry => entry.push === true)) dict['aps-environment'] = debuggable ? 'development' : 'production';
+    // The clip's notifications are ephemeral (`NSAppClip`), so it takes no push environment either.
+    if (!app.widgetAppId && !app.clipParent && activityEntries(app).some(entry => entry.push === true)) dict['aps-environment'] = debuggable ? 'development' : 'production';
   }
   // @ref LLP 1038 D8 — explicit applinks entries, or the declared origin.
   const domains = Array.isArray(ios.associatedDomains) ? ios.associatedDomains : ios.associatedDomains && app.origin ? [`applinks:${new URL(app.origin).host}`] : [];
   // @ref LLP 1069.006 D2 — a claimed https auth callback needs `webcredentials:`
   // (the bake's derivation from the `auth.callback` grants, LLP 1069.008).
-  const all = [...new Set([...domains, ...(reach?.auth?.associatedDomains ?? [])])];
+  const linked = [...domains, ...(reach?.auth?.associatedDomains ?? [])];
+  // An App Clip is invoked from its `appclips:` domains, which its parent's entitlements list too (Apple,
+  // "Associating your App Clip with your website"): each `applinks:` host, in the clip in place of the `applinks:`.
+  const clips = appClip(app) && !app.widgetTV ? linked.filter((d) => d.startsWith('applinks:')).map((d) => `appclips:${d.slice('applinks:'.length)}`) : [];
+  const all = [...new Set([...(app.clipParent ? linked.filter((d) => !d.startsWith('applinks:')) : linked), ...clips])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
   for (const name of reach?.entitlements ?? []) dict[name] = true;
   return plistFile(dict);
@@ -410,7 +429,7 @@ const transportSecurity = (section, keys = {}) => {
 };
 
 /** The iOS `Info.plist` from the manifest (LLP 1030 D2: one declaration; `build.mjs` consumes what it generates). The dev client's local-networking permission is `host.ios.localNetworking` (a string: the prompt); the store-required version numbers are counters bake owns, not authored. */
-export const infoPlist = (app, device = false, { executable = executableName(app), id = app.id, name = app.displayName, development = null, icon = {}, distribution = null, distributed = false, reach = null, tv = false } = {}) => {
+export const infoPlist = (app, device = false, { executable = executableName(app), id = app.id, name = app.displayName, development = null, icon = {}, distribution = null, distributed = false, reach = null, tv = false, clip = false } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
   // tvOS reuses the manifest's iOS section; Apple TV is device family 3.
   const families = tv ? [3] : (ios.deviceFamily ?? ['iphone', 'ipad']).map((f) => (f === 'ipad' ? 2 : 1));
@@ -452,7 +471,11 @@ export const infoPlist = (app, device = false, { executable = executableName(app
     const exported = exportedTypes(app);
     if (exported.length) dict.UTExportedTypeDeclarations = exported;
   }
-  Object.assign(dict, openingLinks(app, 'ios', development, distributed), updateActivation(app));
+  // An App Clip is opened through its associated domains, never a URL scheme (Apple, "Choosing the right
+  // functionality for your App Clip"), so the clip registers none: the full app owns the schemes and the dev link.
+  if (clip) dict.NSAppClip = { NSAppClipRequestEphemeralUserNotification: false, NSAppClipRequestLocationConfirmation: false };
+  else Object.assign(dict, openingLinks(app, 'ios', development, distributed));
+  Object.assign(dict, updateActivation(app));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
   Object.assign(dict, distribution, orientationKeys(app.manifest.orientation));
@@ -1268,7 +1291,7 @@ async function main(args, lockHeld = false) {
     placeAppleArtifact(binDir, paths.products);
   };
 
-  const bundleTools = {runApple,appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements};
+  const bundleTools = {runApple,appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements, appClip};
   if (!ios) {
     const bundlePath = assembleMac({shared, macWidgets, triple: moduleTripleFor(app, ios, device, tv), appleReach, hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
     publishProducts();
@@ -1297,12 +1320,16 @@ async function main(args, lockHeld = false) {
   }
   if (args.includes('--no-install')) { if (args.includes('--run')) throw new Error('--no-install takes no --run'); console.log(`host/apple: ${paths.bundle} (${timing()}); built and signed, installed on nothing (--no-install)`); return; }
   const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, app: app.id, dir: app.dir, hint: '--sim <udid|name> (or EXACT_SIM)' });
-  for (const [, host] of bundles) {
-    const placed = host ? hostPaths.bundle : paths.bundle;
+  // A phone installs the clip with the app that embeds it; a simulator registers it (`simctl listapps`, a launch
+  // of its id) only when the nested bundle is installed itself (measured on iOS 26.5: the app's install leaves it out).
+  for (const [, kind] of bundles) {
+    const host = kind === 'host', clip = kind === 'clip' ? appClip(app) : null;
+    const placed = clip ? resolve(paths.bundle, 'AppClips', `${clip.executable}.app`) : host ? hostPaths.bundle : paths.bundle;
     if (device) {
+      if (clip) continue;
       if (!ph.reachable) throw new Error(`${ph.name} is not connected; signed bundle retained at ${placed}`);
       run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, placed]);
-    } else install(dev, placed, app, host);
+    } else install(dev, placed, app, host, !!clip, clip?.executable);
   }
   console.log(`host/apple: ${paths.bundle} on ${dev.name}${dev.udid ? ` ${dev.udid}` : ''} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
   if (args.includes('--run')) {
