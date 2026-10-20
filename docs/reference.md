@@ -1873,7 +1873,7 @@ JSON result or the host's message. The operations:
 | `"sqlite.transaction"` | the same, `execute` commands only | the executes' results, all or none |
 | `"fs.readFile"`, `"fs.atomicWriteFile"`, `"fs.writeFile"`, `"fs.appendFile"` | `{"path"}`, and `"text"` (or `"bytes"`) to write | read: `{"base64"}`; write: `null` |
 | `"fs.mkdir"`, `"fs.rm"`, `"fs.stat"`, `"fs.readdir"`, `"fs.rename"`, `"fs.copyFile"` | `{"path"}`, and `"destination"` to move or copy | as `storage.fs` answers |
-| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}`, and `"type"` (`"image/png"`) | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
+| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}`, and `"type"` (`"image/png"`; absent or `null` is JPEG) | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
 
 Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
 `fs.write app:/data`. Storage is asynchronous and starts after first pixel. It

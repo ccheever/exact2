@@ -157,6 +157,8 @@ fn check(engine: &str, report: &serde_json::Value) {
         assert_eq!(r["badType"], "TypeError", "{engine} {realm}");
     }
     assert_eq!(report["rustPng"], "image/png", "{engine}: {report}");
+    // A null `type` is absent, as the native request reads it.
+    assert_eq!(report["rustNull"], "image/jpeg", "{engine}: {report}");
     assert_eq!(
         report["rust"],
         serde_json::json!({"path":"app:/data/rust.jpg","type":"image/jpeg","width":24,"height":32,"sized":true}),
@@ -321,9 +323,10 @@ const expression = `(async () => {
     const rust = decode(await ask('app:/data/rust.jpg'));
     const rustDenied = decode(await ask('app:/data/denied.jpg', createGrantSet(sets[keys[1]])));
     const rustPng = decode(await requests.run(JSON.stringify({ version: 1, op: 'fs.compressImage', args: { path: 'app:/tmp/in.jpg', destination: 'app:/data/rust.png', maxDimension: 32, maxBytes: 2000000, type: 'image/png' } })));
+    const rustNull = decode(await requests.run(JSON.stringify({ version: 1, op: 'fs.compressImage', args: { path: 'app:/tmp/in.jpg', destination: 'app:/data/rust-null.jpg', maxDimension: 32, maxBytes: 2000000, type: null } })));
     const rustDoc = decode(await requests.run(JSON.stringify({ version: 1, op: 'fs.compressImage', args: { path: 'doc:/1/in.jpg', destination: 'app:/data/x.jpg', maxDimension: 32, maxBytes: 2000000 } })));
     requests.dispose();
-    return JSON.stringify({ page, worker: reply.ok, rust: rust.error ? rust : { path: rust.path, type: rust.type, width: rust.width, height: rust.height, sized: rust.size > 0 }, rustDenied: rustDenied.error, rustDoc: rustDoc.error, rustPng: rustPng.error ?? rustPng.type });
+    return JSON.stringify({ page, worker: reply.ok, rust: rust.error ? rust : { path: rust.path, type: rust.type, width: rust.width, height: rust.height, sized: rust.size > 0 }, rustDenied: rustDenied.error, rustDoc: rustDoc.error, rustPng: rustPng.error ?? rustPng.type, rustNull: rustNull.error ?? rustNull.type });
   })()`;
 const reports = {};
 try {
