@@ -35,7 +35,9 @@ export function gameDefaults(dir) {
   if (!declaration && !(overrides.game?.crate && overrides.game?.type)) return null;
   if (!declaration && (!(overrides.id ?? overrides.app?.id) || !(overrides.name ?? overrides.app?.name)))
     throw new Error(`${path}: explicit id and name are required when the Game declaration cannot be inferred`);
-  const [, type, gameId] = declaration ?? [], name = basename(dir);
+  // A proof snapshot retains the source game's inferred display name.
+  const proofName = process.env.EXACT_PROOF_NAME && resolve(process.env.EXACT_APP_DIR ?? '') === resolve(dir) ? process.env.EXACT_PROOF_NAME : null;
+  const [, type, gameId] = declaration ?? [], name = proofName ?? basename(dir);
   const cargoPath = resolve(dir, 'logic/Cargo.toml');
   const cargo = existsSync(cargoPath) ? readFileSync(cargoPath, 'utf8') : null;
   // The crate follows Game::ID, not the directory: a clone under another name still builds.

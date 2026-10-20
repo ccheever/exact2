@@ -755,6 +755,7 @@ test('a warm web generation is reused only for matching sources, mode, profile a
     expect(takeWarmGame(app,out,{...env,EXACT_GAME_PARANOID:'1'})).toBe(false);
     expect(takeWarmGame(app,out,{...env,EXACT_GAME_PROOF_PROFILE:'release'})).toBe(false);
     expect(takeWarmGame(app,out,{...env,RUSTFLAGS:'-C opt-level=0'})).toBe(false);
+    expect(takeWarmGame({...app,manifest:{...app.manifest,name:'Different'}},out,env)).toBe(false);
     writeFileSync(logic,'source two');
     expect(takeWarmGame(app,out,env)).toBe(false);
     expect(keepWarmGame(app,dist,before,env)).toBe(false);
@@ -764,3 +765,30 @@ test('a warm web generation is reused only for matching sources, mode, profile a
     expect(readFileSync(resolve(out,'gpu_bg.wasm'),'utf8')).toBe('compiled source one');
   } finally { rmSync(root,{recursive:true,force:true}); }
 }, 30000);
+
+test('a snapshot retains only its own source game display name', async () => {
+  const {gameDefaults} = await import('./app/shells.mjs');
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-name-')));
+  const source = resolve(root, 'named-game'), captured = resolve(root, 'src');
+  const previous = {EXACT_APP_DIR:process.env.EXACT_APP_DIR, EXACT_PROOF_NAME:process.env.EXACT_PROOF_NAME};
+  try {
+    for (const dir of [source,captured]) writeFixtureFile(dir,'logic/src/lib.rs',
+      `impl Game for Sample { const ID: &'static str = "named-game"; }`);
+    delete process.env.EXACT_PROOF_NAME;
+    const expected = gameDefaults(source);
+    expect(gameDefaults(captured).app.name).toBe('Src');
+    Object.assign(process.env,{EXACT_APP_DIR:captured,EXACT_PROOF_NAME:'named-game'});
+    expect(gameDefaults(captured)).toEqual(expected);
+    expect(gameDefaults(source)).toEqual(expected);
+    const other = resolve(root,'other-game');
+    writeFixtureFile(other,'logic/src/lib.rs',readFileSync(resolve(source,'logic/src/lib.rs'),'utf8'));
+    expect(gameDefaults(other).app.name).toBe('Other Game');
+    writeFixtureFile(captured,'app.json',JSON.stringify({app:{name:'Authored'}}));
+    expect(gameDefaults(captured).app.name).toBe('Authored');
+  } finally {
+    for (const [key,value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(root,{recursive:true,force:true});
+  }
+});

@@ -409,7 +409,7 @@ export function warmGameInputs(app, env = process.env) {
       || (env.EXACT_UPDATE_TRUST ?? 'development') !== 'development') return null;
   const inputs = proofInputs(root, app.dir, resolve(app.target, 'proof-web-inputs.json'));
   const flags = Object.entries(env).filter(([key]) => /^(RUST|CARGO_PROFILE_|CARGO_ENCODED_|CARGO_TARGET_.*_(RUSTFLAGS|LINKER)$|EXACT_GAME_PARANOID_COMPARE$)/.test(key)).sort();
-  const configuration = JSON.stringify([app.id, env.EXACT_GAME_PARANOID ?? '0', env.EXACT_UPDATE_ORIGIN ?? null, env.EXACT_BACKEND_ORIGIN ?? null, flags]);
+  const configuration = JSON.stringify([app.id, app.manifest, env.EXACT_GAME_PARANOID ?? '0', env.EXACT_UPDATE_ORIGIN ?? null, env.EXACT_BACKEND_ORIGIN ?? null, flags]);
   return {...inputs, configuration, key:createHash('sha256').update(inputs.all + configuration).digest('hex')};
 }
 function warmFiles(directory) {
