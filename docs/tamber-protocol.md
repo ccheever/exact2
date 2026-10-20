@@ -252,7 +252,9 @@ statuses:
   same-site to each other (until its domain is a public suffix), no other origin may include a
   canvas's resources: each answer says `Cross-Origin-Resource-Policy: same-origin`, and a request
   whose Fetch metadata says another origin made it (`Sec-Fetch-Site` neither `same-origin` nor
-  `none`) is refused unless it is a navigation. One session a run: a connection the relay
+  `none`) is refused unless it is a navigation; and every answer, an SVG or any other document
+  the loop sends without the HTML's header included, says `frame-ancestors 'self' <tool origin>`.
+  One session a run: a connection the relay
   greets with other names is not taken. Every remote request's `access.door` (`tls`, `tunnel`,
   `relay`, `local`) is set where the server accepted the stream, never read from a request. The
   relay's word for a client's name is checked against the client's own ClientHello before any

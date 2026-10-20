@@ -31,7 +31,7 @@ afterEach(async () => { for (const c of closing.splice(0)) await c(); });
 async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, label = null, address = '203.0.113.9', drop = false, token = TOKEN } = {}) {
   const idle = [], ungreeted = [], seen = { hellos: [], bytes: [], dials: 0, greets: 0, carried: [] };
   const control = createTLS({ cert: relayCert.cert, key: relayCert.key }, conn => {
-    const ordinal = ++seen.dials; // (this connection's own, as it was accepted)
+    seen.dials++;
     let head = '';
     const onData = d => {
       head += d.toString('latin1');
@@ -41,7 +41,9 @@ async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, l
       if (refuse) { conn.end(`REFUSED ${refuse}\n`); return; }
       if (!head.startsWith('EXACT-RELAY/1 acct\r\n') || !head.includes(`authorization: Bearer ${token}\r\n`)) { conn.end('REFUSED no such account\n'); return; }
       if (greet === null) { ungreeted.push(conn); return; } // (a relay that greets nothing, until a client comes)
-      conn.write(typeof greet === 'function' ? greet(++seen.greets) : greet); // (the order greeted in, which is the order the connector reads names in)
+      // (a function of the order greeted in; it may answer later, with a promise)
+      const g = typeof greet === 'function' ? greet(++seen.greets) : greet;
+      if (typeof g === 'string') conn.write(g); else g.then(x => conn.write(x));
       // (a relay that hands each connection the tool's name and drops it, at once, every time)
       if (drop) { conn.write(`CLIENT ${TOOL} 203.0.113.9\n`); setImmediate(() => conn.destroy()); return; }
       idle.push(conn);
@@ -615,10 +617,14 @@ test('R1b: one mint limit a client across both doors\' gateways', async () => {
 });
 
 test('R1b: one session a run: a connection greeted with another session\'s names is not taken', async () => {
-  const shifty = await fakeRelay({ greet: n => (n === 1 ? `READY ${TOOL} ${CANVAS}\n` : 'READY s2-tool.acct.relay.test s2-canvas.acct.relay.test\n') });
+  // (the second greeting held until the first is read: the session-1 names are surely first)
+  let first;
+  const read = new Promise(ok => { first = ok; });
+  const shifty = await fakeRelay({ greet: n => (n === 1 ? `READY ${TOOL} ${CANVAS}\n` : read.then(() => 'READY s2-tool.acct.relay.test s2-canvas.acct.relay.test\n')) });
   const c = connectRelay(relayOf(shifty.control), { client: () => true, connect: toRelay(shifty.control), warn: () => {}, pool: 2, backoffMs: 10_000 });
   closing.push(() => c.close());
   expect(await c.ready).toEqual({ tool: TOOL, canvas: CANVAS });
+  first();
   await until(() => shifty.seen.dials >= 2);
   // (the second, greeted as another session, cut: only the first stays)
   await until(() => c.live === 1, 2000);
@@ -636,4 +642,26 @@ test('R1b round 2: a canvas client handed down in the same write as the greeting
   // (no session: the canvas answers its entry page, a 200, only once its gateway is in place)
   const entry = await https1(relay.pub, CANVAS, { path: '/canvas/x/' });
   expect(entry.status).toBe(200);
+});
+
+test('R1b round 3: every canvas answer is framed by its tool only, an SVG\'s too; the relay canvas is in place while the TLS canvas binds', async () => {
+  const relay = await fakeRelay();
+  const loop = createHTTP((req, res) => { if (req.url === '/x.svg') { res.setHeader('content-type', 'image/svg+xml'); res.end('<svg xmlns="http://www.w3.org/2000/svg"/>'); } else if (req.url === '/y.svg') { res.setHeader('content-type', 'image/svg+xml'); res.setHeader('content-security-policy', "default-src 'none'"); res.end('<svg xmlns="http://www.w3.org/2000/svg"/>'); } else res.end('{}'); });
+  await new Promise(ok => loop.listen(0, '127.0.0.1', ok));
+  let doors = null;
+  const said = [];
+  const w = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, remote: () => doors?.list() ?? [] });
+  doors = await openRemoteCanvas(w, { remote: { host: '127.0.0.1', port: 0 }, tunnel: null, relay: relayOf(relay.control) }, `http://127.0.0.1:${loop.address().port}`, { connect: toRelay(relay.control), say: l => said.push(l), warn: () => {} });
+  closing.push(async () => { await doors.close(); await w.close(); loop.close(); });
+  // (registered before the TLS canvas's port was awaited)
+  await until(() => relay.idle.length === POOL && said.some(l => l.includes('canvas through the relay')));
+  const pt = await pairThrough(w, relay.pub);
+  const json = t => JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
+  const minted = json((await https1(relay.pub, TOOL, { method: 'POST', path: '/__tamber', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': pt }, body: '{"method":"canvas"}' })).text).ok;
+  const entry = await https1(relay.pub, CANVAS, { method: 'POST', path: new URL(minted.url).pathname, headers: { origin: `https://${CANVAS}`, 'content-type': 'application/json' }, body: JSON.stringify({ grant: minted.grant }) });
+  const cookie = entry.headers['set-cookie'][0].split(';')[0];
+  const svg = await https1(relay.pub, CANVAS, { path: '/x.svg', headers: { cookie } });
+  expect([svg.status, svg.headers['content-security-policy']]).toEqual([200, `frame-ancestors 'self' https://${TOOL}`]);
+  const kept = await https1(relay.pub, CANVAS, { path: '/y.svg', headers: { cookie } });
+  expect(kept.headers['content-security-policy']).toBe(`default-src 'none'; frame-ancestors 'self' https://${TOOL}`);
 });

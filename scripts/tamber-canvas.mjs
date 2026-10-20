@@ -549,6 +549,13 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
       // this governs no-cors subresources, never the tool's frame, and the tool
       // sends no COEP: should it ever, a framed canvas would need its own policy)
       out['cross-origin-resource-policy'] = 'same-origin';
+      // Framed by the tool's origin and its own only, whatever the loop sent
+      // (an SVG, an image or any document the loop answers without the
+      // HTML's header is a navigation another same-site origin could frame).
+      const csp = out['content-security-policy'];
+      const ancestors = `frame-ancestors 'self'${toolOrigin ? ` ${toolOrigin}` : ''}`;
+      if (!csp) out['content-security-policy'] = ancestors;
+      else if (!/(^|[;,])\s*frame-ancestors\b/i.test(csp)) out['content-security-policy'] = `${csp}; ${ancestors}`;
       const type = String(out['content-type'] ?? '');
       const stream = /^text\/event-stream\b/i.test(type);
       const isJSON = /^application\/(?:[\w.+-]+\+)?json\b/i.test(type);
@@ -644,7 +651,8 @@ export function openRelayCanvas(doors, tamber, { loop, say = console.log }) {
  * doors, and the error is thrown. */
 export async function openRemoteCanvas(tamber, asked, loop, options) {
   const doors = await openRemote(tamber, asked, options);
-  try { await openCanvas(doors, tamber, { loop, host: asked.remote?.host, ...options }); } catch (e) { await doors?.close(); throw e; }
+  // (the relay's first, before the TLS canvas's port is awaited: the relay may name its session meanwhile)
   openRelayCanvas(doors, tamber, { loop, ...options });
+  try { await openCanvas(doors, tamber, { loop, host: asked.remote?.host, ...options }); } catch (e) { await doors?.close(); throw e; }
   return doors;
 }
