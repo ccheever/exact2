@@ -1440,11 +1440,15 @@ The tool drives no input into an app; a command changes only what `prefer` would
   a look's row is never offered at its base row's place. A row a `:disabled` or `:checked` part
   folds over its base (one value, `disabled ? D : B`, the runtime's `dynamic`) is read through the
   map (*1.14*, LLP 1122's queue item (2)) where it says both the base and the parts: its `editable`
-  is its base's rung (param, template, style or token: a param's template address the base
-  attribute's, never a part's), and it adds `states: [{state, source, editable}]`, one per folded
-  part (`disabled`, `checked`), `source` the part's place in the form a held row's has, `editable`
-  `set-state` on a style's part or `set-row` with `state` on the node's own. A fold the map can't
-  explain (no base an author wrote: a link's colour, `none`, a metric) stays `dynamic`, read-only. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  is its base's rung, whichever branch the runtime shows now (param, named from the base as written
+  and the component it is in, its template address the base attribute's, never a part's; template,
+  style or token), and it adds `states: [{state, source, editable}]`, one per folded part
+  (`disabled`, `checked`; a later part of a state, the node's over its class's, stands for it),
+  `source` the part's place in the form a held row's has (its node's for a part with none: a
+  conditional class's), `editable` that part's own edit: `set-state` on a style's part or
+  `set-row` with `state` on the node's own, never a param it names (the base's and every other
+  use's). A fold the map can't explain (no base an author wrote: a link's colour, `none`, a
+  metric) stays `dynamic`, read-only. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit).
   A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place (none for a conditional

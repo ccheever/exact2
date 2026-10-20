@@ -104,7 +104,8 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     // (Its page asked to report them again, the answer not in yet: `asking`.)
     heldNote: !shown.held ? '' : !reported && s.asking ? 'Its page is asked for the held look\'s rows.'
       : !reported || !e.held.rows?.length || e.held.provenance === 'incomplete' ? 'Provenance incomplete: this host reports no rows (or not their tokens) for the held look, so it is read-only here.' : '',
-    // A folded `:disabled` or `:checked` row's parts, each beneath its row (queue item (2)): at its place, its own edit.
-    rows: (e.rows ?? []).flatMap((r: any) => [row(r), ...(r.states ?? []).map((p: any) => row({ name: r.name, value: '', state: p.state, source: p.source, editable: p.editable }))]),
+    // A folded `:disabled` or `:checked` row's parts, each beneath its row (queue item (2)): at its place, the value
+    // it writes as written, its own edit.
+    rows: (e.rows ?? []).flatMap((r: any) => [row(r), ...(r.states ?? []).map((p: any) => row({ name: r.name, value: String(p.editable?.text ?? ''), state: p.state, source: p.source, editable: p.editable }))]),
   };
 }

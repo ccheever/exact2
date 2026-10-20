@@ -180,7 +180,9 @@ const scrubbed = (rows, params) => (rows ?? []).map(r => (r.token ? { ...r, toke
 const heldOf = (held, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
 // A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below).
-const authored = name => AUTHORED[name] ?? String(name).replace(/_/g, '-');
+const authored = name => AUTHORED[name] ?? WRITTEN[name] ?? String(name).replace(/_/g, '-');
+// Rows a part may fold whose attribute is named otherwise (contract/lower/src/states.rs RUNNER_ROWS).
+const WRITTEN = { text_color: 'color', tint_color: '-exact-tint-color' };
 // A state part's row as its author wrote it at its place (`at`, in `lines`): a look's border side is the `border-color`
 // written there, its four sides whole, or the side's own longhand (`border-top-color`), as the source says; null for
 // another, which no edit of this row may write. Else its name (`authored`).
@@ -441,29 +443,42 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       // `states` with its own (theme2's and review2's 04:24). One the map can't explain stays dynamic, read-only.
       const folds = asBase(bound.get(r.name)) && row.source === 'dynamic' ? (bound.get(r.name).states ?? []).filter(p => p.state === 'disabled' || p.state === 'checked') : [];
       const rung = rowRung(row, b, map, app, copies, read, own);
-      const shown = folds.length ? { ...row, source: 'authored', token: writtenToken(row, rung, params) } : row;
-      const offered = editable({ ...shown, ...part }, origin, params, unread, stateRung(row, b, app, read, own), rung);
+      // (Its base's token, from the base as written, whichever branch the runtime shows now.)
+      const base = folds.length ? writtenToken(row, rung, params) : null;
+      const shown = base ? { ...row, source: 'authored', token: base.token } : row;
+      const offered = editable({ ...shown, ...part }, origin, params, unread || !!base?.unread, stateRung(row, b, app, read, own), rung);
       const shut = o => (readOnly ? { rung: null, reason: readOnly, link: o.link ?? o.param ?? o.token ?? null } : o);
       const states = folds.map(p => {
         const v = { row: r.name, origin: p.origin, state: p.state, at: p.at }, w = rowRung(row, v, map, app, copies, read, own), st = stateRung(row, v, app, read, own);
-        const e = editable({ ...row, source: 'authored', token: writtenToken(row, st ?? w, params), state: p.state }, p.origin, params, unread, st, w);
-        return { state: p.state, source: p.at ? { file: p.at.file, line: p.at.line, col: p.at.col, end_col: p.at.end_col } : null, editable: shut(e) };
+        // A part's edit is that part's alone: never a param its value names, which the base and every other use share.
+        const e = editable({ ...row, source: 'authored', token: writtenToken(row, st ?? w, params, true).token, state: p.state }, p.origin, params, unread, st, w);
+        // (Its place; a part with none, a conditional class's, its node's.)
+        const at = p.at ?? node;
+        return { state: p.state, source: { file: at.file, line: at.line, col: at.col, end_col: at.end_col }, editable: shut(e) };
       });
       return { ...row, origin, ...part, editable: shut(offered), ...(folds.length ? { states } : {}) };
     }),
   };
 }
 
-/** The token a row's value as written reads (`rung.text`, a rung's), where the row's own names hold it: a param by
- * its name in its component (`param.fill`, the param whose `short` is `Component.fill`) or a token by its name; else
- * none, the value itself (a folded row's base or part, queue item (2), whose runtime value is the fold's). */
-function writtenToken(row, rung, params) {
+/** The token a folded row's base or part reads, from its value as written (`rung.text`, a rung's), and whether it
+ * names a param this server has not read: a param by its full name, the base attribute's file, component and
+ * `param.<name>` (never from the runtime's names, which are the branch it shows now's), never for a part (`part`),
+ * whose edit is its own; a token by its name or role spelling where the row's names hold it; else none (queue
+ * item (2)). */
+function writtenToken(row, rung, params, part = false) {
   const names = row.token?.names ?? [], modes = row.token?.modes ?? '', text = rung?.text;
-  if (typeof text !== 'string') return { names: [], text: '', modes };
-  const short = /^param\.(.+)$/.exec(text)?.[1];
-  const param = short && rung.component ? [...params.values()].find(p => p.short === `${rung.component}.${short}` && names.includes(p.param)) : null;
-  if (param) return { names: [param.param], text: param.param, modes };
-  return names.includes(text) ? { names: [text], text, modes } : { names: [], text, modes };
+  const none = t => ({ token: { names: [], text: t, modes }, unread: false });
+  if (typeof text !== 'string') return none('');
+  const name = /^param\.(.+)$/.exec(text)?.[1];
+  if (name) {
+    if (part) return none(text);
+    const full = rung.file && rung.component ? `${rung.file}#${rung.component}.${name}` : null;
+    const param = full && [...params.values()].find(p => p.param === full);
+    return param ? { token: { names: [param.param], text: param.param, modes }, unread: false } : { ...none(text), unread: true };
+  }
+  const token = names.find(n => n === text || text.replace(/^-exact-/, '') === n);
+  return token ? { token: { names: [token], text, modes }, unread: false } : none(text);
 }
 
 /** The sites of `map` at `source`'s location: every copy of that node. */

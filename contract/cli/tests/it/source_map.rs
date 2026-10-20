@@ -1009,3 +1009,49 @@ component Pill
         "{cond}"
     );
 }
+
+/// A folded row has one part a state: the node's `:disabled` over its
+/// class's shadows it (the value never shows the class's), so `states`
+/// names the node's alone (Grok, round 1 of LLP 1122's queue item (2)).
+#[test]
+fn a_folded_row_has_one_part_a_state() {
+    let app = App::new("folds-one-part");
+    app.write(
+        "app.contract",
+        r##"component App
+  state flag = true
+  view
+    box class=Card disabled=flag testId="card"
+      :disabled
+        background-color = "#999999"
+      text "c"
+
+style Card
+  background-color="#ffffff"
+  :disabled
+    background-color="#111111"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = at(&runner, &map, "card")["bindings"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let bg = rows
+        .iter()
+        .find(|r| r["row"] == "background_color")
+        .unwrap_or_else(|| panic!("{rows:?}"));
+    let parts = bg["states"].as_array().unwrap();
+    assert_eq!(parts.len(), 1, "{bg}");
+    assert_eq!(
+        (parts[0]["origin"].as_str(), parts[0]["at"]["line"].as_u64()),
+        (Some("own"), Some(6)),
+        "{bg}"
+    );
+    assert_eq!(
+        (bg["origin"].as_str(), bg["at"]["line"].as_u64()),
+        (Some("class:Card"), Some(10)),
+        "{bg}"
+    );
+}

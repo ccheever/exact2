@@ -515,6 +515,10 @@ impl Lowerer<'_> {
                     if metric {
                         fold.base = None;
                     }
+                    // One part a state: a later part of the same state (the
+                    // node's over its class's) shadows the earlier, which
+                    // the value never shows.
+                    fold.parts.retain(|(s, _)| *s != state);
                     fold.parts.push((state, row.span));
                     let value = choose(condition.clone(), v, under, row.span)?;
                     folded.push((l, value, row.span, row.written && !metric, by_class, fold));
