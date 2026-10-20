@@ -19,6 +19,61 @@ fn value(v: ScaleValue) -> String {
     }
 }
 
+/// A length over unset base names (an alias of one, or an expression,
+/// stage 12 B2) in each scale column, as the base rows write a column's
+/// value (*1.15*, stage 12 D1): each folded by the kernel's own
+/// per-column evaluator, never a copy; a column it doesn't fold in is left
+/// out. None when the text reads no base name.
+fn columns_of(text: &str) -> Option<Value> {
+    if scale::named_in(text).is_empty() {
+        return None;
+    }
+    // (a bare alias, `space.md`, folded as the one-term expression it is)
+    let text = &match text.contains('(') {
+        true => text.to_string(),
+        false => format!("calc({text})"),
+    };
+    let columns: serde_json::Map<String, Value> = scale::COLUMNS
+        .iter()
+        .filter_map(|(key, column)| {
+            // (the evaluator's f32, to the thousandth: no float noise in the text)
+            let n = (f64::from(scale::evaluate(text, *column)?) * 1000.0).round() / 1000.0;
+            // (the terminal's in cells: the evaluator reads a cell, `1ch`, as
+            // its column's px, so back to cells, as its host rounds them)
+            let v = match *key {
+                "terminal" => ScaleValue::Cells(
+                    (n / f64::from(exact_kernel::style::cells::COLUMN) * 1000.0).round() / 1000.0,
+                ),
+                _ => ScaleValue::Px(n),
+            };
+            Some((key.to_string(), json!({ "value": value(v) })))
+        })
+        .collect();
+    (!columns.is_empty()).then_some(Value::Object(columns))
+}
+
+/// The `when` line of `t` a tuple selects, the one naming the most axes
+/// among those that hold (the checker's rule for a length, whose light
+/// and dark sides are one); None for its default.
+fn branch_of(t: &exact_tamber::Token, axes: &[exact_tamber::Axis], tuple: usize) -> Option<usize> {
+    let mut rest = tuple;
+    let mut chosen = vec![""; axes.len()];
+    for (i, a) in axes.iter().enumerate().rev() {
+        chosen[i] = &a.values[rest % a.values.len()];
+        rest /= a.values.len();
+    }
+    let holds = |(axis, v): &(String, String)| {
+        axes.iter()
+            .position(|a| &a.name.value == axis)
+            .is_some_and(|i| chosen[i] == v)
+    };
+    let holding = (0..t.whens.len()).filter(|&i| t.whens[i].conds.iter().all(holds));
+    let most = holding.clone().map(|i| t.whens[i].conds.len()).max()?;
+    holding
+        .into_iter()
+        .find(|&i| t.whens[i].conds.len() == most)
+}
+
 /// A cell's source as the shape writes it.
 fn source(s: ScaleSource) -> Value {
     match s {
@@ -243,7 +298,12 @@ impl Server {
                                 ("named", Value::Null)
                             }
                         };
-                        return json!({"modes": modes, "value": v.css(), "kind": "length", "unit": unit, "amount": amount});
+                        let mut out = json!({"modes": modes, "value": v.css(), "kind": "length", "unit": unit, "amount": amount});
+                        // Each host's, by column, for one over base names (*1.15*).
+                        if let Some(columns) = columns_of(&v.css()) {
+                            out["columns"] = columns;
+                        }
+                        return out;
                     }
                     exact_tamber::Value::Number(n) => {
                         return json!({"modes": modes, "value": v.css(), "kind": "number", "amount": n});
@@ -342,14 +402,35 @@ impl Server {
             .zip(&folding.design.tokens)
             .find(|(t, _)| t.name == name)
             .ok_or_else(|| no_token(&folding, &name))?;
+        // Each line's value over base names in each column (*1.15*), as the
+        // first tuple that line chooses folds it (a line no tuple chooses,
+        // none).
+        let axes = &folding.design.axes;
+        let columns = |line: Option<usize>| {
+            (0..folding.tuples)
+                .find(|&t| branch_of(declared, axes, t) == line)
+                .and_then(|t| token.values.get(t))
+                .and_then(|v| match v {
+                    exact_tamber::Value::Length(_) => columns_of(&v.css()),
+                    _ => None,
+                })
+        };
         let whens: Vec<Value> = declared
             .whens
             .iter()
-            .map(|w| {
-                json!({"when": w.conds.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(), "value": w.value.value})
+            .enumerate()
+            .map(|(i, w)| {
+                let mut out = json!({"when": w.conds.iter().map(|(a, v)| json!({"axis": a, "value": v})).collect::<Vec<_>>(), "value": w.value.value});
+                if let Some(c) = columns(Some(i)) {
+                    out["columns"] = c;
+                }
+                out
             })
             .collect();
         let mut out = json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names, "files": files_json(&snap)});
+        if let Some(c) = columns(None) {
+            out["columns"] = c;
+        }
         // A param (D15): where it is declared, its default as written, and
         // the design's line that sets the app's value, *1.12*.
         if let Some(p) = app.tokens.iter().find(|p| p.token == name) {

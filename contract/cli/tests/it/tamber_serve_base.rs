@@ -210,3 +210,94 @@ fn each_targets_column_is_the_one_its_host_reads() {
         assert!(scale::COLUMNS.iter().any(|(k, _)| *k == column), "{target}");
     }
 }
+
+/// Stage 12 D1 (*1.15*): a length over unset base names answers each
+/// column's value beside its expression, in resolve's tuples and on
+/// explain's value and `when` lines; one over an app-set base name, or
+/// none, has no columns.
+#[test]
+fn a_length_over_base_names_answers_each_column() {
+    let dir = app(
+        "base-columns",
+        "tamber t
+
+axes
+  density = roomy | tight
+
+theme
+  pad2 = calc(space.md * 2)
+  gap.m = max(space.sm, 12px)
+  edge = 4px
+    when density=tight: calc(space.xs + 2px)
+  space.lg = 20px
+  wide = calc(space.lg * 2)
+  plain = 8px
+  alias = space.md
+",
+    );
+    let mut s = Serve::start(&dir, &[]);
+    // Each column's px, from the kernel's own table (not its evaluator):
+    // `space.md` twice; the larger of `space.sm` and 12px.
+    let px = |name: &str, key: &str| {
+        let column = scale::COLUMNS.iter().find(|(k, _)| *k == key).unwrap().1;
+        match scale::of(name, column).unwrap() {
+            scale::ScaleValue::Px(n) | scale::ScaleValue::Cells(n) => n,
+            scale::ScaleValue::Full => unreachable!(),
+        }
+    };
+    let text = |key: &str, n: f64| match key {
+        "terminal" if n == 0.0 => "0".to_string(),
+        "terminal" => format!("{n}cell"),
+        _ => format!("{n}px"),
+    };
+    let (pad2, _) = s.ask(json!({"method": "resolve", "token": "pad2"}));
+    for (key, _) in scale::COLUMNS {
+        assert_eq!(
+            pad2["ok"]["tuples"][0]["columns"][key]["value"],
+            text(key, px("space.md", key) * 2.0),
+            "{key} {pad2}"
+        );
+    }
+    let (gap, _) = s.ask(json!({"method": "resolve", "token": "gap.m"}));
+    for key in ["ios", "mac", "neutral", "material"] {
+        assert_eq!(
+            gap["ok"]["tuples"][0]["columns"][key]["value"],
+            text(key, px("space.sm", key).max(12.0)),
+            "{key} {gap}"
+        );
+    }
+    // explain: the default (4px) has none; the tight line's own.
+    let (edge, _) = s.ask(json!({"method": "explain", "token": "edge"}));
+    assert!(edge["ok"]["columns"].is_null(), "{edge}");
+    assert_eq!(
+        edge["ok"]["whens"][0]["columns"]["ios"]["value"],
+        text("ios", px("space.xs", "ios") + 2.0),
+        "{edge}"
+    );
+    let (resolved, _) = s.ask(json!({"method": "resolve", "token": "edge"}));
+    assert!(
+        resolved["ok"]["tuples"][0]["columns"].is_null(),
+        "{resolved}"
+    );
+    assert!(
+        !resolved["ok"]["tuples"][1]["columns"].is_null(),
+        "{resolved}"
+    );
+    // One over an app-set base name is one value; one over none, too.
+    for name in ["wide", "plain"] {
+        let (r, _) = s.ask(json!({"method": "resolve", "token": name}));
+        assert!(r["ok"]["tuples"][0]["columns"].is_null(), "{name} {r}");
+        let (e, _) = s.ask(json!({"method": "explain", "token": name}));
+        assert!(e["ok"]["columns"].is_null(), "{name} {e}");
+    }
+    // An alias of one: each host's too.
+    let (alias, _) = s.ask(json!({"method": "resolve", "token": "alias"}));
+    assert_eq!(
+        alias["ok"]["tuples"][0]["columns"]["mac"]["value"],
+        text("mac", px("space.md", "mac")),
+        "{alias}"
+    );
+    let (wide, _) = s.ask(json!({"method": "resolve", "token": "wide"}));
+    assert_eq!(wide["ok"]["tuples"][0]["value"], "40px");
+    let _ = std::fs::remove_dir_all(&dir);
+}
