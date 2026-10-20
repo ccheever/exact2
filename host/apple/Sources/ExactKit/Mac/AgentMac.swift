@@ -722,15 +722,8 @@ extension Agent {
             return ["tapped": Int(v.id), "pinch": scale, "at": at, "delivery": "platform"]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
-        // Files dragged in from Finder (studio diary R19): the drag session
-        // AppKit would run, without a drag — each path as a dropped file's URL
-        // at the point, through the same filter, minting and event.
-        if let paths = req["drop"] as? [String] {
-            guard let node = NodeView.dropTarget(win.contentView?.hitTest(p) ?? v) else { return ["error": "view \(v.id) takes no drop: nothing under it declares `drop`"] }
-            guard node.drop(paths.map { URL(fileURLWithPath: $0) }, at: p) else { return ["error": "drop: refused: no file of a type this app declares"] }
-            session.presenter.settlePump()
-            return ["tapped": Int(node.id), "at": at, "drop": paths.count, "delivery": "presenter"]
-        }
+        // Files dragged in from Finder (studio diary R19; FileDragMac.swift).
+        if let reply = fileDragTap(req, v, at: p, in: win, reply: at) { return reply }
         // Named, a plain click presses what it names (`AgentAddressedTap.swift`):
         // its own press, never a control inside it that its middle reaches.
         var avoided: PressReach?
@@ -831,7 +824,7 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
-        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
+        if let edit = req["clipboard"] as? String { return withAgentPasteboard(req) { clipboardType(v, edit, req["text"] as? String, board: $0) } }
         if v.kind == "native", req["key"] == nil { return nativeType(v, req) }
         // A canvas key takes the same path as a real keyDown: shortcuts and
         // `key` handlers, then the event, which forwards to the surface.

@@ -1554,8 +1554,9 @@ upload the original when it already fits. Under the agent it runs for real with
 ### Documents the person chose (`doc:`)
 
 A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
-`showSaveFilePicker`), or opens from the system at the app's `open-file` node,
-arrives as a `doc:/<n>/<name>` path (LLP 1069.010 D1). `storage.fs` reaches it,
+`showSaveFilePicker`), opens from the system at the app's `open-file` node,
+drops on a node with `drop` or pastes (below), arrives as a `doc:/<n>/<name>`
+path (LLP 1069.010 D1). `storage.fs` reaches it,
 and paths beneath a chosen folder, under the grants `fs.read doc:/` and
 `fs.write doc:/` — the same grants, operations, refusals and codes whether the
 data module is TypeScript or Rust, on every host:
@@ -1646,6 +1647,40 @@ refuses `ENOENT`: ask the person to choose again. Without `doc.keep`
 both calls are refused. Under the agent the kept set is the drive's scratch
 store (`--storage`), never the person's. Linux and iOS keep nothing yet and
 list nothing; the web has neither call yet.
+
+### Files dropped or pasted
+
+A `drop` hands its action a `DragEvent` whose `files` are `doc:` handles of
+any type, a folder's included; a `paste`'s `ClipboardEvent` has `files` too,
+image data with no file (a screenshot) as one `image.png`. Read them as any
+`doc:` path, under `fs.read doc:/`; `storage.fs.stat(path).isDirectory` tells
+a folder. A file drag over a `textarea` or `input` whose node or an ancestor
+declares `drop` lands there, not as path text in the field. `dragenter` and
+`dragleave` bracket the drag over a node, for a drop overlay
+([grammar](contract-grammar.md#pointer)):
+
+```text
+action took(e: DragEvent)
+  paths = e.files
+action pasted(e: ClipboardEvent)
+  if e.files.length > 0
+    paths = e.files
+    preventDefault()
+column dragenter=entered dragleave=left drop=took
+  textarea paste=pasted
+```
+
+| Host | `drop`, `dragenter`, `dragleave` | `ClipboardEvent.files` |
+| --- | --- | --- |
+| Web (JS and wasm targets) | yes: Chromium's handles, else read-only copies; a folder's entry as a read-only folder | `clipboardData.files`, read-only copies |
+| macOS | yes: every file URL Finder drags, a field forwarding the drag to its `drop` node | file URLs, else PNG or TIFF data written as `image.png` |
+| iOS | none (declared; the driver's drag forms answer `unsupported`) | file URLs, else the pasteboard's image as `image.png` |
+| tvOS | none | empty: tvOS has no pasteboard |
+| Linux, Windows, Android, terminal | none (declared; Linux and Windows drivers refuse by name) | empty: these hosts paste text only |
+
+The driver: `tap <target> drop <path…>` (files and folders), `tap <target>
+dragenter <path…>` and `tap <target> dragleave`, `type <target> paste --file
+<path…>` and `type <target> paste --image <png>`.
 
 ### Bake and deliver a TypeScript module
 

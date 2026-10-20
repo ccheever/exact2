@@ -2327,8 +2327,10 @@ button goes down (`buttons` 2 is a right-click's), and a `contextmenu` action ma
 take the same record, where the click was. `wheel` hands a `WheelEvent` (deltas,
 modifiers; a trackpad pinch is a Control-held wheel) and `preventDefault()` keeps
 the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
-handles of the types `file_handlers` declares. See
-[Pointer](contract-grammar.md#pointer).
+handles of any type, a folder's included, and takes a file drag over a field
+inside its node; `dragenter` and `dragleave` bracket the drag for a drop
+overlay; a `paste`'s `ClipboardEvent` carries `files` too. See
+[Pointer](contract-grammar.md#pointer) and [Clipboard](contract-grammar.md#clipboard).
 
 Use `keycapture=shortcut` on a container when its shortcut must run before
 the focused field's `key=` handler. Capture runs outermost first, then the

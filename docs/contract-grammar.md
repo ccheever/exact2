@@ -1286,7 +1286,7 @@ host.
 | Special: zero or one location string, no captured args | `navigate` |
 | Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove`, `contextmenu` (UI Events makes it one: where the secondary click or long press was; a keyboard's menu key targets the focus) |
 | Zero or one `WheelEvent` (the action takes it or leaves it) | `wheel` |
-| Zero or one `DragEvent` (the action takes it or leaves it) | `drop` |
+| Zero or one `DragEvent` (the action takes it or leaves it) | `drop`, `dragenter`, `dragleave` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
 | Zero or one `FocusEvent` (the action takes it or leaves it) | `focusin`, `focusout`: `target` is the focused element's `id` (or `""`); `relatedTarget` is `some(id)` for the other element or `none` |
 | Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
@@ -1515,11 +1515,48 @@ scroll wheel=wheeled …
 desktop) onto the innermost node that declares it: its `DragEvent` is
 `offsetX`, `offsetY`, `files` (a `string[]` of `doc:` handles minted as a
 picker's are, [LLP 1069.010](../llp/1069.010-the-mac-as-a-document-platform.rfc.md)
-D1, readable under `fs.read doc:/`) and the modifiers. Only files of the types
-the manifest's `file_handlers` declares are taken; another is refused into the
-journal. Web (a browser without `getAsFileSystemHandle` hands a read-only copy)
-and macOS; iOS and Linux have none. The driver's `tap <target> drop <path…>`
-drags files in.
+D1, readable under `fs.read doc:/`) and the modifiers. Files of any type are
+taken, and a dropped folder is a folder's handle (`fs.stat` says
+`isDirectory`, `fs.readdir` lists it); the app never learns an absolute
+path. A file drag over an `input` or a `textarea` inside such a node (or
+declaring `drop` itself) is the node's, as on the web, where its listener
+prevents the field's own drop: the field inserts no path text. A text drag,
+and a file drag over a field with no `drop` above it, stay the field's. Web
+(a browser without `getAsFileSystemHandle` hands read-only copies) and macOS;
+iOS, Linux, Windows, Android and the terminal have none. The driver's `tap
+<target> drop <path…>` drags files and folders in.
+
+`dragenter` and `dragleave` are DOM's, as a node hears them when it ignores
+moves between its own descendants (the `currentTarget.contains(relatedTarget)`
+test a drop overlay makes): a node that declares one hears `dragenter` when
+a drag of files from outside the app comes over its box, and `dragleave` when
+it leaves the box or is cancelled. A drop sends `drop` and no `dragleave`, as
+the DOM's does: the drop's action clears what the enter drew. Their
+`DragEvent` has the point and the modifiers and no `files`, which the DOM
+keeps from a page until the drop. They are heard whether or not a `drop`
+will take the files, so an overlay can say where they would land:
+
+```text
+state over = false
+state paths = []
+action entered
+  over = true
+action left
+  over = false
+action took(e: DragEvent)
+  over = false
+  paths = e.files
+column dragenter=entered dragleave=left drop=took position="relative"
+  textarea placeholder="Message"
+  if over
+    column position="absolute" inset=8 pointer-events="none" border-width=2 border-style="dashed" align-items="center" justify-content="center"
+      text "Drop files to attach" role="status"
+```
+
+Web and macOS, as `drop`. The driver's `tap <target> dragenter <path…>`
+brings a drag of those files over the target and leaves it there (for a
+screenshot); `tap <target> drop <path…>` drops it, and `tap <target>
+dragleave` takes it away undropped.
 
 `beforeunload` is DOM's: the window is about to close or the app to quit
 (macOS: its close button, File ▸ Close Window, ⌘Q; the web: leaving the page).
@@ -1545,13 +1582,21 @@ handler, itself or an ancestor — so a node with one takes the focus, as a
 `key` node does. An action that takes one more parameter gets a
 `ClipboardEvent` whose `text` is the clipboard's plain text: what is pasted,
 and empty on `copy` and `cut`, as the DOM's is until a listener sets it — the
-action writes the clipboard with `copyText`. In an `input` or `textarea`
+action writes the clipboard with `copyText`. Its `files` is the paste's
+`clipboardData.files`, each a `doc:` handle as a dropped file's (a copied file
+or folder, any type); image data with no file behind it (a screenshot, an
+image copied from a page) arrives as one `image.png`. A paste of text alone
+has none, and `copy` and `cut` none. Web, macOS and iOS; Linux, Windows,
+Android and the terminal paste text only, and tvOS has no pasteboard
+(`files` is empty). In an `input` or `textarea`
 the event comes first and the field's own cut, copy or paste follows,
 unless the action calls `preventDefault()`, which cancels it as the DOM's
 does (a paste then inserts nothing): on the web and on macOS and iOS alike,
 where the field's editor fires the three (a password field's on macOS
 fires none). The driver's `type <id> paste <text>` delivers a paste
-carrying that text, and `type <id> copy` and `type <id> cut` the others,
+carrying that text, `type <id> paste --file <path…>` one carrying those files
+(and folders), `type <id> paste --image <png>` one carrying that image's data
+with no file, and `type <id> copy` and `type <id> cut` the others,
 without touching the system clipboard; at a field, an unprevented paste
 inserts the text.
 
