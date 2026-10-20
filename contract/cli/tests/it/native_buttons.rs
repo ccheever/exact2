@@ -849,7 +849,7 @@ fn a_radio_group_whose_radios_paint_is_the_authors_once() {
             ))
         );
         let r = boot(&src);
-        let node = r.kernel().node(view_of(&r, "g")).unwrap().clone();
+        let node = r.kernel().node(view_of(&r, "g")).unwrap();
         (
             node.style.appearance,
             node.style.written.has(exact_kernel::StyleId::Appearance),
