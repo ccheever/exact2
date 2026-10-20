@@ -425,6 +425,8 @@ async function buildMotionApp(dir, row) {
       done({ code, signal, timedOut, pid: child.pid, log });
     });
   });
+  expect({ timedOut: built.timedOut, signal: built.signal }, `infrastructure: builder completion ${JSON.stringify(built)}`)
+    .toEqual({ timedOut: false, signal: null });
   if (built.code === 0) {
     const scan = new Bun.Transpiler({ loader: 'js' }), modules = {};
     for (const file of readdirSync(dist).filter(name => name.endsWith('.js'))) {
