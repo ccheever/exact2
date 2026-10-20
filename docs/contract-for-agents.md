@@ -1115,7 +1115,9 @@ each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https:/
 whole scheme, `net.fetch https:` (any host and port, for a server the person names
 at run time; `net.websocket` takes `wss:` or `ws:` the same way); on iOS
 cleartext `http` reaches only a local host, and only with `app.json`'s
-`host.ios.localNetworking` set; an `iframe` of `http://` from a named host needs
+`host.ios.localNetworking` set; a server on the local network needs the grant
+`device.local-network purpose.<key>`, whose text is the platform's prompt on macOS
+and iOS; an `iframe` of `http://` from a named host needs
 `host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
 `{ "allowsArbitraryLoadsInWebContent": true }`, which relaxes web views only and
 not an `http:` sub-resource of the app's own `assets/` page),
@@ -2004,8 +2006,15 @@ For a packaged-only scheme, use
 `[{"protocol":"notes","url":"/open?u=%s","distribution_only":true}]`.
 Apple archives and `--distribution` builds register it; local builds omit both
 its scheme and template. `--bundle` or `--release` alone does not enable it.
-Web builds copy this key into the web app manifest; the browser decides which
-schemes it supports and whether the installed app is registered.
+Web builds copy this key into the web app manifest, without `http` and
+`https`; the browser decides which schemes it supports and whether the
+installed app is registered.
+A Mac web browser declares `https` and `http` together, each with the same
+`url` and the same `distribution_only`: a web link, and an HTML file Finder
+opens in the app (as its `file:` URL), reach that template. The person makes
+the app the default browser in System Settings. iOS registers neither, and
+`host.<platform>.urlSchemes` refuses both
+([reference](reference.md#run-an-app-from-a-terminal-on-macos), its table).
 
 Every route (a node with a `navigationKey` under the root) is a direct child of the
 root or of a `role="tabpanel"` in it — through `for` and `if`, never another
@@ -3724,6 +3733,9 @@ type, over the one `type` implies (iOS: `password`, `email`): `username`,
 `cc-additional-name`, `cc-family-name`, `cc-number`, `cc-exp`, `cc-exp-month`,
 `cc-exp-year`, `cc-csc`, `cc-type`, `bday`, `bday-day`, `bday-month` and
 `bday-year`.
+macOS 26 offers verification codes from Messages and Mail in every text field;
+`app.json`'s `host.macos.oneTimeCodeAutofill: "marked"` keeps them to fields
+marked `one-time-code`.
 `off` clears the content type (the web's `autocomplete="off"`); `on` or a
 list HTML's grammar refuses (the web's default) leaves `type`'s, and so does
 a name the platform has no type for (`country`, `impp`, `sex`), which only the

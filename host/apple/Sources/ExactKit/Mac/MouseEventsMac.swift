@@ -451,7 +451,7 @@ extension NodeView {
     /// for this session and delivered with the `DragEvent`'s line.
     func drop(_ urls: [URL], at windowPoint: NSPoint) -> Bool {
         guard let presenter, let session = presenter.session else { return false }
-        let docs = Self.droppedDocuments(urls, accepts: ExactDocuments.accepts,
+        let docs = Self.droppedDocuments(urls, accepts: { ExactDocuments.accepts($0) },
                                          keep: { session.keepDocument($0, noting: true) }, mint: session.mintDocument)
         guard !docs.isEmpty else {
             session.log("drop: refused: no file could be opened")
