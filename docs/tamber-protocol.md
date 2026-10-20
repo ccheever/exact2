@@ -116,8 +116,8 @@ on macOS and Linux.
   state: a binding's `states`, `[{state, origin, at?}]` (no `at` for a conditional class's part,
   either style's).
 - `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
-  values for a length over unset base names (stage 12 D1); a shadow token's lengths over unset base
-  names, kept as written: in `resolve`'s shadows such a length is null among `lengths`, and
+  values for a length over unset base names (stage 12 D1); a shadow token's lengths as expressions over
+  length tokens and base names, those over unset base names kept as written: in `resolve`'s shadows such a length is null among `lengths`, and
   `length_texts` (only then) gives every length's text, with the base names they read in `bases`
   (stage 12 B3); a param's levels (stage 12 B2-levels):
   `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name`, and

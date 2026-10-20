@@ -857,9 +857,16 @@ row's value is the expression.
   take), a param's range included. A bare unset base name in a ranged param is checked the
   same way, per column, where it was refused before.
 - **What is refused:** `rem`, `em` or `%` beside a base name (as in any `calc()`), a base name
-  times or over a length (a base name's or px), a length added to a number, and shadow lengths
-  over a base name (`tamber-base-expression`, QUEUE). A base name the app's design sets folds
-  through as before.
+  times or over a length (a base name's or px), and a length added to a number. A base name the
+  app's design sets folds through as before.
+- *Amended 2026-10-20 (stage 12 B3; theme2's sign-off):* **a shadow token's lengths** may be any
+  of these: a bare base name, a length token, or a `calc()`, `min()`, `max()` or `clamp()` over
+  length tokens and base names. One length path for every shadow length: over a base the design
+  leaves unset it is kept, each host folding it in its own column (each base read recorded, so an
+  edit of it sets the row again); over px tokens and set bases it folds to px, so a shadow over
+  `space.md` keeps working when the app sets `space.md`. The compiler checks every column, its
+  blur never negative and its lengths within the limits. A literal `box-shadow` row's lengths
+  stay px (QUEUE).
 
 **Packages.** A package (`packages/reading`) may ship `<package>.tamber` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
