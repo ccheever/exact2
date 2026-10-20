@@ -384,7 +384,7 @@ document's names exactly; the integrator checks them against the core lane.
   SDK, ad-hoc signed, run by `simctl spawn`; the angle read back and both panels captured
   by `devicectl`. Without `EXACT_SIM` naming an `iPhone Duo` on iOS ≥ 27.1 it prints
   `duo: unsupported — …` and exits 0. The matrix is open 180°, book 130°, half 90°,
-  closed 0°, never rotated; at each pose the `insets` and `keyboard-bar` fixtures (cover
+  closed 0°, upright (the rotate and resize legs turn the device); at each pose the `insets` and `keyboard-bar` fixtures (cover
   root, insets, keyboard, a fold while editing), the four screens (facts, panes on the
   segments from `layout.env`'s `device-posture`, `horizontal-viewport-segments`,
   `vertical-viewport-segments`, `viewport-segments`; a selection, a scroll offset, a
@@ -396,7 +396,14 @@ document's names exactly; the integrator checks them against the core lane.
   touches (`--touch platform`, 2026-10-20), its scrolls still the agent's wheel and its
   typing the agent's `type`: the touch runner names the app's display, the inner panel
   as the cover (#782), and the driver waits out SpringBoard's fold cloak before a tap
-  (`host/apple/cloak.mjs`). A tap that is not a real touch fails the smoke.
+  (`host/apple/cloak.mjs`). A tap that is not a real touch fails the smoke. A resize leg
+  (2026-10-20) starts a resizable app session (`devicectl device appResize`) with the
+  device turned on its side and sets sizes in it; UIKit gives the window one of its own
+  choosing for each (475 wide for 400, 600×800 for 669×800, iOS 27.1), which devicectl
+  does not report, and the Fold screen is checked against that window, flat and folded:
+  its facts the window's, the panes on the segments, in a window shorter than the panel
+  (which sits at the panel's bottom, its lower segment the panel's) and in the whole panel,
+  nothing on the band.
   When the open pose does not report the recorded 951×669 inner panel, the panel sizes
   and the segments are checked against what the device reports (see below); the panes
   are checked against the two rects `layout.env` reports, whichever axis the device

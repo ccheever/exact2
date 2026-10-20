@@ -10,7 +10,8 @@
 // `devicePosture` folded only when partially folded; no control on the band between
 // the segments; keyboard, sheet, push and scroll state across a fold into,
 // within (130° to 90°) and out of the partially folded state; no
-// sideways range in Reflow's scroller or the Images list; the two-session host's panes. A failed
+// sideways range in Reflow's scroller or the Images list; the two-session host's panes; and,
+// in a resizable app session, the Fold screen following each size UIKit gives its window. A failed
 // check leaves one screenshot of the app in the run's directory.
 //
 // Run by hand, like `smoke deploy`: it needs Xcode 27.1 or newer and a Duo
@@ -20,9 +21,9 @@
 // exits 0, the convention for a missing carrier. The device is turned by the
 // same helper (CoreDevice's orientation commands do not turn the Duo, LLP 1008
 // §9): the suite starts it upright, and the rotate leg turns it at each pose.
-// `--only insets,keyboard-bar,lab,host,rotate` runs the named legs; the keyboard checks
+// `--only insets,keyboard-bar,lab,host,rotate,resize` runs the named legs; the keyboard checks
 // run only when a probe shows a software keyboard on this simulator.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -102,7 +103,7 @@ async function suite({ open: openSession, check: record }, reset) {
   // The phase a check runs in, and the first failure's since the last screenshot, which names it
   let where = 'start', failedAt = null, shots = 0;
   const check = (ok, what) => { if (!ok) { console.log('  FAIL ' + what); failedAt ??= where; } return record(ok, what); };
-  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null; // insets, keyboard-bar, lab, host, rotate
+  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null; // insets, keyboard-bar, lab, host, rotate, resize
   const leg = (name) => !only || only.includes(name);
   const pick = process.env.EXACT_SIM;
   const version = (d) => Number(/iOS-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
@@ -313,17 +314,17 @@ async function suite({ open: openSession, check: record }, reset) {
     await pose(s, 180); // closed to open in a live session, checked
   };
   /** The Fold screen's facts and panes at a pose (`chosen`: the detail selected before). */
-  const foldScreen = async (s, l, tag, deg, chosen) => {
+  const foldScreen = async (s, l, tag, deg, chosen, whole = true) => {
     const t = await s.tree();
     const two = folded(deg);
     const text = (id) => byTestId(t, id)?.props.text;
     check(text('fact-posture') === (two ? 'folded' : 'continuous'), `${tag}: fact-posture is ${text('fact-posture')}, expected ${two ? 'folded' : 'continuous'}`);
     // The segments: the record's two (side by side, or one above the other on the inner panel turned on
-    // its side), or what the device reports (two rects inside the viewport, one row or one column, the band
-    // between them empty).
+    // its side) when the window is the whole panel (`whole`), or what the device reports (two rects inside the
+    // viewport, one row or one column, the band between them empty).
     const segs = Array.isArray(l.env['viewport-segments']) ? l.env['viewport-segments'] : null;
     const h = l.env['horizontal-viewport-segments'], v = l.env['vertical-viewport-segments'];
-    if (recorded) {
+    if (recorded && whole) {
       const across = l.viewport.w > l.viewport.h, want = !two ? [] : across ? SEGMENTS : STACKED, grid = !two ? '1×1' : across ? '2×1' : '1×2';
       check(`${h}×${v}` === grid && JSON.stringify(segs) === JSON.stringify(want), `${tag}: layout.env reports segments ${h}×${v} ${JSON.stringify(segs)}, expected ${grid} ${JSON.stringify(want)}`);
     } else if (two) {
@@ -789,4 +790,83 @@ async function suite({ open: openSession, check: record }, reset) {
     } finally { stream.close(); }
   }
 
+  // 6. Resizing: a resizable app session (`devicectl device appResize`), which starts only with the device turned on
+  // its side and the scene turned with it (upright, devicectl refuses it). UIKit gives the window a size of its own
+  // choosing for each one asked (iOS 27.1, the inner panel turned: 475 wide for 400, 600×800 for 669×800), which
+  // devicectl does not report, so the checks are the Fold screen's at each: its facts the window's size, one pane above
+  // the other flat, and folded, in a window shorter than the panel and in the whole panel, the panes on its segments
+  // and nothing on the band. A shorter window sits at the panel's bottom, so its lower segment is the panel's.
+  if (leg('resize')) {
+    const s = await open({ host: 'ios', app: 'duo-lab' });
+    let session = null, said = '';
+    const live = () => session && session.exitCode === null && session.signalCode === null;
+    /** Whether the scene took the device's turn on its side within `ms`: its interface orientation, as the rotate leg reads it. */
+    const turned = async (ms) => {
+      for (const end = Date.now() + ms; Date.now() < end; await sleep(100)) {
+        if ((await s.layout()).screen?.orientation === TURNED.inner['landscape-right'][0]) return true;
+      }
+      return false;
+    };
+    try {
+      where = 'resize';
+      await pose(s, 180);
+      applies(await s.layout());
+      const first = byTestId(await s.tree(), 'detail-title')?.props.text;
+      await s.tap('item-2'); await settle(s);
+      const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
+      check(typeof chosen === 'string' && chosen.length > 0 && chosen !== first, `${where}: item-2 selected another detail: ${first} → ${chosen}`);
+      await orient('landscape-right', s);
+      // The scene turns after CoreDevice reports it, and a session asked for before then is refused. Twice in about ten
+      // probes no scene turned until the hinge next moved (QUEUE), so the hinge moves once if the turn is lost.
+      if (!await turned(10000)) {
+        console.log(`duo resize: the turn reached no scene within 10 s; folding and opening again to let it through`);
+        await pose(s, 130); await pose(s, 180);
+      }
+      if (!check(await turned(10000), `${where}: the scene did not turn with the device`)) throw new Error('no turn');
+      await settle(s);
+      const panel = (await s.layout()).viewport;
+      session = spawn('xcrun', ['devicectl', 'device', 'appResize', 'start', '-d', udid, '--preferred-size', `${panel.w}x${panel.h}`], { stdio: ['ignore', 'pipe', 'pipe'] });
+      for (const out of [session.stdout, session.stderr]) out.on('data', (d) => { said += d; });
+      for (const end = Date.now() + 20000; !/Session active/.test(said) && live() && Date.now() < end;) await sleep(100);
+      if (!check(/Session active/.test(said), `${where}: devicectl started no resizable session: ${said.trim().split('\n').slice(-2).join(' | ')}`)) throw new Error('no session');
+      // Each size asked, flat or folded (the panel's share of 669×951 at 500 and 400 wide, 800 tall); one asked anew
+      // takes the window to a new size, inside the panel
+      const part = (n, of) => Math.round(n * of);
+      let prior = panel, asked = null;
+      for (const [w, h, deg] of [[part(panel.w, 500 / 669), panel.h, 180], [part(panel.w, 400 / 669), panel.h, 180], [panel.w, part(panel.h, 800 / 951), 180], [panel.w, part(panel.h, 800 / 951), 130], [panel.w, panel.h, 130], [panel.w, panel.h, 180]]) {
+        await shot(s); // a failure at the last size, photographed before the next is asked
+        where = `resize-${w}x${h}-${deg}`;
+        const r = spawnSync('xcrun', ['devicectl', 'device', 'appResize', 'set', '-d', udid, '--preferred-size', `${w}x${h}`], { encoding: 'utf8' });
+        check(r.status === 0, `${where}: devicectl set no size: ${(r.stderr || r.stdout).trim()}`);
+        const anew = asked !== `${w}x${h}`, same = (l) => l.viewport.w === prior.w && l.viewport.h === prior.h;
+        for (let i = 0; anew && i < 50 && same(await s.layout()); i++) await sleep(100);
+        await pose(s, deg);
+        const l = await s.layout();
+        console.log(`  ${where}: window ${l.viewport.w}×${l.viewport.h} insets t${l.env['safe-area-inset-top']} b${l.env['safe-area-inset-bottom']} posture ${l.env['device-posture']} segments ${JSON.stringify(l.env['viewport-segments'])}`);
+        check(l.viewport.w <= panel.w && l.viewport.h <= panel.h && (!anew || !same(l)), `${where}: the window took a new size inside the panel ${panel.w}×${panel.h}: ${prior.w}×${prior.h} → ${l.viewport.w}×${l.viewport.h}`);
+        const whole = l.viewport.w === panel.w && l.viewport.h === panel.h;
+        await foldScreen(s, l, where, deg, chosen, whole);
+        if (folded(deg)) {
+          await offBand(s, l, where);
+          // In the window's own coordinates: the division's 40 points, and below it the panel's lower segment
+          const [a, b] = l.env['viewport-segments'] ?? [], gap = b && a ? b[1] - a[1] - a[3] : null;
+          if (recorded && !whole) check(near(gap, STACKED[1][1] - STACKED[0][3]) && near(b?.[3], STACKED[1][3]), `${where}: the window's segments are UIKit's division in it, the band ${gap} points and the lower segment the panel's ${STACKED[1][3]}: ${JSON.stringify(l.env['viewport-segments'])}`);
+        }
+        prior = l.viewport; asked = `${w}x${h}`;
+      }
+    } catch (e) { if (!['no session', 'no turn'].includes(e.message)) check(false, `${where}: ${e.message}`); } finally {
+      // Whatever failed, the session is asked to end, then made to, and the device is left open and upright for the next
+      // run: a session left open once cost the simulator its turns until it rebooted (QUEUE)
+      await shot(s);
+      for (const signal of ['SIGINT', 'SIGTERM', 'SIGKILL']) {
+        if (!live()) break;
+        session.kill(signal);
+        for (const end = Date.now() + 5000; live() && Date.now() < end;) await sleep(100);
+      }
+      check(!live(), `${where}: devicectl's resizable session did not end`);
+      hinge(180);
+      await orient('portrait', s);
+      await s.close().catch((e) => check(false, `resize: the session did not close: ${e.message}`));
+    }
+  }
 }
