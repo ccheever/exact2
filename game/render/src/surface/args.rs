@@ -4,6 +4,35 @@ use super::{observer, Clock, Executor, Game, Perf, Sim, SurfaceError, Value, Wor
 use exact_game::Args;
 
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+    /// The world raster's scale: the rung's choice, or the game's own.
+    pub(super) fn raster_scale(&self) -> f32 {
+        let game = self
+            .sim
+            .as_ref()
+            .map_or(exact_game::AUTO_RENDER_SCALE, |sim| {
+                G::render_scale(sim.args())
+            });
+        self.rung
+            .map_or(crate::quality::unresolved_scale(game), |rung| {
+                rung.scale(game)
+            })
+    }
+    /// The device's tier changed (`prefer gpu-tier`): the rung is resolved
+    /// again, and a renderer made at another rung is released, as on a lost
+    /// device, to be made again under the same world. True when released.
+    pub(super) fn retier_rung(&mut self) -> bool {
+        let Some(sim) = &self.sim else { return false };
+        let next = crate::quality::Rung::resolve(G::quality(sim.args()), exact_gpu::tier());
+        if self.rung == Some(next) {
+            return false;
+        }
+        self.rung = Some(next);
+        if self.render.is_none() {
+            return false;
+        }
+        exact_gpu::Surface::device_lost(self);
+        true
+    }
     pub(super) fn surface_arguments(&self) -> Vec<(&'static str, Value)> {
         G::Args::FIELDS
             .iter()

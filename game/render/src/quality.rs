@@ -3,7 +3,7 @@
 //! each rung clamps of what the game left unsaid. Presentation only: nothing
 //! here reaches the world, its saves or its hash.
 
-use exact_game::{AoQuality, Quality, SceneSamples};
+use exact_game::{Quality, SceneSamples, AUTO_RENDER_SCALE};
 use exact_gpu::GpuTier;
 
 /// A resolved rung of the ladder.
@@ -38,16 +38,27 @@ impl Rung {
         }
     }
 
-    /// The world raster's scale: the game's `render_scale` when it asks for
-    /// less than full size, else the rung's.
+    /// The world raster's scale: the game's `render_scale` when it returns
+    /// one, else ([`AUTO_RENDER_SCALE`], the default) the rung's.
     pub fn scale(self, game: f32) -> f32 {
-        if game < 1.0 {
-            return game;
+        if game == AUTO_RENDER_SCALE {
+            self.factor(game)
+        } else {
+            game
+        }
+    }
+
+    /// What the rung scales a full-size raster by: its own scale when the
+    /// game left `render_scale` to it, else 1. A look frame, drawn at the
+    /// size its request names, takes this.
+    pub fn factor(self, game: f32) -> f32 {
+        if game != AUTO_RENDER_SCALE {
+            return 1.0;
         }
         match self.level {
             GpuTier::Low => 0.5,
             GpuTier::Mid => 0.75,
-            GpuTier::High => game,
+            GpuTier::High => 1.0,
         }
     }
 
@@ -69,13 +80,9 @@ impl Rung {
                 }
             }
         }
-        if self.level == GpuTier::Low {
-            if let Some(ao) = &mut input.ambient_occlusion {
-                ao.quality = AoQuality::Low;
-            }
-            // LLP 1139.002 D4's `caustics` and `shafts` frame-uniform flags are
-            // cleared here under `Low` once that lane's flags exist.
-        }
+        // An inserted `AmbientOcclusion` is the game's, quality and all. LLP
+        // 1139.002 D4's `caustics` and `shafts` frame-uniform flags are cleared
+        // here under `Low` once that lane's flags exist.
     }
 
     fn json(self, samples: SceneSamples, scale: f32) -> String {
@@ -91,6 +98,16 @@ impl Rung {
             self.level.keyword(),
             samples.count()
         )
+    }
+}
+
+/// The raster's scale before a binding resolved a rung: the game's, full
+/// size by default.
+pub(crate) fn unresolved_scale(game: f32) -> f32 {
+    if game == AUTO_RENDER_SCALE {
+        1.0
+    } else {
+        game
     }
 }
 
@@ -111,7 +128,7 @@ pub(crate) fn row(rung: Option<Rung>, game: SceneSamples, scale: f32, reply: &mu
 #[cfg(test)]
 mod tests {
     use super::Rung;
-    use exact_game::{Quality, SceneSamples};
+    use exact_game::{Quality, SceneSamples, AUTO_RENDER_SCALE};
     use exact_gpu::GpuTier;
 
     #[test]
@@ -146,9 +163,50 @@ mod tests {
             SceneSamples::One,
             "the game's samples are the ceiling"
         );
-        assert_eq!(low.scale(1.0), 0.5);
-        assert_eq!(mid.scale(1.0), 0.75);
-        assert_eq!(high.scale(1.0), 1.0);
+        assert_eq!(low.scale(AUTO_RENDER_SCALE), 0.5);
+        assert_eq!(mid.scale(AUTO_RENDER_SCALE), 0.75);
+        assert_eq!(high.scale(AUTO_RENDER_SCALE), 1.0);
         assert_eq!(low.scale(0.8), 0.8, "a game's own render_scale stands");
+        assert_eq!(low.scale(1.0), 1.0, "an explicit full size stands too");
+        assert_eq!((low.factor(1.0), low.factor(AUTO_RENDER_SCALE)), (1.0, 0.5));
+    }
+
+    #[test]
+    fn a_clamp_leaves_the_games_own_ambient_occlusion_and_shadows() {
+        use exact_game::{AmbientOcclusion, AoQuality, Shadows};
+        let sun = || crate::Sun {
+            shadows: Some(Shadows::default()),
+            ..Default::default()
+        };
+        let low = Rung::resolve(Quality::Low, GpuTier::High);
+        let mut input = crate::FrameInput {
+            sun: Some(sun()),
+            ambient_occlusion: Some(AmbientOcclusion {
+                quality: AoQuality::High,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        low.clamp(&mut input, false);
+        assert!(
+            input.sun.unwrap().shadows.is_none(),
+            "an unsaid sun shadow goes"
+        );
+        assert_eq!(input.ambient_occlusion.unwrap().quality, AoQuality::High);
+        let mut kept = crate::FrameInput {
+            sun: Some(sun()),
+            ..Default::default()
+        };
+        low.clamp(&mut kept, true);
+        assert!(
+            kept.sun.unwrap().shadows.is_some(),
+            "an inserted Shadows stands"
+        );
+        let mut mid = crate::FrameInput {
+            sun: Some(sun()),
+            ..Default::default()
+        };
+        Rung::resolve(Quality::Mid, GpuTier::High).clamp(&mut mid, false);
+        assert_eq!(mid.sun.unwrap().shadows.unwrap().cascades, 1);
     }
 }

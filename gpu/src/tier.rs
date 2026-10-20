@@ -68,13 +68,27 @@ impl GpuTier {
 const UNSET: u8 = u8::MAX;
 static TIER: AtomicU8 = AtomicU8::new(UNSET);
 
-/// The tier this module's surfaces use: what the host told, else what the
-/// module chose when it made the device, else `high`.
+thread_local! {
+    static THREAD: std::cell::Cell<Option<GpuTier>> = const { std::cell::Cell::new(None) };
+}
+
+/// The tier this module's surfaces use: this thread's ([`set_thread_tier`]),
+/// else what the host told, else what the module chose when it made the
+/// device, else `high`.
 pub fn tier() -> GpuTier {
+    if let Some(tier) = THREAD.with(std::cell::Cell::get) {
+        return tier;
+    }
     match TIER.load(Ordering::Acquire) {
         UNSET => GpuTier::High,
         code => GpuTier::from_code(u32::from(code)),
     }
+}
+
+/// A tier for this thread alone, over the process's: a test's, which must
+/// not retier the other tests in its binary. `None` hands it back.
+pub fn set_thread_tier(tier: Option<GpuTier>) {
+    THREAD.with(|t| t.set(tier));
 }
 
 /// The host's answer (`gpu_tier`), which stands over the module's own.
@@ -82,8 +96,10 @@ pub fn set_tier(tier: GpuTier) {
     TIER.store(tier.code() as u8, Ordering::Release);
 }
 
-/// Whether a host has told the tier or the module has chosen one.
-pub(crate) fn chosen() -> bool {
+/// Whether a host has told the tier or the module has chosen one. A device
+/// a fixture or a headless world's look frame makes never chooses it.
+#[doc(hidden)]
+pub fn chosen() -> bool {
     TIER.load(Ordering::Acquire) != UNSET
 }
 
@@ -116,9 +132,15 @@ pub fn classify(vendor: &str, architecture: &str, software: bool, handheld: bool
             _ => GpuTier::Low,
         })
     } else if vendor.contains("arm") || architecture.contains("mali") {
-        // Valhall and later are mid; Midgard and Bifrost are low.
+        // Valhall and later are mid; Midgard (Mali-T) and Bifrost (Mali-G31,
+        // G51, G52, G71, G72, G76) are low, by family word or model name.
+        let bifrost = number("mali-g").is_some_and(|g| [31, 51, 52, 71, 72, 76].contains(&g));
         Some(
-            if architecture.contains("midgard") || architecture.contains("bifrost") {
+            if architecture.contains("midgard")
+                || architecture.contains("bifrost")
+                || architecture.contains("mali-t")
+                || bifrost
+            {
                 GpuTier::Low
             } else {
                 GpuTier::Mid
@@ -147,6 +169,28 @@ pub fn classify(vendor: &str, architecture: &str, software: bool, handheld: bool
     }
 }
 
+impl crate::Module {
+    /// Every canvas takes the current tier: one that released its renderer
+    /// for it is prepared again on the same device, its state untouched.
+    pub fn retier(&mut self) {
+        for inst in self.instances.values_mut() {
+            if !inst.surface.retier() {
+                continue;
+            }
+            if let Some(gpu) = &self.gpu {
+                inst.surface.device_ready(gpu.device.features());
+                if let Some(config) = &inst.config {
+                    inst.surface.prepare_assets(
+                        &gpu.device,
+                        &gpu.queue,
+                        crate::view_format(config),
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// The tier a native module chooses from the adapter it requested, when its
 /// host told none: a phone's or a tablet's system is a handheld.
 pub fn for_adapter(info: &wgpu::AdapterInfo) -> GpuTier {
@@ -172,6 +216,7 @@ pub fn for_adapter(info: &wgpu::AdapterInfo) -> GpuTier {
 }
 
 /// Record the module's own choice, unless the host has told one.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn choose(info: &wgpu::AdapterInfo) {
     if !chosen() {
         let _ = TIER.compare_exchange(
@@ -200,6 +245,14 @@ mod tests {
         );
         assert_eq!(classify("arm", "valhall", false, true), GpuTier::Mid);
         assert_eq!(classify("arm", "bifrost", false, true), GpuTier::Low);
+        // Vulkan's model names: Bifrost and Midgard low, Valhall mid.
+        assert_eq!(classify("arm", "Mali-G76", false, true), GpuTier::Low);
+        assert_eq!(classify("arm", "Mali-T880", false, true), GpuTier::Low);
+        assert_eq!(classify("arm", "Mali-G78", false, true), GpuTier::Mid);
+        assert_eq!(
+            classify("qualcomm", "adreno-10xx", false, true),
+            GpuTier::Mid
+        );
         assert_eq!(classify("apple", "metal-3", false, false), GpuTier::High);
         assert_eq!(classify("apple", "metal-3", false, true), GpuTier::Mid);
         assert_eq!(classify("nvidia", "ampere", false, false), GpuTier::High);

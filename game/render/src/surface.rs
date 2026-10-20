@@ -297,11 +297,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     for WorldSurface<G, P, ASSETS, H>
 {
     fn render_scale(&self) -> f32 {
-        let game = self
-            .sim
-            .as_ref()
-            .map_or(1.0, |sim| G::render_scale(sim.args()));
-        self.rung.map_or(game, |rung| rung.scale(game))
+        self.raster_scale()
+    }
+    fn retier(&mut self) -> bool {
+        self.retier_rung()
     }
     fn clock(&mut self, seekable: bool) {
         self.seekable = seekable;

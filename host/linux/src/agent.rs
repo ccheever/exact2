@@ -643,6 +643,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let mut page = p.host().runner().page();
     let mut root_font_size = None;
     let mut display_scale = None;
+    let mut retier = None;
     let mut dark = p.scheme.1;
     for (name, value) in media {
         match (name.as_str(), value.as_str().unwrap_or_default()) {
@@ -706,12 +707,14 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("can-share-pictures", v @ ("true" | "false")) => page.can_share_pictures = v == "true",
             ("can-open-files", v @ ("true" | "false")) => page.can_open_files = v == "true",
             ("has-focus", v @ ("true" | "false")) => page.has_focus = v == "true",
-            // @ref LLP 1139.003 D2 — the fact; the rung stays the one the renderer was made at.
+            // @ref LLP 1139.003 D2 — the fact, and the modules' tier: their
+            // renderers are made again at the new rung.
             ("gpu-tier", v @ ("high" | "mid" | "low")) => {
                 page.gpu_tier = exact_runner::page::GPU_TIERS
                     .iter()
                     .position(|t| *t == v)
-                    .unwrap_or(0) as u8
+                    .unwrap_or(0) as u8;
+                retier = Some(page.gpu_tier);
             }
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
                 root_font_size = v.parse::<f64>().ok()
@@ -734,6 +737,9 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     preferences.dark = dark;
     if let Some(e) = p.set_preferences(preferences) {
         return error(&e);
+    }
+    if let Some(code) = retier {
+        p.retier_surfaces(code);
     }
     if let Some(e) = p.set_page(page) {
         return error(&e);

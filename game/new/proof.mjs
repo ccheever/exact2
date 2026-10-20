@@ -184,23 +184,29 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const tall = await open({fresh:true});
   await tall.resize(420, 900);
   await play(tall);
-  const middle = async () => {
+  // The canvas's box, the HUD nodes crossing its middle third, and the named nodes not wholly inside it.
+  const measure = async (ids = []) => {
     const tree = await tall.tree(), boxes = await tall.layout(), owner = node(tree, 'world');
     const box = boxes.nodes.find(n => n.id === owner.id), parents = new Map(tree.nodes.map(n => [n.id, n.parent]));
     const inside = id => { for (let p = parents.get(id); p != null; p = parents.get(p)) if (p === owner.id) return true; return false; };
     const third = {x: box.x + box.w / 3, y: box.y + box.h / 3, w: box.w / 3, h: box.h / 3};
-    return boxes.nodes.filter(n => inside(n.id) && n.w > 0 && n.h > 0 && n.x < third.x + third.w && third.x < n.x + n.w && n.y < third.y + third.h && third.y < n.y + n.h)
+    const crossing = boxes.nodes.filter(n => inside(n.id) && n.w > 0 && n.h > 0 && n.x < third.x + third.w && third.x < n.x + n.w && n.y < third.y + third.h && third.y < n.y + n.h)
       .map(n => tree.nodes.find(t => t.id === n.id)?.props?.testId ?? n.id);
+    const off = ids.filter(id => { const b = boxes.nodes.find(n => n.id === node(tree, id)?.id);
+      return !b || b.w <= 0 || b.h <= 0 || b.x < box.x || b.y < box.y || b.x + b.w > box.x + box.w || b.y + b.h > box.y + box.h; });
+    return {crossing, off};
   };
   const upright = await tall.tree();
   check('portrait: the panel waits behind Menu', !node(upright, 'panel') && !!node(upright, 'panel-open'));
-  check('portrait: no HUD node crosses the middle third of the world', (await middle()).length === 0, await middle());
+  check('portrait: no HUD node crosses the middle third of the world', (await measure()).crossing.length === 0, await measure());
   await tall.tap('panel-open');
+  const sheet = await measure(['panel', 'touch-controls', 'panel-close']);
+  check('portrait: the open sheet is on screen and clear of the middle third', sheet.crossing.length === 0 && sheet.off.length === 0, sheet);
   await tall.tap('touch-controls');
   await tall.tap('panel-close');
-  const strip = await tall.tree();
-  check('portrait: the sheet\'s Touch controls show the bottom strip', ['move', 'jump', 'light'].every(id => !!node(strip, id)) && !node(strip, 'panel'));
-  check('portrait: the strip leaves the middle third clear too', (await middle()).length === 0, await middle());
+  const strip = await tall.tree(), controls = await measure(['move', 'jump', 'light']);
+  check('portrait: the sheet\'s Touch controls show the bottom strip on screen', controls.off.length === 0 && !node(strip, 'panel'), controls);
+  check('portrait: the strip leaves the middle third clear too', controls.crossing.length === 0, controls);
   await tall.close();
   // The scene from above as well as from the game's camera: what the camera never shows.
   const plan = await look(pointerSession, {top: 30}, 'plan').catch(error => ({unavailable: error.unavailable ?? error.message}));

@@ -121,6 +121,7 @@ const pendingRecovery = () => {
 };
 async function settleModule() {
   await ready;
+  await Promise.all([...surfaces.values()].map(e => e.refusalPage?.ready));
   if (trapped()) return [];
   const deadline = performance.now() + 2500;
   while ((recoveringDevice || recoveryTimer) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 0));
@@ -267,7 +268,7 @@ function fallback(entry) {
   if (entry.fallbackApplied) return;
   entry.fallbackApplied = true;
   // No adapter: the canvas's box says why, and world requests are refused by type (LLP 1139.003 D1).
-  if (api.recovery?.code === "no-adapter") { showRefusal(entry); entry.unsupported = refusal(api.recovery.error); }
+  if (api.recovery?.code === "no-adapter") { entry.unsupported = refusal(api.recovery.error); showRefusal(entry); }
   entry.terminal = true;
   entry.wants = false;
   for (const row of entry.children ?? []) restoreChild(row);
@@ -1037,18 +1038,16 @@ const api = {
     schedule();
     return worlds;
   },
-  /// The agent's `prefer gpu-tier` (LLP 1139.003 D2): the module's surfaces
-  /// are made again, each carrying its world, so their renderers read the new
-  /// tier's rung; a rung is otherwise read once, when a renderer is made.
+  /// The agent's `prefer gpu-tier` (LLP 1139.003 D2): each canvas's renderer
+  /// is made again at the new tier's rung, on the same device, under the same
+  /// world and surface; a rung is otherwise read once, when a renderer is made.
   retier(tier) {
     tierCode = Math.max(0, TIERS.indexOf(tier));
-    if (!loaded || terminalDevice) return;
+    if (!loaded || terminalDevice || trapped()) return;
     gpu.gpu_tier?.(tierCode);
-    const kept = [...surfaces.values()].filter(e => live(e.view) === e).map(e => [e.view, e.name, e.values]);
-    if (!kept.length) return;
-    this.reset(true);
-    for (const [view, name, values] of kept) this.surface(view, name, values);
-    this.finishRestart();
+    gpu.gpu_retier?.();
+    for (const entry of surfaces.values()) if (entry.id && !entry.terminal) entry.wants = true;
+    schedule();
   },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
   schedule() { for (const entry of surfaces.values()) if (entry.id && !entry.terminal && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },

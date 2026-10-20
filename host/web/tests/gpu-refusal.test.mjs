@@ -136,19 +136,21 @@ test('a Rust-edit candidate trap leaves the committed world driveable and skips 
 test('a browser without WebGPU shows the refusal page in the canvas box and refuses world requests by type', async () => {
   const {cdpBrowser} = await import('../../../scripts/agent-launch.mjs');
   const web = resolve(import.meta.dir,'..');
-  const html = `<button id="menu">Menu</button><div id="host" style="width:300px;height:200px"><canvas data-surface></canvas><button id="hud">Play</button></div><script type="module">
+  const html = `<button id="menu">Menu</button><div id="host" style="width:300px;height:200px;position:relative"><canvas data-surface></canvas><button id="hud" style="position:absolute;top:0">Play</button></div>
+    <div id="sky" style="width:300px;height:200px"><canvas data-surface style="position:absolute"></canvas><div id="content"><button id="change">Change station</button></div></div><script type="module">
     Object.defineProperty(Navigator.prototype,'gpu',{get(){return undefined;},configurable:true});
     globalThis.loaded=false;
     const host=document.getElementById('host');
-    globalThis.exact={views:new Map([[1,host]]),root:document.body,devAssets:[],generation:0,pageFacts:{agent:false,read:()=>({}),tell(){},changed(){}}};
-    await import('/gpu-glue.js'); exact.gpu.surface(1,'world',[]); await exact.gpu.settled();
+    globalThis.exact={views:new Map([[1,host],[2,document.getElementById('sky')]]),root:document.body,devAssets:[],generation:0,pageFacts:{agent:false,read:()=>({}),tell(){},changed(){}}};
+    await import('/gpu-glue.js'); exact.gpu.surface(1,'world',[]); exact.gpu.surface(2,'glass',[]); await exact.gpu.settled();
     globalThis.ready=true;
   </script>`;
   const server=Bun.serve({port:0,hostname:'127.0.0.1',fetch(req){
     const path=new URL(req.url).pathname;
     if(path==='/')return new Response(html,{headers:{'content-type':'text/html'}});
     if(path==='/gpu.js'){globalThis.moduleFetched=true;return new Response('export default function(){}',{headers:{'content-type':'text/javascript'}});}
-    if(path==='/favicon.ico'||path.startsWith('/.exact/'))return new Response('',{status:404});
+    if(path==='/.exact/install.json')return Response.json({platforms:{ios:{methods:[{kind:'app-store',url:'https://apps.example/game',label:'View in the App Store'}]},macos:{methods:[]}}});
+    if(path==='/favicon.ico')return new Response('',{status:404});
     return new Response(Bun.file(resolve(web,path.slice(1))));
   }});
   const suite=await cdpBrowser(),{cdp}=suite, lines=[];
@@ -172,8 +174,13 @@ test('a browser without WebGPU shows the refusal page in the canvas box and refu
     const refused=await evaluate(`exact.gpu.handle({op:'state',id:1,world:true}, null, x => x)`);
     expect(refused.refused).toMatchObject({host:'web',subsystem:'gpu'});
     expect(refused.refused.message).toContain('no adapter');
-    const tree=await evaluate(`exact.gpu.decorate({op:'tree'},{nodes:[{id:1}]})`);
+    // The settle the agent runs before every reply waits for the install links, so `tree` names them.
+    const tree=await evaluate(`exact.gpu.decorate({op:'tree'},{nodes:[{id:1},{id:2}]})`);
     expect(tree.nodes[0].status).toContain('needs WebGPU');
+    expect(tree.nodes[0].status).toContain('View in the App Store');
+    // A backdrop canvas whose content flows inside it (Caltrain's sky) shows no page; its content stays live.
+    expect(tree.nodes[1].status).toBeUndefined();
+    expect(await evaluate(`[document.querySelector('#sky > [role=status]'), document.getElementById('content').inert]`)).toEqual([null, false]);
     expect(globalThis.moduleFetched).toBeUndefined();
     expect(lines.join('\n')).not.toContain('No available adapters');
   } finally {

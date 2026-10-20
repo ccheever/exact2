@@ -4,7 +4,7 @@ use exact_game::{DirectionalLight, Material, Quality, Shadows};
 
 #[derive(Default, exact_game::Args)]
 struct LadderArgs {
-    /// 1 asks for `Quality::Low`, anything else `High`.
+    /// 1 asks for `Quality::Low`, 2 `Auto`, anything else `High`.
     q: u32,
     /// 1 inserts the game's own `Shadows`.
     authored: u32,
@@ -15,10 +15,10 @@ impl Game for Ladder {
     const HZ: u32 = 120;
     type Args = LadderArgs;
     fn quality(args: &LadderArgs) -> Quality {
-        if args.q == 1 {
-            Quality::Low
-        } else {
-            Quality::High
+        match args.q {
+            1 => Quality::Low,
+            2 => Quality::Auto,
+            _ => Quality::High,
         }
     }
     fn setup(w: &mut World, args: &LadderArgs) {
@@ -111,4 +111,120 @@ fn a_rung_changes_the_picture_and_never_the_world_hash() {
         (kept_mean - high_mean).abs() < (low_mean - high_mean) / 4.,
         "kept {kept_mean} high {high_mean} low {low_mean}"
     );
+}
+
+fn bound(q: u32) -> WorldSurface<Ladder> {
+    let mut s = WorldSurface::<Ladder>::default();
+    s.bind(&[Value::Number(q.into()), Value::Number(0.)], None)
+        .unwrap();
+    s
+}
+fn state(s: &mut WorldSurface<Ladder>) -> serde_json::Value {
+    serde_json::from_str::<serde_json::Value>(&s.agent(r#"{"op":"state"}"#).unwrap()).unwrap()
+        ["world"]
+        .clone()
+}
+
+#[test]
+fn auto_takes_the_tier_when_the_canvas_binds() {
+    for (tier, rung, scale) in [
+        (exact_gpu::GpuTier::Low, "low", 0.5),
+        (exact_gpu::GpuTier::Mid, "mid", 0.75),
+        (exact_gpu::GpuTier::High, "high", 1.0),
+    ] {
+        exact_gpu::set_thread_tier(Some(tier));
+        let mut s = bound(2);
+        exact_gpu::set_thread_tier(None);
+        let row = &state(&mut s)["quality"];
+        assert_eq!(
+            (row["asked"].as_str(), row["rung"].as_str()),
+            (Some("auto"), Some(rung))
+        );
+        assert_eq!(exact_gpu::Surface::render_scale(&s), scale);
+    }
+}
+
+struct FullSize;
+impl Game for FullSize {
+    const ID: &'static str = "quality-full-size";
+    type Args = ();
+    fn quality(_: &()) -> Quality {
+        Quality::Low
+    }
+    fn render_scale(_: &()) -> f32 {
+        1.0
+    }
+    fn setup(_: &mut World, _: &()) {}
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+#[test]
+fn a_render_scale_the_game_returns_stands_on_every_rung() {
+    let mut s = WorldSurface::<FullSize>::default();
+    s.bind(&[], None).unwrap();
+    assert_eq!(exact_gpu::Surface::render_scale(&s), 1.0);
+}
+
+/// A look frame's size and mean, for one rung, at 64x64 points.
+fn look(gpu: &Gpu, q: u32) -> (u64, f64) {
+    let mut s = bound(q);
+    for i in 0..=4 {
+        fixture::render(gpu, &mut s, &frame(i as f64 * 500.)).unwrap();
+    }
+    let reply: serde_json::Value = serde_json::from_str(
+        &s.agent(r#"{"op":"screenshot","form":"look","width":64,"height":64}"#)
+            .unwrap(),
+    )
+    .unwrap();
+    (
+        reply["width"].as_u64().unwrap(),
+        reply["look"]["mean"].as_f64().unwrap(),
+    )
+}
+
+#[test]
+fn a_look_frame_is_its_rungs_picture() {
+    let Some(gpu) = gpu() else { return };
+    let (high_width, high_mean) = look(&gpu, 0);
+    let (low_width, low_mean) = look(&gpu, 1);
+    assert_eq!((high_width, low_width), (64, 32), "the rung's scale");
+    assert!(
+        low_mean > high_mean,
+        "no sun shadow under Low: low {low_mean} high {high_mean}"
+    );
+}
+
+#[test]
+fn a_new_tier_remakes_the_renderer_under_the_same_world() {
+    let Some(gpu) = gpu() else { return };
+    let run = |retier: bool| {
+        exact_gpu::set_thread_tier(Some(exact_gpu::GpuTier::High));
+        let mut s = bound(2);
+        for i in 0..=5 {
+            fixture::render(&gpu, &mut s, &frame(i as f64 * 500.)).unwrap();
+        }
+        if retier {
+            exact_gpu::set_thread_tier(Some(exact_gpu::GpuTier::Low));
+            assert!(
+                exact_gpu::Surface::retier(&mut s),
+                "a drawn world releases its renderer"
+            );
+        }
+        for i in 6..=10 {
+            fixture::render(&gpu, &mut s, &frame(i as f64 * 500.)).unwrap();
+            assert!(s.error().is_none(), "{:?}", s.error());
+        }
+        exact_gpu::set_thread_tier(None);
+        let world = state(&mut s);
+        (
+            world["tick"].as_u64(),
+            world["hash"].as_str().map(str::to_owned),
+            world["quality"]["rung"].as_str().map(str::to_owned),
+        )
+    };
+    let (tick, hash, rung) = run(false);
+    let (retick, rehash, rerung) = run(true);
+    assert_eq!((tick, rung.as_deref()), (Some(600), Some("high")));
+    assert_eq!((retick, rerung.as_deref()), (Some(600), Some("low")));
+    assert_eq!(hash, rehash, "the world went on through the new renderer");
 }

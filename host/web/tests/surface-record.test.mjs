@@ -661,3 +661,20 @@ test('a slow asset delivery leaves the first frame its own presentation budget',
   assert.deepEqual(await f.exact.gpu.settled(), []);
   assert.equal(preparing, 0);
 });
+
+// LLP 1139.003 D2: `prefer gpu-tier` remakes renderers inside the module; no
+// world is captured, destroyed or created, so two instances of one name and a
+// world whose capture would fail keep running.
+test('prefer gpu-tier retiers every live world in place, duplicates and all', async () => {
+  const f=await fixture();f.create(1);f.create(2);
+  const told=[];let retiers=0,carries=0,creates=0,destroys=0;
+  Object.assign(f.gpu,{gpu_tier:code=>told.push(code),gpu_retier:()=>retiers++,gpu_carry:()=>{carries++;throw new Error('capture refused');}});
+  const create=f.gpu.gpu_create;f.gpu.gpu_create=(...a)=>{creates++;return create(...a);};
+  const destroy=f.gpu.gpu_destroy;f.gpu.gpu_destroy=(...a)=>{destroys++;return destroy(...a);};
+  f.exact.gpu.retier('low');
+  assert.deepEqual(told,[2]);
+  assert.equal(retiers,1);
+  assert.deepEqual([carries,creates,destroys],[0,0,0]);
+  assert.equal(f.exact.gpu.handle({op:'state',id:1,world:true},null,x=>x).world.tick,0);
+  assert.equal(f.exact.gpu.handle({op:'state',id:2,world:true},null,x=>x).world.tick,0);
+});

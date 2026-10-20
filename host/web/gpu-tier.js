@@ -12,10 +12,11 @@ export const TIERS = ["high", "mid", "low"];
 /** gpu/src/tier.rs `classify` over GPUAdapterInfo's words. */
 export function classify(vendor = "", architecture = "", software = false, small = false) {
   vendor = vendor.toLowerCase(); architecture = architecture.toLowerCase();
-  const generation = Number(/adreno\D*(\d)/.exec(architecture)?.[1] ?? 0);
+  const model = Number(/adreno\D*(\d+)/.exec(architecture)?.[1] ?? 0), generation = model >= 100 ? Math.floor(model / 100) : model;
+  const bifrost = [31, 51, 52, 71, 72, 76].includes(Number(/mali-g(\d+)/.exec(architecture)?.[1]));
   const known = software ? "low"
     : vendor.includes("qualcomm") || architecture.includes("adreno") ? (generation >= 7 ? "mid" : "low")
-    : vendor.includes("arm") || architecture.includes("mali") ? (/midgard|bifrost/.test(architecture) ? "low" : "mid")
+    : vendor.includes("arm") || architecture.includes("mali") ? (/midgard|bifrost|mali-t/.test(architecture) || bifrost ? "low" : "mid")
     : vendor.includes("imagination") || architecture.includes("powervr") ? "low"
     : vendor.includes("samsung") || architecture.includes("xclipse") ? "mid"
     : vendor.includes("apple") && Number(/apple a(\d+)/.exec(architecture)?.[1] ?? 99) < 14 ? "low"

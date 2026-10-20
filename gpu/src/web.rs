@@ -379,6 +379,11 @@ pub fn unload() {
     crate::shaders::clear_shaders();
 }
 
+/// Every canvas takes the told tier ([`crate::Module::retier`]).
+pub fn retier() {
+    with(|m| m.retier());
+}
+
 /// Drop a canvas's surface.
 pub fn destroy(id: u32) {
     with(|m| m.destroy(id));
@@ -598,6 +603,12 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_tier(code: u32) {
             $crate::set_tier($crate::GpuTier::from_code(code))
+        }
+
+        /// Remake each canvas's renderer at the told tier, keeping its world.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_retier() {
+            $crate::web::retier()
         }
 
         /// Whether a canvas has unrendered inputs.

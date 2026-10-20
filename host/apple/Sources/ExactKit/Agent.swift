@@ -544,8 +544,10 @@ public final class Agent {
             case ("can-share-pictures", "true"), ("can-share-pictures", "false"): facts.canSharePictures = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
-            // The fact (LLP 1139.003 D2); a renderer keeps the rung it was made at.
-            case ("gpu-tier", "high"), ("gpu-tier", "mid"), ("gpu-tier", "low"): PageFacts.agentGpuTier = ["high", "mid", "low"].firstIndex(of: value).map(UInt32.init) ?? 0
+            // The fact, and each module's tier: its renderers are made again at the new rung (LLP 1139.003 D2).
+            case ("gpu-tier", "high"), ("gpu-tier", "mid"), ("gpu-tier", "low"):
+                PageFacts.agentGpuTier = ["high", "mid", "low"].firstIndex(of: value).map(UInt32.init) ?? 0
+                for retier in PageFacts.retiers { retier(PageFacts.agentGpuTier) }
             case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: facts.rootFontSize = Double(value)!
             // Bold Text (LLP 1115.000 D12.3), as the person's setting reaches the kernel.
             case ("bold-text", "true"), ("bold-text", "false"): boldText = value == "true"

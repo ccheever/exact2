@@ -38,16 +38,24 @@ export function viewport(readers) {
   onPreferences(changed);
   onFold(changed);
   viewportChanged = changed;
+  shareReporter();
   // The agent's `prefer` fold group (LLP 1078 D7): an empty one re-reads the browser, a filled one is the substitute.
   (globalThis.exact ??= {}).fold = { prefer: (f) => { const env = preferFold(f && Object.keys(f).length ? f : null); changed(); return env; }, env: foldEnv };
 }
 
 // A release admits no agent mode (LLP 1069.007 D2): its build writes this false.
 const AGENT_ADMITTED = true;
-// One reporter for both sources: `exactViewport().gpuTier` is a page fact.
-let pageFacts, viewportChanged = () => {};
+// One reporter per session for both sources (`exactViewport().gpuTier` is a
+// page fact), and the agent's `prefer` page group (LLP 1069.000 D6) sets it,
+// whichever of them the plan reads.
+let pageFacts, viewportChanged = () => {}, pageChanged = () => {};
 const reporter = () => pageFacts !== undefined ? pageFacts : (pageFacts = typeof document === "object" && document.createElement
   ? pageReporter(AGENT_ADMITTED && typeof location === "object" && new URLSearchParams(location.search).has("agent")) : null);
+function shareReporter() {
+  const facts = reporter();
+  if (!facts) return;
+  (globalThis.exact ??= {}).page = { prefer: p => { facts.prefer(p); pageChanged(); if (p?.["gpu-tier"]) viewportChanged(); return facts.read(); }, read: () => facts.read() };
+}
 export function page(readers) {
   const facts = reporter();
   (data.reserved ??= {}).exactPage = (_, a, name) => {
@@ -56,10 +64,9 @@ export function page(readers) {
     return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canShareFiles: f["can-share-files"], canSharePictures: f["can-share-pictures"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"], navigationType: f["navigation-type"] });
   };
   if (!facts) return;
-  const changed = again("exactPage", "page");
-  facts.onChange(changed);
-  // The agent's `prefer` page group (LLP 1069.000 D6).
-  (globalThis.exact ??= {}).page = { prefer: p => { facts.prefer(p); changed(); if (p?.["gpu-tier"]) viewportChanged(); return facts.read(); } };
+  pageChanged = again("exactPage", "page");
+  facts.onChange(pageChanged);
+  shareReporter();
 }
 
 /** Each reader's second entry: the value the build baked, if it baked one

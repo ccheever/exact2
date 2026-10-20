@@ -2613,8 +2613,9 @@ afford, chosen once before the GPU device is made from what the adapter reports
 (a phone GPU of the Adreno 600 class is `low`), else from the screen (a phone-sized
 one `low`, a computer's `high`), never from a measured frame time; a phone-sized
 screen is never `high`. A game's renderer follows it (`Game::quality`); a HUD can
-read it to offer a quality setting. Under the agent it is `high` from launch, and
-`prefer gpu-tier low` substitutes it.
+read it to offer a quality setting. A native host answers its GPU module's tier
+once the module loads (`high` before it). Under the agent it is `high` from launch, and
+`prefer gpu-tier low` substitutes it and remakes each world's renderer at its rung.
 `exactPage` answers `visibilityState`, `onLine`, `canShare`,
 `canShareFiles` and `canSharePictures` (whether `share(files=…)` takes
 `app:/` files and an element's `"#id"`; the web never takes a picture),

@@ -1,18 +1,26 @@
 // The page a GPU surface shows when this browser cannot draw it (LLP 1139.003
-// D1): the host's `no-adapter` refusal, which used to leave the canvas empty
-// behind its HUD. It sits in the canvas's box and nowhere else, as a
-// `role=status` the driver's `tree` names; the canvas's own HUD is inert under
-// it, so a control that leads nowhere cannot be pressed, and the app's title,
-// menus and other canvases keep working around it. Loaded with gpu-glue.js.
+// D1), on the host's `no-adapter` refusal. It sits in the canvas's box and
+// nowhere else, as a `role=status` the driver's `tree` names; the canvas's
+// own HUD is inert under it, so a control that leads nowhere cannot be
+// pressed, and the app's title, menus and other canvases keep working around
+// it. A canvas whose content flows inside it is a backdrop to that content
+// (Caltrain's optional sky): it shows no page and its content stays live, over
+// the empty canvas. Loaded with gpu-glue.js.
 
 /** What the page says: the requirement and the browsers that meet it. */
 export const REFUSAL_TEXT = "This game needs WebGPU, which this browser does not have.";
 export const BROWSERS_TEXT = "It runs in Chrome 121 or later on Android 12 or later, Safari 26 or later, and Chrome or Edge 113 or later on a computer.";
 
+/** Whether the canvas's children are all overlays (absolutely or fixed positioned): a world and its HUD, not content the canvas backs. */
+export function overlaysOnly(entry, platform = globalThis) {
+  return [...(entry.host?.children ?? [])].every(child => child === entry.el || child.dataset?.gpuRefusal !== undefined
+    || ["absolute", "fixed"].includes(platform.getComputedStyle?.(child).position));
+}
+
 /** Show the page in `entry`'s canvas box: `host` is the node the canvas and its HUD children are in. */
 export function showRefusal(entry, platform = globalThis) {
   const host = entry.host, doc = platform.document;
-  if (!host || entry.refusalPage || !doc?.createElement) return;
+  if (!host || entry.refusalPage || !doc?.createElement || !overlaysOnly(entry, platform)) return;
   const page = doc.createElement("div");
   page.setAttribute("role", "status");
   page.dataset.gpuRefusal = "";
@@ -30,7 +38,8 @@ export function showRefusal(entry, platform = globalThis) {
   if (platform.getComputedStyle?.(host).position === "static") host.style.position = "relative";
   host.append(page);
   entry.refusalPage = { text: `${REFUSAL_TEXT} ${BROWSERS_TEXT}` };
-  nativeBuilds(page, doc, platform).then(extra => { if (extra) entry.refusalPage.text += ` ${extra}`; }, () => {});
+  // The agent's settle waits for the links, so a `tree` names them.
+  entry.refusalPage.ready = nativeBuilds(page, doc, platform).then(extra => { if (extra) entry.refusalPage.text += ` ${extra}`; }, () => {});
 }
 
 /** The app's native builds, when its install data (`/.exact/install.json`, scripts/install-page.mjs) lists any. */

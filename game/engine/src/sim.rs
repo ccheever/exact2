@@ -49,13 +49,18 @@ pub trait Game: 'static {
     /// Canvas argument declarations in positional order; also declares exact arity.
     type Args: Args;
     /// Presented world raster relative to device pixels; does not change layout.
-    /// Finite (0, 1]; the compositor scales to the canvas box. Defaults to full size.
+    /// Finite (0, 1]; the compositor scales to the canvas box. The default,
+    /// [`AUTO_RENDER_SCALE`](crate::AUTO_RENDER_SCALE), leaves it to the quality
+    /// ladder (full size on `High`); any value returned here, 1 included, stands
+    /// on every rung.
     fn render_scale(_args: &Self::Args) -> f32 {
-        1.0
+        crate::AUTO_RENDER_SCALE
     }
-    /// The renderer's rung of the quality ladder, read once before the
-    /// renderer is made: [`Quality::Auto`](crate::Quality::Auto) follows the
-    /// device's GPU tier. A setting a player chooses is an argument read here.
+    /// The renderer's rung of the quality ladder, read once, from the first
+    /// arguments the canvas binds, before the renderer is made:
+    /// [`Quality::Auto`](crate::Quality::Auto) follows the device's GPU tier.
+    /// A later value takes effect when the canvas is made again (unmounted and
+    /// mounted); under the agent, `prefer gpu-tier` remakes the renderer.
     fn quality(_args: &Self::Args) -> crate::Quality {
         crate::Quality::Auto
     }

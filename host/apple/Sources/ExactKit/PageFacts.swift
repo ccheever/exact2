@@ -44,6 +44,9 @@ package enum PageFacts {
         didSet { if agentGpuTier != oldValue { changed() } }
     }
     package static var tier: UInt32 { substituted ? agentGpuTier : gpuTier }
+    /// Each loaded GPU module's way to take the agent's tier and remake its
+    /// renderers at the new rung (`gpu_tier`, `gpu_retier`).
+    nonisolated(unsafe) package static var retiers: [(UInt32) -> Void] = []
     /// The drive's values stand in for the machine's (LLP 1069.007 D2, D8).
     package static let substituted = ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real"
     private static let agentChanged = Notification.Name("ExactPageFactsChanged")

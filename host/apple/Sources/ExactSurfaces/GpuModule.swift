@@ -101,6 +101,7 @@ final class GpuModule {
 
     typealias LoadFn = @convention(c) () -> UInt32
     typealias TierFn = @convention(c) (UInt32) -> UInt32
+    typealias RetierFn = @convention(c) () -> Void
     typealias CreateFn = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, UInt32, UInt32) -> UInt32
     typealias BindFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
     typealias BindAtFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, Double) -> UInt32
@@ -301,6 +302,9 @@ final class GpuModule {
         if PageFacts.substituted { _ = tier?(PageFacts.agentGpuTier) }
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
         if let tier, !PageFacts.substituted { PageFacts.gpuTier = tier(3) }
+        if let tier, let retier = sym("gpu_retier", RetierFn.self) {
+            PageFacts.retiers.append { code in _ = tier(code); retier() }
+        }
         module.recover = sym("gpu_recover", LoadFn.self)
         module.deviceID = sym("gpu_device_registry_id", DeviceIDFn.self)
         module.deviceLost = sym("gpu_device_is_lost", LostFn.self)

@@ -1161,7 +1161,8 @@ async function runProof(meta, script) {
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
     }
-  } catch (error) { check('proof interrupted',false,formatProofError(error)); }
+  // A host's typed refusal (a browser without WebGPU: `host web refused (gpu): …`) is the leg's result, by name.
+  } catch (error) { check(refusalMessage(error?.reply) ?? 'proof interrupted',false,formatProofError(error)); }
   finally {
     await closeSessions(monitor, sample, sessions, check);
     if (reusableWeb) await reusableWeb.close();

@@ -391,7 +391,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                     device,
                     queue,
                     format,
-                    G::SAMPLES,
+                    crate::quality::samples(self.rung, G::SAMPLES),
                     G::DEPTH_PREPASS,
                 )
                 .with_matte_models(G::MATTE_MODELS),
@@ -427,14 +427,20 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             shader_generation: 0,
             headroom: 1.,
         });
+        // A look frame is the world's picture: its rung's samples, clamps and
+        // scale, as the live frame has them (LLP 1139.003 D3).
+        let factor = self
+            .rung
+            .map_or(1., |rung| rung.factor(G::render_scale(sim.args())));
         let frame = Frame {
             width: points.0,
             height: points.1,
-            scale: if scale.is_finite() && scale > 0. {
-                scale
-            } else {
-                1.
-            },
+            scale: factor
+                * if scale.is_finite() && scale > 0. {
+                    scale
+                } else {
+                    1.
+                },
             seekable: true,
             ..held
         };
@@ -451,6 +457,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         };
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), points);
         input.headroom = frame.headroom;
+        if let Some(rung) = self.rung {
+            let authored = sim.world().try_resource::<exact_game::Shadows>().is_some();
+            rung.clamp(&mut input, authored);
+        }
         if let Some(bounds) = bounds.filter(|_| view != View::Camera) {
             view.apply(&mut input, glam::Vec2::new(points.0, points.1), bounds);
         }

@@ -85,6 +85,11 @@ pub fn carry_length(len: usize) -> Option<u32> {
     }
 }
 
+/// Every canvas takes the told tier ([`Module::retier`]).
+pub fn retier() {
+    with(|m| m.retier());
+}
+
 /// Create the device and the module. Returns 0 on success, 1 on failure
 /// (see [`error`]).
 pub fn load(registry: &'static Registry, artifact: &'static str) -> u32 {
@@ -102,6 +107,9 @@ pub fn load(registry: &'static Registry, artifact: &'static str) -> u32 {
     };
     match prepared.unwrap_or_else(create_gpu) {
         Ok(gpu) => {
+            // The module's own tier, from its adapter, unless its host told one
+            // (LLP 1139.003 D2); a fixture's device never chooses for the process.
+            crate::tier::choose(&gpu.adapter.get_info());
             let mut module = Module::new(registry);
             module.cache_artifact = Some(artifact);
             module.set_gpu(gpu);
@@ -1093,6 +1101,10 @@ macro_rules! module {
             if code < 3 { $crate::set_tier($crate::GpuTier::from_code(code)); }
             $crate::tier().code()
         }
+
+        /// Remake each canvas's renderer at the told tier, keeping its world.
+        #[no_mangle]
+        pub extern "C" fn gpu_retier() { $crate::native::retier(); }
 
         /// Output address, valid until the next carry, published, agent, messages or error call.
         #[no_mangle]

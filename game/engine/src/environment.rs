@@ -181,22 +181,28 @@ impl SceneSamples {
         }
     }
 }
+/// `Game::render_scale`'s default: the quality ladder chooses the raster's
+/// scale (1 on `High`). Not a scale a game returns itself.
+pub const AUTO_RENDER_SCALE: f32 = 0.999_999_9;
+
 /// How much the renderer may spend on what the game left unsaid
 /// (`Game::quality`): read once, before the renderer is made, and never saved.
 /// A rung clamps the scene samples (one under `Low`; `Game::SAMPLES` is the
 /// ceiling), the sun's shadow cascades (none under `Low`, one under `Mid`)
-/// unless the game inserted `Shadows`, the resolution scale (0.5 under `Low`,
-/// 0.75 under `Mid`) unless `render_scale` returns less than one, and the
-/// quality of an inserted `AmbientOcclusion` (`Low` under `Low`). `High`
-/// clamps nothing. Nothing in the world reads it: the world hash is the same
+/// unless the game inserted `Shadows`, and the resolution scale (0.5 under
+/// `Low`, 0.75 under `Mid`) unless the game's `render_scale` returns one.
+/// An inserted `AmbientOcclusion` is the game's and stands. `High` clamps
+/// nothing. Nothing in the world reads it: the world hash is the same
 /// on every rung.
 ///
-/// A player's setting is an argument the game reads here:
+/// A player's setting is a setup argument the game reads here; the rung is
+/// read once, when the canvas's renderer is made, so a new value takes effect
+/// when the canvas is made again:
 ///
 /// ```
 /// use exact_game::*;
 /// #[derive(Default, Args)]
-/// struct Settings { #[live] battery_saver: bool }
+/// struct Settings { battery_saver: bool }
 /// struct Tank;
 /// impl Game for Tank {
 ///     const ID: &'static str = "tank";

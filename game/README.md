@@ -292,22 +292,28 @@ low|mid|high`). A rung clamps only what the game left unsaid:
 |---|---|---|---|
 | `Low` (a phone GPU of the Adreno 600 class) | 1 | none | 0.5 |
 | `Mid` (a recent phone or tablet) | `Game::SAMPLES` | 1 cascade | 0.75 |
-| `High` (a computer; the agent's) | `Game::SAMPLES` | as `Shadows` says | `render_scale` |
+| `High` (a computer; the agent's) | `Game::SAMPLES` | as `Shadows` says | 1 |
 
-An inserted `Shadows` resource and a `render_scale` below one are the game's and
-stand on every rung; `Low` also lowers an inserted `AmbientOcclusion` to
-`AoQuality::Low`. Return `Quality::High` from an argument for a player's setting.
+What the game says stands on every rung: an inserted `Shadows` resource, an
+inserted `AmbientOcclusion`, and any `render_scale` the game returns (the default,
+`AUTO_RENDER_SCALE`, leaves the scale to the rung). The rung is read once, from the
+canvas's first arguments, when its renderer is made: a player's setting read in
+`Game::quality` takes effect when the canvas is made again. A look frame is the
+rung's picture too (its samples, clamps and scale).
 On a Pixel 5 the starter draws its world at 16 fps under `High` and at the 90 Hz
 display's 90 under `Low`; the world's `state` reports its row as `quality`
 (`asked`, `tier`, `rung`, `samples`, `scale`). Under the agent `prefer gpu-tier`
-remakes each web world's renderer at the new rung, carrying its world; native hosts
-keep the rung their renderer was made at.
+remakes each world's renderer at the new rung, on the same device and under the
+same world, on every host.
 
 On a browser without WebGPU (or with no adapter) the web host shows, in the
 canvas's box, a `role=status` page that names WebGPU and the browsers that have
 it, and the game's iOS and macOS installs when `app.json`'s `install` lists any;
 the canvas's own HUD is inert under it, the rest of the app keeps working, and a
-world request answers `host web refused (gpu): no adapter: …`. No WebGL renderer
+world request answers `host web refused (gpu): no adapter: …`, which the proof's
+web leg reports as its result. A canvas whose content flows inside it (a decorative
+backdrop, such as Caltrain's sky) shows no page: its content stays live over the
+empty canvas. No WebGL renderer
 exists (LLP 1128 I6).
 
 After the first GPU build, the compiler and dev loop check surface names and

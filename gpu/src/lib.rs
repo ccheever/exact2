@@ -55,7 +55,7 @@ pub mod json;
 pub mod shaders;
 mod target;
 pub mod tier;
-pub use tier::{set_tier, tier, GpuTier};
+pub use tier::{set_thread_tier, set_tier, tier, GpuTier};
 mod uniform;
 #[cfg(windows)]
 mod window;
@@ -290,6 +290,11 @@ pub trait Surface {
     fn device_ready(&mut self, _features: wgpu::Features) {}
     /// Presentation was lost; release device resources without discarding owned state.
     fn device_lost(&mut self) {}
+    /// The GPU tier changed (`gpu_retier`, LLP 1139.003 D2): true when the
+    /// surface released its renderer to remake it at the new rung.
+    fn retier(&mut self) -> bool {
+        false
+    }
     /// Drain an error discovered while rendering or advancing committed state.
     fn take_error(&mut self) -> Option<SurfaceError> {
         None
