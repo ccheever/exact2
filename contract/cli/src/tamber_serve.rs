@@ -219,6 +219,16 @@ struct Server {
     /// sources' key ([`Server::sources_key`]): every read and write asks
     /// them, and loading them parses the app (~200 ms on the clone).
     params: std::cell::RefCell<(String, std::rc::Rc<contract::tamber_params::AppParams>)>,
+    /// The exported library components' slot chains (LLP 1139 D4, stage 12
+    /// D2), built from the params above when they are loaded again, never
+    /// per write: what a write's candidate fold is checked against.
+    #[allow(clippy::type_complexity)]
+    slots: std::cell::RefCell<
+        Option<(
+            std::rc::Rc<contract::tamber_params::AppParams>,
+            Option<std::rc::Rc<contract_lower::anatomy::slot::SlotChains>>,
+        )>,
+    >,
     /// The Contract sources as last walked ([`walk::Walk`]): every snapshot and
     /// every request's params ask them, and walking them parses the app
     /// (~200 ms on the clone).
@@ -365,6 +375,7 @@ impl Server {
             checker: check::Checker::default(),
             last_key: String::new(),
             params: Default::default(),
+            slots: Default::default(),
             graph: Default::default(),
             asked: Default::default(),
             contract: Default::default(),

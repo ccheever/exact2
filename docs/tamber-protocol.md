@@ -876,6 +876,12 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
 - **Refused by the checker:** `{message: "refused", diagnostics: [{file, line, col, id,
   message}]}`. A write (or a propose) that would make a role override vary by an app axis is
   refused the same way, `tamber-role-axis`, since the build would refuse it (*1.1*).
+  So is a write, or a scrub's resting value (`scrub-fold`'s verify; its frames before that only
+  preview), that would hide an exported library component's slot fill: a node of the slot's chain
+  given `opacity` 0, a zero size, `display: none` and the rest of LLP 1139 D4's list, in any tuple
+  or scale column, through a token, a base name a chain's token reaches, or a param
+  (`lower-anatomy-slot`, the compiler's own checker and words, at the design line that does it;
+  *1.15*, stage 12 D2). A write no chain's tokens reach isn't asked.
 - **An editor that ignores the lock** and saves between the server's last read and its rename is
   overwritten. The digests narrow that window but don't close it.
 

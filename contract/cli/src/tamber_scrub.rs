@@ -201,6 +201,28 @@ impl Server {
                 }
             }
         }
+        // The library's slot chains (LLP 1139 D4, stage 12 D2): the candidate
+        // fold, with its packages and params, checked by the compiler's own
+        // checker, only on the chains the write's tokens reach (closed over
+        // aliases and expressions by the checker), refused in its words.
+        if let Some(chains) = self.slot_chains() {
+            let touched: Vec<&str> = planned.changed.iter().map(|(_, t)| t.as_str()).collect();
+            for (path, text, _) in planned.files.iter().filter(|(p, _, _)| *p == self.design) {
+                if touched.is_empty() {
+                    break; // (nothing of the design's moved: no chain to check)
+                }
+                let Ok((folding, _)) = contract::tamber_params::fold_with(text, &app, &self.vocab)
+                else {
+                    continue; // (refused above, or by the plan: never here)
+                };
+                let all = contract_lower::anatomy::slot::check_slots(&folding, &chains, &touched);
+                if !all.is_empty() {
+                    return Err(
+                        json!({"message": "refused", "diagnostics": all.iter().map(|d| super::located(path, d, &app)).collect::<Vec<_>>()}),
+                    );
+                }
+            }
+        }
         if !app.tokens.is_empty() {
             let set: Vec<(String, String)> = planned
                 .files

@@ -316,6 +316,30 @@ impl Server {
         }
         params.1.clone()
     }
+
+    /// The exported library components' slot chains (LLP 1139 D4), from
+    /// the params' IR `library` block, built again only when the params
+    /// are (each chain's tokens read at check time, closed over references
+    /// by the checker itself, so no design fold here).
+    /// None when no component is the library's.
+    pub(super) fn slot_chains(
+        &self,
+    ) -> Option<std::rc::Rc<contract_lower::anatomy::slot::SlotChains>> {
+        let app = self.app_params();
+        let mut slots = self.slots.borrow_mut();
+        if !matches!(&*slots, Some((of, _)) if std::rc::Rc::ptr_eq(of, &app)) {
+            let library = contract::tamber_params::library(&app, None);
+            let any = library.as_array().is_some_and(|all| {
+                all.iter()
+                    .any(|e| e["library"] == serde_json::Value::Bool(true))
+            });
+            let chains = any.then(|| {
+                std::rc::Rc::new(contract_lower::anatomy::slot::SlotChains::from_ir(&library))
+            });
+            *slots = Some((app, chains));
+        }
+        slots.as_ref().and_then(|(_, c)| c.clone())
+    }
 }
 
 /// What of the designs (`texts`: the app's and each package's) the plan's
