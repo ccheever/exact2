@@ -1,5 +1,5 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/shell-vcs.ts at 81c704c7d12afef7233b12b1f2e7118fd6e84677.
+// Unchanged body from examples/t3-code/shell-vcs.ts at c280acc1806c4e1fea5d4797b1278b99b5ee2ba0.
 // The workspace card's version-control status (MIT reference, see LICENSE-T3:
 // packages/client-runtime/src/state/vcs.ts `status`, packages/shared/src/git.ts
 // applyGitStatusStreamEvent / mergeGitStatusParts): one `subscribeVcsStatus`
