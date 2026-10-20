@@ -749,6 +749,8 @@ component App
     column testId="root" width=900 height=2000
       column testId="wide" width=400
         RingProgress(label="Focus", value="17:30", fraction=0.3, tint=none)
+      column testId="long" width=400
+        RingProgress(label="Today", value="100,749 ml", fraction=1, tint=none)
       row testId="pair" width=370 flex-wrap="wrap" gap=16
         column flex="1 1 160px" testId="left"
           RingProgress(label="Water", value="2,000", fraction=1.2, tint=none)
@@ -816,6 +818,21 @@ component App
         "held to 1"
     );
     assert_eq!(right.props.str(PropId::AccessibilityValueNow), Some("0"));
+    // A value wider than the ring's inside is drawn smaller, inside its
+    // stroke (water-tracker's "100,749 ml", round 29).
+    let ring = &rings("long")[0];
+    let value = under(k, ring.id)
+        .into_iter()
+        .find(|n| n.props.str(PropId::Text) == Some("100,749 ml"))
+        .unwrap();
+    let (box_, scale, x) = (value.frame, value.fit_scale(), ring.frame.x);
+    assert!(
+        scale < 1.0
+            && box_.x >= x + 0.18 * 200.0 - 0.5
+            && box_.x + box_.width <= x + 0.82 * 200.0 + 0.5,
+        "fitted inside the ring at {scale}: {box_:?} in {:?}",
+        ring.frame
+    );
     // The ring's colour is the svg's: the accent, green at the goal, the tint.
     let ink = |t: &str| {
         under(k, at(k, t))

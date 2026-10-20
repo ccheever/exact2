@@ -90,7 +90,10 @@ component StatBar
 // container; the ring is drawn over the square, so it adds no width of its own.
 // The text inside is the default body's sizes at every text size: the ring
 // keeps its size, and text that followed Dynamic Type ran out of it
-// (habit-tracker, LLP 1116.019 D1).
+// (habit-tracker, LLP 1116.019 D1). A value wider than the ring's inside is
+// drawn smaller until it fits, as a hand-built ring's label is
+// (`adjustsFontSizeToFitWidth`): "100,749 ml" ran over the stroke
+// (water-tracker, round 29).
 // Call: RingProgress(label="Steps", value="6,200", fraction=0.62, tint=none)
 component RingProgress
   props
@@ -109,7 +112,7 @@ component RingProgress
           circle cx=50 cy=50 r=45 fill="none" stroke="currentcolor" stroke-width=8 stroke-linecap="round"
             pathLength=100 stroke-dasharray=`${min(1, fraction) * 100} 100` transform="rotate(-90 50 50)"
       column position="absolute" inset=0 align-items="center" justify-content="center" gap=2 padding="0 18%"
-        text value font-size=34 font-variant-numeric="tabular-nums" white-space="nowrap" aria-hidden=true
+        text value font-size=34 font-variant-numeric="tabular-nums" white-space="nowrap" -exact-fit="shrink" aria-hidden=true
         text label font-size=15 color="-exact-secondary-label" text-align="center" aria-hidden=true
 
 // Done or not, at a glance: a filled check in the system green, or an empty
