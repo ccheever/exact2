@@ -70,10 +70,11 @@ import type { SecretStore } from './src/transport/transport-catalog';
 
 export const appId = 'com.exact.t3code.macos';
 // The server connections (src/transport/transport.ts): servers are named at run time (a pairing link, a learned
-// route, the embedded server's port), so whole schemes; the tokens and saved environments are one secret.
+// route, the embedded server's port), so whole schemes; the tokens and saved environments are one secret. macOS asks for
+// Local Network access before the first reach to a server on the local network; the prompt is strings/en.json's text.
 // Save file and the media menu's Save fetch a server's signed asset and write it under app:/tmp/saves for the window's
 // Save panel; a draft's staged copy is read and saved from composer-files (save-file.ts, attachment-files.ts).
-export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames';
+export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\ndevice.local-network purpose.local-network';
 const client = new T3Client();
 const transport = new Transport();
 
