@@ -776,7 +776,16 @@ fn s_val(value: &str, span: Span) -> Expr {
 /// its form shows one (the Mac's, LLP 1115.002 D6).
 /// `swiped`: the row is a swipe's content, which the platform's list
 /// carries as a custom row.
+/// A grouped list's row: the sheet's rows, without the look of an element
+/// that yields it to the row (`row_look`).
 fn row(node: &Node, separated: bool, swiped: bool) -> Node {
+    match crate::row_look::yielded(node) {
+        Some(own) => styled(&own, separated, swiped),
+        None => styled(node, separated, swiped),
+    }
+}
+
+fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     let Node::Element {
         tag,
         attrs,

@@ -38,6 +38,11 @@ component App
             text "Wide"
           button class=Native press=go destructive=true width="100%" testId="native-pushed"
             text "Erase"
+          scroll swipeContent="written-row" swipeTrailing="written-act" testId="written" width="100%" overflow-x="scroll" overflow-y="hidden" display="flex"
+            row id="written-row" width="100%" flex-shrink=0 testId="written-row"
+              text "Written"
+            button id="written-act" press=go flex-shrink=0
+              text "Flag"
           row testId="end"
             text "End"
 "#;
@@ -121,5 +126,13 @@ fn the_macs_rows_keep_their_height_and_their_separator_stands_in_the_gap() {
     // padding, and ends with the card too.
     let pushed = frame("native-pushed");
     assert_eq!(pushed.x + pushed.width, 382.0, "{pushed:?}");
+    // A swipe written by hand, as wide as its card: 10 in, as the
+    // expansion's, and ending with the card.
+    let written = frame("written");
+    assert_eq!(
+        (written.x, written.x + written.width),
+        (30.0, 382.0),
+        "{written:?}"
+    );
     set_column(Column::Web);
 }

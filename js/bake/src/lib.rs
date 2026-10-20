@@ -400,9 +400,22 @@ fn build_sources(
         None,
     )?;
     // Cargo says a build script's warnings (prefixed with the crate) as the
-    // script runs, which is when the plan's sources changed.
+    // script runs, which is when the plan's sources changed. The SF Symbols
+    // only the web draws blank are one line, as `contract build` says them.
+    let web: Vec<&String> = baked
+        .warnings
+        .iter()
+        .filter(|w| contract::web_only_said(w))
+        .collect();
     for warning in &baked.warnings {
-        for line in warning.lines().take(1) {
+        let said = match web.first() {
+            Some(first) if std::ptr::eq(*first, warning) => {
+                contract::web_only_line(first, web.len())
+            }
+            Some(_) if contract::web_only_said(warning) => continue,
+            _ => warning.clone(),
+        };
+        for line in said.lines().take(1) {
             println!("cargo:warning={line}");
         }
     }

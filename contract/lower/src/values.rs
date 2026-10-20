@@ -538,7 +538,7 @@ fn style_value(
             // ask a browser to choose: none is implemented; leaving the
             // attribute off follows the surrounding scheme.
             if rows.contains(&StyleId::ColorScheme) && !matches!(v.trim(), "light" | "dark") {
-                return err("lower-attr-value", format!("`color-scheme=\"{v}\"`: exact2 implements `light` and `dark` on a subtree (LLP 1034 §8); leave it off to follow the surrounding scheme. CSS's `normal`, `light dark` and `only` are not implemented"), span);
+                return err("lower-attr-value", format!("`color-scheme=\"{v}\"`: exact2 implements `light` and `dark` on a subtree (LLP 1034 §8); leave it off to follow the surrounding scheme. CSS's `normal`, `light dark` and `only` are not implemented. A Theme setting (Auto, Light, Dark) is `setScheme(\"system\" | \"light\" | \"dark\")` in the action; `color-scheme` fixes a subtree's scheme"), span);
             }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);

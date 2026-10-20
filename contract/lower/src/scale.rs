@@ -18,6 +18,12 @@ pub(crate) fn declare(names: Vec<String>) {
     DECLARED.with(|d| *d.borrow_mut() = names);
 }
 
+/// The names [`declare`] last set (the design server's write check puts
+/// them back after its own).
+pub(crate) fn declared() -> Vec<String> {
+    DECLARED.with(|d| d.borrow().clone())
+}
+
 /// The base scale's values for `text` when it is a base name the design
 /// does not define: each px column's length, distinct, as a token's values
 /// over the tuples are (what a row checks). A base varies by column, never

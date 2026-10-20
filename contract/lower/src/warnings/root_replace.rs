@@ -112,10 +112,14 @@ fn root_replace(checked: &Checked<'_>) -> Vec<LowerError> {
 }
 
 /// `lower-select-after-push`: `select` of a router a `go` or `push` of the
-/// same action made, directly or through a `let`. Both add the visit to the
-/// selected tab's stack, whatever tab declares its route (LLP 1038 §3), so
-/// the tab selected next shows its own stack and the visit waits on the tab
-/// left: a deep link into another tab that opens nothing (the euxy port).
+/// same action made, directly or through a `let`. By LLP 1038 §3's verb
+/// table, `push` adds the visit to the selected tab's stack, whatever tab
+/// declares its route, and so does `go` unless the location is on the
+/// selected stack (it pops to it) or another tab's top (it selects that tab).
+/// A `select` after either is wrong both ways: on a push the visit waits on
+/// the tab left, a deep link into another tab that opens nothing (the euxy
+/// port); where `go` selected the named tab, selecting it again pops it to
+/// its root.
 /// It warns only where the router is surely pushed: a choice only when
 /// every arm is, a name only while no nearer binder hides the `let`.
 fn select_after_push(checked: &Checked<'_>) -> Vec<LowerError> {
@@ -212,9 +216,14 @@ fn selects<'a>(e: &'a Expr, nav: &str, scope: &mut Bound<'a>, out: &mut Vec<Lowe
                         Expr::Str(t, _) => format!("\"{t}\""),
                         _ => "tab".into(),
                     };
+                    let why = if verb == "go" {
+                        format!("where `go` pushes, it pushes onto the selected tab's stack, whatever tab declares the route, so the visit stays on the tab being left; where the location is already {tab}'s top, `go` selects {tab} itself and this `select` pops it to its root")
+                    } else {
+                        format!("`{verb}` adds its visit to the selected tab's stack, whatever tab declares the route, so the visit stays on the tab being left")
+                    };
                     out.push(LowerError {
                         id: "lower-select-after-push",
-                        message: format!("this `select` shows {tab} as it was: `{verb}` adds its visit to the selected tab's stack, whatever tab declares the route, so the visit stays on the tab being left. To open a location on its own tab, write `go(select({nav}, {tab}), url)` (onto that tab's stack) or `open({nav}, url)` (its declared chain, in place of that tab's stack) (docs/recipes/tabs.md)"),
+                        message: format!("this `select` does not land the visit on {tab}: {why}. To open a location on its route's declared tab, write `open({nav}, url)`, which puts the route's declared chain in place of that tab's stack (docs/recipes/tabs.md)"),
                         span: *span,
                     });
                 }

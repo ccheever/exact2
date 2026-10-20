@@ -4,6 +4,7 @@
 //! (LLP 1115.002 D8.2, LLP 1123 D2). What `frame` and `elementFromPoint`
 //! read through (`Scrolled`).
 use super::{DataSource, Runner};
+use crate::geometry::TopLayerFrame;
 use exact_kernel::ViewId;
 
 /// Where a host shows a block in place: its rectangle in the local
@@ -37,8 +38,10 @@ impl<D: DataSource> Runner<D> {
     /// frontmost modal presentation, a sheet or a full-screen presentation
     /// (LLP 1123 D2): it and the boxes after it are live to structural
     /// reads, and the boxes before it and the page are inert behind it, as
-    /// the host makes them to touch. None while no presentation is open.
-    pub fn top_layer_frames(&mut self, frames: &[(ViewId, [f64; 4])], modal: Option<usize>) {
+    /// the host makes them to touch. None while no presentation is open. Each
+    /// optional viewport clip bounds point reads and visibility without
+    /// rescaling the box or its descendants (LLP 1051.000 D1).
+    pub fn top_layer_frames(&mut self, frames: &[TopLayerFrame], modal: Option<usize>) {
         self.scrolled.top_layer_frames(&self.kernel, frames, modal);
     }
 }

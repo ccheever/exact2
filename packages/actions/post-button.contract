@@ -1,0 +1,38 @@
+// The Post button: pressed and faded while it can't post, its own control
+// (LLP 1121 D8), not a platform's prominent button, which would draw a
+// disabled one grey (D9's exception).
+style PostButtonLook
+  color="actions.post-ink"
+  border-radius="actions.post-corner"
+  padding-left="actions.post-pad"
+  padding-right="actions.post-pad"
+  font-weight=600
+  justify-content="center"
+  align-items="center"
+  :active
+    background-color="actions.post-pressed"
+  :disabled
+    background-color="actions.post-dim"
+
+component PostButton
+  params
+    fill: color = "actions.post-fill" control = "token" group = "Color" priority = 1 label = "Fill"
+    height: length = "actions.post-height" range = "24..48" step = 1 control = "slider" group = "Shape" priority = 2 label = "Height"
+  props
+    // Names its testId: compose-post, or compose-post-<id> beside others.
+    id: string
+    label: string
+    reply: bool
+    disabled: bool
+    press: action
+  parts
+    surface: paint text shape space
+  view
+    button part="surface" class=PostButtonLook
+      testId=(id == "" ? "compose-post" : `compose-post-${id}`)
+      aria-label=(reply ? "Publish reply" : "Publish post")
+      press=press
+      disabled=disabled
+      background-color="param.fill"
+      height="param.height"
+      text label

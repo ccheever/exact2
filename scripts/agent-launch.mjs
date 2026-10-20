@@ -202,7 +202,7 @@ export function noteDefaultStore({ host, device, appId, dir }, root = resolve(ho
 export function accessibilityNote(udid, touch) {
   const read = spawnSync('xcrun', ['simctl', 'spawn', udid, 'defaults', 'read', 'com.apple.Accessibility', 'AutomationEnabled'], { encoding: 'utf8' });
   return read.stdout?.trim() === '1' ? null
-    : `--touch ${touch} turns this simulator's accessibility automation on, and it stays on: every launch is then about a second slower, so time a launch on a simulator no such drive has used`;
+    : `--touch ${touch} turns this simulator's accessibility automation on, and it stays on: every launch is then about a second slower, so time a launch on a simulator no such drive has used, or turn it off: xcrun simctl spawn ${udid} defaults write com.apple.Accessibility AutomationEnabled -bool false, then xcrun simctl shutdown ${udid} and xcrun simctl boot ${udid}`;
 }
 /** One drive at a time of a native named store (`--storage`), from before the launch to the close: a reset empties
  * the store at the app's boot, which would delete what another drive of it is using. Keyed by the host, the device as

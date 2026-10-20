@@ -1,11 +1,11 @@
 # Recipe: a navigation stack
 
-A list that pushes a detail, a Cancel/Save sheet and an alert (`pattern list-detail`).
+A list pushing a detail, a Cancel/Save sheet and an alert (`pattern list-detail`).
 A second screen is a route (`if` over state gets no Back, links or split).
 
-A route's `header` is its bar when first in the route with one heading (the title: large at
-`aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route has
-UIKit's default Back, a bare chevron from iOS 26; a `button id="back"` (the root's
+A route's first `header`, with one heading, is its bar (the title: large at `aria-level=1`,
+inline at 2); buttons before it lead, after it trail. A pushed route has
+UIKit's Back, a bare chevron from iOS 26; a `button id="back"` (the root's
 `navigationBack`) with `text "Notes"` titles it "‹ Notes".
 
 <!-- check: app -->
@@ -68,8 +68,7 @@ component App
           text "Cancel"
 ```
 
-The list: a row that only navigates is a `link` (`href=path(…)`, never a template string)
-that `follow` pushes.
+The list: a row that only navigates is a `link` (`href=path(…)`, not a template) that `follow` pushes.
 
 <!-- check: route notes -->
 ```contract
@@ -100,7 +99,7 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
 ```
 
 The sheet: `navigationPresentation="modal"`; its Cancel's `id` is the root's `navigationBack`,
-which the swipe down presses.
+which a swipe down presses.
 
 <!-- check: route add -->
 ```contract
@@ -135,12 +134,11 @@ test "add, open, delete after asking"
   expect state lib == []
 ```
 
-- An alert's `aria-label` is its title. Escape/Back chooses Cancel; only
-  `closedby="any"` dismisses outside. Another modal is a sheet, closed on ok
-  ([after-a-write](after-a-write.md)).
+- An alert's `aria-label` is its title. Escape/Back chooses Cancel; only `closedby="any"`
+  dismisses outside. Another modal is a sheet, closed on ok ([after-a-write](after-a-write.md)).
 - Routes stay mounted: unique `testId`s. `clock settle` after a push, sheet or alert;
   `clock data` before reading a save.
-- From 900 px, pushed rows split list and detail, `follow` replacing it;
-  `navigationSplit="none"` keeps it pushed.
+- From 900 px, pushed rows split list and detail; `navigationSplit="none"` keeps them pushed.
 - A run (a workout, a quiz) has one exit that ends it or asks; no Back leaves it running.
-- An unmatched location keeps its URL and offers home (`notfound`); a missing detail says so.
+- An unmatched location offers home (`notfound`); a missing detail says so.
+- A deep link ([app-json](app-json.md)) in a drive: `type <root> euxy://p/1`.

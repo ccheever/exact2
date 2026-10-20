@@ -111,5 +111,29 @@ final class StillTitleIOSTests: XCTestCase {
         XCTAssertNotNil(find("rooms-gone"), "the error view took the list's place")
         XCTAssertGreaterThan(try titleInk(nav), 100, "'Rooms' is drawn over the error view")
     }
+
+    /// A scroller made in a batch, below the reason, in the list's place: the
+    /// route's bottom-edge scroller, which UIKit insets. Before its first
+    /// frame it sat at the route's top, under the bar, and UIKit's safe area
+    /// there (the bar's 168 points) was taken back once it was handed over,
+    /// moving its offset by as much: the stopwatch's "No laps yet" after
+    /// Reset was scrolled out of its port, in the accessibility tree but not
+    /// drawn. Its content size also kept the port before UIKit's bottom inset.
+    func testAScrollerMadeInTheListsPlaceRestsAtItsStart() throws {
+        let session = try fixture()
+        let route = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController as? RouteController)
+        try tap("fail")
+        try tap("clear")
+        let empty = try node("rooms-empty")
+        let sv = try XCTUnwrap(empty.scroll, "the empty state scrolls")
+        XCTAssertTrue(route.edgeScroll === empty, "it reaches the bottom edge")
+        XCTAssertEqual(sv.contentOffset.y, -sv.adjustedContentInset.top, accuracy: 0.5, "at its start")
+        let text = try node("rooms-empty-text")
+        let port = sv.convert(sv.bounds, to: nil), box = text.convert(text.bounds, to: nil)
+        XCTAssertGreaterThanOrEqual(box.minY, port.minY - 0.5, "its text is in its port: \(box) in \(port)")
+        XCTAssertEqual(box.minY, empty.convert(empty.bounds, to: nil).minY, accuracy: 0.5, "at its top")
+        XCTAssertLessThanOrEqual(sv.contentSize.height + sv.adjustedContentInset.top + sv.adjustedContentInset.bottom, sv.bounds.height + 0.5,
+                                 "short content leaves nothing to scroll: \(sv.contentSize) in \(sv.bounds), \(sv.adjustedContentInset)")
+    }
 }
 #endif

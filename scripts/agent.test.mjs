@@ -64,6 +64,8 @@ test('malformed input is labelled before delivery; a state refusal is not', asyn
   carrier.ask = async () => ({ error: 'timer refused the advance' });
   await assert.rejects(() => s.clock('+100'), e => e.message.includes('timer refused') && e.malformed === undefined);
   await assert.rejects(() => main(['web', 'resize banana'], { open: async () => ({ close() {} }) }), e => e.malformed === true);
+  // A deep link is `type` on the navigation root (euxy FRICTION 11): the refusal names that form.
+  await assert.rejects(() => main(['web', 'open euxy://p/1'], { open: async () => ({ close() {} }) }), e => e.malformed === true && e.message.includes('`type <root> euxy://p/1`'));
 });
 
 test('accepted pointer, wheel, media and zero-time forms still reach the carrier', async () => {

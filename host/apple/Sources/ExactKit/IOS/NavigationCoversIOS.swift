@@ -133,6 +133,9 @@ extension NavigationHost {
         for id in covers.keys where wanted[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
         covers = wanted
         guard !changes.isEmpty else { return }
+        // A scroller's least content height is the port its cover leaves
+        // (`scrollFloor`); the kernel sends no new content size when only that changed.
+        for (id, _) in changes { presenter.views[id]?.fitScroll() }
         // Under Q3 (c) a cold launch's first frame runs no app code: a hatch
         // that changes a bar the plan already showed moves the content once.
         if replayingHatches, changes.contains(where: { presenter.views[$0.0]?.props["navigationKey"] != nil }) {

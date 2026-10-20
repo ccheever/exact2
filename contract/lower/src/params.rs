@@ -11,7 +11,7 @@
 
 mod rewrite;
 
-pub use rewrite::{reached, rewrite, unused};
+pub use rewrite::{escaped, owned, reached, rewrite, unused, Owned};
 
 use crate::LowerError;
 use contract_syntax::params::{ComponentParam, ParamAttr, ParamValue, ATTRIBUTES};

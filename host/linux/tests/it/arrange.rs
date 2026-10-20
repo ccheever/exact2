@@ -59,6 +59,8 @@ impl DataSource for Rows {
         Ok(Value::List(self.rows.clone()))
     }
 }
+// Each row's grip spans its row, as the points below assume: the row writes
+// its inline ends, so a cells list's inset (LLP 1138) leaves it alone.
 const APP: &str = r#"shape Row
   id: string
   color: string
@@ -82,7 +84,7 @@ component App
       box position="absolute" left=20 top=40 width=300 height=184
         list id="items" testId="list" width="100%" height="100%" border-width=2 padding=0 virtualized=true reorderdrop=drop
           for x in rows key=x.id
-            box testId=`row-${x.id}` height=x.height background-color=x.color
+            box testId=`row-${x.id}` height=x.height background-color=x.color padding-left=0 padding-right=0
               box testId=`grip-${x.id}` width="100%" height="100%" reorderFor="items" touch-action="none" disabled=disabled
       button position="absolute" top=300 testId="disable" press=disable
         text "disable"
@@ -580,4 +582,23 @@ fn a_grouped_row_crosses_to_another_list_and_its_session_finishes() {
         exact_kernel::Visibility::Visible,
         "the row shows once the ghost has landed"
     );
+}
+/// A grip inside a row the cells list insets (LLP 1138: 16 at each end of a
+/// row whose author wrote none) lifts and drops from its own measured box.
+#[test]
+fn a_grip_in_an_inset_row_lifts_and_drops() {
+    let mut p = boot_source(&APP.replace(" padding-left=0 padding-right=0", ""));
+    let (row, grip) = (
+        p.rect_of(id(&p, "row-0")).unwrap(),
+        p.rect_of(id(&p, "grip-0")).unwrap(),
+    );
+    assert_eq!(
+        (grip.0 - row.0, grip.2),
+        (16., row.2 - 32.),
+        "the grip is inset"
+    );
+    let (_, point) = recognize(&mut p);
+    assert!(p.pointer_move(point.0, point.1 + 60., 20.).unwrap());
+    assert!(p.pointer_up(point.0, point.1 + 70., 30.).unwrap());
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(1.)));
 }

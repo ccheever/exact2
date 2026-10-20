@@ -316,7 +316,10 @@ resource midi = exactMIDI() as shape MIDI
   or an app's own. A reader that declares it is answered again at each
   message's time, a commit with no app action; one that does not is not
   (2026-10-20: euxy's activity log, which ports 11–14 rebuilt from the
-  pattern).
+  pattern). A message to an output that is not connected is dropped before
+  the queue and never listed: `sent` is what went out, and listing it would
+  call a message sent that no output took (2026-10-20, euxy port 15, whose
+  original logs before it sends; such a log is the app's).
 
 - **Names are Web MIDI's** (`MIDIAccess.inputs`, `MIDIPort.id` and so on).
 - **`id` is stable across replug**: on Apple, `kMIDIPropertyUniqueID`, not the

@@ -1,0 +1,56 @@
+// The design of @exact/cards (LLP 1139 D1): the tokens its components'
+// params default to. Spacing and corners are base names; colours are the
+// package's own, which an app sets by full name (the clone sets them to its
+// palette's roles, and its spacing to its own lengths).
+tamber cards
+
+theme
+  // Colours.
+  cards.surface = light-dark(#ffffff, #151d28)
+  cards.divider = light-dark(#dce2ea, #2c3a4e)
+  cards.line = light-dark(#dce2ea, #394960)
+  cards.line-thread = light-dark(#dce2ea, #2c3a4e)
+  cards.name = light-dark(#000000, #ffffff)
+  cards.meta = light-dark(#405168, #abb8c9)
+  cards.badge = light-dark(#006aff, #0f73ff)
+  cards.badge-mark = #ffffff  scheme=fixed
+  cards.avatar-ground = light-dark(#f9fafb, #1c2736)
+  cards.avatar-default = #0070ff  scheme=fixed
+  cards.avatar-ring = light-dark(#dce2ea99, #485b7599)
+  cards.link-ground = light-dark(#ffffff, #151d28)
+  cards.link-frame = light-dark(#dce2ea, #2c3a4e)
+  cards.thumb-ground = light-dark(#f9fafb, #1c2736)
+  cards.visit = #6338ff  scheme=fixed
+  cards.visit-ink = #ffffff  scheme=fixed
+  // The post card's spacing, on the base scale.
+  cards.pad-start: length = space.sm
+  cards.pad-start-thread: length = space.sm
+  cards.pad-end: length = space.md
+  cards.pad-end-thread: length = space.md
+  cards.pad-bottom: length = space.sm
+  cards.column-gap: length = space.sm
+  cards.lead: length = space.sm
+  cards.top: length = space.sm
+  cards.top-thread: length = space.md
+  cards.line-gap: length = space.xs
+  cards.context-gap: length = space.xs
+  cards.context-under: length = space.xs
+  cards.avatar-start: length = space.sm
+  cards.avatar-end: length = space.sm
+  cards.avatar-end-thread: length = space.md
+  cards.meta-gap: length = space.xs
+  cards.meta-under: length = space.xs
+  cards.nudge: length = space.xs
+  // The Attie card's.
+  cards.link-top: length = space.sm
+  cards.link-corner: length = radius.lg
+  cards.link-pad: length = space.md
+  cards.link-gap: length = space.xs
+  cards.link-row-gap: length = space.sm
+  cards.link-name-gap: length = space.xs
+  cards.visit-pad-block: length = space.sm
+  cards.visit-pad-inline: length = space.md
+  cards.visit-corner: length = radius.full
+  // The context line hangs left of the text column by this much.
+  cards.context-hang: length = -16px
+  cards.badge-hang: length = -2px

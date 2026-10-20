@@ -863,7 +863,7 @@ says. Every roster function has a row and an example, and each example written
 | `replace(router, location)` | Router; the top visit takes the location and keeps its id. A stack's first visit keeps its root route: a location matching another route is refused and the router is unchanged (a first-launch screen: docs/recipes/first-launch.md) | `top(replace(push(nav, "/item/7"), "/item/8")).url` is `"/item/8"` |
 | `back(router)` | Router | `depth(back(push(nav, "/item/7")))` is `1` |
 | `select(router, tabName)` | Router | `nav = select(nav, "search")`, in an action, shows the `search` tab |
-| `go(router, location)` | Router; the top, a pop to it on the selected stack, another tab whose top it is, or else a push onto the selected stack, whatever tab declares its route (into its own tab: `go(select(nav, "tab"), location)` or `open`) | `top(go(nav, "/item/7")).name` is `"item"` |
+| `go(router, location)` | Router; the top, a pop to it on the selected stack, another tab whose top it is, or else a push onto the selected stack, whatever tab declares its route (into the route's declared tab: `open`) | `top(go(nav, "/item/7")).name` is `"item"` |
 | `stack(router)` | `Entry[]` | `stack(push(nav, "/item/7")).length` is `2` |
 | `top(router)` | `Entry` | `top(nav).name` is `"home"` |
 | `depth(router)` | Number | `depth(nav)` is `1` |
@@ -1057,7 +1057,19 @@ length ramps ([LLP 1137](../llp/1137-length-ramps.rfc.md)): UIKit's list-cell
 checkmark at the root font size, growing with the text size as a text style
 does (19 × 17.33 at the default size, 48 × 43.33 at the largest). They are
 taken where `-exact-hairline` is; a grouped list's checkmark in a row of your
-own already has them on iOS.
+own already has them on iOS. `-exact-accessibility-stack-gap` is 8 through the
+largest standard size and wider than any line at the accessibility sizes: as
+the `column-gap` of a row that wraps, it stacks the row's items there, as
+UIKit's cells do (a grouped row's title and value already take it on iOS).
+
+`-exact-row-look="platform"` on an element says its box's look (its
+`background`, `border`, `padding` and `box-shadow` rows) is its own where it stands
+alone and the platform's row where it is a grouped list's row ([LLP
+1139](../llp/1139-a-row-look-that-yields.rfc.md)): there those rows are dropped
+and the list draws the row, as Exact Content's `AnswerTile` is a tile in a quiz and a
+list's cell in a poll. Elsewhere it does nothing. A grouped row's edge or background
+image its author wrote otherwise stays the author's on every host, iOS's carried row
+included.
 
 A `button` is the platform's own control by default ([LLP
 1104](../llp/1104-the-platforms-controls-by-default.rfc.md) D1). Your bare box
@@ -1170,7 +1182,8 @@ argument is the URL), `heading` (`"1"` to `"6"`), `bullet`, `ordered`, `task`,
 media `src`), `indent`, `outdent` and `newline`; another name, or a missing
 argument, changes nothing. A toolbar button takes `retainFocus=true`, so a press
 leaves the editor focused and its selection where it was (on the Mac a click on any
-button does; the attribute is what says it for the web and iOS).
+button does, and on iOS a tap on one does, as UIKit's buttons do; the attribute is
+what says it for the web).
 
 The editor's `select` hands its action a `MarkdownSelection` when the selection
 or the source changes: `formats`, space-separated (the inline command names,
