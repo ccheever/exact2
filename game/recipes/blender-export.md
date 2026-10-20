@@ -25,7 +25,10 @@ as 8-bit PNG or JPEG, skeletal animation, and the extensions
 extension (Draco or meshopt compression, `KHR_materials_specular`,
 `KHR_materials_ior`, transmission, variants), morph targets and their animation,
 sparse accessors, points and lines, and a second UV or colour set, each naming the
-file. A model's materials keep their glTF index for `MaterialOverrides`.
+file. A model's materials keep their glTF index for `MaterialOverrides`, and their
+glTF name as `MaterialData.name` (empty when the material has none). A name is
+informational: two materials may share one, so find an index by name once, check it
+is the only match, and select by the index.
 
 A game's own test can catch the first two, on every model it ships:
 

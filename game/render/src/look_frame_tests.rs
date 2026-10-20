@@ -226,8 +226,8 @@ fn poses(
     let mut s = WorldSurface::<Poses, crate::ModelExecutor, true>::default();
     s.device_ready(wgpu::Features::empty());
     s.bind(&args.values(), None).unwrap();
-    s.asset("deformed.model", Ok(&bin::to_vec(&rig)));
-    s.asset("crate.model", Ok(&bin::to_vec(&held)));
+    s.asset("deformed.model", Ok(&exact_game::asset::encode_model(&rig)));
+    s.asset("crate.model", Ok(&exact_game::asset::encode_model(&held)));
     fixture::render(gpu, &mut s, &frame(0.)).unwrap();
     if direct {
         // As a device without indirect draws culls: every group drawn whole.
@@ -366,7 +366,7 @@ fn band(gpu: &Gpu, far: bool, direct: bool) -> BandSurface {
     let mut s = BandSurface::default();
     s.device_ready(wgpu::Features::empty());
     s.bind(&BandArgs { far }.values(), None).unwrap();
-    s.asset("crate.model", Ok(&bin::to_vec(&model)));
+    s.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
     fixture::render(gpu, &mut s, &frame(0.)).unwrap();
     if direct {
         let r = s.renderer_for_test().unwrap();
@@ -535,7 +535,10 @@ fn mixed(gpu: &Gpu, args: MixedArgs, glass: f32) -> (usize, String, bool) {
     let mut s = MixedSurface::default();
     s.device_ready(wgpu::Features::empty());
     s.bind(&args.values(), None).unwrap();
-    s.asset("mixed.model", Ok(&bin::to_vec(&mixed_model(glass))));
+    s.asset(
+        "mixed.model",
+        Ok(&exact_game::asset::encode_model(&mixed_model(glass))),
+    );
     let white = asset::TextureData {
         width: 1,
         height: 1,

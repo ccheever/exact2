@@ -23,7 +23,7 @@ fn assets() -> std::collections::BTreeMap<String, Vec<u8>> {
         ..Default::default()
     }];
     let mut assets = std::collections::BTreeMap::new();
-    assets.insert("rig.model".into(), bin::to_vec(&model));
+    assets.insert("rig.model".into(), exact_game::asset::encode_model(&model));
     assets.insert(
         model.textures[0].clone(),
         include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex").to_vec(),
@@ -271,7 +271,7 @@ fn rigid_node_animation_moves_pixels_and_glow_dims_baked_emission() {
     surface.device_ready(wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     assert_eq!(surface.assets().requests, ["rig.model"]);
-    surface.asset("rig.model", Ok(&bin::to_vec(&model)));
+    surface.asset("rig.model", Ok(&exact_game::asset::encode_model(&model)));
     surface.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
     let mut frame = Frame {
         width: 320.,

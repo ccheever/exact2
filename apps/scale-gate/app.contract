@@ -1,10 +1,10 @@
 // LLP 1121 stage 11's gate app (scripts/stage11-gate.mjs drives it): two
-// packages restyled together from one app value. @exact/cards and
-// @exact/notes each read space.md (and radius.md, radius.lg) through their
+// packages restyled together from one app value. @exact/scale-fixture-cards and
+// @exact/scale-fixture-notes each read space.md (and radius.md, radius.lg) through their
 // own tokens; the app's design sets space.md = 20px once, so both move, and
-// sets notes.rule by its full name.
-use Card from "@exact/cards"
-use Note from "@exact/notes"
+// sets scale-fixture-notes.rule by its full name.
+use Card from "@exact/scale-fixture-cards"
+use Note from "@exact/scale-fixture-notes"
 
 component App
   view

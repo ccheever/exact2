@@ -117,7 +117,12 @@ on macOS and Linux.
   either style's).
 - `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
   values for a length over unset base names (stage 12 D1). Stage 12's other wire changes add under the
-  same version.
+  same version, and so do LLP 1122's: its queue item (2) reads a selection row the runtime calls
+  `dynamic` because a `:disabled` or `:checked` part folds it over its base as that base, where the
+  source map says both (its `editable` the base's rung, its `at` and `attr` the base attribute's),
+  with `states: [{state, source, editable}]`, each folded part's place and its own edit; the
+  development-only source map lists each Contract source's `home`, from which a param's full name
+  is built.
 
 ## Where it runs
 
@@ -1432,8 +1437,18 @@ The tool drives no input into an app; a command changes only what `prefer` would
   token, the token rung. An `:active` part's rows (lowered to the press paint) carry their part's
   place in the map, and so, held (*1.14*, LLP 1122's queue item (1)), do a `:hover` or
   `:focus-visible` part's: the map keys each part by its row and state, never by its row alone, so
-  a look's row is never offered at its base row's place. A `:disabled` or `:checked` part's are
-  offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  a look's row is never offered at its base row's place. A row a `:disabled` or `:checked` part
+  folds over its base (one value, `disabled ? D : B`, the runtime's `dynamic`) is read through the
+  map (*1.15*, LLP 1122's queue item (2)) where it says both the base and the parts: its `editable`
+  is its base's rung, whichever branch the runtime shows now (param, one `param.<name>` as written,
+  by its full name among the params read for the component it is written in, a package's included,
+  its template address the base attribute's, never a part's; template, style or token), and it adds `states: [{state, source, editable}]`, one per folded part
+  (`disabled`, `checked`; two of one state, a class's and the node's, each),
+  `source` the part's place in the form a held row's has (its node's for a part with none: a
+  conditional class's), `editable` that part's own edit: `set-state` on a style's part or
+  `set-row` with `state` on the node's own, never a param it names (the base's and every other
+  use's). A fold the map can't explain (no base an author wrote: a link's colour, `none`, a
+  metric) stays `dynamic`, read-only. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit).
   A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place (none for a conditional
@@ -1443,8 +1458,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
   `padding` for `padding_top`; and `layout: true` where that attribute writes a layout row (LLP
   1122 D14: `set-row` refuses it, by the same test), so a client offers it no `set-row` edit (a
-  param or token it reads whole is still offered). A tag's row, one the compiler derived, a conditional class's, a
-  folded `:disabled` or `:checked` row, and one the compiler composed or renamed (an animation's
+  param or token it reads whole is still offered). A tag's row, one the compiler derived, a conditional class's, and one the compiler composed or renamed (an animation's
   longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, node?, site?, instance?, rows}`
   (*1.11*; `node`, `site`, `instance` and a row's `token` *1.12*): the node the state is held on
   (the press it resolved to, named on a node inside it) and the rows that state shows (`active`:
