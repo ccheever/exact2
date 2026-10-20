@@ -20,17 +20,23 @@ extension NavigationHost {
     /// edges past the document's insets (`env()`, which the page authored
     /// against) for a route in the document, and every edge of its own for a
     /// presented one, whose sheet the document's insets do not clear (LLP
-    /// 1123 D2). The top is a collapsing title's scroller's when it has one,
-    /// and the bottom a scroller's at the bottom edge (`reachBottom`); the
-    /// sides and the bottom only while the containers take the whole view
-    /// (`whole`), and the bottom only as far as the route reaches it.
-    static func routeEdges(safe: UIEdgeInsets, document: UIEdgeInsets, presented: Bool, whole: Bool,
-                           collapses: Bool, scrollsToBottom: Bool, reached: CGFloat) -> HostCover.Edges {
+    /// 1123 D2). The top is a collapsing title's scroller's when it has one;
+    /// the sides and the bottom only while the containers take the whole
+    /// view (`whole`) or the page covers it (`covered`: `viewport-fit="cover"`,
+    /// whose `env()` is the window's safe area and not the tab bar's, which a
+    /// child of a `UITabBarController` reads in its own), and the bottom only
+    /// as far as the route reaches it. A scroller at the bottom edge takes
+    /// the bottom's clearance itself (`reachBottom`, an `.inset` cover): the
+    /// kernel pads the route nothing there and still clears an absolutely
+    /// positioned footer past the bar.
+    static func routeEdges(safe: UIEdgeInsets, document: UIEdgeInsets, presented: Bool, whole: Bool, covered: Bool = false,
+                           collapses: Bool, reached: CGFloat) -> HostCover.Edges {
         let env = presented ? .zero : document
+        let edges = whole || covered
         return .init(top: collapses ? 0 : max(0, safe.top - env.top),
-                     right: whole ? max(0, safe.right - env.right) : 0,
-                     bottom: whole && !scrollsToBottom ? max(0, min(safe.bottom, reached) - env.bottom) : 0,
-                     left: whole ? max(0, safe.left - env.left) : 0)
+                     right: edges ? max(0, safe.right - env.right) : 0,
+                     bottom: edges ? max(0, min(safe.bottom, reached) - env.bottom) : 0,
+                     left: edges ? max(0, safe.left - env.left) : 0)
     }
 
     /// What Exact's containers cover of each route — its controller's safe
@@ -52,9 +58,10 @@ extension NavigationHost {
             // covered for its own safe area whatever the document's fit (LLP
             // 1123 D2; its own clearance and credit are stage 2's)
             let presented = nav.map { nav in presentedNavigations.contains { $0 === nav } } ?? false
-            let whole = presented || (wantsWholeView && presenter.viewportFit != "cover")
+            let covered = wantsWholeView && presenter.viewportFit == "cover"
+            let whole = presented || (wantsWholeView && !covered)
             let shows = nav.map(barShows) ?? !ExactEnv.authoredChrome
-            guard shows || whole else { continue }
+            guard shows || whole || covered else { continue }
             let edges: HostCover.Edges
             // A collapsing title's scroller goes under the bar, which insets it;
             // its expanded inset is where CSS scrollTop 0 rests.
@@ -89,7 +96,9 @@ extension NavigationHost {
             // under the bar and above the home indicator, and scrolling
             // content still passes under both. A large title's inset is its
             // widest, at rest (CSS scrollTop 0).
-            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil {
+            // A transparent bar insets nothing of its scroller: the content
+            // starts under it (`collapse`), so no `.inset` is reported there.
+            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil && !(node === c.collapseScroll && Self.transparentBar(c.node)) {
                 if settled, c.viewIfLoaded?.window != nil, let safe = node.scrollView?.safeAreaInsets {
                     // A band's part of the safe area is a UI inset over control bars, not layout (LLP 1131 D2).
                     let top = max(0, max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0) - node.pageBand.top), bottom = max(0, safe.bottom - node.pageBand.bottom)
@@ -101,8 +110,8 @@ extension NavigationHost {
                 // Only what the route reaches of the bottom bars is covered:
                 // none once the keyboard ends it above them (`ownerFrame`).
                 let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
-                edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole,
-                                        collapses: c.collapseScroll != nil, scrollsToBottom: c.edgeScroll != nil, reached: reached)
+                edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
+                                        collapses: c.collapseScroll != nil, reached: reached)
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
             } else { continue }

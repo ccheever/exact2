@@ -87,7 +87,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 let fresh = seen.insert((span.source_id, span.line, span.col, span.end_col));
                 // @ref LLP 1116.007 D3.1 — a symbol by another spelling than its role.
                 if let (true, "image", Some(source)) = (fresh, tag.as_str(), positional.first()) {
-                    out.extend(crate::symbols::aliases(source, &mut platform));
+                    out.extend(crate::symbols::image_source(source, &mut platform));
                 }
                 let button = (tag == "button")
                     .then(|| roles::unlabelled_button(attrs, children, span))

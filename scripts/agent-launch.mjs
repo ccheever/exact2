@@ -794,8 +794,10 @@ export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|dat
 const AGENT_TREE = /^(shots|tools|repros)(\/|$)/;
 const TEST_FILE = /(^|\/)[^/]*\.test\.(?:m?js|ts|rs|contract)$/;
 // A shell or op-list helper outside the trees a build actually reads. A `.js`
-// or `.mjs` file counts: `app.ts` may import one (a game's own scripts are
-// `gameNonInput`'s), and a stale build run as fresh is worse than a rebuild.
+// or `.mjs` file is read through `moduleGraph` like a `.ts`: one app.ts
+// imports counts, one it never imports (an export script beside the app) is
+// no input; without a graph every one counts, since a stale build run as
+// fresh is worse than a rebuild.
 const HELPER = /\.(?:sh|ops)$/;
 const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
 // What app.ts reaches (LLP 1116.003 D1.1). The bake captures every TypeScript
@@ -809,7 +811,7 @@ const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
 // name: over-inclusion costs only a rebuild. Null (every TypeScript file counts)
 // without an app.ts, or when tsconfig maps bare specifiers (`paths`, `baseUrl`).
 const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*|<reference\s+path\s*=\s*)(['"])([^'"\n]+)\1/g;
-export const MODULE_FILE = /\.(tsx?|json)$/;
+export const MODULE_FILE = /\.(tsx?|[cm]?js|json)$/;
 export const CONFIG_JSON = /^(app|package|jsconfig|tsconfig[^/]*)\.json$/;
 /** The declarations the bake writes beside app.ts: its output, never an input. */
 export const DECLARATIONS = 'app.contract.d.ts';
@@ -826,7 +828,7 @@ export function moduleGraph(dir, manifest) {
     let isFile = false; try { isFile = statSync(file).isFile(); } catch {}
     if (seen.has(at) || !isFile) continue;
     seen.add(at); graph.add(file);
-    if (!/\.tsx?$/.test(file)) continue;
+    if (!/\.(tsx?|[cm]?js)$/.test(file)) continue;
     for (const [, , spec] of readFileSync(file, 'utf8').matchAll(SPECIFIER)) {
       if (!spec.startsWith('.')) continue;
       const base = resolve(dirname(at), spec), stem = base.replace(/\.(m?js|jsx)$/, '');

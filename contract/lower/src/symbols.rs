@@ -89,6 +89,48 @@ fn constant(parts: &[TemplatePart]) -> Option<String> {
     })
 }
 
+/// An image source's warnings: a symbol by another spelling (`aliases`) and an SVG file
+/// (`svg_source`).
+pub(crate) fn image_source(e: &Expr, platform: &mut Vec<LowerError>) -> Vec<LowerError> {
+    let mut out = aliases(e, platform);
+    out.extend(svg_source(e));
+    out
+}
+
+/// `lower-image-svg`: a literal image source naming an SVG file. Apple's host decodes
+/// rasters only (LLP 1011 §4), so the image is blank on iOS and macOS while it draws on the
+/// web and Linux, and nothing at run time says why. The drawing that works everywhere is an
+/// `svg` element with the file's paths, or an icon token for a one-colour glyph.
+pub(crate) fn svg_source(e: &Expr) -> Vec<LowerError> {
+    let sources: Vec<(String, contract_syntax::Span)> = match e {
+        Expr::Template(parts, span) if constant(parts).is_some() => {
+            vec![(constant(parts).unwrap_or_default(), *span)]
+        }
+        Expr::Str(s, span) => vec![(s.clone(), *span)],
+        Expr::Ternary(_, a, b, _) => {
+            return svg_source(a).into_iter().chain(svg_source(b)).collect();
+        }
+        _ => Vec::new(),
+    };
+    sources
+        .into_iter()
+        .filter(|(s, _)| {
+            let path = s.split(['?', '#']).next().unwrap_or("");
+            !s.starts_with("symbol:")
+                && !s.starts_with("data:")
+                && path.len() > 4
+                && path.to_ascii_lowercase().ends_with(".svg")
+        })
+        .map(|(s, span)| LowerError {
+            id: "lower-image-svg",
+            message: format!(
+                "image `{s}` is an SVG, which draws on the web and Linux and is blank on iOS and macOS (Apple's host decodes rasters only, LLP 1011 §4); inline the file's paths as an `svg` element, or for a one-colour glyph make it an icon token (`icons` in app.tamber)"
+            ),
+            span,
+        })
+        .collect()
+}
+
 /// `lower-symbol-alias`: a literal source that names a role by another spelling builds as the
 /// role, and says which. The role is what the recipe, `contract vocab` and the refusal's list
 /// name, so the next edit finds it by search.

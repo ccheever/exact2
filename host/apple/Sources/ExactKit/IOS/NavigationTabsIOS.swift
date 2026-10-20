@@ -256,6 +256,13 @@ extension NavigationHost {
         syncItems(tabs, navs: navs)
     }
 
+    /// The file a tab's raster source names: the app's own under `app:/`,
+    /// else a bundled asset of the session's resolver.
+    private func rasterURL(_ source: String) -> URL? {
+        if source.hasPrefix("app:/") { return AppFiles.url(source) }
+        return presenter.session?.resolver?.url(source, maximumBytes: 4 << 20)
+    }
+
     /// The items, from the authored tabs: each tab's own item, written in
     /// place when its face changes, so what else the app set on it (a badge)
     /// and a handle to it stay good.
@@ -275,11 +282,13 @@ extension NavigationHost {
         let traits = tabController.flatMap { $0.tabBar.window == nil ? nil : $0.tabBar.traitCollection }
             ?? presenter.session?.view?.traitCollection ?? UITraitCollection.current
         let points = FaceSymbol.tabBarPoints(traits)
-        let signature = zip(faces, ids).map { face, id in "\(points)|\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
+        let signature = zip(faces, ids).map { face, id in "\(points)|\(id)|\(face.base ?? "")|\(face.raster ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
-            // An svg-only icon's path (stage 9 A2) at a tab bar's glyph size, one image for both states.
+            // An svg-only icon's path (stage 9 A2) at a tab bar's glyph size, one image for both states;
+            // a bundled raster the same way, as a hand-built bar takes a custom image.
             let image = face.base.flatMap { FaceSymbol.image($0, points: FaceSymbol.tabBarPoints(traits)) }
+                ?? face.raster.flatMap { rasterURL($0) }.flatMap { TabFace.rasterImage(at: $0, points: FaceSymbol.tabBarPoints(traits)) }
             item.title = face.title
             item.image = image
             item.selectedImage = face.base.flatMap { FaceSymbol.isPath($0) ? nil : UIImage(systemName: $0 + ".fill") } ?? image

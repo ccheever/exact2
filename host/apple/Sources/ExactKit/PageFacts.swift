@@ -98,7 +98,16 @@ package enum PageFacts {
     /// is visible. A window not yet shown counts for nothing, so a page boots
     /// visible, as a browser's does.
     static var hidden: Bool {
+        // The drive can hide the page (`prefer visibility-state hidden`); it
+        // cannot make a page visible that the system has put away. A real
+        // background (the touch runner's Home, a system sheet over the
+        // whole screen) shows through, so a lifecycle test under the agent
+        // sees what a person's launch would.
+        #if os(macOS)
         if substituted { return agent.hidden }
+        #else
+        if substituted { return agent.hidden || AppBackground.now }
+        #endif
         #if os(macOS)
         if NSApp.isHidden { return true }
         let windows = NSApp.windows.filter { $0.isVisible || $0.isMiniaturized || closeHid.contains($0) }

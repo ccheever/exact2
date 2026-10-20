@@ -336,8 +336,8 @@ final class ContentOwnersIOSTests: XCTestCase {
     func testASheetsRouteIsCoveredForItsOwnSafeArea() {
         let cover = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
         let edges = { (safe: UIEdgeInsets, presented: Bool, whole: Bool, reached: CGFloat) in
-            NavigationHost.routeEdges(safe: safe, document: cover, presented: presented, whole: whole,
-                                      collapses: false, scrollsToBottom: false, reached: reached)
+            NavigationHost.routeEdges(safe: safe, document: cover, presented: presented, whole: whole, covered: !presented && !whole,
+                                      collapses: false, reached: reached)
         }
         XCTAssertEqual(edges(UIEdgeInsets(top: 44, left: 0, bottom: 0, right: 0), true, true, 0),
                        .init(top: 44, right: 0, bottom: 0, left: 0), "a floating sheet's inline bar")
@@ -345,6 +345,12 @@ final class ContentOwnersIOSTests: XCTestCase {
                        .init(top: 56, right: 0, bottom: 34, left: 0), "an edge-attached sheet's bar and home indicator")
         XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 34, right: 0), false, false, 34),
                        .init(top: 44, right: 0, bottom: 0, left: 0), "a route in the document: its bar past the status bar the page pads for")
+        // A tab's route under `viewport-fit="cover"`: the tab bar past the home indicator env() has, the bar's 49.
+        XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), false, false, 83),
+                       .init(top: 44, right: 0, bottom: 49, left: 0), "a covered page's route still clears the tab bar, which its env() does not hold")
+        XCTAssertEqual(NavigationHost.routeEdges(safe: UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), document: .zero, presented: false, whole: true,
+                                                 collapses: false, reached: 83),
+                       .init(top: 106, right: 0, bottom: 83, left: 0), "the whole view's route: the bar and the status bar")
     }
 
     /// A sheet's route ends only at a docked keyboard (LLP 1123 C26): the

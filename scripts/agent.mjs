@@ -38,7 +38,7 @@ import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, postCommand, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, crashWatch, developmentLaunchEnvironment, forwardedEnv, keepInstalledRelease, phone, phoneBridge, showSimulator, simulator, withDisplay, withMaterials, withSoftwareKeyboard } from '../host/apple/devices.mjs';
+import { crashReports, crashWatch, developmentLaunchEnvironment, forwardedEnv, keepInstalledRelease, phone, phoneBridge, showSimulator, simulator, displayAsIs, withDisplay, withMaterials, withSoftwareKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -762,11 +762,11 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
         if (r.error) throw new Error(r.error);
         return r;
       },
-      // `own`: the app's drawing alone, never the display's (smoke's canvas readback, whose reference is one).
+      // `own`: the app's drawing alone, never the display's (smoke's canvas readback); `window === 'display'`: the display as it is (`displayAsIs`).
       async screenshot(path, window = false, film = false, status = false, own = false) {
         const take = async () => {
-          const r = await ask({ op: 'screenshot', path, window, ...(film ? { film } : {}) });
-          if (r.error) throw new Error(r.error);
+          const r = await ask({ op: 'screenshot', path, window: window === 'display' || window, ...(film ? { film } : {}) });
+          if (r.error) throw new Error(r.error); if (window === 'display' && !film) return displayAsIs(r, path, dev.udid);
           const bar = r.statusBar; if (!status) delete r.statusBar;
           // The host draws the window (with an alert or sheet up, or asked); its pixels are then the display's, `simctl
           // io` captures (about 1 s), which draw glass as the device does and hold the keyboard; the status bar's only
@@ -1423,7 +1423,7 @@ export async function main(argv, injected = {}) {
           else if (args[1] === 'over') {
             if (args[3] !== 'every' || !(args.length === 5 || args.length === 6 && args[5] === 'window')) throw new MalformedOperation('screenshot <png|apng> over <ms> every <ms> [window]');
             r = await s.screenshot(args[0], { over: Number(args[2]), every: Number(args[4]), window: args[5] === 'window' });
-          } else r = await s.screenshot(args[0] ?? 'screenshot.png', args[2] === 'save' ? args[1] : args[1] === 'window', args[2], !!s.held); // inside a held touch, as it stands
+          } else r = await s.screenshot(args[0] ?? 'screenshot.png', args[2] === 'save' ? args[1] : args[1] === 'display' ? 'display' : args[1] === 'window', args[2], !!s.held); // inside a held touch, as it stands
           break;
         case 'tap':
           // The contact's phases (LLP 1035.003 D1) read as `tap move …`,

@@ -896,3 +896,33 @@ component App
     )
     .unwrap();
 }
+
+/// A page holding `view` under a column, as the warnings tests build one.
+fn image(view: &str) -> String {
+    format!("component App\n  state label = \"Add\"\n  view\n    column\n      {view}\n")
+}
+
+/// `lower-image-svg`: an SVG image source draws on the web and Linux and is blank on
+/// Apple (ImageIO decodes rasters only, LLP 1011 §4), and nothing at run time says why.
+#[test]
+fn an_svg_image_source_is_named_as_blank_on_apple() {
+    let svg = "lower-image-svg".to_string();
+    for (source, named) in [
+        ("\"assets/wordmark.svg\"", true),
+        ("\"app:/data/Wordmark.SVG?v=2\"", true),
+        ("`assets/${\"mark\"}.svg`", true),
+        ("(label == \"x\" ? \"a.svg\" : \"a.png\")", true),
+        ("\"assets/wordmark.png\"", false),
+        ("\"symbol:home\"", false),
+        ("\"data:image/svg+xml,%3Csvg%3E\"", false),
+        ("label", false),
+    ] {
+        let src = image(&format!(
+            "image {source} width=40 height=40 aria-label=\"Mark\""
+        ));
+        let found = crate::warnings::warned(&src)
+            .into_iter()
+            .any(|(id, _)| id == svg);
+        assert_eq!(found, named, "{source}");
+    }
+}

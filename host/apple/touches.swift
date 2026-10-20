@@ -56,7 +56,7 @@ final class ExactTouches: XCTestCase {
                 guard let line = next.next(), let hello = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
                       hello["token"] as? String == token, let named = hello["app"] as? String else { next.close(); continue }
                 app = named
-                next.send(["ready": true, "token": token, "pid": getpid(), "listen": Int(listener.port)])
+                next.send(["ready": true, "token": token, "pid": getpid(), "listen": Int(listener.port), "app": named])
                 link = next
                 continue
             }

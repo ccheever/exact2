@@ -202,7 +202,8 @@ async function keptRunner(udid, appId, key) {
   if (!socket) { await retire(udid, kept); return null; }
   const talk = conversation(socket, () => logTail(kept.log));
   const hello = await within(talk.request({ token: kept.token, app: appId }), 3000, () => null);
-  if (!hello?.ready) { socket.destroy(); await retire(udid, kept); return null; }
+  // A runner that answers for another bundle (an older runner, or one another drive retargeted under us) is retired, not reused.
+  if (!hello?.ready || (hello.app !== undefined && hello.app !== appId)) { socket.destroy(); await retire(udid, kept); return null; }
   return { socket, talk, kept };
 }
 

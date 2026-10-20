@@ -148,6 +148,16 @@ export async function withMaterials(r, path, window) {
   finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+/** The simulator's display as it is, into `path` over the app's own picture: whatever is over the app (a system
+ *  permission alert, a sheet of the system's) is in it, and nothing checks it against the app's drawing. */
+export function displayAsIs(r, path, udid) {
+  const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', path], { timeout: 20000 });
+  if (taken.status !== 0) throw new Error(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
+  r.pixels = 'display'; r.pixelsWhy = 'the display as it is, asked for'; r.statusBar = true;
+  if (r.front !== true) r.note = `the app is not in front (${r.front}): the display shows what is over it`;
+  return r;
+}
+
 /** Why the display is not the app's at the points the app drew itself (`points`, window points), or null: around a
  *  point whose 5x5 pixels the app drew in one colour (no edge of text or shape) the display's must be within 2 levels of
  *  it, as they are exactly where nothing lies over the app (measured on the euxy port, light and dark). A notification

@@ -114,6 +114,79 @@ fn a_bar_over_the_top_edge_adds_to_the_authored_padding() {
 }
 
 #[test]
+fn an_absolute_footer_in_a_covered_route_clears_the_bar_it_rests_on() {
+    let mut kernel = route();
+    // A footer pinned to the route's bottom edge, as a cart's Undo button.
+    let footer = vec![
+        Op::CreateView {
+            id: 5,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 5,
+            patch: Box::new(style(&[
+                (StyleId::PositionType, StyleValue::Text("absolute".into())),
+                (StyleId::Bottom, StyleValue::Number(0.0)),
+                (StyleId::Left, StyleValue::Number(0.0)),
+                (StyleId::Right, StyleValue::Number(0.0)),
+                (StyleId::Height, StyleValue::Number(40.0)),
+            ])),
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4, 5],
+        },
+    ];
+    kernel.apply(0, 1, &footer).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 5),
+        (0.0, 804.0, 390.0, 40.0),
+        "as authored"
+    );
+    // The tab bar and home indicator, 83, cover the route's bottom: the
+    // in-flow content pads past them and the footer rests above them.
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([0.0, 0.0, 83.0, 0.0])))
+        .unwrap();
+    assert_eq!(
+        frame(&mut kernel, 4),
+        (0.0, 52.0, 390.0, 709.0),
+        "in-flow content ends above the bar"
+    );
+    assert_eq!(
+        frame(&mut kernel, 5),
+        (0.0, 721.0, 390.0, 40.0),
+        "the footer rests on the bar, not under it"
+    );
+    // The route's last in-flow child is a scroller the platform insets at
+    // the bottom edge: the route pads nothing (the scroller reaches under
+    // the bar), and the footer still clears it.
+    kernel
+        .set_host_cover(4, Some(HostCover::Inset([0.0, 83.0])))
+        .unwrap();
+    assert_eq!(
+        frame(&mut kernel, 4),
+        (0.0, 52.0, 390.0, 792.0),
+        "the scroller reaches the bottom edge"
+    );
+    assert_eq!(frame(&mut kernel, 5), (0.0, 721.0, 390.0, 40.0));
+    // A percentage inset is the author's to resolve; it stays as written.
+    kernel
+        .apply(
+            0,
+            1,
+            &[Op::SetStyle {
+                id: 5,
+                patch: Box::new(style(&[(StyleId::Bottom, StyleValue::Percent(10.0))])),
+            }],
+        )
+        .unwrap();
+    kernel.set_host_cover(4, None).unwrap();
+    let (_, y, _, _) = frame(&mut kernel, 5);
+    assert!((y - (844.0 - 84.4 - 40.0)).abs() < 0.5, "{y}");
+}
+
+#[test]
 fn a_header_the_bar_replaces_takes_no_space_until_the_cover_is_cleared() {
     let mut kernel = route();
     kernel

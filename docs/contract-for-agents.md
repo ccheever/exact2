@@ -1450,7 +1450,8 @@ loop; `tabindex=-1` allows explicit focus while excluding sequential focus.
 itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which is
 the bar's scroller with nothing written (`navigationScroll` names another; "Routes
 and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
-route's enabled control whose `id` is the root's `navigationBack`, which is optional: a
+route's enabled control whose `id` is the root's `navigationBack`, or, when the route
+has none, one outside every route (a header the screens share), which is optional: a
 root with a `navigationKey` alone is the navigation root and names no control. A route with no such
 control still has the platform's back button, edge swipe and swipe down (and the
 browser's Back): they go back through the root's `navigate` handler with the location
@@ -1459,7 +1460,10 @@ router itself, as `nav = back(nav)` would (LLP 1115 D5). On the web the browser'
 Forward and a `link` to a declared route do the same with no handler: the runner goes
 there itself, as `nav = go(nav, url)` would (LLP 1115.000 D4.3); a native host's link
 still needs the handler. A declared but disabled
-control refuses them, as does `closedby="none"` on a sheet. On a pushed iOS
+control refuses them, as does `closedby="none"` on a sheet. A route whose scroller opens
+with a full-bleed picture says `navigationBar="transparent"`: iOS draws its bar clear at
+the scroller's top and insets nothing, so the picture sits under the bar as under a fixed
+transparent header on the web, and the bar's material comes as the content scrolls. On a pushed iOS
 route under the platform bar, that control's text becomes the bar's back button title
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
 not `‹ Recipes`. With no such control the back button is UIKit's default, which since
@@ -2133,7 +2137,8 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   works on every host. An app's `bun exact.mjs agent ios` and `test ios` drive what a
   person sees (`--chrome platform`; `--chrome agent` paints the authored tablist and
   header instead, as `scripts/agent.mjs` does by default): UIKit's tab bar, navigation bars and sheets show,
-  `screenshot "file" window` draws them, and a tap naming a tab or a header control
+  `screenshot "file" window` draws them (`display` reads the simulator's screen as it
+  is, a system alert over the app included), and a tap naming a tab or a header control
   presses it through its bar (`native: "tab-bar-item"`, `"bar-button-item"`). The
   bars' own motion runs on real time (`clock +300 real` before a screenshot); the
   software keyboard, another window, is not drawn.

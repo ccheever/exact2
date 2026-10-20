@@ -63,7 +63,7 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
         // Both sample paths contain no account data. Only placeholder(in:) is redacted.
         placeholder: entry.preview,
         linkBase: (Bundle.main.object(forInfoDictionaryKey: "ExactLinkBase") as? String).flatMap(URL.init(string:)),
-        imageRoots: [entry.root] + SnapshotBundles.imageRoots(for: .main), appGroup: WidgetContainer.root, entryDate: entry.date)
+        imageRoots: [entry.root] + SnapshotBundles.imageRoots(for: .main), appGroup: WidgetContainer.root, appID: WidgetContainer.appID, entryDate: entry.date)
     #if EXACT_INSPECT
     widgetLog.notice("render family=\(String(describing: family), privacy: .public) width=\(contentSize.width) height=\(contentSize.height)")
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {

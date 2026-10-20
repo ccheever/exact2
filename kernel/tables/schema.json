@@ -1533,7 +1533,7 @@
       "id": 259,
       "name": "navigationBar",
       "kind": "str",
-      "_comment": "@ref LLP 1115.000 D5.2: a route's say over the platform's navigation bar, `none` (a full-bleed screen: no bar, and the edge swipe still pops) or `auto` (the default: the route's header as the bar, else the system Back alone on a pushed route). iOS reads it; hosts with no bar of their own ignore it."
+      "_comment": "@ref LLP 1115.000 D5.2: a route's say over the platform's navigation bar, `none` (a full-bleed screen: no bar, and the edge swipe still pops), `transparent` (the bar as `auto` has it, drawn clear at the top of the route's scroller, whose content starts under it as under a fixed transparent header on the web: a hero photo bleeds to the top, and the bar's material comes as the content scrolls) or `auto` (the default: the route's header as the bar, else the system Back alone on a pushed route). iOS reads it; hosts with no bar of their own ignore it."
     },
     {
       "id": 260,

@@ -735,6 +735,11 @@ extension NavigationHost {
             // (no header, a hidden one, one that is not a bar's), or no bar
             // where the route says so or has nothing to go back to.
             c.pushed = index > 0
+            let transparent = Self.transparentBar(c.node)
+            if (c.navigationItem.scrollEdgeAppearance === Self.clearScrollEdge) != transparent {
+                c.navigationItem.scrollEdgeAppearance = transparent ? Self.clearScrollEdge : nil
+                c.navigationItem.compactScrollEdgeAppearance = transparent ? Self.clearScrollEdge : nil
+            }
             let shape = stackShows ? HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) : nil
             let bar = stackShows ? self.bar(of: c.node, pushed: index > 0) : .hidden
             let shows = bar != .hidden
@@ -1020,7 +1025,10 @@ extension NavigationHost {
         // scroller's 0, which left its content's top under the bar.
         let shown = shownScroll(target)
         let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
-        shown?.contentInsetAdjustmentBehavior = .automatic
+        // Under a transparent bar the content starts at the top edge, under
+        // the bar, as on the web under a fixed transparent header: a hero
+        // photo bleeds to the top, and the bar's material comes as it scrolls.
+        shown?.contentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
         // …and is there before UIKit is handed it: a bar handed a
         // scroller that far from its top closes an open large title.
         if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
@@ -1045,6 +1053,20 @@ extension NavigationHost {
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
     }
+
+    /// Whether a route asks `navigationBar="transparent"`: its bar shows
+    /// with a clear scroll-edge appearance and insets no content.
+    static func transparentBar(_ route: NodeView) -> Bool { route.props["navigationBar"] == "transparent" }
+
+    /// The bar's appearance at a scroller's top edge for a transparent bar:
+    /// nothing drawn until the content scrolls under it, UIKit's own
+    /// standard appearance then (`UINavigationBarAppearance`, "Customizing
+    /// Your App's Navigation Bar").
+    static let clearScrollEdge: UINavigationBarAppearance = {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithTransparentBackground()
+        return appearance
+    }()
 
     /// Register a replacement before its first native layout. Resolve only
     /// the containing route, preserving that stack's Back relationships.

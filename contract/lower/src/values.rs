@@ -988,7 +988,7 @@ pub(crate) fn check_prop_value(
     let words: Option<(&[&str], &str)> = match prop {
         PropId::StatusBarAnimation => Some((&["none", "fade"], "`status-bar-animation` takes \"none\" or \"fade\"")),
         // @ref LLP 1115.000 D5.2 — no bar is something a route says, in one word.
-        PropId::NavigationBar => Some((&["none", "auto"], "`navigationBar` takes \"none\" (this route shows no navigation bar: a full-bleed screen that draws its own way back) or \"auto\" (the platform's bar, the default)")),
+        PropId::NavigationBar => Some((&["none", "auto", "transparent"], "`navigationBar` takes \"none\" (this route shows no navigation bar: a full-bleed screen that draws its own way back), \"transparent\" (the bar drawn clear at the top of the route's scroller, whose content starts under it: a full-bleed picture) or \"auto\" (the platform's bar, the default)")),
         // A sheet's grabber, said or left to the platform (LLP 1115 §2).
         PropId::NavigationGrabber => Some((&["visible", "hidden", "auto"], "`navigationGrabber` takes \"visible\", \"hidden\" or \"auto\" (the default: the platform's, a grabber on a sheet with several detents)")),
         PropId::FocusGuide => Some((&["auto"], "`focusGuide` takes \"auto\"")),
