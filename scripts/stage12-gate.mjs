@@ -290,10 +290,16 @@ function usesOf(copy, dir, env) {
   return renderedLibrary(JSON.parse(readFileSync(mapFile, 'utf8')));
 }
 
-/** A source map's view nodes from a package's file, as identities. */
+/** A source map's view nodes from a package's file, as identities: the
+ * component by its declared name (the build suffixes one whose name another
+ * component shares with its file's stem, `AtCard__at_card`). */
 export function renderedLibrary(map) {
   const home = new Map((map.sources ?? []).map(s => [s.file, s.home]));
-  return [...new Set((map.nodes ?? []).map(n => `${home.get(n.file) ?? ''}#${n.component}`).filter(id => id.startsWith('@')))];
+  return [...new Set((map.nodes ?? []).map(n => {
+    const h = home.get(n.file) ?? '';
+    const stem = h.split('/').pop()?.replace(/\.contract$/, '').replace(/\W/g, '_');
+    return `${h}#${String(n.component).replace(new RegExp(`__${stem}$`), '')}`;
+  }).filter(id => id.startsWith('@')))];
 }
 
 /** Conform on the clone holds when both sides ran and the adoption fails
@@ -303,7 +309,9 @@ export const conformSame = c => !!(c.before && c.after) && c.after.failures.ever
 const conformEvidence = c => {
   if (!c.before || !c.after) return [`conform on the clone: did not run (${['before', 'after'].filter(s => !c[s]).join(', ')})`];
   const added = c.after.failures.filter(f => !c.before.failures.includes(f));
-  return [`conform on the clone (host/web-js/conform.mjs --strict --linux, wasm against JS): after ${c.after.summary.split(';')[0]}, before ${c.before.summary.split(';')[0]}; ${added.length ? `${added.length} the adoption adds` : `every failure the baseline's own (${c.after.failures.length}, the same lines)`}`, ...added.map(f => `  NEW ${f}`)];
+  // Both lists whole, each failure by its line (theme2 22:49 (2)).
+  return [`conform on the clone (host/web-js/conform.mjs --strict --linux, wasm against JS; theme2 22:49: no failure beyond the baseline's): after ${c.after.summary.split(';')[0]} over ${c.after.compared} steps, before ${c.before.summary.split(';')[0]} over ${c.before.compared}; ${added.length ? `${added.length} only after has` : 'after\'s a subset of before\'s'}`,
+    ...added.map(f => `  NEW ${f}`), ...c.before.failures.map(f => `  before: ${f}`), ...c.after.failures.map(f => `  after: ${f}`)];
 };
 
 /** The SDK a copy builds with: its exact.mjs's EXACT2 (the environment's,

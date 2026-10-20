@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, conformFailures, conformRead, conformSame, renderedIds, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, beforeDrift, conformFailures, conformRead, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -172,4 +172,10 @@ test('a conform run counts only when it finished, compared steps and printed eve
   expect(conformRead(out(0), 'app')).toBe(null);
   expect(conformRead(out(3).replace(/\nFAIL.*$/, ''), 'app')).toBe(null);
   expect(conformRead(out(3), 'app', new Error('timed out'))).toBe(null);
+});
+
+test('the components a source map\'s view nodes come from, by declared name', () => {
+  const map = { sources: [{ file: '/n/cards/at-card.contract', home: '@exact/cards/at-card.contract' }, { file: '/a/post.contract', home: 'post.contract' }],
+    nodes: [{ file: '/n/cards/at-card.contract', component: 'AtCard__at_card' }, { file: '/n/cards/at-card.contract', component: 'AtCard' }, { file: '/a/post.contract', component: 'AtCard' }] };
+  expect(renderedLibrary(map)).toEqual(['@exact/cards/at-card.contract#AtCard']);
 });
