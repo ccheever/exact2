@@ -10,7 +10,7 @@
 // credentials never pass through the relay (theme2's condition 2).
 // RFC 8555, as much of it as one order needs.
 
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, X509Certificate } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, X509Certificate } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -54,9 +54,15 @@ const BODY = 256 * 1024;
 
 /** A certificate's DNS names, as its subjectAltName lists them. */
 export const sansOf = x => (x.subjectAltName ?? '').split(', ').filter(n => n.startsWith('DNS:')).map(n => n.slice(4));
-/** Whether `x` names every one of `names` itself (a wildcard as the
- * wildcard, never one host under it), and is valid at `now`. */
-export const certifies = (x, names, now = Date.now()) => names.every(n => sansOf(x).includes(n)) && Date.parse(x.validFrom) <= now && Date.parse(x.validTo) > now;
+/** Whether `x` names exactly `names` (a wildcard as the wildcard, never
+ * one host under it; no name more), and is valid at `now`. */
+export const certifies = (x, names, now = Date.now()) => {
+  const sans = sansOf(x);
+  return sans.length === names.length && new Set(sans).size === sans.length && names.every(n => sans.includes(n)) && Date.parse(x.validFrom) <= now && Date.parse(x.validTo) > now;
+};
+/** An ACME account's URL as a CAA record may carry it (`accounturi=`,
+ * RFC 8657): https, and nothing that ends a parameter or the record. */
+export const ACCOUNT_URI = /^https:\/\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,=%-]{1,512}$/;
 
 /** A certificate chain for `names` from the ACME server at `directory`:
  * `publish(record, value)` puts the DNS-01 TXT record up (and resolves
@@ -65,8 +71,12 @@ export const certifies = (x, names, now = Date.now()) => names.every(n => sansOf
  * certifies. Every URL the server gives must be https on the directory's
  * own origin, every request has `ms` and every answer `BODY` bytes, and
  * each authorization must be for one of `names`, checked before its record
- * goes anywhere. Throws with the server's words when an order fails. */
-export async function acmeCertificate({ directory, names, accountKey, key, publish, unpublish = async () => {}, fetch = globalThis.fetch, wait = ms => new Promise(ok => setTimeout(ok, ms)), patience = 120_000, ms = 30_000, warn = () => {}, account: told = () => {}, now = Date.now() }) {
+ * goes anywhere. `account(uri, issuer)` is told the account's URL and the
+ * CA's CAA name (the directory's first `caaIdentities`, or null) before
+ * any order. The order has one deadline, `patience` for each name, polls
+ * and all; `signal` stops it where it is (the records it put up taken
+ * down still). Throws with the server's words when an order fails. */
+export async function acmeCertificate({ directory, names, accountKey, key, publish, unpublish = async () => {}, fetch = globalThis.fetch, wait = ms => new Promise(ok => setTimeout(ok, ms)), patience = 120_000, ms = 30_000, warn = () => {}, account: told = () => {}, now = Date.now(), signal = null }) {
   for (const n of names) if (!ACME_NAME.test(n)) throw new Error(`ACME: ${JSON.stringify(n).slice(0, 80)} is no name to order`);
   const origin = new URL(directory).origin;
   if (!directory.startsWith('https://')) throw new Error('ACME: the directory is not https');
@@ -77,9 +87,11 @@ export async function acmeCertificate({ directory, names, accountKey, key, publi
     if (u.origin !== origin) throw new Error(`ACME: the server named another origin (${u.origin.slice(0, 80)})`);
     return u.href;
   };
-  /** A request with its deadline, never following a redirect; its body read to at most `BODY` bytes. */
+  /** A request with its deadline, never following a redirect, the server's certificate verified whatever the
+   * environment says (`NODE_TLS_REJECT_UNAUTHORIZED`); its body read to at most `BODY` bytes. */
   const call = async (url, init = {}) => {
-    const res = await fetch(ours(url), { ...init, redirect: 'error', signal: AbortSignal.timeout(ms) });
+    signal?.throwIfAborted();
+    const res = await fetch(ours(url), { ...init, redirect: 'error', tls: { rejectUnauthorized: true }, signal: signal ? AbortSignal.any([AbortSignal.timeout(ms), signal]) : AbortSignal.timeout(ms) });
     const reader = res.body?.getReader?.();
     let got = Buffer.alloc(0);
     if (reader) for (;;) { const { done, value } = await reader.read(); if (done) break; got = Buffer.concat([got, Buffer.from(value)]); if (got.length > BODY) { reader.cancel?.(); throw new Error('ACME: an answer over 256 KiB'); } }
@@ -107,25 +119,30 @@ export async function acmeCertificate({ directory, names, accountKey, key, publi
   };
   const created = await post(dir.newAccount, { termsOfServiceAgreed: true });
   kid = ours(created.headers.get('location'));
+  if (!ACCOUNT_URI.test(kid)) throw new Error('ACME: the account\'s URL is not one a CAA record can name');
+  const issuer = [dir.meta?.caaIdentities].flat().find(c => typeof c === 'string' && ACME_NAME.test(c) && !c.startsWith('*.')) ?? null;
   // (before any order: a caller may refuse to go on, `--require-caa` without the record)
-  await told(kid);
+  await told(kid, issuer);
   const ordered = await post(dir.newOrder, { identifiers: names.map(value => ({ type: 'dns', value })) });
   const orderUrl = ours(ordered.headers.get('location'));
   let order = ordered.json();
   const published = [];
   const said = text => String(text ?? 'invalid').replace(/[^\x20-\x7e]/g, '?').slice(0, 200);
+  const end = Date.now() + patience * names.length;
   const until = async (url, done) => {
-    const end = Date.now() + patience;
     for (let delay = 250; ; delay = Math.min(delay * 2, 5000)) {
       const got = (await post(url, null)).json();
       if (done(got)) return got;
       if (got.status === 'invalid') throw new Error(`ACME: ${said(got.error?.detail ?? got.challenges?.find(c => c.error)?.error?.detail)}`);
-      if (Date.now() > end) throw new Error(`ACME: not ${url.includes('authz') ? 'authorized' : 'issued'} within ${patience / 1000} s`);
+      if (Date.now() > end) throw new Error(`ACME: not ${url.includes('authz') ? 'authorized' : 'issued'} within ${(patience * names.length) / 1000} s`);
+      signal?.throwIfAborted();
       await wait(delay);
     }
   };
+  // (one authorization a name, at most: a server's thousand would each have their own wait)
+  if (!Array.isArray(order.authorizations) || order.authorizations.length > names.length) throw new Error('ACME: an order with more authorizations than names');
   try {
-    for (const at of order.authorizations ?? []) {
+    for (const at of order.authorizations) {
       const authz = (await post(at, null)).json();
       // For one of the names asked for, and only that: before its record goes anywhere.
       const asked = (authz.wildcard ? `*.${authz.identifier?.value}` : authz.identifier?.value);
@@ -137,6 +154,7 @@ export async function acmeCertificate({ directory, names, accountKey, key, publi
       // The record for `*.x` is `_acme-challenge.x`'s, the wildcard's base name.
       const record = `_acme-challenge.${value.replace(/^\*\./, '')}`;
       const txt = b64u(createHash('sha256').update(`${challenge.token}.${thumbprint}`).digest());
+      signal?.throwIfAborted();
       await publish(record, txt);
       published.push([record, txt]);
       await post(challenge.url, {});
@@ -183,30 +201,39 @@ function keep(path, text) {
 }
 
 /** One process at a time gets an account's certificate: a lock file made
- * with O_EXCL, its holder's pid in it, taken over when that process is
- * gone or the lock is older than `stale`. */
-async function locked(dir, f, { stale = 600_000, wait = ms => new Promise(ok => setTimeout(ok, ms)) } = {}) {
-  const lock = join(dir, 'lock');
-  for (let tries = 0; ; tries++) {
-    try { writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 }); break; } catch (e) {
+ * with O_EXCL, its holder's pid and a token of its own in it. A holder's
+ * lock is taken over only once that process is gone, and only the lock it
+ * held; a holder takes away only its own (never one a waiter made since).
+ * A live holder is waited for, up to `patience` (an order's hooks and
+ * polls), or until `signal`. */
+async function locked(dir, f, { patience = 1_200_000, wait = ms => new Promise(ok => setTimeout(ok, ms)), signal = null } = {}) {
+  const lock = join(dir, 'lock'), mine = `${process.pid} ${randomBytes(12).toString('hex')}`;
+  // (read, compared and unlinked: between the read and the unlink no other holder's lock can be made, as
+  // nothing else unlinks a lock it did not read)
+  const release = was => { try { if (readFileSync(lock, 'utf8') === was) unlinkSync(lock); } catch { /* gone */ } };
+  const end = Date.now() + patience;
+  for (;;) {
+    try { writeFileSync(lock, mine, { flag: 'wx', mode: 0o600 }); break; } catch (e) {
       if (e.code !== 'EEXIST') throw e;
-      let holder = NaN, age = 0;
-      try { holder = Number(readFileSync(lock, 'utf8')); age = Date.now() - lstatSync(lock).mtimeMs; } catch { continue; }
-      let alive = true;
-      try { process.kill(holder, 0); } catch { alive = false; }
-      if (!alive || age > stale) { try { unlinkSync(lock); } catch { /* raced */ } continue; }
-      if (tries > 600) throw new Error(`another process holds ${lock}`);
+      let held;
+      try { held = readFileSync(lock, 'utf8'); } catch { continue; }
+      const holder = Number(held.split(' ')[0]);
+      let alive = Number.isSafeInteger(holder) && holder > 0;
+      if (alive) try { process.kill(holder, 0); } catch (e) { alive = e.code === 'EPERM'; }
+      if (!alive) { release(held); continue; }
+      if (Date.now() > end) throw new Error(`another process (pid ${holder}) holds ${lock}`);
+      signal?.throwIfAborted();
       await wait(500);
     }
   }
-  try { return await f(); } finally { try { unlinkSync(lock); } catch { /* gone */ } }
+  try { return await f(); } finally { release(mine); }
 }
 
 /** The account's certificate for `names`, from `dir` (`~/.exact/relay/<acct>`,
  * made 0700): the one kept there while it covers them and has more than
  * `RENEW_MS` left, else a new one by ACME (`acme` gives the rest of
  * `acmeCertificate`'s options), kept. `{cert, key, fingerprint, spki, renewed}`. */
-export async function relayCertificate(dir, names, acme, { now = Date.now(), get = acmeCertificate, wait } = {}) {
+export async function relayCertificate(dir, names, acme, { now = Date.now(), get = acmeCertificate, wait, patience, signal = null } = {}) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const st = lstatSync(dir);
   if (!st.isDirectory()) throw new Error(`${dir} is not a directory (a link?): remove it`);
@@ -220,35 +247,46 @@ export async function relayCertificate(dir, names, acme, { now = Date.now(), get
         return x.publicKey.equals(createPublicKey(key)) && certifies(x, names, now) && Date.parse(x.validTo) - now > RENEW_MS;
       } catch { return false; }
     };
-    // The ACME account's URL, kept beside its key (a CAA record names it).
+    // The ACME account's URL and its CA's CAA name, kept beside its key (a CAA record names them).
     const uriPath = join(dir, 'account-uri');
-    let accountUri = regular(uriPath)?.trim() ?? null;
+    const kept = (regular(uriPath) ?? '').split('\n').map(l => l.trim());
+    let accountUri = ACCOUNT_URI.test(kept[0]) ? kept[0] : null, issuer = ACME_NAME.test(kept[1] ?? '') ? kept[1] : null;
     let cert = regular(certPath), renewed = false;
     if (!cert || !fits(cert)) {
       const told = acme.account ?? (() => {});
-      cert = await get({ ...acme, names, accountKey: keyAt(join(dir, 'account-key.pem')), key, now, account: async uri => { if (uri !== accountUri) { keep(uriPath, uri); accountUri = uri; } await told(uri); } });
+      cert = await get({ ...acme, names, accountKey: keyAt(join(dir, 'account-key.pem')), key, now, signal, account: async (uri, ca) => {
+        if (uri !== accountUri || ca !== issuer) { keep(uriPath, `${uri}\n${ca ?? ''}\n`); accountUri = uri; issuer = ca; }
+        await told(uri, ca);
+      } });
+      // (a run closed while it was got keeps nothing)
+      signal?.throwIfAborted();
       keep(certPath, cert);
       renewed = true;
     }
     const x = new X509Certificate(cert);
     const spki = createHash('sha256').update(x.publicKey.export({ type: 'spki', format: 'der' })).digest('base64');
-    return { cert, key, fingerprint: x.fingerprint256, spki, renewed, accountUri };
-  }, wait ? { wait } : {});
+    return { cert, key, fingerprint: x.fingerprint256, spki, renewed, accountUri, issuer };
+  }, { ...(wait ? { wait } : {}), ...(patience ? { patience } : {}), signal });
 }
 
 /** Whether the CAA records that govern `name` (the nearest set up the
  * tree, as a CA reads them, RFC 8659) let only this ACME account, by
  * DNS-01, get a certificate for it: every `issuewild` record (else every
  * `issue`, for a wildcard; `issue` for a host) names `accounturi=<uri>`
- * and `validationmethods=dns-01` alone, or forbids issuance (`;`). Read
- * through the system resolver, no DNSSEC validation. `{pinned, at}`. */
-export async function caaPinned(name, accountUri, { resolveCaa } = {}) {
-  const resolve = resolveCaa ?? (await import('node:dns')).promises.resolveCaa;
+ * and `validationmethods=dns-01` alone, or forbids issuance (`;`). A name
+ * on the way up that is a CNAME is never pinned: a CA reads its target's
+ * records there, which whoever holds the target writes (the relay, where
+ * the name points at it so). Read through the system resolver, no DNSSEC
+ * validation. `{pinned, at, cname?}`. */
+export async function caaPinned(name, accountUri, { resolveCaa, resolveCname } = {}) {
+  const dns = resolveCaa && resolveCname ? null : (await import('node:dns')).promises;
+  const lookup = async (f, domain) => { try { return await f(domain); } catch (e) { if (['ENODATA', 'ENOTFOUND', 'ENOENT'].includes(e.code)) return []; throw e; } };
   const wild = name.startsWith('*.');
   let domain = name.replace(/^\*\./, '');
   for (;;) {
-    let records = [];
-    try { records = await resolve(domain); } catch (e) { if (!['ENODATA', 'ENOTFOUND', 'ENOENT'].includes(e.code)) throw e; }
+    const [cname] = await lookup(resolveCname ?? dns.resolveCname, domain);
+    if (cname) return { pinned: false, at: domain, cname: String(cname) };
+    const records = await lookup(resolveCaa ?? dns.resolveCaa, domain);
     if (records.length) {
       const tagged = tag => records.filter(r => r[tag] !== undefined).map(r => String(r[tag]));
       const rules = wild && tagged('issuewild').length ? tagged('issuewild') : tagged('issue');
@@ -266,3 +304,14 @@ export async function caaPinned(name, accountUri, { resolveCaa } = {}) {
   }
 }
 
+/** Whether only this account, by DNS-01, can get a certificate for any of
+ * `names` (each governed by its own records: a wildcard's `issuewild`
+ * covers no host, a host's `issue` no wildcard). `{pinned, unpinned}`, the
+ * first name that isn't with its reason. */
+export async function caaGoverns(names, accountUri, options = {}) {
+  for (const n of names) {
+    const c = await caaPinned(n, accountUri, options);
+    if (!c.pinned) return { pinned: false, unpinned: { name: n, ...c } };
+  }
+  return { pinned: true, unpinned: null };
+}

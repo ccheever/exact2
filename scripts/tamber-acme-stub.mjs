@@ -21,13 +21,43 @@ function read(der, at) {
   if (n & 0x80) { const k = n & 0x7f; n = 0; for (let i = 0; i < k; i++) n = n * 256 + der[at + 2 + i]; head = 2 + k; }
   return { tag, start: at + head, end: at + head + n };
 }
+/** The DNS names a request's extension request puts in its
+ * subjectAltName: `[0] { SEQ { OID extReq, SET { SEQ { SEQ { OID san,
+ * OCTET { SEQ { [2]… } } } } } } }`, read from `at` to `end`. */
+function csrNames(der, at, end) {
+  const kids = (from, to) => { const out = []; for (let i = from; i < to; i = read(der, i).end) out.push({ at: i, ...read(der, i) }); return out; };
+  const SAN = Buffer.from([0x06, 0x03, 0x55, 0x1d, 0x11]);
+  const attrs = read(der, at);
+  if (attrs.tag !== 0xa0 || attrs.end > end) return [];
+  for (const attr of kids(attrs.start, attrs.end)) {
+    const [, values] = kids(attr.start, attr.end);
+    for (const exts of values ? kids(values.start, values.end) : []) {
+      for (const ext of kids(exts.start, exts.end)) {
+        const parts = kids(ext.start, ext.end);
+        if (!der.subarray(parts[0].at, parts[0].end).equals(SAN)) continue;
+        const octet = parts[parts.length - 1], list = read(der, octet.start);
+        return kids(list.start, list.end).filter(n => n.tag === 0x82).map(n => der.subarray(n.start, n.end).toString('latin1'));
+      }
+    }
+  }
+  return [];
+}
+/** A whole PKCS#10 request's subjectAltName DNS names. */
+export function requestNames(der) {
+  const outer = read(der, 0), info = read(der, outer.start);
+  let at = info.start;
+  for (let i = 0; i < 3; i++) at = read(der, at).end;
+  return csrNames(der, at, info.end);
+}
 const pem = der => `-----BEGIN CERTIFICATE-----\n${der.toString('base64').match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`;
 
 /** The ACME stand-in: an issuing CA of its own, `dns` the TXT records its
  * DNS-01 check reads (`record → [values]`), every order counted. */
 export function fakeAcme({ dns, now = () => Date.now(), days = 90, badNonceOnce = false, lie = {} } = {}) {
   // `lie`: what a hostile or broken server does instead: `authz` (an authorization for another name), `origin` (an
-  // authorization URL on another origin), `leafNames` (a certificate for other names), `leafKey` (for another key).
+  // authorization URL on another origin), `leafNames` (a certificate for other names), `leafKey` (for another key),
+  // `directory` (fields over its directory's), `authorizations` (so many more authorization URLs), `account` (the
+  // account's URL), `redirect` (a 302 for the directory), `huge` (a directory answer of 300 KiB).
   const ca = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const nonces = new Set(), accounts = new Map(), orders = [], authzs = [];
   let refusedOnce = !badNonceOnce;
@@ -42,7 +72,10 @@ export function fakeAcme({ dns, now = () => Date.now(), days = 90, badNonceOnce 
   };
   const fetch = async (url, init = {}) => {
     const u = new URL(url), path = u.pathname;
-    if (path === '/dir') return reply(200, { newNonce: `${origin}/nonce`, newAccount: `${origin}/acct`, newOrder: `${origin}/order` });
+    // (as fetch does: a redirect asked to be an error is one)
+    if (path === '/dir' && lie.redirect) { if (init.redirect === 'error') throw new TypeError('fetch failed: redirect'); return reply(302, '', { location: lie.redirect }); }
+    if (path === '/dir' && lie.huge) return reply(200, JSON.stringify({ pad: 'x'.repeat(300 * 1024) }));
+    if (path === '/dir') return reply(200, { newNonce: `${origin}/nonce`, newAccount: `${origin}/acct`, newOrder: `${origin}/order`, meta: { caaIdentities: ['acme.test'] }, ...(lie.directory ?? {}) });
     if (path === '/nonce') return reply(200, '');
     const jws = JSON.parse(init.body);
     const head = JSON.parse(Buffer.from(jws.protected, 'base64url'));
@@ -55,13 +88,13 @@ export function fakeAcme({ dns, now = () => Date.now(), days = 90, badNonceOnce 
     if (!jwk) return problem('accountDoesNotExist', 'no account');
     if (!verify('sha256', Buffer.from(`${jws.protected}.${jws.payload}`), { key: createPublicKey({ key: jwk, format: 'jwk' }), dsaEncoding: 'ieee-p1363' }, Buffer.from(jws.signature, 'base64url'))) return problem('unauthorized', 'bad signature');
     const payload = jws.payload ? JSON.parse(Buffer.from(jws.payload, 'base64url')) : null;
-    if (path === '/acct') { const kid = `${origin}/acct/${accounts.size + 1}`; accounts.set(kid, jwk); return reply(201, { status: 'valid' }, { location: kid }); }
+    if (path === '/acct') { const kid = `${origin}/acct/${accounts.size + 1}`; accounts.set(kid, jwk); return reply(201, { status: 'valid' }, { location: lie.account ?? kid }); }
     const thumb = Buffer.from(createHash('sha256').update(JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y })).digest()).toString('base64url');
     if (path === '/order') {
       const o = { names: payload.identifiers.map(i => i.value), status: 'pending', authz: [] };
       for (const value of o.names) { authzs.push({ value, status: 'pending', token: randomBytes(16).toString('base64url'), thumb }); o.authz.push(authzs.length - 1); }
       orders.push(o);
-      return reply(201, { status: 'pending', authorizations: o.authz.map(i => `${lie.origin ?? origin}/authz/${i}`), finalize: `${origin}/finalize/${orders.length - 1}` }, { location: `${origin}/order/${orders.length - 1}` });
+      return reply(201, { status: 'pending', authorizations: [...o.authz.map(i => `${lie.origin ?? origin}/authz/${i}`), ...Array.from({ length: lie.authorizations ?? 0 }, () => `${origin}/authz/${o.authz[0]}`)], finalize: `${origin}/finalize/${orders.length - 1}` }, { location: `${origin}/order/${orders.length - 1}` });
     }
     let m;
     if ((m = /^\/authz\/(\d+)$/.exec(path))) { const a = authzs[m[1]]; return reply(200, { status: a.status, identifier: { type: 'dns', value: lie.authz ?? a.value.replace(/^\*\./, '') }, ...(a.value.startsWith('*.') && !lie.authz ? { wildcard: true } : {}), challenges: [{ type: 'dns-01', url: `${origin}/chal/${m[1]}`, token: a.token, ...(a.error ? { error: { detail: a.error } } : {}) }] }); }
@@ -82,6 +115,8 @@ export function fakeAcme({ dns, now = () => Date.now(), days = 90, badNonceOnce 
       const spkiEl = read(der, at), spki = der.subarray(at, spkiEl.end);
       const sig = read(der, read(der, info.end).end);
       if (!verify('sha256', der.subarray(outer.start, info.end), createPublicKey({ key: spki, format: 'der', type: 'spki' }), der.subarray(sig.start + 1, sig.end))) return problem('badCSR', 'bad signature');
+      // Its subjectAltName's DNS names (the extension request's), the order's exactly, as a CA checks them.
+      if (JSON.stringify(csrNames(der, spkiEl.end, info.end).sort()) !== JSON.stringify([...o.names].sort())) return problem('badCSR', 'the request names other than the order');
       o.cert = issue(lie.leafKey ?? spki, lie.leafNames ?? o.names);
       o.status = 'valid';
       return reply(200, { status: 'processing' });

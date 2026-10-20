@@ -15,7 +15,7 @@ import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { allowHostArgs } from './install-page.mjs';
 import { connectRelay, dnsHook, parentOf, relayArgs, relayTxt } from './tamber-relay.mjs';
-import { caaPinned, relayCertificate } from './tamber-acme.mjs';
+import { caaGoverns, relayCertificate } from './tamber-acme.mjs';
 import { serveToolFiles, TOOL_DIST } from './tamber-tool-files.mjs';
 
 const DAY = 86_400_000;
@@ -379,6 +379,8 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     });
     const canvasDoor = guard(front(), timeoutMs, canvasHttp);
     servers.push(canvasDoor);
+    // An issuance under way stops where it is when the connector ends (its records taken down still).
+    const issuing = new AbortController();
     connector = connectRelay(relay, {
       warn,
       ...(connect ? { connect } : {}),
@@ -386,16 +388,17 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       // (and the session told at once, so the relay canvas is in place before a client greeted in the same write is routed)
       // (by ACME, names of one parent, which one wildcard of its own certifies)
       named: served => {
-        // (by ACME: two names of one parent, the account's own under the relay's domain, or the developer's
-        // own flag's; never a parent the relay alone chose for another account or a domain of its liking)
-        if (held ? !held.covers(served) : parentOf(served.tool) !== parentOf(served.canvas) || (!relay.hook && !parentOf(served.tool).startsWith(`${relay.account}.`))) return false;
+        // (by ACME: two names of one parent, the account's own under the relay's domain, `<account>.<relay>`
+        // whole, or the developer's own flag's, which the greeting must be; never a parent the relay alone chose,
+        // another account's or a domain of its liking)
+        if (held ? !held.covers(served) : parentOf(served.tool) !== parentOf(served.canvas) || (!relay.names && parentOf(served.tool) !== `${relay.account}.${relay.host}`)) return false;
         names ??= served;
         session = { ...names };
         for (const f of waiting.splice(0)) f(session);
         if (!held) certify();
         return true;
       },
-      ended: () => { relayed = null; clearInterval(renewal); renewal = null; },
+      ended: () => { relayed = null; clearInterval(renewal); renewal = null; issuing.abort(); },
       client: (sni, address, stream, settled) => {
         // The SNI decides the server: the tool's, or the canvas's once it has a gateway; nothing else.
         // (none until there is a certificate to end its TLS on)
@@ -440,23 +443,30 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       const via = connect ? { connect } : {};
       const publish = relay.hook ? (r, v) => dnsHook(relay.hook, r, v) : (r, v) => relayTxt(relay, r, v, via);
       const unpublish = relay.hook ? (r, v) => dnsHook(relay.hook, r, v, { clear: true }) : (r, v) => relayTxt(relay, r, v, { clear: true, ...via });
-      // With names of their own, the CAA record that keeps the relay's operator from getting one by
-      // another method (TLS-ALPN-01 or HTTP-01 at the relay's own port): said with the account it names,
-      // and checked at start and before each renewal (theme2's 09:57): not set, said plainly and shown
-      // beside the fingerprint (`caa: false`), or, with --require-caa, refused before any order.
+      // With names of their own, the CAA records that keep the relay's operator from getting one by another
+      // method (TLS-ALPN-01 or HTTP-01 at the relay's own port): `issue` for each host and `issuewild` for the
+      // wildcard (RFC 8659: neither covers the other's), said with the account and CA they name, and checked at
+      // start and before each renewal (theme2's 09:57): not set, said plainly and shown beside the fingerprint
+      // (`caa: false`), or, with --require-caa, refused before any order.
       const parent = parentOf(names.tool);
-      const checkCaa = async uri => {
+      const caaNames = [`*.${parent}`, names.tool, names.canvas];
+      const resolvers = Object.fromEntries(['resolveCaa', 'resolveCname'].filter(k => acmeOptions[k]).map(k => [k, acmeOptions[k]]));
+      const checkCaa = async (uri, issuer) => {
         if (!relay.hook || !uri) return;
-        if (caa === null) say(`  for names of your own, set this CAA record on ${parent} so only this account, by DNS-01, can get them: 0 issuewild "letsencrypt.org; validationmethods=dns-01; accounturi=${uri}"`);
-        const c = await caaPinned(`*.${parent}`, uri, acmeOptions.resolveCaa ? { resolveCaa: acmeOptions.resolveCaa } : {}).catch(() => ({ pinned: false }));
-        if (!c.pinned) warn(`tamber: not zero-trust: the relay could obtain a certificate for *.${parent} until you set the CAA record above`);
+        if (caa === null) {
+          const rule = `"${issuer ?? '<your CA\'s CAA name>'}; validationmethods=dns-01; accounturi=${uri}"`;
+          say(`  for names of your own, set these CAA records on ${parent}, so only this account, by DNS-01, can get a certificate for them: 0 issue ${rule} and 0 issuewild ${rule}; and point ${names.tool} and ${names.canvas} at the relay by A/AAAA records, never a CNAME (a CA reads a CNAME's target's CAA, which the relay writes)`);
+        }
+        const c = await caaGoverns(caaNames, uri, resolvers).catch(() => ({ pinned: false, unpinned: null }));
+        const why = c.unpinned?.cname ? ` (${c.unpinned.at} is a CNAME, to ${c.unpinned.cname.replace(/[^\x21-\x7e]/g, '?').slice(0, 100)})` : '';
+        if (!c.pinned) warn(`tamber: not zero-trust: the relay could obtain a certificate for ${c.unpinned?.name ?? parent}${why} until the CAA records above govern it`);
         caa = c.pinned;
-        if (!c.pinned && relay.requireCaa) throw new Error(`--require-caa: no CAA record on ${parent} pins this account and DNS-01`);
+        if (!c.pinned && relay.requireCaa) throw new Error(`--require-caa: the CAA that governs ${c.unpinned?.name ?? parent}${why} does not pin this account and DNS-01`);
       };
-      const account = uri => checkCaa(uri);
+      const account = (uri, issuer) => checkCaa(uri, issuer);
       // (a certificate kept from before is checked too: no order runs to check it there)
-      const get = () => relayCertificate(relay.dir, [wildcard], { directory: relay.acme, publish, unpublish, warn, account, ...(acme ?? {}) }, acmeOptions)
-        .then(async got => { if (!got.renewed) await checkCaa(got.accountUri); return got; });
+      const get = () => relayCertificate(relay.dir, [wildcard], { directory: relay.acme, publish, unpublish, warn, account, ...(acme ?? {}) }, { ...acmeOptions, signal: issuing.signal })
+        .then(async got => { if (!got.renewed) await checkCaa(got.accountUri, got.issuer); return got; });
       // A certificate taken only while the connector runs, for these names; a process that renewed it
       // (another app on this account) changes it too: adopted by its fingerprint, not by who renewed it.
       const take = got => {
@@ -470,9 +480,9 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       };
       get().then(got => {
         if (!take(got) || connector.closed) return;
-        renewal = setInterval(() => get().then(g => { if (take(g)) say(`  relay certificate got again (SHA-256 ${g.fingerprint})`); }, e => warn(`tamber: the relay certificate could not be got again: ${e.message}`)), DAY);
+        renewal = setInterval(() => get().then(g => { if (take(g)) say(`  relay certificate got again (SHA-256 ${g.fingerprint})`); }, e => { if (!issuing.signal.aborted) warn(`tamber: the relay certificate could not be got again: ${e.message}`); }), DAY);
         renewal.unref?.();
-      }).catch(e => { warn(`tamber: the relay certificate could not be got: ${e.message}`); connector.close(); });
+      }).catch(e => { if (issuing.signal.aborted) return; warn(`tamber: the relay certificate could not be got: ${e.message}`); connector.close(); });
     };
   }
   const shut = close;

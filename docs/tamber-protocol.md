@@ -254,16 +254,22 @@ statuses:
   sharing the account adopts one another renewed). Every URL the ACME server gives must be https on
   its directory's origin, with a deadline and a size bound; an authorization must be for a name
   asked for, checked before its record goes anywhere; the certificate must be for this key and
-  name the wildcard itself. With `--relay-name <tool> <canvas>` (names of the
+  name the wildcard itself and no name more; an order has at most one authorization a name and one
+  deadline, and stops where it is when the connector ends (its records taken down still, nothing
+  kept). With `--relay-name <tool> <canvas>` (names of the
   developer's own domain, one parent), the record is put up by `--relay-dns-hook <command>`, run
   here with `EXACT_ACME_ACTION` (`publish`|`clear`), `EXACT_ACME_RECORD` and `EXACT_ACME_VALUE`,
   its output never logged (and never given the relay's token): their DNS credentials never pass
   through the relay. The relay operator, whose port those names reach, could still get a
-  certificate for them by TLS-ALPN-01 or HTTP-01; the CAA record printed at start (`issuewild`
-  limited to this ACME account, by DNS-01) closes that. It is checked at start and before each
-  renewal (the nearest CAA set up the tree, as a CA reads it, every rule pinning this account and
-  `validationmethods=dns-01`, or forbidding issuance): until it is set, the start-up line says
-  plainly "not zero-trust" and `pair-code`'s relay entry carries `caa: false` (*1.15*; `caa: true`
+  certificate for them by TLS-ALPN-01 or HTTP-01; the CAA records printed at start close that:
+  `issue` and `issuewild` on the parent (RFC 8659: `issuewild` governs only the wildcard, `issue`
+  the hosts), each limited to this ACME account (`accounturi=`) by DNS-01, with the CA's CAA name
+  from its directory, and the two names pointed at the relay by A/AAAA records, never a CNAME (a CA
+  reads a CNAME's target's CAA, which the relay writes). They are checked at start and before each
+  renewal, for the wildcard and for each of the two names (the nearest CAA set up the tree, as a CA
+  reads it, every rule pinning this account and `validationmethods=dns-01`, or forbidding issuance;
+  a CNAME on the way up never pinned): until they are, the start-up line says
+  plainly "not zero-trust", naming the name left open, and `pair-code`'s relay entry carries `caa: false` (*1.15*; `caa: true`
   once it is), and with `--require-caa` no order runs at all until it is. The check reads the
   system resolver without DNSSEC validation, and CAA binds the CAs that honour it, which every
   public CA must (RFC 8659, the Baseline Requirements). The relay's own domain keeps its residual:
@@ -271,7 +277,8 @@ statuses:
   one of the developer's own instead. The account's token is `EXACT_RELAY_TOKEN` or `~/.exact/relay/<label>/token` (refused
   unless only its owner may read it), never logged, never in a URL. A relay whose own certificate
   fails WebPKI is never sent it, and no flag turns that check off. The session's names are the
-  relay's (`<id>-tool.<label>.<relay>`), or the developer's own with `--relay-name <tool>
+  relay's (`<id>-tool.<label>.<relay>`, under `<label>.<relay>` whole, `<relay>` being the
+  `--relay` host: by ACME a session under any other parent is refused), or the developer's own with `--relay-name <tool>
   <canvas>`. A relayed request is routed as the TLS listener's, at the tool's name (port 443):
   `{remote: true, tunnel: false, peer: "relay:<tool name>", reported}`, `reported` the client's
   address as the relay says it, shown in logs only. Names under a relay's domain aren't secret

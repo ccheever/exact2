@@ -740,14 +740,18 @@ test('R2: the relay refuses a TXT record outside the account\'s names; names of 
   const relayBYO = await fakeRelay({ greet: `READY ${byo.tool} ${byo.canvas}\n` });
   const hook = `if [ "$EXACT_ACME_ACTION" = publish ]; then echo "$EXACT_ACME_RECORD $EXACT_ACME_VALUE" >> ${zone}; fi`;
   const args = { host: 'relay.test', port: relayBYO.control, account: 'acct', token: TOKEN, names: byo, acme: acme.directory, hook, dir: join(home, '.exact', 'relay', 'acct') };
-  const warned = [];
-  const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relayBYO.control), say: () => {}, warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa: async () => [] } });
+  const warned = [], said = [];
+  const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relayBYO.control), say: l => said.push(l), warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa: async () => [], resolveCname: async () => [] } });
   closing.push(() => doors.close());
   await until(() => doors.relay() !== null, 10_000);
   expect(acme.orders.map(o => o.names)).toEqual([['*.example.com']]);
   // No CAA record pinning this account: said plainly, and shown beside the fingerprint (*1.15*).
   expect(doors.relay().caa).toBe(false);
   expect(warned.some(l => l.startsWith('tamber: not zero-trust: the relay could obtain a certificate for *.example.com'))).toBe(true);
+  // The records to set: `issue` for the hosts and `issuewild` for the wildcard (neither covers the other), with the
+  // CA's CAA name from its directory and this account; the hosts pointed by A/AAAA, never a CNAME.
+  const rule = '"acme.test; validationmethods=dns-01; accounturi=https://acme.test/acct/1"';
+  expect(said.find(l => l.includes('CAA records'))).toBe(`  for names of your own, set these CAA records on example.com, so only this account, by DNS-01, can get a certificate for them: 0 issue ${rule} and 0 issuewild ${rule}; and point tool.example.com and canvas.example.com at the relay by A/AAAA records, never a CNAME (a CA reads a CNAME's target's CAA, which the relay writes)`);
   expect([...relayBYO.seen.txt.keys()]).toEqual([]); // (nothing of the developer's domain through the relay)
   expect(readFileSync(zone, 'utf8')).toContain('_acme-challenge.example.com ');
 });
@@ -782,21 +786,32 @@ test('R2 (theme2 09:57): a CAA record pinning this account and DNS-01 makes it z
   const dns = record => readFileSync(zone, 'utf8').split('\n').filter(l => l.startsWith(`${record} `)).map(l => l.split(' ')[1]);
   const byo = { tool: 'tool.example.com', canvas: 'canvas.example.com' };
   const hook = `if [ "$EXACT_ACME_ACTION" = publish ]; then echo "$EXACT_ACME_RECORD $EXACT_ACME_VALUE" >> ${zone}; fi`;
-  const run = async (resolveCaa, requireCaa, tag) => {
+  const run = async (resolveCaa, requireCaa, tag, resolveCname = async () => []) => {
     const acme = fakeAcme({ dns });
     const relay = await fakeRelay({ greet: `READY ${byo.tool} ${byo.canvas}\n` });
     const warned = [];
     const args = { host: 'relay.test', port: relay.control, account: 'acct', token: TOKEN, names: byo, acme: acme.directory, hook, requireCaa, dir: join(home, tag) };
-    const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relay.control), say: () => {}, warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa } });
+    const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relay.control), say: () => {}, warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa, resolveCname } });
     closing.push(() => doors.close());
     return { acme, doors, warned };
   };
-  // Pinned (the account the stand-in gives first is /acct/1):
-  const pinned = async () => [{ critical: 0, issuewild: 'letsencrypt.org; validationmethods=dns-01; accounturi=https://acme.test/acct/1' }];
+  // Pinned, the hosts by `issue` and the wildcard by `issuewild` (the account the stand-in gives first is /acct/1):
+  const rule = 'acme.test; validationmethods=dns-01; accounturi=https://acme.test/acct/1';
+  const pinned = async d => (d === 'example.com' ? [{ critical: 0, issue: rule }, { critical: 0, issuewild: rule }] : []);
   const ok = await run(pinned, false, 'a');
   await until(() => ok.doors.relay() !== null, 10_000);
   expect(ok.doors.relay().caa).toBe(true);
   expect(ok.warned).toEqual([]);
+  // `issuewild` alone (round 2): a host's certificate is still open to the relay (RFC 8659 §4.3).
+  const wildOnly = await run(async d => (d === 'example.com' ? [{ critical: 0, issuewild: rule }] : []), false, 'c');
+  await until(() => wildOnly.doors.relay() !== null, 10_000);
+  expect(wildOnly.doors.relay().caa).toBe(false);
+  expect(wildOnly.warned).toEqual(['tamber: not zero-trust: the relay could obtain a certificate for tool.example.com until the CAA records above govern it']);
+  // Pinned, but the tool's name a CNAME (the relay writes its target's CAA): not pinned.
+  const aliased = await run(pinned, false, 'd', async d => (d === 'tool.example.com' ? ['edge.relay.test'] : []));
+  await until(() => aliased.doors.relay() !== null, 10_000);
+  expect(aliased.doors.relay().caa).toBe(false);
+  expect(aliased.warned).toEqual(['tamber: not zero-trust: the relay could obtain a certificate for tool.example.com (tool.example.com is a CNAME, to edge.relay.test) until the CAA records above govern it']);
   // Required and missing: refused before any order, the relay door closed.
   const refused = await run(async () => [], true, 'b');
   await until(() => refused.warned.some(l => l.includes('--require-caa')), 10_000);
@@ -807,17 +822,101 @@ test('R2 (theme2 09:57): a CAA record pinning this account and DNS-01 makes it z
 test('R2 (theme2 09:57): the CAA that governs a name is the nearest set up the tree; every rule must pin, `;` forbids', async () => {
   const { caaPinned } = await import('./tamber-acme.mjs');
   const uri = 'https://acme.test/acct/1', ok = `letsencrypt.org; validationmethods=dns-01; accounturi=${uri}`;
-  const zone = recs => async d => recs[d] ?? [];
-  expect(await caaPinned('*.a.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issuewild: ok }] }) })).toEqual({ pinned: true, at: 'example.com' });
+  const zoneOf = recs => async d => recs[d] ?? [];
+  // (no CNAME anywhere, unless said)
+  const zone = recs => zoneOf(recs), none = async () => [];
+  expect(await caaPinned('*.a.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issuewild: ok }] }) })).toEqual({ pinned: true, at: 'example.com' });
   // The nearest set wins: a.example.com's own, unpinned, though example.com is pinned.
-  expect((await caaPinned('*.a.example.com', uri, { resolveCaa: zone({ 'a.example.com': [{ issue: 'letsencrypt.org' }], 'example.com': [{ issuewild: ok }] }) })).pinned).toBe(false);
+  expect((await caaPinned('*.a.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'a.example.com': [{ issue: 'letsencrypt.org' }], 'example.com': [{ issuewild: ok }] }) })).pinned).toBe(false);
   // Every rule must pin: one open issuer is a way in.
-  expect((await caaPinned('*.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issuewild: ok }, { issuewild: 'pki.goog' }] }) })).pinned).toBe(false);
+  expect((await caaPinned('*.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issuewild: ok }, { issuewild: 'pki.goog' }] }) })).pinned).toBe(false);
   // Another account, or another method, is not this one.
-  expect((await caaPinned('*.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issuewild: ok.replace('acct/1', 'acct/2') }] }) })).pinned).toBe(false);
-  expect((await caaPinned('*.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issuewild: ok.replace('dns-01', 'tls-alpn-01') }] }) })).pinned).toBe(false);
+  expect((await caaPinned('*.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issuewild: ok.replace('acct/1', 'acct/2') }] }) })).pinned).toBe(false);
+  expect((await caaPinned('*.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issuewild: ok.replace('dns-01', 'tls-alpn-01') }] }) })).pinned).toBe(false);
   // No issuewild: the issue rules govern a wildcard; `;` forbids, which pins nothing open.
-  expect((await caaPinned('*.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issue: ok }, { issue: ';' }] }) })).pinned).toBe(true);
+  expect((await caaPinned('*.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issue: ok }, { issue: ';' }] }) })).pinned).toBe(true);
+  // A CNAME on the way up: never pinned, whatever its target says.
+  expect(await caaPinned('*.a.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issuewild: ok }] }), resolveCname: async d => (d === 'a.example.com' ? ['x.relay.test'] : []) })).toEqual({ pinned: false, at: 'a.example.com', cname: 'x.relay.test' });
+  // A wildcard's `issuewild` covers no host: the host is governed by `issue` alone.
+  const { caaGoverns } = await import('./tamber-acme.mjs');
+  expect(await caaGoverns(['*.example.com', 'tool.example.com'], uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issuewild: ok }] }) })).toEqual({ pinned: false, unpinned: { name: 'tool.example.com', pinned: false, at: 'example.com' } });
+  expect((await caaGoverns(['*.example.com', 'tool.example.com'], uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issue: ok }, { issuewild: ok }] }) })).pinned).toBe(true);
   // None at all, up to the top: not pinned.
-  expect(await caaPinned('*.example.com', uri, { resolveCaa: zone({}) })).toEqual({ pinned: false, at: null });
+  expect(await caaPinned('*.example.com', uri, { resolveCname: none, resolveCaa: zone({}) })).toEqual({ pinned: false, at: null });
 });
+
+test('R2 round 2: a TXT answer is one line, read once: what the relay sends after it is never read, and the connection is gone; a line past its length fails at once', async () => {
+  const closed = [];
+  const chatty = createTLS({ cert: relayCert.cert, key: relayCert.key }, conn => {
+    conn.on('error', () => {});
+    conn.once('data', () => {
+      conn.write('TXT-OK\n');
+      // (a relay that goes on sending, as much as it likes)
+      const flood = setInterval(() => { if (!conn.destroyed) conn.write('x'.repeat(64 * 1024)); }, 5);
+      conn.on('close', () => { clearInterval(flood); closed.push('ok'); });
+    });
+  });
+  await new Promise(ok => chatty.listen(0, '127.0.0.1', ok));
+  closing.push(() => chatty.close());
+  const port = chatty.address().port;
+  await relayTxt({ host: 'relay.test', port, account: 'acct', token: TOKEN }, '_acme-challenge.acct.relay.test', 'A'.repeat(43), { connect: toRelay(port) });
+  await until(() => closed.length === 1, 5000);
+  const endless = createTLS({ cert: relayCert.cert, key: relayCert.key }, conn => { conn.on('error', () => {}); conn.once('data', () => conn.write('y'.repeat(4096))); });
+  await new Promise(ok => endless.listen(0, '127.0.0.1', ok));
+  closing.push(() => endless.close());
+  const at = Date.now();
+  await expect(relayTxt({ host: 'relay.test', port: endless.address().port, account: 'acct', token: TOKEN }, '_acme-challenge.acct.relay.test', 'A'.repeat(43), { connect: toRelay(endless.address().port) })).rejects.toThrow('with no line');
+  expect(Date.now() - at).toBeLessThan(5000);
+});
+
+test('R2 round 2: by ACME on the relay\'s names, a session under another domain (the account\'s label, a domain the relay chose) is refused before any order', async () => {
+  const relay = await fakeRelay({ greet: 'READY s1-tool.acct.evil.test s1-canvas.acct.evil.test\n' });
+  const acme = fakeAcme({ dns: relay.seen.txt });
+  const home = mkdtempSync(join(tmpdir(), 'exact-relay-suffix-'));
+  closing.push(() => rmSync(home, { recursive: true, force: true }));
+  const warned = [];
+  const args = { host: 'relay.test', port: relay.control, account: 'acct', token: TOKEN, names: null, acme: acme.directory, hook: null, dir: join(home, 'acct') };
+  const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relay.control), say: () => {}, warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} } });
+  closing.push(() => doors.close());
+  await until(() => warned.some(l => l.includes('does not cover')), 10_000);
+  expect(acme.orders.length).toBe(0);
+  expect(relay.seen.txt.size).toBe(0);
+  expect(doors.relay()).toBeNull();
+});
+
+test('R2 round 2: closed while its certificate is got, a run stops there: no record put up after, nothing kept, its lock let go; another run on the account adopts the kept certificate with no order', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'exact-relay-cancel-'));
+  closing.push(() => rmSync(home, { recursive: true, force: true }));
+  const zone = join(home, 'zone'), log = join(home, 'hook-log');
+  writeFileSync(zone, '');
+  const dns = record => readFileSync(zone, 'utf8').split('\n').filter(l => l.startsWith(`${record} `)).map(l => l.split(' ')[1]);
+  const byo = { tool: 'tool.example.com', canvas: 'canvas.example.com' };
+  // (a slow DNS: each publish takes a second)
+  const hook = `echo "$EXACT_ACME_ACTION" >> ${log}; if [ "$EXACT_ACME_ACTION" = publish ]; then sleep 1; echo "$EXACT_ACME_RECORD $EXACT_ACME_VALUE" >> ${zone}; fi`;
+  const acme = fakeAcme({ dns });
+  const dir = join(home, 'acct');
+  const open = async () => {
+    const relay = await fakeRelay({ greet: `READY ${byo.tool} ${byo.canvas}\n` });
+    const args = { host: 'relay.test', port: relay.control, account: 'acct', token: TOKEN, names: byo, acme: acme.directory, hook, dir };
+    const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relay.control), say: () => {}, warn: () => {}, acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa: async () => [], resolveCname: async () => [] } });
+    closing.push(() => doors.close());
+    return doors;
+  };
+  const first = await open();
+  await until(() => { try { return readFileSync(log, 'utf8').includes('publish'); } catch { return false; } }, 10_000);
+  await first.close();
+  await until(() => readFileSync(log, 'utf8').includes('clear'), 10_000);
+  // (the publish under way finished; nothing more was asked of the server, nothing kept, the lock gone)
+  expect(readFileSync(log, 'utf8')).toBe('publish\nclear\n');
+  expect(acme.orders[0].status).toBe('pending');
+  const { existsSync } = await import('node:fs');
+  expect([existsSync(join(dir, 'cert.pem')), existsSync(join(dir, 'lock'))]).toEqual([false, false]);
+  // Two runs on one account in turn: the second adopts the first's certificate, by its fingerprint, with no order.
+  const a = await open();
+  await until(() => a.relay() !== null, 15_000);
+  const orders = acme.orders.length;
+  const b = await open();
+  await until(() => b.relay() !== null, 15_000);
+  expect(acme.orders.length).toBe(orders);
+  expect(b.relay().fingerprint).toBe(a.relay().fingerprint);
+}, 60_000);

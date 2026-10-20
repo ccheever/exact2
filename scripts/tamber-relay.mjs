@@ -96,16 +96,20 @@ export function relayTxt({ host, port, account, token }, record, value, { clear 
       if (!conn.authorized) { clearTimeout(done); conn.destroy(); return fail(new Error(`the relay's certificate did not verify: ${conn.authorizationError ?? 'unknown'}`)); }
       conn.write(`EXACT-RELAY/1 ${account}\r\nauthorization: Bearer ${token}\r\n${clear ? 'txt-clear' : 'txt'}: ${record} ${value}\r\n\r\n`);
     });
-    conn.on('data', d => {
+    // One line answers, at most LINE bytes: then the connection is gone, nothing more read.
+    const read = d => {
       buf += d.toString('latin1');
       const nl = buf.indexOf('\n');
-      if (nl < 0) { if (buf.length > LINE) conn.destroy(); return; }
+      if (nl < 0 && buf.length <= LINE) return;
       clearTimeout(done);
+      conn.off('data', read);
+      conn.destroy();
+      if (nl < 0 || nl > LINE) return fail(new Error('the relay answered the TXT record with no line'));
       const line = buf.slice(0, nl).replace(/\r$/, '');
-      conn.end();
       if (line === 'TXT-OK') ok();
       else fail(new Error(`the relay refused the TXT record: ${shown(line.replace(/^REFUSED ?/, ''), token)}`));
-    });
+    };
+    conn.on('data', read);
     conn.on('error', e => { clearTimeout(done); fail(new Error(`the relay ${host}:${port} can't be reached: ${e.code ?? 'error'}`)); });
   });
 }

@@ -9,7 +9,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { acmeCertificate, csr, relayCertificate, RENEW_MS } from './tamber-acme.mjs';
-import { fakeAcme } from './tamber-acme-stub.mjs';
+import { fakeAcme, requestNames } from './tamber-acme-stub.mjs';
 
 const DAY = 86_400_000;
 const closing = [];
@@ -70,8 +70,9 @@ test('the account\'s certificate is kept, 0600 in a 0700 directory, and got agai
 test('the request names every name and is signed by the certificate\'s key', () => {
   const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const der = csr(['*.acct.relay.test', 'acct.relay.test'], privateKey);
-  expect(der.includes(Buffer.from('*.acct.relay.test'))).toBe(true);
-  expect(der.includes(Buffer.from('acct.relay.test'))).toBe(true);
+  // (its subjectAltName's DNS names, read as a CA reads them: each name itself, none more)
+  expect(requestNames(der)).toEqual(['*.acct.relay.test', 'acct.relay.test']);
+  expect(requestNames(csr(['*.acct.relay.test'], privateKey))).toEqual(['*.acct.relay.test']);
 });
 
 test('round 1: an authorization for a name not asked for, a URL on another origin, a certificate for one host or another key: each refused, no record put up for a stranger', async () => {
@@ -91,6 +92,62 @@ test('round 1: an authorization for a name not asked for, a URL on another origi
   // A certificate for another key.
   const other = createPublicKey(keyPem()).export({ type: 'spki', format: 'der' });
   expect((await run({ leafKey: other })).error).toBe('ACME: the certificate is not for this key');
+});
+
+test('round 2: a name more on the certificate, more authorizations than names, an account URL no CAA record can carry, a redirect, an answer over 256 KiB: each refused', async () => {
+  const run = async lie => {
+    const dns = new Map(), up = [];
+    const acme = fakeAcme({ dns, lie });
+    const got = acmeCertificate({ ...quick, directory: acme.directory, fetch: acme.fetch, names: ['*.acct.relay.test'], accountKey: keyPem(), key: keyPem(),
+      publish: async (r, v) => { up.push(r); dns.set(r, [v]); }, unpublish: async r => { dns.delete(r); } });
+    return { error: await got.then(() => null, e => e.message), up };
+  };
+  expect((await run({ leafNames: ['*.acct.relay.test', 'extra.example.com'] })).error).toBe('ACME: the certificate does not name *.acct.relay.test itself, or is not valid now');
+  expect(await run({ authorizations: 1000 })).toEqual({ error: 'ACME: an order with more authorizations than names', up: [] });
+  // (a `;` would add a parameter to the CAA record the developer is told to set)
+  expect(await run({ account: 'https://acme.test/acct/1;validationmethods=http-01' })).toEqual({ error: 'ACME: the account\'s URL is not one a CAA record can name', up: [] });
+  expect((await run({ redirect: 'https://elsewhere.test/dir' })).error).toContain('redirect');
+  expect((await run({ huge: true })).error).toBe('ACME: an answer over 256 KiB');
+});
+
+test('round 2: the account hook is told the account and the CA\'s CAA name; a stop mid-order stops it there, its record still taken down', async () => {
+  const dns = new Map(), said = [], told = [];
+  const acme = fakeAcme({ dns });
+  const stop = new AbortController();
+  const got = acmeCertificate({ ...quick, directory: acme.directory, fetch: acme.fetch, names: ['*.acct.relay.test'], accountKey: keyPem(), key: keyPem(), signal: stop.signal,
+    account: (uri, issuer) => { told.push([uri, issuer]); },
+    publish: async (r, v) => { said.push(['up', r]); dns.set(r, [v]); stop.abort(); }, unpublish: async r => { said.push(['down', r]); dns.delete(r); } });
+  await expect(got).rejects.toThrow();
+  expect(told).toEqual([['https://acme.test/acct/1', 'acme.test']]);
+  expect(said).toEqual([['up', '_acme-challenge.acct.relay.test'], ['down', '_acme-challenge.acct.relay.test']]);
+  // (never finalized: the order still pending)
+  expect(acme.orders[0].status).toBe('pending');
+});
+
+test('round 2: a lock is taken over only from a holder that is gone; a live one is waited for; a holder takes away only its own', async () => {
+  const { spawn } = await import('node:child_process');
+  const { existsSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const home = mkdtempSync(join(tmpdir(), 'exact-acme-lock-'));
+  closing.push(() => rmSync(home, { recursive: true, force: true }));
+  const dns = new Map(), acme = fakeAcme({ dns });
+  const options = { ...quick, directory: acme.directory, fetch: acme.fetch, publish: async (r, v) => { dns.set(r, [v]); }, unpublish: async r => { dns.delete(r); } };
+  const dir = join(home, 'acct'), lock = join(dir, 'lock');
+  mkdirSync(dir, { mode: 0o700 });
+  // A dead holder's (a pid no process has): taken over.
+  writeFileSync(lock, '4194303 gone', { mode: 0o600 });
+  expect((await relayCertificate(dir, ['*.acct.relay.test'], options)).renewed).toBe(true);
+  expect(existsSync(lock)).toBe(false);
+  // A live holder's (a process of ours that sleeps): waited for, never taken.
+  const live = spawn('sleep', ['30'], { stdio: 'ignore' });
+  closing.push(() => live.kill());
+  writeFileSync(lock, `${live.pid} live`, { mode: 0o600 });
+  await expect(relayCertificate(dir, ['*.other.relay.test'], options, { patience: 200, wait: () => new Promise(ok => setTimeout(ok, 20)) })).rejects.toThrow(`another process (pid ${live.pid}) holds`);
+  expect(readFileSync(lock, 'utf8')).toBe(`${live.pid} live`);
+  rmSync(lock);
+  // A lock that is no longer its own when it ends (made by another since): left.
+  const get = async o => { const c = await acmeCertificate(o); rmSync(lock); writeFileSync(lock, `${live.pid} since`, { mode: 0o600 }); return c; };
+  await relayCertificate(dir, ['*.third.relay.test'], options, { get });
+  expect(readFileSync(lock, 'utf8')).toBe(`${live.pid} since`);
 });
 
 test('round 1: a kept key that is a link is refused, and two processes at once get one certificate between them', async () => {
