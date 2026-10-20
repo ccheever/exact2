@@ -659,7 +659,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
 async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess }) {
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
   // Real touches (LLP 1080.000, `--touch platform`; `drag`, an authored test's drag alone): the runner starts first, so its own launch never backgrounds the app.
-  const axNote = touch !== 'agent' ? accessibilityNote(dev.udid, touch) : null, touches = touch !== 'agent' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')) }) : null; // the note read before the runner turns accessibility on
+  const axNote = touch !== 'agent' ? accessibilityNote(dev.udid, touch) : null, touches = touch !== 'agent' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')), foldable: dev.type === 'iPhone-Duo' }) : null; // the note read before the runner turns accessibility on
   // A Release build installed under the bundle id is copied aside first, and the note says how to put it back (`keepInstalledRelease`).
   let kept = null; try { kept = keepInstalledRelease(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a)); if (kept.install) install(dev, bundle, a, hostFixture, true); } catch (e) { await touches?.close(); throw e; }
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
