@@ -220,7 +220,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
         check: [css('check', 'appearance'), box('check').slice(2), color('check', 'borderTopColor'), color('checked', 'backgroundColor'), color('checked')],
         own: [css('own', 'borderTopWidth'), css('own', 'content', '::before')],
         radio: [box('radio').slice(2), css('radio', 'borderRadius')],
-        toggle: [css('switch', 'appearance'), css('switch', 'width', '::before'), css('switch', 'height', '::before'), color('switch', 'backgroundColor', '::before'), color('switch-on', 'backgroundColor', '::before')],
+        toggle: [css('switch', 'appearance'), css('switch', 'width', '::before'), css('switch', 'height', '::before'), color('switch', 'backgroundColor', '::before'), color('switch-on', 'backgroundColor', '::before'), color('switch'), color('switch-on')],
         spinner: [css('spinner', 'backgroundImage', '::before').includes('rgb(255, 0, 0)'), css('spinner-said', 'backgroundImage', '::before').includes('rgb(255, 0, 0)')],
         segments: [box('segments')[2] < 300, Math.abs(box('segments')[2] - box('chosen')[2] - box('segment')[2] - 6) < 1, box('segments')[3], css('chosen', 'boxShadow') !== 'none'],
         bar: [color('bar'), color('bar', 'backgroundColor'), css('bar', 'backdropFilter') ?? css('bar', 'webkitBackdropFilter'), css('bar', 'borderBottomWidth'), color('bar-button', 'borderTopColor')[3]],
@@ -249,7 +249,8 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('check'), got.check]).toEqual([at('check'), ['none', [20, 20], LINE[scheme], fill, onFill]]);
       expect([at('own'), got.own]).toEqual([at('own'), ['0px', 'none']]);
       expect([at('radio'), got.radio]).toEqual([at('radio'), [[20, 20], '50%']]);
-      expect([at('switch'), got.toggle]).toEqual([at('switch'), ['none', '36px', '20px', LINE[scheme], fill]]);
+      // A switch's thumb is white, off or on.
+      expect([at('switch'), got.toggle]).toEqual([at('switch'), ['none', '36px', '20px', LINE[scheme], fill, [255, 255, 255, 1], [255, 255, 255, 1]]]);
       // The spinner is not the text's colour around it, unless its own colour is written.
       expect([at('spinner'), got.spinner]).toEqual([at('spinner'), [false, true]]);
       // A segmented track is the width of its segments, 36 px, its chosen segment a chip.
