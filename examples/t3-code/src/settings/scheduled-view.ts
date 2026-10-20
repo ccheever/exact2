@@ -6,8 +6,10 @@
 // disconnected" states, the `taskId` deep link that opens the editor once, and the editor's
 // draft, choices and branch refs. The editor never enables or runs a task by itself; Enabled
 // is the user's own switch. Labels and the scope rule are scheduled-tasks.ts ports.
-import { fleet } from '../connections/settings-b-fleet';
-import { catalogOrder } from '../connections/local-primary';
+import { fleet, trimOrigin } from '../connections/settings-b-fleet';
+import { catalogOrder, isPrimaryEnvironment } from '../connections/local-primary';
+import { connectionRouteLabel, savedRoutes } from '../connections/connection-routes';
+import { formatSshTarget } from '../connections/settings-b-ssh';
 import { deliveriesPage, closeDeliveries, EMPTY_DELIVERIES } from './scheduled-deliveries';
 import { webhookAddress, webhookDraft, webhookSchedule } from './scheduled-webhook';
 import { arr, obj, str, num, type Obj } from '../client/domain';
@@ -120,12 +122,24 @@ export function taskEnvironmentSummaries(sections: readonly TaskSection[]): { id
   const populated = sections.some(section => section.state === 'ready' && section.tasks.length > 0);
   const labels: Record<string, string[]> = { 'Not connected:': [], 'Loading scheduled tasks on': [], 'Could not load scheduled tasks:': [], 'No tasks on': [] };
   for (const section of sections) {
-    if (section.state === 'disconnected') labels['Not connected:']!.push(`${section.label} (Disconnected)`);
-    else if (section.state === 'error') labels['Could not load scheduled tasks:']!.push(`${section.label}: ${section.description}`);
-    else if (section.state === 'loading') labels['Loading scheduled tasks on']!.push(section.label);
-    else if (!section.tasks.length && populated) labels['No tasks on']!.push(section.label);
+    const label = section.secondary ? `${section.label} · ${section.secondary}` : section.label;
+    if (section.state === 'disconnected') labels['Not connected:']!.push(`${label} (Disconnected)`);
+    else if (section.state === 'error') labels['Could not load scheduled tasks:']!.push(`${label}: ${section.description}`);
+    else if (section.state === 'loading') labels['Loading scheduled tasks on']!.push(label);
+    else if (!section.tasks.length && populated) labels['No tasks on']!.push(label);
   }
   return Object.entries(labels).flatMap(([id, entries]) => entries.length ? [{ id, text: `${id} ${entries.join(', ')}` }] : []);
+}
+
+/** EnvironmentRow.tsx environmentTransportLabel without an active route: primary, preferred route, then display URL. */
+function taskTransportLabel(environmentId: string, displayUrl: string | null | undefined): string {
+  if (isPrimaryEnvironment(environmentId)) return 'This machine';
+  const saved = fleet.saved.find(entry => entry.environmentId === environmentId), routes = saved ? savedRoutes(saved) : [];
+  if (routes.length > 1) return connectionRouteLabel(routes[0]!);
+  const route = routes[0];
+  if (route?.kind === 'relay') return 'T3 Connect';
+  if (route?.kind === 'ssh') return route.ssh ? `SSH ${formatSshTarget(route.ssh)}` : 'SSH';
+  return displayUrl ? `${trimOrigin(displayUrl)}/` : 'Remote link';
 }
 
 // WorktreeBaseBranchPicker's refs (usePaginatedBranches, vcs.listRefs): pages of VCS_REF_LIST_LIMIT refs per project and
@@ -195,7 +209,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
       const section = taskSection(environment, scope, inScope.length > 1, target?.link && target.environmentId === environment.environmentId ? target.taskId : '', now);
       const machine = scopeMachines.find(entry => entry.environmentId === environment.environmentId);
       const labels = machine ? settingsScopeEnvironmentLabels(machine, scopeMachines) : { primary: section.label, secondary: '' };
-      const transport = machine?.displayUrl?.startsWith('ssh:') ? 'SSH' : machine?.kind === 'laptop' ? 'Local' : 'Direct';
+      const transport = taskTransportLabel(environment.environmentId, machine?.displayUrl);
       return { ...section, label: labels.primary, secondary: labels.secondary, kind: machine?.kind ?? 'laptop', transport };
     });
     const editing = environments.find(environment => environment.environmentId === (target?.environmentId || fallback));

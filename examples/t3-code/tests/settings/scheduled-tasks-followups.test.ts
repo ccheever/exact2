@@ -113,6 +113,33 @@ describe('Runs on switches a new task to another environment', () => {
     const page = await scheduledPage(client, native, 'env', '', 'task', '', true, NOW, 'env');
     expect(page.environments.map(option => option.value)).toEqual(['env']);
   });
+  test('machine headers use the primary or connection route; empty summaries qualify duplicate names', async () => {
+    const { client, native, subscriptions } = harness();
+    Object.assign(client, { origin: 'http://127.0.0.1:16422' });
+    client.config.environment.label = 'Studio';
+    const remote = await studio();
+    remote.config.environment = { ...obj(remote.config.environment), platform: { machine: 'laptop' } };
+    liveFleetEvent(remote, { key: SCHEDULED_TASKS_KEY, generation: 5, subscriptionId: '5-1', value: { tasks: [
+      { id: 'paused', projectId: 'q1', title: 'Paused task', prompt: '', enabled: false, schedule: { type: 'interval', everyMs: 3600000 } },
+    ] } });
+    await watchLive(client, native);
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionsOf(subscriptions), value: { tasks: [] } });
+    primaryAt('http://127.0.0.1:16422', 'env', 'Studio');
+    const saved = fleet.saved;
+    try {
+      const page = await scheduledPage(client, native, 'env', '', '', '', true, NOW);
+      expect(page.sections.map(section => [section.id, section.label, section.secondary, section.transport])).toEqual([
+        ['env', 'Studio', '127.0.0.1:16422', 'This machine'],
+        ['env2', 'Studio', '127.0.0.1:16423', 'http://127.0.0.1:16423/'],
+      ]);
+      expect(page.summaries.map(summary => summary.text)).toEqual(['No tasks on Studio · 127.0.0.1:16422']);
+      const ssh = { id: 'ssh', origin: remote.origin, kind: 'ssh', ssh: { alias: 'build', hostname: 'build', username: 'dev', port: 2222 } };
+      fleet.saved = [{ origin: remote.origin, environmentId: remote.environmentId, routes: [ssh] }];
+      expect((await scheduledPage(client, native, 'env', '', '', '', true, NOW)).sections.find(section => section.id === 'env2')?.transport).toBe('SSH dev@build:2222');
+      fleet.saved = [{ origin: remote.origin, environmentId: remote.environmentId, routes: [{ id: 'lan', origin: 'http://192.168.1.20:16424' }, ssh] }];
+      expect((await scheduledPage(client, native, 'env', '', '', '', true, NOW)).sections.find(section => section.id === 'env2')?.transport).toBe('LAN');
+    } finally { fleet.saved = saved; resetPrimary(); }
+  });
 });
 
 describe("Open project on another environment's clone toast", () => {
