@@ -73,3 +73,29 @@ test('a canvas surface loads its GPU module after paint, once; one destroyed bef
   w.timer();
   expect([w.loads, one.pendingSurfaces.map(s => s.id)]).toEqual([['./gpu-glue.js'], [9]]);
 });
+
+test("glue.js schedules each GPU load through afterPaint and takes a destroyed surface out of the queue; gpu-modules.js's own wait races the second too", async () => {
+  // Where the loads are scheduled (a surface op and a restart), and the destroy op: through the helpers above, so a
+  // revert of either site fails here (no GPU app runs in the test browser).
+  const surface = glue.match(/case "surface": \{[^]*?break;\n      \}/)[0], destroy = glue.match(/case "destroy": \{[^]*?break;\n      \}/)[0];
+  expect(surface).toContain('afterPaint(loadGpuIfNeeded, agentMode)');
+  expect(surface).not.toContain('requestAnimationFrame(');
+  expect(glue).toContain('if (bytes) afterPaint(loadGpuIfNeeded, agentMode);');
+  expect(destroy).toContain('dropSurface(op.id)');
+  // gpu-modules.js: a later artifact (one a restart brings) loads after frames or the second, whichever is first;
+  // under the agent, frames only.
+  const modules = readFileSync(new URL('../gpu-modules.js', import.meta.url), 'utf8');
+  const wait = modules.match(/^const afterPaint = \(\) => new Promise\(.*\);$/m)[0];
+  for (const agent of [false, true]) {
+    const frames = [], timers = [];
+    let done = 0;
+    const waited = new Function('requestAnimationFrame', 'setTimeout', 'exact', `${wait}\nreturn afterPaint();`)(fn => frames.push(fn), (fn, ms) => timers.push([fn, ms]), agent ? { agent: {} } : {})
+      .then(() => { done++; });
+    expect(timers.map(([, ms]) => ms)).toEqual(agent ? [] : [1000]);
+    // The second first where there is one, then frames: the wait ends once.
+    if (!agent) timers[0][0]();
+    frames.splice(0).forEach(fn => fn()); frames.splice(0).forEach(fn => fn());
+    await waited;
+    expect([agent, done]).toEqual([agent, 1]);
+  }
+});

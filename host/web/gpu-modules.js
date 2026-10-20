@@ -17,7 +17,9 @@ const loading = new Map(); // stem -> its import, from the moment it was needed
 const queued = new Map(); // stem -> view -> [name, values], until its instance registers
 const views = new Map(); // view -> stem
 const names = new Map(); // view -> its surface name
-const afterPaint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+// After a rendering opportunity (two frames) or a second, whichever is first: a page in a frame scrolled out of view
+// gets no frames (navigation.js `afterPaint`); frames only under the agent, whose clock owns time.
+const afterPaint = () => new Promise(resolve => { requestAnimationFrame(() => requestAnimationFrame(resolve)); if (!exact.agent) setTimeout(resolve, 1000); });
 function need(stem, deferred = true) {
   if (!loading.has(stem)) loading.set(stem, (deferred ? afterPaint() : Promise.resolve())
     .then(() => import(`./gpu-glue.js?artifact=${stem}`))

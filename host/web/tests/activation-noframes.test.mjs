@@ -5,8 +5,9 @@
 // glue.js activates a second on all the same, once, as the JS page's input
 // does (rt.js `input()`); a page with frames activates after its two frames,
 // as before, and also once. A canvas's after-paint pieces likewise (its QUEUE
-// follow-up, navigation.js `afterPaint`): a Canvas 2D canvas's piece loads
-// within the second, once, and the page is ready.
+// follow-up, navigation.js `afterPaint`, canvas2d-glue.js's first geometry):
+// in a cross-origin frame below the fold, which Chrome gives no frames and no
+// ResizeObserver entries, a Canvas 2D page loads its piece once and is ready.
 import { afterEach, expect, test } from 'bun:test';
 import { createServer } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -39,9 +40,9 @@ const COUNT = () => {
 // An app's wasm dev loop, served and its first generation ready, each heard as it is said (the tail kept for a
 // failure is the last 8 KB): a generation published later would restart the page (glue.js), a second activation by
 // design. (A first compile that fails says `error:` (dev.mjs) and never a ready line: said at once, not after the wait.)
-async function devLoop(app, dist) {
+async function devLoop(app, dist, env = {}) {
   const port = await free();
-  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '', served = false, planned = false, refused = false;
   const hear = d => { said += d; served ||= said.includes(`127.0.0.1:${port}/`); planned ||= /plan ready:|module generation ready/.test(said); refused ||= !planned && /^error: /m.test(said); said = said.slice(-8000); };
   dev.stdout.on('data', hear);
@@ -80,27 +81,32 @@ test('a wasm page given no frames activates within its second, once; one with fr
   }
 }, 900_000);
 
-test('a frameless page with a Canvas 2D canvas loads its piece within its second, once, and is ready; with frames too', async () => {
+test('a Canvas 2D page in a cross-origin frame scrolled out of view (no frames, no ResizeObserver) loads its piece once and is ready within its second or so', async () => {
   const dist = mkdtempSync(join(tmpdir(), 'exact-noframes-canvas-'));
-  let dev = null, browser = null;
+  let dev = null, browser = null, host = null;
   try {
+    // The page framed by another origin (the design tool's, as the dev loop's `frame-ancestors` names it), below the
+    // fold: Chrome gives such a frame no animation frames and no ResizeObserver entries.
+    const toolPort = await free();
     let base;
-    ({ dev, base } = await devLoop('canvas-gallery', dist));
+    ({ dev, base } = await devLoop('canvas-gallery', dist, { EXACT_TOOL_PORT: String(toolPort) }));
+    const framed = base.replace('127.0.0.1', 'localhost');
+    host = Bun.serve({ port: toolPort, hostname: '127.0.0.1', fetch: () => new Response(`<!doctype html><body style="margin:0"><div style="height:6000px"></div><iframe src="${framed}/" style="width:600px;height:400px"></iframe></body>`, { headers: { 'content-type': 'text/html' } }) });
     browser = await (await import('playwright-core')).chromium.launch({ executablePath: chromium().executable, headless: true });
-    for (const query of ['/?noframes=1', '/']) {
-      const page = await browser.newPage(), asked = [];
-      page.on('request', r => { if (new URL(r.url()).pathname.endsWith('/canvas2d-glue.js')) asked.push(r.url()); });
-      await page.addInitScript(COUNT);
-      await page.goto(`${base}${query}`);
-      // Ready (input and `exact.ready` wait on the piece, glue.js `activateData`): the piece loaded, not only asked for.
-      const t0 = Date.now();
-      while ((await page.evaluate(() => document.getElementById('exact-root')?.dataset.moduleReady ?? null)) !== 'true') { if (Date.now() - t0 > 8000) throw new Error(`${query}: not ready, the piece asked ${asked.length} time(s)`); await Bun.sleep(50); }
-      await Bun.sleep(1500);
-      expect([query, asked.length]).toEqual([query, 1]);
-      await page.close();
-    }
+    const page = await browser.newPage({ viewport: { width: 800, height: 600 } }), asked = [];
+    page.on('request', r => { if (new URL(r.url()).pathname.endsWith('/canvas2d-glue.js')) asked.push(r.url()); });
+    await page.goto(`http://127.0.0.1:${toolPort}/`);
+    let frame = null;
+    for (const end = Date.now() + 10_000; !frame; await Bun.sleep(50)) { frame = page.frames().find(f => f.url().startsWith(framed)); if (!frame && Date.now() > end) throw new Error('the frame never loaded'); }
+    // Ready (input and `exact.ready` wait on the piece and its canvases' first geometry): the piece loaded and settled.
+    const t0 = Date.now();
+    while ((await frame.evaluate(() => document.getElementById('exact-root')?.dataset.moduleReady ?? null)) !== 'true') { if (Date.now() - t0 > 8000) throw new Error(`not ready offscreen; the piece asked ${asked.length} time(s)`); await Bun.sleep(50); }
+    // It is the case it says: the frame gets no animation frames and no ResizeObserver entries in a second.
+    const starved = await frame.evaluate(() => new Promise(done => { let frames = 0, sizes = 0; const tick = () => { frames++; requestAnimationFrame(tick); }; requestAnimationFrame(tick); const d = document.createElement('div'); document.body.append(d); new ResizeObserver(() => { sizes++; }).observe(d); setTimeout(() => done({ frames, sizes }), 1000); }));
+    expect([starved, asked.length]).toEqual([{ frames: 0, sizes: 0 }, 1]);
   } finally {
     await browser?.close();
+    host?.stop(true);
     await dev?.stop(15_000);
     rmSync(dist, { recursive: true, force: true });
   }
