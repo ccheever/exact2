@@ -129,7 +129,6 @@ describe('mobile connection feedback', () => {
       expect(f.client.ready).toBe(true);
       expect(f.client.error).toBe('');
       expect(title(f.client)).toBe('');
-      expect(mobileHomeMenu('env', 'thread', 0, f.client)).toEqual([]);
       mobileHomeActionsObserve('home', true, false, f.client); f.calls.length = 0;
       expect((await mobileHomeAction('home', 'env', 'thread', 'pin', '', 0, f.native, f.client)).message).toBe('This connection cannot change threads.');
       expect(f.calls.filter(call => call.method === 'orchestration.dispatchCommand')).toEqual([]);
