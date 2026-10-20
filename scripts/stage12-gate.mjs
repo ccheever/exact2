@@ -120,11 +120,16 @@ export const RENDERED = [
   ['PostButton', id => id === 'compose-post', '"compose-post"'],
 ];
 
-/** The RENDERED testIds a drive's whole layout shows. */
+/** The RENDERED testIds a drive's whole layout shows: each on a node with
+ * a non-zero box that reaches into the viewport (a node laid out at zero
+ * size, or off the screen, shows nothing). */
 export function renderedIds(out) {
   const line = out.split('\n').find(l => l.startsWith('{') && l.includes('"nodes"'));
   if (!line) return null;
-  const ids = JSON.parse(line).nodes.map(n => n.testId ?? n.props?.testId).filter(Boolean);
+  const { nodes, viewport: v } = JSON.parse(line);
+  if (!v) return null;
+  const shows = n => n.w > 0 && n.h > 0 && n.x < v.w && n.y < v.h && n.x + n.w > 0 && n.y + n.h > 0;
+  const ids = nodes.filter(shows).map(n => n.testId ?? n.props?.testId).filter(Boolean);
   return [...new Set(ids.filter(id => RENDERED.some(([, is]) => is(id))))];
 }
 

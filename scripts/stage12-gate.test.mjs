@@ -148,7 +148,10 @@ test('release identity: every source compared and identical in every run, but li
 });
 
 test('what a screen renders: the testIds only the packages write, from its whole layout', () => {
-  const out = ['screenshot x', JSON.stringify({ nodes: [{ testId: 'post-1' }, { testId: 'postcard-content-1' }, { props: { testId: 'actions-1' } }, { testId: 'compose-post' }, { testId: 'compose-post-2' }, { testId: 'atcard-visit-3' }] }), JSON.stringify({ node: { testId: 'compose-text' } })].join('\n');
+  const at = { x: 10, y: 10, w: 20, h: 20 };
+  const out = ['screenshot x', JSON.stringify({ viewport: { w: 400, h: 800 }, nodes: [{ testId: 'post-1', ...at }, { testId: 'postcard-content-1', ...at }, { props: { testId: 'actions-1' }, ...at }, { testId: 'compose-post', ...at }, { testId: 'compose-post-2', ...at }, { testId: 'atcard-visit-3', ...at },
+    // Shown nowhere: zero size, below the screen.
+    { testId: 'postcard-content-2', x: 10, y: 10, w: 0, h: 0 }, { testId: 'actions-2', x: 10, y: 900, w: 20, h: 20 }] }), JSON.stringify({ node: { testId: 'compose-text' } })].join('\n');
   expect(renderedIds(out).sort()).toEqual(['actions-1', 'atcard-visit-3', 'compose-post', 'postcard-content-1']);
   expect(renderedIds('no layout')).toBe(null);
 });
