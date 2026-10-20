@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, conformFailures, conformRead, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, beforeDrift, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -178,4 +178,14 @@ test('the components a source map\'s view nodes come from, by declared name', ()
   const map = { sources: [{ file: '/n/cards/at-card.contract', home: '@exact/cards/at-card.contract' }, { file: '/a/post.contract', home: 'post.contract' }],
     nodes: [{ file: '/n/cards/at-card.contract', component: 'AtCard__at_card' }, { file: '/n/cards/at-card.contract', component: 'AtCard' }, { file: '/a/post.contract', component: 'AtCard' }] };
   expect(renderedLibrary(map)).toEqual(['@exact/cards/at-card.contract#AtCard']);
+});
+
+test('a conform report\'s failures, keyed without the checkout\'s path', () => {
+  const dir = mkdtempSync(join(tmpdir(), 's12e-conf-'));
+  const f = join(dir, 'report.json');
+  writeFileSync(f, JSON.stringify({ targets: { a: {}, b: {} }, failures: [{ target: 'a', step: 'contract-build', what: '/Users/x/x2ios/exact2/host/t.contract:0:0 [id] m' }] }));
+  expect(conformReport(f)).toEqual({ targets: 2, failures: ['a | contract-build | /host/t.contract:0:0 [id] m'] });
+  writeFileSync(f, JSON.stringify({ targets: { a: {} }, failures: [{ target: 'a', step: 'contract-build', what: '/tmp/iosfix-rel12/host/t.contract:0:0 [id] m' }] }));
+  expect(conformReport(f).failures).toEqual(['a | contract-build | /host/t.contract:0:0 [id] m']);
+  expect(conformReport(join(dir, 'none.json'))).toBe(null);
 });

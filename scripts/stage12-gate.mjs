@@ -16,7 +16,7 @@
 // another by EXACT2. EXACT_SIM names the simulator.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
@@ -93,6 +93,17 @@ function run(cmd, args, opts = {}) {
 
 const sha = buf => createHash('sha256').update(buf).digest('hex');
 
+/** `run`, its output through a file: a process that exits with a large
+ * reply still in a pipe loses the pipe's tail (a feed's whole layout, half a
+ * megabyte), and a file keeps it. */
+function runToFile(cmd, args, file, opts = {}) {
+  const fd = openSync(file, 'w');
+  try {
+    const r = spawnSync(cmd, args, { cwd: ROOT, timeout: 1_800_000, ...opts, stdio: ['ignore', fd, fd] });
+    return { ok: r.status === 0 && !r.error, out: readFileSync(file, 'utf8'), error: r.error };
+  } finally { closeSync(fd); }
+}
+
 /** The agent ops for one screen, light or dark: launched, the clock settled,
  * the scheme preferred, the screen reached, each step settled and a second
  * on (the tab bar's indicator follows a scheme change a frame late, which
@@ -124,10 +135,12 @@ export const RENDERED = [
  * a non-zero box that reaches into the viewport (a node laid out at zero
  * size, or off the screen, shows nothing). */
 export function renderedIds(out) {
-  const line = out.split('\n').find(l => l.startsWith('{') && l.includes('"nodes"'));
-  if (!line) return null;
-  const { nodes, viewport: v } = JSON.parse(line);
-  if (!v) return null;
+  // The whole layout's reply: the op replies that parse with nodes and a
+  // viewport (a log line may mention either), the last.
+  const layout = out.split('\n').filter(l => l.startsWith('{') && l.includes('"nodes"')).map(l => { try { return JSON.parse(l); } catch { return null; } })
+    .findLast(o => Array.isArray(o?.nodes) && o.viewport);
+  if (!layout) return null;
+  const { nodes, viewport: v } = layout;
   const shows = n => n.w > 0 && n.h > 0 && n.x < v.w && n.y < v.h && n.x + n.w > 0 && n.y + n.h > 0;
   const ids = nodes.filter(shows).map(n => n.testId ?? n.props?.testId).filter(Boolean);
   return [...new Set(ids.filter(id => RENDERED.some(([, is]) => is(id))))];
@@ -160,7 +173,7 @@ function driveScreens(copy, host, dir, env) {
       const args = [join(copy, 'exact.mjs'), 'agent', wasm ? 'web' : host, '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
-      const r = run(process.execPath, args, { cwd: copy, env: wasm ? { ...env, EXACT_WEB_DIST: cloneWasmDist(env) } : env });
+      const r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: wasm ? { ...env, EXACT_WEB_DIST: cloneWasmDist(env) } : env });
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
@@ -873,11 +886,29 @@ export function noRegressions(opts) {
   const summary = said.find(l => /failures across/.test(l)) ?? `no summary${conform.error ? ` (${conform.error.code ?? conform.error.message})` : ''}: ${conform.out.trim().split('\n').slice(-3).join(' / ').slice(0, 400)}`;
   const failed = said.filter(l => /^[\w-]+: [1-9]\d* failures?$/.test(l));
   const readers = run('git', ['grep', '-l', '@exact/reading', '--', 'apps/*/app.contract']).out.trim().split('\n').filter(Boolean);
-  const evidence = [`conform --synthetic --strict --linux: ${summary}`, ...failed.map(l => `  ${l}`), `@exact/reading's users: ${readers.join(', ') || 'none'} (in release identity)`];
+  // A failure the branch's run shares with the same run on its base is the
+  // base's (stage 9's and 11's precedent: a conform red identical on main
+  // is unchanged), so the line holds when the branch adds none.
+  const mine = conformReport(join(work, 'conform', 'report.json'));
+  const base = opts.conformBase ? conformReport(opts.conformBase) : null;
+  const added = mine && base ? mine.failures.filter(f => !base.failures.includes(f)) : null;
+  const clean = conform.ok || (mine && base && mine.targets > 0 && !added.length);
+  const evidence = [`conform --synthetic --strict --linux: ${summary}`, ...failed.map(l => `  ${l}`),
+    ...(conform.ok ? [] : !base ? ['  its failures are compared with the same run on the branch\'s base (--conform-base <its report.json>), which wasn\'t given'] : !mine ? ['  its report.json was not read'] : [`  against the base's run (${opts.conformBase}, ${base.failures.length} failures over ${base.targets} targets): ${added.length ? `${added.length} the branch adds` : 'every failure the base\'s own'}`, ...added.map(f => `    NEW ${f}`), ...mine.failures.map(f => `    both: ${f}`)]),
+    `@exact/reading's users: ${readers.join(', ') || 'none'} (in release identity)`];
   const release = releaseIdentity(opts.release);
   evidence.push(...release.evidence);
-  if (!conform.ok || release.status !== 'PASS') return release.status === 'WAITS' && conform.ok ? waits(release.on, ...evidence) : fail(...evidence);
+  if (!clean || release.status !== 'PASS') return release.status === 'WAITS' && clean ? waits(release.on, ...evidence) : fail(...evidence);
   return pass(...evidence);
+}
+
+/** A conform report.json's failures, each `target | step | what`, and its
+ * targets compared; null when unreadable. */
+export function conformReport(file) {
+  try {
+    const r = JSON.parse(readFileSync(file, 'utf8'));
+    return { targets: Object.keys(r.targets ?? {}).length, failures: (r.failures ?? []).map(f => `${f.target} | ${f.step} | ${String(f.what).replace(/\/\S*?\/(exact2[^/]*|iosfix-rel12)\//g, '/')}`) };
+  } catch { return null; }
 }
 
 /** The gate's lines, in LLP 1139 §5's order. */
@@ -916,14 +947,14 @@ export function lines(opts) {
 }
 
 export function parse(argv) {
-  const opts = { mode: 'gate', only: [], hosts: [], app: 'unsaid', out: join(homedir(), 'x2theme/stage12-gate-run.txt'), copy: null, before: null, baseline: null, release: null };
+  const opts = { mode: 'gate', only: [], hosts: [], app: 'unsaid', out: join(homedir(), 'x2theme/stage12-gate-run.txt'), copy: null, before: null, baseline: null, release: null, conformBase: null };
   const args = [...argv];
   if (args[0] === 'baseline') { opts.mode = 'baseline'; opts.out = null; args.shift(); }
   for (let i = 0; i < args.length; i += 2) {
     const [flag, v] = [args[i], args[i + 1]];
-    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--app', '--release'].includes(flag)) return `unknown argument ${flag}`;
+    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--app', '--release', '--conform-base'].includes(flag)) return `unknown argument ${flag}`;
     if (v === undefined || v.startsWith('--')) return `${flag} needs a value`;
-    if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else opts[flag.slice(2)] = v;
+    if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else if (flag === '--conform-base') opts.conformBase = v; else opts[flag.slice(2)] = v;
   }
   if (opts.mode === 'baseline' && (!opts.copy || !opts.out)) return 'baseline needs --copy and --out';
   const allowed = opts.mode === 'baseline' ? CLONE_HOSTS : SLOT_HOSTS;
