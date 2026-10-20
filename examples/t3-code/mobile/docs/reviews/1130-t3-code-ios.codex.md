@@ -17,8 +17,8 @@ I found no high-severity code issue in the M0 skeleton. There are small document
 
 ## Strengths
 
-- LLP 1130 Architecture distinguishes a matching protocol number from verified RPC compatibility. That avoids turning a protocol constant into a connection claim.
-- LLP 1130 Parity method and Performance make clear that no screen or speed comparison is complete. The plain four-node skeleton does not masquerade as an upstream screen.
+- App-local LLP 1130 Architecture distinguishes a matching protocol number from verified RPC compatibility. That avoids turning a protocol constant into a connection claim.
+- App-local LLP 1130 Parity method and Performance make clear that no screen or speed comparison is complete. The plain four-node skeleton does not masquerade as an upstream screen.
 - LLP 1130.000 Options explains the directory choice against the ownership restriction and the actual bake API. Its Decision matches `ios/build.rs`, the manifest and the root Cargo member.
 - The copied parser retains provenance and the complete license. I compared its body, after the two added comment lines, against `git show ca398fe0c4bec86f163c152fa6717531954ed80a:examples/t3-code/r10-connect-pairing.ts`: byte-identical. The copied LICENSE-T3 is also byte-identical to that base.
 - Source tests use a synthetic credential and explicitly reject an unknown source. I independently ran `bun test examples/t3-code/mobile/app.test.ts` with Bun 1.4.2: 2 passed, 0 failed.
@@ -33,13 +33,13 @@ Resolve by saying that an adopted base change touching a copied source first ref
 
 ### Low: describe the current import consistently
 
-LLP 1130 Architecture first says mobile imports parent-directory TS modules and shared behavior is not forked, then explains that the parent import failed. Implementation and evidence calls the entry a source importing the shared parser without distinguishing the copy. The code actually imports `./shared/r10-connect-pairing`.
+App-local LLP 1130 Architecture first says mobile imports parent-directory TS modules and shared behavior is not forked, then explains that the parent import failed. Implementation and evidence calls the entry a source importing the shared parser without distinguishing the copy. The code actually imports `./shared/r10-connect-pairing`.
 
 Resolve by stating the intended reuse and current fallback separately: mobile currently imports one unchanged pinned copy; direct parent reuse was attempted and refused. This is a code-sharing limitation, not a different parser behavior.
 
 ### Low: update verification statements from completed evidence
 
-At review time, LLP 1130 says the copy bake and launch remain pending; LLP 1130.000 says native build and driven edit remain pending. The newly present `m0-build-copy.log` records successful app packaging and launch on simulator `55D21BEC-4306-4897-A624-DC6CD3A37573`. `m0-drive.log` records an empty initial input, typing the hosted fixture URL, a parsed host of `https://server.example`, no pending requests, and screenshot capture.
+At review time, app-local LLP 1130 says the copy bake and launch remain pending; LLP 1130.000 says native build and driven edit remain pending. The newly present `m0-build-copy.log` records successful app packaging and launch on simulator `55D21BEC-4306-4897-A624-DC6CD3A37573`. `m0-drive.log` records an empty initial input, typing the hosted fixture URL, a parsed host of `https://server.example`, no pending requests, and screenshot capture.
 
 Resolve by recording exactly those observations and the command/model used. Do not call this real pairing, secure storage, transport verification, iPad verification or UI parity. Update PROGRESS too: it still says the app imports `../r10-connect-pairing.ts` and the bake/launch is next.
 

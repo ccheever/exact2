@@ -29,4 +29,4 @@ bun test examples/t3-code/mobile/*.test.ts
 
 The native build runs the same generator before bundling the mobile viewers and baking the app. The generator installs its pinned packages and may fetch missing packages. Run it once while online to prepare an offline build. Generated tables are ignored by Git.
 
-The app-local [LLP 1130](docs/1130-t3-code-ios.rfc.md) and its children record the design, source pins and verification limits. They remain Draft. Their placement in the framework's root LLP corpus is not approved; the mobile documents and review records stay with this app.
+The app-local [LLP 1130](docs/1130-t3-code-ios.rfc.md) and its children record the design, source pins and verification limits. They remain Draft. These numbers are local to the app; the root `llp/1130-a-page-under-the-status-bar.rfc.md` is a different document. Their placement in the framework's root LLP corpus is not approved; the mobile documents and review records stay with this app.
