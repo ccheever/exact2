@@ -385,7 +385,10 @@ function headroom(el) {
 function renderModule(entry, now) {
   if (entry.terminal || (hidden && !exact.now) || recoveringDevice || recoveryTimer) return;
   const { w, h, s } = size(entry.el);
-  const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
+  // The backing store is the raster the module draws: a world's render scale (its quality rung) shrinks it, and CSS stretches it to the box.
+  // In f32, as the module's Frame::pixels rounds it, so the two agree to the pixel.
+  const f = Math.fround, rs = gpu.gpu_render_scale?.(entry.id) ?? 1, scaled = f(f(s) * f(rs));
+  const pw = Math.max(1, Math.round(f(f(w) * scaled))), ph = Math.max(1, Math.round(f(f(h) * scaled)));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
   supplyChildren(entry);
   if (entry.hdr) gpu.gpu_headroom(entry.id, headroom(entry.host ?? entry.el));

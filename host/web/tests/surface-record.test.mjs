@@ -678,3 +678,20 @@ test('prefer gpu-tier retiers every live world in place, duplicates and all', as
   assert.equal(f.exact.gpu.handle({op:'state',id:1,world:true},null,x=>x).world.tick,0);
   assert.equal(f.exact.gpu.handle({op:'state',id:2,world:true},null,x=>x).world.tick,0);
 });
+
+// A world's render scale (its quality rung, LLP 1139.003 D3) is the canvas's backing store: the module
+// configures its drawable at that size, and a full-size backing store would leave it in one corner.
+test('the canvas backing store is the raster the module draws, at its render scale', async () => {
+  const f=await fixture();
+  f.gpu.gpu_published=()=>undefined;
+  const host=f.create(1), canvas=host.canvas;
+  let dirty=true;
+  f.gpu.gpu_dirty=()=>dirty;
+  f.gpu.gpu_render=()=>{dirty=false;return 0;};
+  f.gpu.gpu_render_scale=()=>0.5;
+  f.frame();
+  assert.deepEqual([canvas.width,canvas.height],[15,15],'10 points at 3 device pixels each, halved');
+  dirty=true; f.gpu.gpu_render_scale=()=>1;
+  f.frame();
+  assert.deepEqual([canvas.width,canvas.height],[30,30]);
+});

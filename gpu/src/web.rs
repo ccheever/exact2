@@ -379,6 +379,11 @@ pub fn unload() {
     crate::shaders::clear_shaders();
 }
 
+/// A canvas's raster scale ([`crate::Module::render_scale`]).
+pub fn render_scale(id: u32) -> f32 {
+    with(|m| m.render_scale(id)).unwrap_or(1.0)
+}
+
 /// Every canvas takes the told tier ([`crate::Module::retier`]).
 pub fn retier() {
     with(|m| m.retier());
@@ -603,6 +608,13 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_tier(code: u32) {
             $crate::set_tier($crate::GpuTier::from_code(code))
+        }
+
+        /// A canvas's raster relative to its device pixels: the page sizes
+        /// the canvas's backing store by it.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_render_scale(id: u32) -> f32 {
+            $crate::web::render_scale(id)
         }
 
         /// Remake each canvas's renderer at the told tier, keeping its world.
