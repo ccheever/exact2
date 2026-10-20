@@ -37,9 +37,11 @@ final class RouteSafeArea {
         weak var scroll: UIScrollView?
         weak var node: NodeView?
         var applied: CGFloat = 0
+        private var ignored = false
 
         mutating func release(side: WritableKeyPath<UIEdgeInsets, CGFloat>) {
-            set(0, side: side)
+            set(0, ignored: false, side: side)
+            applied = 0
             scroll = nil; node = nil
         }
 
@@ -50,12 +52,16 @@ final class RouteSafeArea {
             // Read UIKit's actual contribution, not the route's safe area: a
             // scroller inside authored padding overlaps only part of it.
             let automatic = scroll.adjustedContentInset[keyPath: side] - scroll.contentInset[keyPath: side]
-            set(ignored ? -automatic : 0, side: side)
+            set(ignored ? -automatic : 0, ignored: ignored, side: side)
         }
 
-        private mutating func set(_ amount: CGFloat, side: WritableKeyPath<UIEdgeInsets, CGFloat>) {
+        private mutating func set(_ amount: CGFloat, ignored: Bool, side: WritableKeyPath<UIEdgeInsets, CGFloat>) {
+            defer { self.ignored = ignored }
             guard let scroll, abs(amount - applied) > 0.01 else { return }
-            let offset = scroll.contentOffset.y + scroll.adjustedContentInset.top
+            // Keep UIKit's top anchor; elsewhere a bar's changed automatic inset is not content room on an opted-out edge.
+            let atStart = abs(scroll.contentOffset.y + scroll.adjustedContentInset.top) < 0.5
+            let previousTop = self.ignored && !atStart ? scroll.contentInset.top - applied : scroll.adjustedContentInset.top
+            let offset = scroll.contentOffset.y + previousTop
             let delta = amount - applied
             applied = amount
             var inset = scroll.contentInset, indicator = scroll.verticalScrollIndicatorInsets

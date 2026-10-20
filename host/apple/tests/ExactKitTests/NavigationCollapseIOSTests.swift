@@ -421,6 +421,10 @@ final class NavigationCollapseIOSTests: XCTestCase {
         let drag = agent.tap(["id": Int(list.id), "scrollDrag": [0.0, -100_000.0]])
         XCTAssertNil(drag["error"], "\(drag)")
         until("the scroll settles") { !agent.nativeInFlight() }
+        let before = old.contentOffset.y
+        route.host?.reportCovers()
+        XCTAssertEqual(old.contentOffset.y, before, accuracy: 0.5, "updating the opted-out bar inset does not move the content")
+        XCTAssertEqual(old.adjustedContentInset.top, 0, accuracy: 0.5)
         let press = agent.tap(["id": Int(try node(session, "second-taller").id)])
         XCTAssertNil(press["error"], "\(press)")
         until("a new physical scroller") { route.collapseScrollView != nil && route.collapseScrollView !== old }
