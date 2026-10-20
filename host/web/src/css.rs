@@ -7,6 +7,7 @@
 mod clears;
 mod decorations;
 mod fonts;
+mod selection;
 pub use decorations::decoration_styles;
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
@@ -282,10 +283,7 @@ fn css_text_in(
             (StyleId::ColorScheme, RowValue::Enum("normal")) => {
                 out.push_str("color-scheme:inherit;")
             }
-            // WebKit parses `user-select` but selects by the prefixed name only.
-            (StyleId::UserSelect, RowValue::Enum(v)) => {
-                push_text!(&mut out, "-webkit-user-select:{};user-select:{};", v, v)
-            }
+            (StyleId::UserSelect, RowValue::Enum(v)) => selection::push(&mut out, v),
             // LLP 1069.011.001 D8–D9: browser-owned absolute sizes and corners.
             (StyleId::ControlSize, RowValue::Enum(size)) => {
                 let size = match *size {

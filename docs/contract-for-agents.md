@@ -3452,7 +3452,10 @@ and other content text is (so put prose a reader copies in `article`, not a
 it), and a long press or a double tap there selects a word with the system's
 handles and its Copy, Look Up, Translate and Share menu, one paragraph (one
 `text`) at a time. A label inside a control stays unselectable unless the
-`text` is said on it or inside the control. `user-select="all"` makes an
+`text` is said on it or inside the control. On the web `auto` is the page's,
+but for a control's label (a button, link, pressable or control role), which
+is not selectable there either; a text's own runs select with it.
+`user-select="all"` makes an
 element's text one unit, as CSS UI 4 has it (a path, a device code): on the
 web and macOS one click in it selects all of it, and a drag, a Shift-click
 or Shift with an arrow that reaches into it takes it whole. On iOS a long

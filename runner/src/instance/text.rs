@@ -100,37 +100,35 @@ impl Selection {
         let mut next = self;
         let node = plan.node(n.node);
         let prop = |id| n.bound_prop(plan, id).and_then(Value::as_str).unwrap_or("");
-        let native_button =
-            node.node_type == NodeType::Control as u8 && prop(PropId::Type) == "button";
-        if native_button {
+        // A control's label is not selectable, AppKit's on the Mac and the
+        // host stylesheet's on the web (`host/web/index.html`). A text's runs
+        // join its paragraph, which `collect` judges at the text.
+        let role = prop(PropId::AccessibilityRole);
+        let control = [NodeType::Pressable as u8, NodeType::Control as u8]
+            .contains(&node.node_type)
+            || node
+                .handlers
+                .iter()
+                .any(|h| plan.handler(h).event == exact_plan::EventKind::Press)
+            || [
+                "button",
+                "link",
+                "tab",
+                "menuitem",
+                "menuitemcheckbox",
+                "menuitemradio",
+                "option",
+                "checkbox",
+                "radio",
+                "switch",
+                "treeitem",
+            ]
+            .contains(&role);
+        if control {
             next.explicit = Some(false);
         }
         if policy == ListTextPolicy::MacOS {
-            let role = prop(PropId::AccessibilityRole);
             let tag = prop(PropId::SemanticTag);
-            let control = [NodeType::Pressable as u8, NodeType::Control as u8]
-                .contains(&node.node_type)
-                || node
-                    .handlers
-                    .iter()
-                    .any(|h| plan.handler(h).event == exact_plan::EventKind::Press)
-                || [
-                    "button",
-                    "link",
-                    "tab",
-                    "menuitem",
-                    "menuitemcheckbox",
-                    "menuitemradio",
-                    "option",
-                    "checkbox",
-                    "radio",
-                    "switch",
-                    "treeitem",
-                ]
-                .contains(&role);
-            if control {
-                next.explicit = Some(false);
-            }
             next.document |= tag == "article" || ["article", "document"].contains(&role);
             next.chrome |= ["header", "nav", "footer"].contains(&tag)
                 || ["toolbar", "tablist", "menubar", "menu", "listbox", "tree"].contains(&role);
