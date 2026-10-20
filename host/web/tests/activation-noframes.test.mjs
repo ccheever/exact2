@@ -95,15 +95,25 @@ test('a Canvas 2D page in a cross-origin frame scrolled out of view (no frames, 
     browser = await (await import('playwright-core')).chromium.launch({ executablePath: chromium().executable, headless: true });
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } }), asked = [];
     page.on('request', r => { if (new URL(r.url()).pathname.endsWith('/canvas2d-glue.js')) asked.push(r.url()); });
+    // In the framed page, from its first script: every animation-frame callback and ResizeObserver delivery, counted.
+    await page.addInitScript(() => {
+      if (location.hostname !== 'localhost') return;
+      window.__frames = 0; window.__sizes = 0;
+      const raf = window.requestAnimationFrame.bind(window), Observer = window.ResizeObserver;
+      window.requestAnimationFrame = fn => raf(t => { window.__frames++; fn(t); });
+      window.ResizeObserver = class extends Observer { constructor(fn) { super((...a) => { window.__sizes++; fn(...a); }); } };
+    });
     await page.goto(`http://127.0.0.1:${toolPort}/`);
     let frame = null;
     for (const end = Date.now() + 10_000; !frame; await Bun.sleep(50)) { frame = page.frames().find(f => f.url().startsWith(framed)); if (!frame && Date.now() > end) throw new Error('the frame never loaded'); }
     // Ready (input and `exact.ready` wait on the piece and its canvases' first geometry): the piece loaded and settled.
     const t0 = Date.now();
     while ((await frame.evaluate(() => document.getElementById('exact-root')?.dataset.moduleReady ?? null)) !== 'true') { if (Date.now() - t0 > 8000) throw new Error(`not ready offscreen; the piece asked ${asked.length} time(s)`); await Bun.sleep(50); }
-    // It is the case it says: the frame gets no animation frames and no ResizeObserver entries in a second.
-    const starved = await frame.evaluate(() => new Promise(done => { let frames = 0, sizes = 0; const tick = () => { frames++; requestAnimationFrame(tick); }; requestAnimationFrame(tick); const d = document.createElement('div'); document.body.append(d); new ResizeObserver(() => { sizes++; }).observe(d); setTimeout(() => done({ frames, sizes }), 1000); }));
-    expect([starved, asked.length]).toEqual([{ frames: 0, sizes: 0 }, 1]);
+    // It is the case it says, over the page's whole life to ready: no ResizeObserver delivery (the geometry came from
+    // layout, `firstGeometry`) and fewer than the two frames `afterPaint` waits for (Chrome may give such a frame
+    // one at its start).
+    const starved = await frame.evaluate(() => ({ frames: window.__frames, sizes: window.__sizes }));
+    expect([starved.sizes, starved.frames < 2, asked.length]).toEqual([0, true, 1]);
   } finally {
     await browser?.close();
     host?.stop(true);

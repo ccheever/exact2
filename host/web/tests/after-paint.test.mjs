@@ -92,8 +92,8 @@ test("glue.js schedules each GPU load through afterPaint and takes a destroyed s
     const waited = new Function('requestAnimationFrame', 'setTimeout', 'exact', `${wait}\nreturn afterPaint();`)(fn => frames.push(fn), (fn, ms) => timers.push([fn, ms]), agent ? { agent: {} } : {})
       .then(() => { done++; });
     expect(timers.map(([, ms]) => ms)).toEqual(agent ? [] : [1000]);
-    // The second first where there is one, then frames: the wait ends once.
-    if (!agent) timers[0][0]();
+    // The second alone ends the wait where there is one; frames, after it or without it, end it once.
+    if (!agent) { timers[0][0](); await Promise.resolve(); await Promise.resolve(); expect(done).toBe(1); }
     frames.splice(0).forEach(fn => fn()); frames.splice(0).forEach(fn => fn());
     await waited;
     expect([agent, done]).toEqual([agent, 1]);

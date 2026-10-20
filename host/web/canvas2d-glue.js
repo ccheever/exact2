@@ -212,6 +212,7 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
   const canvases = new Map(); // view id -> Replayer
   const reported = new Map(); // view id -> "w h scale"
   const waiting = new Set(); // watched views whose first geometry is not in yet
+  const watched = new Map(); // view id -> the element its latest watch is on
   let settle = null, frames = false, framing = false;
   const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
   const surfaceOf = (el) => el && [...el.children].find(c => c.dataset && c.dataset.surface !== undefined);
@@ -241,10 +242,16 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
   // A canvas's first geometry where the observer has not given it a second on: a page in a frame scrolled out of
   // view delivers no ResizeObserver entries (nor frames), and readiness waits on it (`settled`). Its content box, as
   // layout has it now; the observer's own entry, when it comes, reports again only if it differs.
+  // A canvas gone before then waits for nothing; a newer watch of its id owns its own wait. The content box is the
+  // computed size (fractional, as the observer's), less padding and border where the box sizes its border.
   function firstGeometry(id, el) {
-    if (!waiting.has(id) || o.views.get(id) !== el) return;
-    const cs = getComputedStyle(el), px = v => parseFloat(v) || 0;
-    report(id, el, Math.max(0, el.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight)), Math.max(0, el.clientHeight - px(cs.paddingTop) - px(cs.paddingBottom)));
+    if (!waiting.has(id) || watched.get(id) !== el) return;
+    if (o.views.get(id) !== el) { waiting.delete(id); watched.delete(id); observer.unobserve(el); }
+    else {
+      const cs = getComputedStyle(el), px = v => parseFloat(v) || 0, edge = cs.boxSizing === "border-box";
+      const inner = (size, a, b) => Math.max(0, px(size) - (edge ? px(cs[`padding${a}`]) + px(cs[`padding${b}`]) + px(cs[`border${a}Width`]) + px(cs[`border${b}Width`]) : 0));
+      report(id, el, inner(cs.width, "Left", "Right"), inner(cs.height, "Top", "Bottom"));
+    }
     if (!waiting.size && settle) { settle.resolve(); settle = null; }
   }
   // A display-scale change is a new generation (D4): every canvas reports again.
@@ -309,7 +316,8 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
       }
       const el = o.views.get(op.id);
       if (!el) return;
-      if (op.watch) { waiting.add(op.id); observer.observe(el); if (!agentMode) setTimeout(() => firstGeometry(op.id, el), 1000); return; }
+      // (A new element's first geometry is always sent: a replaced view of one id and size is a new canvas to its runner.)
+      if (op.watch) { waiting.add(op.id); watched.set(op.id, el); reported.delete(op.id); observer.observe(el); if (!agentMode) setTimeout(() => firstGeometry(op.id, el), 1000); return; }
       const surface = surfaceOf(el);
       if (!surface) return;
       if (op.fresh) canvases.set(op.id, new Replayer(surface, op));
