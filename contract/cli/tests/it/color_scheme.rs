@@ -58,7 +58,14 @@ fn light_dark_and_the_surrounding_scheme_are_written() {
         let error = contract::compile(&src).unwrap_err().to_string();
         assert!(error.contains("LLP 1034 §8"), "{value}: {error}");
     }
-    for value in ["light", "dark", "normal", "light dark", "dark light", "unset"] {
+    for value in [
+        "light",
+        "dark",
+        "normal",
+        "light dark",
+        "dark light",
+        "unset",
+    ] {
         let src = format!("component App\n  view\n    column color-scheme=\"{value}\"\n");
         contract::compile(&src).unwrap();
     }

@@ -517,6 +517,36 @@ pub(crate) fn use_fixes(
     if let Err(all) = loaded {
         return Err(resolve(&loader.sources, all));
     }
+    // The root's neighbours no `use` reaches yet are read too, so a name the
+    // root lacks is found where one of them declares it (euxy FRICTION 1: a
+    // root split into seven files named none). One that does not load (a
+    // syntax refusal, its own `routes`) is left out as it was.
+    for key in unreached(&root_key, |key| loader.cache.contains_key(key)) {
+        let Ok(text) = std::fs::read_to_string(&key) else {
+            continue;
+        };
+        let (units, cache) = (loader.units.len(), loader.cache.clone());
+        let (refused, hidden) = (loader.refused.errors.len(), loader.refused.hidden.len());
+        loader.sources.paths.push(key.clone());
+        loader.sources.origins.push(Origin::App);
+        loader.sources.digests.push(digest(&text));
+        loader.sources.texts.push(text.as_str().into());
+        loader.active.push(key.clone());
+        let loaded = loader.load_source(&key, &text, units as u32);
+        loader.active.pop();
+        if loaded.is_err() || loader.refused.errors.len() > refused || loader.refused.whole {
+            loader.units.truncate(units);
+            loader.refused.errors.truncate(refused);
+            loader.refused.hidden.truncate(hidden);
+            loader.refused.whole = false;
+            loader.cache = cache;
+            let s = &mut loader.sources;
+            (s.paths.truncate(units), s.origins.truncate(units));
+            (s.digests.truncate(units), s.texts.truncate(units));
+        } else {
+            loader.cache.insert(key, units);
+        }
+    }
     match loader.scope() {
         Ok(_) => Ok(Vec::new()),
         Err(_) if !loader.fixes.is_empty() => Ok(std::mem::take(&mut loader.fixes)
@@ -531,6 +561,22 @@ pub(crate) fn use_fixes(
 }
 
 pub(crate) use uses::apply as apply_uses;
+
+/// The `.contract` files beside `root` (not its tests, nor `root`) that
+/// `reached` says no `use` reaches, sorted.
+pub(crate) fn unreached(root: &Path, reached: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
+    let dir = root.parent().unwrap_or(Path::new("."));
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok()?.path().canonicalize().ok())
+        .filter(|p| p.extension().is_some_and(|e| e == "contract") && p.is_file())
+        .filter(|p| !p.to_string_lossy().ends_with(".test.contract"))
+        .filter(|p| p != root && !reached(p))
+        .collect();
+    out.sort();
+    out
+}
 
 /// One source a compilation reads (LLP 1091 D10).
 #[derive(Debug, Clone, PartialEq, Eq)]

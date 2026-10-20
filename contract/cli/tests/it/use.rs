@@ -421,3 +421,46 @@ fn the_missing_use_lines_are_named_and_written() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A root split into files that names none of them (the euxy port): its
+/// neighbours are read too, so `fix_uses` writes the lines the root lacks,
+/// and what stays unreached (another entry) is named, not passed over.
+#[test]
+fn a_root_that_names_no_file_has_its_lines_written() {
+    let dir = temp_dir("unnamed");
+    let write = |name: &str, text: &str| std::fs::write(dir.join(name), text).unwrap();
+    write("model.contract", "shape Pattern\n  name: string\n");
+    write(
+        "ui.contract",
+        "component Row\n  props\n    p: Pattern\n  view\n    text p.name\n",
+    );
+    write(
+        "widget.contract",
+        "component Widget\n  view\n    text \"w\"\n",
+    );
+    write("broken.contract", "component\n");
+    write("app.test.contract", "test \"a\"\n  clock settle\n");
+    write(
+        "app.contract",
+        "component App\n  view\n    column\n      Row(p=Pattern(name=\"a\"))\n",
+    );
+    let root = dir.join("app.contract");
+    assert!(contract::compile_path(&root).is_err());
+    let (written, refused) = contract::fix_uses(&root).unwrap();
+    assert!(refused.is_empty(), "{refused:?}");
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap();
+    let app = read("app.contract");
+    assert!(
+        app.contains("use Pattern from \"./model.contract\"\n")
+            && app.contains("use Row from \"./ui.contract\"\n"),
+        "{written:?}"
+    );
+    assert!(read("ui.contract").starts_with("use Pattern from \"./model.contract\"\n"));
+    contract::compile_path(&root).unwrap();
+    let unreached: Vec<String> = contract::unreached(&root)
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(unreached, ["broken.contract", "widget.contract"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

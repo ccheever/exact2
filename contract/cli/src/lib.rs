@@ -434,6 +434,14 @@ pub fn source_graph(path: &Path) -> SourceGraph {
     }
 }
 
+/// The `.contract` files beside the root at `path` (not tests) that no
+/// `use` from it reaches: another entry, or a file nothing uses yet.
+pub fn unreached(path: &Path) -> Vec<PathBuf> {
+    let graph = source_graph(path);
+    let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    sources::unreached(&root, |p| graph.sources.iter().any(|s| s.path == p))
+}
+
 /// A file [`fix_uses`] wrote, and the `use` lines it wrote there.
 pub type WrittenUses = (PathBuf, Vec<String>);
 
