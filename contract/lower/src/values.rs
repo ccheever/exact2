@@ -432,11 +432,11 @@ fn style_value(
             {
                 return err("lower-css-resize", "CSS resize handles are not implemented by the native layout presenters; only `resize=\"none\"` is portable. Other values require user-controlled box geometry, not a different property name", span);
             }
-            // @ref LLP 1115.000 D11.6 — `text` is honoured where a host has
-            // text selection (the web, macOS, iOS); the other two name a
-            // selection behaviour no native presenter has.
-            if rows.contains(&StyleId::UserSelect) && matches!(v.as_str(), "all" | "contain") {
-                return err("lower-css-user-select", format!("CSS `user-select=\"{v}\"` is not implemented by the native presenters: `all` selects an element whole on one press and `contain` keeps a selection from leaving its element, and their text selection ownership has neither. Supported values are auto, none and text"), span);
+            // @ref LLP 1115.000 D11.6 — `text` and `all` are honoured where a
+            // host has text selection (the web, macOS, iOS); `contain` names
+            // a selection behaviour no native presenter has.
+            if rows.contains(&StyleId::UserSelect) && v == "contain" {
+                return err("lower-css-user-select", "CSS `user-select=\"contain\"` is not implemented by the native presenters: it keeps a selection from leaving its element, and their text selection ownership has no such bound. Supported values are auto, none, text and all", span);
             }
             if rows.contains(&StyleId::PositionArea)
                 && !StyleId::PositionArea.enum_names().contains(&v.trim())

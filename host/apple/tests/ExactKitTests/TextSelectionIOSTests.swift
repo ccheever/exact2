@@ -97,6 +97,49 @@ final class TextSelectionIOSTests: XCTestCase {
         XCTAssertTrue(p.textSelection.texts.isEmpty)
     }
 
+    /// CSS `user-select: all`: a tap, a long press or a double tap in the
+    /// element selects all of it, not a word, and a range UIKit asks for
+    /// that takes part of it takes all of it. An inline run's element makes
+    /// its paragraph selectable for that run alone, its own text being a
+    /// `UILabel`'s; an element around a paragraph is the whole paragraph.
+    func testUserSelectAllSelectsTheWholeElement() throws {
+        let p = mounted([
+            box(1),
+            text(2, "/Users/me/project/file.ts", style: ["user_select": "all"], handlers: ["selectionchange"]),
+            ["op": "create", "id": 3, "kind": "text", "style": ["font_size": 17.0, "line_height": "22px"], "handlers": ["selectionchange"]],
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            frame(1, 0, h: 400, w: 400), frame(2, 80, x: 20), frame(3, 120, x: 20),
+            ["op": "paragraph", "id": 3, "runs": [
+                ["id": 31, "parent": 3, "paint": true, "props": ["text": "Folder: "]],
+                ["id": 32, "parent": 3, "paint": true, "props": ["text": "/tmp/work"], "style": ["user_select": "all"]],
+                ["id": 33, "parent": 3, "paint": true, "props": ["text": ". Check it."]],
+            ]],
+        ])
+        let path = try node(p, 2), folder = try node(p, 3)
+        var heard: [String] = []
+        p.onSelectionChange = { id, text, start, end, _ in heard.append("\(id) \(text) \(start) \(end)") }
+        XCTAssertTrue(p.textSelection.admits(path))
+        XCTAssertFalse(folder.textSelectable, "the paragraph's own text is a label's")
+        XCTAssertTrue(p.textSelection.admits(folder), "its run is selectable")
+        XCTAssertEqual(p.textSelection.selectElement(in: path, at: try point(in: path, of: "project"))?.text, "/Users/me/project/file.ts", "a tap")
+        XCTAssertEqual(heard.last, "2 /Users/me/project/file.ts 0 25")
+        p.textSelection.clear()
+        XCTAssertEqual(p.textSelection.selectWord(in: path, at: try point(in: path, of: "file"))?.text, "/Users/me/project/file.ts", "a long press")
+        XCTAssertEqual(p.textSelection.selectElement(in: folder, at: try point(in: folder, of: "work"))?.text, "/tmp/work")
+        XCTAssertEqual(heard.last, "3 /tmp/work 8 17")
+        XCTAssertNil(p.textSelection.text(for: path)?.reportable, "one selection on the page")
+        p.textSelection.clear()
+        XCTAssertEqual(p.textSelection.selectWord(in: folder, at: try point(in: folder, of: "tmp"))?.text, "/tmp/work", "a double tap")
+        p.textSelection.clear()
+        XCTAssertNil(p.textSelection.selectWord(in: folder, at: try point(in: folder, of: "Check")), "the label's own words select nothing")
+        XCTAssertNil(p.textSelection.selectElement(in: folder, at: try point(in: folder, of: "Check")), "nor does a tap on them")
+        // A handle UIKit drags into the run: the run comes whole.
+        let held = try XCTUnwrap(p.textSelection.text(for: folder))
+        let at = { (offset: Int) in held.position(from: held.beginningOfDocument, offset: offset)! }
+        held.selectedTextRange = held.textRange(from: at(10), to: at(12))
+        XCTAssertEqual(held.selectedText, "/tmp/work")
+    }
+
     func testAWordIsSelectedFromTheParagraphsOwnLinesAndCopied() throws {
         let p = page()
         let prose = try node(p, 4)

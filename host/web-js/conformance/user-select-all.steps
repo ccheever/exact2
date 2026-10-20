@@ -1,0 +1,6 @@
+# One click selects the whole element: a paragraph, an inline run, a box.
+tap path
+tap run
+tap second
+# A click outside every element is a caret.
+tap folder at 4 8

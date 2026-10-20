@@ -336,6 +336,8 @@ impl Em<'_> {
                 }
                 one("-webkit-text-stroke", Some(self.uses.constant("$cm", || style::color_map(plan))))
             }
+            // Both names, as css.rs writes them: WebKit selects by the prefixed one.
+            StyleId::UserSelect => ["-webkit-user-select", "user-select"].map(|n| (n.into(), String::new(), None)).into(),
             // @ref LLP 1077 D8 — 0 is `none`, as css.rs writes it.
             StyleId::Perspective => one(
                 "perspective",

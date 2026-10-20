@@ -672,6 +672,10 @@ extension Agent {
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         var b = v.tapBox(box(v))
+        // A run is touched on a fragment it paints (the web's driver taps
+        // the span's), not at its paragraph's middle.
+        if ["at", "x", "y"].allSatisfy({ req[$0] == nil }), (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true,
+           let q = tapPoint(req, node: v) { b = CGRect(origin: q, size: .zero) }
         // A plain press: `at` is a point in the target, the press whatever a
         // finger there reaches; without one, the target's own press
         // (`AgentAddressedTap.swift`).
@@ -809,7 +813,13 @@ extension Agent {
         MainActor.assumeIsolated { HeldState.input(at: hit) } // the finger lands where its hit was checked: a held node there lets go (HeldState.swift)
         fingerPointer(.down, fingers, at: p, held: held)
         fingerPointer(.up, fingers, at: p, held: held)
+        // The lift's selection, before what it presses (`touchesEnded`).
+        var selected: [String: Any]?
+        #if os(iOS)
+        if plain { selected = presenter.agentSelectElement(hit, at: p) }
+        #endif
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }
+        if let selected { reply["selection"] = selected }
         // Its middle reaches a control inside it: the tap landed beside it.
         if let avoided { reply["avoided"] = ["middle": [Agent.r2(b.midX), Agent.r2(b.midY)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
         if let why = unreached { reply["unreached"] = "Contract's pointer listeners heard it, but it \(why)" }

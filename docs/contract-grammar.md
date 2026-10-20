@@ -1564,7 +1564,8 @@ there is `text: ""` with `start == end == 0` and `rects: []`; it fires while a d
 once per change. The web and macOS select text; iOS selects text its author
 made selectable (`user-select="text"`), by a long press, a double tap and the
 selection's handles; Linux has no text selection on a `text`, so it never
-fires there.
+fires there. In a `user-select="all"` element one click or tap selects the
+whole element, and a selection that reaches into it takes all of it.
 
 On web and macOS, `removeAllRanges()` clears the reader's selection. Each
 paragraph that held a part reports its empty selection. The documented

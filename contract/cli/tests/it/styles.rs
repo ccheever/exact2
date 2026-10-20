@@ -1398,7 +1398,7 @@ component App
 fn css_native_interaction_gaps_are_named_precisely() {
     for (name, value, reason) in [
         ("resize", "vertical", "user-controlled box geometry"),
-        ("user-select", "all", "selection ownership"),
+        ("user-select", "contain", "selection ownership"),
         ("border", "1px double red", "native painters"),
         ("text-decoration", "underline wavy", "native text painters"),
     ] {
@@ -1408,6 +1408,7 @@ fn css_native_interaction_gaps_are_named_precisely() {
         assert!(!error.contains("unknown attribute"), "{error}");
     }
     contract::compile("component App\n  view\n    textarea rows=3 maxlength=5 resize=\"none\" user-select=\"none\"\n").unwrap();
+    contract::compile("component App\n  view\n    text \"x\" user-select=\"all\"\n").unwrap();
 }
 
 #[test]

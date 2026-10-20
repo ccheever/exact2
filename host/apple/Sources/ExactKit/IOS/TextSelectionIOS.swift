@@ -27,6 +27,12 @@
 // A tap still presses: UIKit's single taps swallow a touch, so they are off
 // until something is selected, when a tap in the text clears the selection
 // and presses nothing, as in a text view.
+//
+// CSS `user-select: all` (CSS UI 4 §6.1): a selection that takes part of
+// such an element takes all of it, so a long press, a double tap or a handle
+// that reaches into one selects the element, not a word, and a tap in one
+// selects it too, as a click does on the web. One selection is inside one
+// paragraph, so an element around the paragraph selects the paragraph.
 #if os(iOS)
 import CoreText
 import UIKit
@@ -43,9 +49,11 @@ final class TextSelectionHost {
     var pasteboard = UIPasteboard.general
     init(_ presenter: Presenter) { self.presenter = presenter }
 
-    /// Whether `node` is text a reader can select now.
+    /// Whether `node` is text a reader can select now: all of it, or only
+    /// its `user-select: all` runs (`SelectableText.atomic`).
     func admits(_ node: NodeView) -> Bool {
-        node.isParagraph && presenter?.views[node.id] === node && node.textSelectable && !node.inert && !node.isHidden
+        node.isParagraph && presenter?.views[node.id] === node && !node.inert && !node.isHidden
+            && (node.textSelectable || node.inlineText.contains(where: \.selectsAll))
     }
     func text(for node: NodeView) -> SelectableText? { texts.first { $0.node === node } }
     /// The selection, if there is one: its paragraph, and its range in that
@@ -97,6 +105,15 @@ final class TextSelectionHost {
         guard admits(node) else { return nil }
         let held = install(node)
         guard held.selectWord(at: point) else { return nil }
+        return held.reportable
+    }
+    /// A tap at `point` of `node`: inside a `user-select: all` element it
+    /// selects the element. Nil when there is none there.
+    @discardableResult
+    func selectElement(in node: NodeView, at point: CGPoint) -> (text: String, range: NSRange)? {
+        guard admits(node), node.selectAllElement != nil || node.inlineText.contains(where: \.selectsAll) else { return nil }
+        let held = install(node)
+        guard held.selectElement(at: point) else { return nil }
         return held.reportable
     }
     /// Copy: the selected text to the pasteboard. False with nothing selected.
@@ -223,7 +240,9 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
     }
     private func set(_ range: NSRange) {
         let lo = min(max(0, range.location), text.length), hi = min(max(lo, NSMaxRange(range)), text.length)
-        let next = NSRange(location: lo, length: hi - lo)
+        let asked = NSRange(location: lo, length: hi - lo), next = atomic(asked)
+        // UIKit's own gesture asked for less: it is shown what it got.
+        if next != asked { display?.setNeedsSelectionUpdate() }
         guard next != selected else { return }
         selected = next
         syncTaps()
@@ -254,13 +273,53 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
         let at = SelectablePosition(index(at: point))
         guard let word = (tokenizer.rangeEnclosingPosition(at, with: .word, inDirection: .storage(.forward))
             ?? tokenizer.rangeEnclosingPosition(at, with: .word, inDirection: .storage(.backward))) as? SelectableRange, word.range.length > 0 else { return false }
+        show(word.range)
+        return true
+    }
+    /// The `user-select: all` element at `point`: the one holding the
+    /// character after the caret nearest it, or else the one before.
+    func selectElement(at point: CGPoint) -> Bool {
+        let caret = index(at: point)
+        guard let whole = element(caret) ?? element(caret - 1) else { return false }
+        show(whole)
+        return true
+    }
+    private func show(_ range: NSRange) {
         if !isFirstResponder { _ = becomeFirstResponder() }
         inputDelegate?.selectionWillChange(self)
-        set(word.range)
+        set(range)
         inputDelegate?.selectionDidChange(self)
         display?.isActivated = true
         display?.setNeedsSelectionUpdate()
-        return true
+    }
+    /// The `user-select: all` element character `c` is in, in this
+    /// paragraph's offsets: the paragraph when the element is around it.
+    private func element(_ c: Int) -> NSRange? {
+        guard let node, c >= 0, c < text.length else { return nil }
+        if node.selectAllElement != nil { return NSRange(location: 0, length: text.length) }
+        let wholes = runs(of: node).filter { NSLocationInRange(c, $0) }
+        return wholes.max { $0.length < $1.length }
+    }
+    /// What a range that takes part of a `user-select: all` element becomes:
+    /// one that takes all of it. An empty range stays empty. In a paragraph
+    /// whose own text is not selectable, only those runs are: a range that
+    /// takes none of them selects nothing.
+    private func atomic(_ range: NSRange) -> NSRange {
+        guard let node, range.length > 0 else { return range }
+        if node.selectAllElement != nil { return NSRange(location: 0, length: text.length) }
+        let own = node.textSelectable
+        var lo = own ? range.location : Int.max, hi = own ? NSMaxRange(range) : Int.min
+        for whole in runs(of: node) where whole.location < NSMaxRange(range) && NSMaxRange(whole) > range.location {
+            lo = min(lo, whole.location); hi = max(hi, NSMaxRange(whole))
+        }
+        return hi > lo ? NSRange(location: lo, length: hi - lo) : NSRange(location: 0, length: 0)
+    }
+    /// The `user-select: all` inline runs, in this paragraph's offsets.
+    private func runs(of node: NodeView) -> [NSRange] {
+        node.inlineText.filter(\.selectsAll).map {
+            let lo = node.shapedOffset($0.range.location)
+            return NSRange(location: lo, length: node.shapedOffset(NSMaxRange($0.range)) - lo)
+        }
     }
 
     // MARK: the responder
@@ -415,6 +474,13 @@ extension Presenter {
         guard let node = hit as? NodeView, textSelection.admits(node) else { return nil }
         if event == "contextmenu", node.contextMenuSource != nil { return nil }
         guard let found = textSelection.selectWord(in: node, at: node.convert(point, from: nil)) else { return nil }
+        return ["text": found.text, "start": found.range.location, "end": NSMaxRange(found.range)]
+    }
+    /// The agent's plain `tap` on a `user-select: all` element, `point` in
+    /// the window: what a finger's tap there selects (`touchesEnded`).
+    func agentSelectElement(_ hit: UIView, at point: CGPoint) -> [String: Any]? {
+        guard let node = hit as? NodeView,
+              let found = textSelection.selectElement(in: node, at: node.convert(point, from: nil)) else { return nil }
         return ["text": found.text, "start": found.range.location, "end": NSMaxRange(found.range)]
     }
 }

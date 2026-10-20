@@ -392,6 +392,13 @@ extension NodeView {
         defer { if pressContact === contact { pressContact = nil } }
         guard contact.routeActive else { return }
         guard !disabled else { pressed = false; inlinePressed = nil; linkPressed = nil; svgPressed = nil; return }
+        #if os(iOS)
+        // A tap in a `user-select: all` element selects it, as a click does
+        // on the web; whatever the tap presses, it still presses.
+        if !contact.bubbled, isParagraph, let touch = touches.first {
+            presenter?.textSelection.selectElement(in: self, at: local(touch.location(in: nil)))
+        }
+        #endif
         if let target = svgPressed {
             svgPressed = nil
             if let touch = touches.first, presenter?.svg.target(id, at: local(touch.location(in: nil))) == target { presenter?.press(target) }
