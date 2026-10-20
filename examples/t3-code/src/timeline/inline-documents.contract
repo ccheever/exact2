@@ -15,6 +15,7 @@ shape InlineDocument
   key: string
   kind: string
   title: string
+  server: string
   src: string
   ready: bool
   error: string
@@ -45,8 +46,9 @@ component InlineDocumentFrame
       zoom = zoom - 0.25
   action resetZoom
     zoom = 1
-  action laidOut(width: number, height: number)
+  action contentMeasured(width: number, height: number)
     local("inline-doc-measure", document.key, `${width}|${height}`)
+  action laidOut(width: number, height: number)
     if document.fullscreen and not presented
       presented = true
       showPopover(`inline-box-${document.key}`)
@@ -65,6 +67,11 @@ component InlineDocumentFrame
         for serial in [document.shortcutSerial] key=serial
           InlineDocumentShortcutDelivery(name=document.shortcut)
       box id=`inline-box-${document.key}` popover=(document.fullscreen ? some("manual") : none) position=(document.fullscreen ? "absolute" : "relative") width=(document.fullscreen ? inlineDocumentViewportWidth : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight : document.height) margin=0 padding=0 border-width=0 background-color="light-dark(#fcfcfc, #0a0a0a)" resize=laidOut
+        if document.fullscreen and document.kind == "mcp"
+          row width="100%" height=40 box-sizing="border-box" padding-left="0.75rem" padding-right="0.75rem" border-bottom-width=1 border-bottom-style="solid" border-bottom-color="light-dark(#e4e4e7, #ffffff14)" align-items="center" justify-content="space-between" testId="inline-doc-mcp-toolbar"
+            text document.server min-width=0 text-overflow="ellipsis" white-space="nowrap" overflow="hidden" font-size="0.875rem" line-height="1.25rem"
+            button press=local("inline-doc-fullscreen", document.key, "close") aria-keyshortcuts="Escape" aria-label="Exit full screen" title="" testId="inline-doc-exit" width="1.75rem" height="1.75rem" padding=0 border-width=0 background-color="#00000000" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+              Icon(name="minimize", size=16, color="-exact-label")
         if document.closed
           row gap="0.5rem" align-items="center"
             text "This app was closed." flex=1 color="-exact-secondary-label"
@@ -86,14 +93,13 @@ component InlineDocumentFrame
                   box width="40%" height="1.25rem" border-radius="0.25rem" background-color="light-dark(#e4e4e7, #27272a)"
                   box width="100%" height="8rem" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #18181b)"
                   box width="75%" height="0.75rem" border-radius="0.25rem" background-color="light-dark(#e4e4e7, #27272a)"
-          scroll width="100%" height=(document.fullscreen ? inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 0) : document.height) overflow=(document.fullscreen ? "auto" : "hidden")
-            box width=(document.fullscreen ? inlineDocumentViewportWidth * zoom : "100%") height=(document.fullscreen ? (inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 0)) * zoom : document.height)
+          scroll width="100%" height=(document.fullscreen ? inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 40) : document.height) overflow=(document.fullscreen ? "auto" : "hidden") resize=contentMeasured
+            box width=(document.fullscreen ? inlineDocumentViewportWidth * zoom : "100%") height=(document.fullscreen ? (inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 40)) * zoom : document.height)
               if document.src != ""
-                iframe id=`inline-frame-${document.key}` src=document.src sandbox="allow-scripts allow-forms allow-popups allow-downloads" message=reported load=loaded width=(document.fullscreen ? inlineDocumentViewportWidth : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 0) : document.height) scale=zoom transform-origin="0 0" border-width=0 opacity=(document.ready ? 1 : 0) aria-label=document.title testId="inline-doc-frame"
-          // McpAppFrame and HtmlRenderDialog leave full screen on Escape.
-          button press=local("inline-doc-fullscreen", document.key, document.fullscreen ? "close" : "open") aria-keyshortcuts=(document.fullscreen ? "Escape" : "") position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 aria-label=(document.kind == "html" ? (document.fullscreen ? "Close" : "Open full screen") : document.fullscreen ? "Exit full screen" : "Expand document") title="" testId="inline-doc-expand"
-            // HtmlRenderFrame opens with Maximize2 and HtmlRenderDialog closes with X; McpAppFrame exits with Minimize2.
-            Icon(name=(document.fullscreen ? (document.kind == "html" ? "x" : "minimize") : "maximize"), size=14, color="-exact-label")
+                iframe id=`inline-frame-${document.key}` src=document.src sandbox="allow-scripts allow-forms allow-popups allow-downloads" message=reported load=loaded width=(document.fullscreen ? inlineDocumentViewportWidth : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 40) : document.height) scale=zoom transform-origin="0 0" border-width=0 opacity=(document.ready ? 1 : 0) aria-label=document.title testId="inline-doc-frame"
+          if not document.fullscreen or document.kind == "html"
+            button press=local("inline-doc-fullscreen", document.key, document.fullscreen ? "close" : "open") aria-keyshortcuts=(document.fullscreen ? "Escape" : "") position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 aria-label=(document.kind == "html" ? (document.fullscreen ? "Close" : "Open full screen") : "Expand document") title="" testId="inline-doc-expand"
+              Icon(name=(document.fullscreen ? "x" : "maximize"), size=14, color="-exact-label")
 
         if document.fullscreen and document.kind == "html"
           row position="absolute" left=0 right=0 bottom=0 height=48 justify-content="center" align-items="center" gap="0.5rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
