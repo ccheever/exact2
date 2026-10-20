@@ -323,9 +323,21 @@ export function conformOf(copy, side) {
   const work = join(ROOT, 'target', 'stage12-gate', `conform-${side}`);
   const r = run(process.execPath, [join(sdk, 'host/web-js/conform.mjs'), name, '--build', '--strict', '--linux', '--jobs', '1', '--wasm-root', join(work, 'wasm'), '--out', join(work, 'out')],
     { cwd: sdk, timeout: 7_200_000, env: { ...process.env, EXACT_APP_DIR: copy, CARGO_TARGET_DIR: join(ROOT, 'target', `stage12-gate-${side}`) } });
-  const summary = r.out.split('\n').find(l => /failures across/.test(l));
-  if (!summary) return null;
-  return { summary, failures: conformFailures(r.out) };
+  return conformRead(r.out, name, r.error);
+}
+
+/** A conform run's output read: null unless it finished (no spawn error or
+ * timeout), its table's row for the app compared steps, and it printed as
+ * many FAIL lines as its summary counts. */
+export function conformRead(out, name, error = null) {
+  if (error) return null;
+  const lines = out.split('\n');
+  const summary = lines.find(l => /^\d+ failures? across \d+ targets?/.test(l));
+  const row = lines.find(l => l.startsWith(`| ${name} |`))?.split('|').map(c => c.trim());
+  const compared = Number(row?.[3]);
+  const failures = conformFailures(out);
+  if (!summary || !(compared > 0) || failures.length !== Number(/^(\d+)/.exec(summary)[1])) return null;
+  return { summary, compared, failures };
 }
 export const conformFailures = out => out.split('\n').filter(l => l.startsWith('FAIL ')).map(l => l.replace(/\s*\([^()]*side-by-side\.png\)\s*$/, ''));
 

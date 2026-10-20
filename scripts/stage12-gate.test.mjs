@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, conformFailures, conformSame, renderedIds, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, beforeDrift, conformFailures, conformRead, conformSame, renderedIds, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -163,4 +163,13 @@ test('conform on the clone: the adoption fails nothing the baseline does not', (
   expect(conformSame({ before, after: { failures: before.failures.slice(1) } })).toBe(true);
   expect(conformSame({ before, after: { failures: [...before.failures, 'FAIL app new'] } })).toBe(false);
   expect(conformSame({ before: null, after: { failures: [] } })).toBe(false);
+});
+
+test('a conform run counts only when it finished, compared steps and printed every failure it counts', () => {
+  const table = n => `| target | JS build | steps compared | steps equal | failures |\n|---|---|---|---|---|\n| app | ok | ${n} | 1 | 1 |`;
+  const out = n => `${table(n)}\n\n1 failures across 1 targets; r.md\nFAIL app tap a: layout b.w: wasm 1 js 2`;
+  expect(conformRead(out(3), 'app')).toMatchObject({ compared: 3, failures: ['FAIL app tap a: layout b.w: wasm 1 js 2'] });
+  expect(conformRead(out(0), 'app')).toBe(null);
+  expect(conformRead(out(3).replace(/\nFAIL.*$/, ''), 'app')).toBe(null);
+  expect(conformRead(out(3), 'app', new Error('timed out'))).toBe(null);
 });
