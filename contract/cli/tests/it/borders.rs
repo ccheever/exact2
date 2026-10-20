@@ -344,9 +344,13 @@ fn a_computed_shorthand_list_is_refused_naming_the_longhands() {
         ("border-radius=radii(8)", "`border-radius` is computed here as a list of values, which no host splits at run time; write `border-top-left-radius`/`border-top-right-radius`/`border-bottom-right-radius`/`border-bottom-left-radius` (each may be computed), or a literal `border-radius`"),
         ("inset=\"0 \" + `${pad}px`", "write `top`/`right`/`bottom`/`left`"),
         ("padding=`${radii(pad)}`", "write `padding-top`/"),
+        // A `fn` choosing among literals, one of them a list (euxy port 14's
+        // grouped cells, which drew square corners).
+        ("border-radius=corners(on)", "write `border-top-left-radius`/"),
+        ("border-radius=(on ? \"4px\" : outer(on))", "write `border-top-left-radius`/"),
     ] {
         let e = contract::compile(&format!(
-            "fn radii(r: number): string = `${{r}}px ${{r}}px 0 0`\ncomponent A\n  state pad = 16\n  state on = false\n  view\n    box {attr}\n"
+            "fn radii(r: number): string = `${{r}}px ${{r}}px 0 0`\nfn corners(first: bool): string = first ? \"12px 12px 2px 2px\" : \"12px\"\nfn outer(on: bool): string = corners(on)\ncomponent A\n  state pad = 16\n  state on = false\n  view\n    box {attr}\n"
         ))
         .unwrap_err();
         assert_eq!(e.id, "lower-css-shorthand", "{attr}: {e}");

@@ -660,8 +660,28 @@ pub(crate) fn computed_list<'e>(
             _ => "x".into(),
         }
     }
+    // Whether any value a `fn`'s body can return is a list: a literal arm,
+    // a template or a concatenation, through `?:`, `match`, `let` and the
+    // `fn`s it calls. A call's result is not split, so a template there is
+    // a list as a concatenation is.
+    fn returns_list<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>, depth: u8) -> bool {
+        match e {
+            Expr::Ternary(_, yes, no, _) => {
+                returns_list(yes, body, depth) || returns_list(no, body, depth)
+            }
+            Expr::Match { some, none, .. } => {
+                returns_list(some, body, depth) || returns_list(none, body, depth)
+            }
+            Expr::Let { body: b, .. } => returns_list(b, body, depth),
+            Expr::Call(f, _, _) if depth < 8 => {
+                body(f).is_some_and(|b| returns_list(b, body, depth + 1))
+            }
+            e => box_sides::values(&shape(e, body, depth)).len() > 1,
+        }
+    }
     fn lists<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>) -> Option<Span> {
         match e {
+            Expr::Call(..) => returns_list(e, body, 0).then(|| e.span()),
             // A literal is split at compile time, and a template at its
             // text's white space: each interpolation is one value.
             Expr::Str(..) => None,
