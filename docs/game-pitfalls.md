@@ -62,8 +62,23 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
   during a fast flick. [Same-tick press](../game/recipes/same-tick-press.md) is the
   doc-test that shows both. (Rivals diary; Fishslop run 1, 2026-10-18.)
 
+- **Two taps before one tick are one tick's presses, handled in the tick's order.**
+  `sim.tap("Digit2"); sim.tap("Digit1"); sim.run(20.)` in a shop where item 2 needs
+  item 1 buys both: the tick sees both rising edges and its loop buys 1, which unlocks
+  2, then 2. Cause: `pressed` reports every rising edge since the last tick, and a tap
+  is down and up before the next one. Fix: in a test or drive, advance the clock
+  between presses meant as separate turns; in the game, decide whether a lock is read
+  before or after the tick's purchases. ([Shop recipe](../game/recipes/shop.md),
+  LLP 1139.001, 2026-10-19.)
+
 ## Tests, the proof and setup
 
+- **`clock settle` returns while a spawn is still owed.** A `Spawner`'s next tick,
+  or hunger computed from a saved tick, is a schedule, not motion: a world whose
+  critter has stopped answers quiescent though a coin drops 1.3 s later. Cause:
+  quiescence observes changes and declared `busy` work, not a game's future ticks
+  (LLP 1128 I2). Fix: wait for a spawn with `clock +<ms>` (the spawner's interval),
+  not `clock settle`. (Starter drive, LLP 1139.001, 2026-10-19.)
 - **A continued proof uses its saved source copy.** Keep the SDK unchanged until
   it finishes. Edit the original game freely during a new run; `--continue` refuses
   if its authored inputs differ from the snapshot, naming the file. Start a new

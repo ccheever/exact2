@@ -106,7 +106,9 @@ between the fast and shipping profiles. Ordinary web builds and deploys keep the
 Use `bun my-game/proof.mjs web --screenshot-only` for pixels only; this reports
 `UNVERIFIED` because it skips gameplay checks. Its screenshot is
 `my-game/artifacts/web/game.png`. The starter includes movement, jumping, two
-beacons, pause/restart, touch controls, a ground grid, pads, fog, sun shadows and saved glow.
+beacons, pause/restart, touch controls, a ground grid, pads, fog, sun shadows and saved glow,
+and the [gameplay kit](#what-every-game-needs) in its tick: a critter that follows the
+player and keeps away from lit beacons, the coins it drops, and a two-item shop.
 
 A bare name (`bun game/new.mjs my-game`) creates `game/games/my-game`; a path chooses
 the directory. From an empty directory, `bun /path/to/exact2/game/new.mjs .` works too.
@@ -257,6 +259,30 @@ covers borrowing, registration, observation, saving and loading.
 [Game recipes](recipes/README.md) answer one task each with a runnable `Sim` fragment.
 `bun exact.mjs game vocab <Component|verb>` in a generated game shows rustdoc,
 fields and evaluated defaults. [Familiar names](names.md) maps three.js, Unity and Godot.
+
+### What every game needs
+
+Steering, pickups, spawners and a shop are the engine's, as pure functions and
+values the tick calls; nothing runs that the tick does not call, and nothing is
+saved that the game does not save. The [starter](new/logic/src/lib.rs) uses each,
+and its `logic/tests/sim.rs` has a bot that plays five minutes to check the prices
+against the income.
+
+| Need | Engine | Recipe |
+|---|---|---|
+| Seek, arrive, flee, wander | `steer::seek(&pose, target, max_speed, turn_rate, dt)` and its siblings return this tick's `Steer { velocity, facing }` | [Steering](recipes/steering.md) |
+| A school | `steer::school(&pose, w.near_xz::<Fish>(e, r).limit(7), separation, alignment, cohesion, …)` | [Schooling](recipes/schooling.md) |
+| Pickups that come to the player | `collect::drift(item, player, radius, speed, dt)`, `collect::Collectable` | [Pickup](recipes/pickup.md) |
+| Spawning on world time | a `spawn::Spawner` per kind in a resource; `spawner.due(w.tick())` | [Spawner](recipes/spawner.md) |
+| A shop | `Actions` on `Digit1`…, rows with prices and lock reasons published to the HUD | [Shop](recipes/shop.md) |
+
+A steer is a velocity and a facing, not a component: the game writes it into the
+motion the entity already has. A creature with no physics moves its `Transform`
+(`pose.position += s.velocity * dt; pose.rotation = s.facing`). A
+[`Character`](engine/src/character.rs) is the mover when the creature should
+accelerate, brake, jump and keep to bounds like the player: step it with
+`s.velocity / character.speed` as the wish. A physics body applies the change of
+velocity as its own force.
 
 ### Arguments, pause and restart
 

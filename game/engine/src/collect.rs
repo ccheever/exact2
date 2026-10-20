@@ -8,7 +8,8 @@
 //! the world hash, as any new component type does.
 use crate::Vec3;
 
-/// A pickup: a marker for queries, saved with the entity.
+/// A pickup: a marker for queries, saved with the entity. Every world registers
+/// it, so a save holding pickups a game spawned mid-game restores in a fresh process.
 #[derive(Clone, Copy, Debug, Default, crate::Component)]
 pub struct Collectable;
 

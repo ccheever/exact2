@@ -31,5 +31,6 @@ pub(crate) fn register(world: &mut World) {
         .register::<Follow>()
         .register::<Glow>()
         .register::<Lit>()
-        .register::<crate::emitter::WorldSpace>();
+        .register::<crate::emitter::WorldSpace>()
+        .register::<crate::collect::Collectable>();
 }

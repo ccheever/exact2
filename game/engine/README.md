@@ -21,9 +21,11 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   state. Register types that first appear mid-game in `Game::register` so a fresh
   process can restore them. The engine's scene components (`Transform`, `Parent`,
   `Mesh`, `Material`, `Camera`, lights, `Visible`, `Ambient`, `Follow`, `Glow`,
-  `Lit`) are registered by every world.
+  `Lit`, `collect::Collectable`) are registered by every world.
 - `near` and `near_xz` read global poses in entity order, including parented
-  entities. `nearest_xz_mut` supplies one entity and its mutable component together.
+  entities, as the loop reaches each row. `.limit(n)` keeps the `n` nearest, still
+  in entity order (equal distances keep the lower index), and reads every row when
+  it is called. `nearest_xz_mut` supplies one entity and its mutable component together.
 - A child's `Transform` composes with its parent's, scale included, axis by axis.
   Under a root scaled `(diameter, height, diameter)` so its parts can be authored in
   a unit box, every `Mesh::sphere` draws as an ellipsoid. Give a part that must stay
@@ -231,6 +233,15 @@ simulation metres). The related components must already exist; row leases still 
 Retarget `Lit(Spring)` using `lit.to(w.tick_end(), intensity)`. The renderer
 samples both between ticks; keep authored emission or light intensity constant.
 Negative light overshoot clamps to zero. See [effects](../render/README.md#effects).
+
+`steer`, `collect` and `spawn` are the gameplay kit: functions and values the tick
+calls, none stepped by the engine ([what every game needs](../README.md#what-every-game-needs)).
+`steer::*` returns a `Steer { velocity, facing }`: the facing turns at most
+`turn_rate × dt` toward the goal and the speed scales with the cosine of the turn
+left, so a mover turns before it goes. `collect::drift` moves a pickup toward its
+collector inside a radius and reports `taken` on arrival. A `spawn::Spawner` saves
+its next tick and serial inside the game's own resource; `due(tick)` returns each
+owed serial.
 
 Animation order is explicit: `let motion = animation::step(w)`, apply root motion,
 then query sockets. The result owns its markers so component writes can follow.

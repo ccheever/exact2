@@ -2,7 +2,7 @@ use exact_game::{Sim, Transform};
 
 // Apart, so rustfmt's order does not depend on the name a new game gives these.
 use small_game_logic::SmallGame;
-use small_game_logic::{Beacon, Options};
+use small_game_logic::{shop_rows, Beacon, Critter, Options, Shop, FEED_PRICE};
 
 /// The world every test here starts from.
 fn start(options: Options) -> Sim<SmallGame> {
@@ -194,4 +194,47 @@ fn held_w_matches_the_closed_form_acceleration_series() {
     let m = n.min((v * h / a).floor());
     let distance = a * m * (m + 1.) / (2. * h * h) + (n - m) * v / h;
     assert!((game.local_position("player").unwrap().z as f64 + distance).abs() < 0.001);
+}
+
+/// A scripted player plays five minutes on each of three seeds in about a
+/// second: it walks to the critter, stays by it, feeds it whenever it may and
+/// buys shoes with what is left over. The starter's prices and income keep the
+/// critter fed and pay for all three pairs; a change that breaks that loop
+/// fails here before anyone plays it.
+#[test]
+fn a_bot_plays_five_minutes_and_the_loop_pays() {
+    for seed in [7, 8, 9] {
+        let mut game = start(Options {
+            seed,
+            ..Options::default()
+        });
+        game.hold("KeyA", 600.0);
+        let mut feeds = 0;
+        for _ in 0..5 * 60 * 4 {
+            let rows = shop_rows(game.world());
+            let coins = game.world().resource::<Shop>().coins;
+            if rows[0].reason.is_empty() {
+                game.tap("Digit1");
+                feeds += 1;
+            } else if rows[1].reason.is_empty() && coins >= rows[1].price + FEED_PRICE {
+                game.tap("Digit2");
+            }
+            game.run(250.0);
+        }
+        let critter = game.get::<Critter>("critter").unwrap();
+        let shop = game.world().resource::<Shop>();
+        let (earned, shoes) = (shop.earned, shop.shoes);
+        assert!(
+            critter.awake && !critter.starved,
+            "seed {seed}: the critter starved"
+        );
+        assert!(
+            earned >= 140,
+            "seed {seed}: earned {earned} coins in five minutes"
+        );
+        assert_eq!(
+            shoes, 3,
+            "seed {seed}: {earned} coins earned, {feeds} feeds bought, shoes {shoes}"
+        );
+    }
 }

@@ -1044,7 +1044,7 @@ at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 Look things up in this order before reading engine source:
 
 - \`bun exact.mjs game vocab <name>\`: a component's fields and evaluated defaults, a \`World\` verb or a method, with its recipe (no name lists them all).
-- ${sdk('game/recipes/README.md')}: runnable recipes by task (cameras, pickups, emitters, sounds, saves, art export).
+- ${sdk('game/recipes/README.md')}: runnable recipes by task: first the gameplay kit every game needs (steering, schools, pickups, spawners, a shop), which the starter's critter, coins and shop use; then cameras, emitters, sounds, saves, art export.
 - ${sdk('game/names.md')}: names from three.js, Unity and Godot, and what they are here.
 - ${sdk('game/README.md')}, by section: "The programming model", "Proof pins", "The agent's interface", "Determinism — the contract", "Assets, animation and placed UI".
 - ${sdk('game/engine/README.md')}: the engine's reference (borrowing, registration, saves and assets).

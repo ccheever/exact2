@@ -95,7 +95,7 @@ shape Hud
 …
           column testId="shop" position="absolute" top=76 right=24 gap=8
             for r in hud.shop key=r.key
-              button action=r.action disabled=(r.reason != "") testId=`buy-${r.key}` aria-label=(r.reason == "" ? `${r.name}, ${r.price} coins, key ${r.key}` : `${r.name}, ${r.reason}`) padding=12 border-radius=12 background-color="#202731cc"
+              button action=r.action disabled=(r.reason != "") testId=`buy-${r.key}` aria-label=(r.reason == "" ? `${r.name}, ${r.price} ${r.price == 1 ? "coin" : "coins"}, key ${r.key}` : `${r.name}, ${r.reason}`) padding=12 border-radius=12 background-color="#202731cc"
                 text (r.reason == "" ? `${r.key} ${r.name} · ${r.price}` : `${r.key} ${r.name} · ${r.reason}`) font-variant-numeric="tabular-nums"
 ```
 
