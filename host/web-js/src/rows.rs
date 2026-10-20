@@ -316,7 +316,7 @@ impl Em<'_> {
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
         let mut writes: Vec<(String, String, Option<String>)> = match id {
             // Safari selects by WebKit's prefixed property alone; `auto` and a
-            // clear write nothing, as the page's CSS does (css/selection.rs,
+            // clear write nothing, as css.rs writes them (css/selection.rs,
             // css/clears.rs).
             StyleId::UserSelect => {
                 let unsaid = || Some("v=>/^\\s*(auto|initial|unset)\\s*$/i.test(v)?null:v".to_string());

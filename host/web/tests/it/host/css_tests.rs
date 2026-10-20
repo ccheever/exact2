@@ -699,7 +699,8 @@ fn fit_is_navigations_property() {
 }
 
 /// WebKit parses `user-select` but selects by `-webkit-user-select` alone
-/// (Playwright WebKit, measured), so the row writes both names.
+/// (Playwright WebKit, measured), so the row writes both names (but for `auto`,
+/// which writes neither).
 #[test]
 fn user_select_writes_the_webkit_name_too() {
     use exact_kernel::{StyleId, StyleProps, StyleValue};
