@@ -277,6 +277,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   put `touch-action="none"` on that text too. (Authoring bench, LLP 1087, r32 and r33
   t4-kanban, 2026-10-06.)
 
+- **A button row's ellipsis title runs off the screen instead of truncating.** Cause: a
+  `button` is as wide as its content, as HTML's `<button>` is, `display="flex"` or not,
+  and a `white-space="nowrap"` title's narrowest width is the whole title, so the row
+  takes it: in Chrome a 1,052 px row on a 440 px page. `min-width=0` on a column inside
+  does not help; it narrows the column only once the row is narrower. Fix: give the
+  button `width="100%" box-sizing="border-box"`, and put the row's side inset in the
+  list's `padding` or the button's own, not a margin, which 100% does not include
+  (Linear Port, 2026-10-19; `issues/closed/20261020-list-row-max-content-width.md`).
+
 - **A second card drag right after a drop does nothing.** A drag that starts before
   the last one's session ends is refused (LLP 1094 D8): the drop is held until its move
   shows (a second at most; [the agent guide](contract-for-agents.md#views-layout-and-interaction),

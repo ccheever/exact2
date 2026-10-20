@@ -1,6 +1,7 @@
 # A truncating row in list appearance=none lays out at its text's max-content width
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Chrome agrees (a button is as wide as its content: 1052 px on a 440 px page); docs say width=100% for a truncating row
 **Systems:** kernel (layout), lists
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from the Linear Port lane's friction log
@@ -41,3 +42,17 @@ pattern in the docs should carry it.
 Found by an unattended Claude Opus 5.5 lane porting Linear's iPhone app to Exact (2026-10-19),
 on the iOS 27.0 simulator (iPhone 17 Pro Max), exact2 at `9b2765ab79`; not yet re-run on a later main.
 The lane's notes: `~/lanes/linear/FRICTION.md` on Charlie's Mac.
+
+## Measured (2026-10-20)
+
+The tree above, with a second row given `width="100%" box-sizing="border-box"`, at 440×956:
+
+| | plain row | `width="100%"` row |
+|---|---|---|
+| Chrome (JS target, a real `<button>` with `display: flex`) | 1052.36 px, the title's max-content | 440 px |
+| Kernel (Linux host, its own font metrics) | 1179 px, the title's max-content | 440 px |
+
+Chrome agrees with Exact: HTML sizes a button to its content, and a `nowrap` title's
+min-content width is the whole title, so `min-width=0` inside does not narrow it. Not a kernel
+bug. The fix is in the docs: `docs/agent-pitfalls.md` says to give the row `width="100%"
+box-sizing="border-box"` and its inset as padding (the list-rows recipe is at its size cap).

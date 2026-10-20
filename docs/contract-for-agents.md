@@ -124,8 +124,9 @@ anything else changes the router, which the router refuses (`lower-replace-root`
 `users.filter(u => u.id == p.userId)` in `for p in posts` (`lower-row-lookup`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
 `performanceNow()` time sent to a source (`type-performance-now-persisted`), the
-launch's `time.epochAtZero` or `time.seed` as a resource's identifying argument, which
-keeps its kept answer from ever showing at launch: pass it after `with`
+launch's `time.epochAtZero` or `time.seed` as a resource's identifying argument, or a
+value equal to one at launch (`time.epochAtZero + tick * 60000` while `tick` starts at
+0), which keeps its kept answer from ever showing at launch: pass it after `with`
 (`lower-resource-launch-identity`), a
 state read after its own action assigned it (`analyze-read-after-assign`), a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
