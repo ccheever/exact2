@@ -517,6 +517,9 @@ impl<D: DataSource> Host<D> {
             images: &self.images,
             center: self.mode == Mode::Fullscreen,
             env: self.runner.kernel().env(),
+            // A disabled or inert box is still hit, and swallows the press
+            // (`handler`), so nothing beneath it takes it either.
+            presses: Box::new(|id| self.runner.handlers_of(id).contains(&EventKind::Press)),
         }
     }
 
@@ -669,11 +672,46 @@ impl<D: DataSource> Host<D> {
         let mut at = Some(view);
         while let Some(id) = at {
             if self.runner.handlers_of(id).contains(&kind) {
-                return Some(id);
+                // A box that is disabled or inert swallows the press: it
+                // runs neither its own nor an ancestor's (a control keeps
+                // its own rule).
+                return (kind != EventKind::Press || self.presses(id) || self.is_control(id))
+                    .then_some(id);
             }
             at = self.kernel().node(id)?.parent;
         }
         None
+    }
+
+    fn is_control(&self, id: ViewId) -> bool {
+        self.kernel().node(id).is_some_and(|n| {
+            matches!(
+                n.node_type,
+                NodeType::Pressable | NodeType::TextInput | NodeType::Control
+            )
+        })
+    }
+
+    /// Whether `id`'s own `press` can run: not while it is disabled, nor
+    /// inside an `inert` subtree (a control keeps its own rule).
+    fn presses(&self, id: ViewId) -> bool {
+        let kernel = self.kernel();
+        let Some(node) = kernel.node(id) else {
+            return false;
+        };
+        if node.props.bool(PropId::Disabled) == Some(true)
+            || !self.runner.handlers_of(id).contains(&EventKind::Press)
+        {
+            return false;
+        }
+        let mut at = Some(id);
+        while let Some(n) = at.and_then(|a| kernel.node(a)) {
+            if n.props.bool(PropId::Inert) == Some(true) {
+                return false;
+            }
+            at = n.parent;
+        }
+        true
     }
 
     pub(crate) fn is_field(&self, id: ViewId) -> bool {
@@ -922,8 +960,15 @@ impl<D: DataSource> Host<D> {
         }
         let key = self.runner.kernel().node(id).map(|node| node.key);
         if let Some(target) = self.handler(id, EventKind::Press) {
-            if take && (self.layers.is_empty() || self.focusables().contains(&id)) {
-                self.focus(Some(id));
+            // What can hold the focus takes it (the node pressed, else the
+            // control its press is); a press on what cannot (a pressable
+            // box) moves it away, as a click on a `div` does, never
+            // scrolling the box into view as a focus would.
+            let focusables = if take { self.focusables() } else { Vec::new() };
+            if let Some(f) = [id, target].into_iter().find(|f| focusables.contains(f)) {
+                self.focus(Some(f));
+            } else if take && self.layers.is_empty() {
+                self.focus(None);
             }
             self.dispatch(target, Event::Press);
         }
