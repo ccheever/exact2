@@ -21,8 +21,8 @@ beside the row with no padding sat where expected. `align-items="flex-start"` pu
 ## Expected
 
 CSS: the row's content box is 56 − 2 × 4 = 48 pt tall, so a 48 pt child centred in it starts
-at y 4. A y of 1 would follow from a child 54 pt tall, or from centring in the border box less the
-top padding only; which one is the first thing to find. Compare the same tree in Chrome (the
+at y 4. A y of 1 is what a child 54 pt tall gives, (48 − 54) / 2 + 4, so the first thing to find is
+whether the button lays out taller than its `height`. Compare the same tree in Chrome (the
 layout oracle) and on iOS, with and without `backgroundMaterial`, before changing the kernel.
 
 ## Reproduction
