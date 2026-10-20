@@ -2,6 +2,7 @@
 // Adapted body from examples/t3-code/client.ts at 38352ceaf4cd35a40b7b24ce992db87c2357a99b.
 // Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.
 // Additive cleanup visibility from shared commit af0a96dddbd500aa50bc5bbe69ec59597e34efee.
+// Mobile 365aa87982: a read-only connection has no status; its actions refuse (useThreadListActions.ts).
 // Mobile history ownership: invocation-local tokens and captured transfer cleanup.
 // @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#stable-history-reader-and-thread-ownership
 import { snapshotShortcut } from './snapshot-shortcut';
@@ -416,9 +417,8 @@ export class T3Client {
     else { this.thread = null; this.threadLive = true; this.chooseDefaults(); }
     if (generation === this.generation) {
       this.synchronizedGeneration = generation;
-      this.error = !this.scopes.includes('orchestration:operate') ? 'This connection is read-only.'
-        : obj(environment.capabilities).serverResolvedCommandContext !== true
-          ? 'Update the T3 server to send messages from this client. Existing threads remain readable.' : '';
+      this.error = this.scopes.includes('orchestration:operate') && obj(environment.capabilities).serverResolvedCommandContext !== true
+        ? 'Update the T3 server to send messages from this client. Existing threads remain readable.' : '';
     }
     this.changed();
   }
