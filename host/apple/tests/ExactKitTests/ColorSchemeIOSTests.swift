@@ -103,9 +103,9 @@ final class ColorSchemeIOSTests: XCTestCase {
     func testAChildKeepingTheOldSchemeNeverShowsTheNewOne() {
         let (views, seen, window) = chain(2)
         XCTAssertEqual(views[1].overrideUserInterfaceStyle, .unspecified, "it inherits its parent's dark")
-        ColorSchemes.begin()
+        let batch = ColorSchemes.begin()
         views[0].applyStyle(["color_scheme": "light"])
-        ColorSchemes.end()
+        batch.end()
         XCTAssertEqual(views[1].overrideUserInterfaceStyle, .dark)
         XCTAssertTrue(views[1].drawsDark)
         XCTAssertEqual(seen()[1], [], "never light")
@@ -118,12 +118,79 @@ final class ColorSchemeIOSTests: XCTestCase {
     @MainActor
     func testAChainChangingItsSchemeUpdatesEachViewOnce() {
         let (views, seen, window) = chain(8)
-        ColorSchemes.begin()
+        let batch = ColorSchemes.begin()
         for v in views { v.applyStyle(["color_scheme": "light"]) }
-        ColorSchemes.end()
+        batch.end()
         XCTAssertEqual(seen(), Array(repeating: [.light], count: 8))
         XCTAssertEqual(views.map(\.overrideUserInterfaceStyle), [.light] + Array(repeating: .unspecified, count: 7))
         withExtendedLifetime(window) {}
+    }
+
+    private var session: ExactSession?
+    private var window: UIWindow?
+    override func tearDown() {
+        window?.isHidden = true; window = nil
+        session?.destroy(); session = nil
+        super.tearDown()
+    }
+
+    /// A dark box moved onto a light parent, with a paragraph and a button
+    /// made in it by the same batch: what the batch paints after its ops (the
+    /// paragraph's raster, the button's baked ink) is in the box's dark.
+    @MainActor
+    func testADarkBoxMovedOntoALightParentPaintsDarkInTheSameBatch() throws {
+        let session = ExactApp.shared.makeSession(label: "scheme-move")
+        self.session = session
+        let p = session.presenter
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.overrideUserInterfaceStyle = .light
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        self.window = window
+        let ink: [Any] = [[0, 0, 0, 255], [255, 255, 255, 255]]
+        var face = ButtonFace()
+        face.title = "Go"; face.style = "plain"; face.ios = "plain"; face.iosBefore26 = "plain"
+        face.rows.title["text_color"] = .array([.array([0, 0, 0, 255]), .array([255, 255, 255, 255])])
+        p.buttonFace = { $0 == 3 ? face : ButtonFace() }
+        func frame(_ id: Int, y: Double = 0, h: Double = 60) -> [String: Any] { ["op": "frame", "id": id, "x": 0.0, "y": y, "w": 300.0, "h": h] }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["color_scheme": "dark"]], frame(1, h: 150),
+            ["op": "create", "id": 2, "kind": "view", "style": ["color_scheme": "light"]], frame(2, y: 160, h: 150),
+            ["op": "create", "id": 5, "kind": "view", "style": ["color_scheme": "dark"]], frame(5, h: 150),
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Box"], "style": ["color_scheme": "dark"]], frame(6, y: 110, h: 30),
+            ["op": "children", "id": 5, "ids": [6]], ["op": "children", "id": 1, "ids": [5]], ["op": "roots", "ids": [1, 2]],
+        ]))
+        XCTAssertEqual(try XCTUnwrap(p.views[5]).overrideUserInterfaceStyle, .unspecified, "it inherits its parent's dark")
+        p.apply(wireBatch([
+            ["op": "create", "id": 3, "kind": "control", "props": ["type": "button", "accessibilityRole": "button"], "handlers": ["press"],
+             "style": ["appearance": "auto", "color_scheme": "dark", "text_color": ink]], frame(3, h: 40),
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Ink"], "style": ["font_size": 40, "color_scheme": "dark", "text_color": ink]],
+            frame(4, y: 60),
+            ["op": "children", "id": 5, "ids": [6, 3, 4]], ["op": "children", "id": 1, "ids": []], ["op": "children", "id": 2, "ids": [5]],
+        ]))
+        let box = try XCTUnwrap(p.views[5]), text = try XCTUnwrap(p.views[4])
+        XCTAssertEqual(box.overrideUserInterfaceStyle, .dark, "dark on a light parent")
+        XCTAssertTrue(text.drawsDark)
+        let button = try XCTUnwrap(p.controls.controls[3] as? NativeButtonIOS)
+        let baked = try XCTUnwrap(button.configuration?.baseForegroundColor?.resolvedColor(with: button.traitCollection))
+        var white: CGFloat = 0
+        XCTAssertTrue(baked.getWhite(&white, alpha: nil))
+        XCTAssertGreaterThan(white, 0.9, "the button's ink is its dark one")
+        // The paragraph's raster, painted as the batch ended: its ink is white.
+        let raster = try XCTUnwrap(text.textRaster, "painted by the batch")
+        let w = raster.width, h = raster.height
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.draw(raster, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let bytes = try XCTUnwrap(ctx.data).bindMemory(to: UInt8.self, capacity: w * h * 4)
+        var inked = 0, bright = 0
+        for i in 0..<(w * h) where bytes[i * 4 + 3] == 255 {
+            inked += 1
+            if bytes[i * 4] > 200 { bright += 1 }
+        }
+        XCTAssertGreaterThan(inked, 0)
+        XCTAssertEqual(bright, inked, "every opaque pixel of its ink is white")
     }
 }
 #endif

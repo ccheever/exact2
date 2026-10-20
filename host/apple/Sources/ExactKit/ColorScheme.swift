@@ -61,19 +61,36 @@ extension NodeView {
     }
 }
 
-/// The overrides a batch changes, made visible together at its end: each
-/// override is set first and the traits are updated once, from the topmost
-/// changed views. Updated as each changed, a view that kept its parent's old
-/// scheme would show the new one until the walk below pinned it back (and
-/// report it), and a chain of N views would update its subtree N times.
+/// The overrides a batch changes, made visible together once its ops are
+/// applied (every override set and every view moved), before anything after
+/// them reads a trait: each override is set first and the traits are updated
+/// once, from the topmost changed views. Updated as each changed, a view that
+/// kept its parent's old scheme would show the new one until the walk below
+/// pinned it back (and report it), and a chain of N views would update its
+/// subtree N times.
 enum ColorSchemes {
     private static var depth = 0
     private static var staged: [NodeView] = []
-    static func begin() { depth += 1 }
+
+    /// One batch's staging: `end` makes it visible, once however often called.
+    final class Staging {
+        private var open = true
+        fileprivate init() {}
+        func end() {
+            guard open else { return }
+            open = false
+            ColorSchemes.end()
+        }
+    }
+
+    static func begin() -> Staging {
+        depth += 1
+        return Staging()
+    }
     static func changed(_ view: NodeView) {
         if depth == 0 { view.updateTraitsIfNeeded() } else { staged.append(view) }
     }
-    static func end() {
+    fileprivate static func end() {
         depth -= 1
         guard depth == 0, !staged.isEmpty else { return }
         let views = staged
