@@ -312,11 +312,13 @@ impl Lowerer<'_> {
         // A component that isn't Contract reads its params outside the views:
         // its declaration keeps each (D15), with every token its default
         // reads, through any chain.
+        // A package design's components too (stage 12 B1).
         let designed = file
             .design
-            .as_ref()
-            .map(|d| crate::params::design_tokens(d).0);
-        let mut kept: Vec<String> = designed.into_iter().flatten().map(|p| p.token).collect();
+            .iter()
+            .chain(&file.package_designs)
+            .flat_map(|d| crate::params::design_tokens(d).0);
+        let mut kept: Vec<String> = designed.map(|p| p.token).collect();
         let mut roots = std::collections::BTreeSet::new();
         while let Some(name) = kept.pop() {
             if !roots.insert(name.clone()) {

@@ -3600,9 +3600,12 @@ file (what `exports` maps `.` to, else `index.contract`), or the file its
 and holds one `theme` block of tokens named `reading.…`, which the package's
 views name. An app that uses the package gets them. The app's design sets one
 by its full name (`reading.card = #abcdef` in `app.tamber`), which replaces the
-package's, `when` lines and all. A package's design declares no axes, dials,
-`component`, params, icons or `exports` (`tamber-package-block`; its `when`
-lines name the app's axes), declares only `reading.…` names and none of the
+package's, `when` lines and all. A package's design may declare its
+components' params (`component Map` with `params`, named
+`<package>/<file>#Map`, as its Contract components are), whose values the
+app's design sets (`Map.pin = #000000` under `params`, or the full name). It
+declares no axes, dials, `params` lines, icons or `exports`
+(`tamber-package-block`; its `when` lines name the app's axes), declares only `reading.…` names and none of the
 base names (`tamber-package-name`), and a token in it names only tokens the
 same file declares, roles, and the base names `space.xs`…`space.xl` and
 `radius.sm`…`radius.full`, which the app's design defines until the base scale

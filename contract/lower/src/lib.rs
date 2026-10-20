@@ -121,8 +121,10 @@ pub fn join_package_designs(
 pub fn package_references(
     folding: &exact_tamber::Folding,
     packages: &[contract_syntax::DesignSource],
+    all: &[params::ParamToken],
+    identities: &[String],
 ) -> Vec<LowerError> {
-    theme::packages::references(folding, packages)
+    theme::packages::references(folding, packages, all, identities)
 }
 
 /// Package `band`'s `line` as a joined design numbers it, and a message's
