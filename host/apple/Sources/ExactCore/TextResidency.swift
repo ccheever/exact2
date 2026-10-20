@@ -9,12 +9,13 @@ import CExact
 /// No borrowed buffer, request, or pointer is retained in the identity index.
 package enum TextMetricKey {
     private static func fields(_ size: CGFloat, _ weight: Int, _ family: Int, _ italic: Bool,
-                               _ lineHeight: CGFloat?, _ spacing: CGFloat, _ numeric: Int, _ h: inout Hasher) {
+                               _ lineHeight: CGFloat?, _ spacing: CGFloat, _ numeric: Int, _ stretch: CGFloat,
+                               _ h: inout Hasher) {
         h.combine(size); h.combine(weight); h.combine(family); h.combine(italic)
-        h.combine(lineHeight); h.combine(spacing); h.combine(numeric)
+        h.combine(lineHeight); h.combine(spacing); h.combine(numeric); h.combine(stretch)
     }
     private static func fields(_ r: Run, _ h: inout Hasher) {
-        fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, &h)
+        fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, r.stretch, &h)
         // Only an expanded Markdown run has these; a plain run hashes as
         // its request's does (LLP 1045 D4).
         if r.indent != 0 || r.hang { h.combine(r.indent); h.combine(r.hang) }
@@ -22,7 +23,7 @@ package enum TextMetricKey {
     private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
                r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing),
-               Int(r.font_variant_numeric), &h)
+               Int(r.font_variant_numeric), CGFloat(r.font_stretch), &h)
     }
     package static func hash(_ spec: Spec) -> Int {
         var h = Hasher()
@@ -70,6 +71,7 @@ package enum TextMetricKey {
             && (raw.has_line_height != 0 ? CGFloat(raw.line_height) : nil) == owned.lineHeight
             && CGFloat(raw.letter_spacing) == owned.letterSpacing
             && Int(raw.font_variant_numeric) == owned.numeric
+            && CGFloat(raw.font_stretch) == owned.stretch
     }
     package static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         // An expanded Markdown request has more runs than its one source run;
@@ -140,6 +142,8 @@ extension Spec {
             value.runs[i].fixedInk = false
             value.runs[i].color = nil
             value.runs[i].decoration = ""
+            value.runs[i].underlineColor = nil
+            value.runs[i].strikeColor = nil
             value.runs[i].href = ""
             value.runs[i].background = nil
             value.runs[i].backgroundBox = 0
@@ -164,6 +168,8 @@ package struct TextPaint: Hashable {
         let fixedInk: Bool
         let color: [Double]?
         let decoration: String
+        let underlineColor: [Double]?
+        let strikeColor: [Double]?
         let href: String
         let background: [Double]?
         let backgroundBox: UInt32
@@ -177,7 +183,8 @@ package struct TextPaint: Hashable {
     package init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
-        runs = spec.runs.map { Inline(hidden: $0.hidden, fixedInk: $0.fixedInk, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
+        runs = spec.runs.map { Inline(hidden: $0.hidden, fixedInk: $0.fixedInk, color: $0.color, decoration: $0.decoration,
+                                      underlineColor: $0.underlineColor, strikeColor: $0.strikeColor, href: $0.href, background: $0.background,
                                       backgroundBox: $0.backgroundBox, backgroundRadii: $0.backgroundRadii,
                                       shadow: $0.shadow, stroke: $0.stroke) }
     }
@@ -190,6 +197,8 @@ package struct TextPaint: Hashable {
             spec.runs[i].fixedInk = runs[i].fixedInk
             spec.runs[i].color = runs[i].color
             spec.runs[i].decoration = runs[i].decoration
+            spec.runs[i].underlineColor = runs[i].underlineColor
+            spec.runs[i].strikeColor = runs[i].strikeColor
             spec.runs[i].href = runs[i].href
             spec.runs[i].background = runs[i].background
             spec.runs[i].backgroundBox = runs[i].backgroundBox
@@ -271,7 +280,8 @@ package final class TextShape {
         (lineBreakBoundaries?.count ?? 0) * MemoryLayout<Int>.stride
             + (flow?.ownedBytes ?? 0) + spec.runs.count * MemoryLayout<Run>.stride
             + key.paint.color.count * MemoryLayout<Double>.stride + key.paint.runs.reduce(0) {
-            $0 + MemoryLayout<TextPaint.Inline>.stride + ($1.color?.count ?? 0) * MemoryLayout<Double>.stride
+            $0 + MemoryLayout<TextPaint.Inline>.stride
+                + (($1.color?.count ?? 0) + ($1.underlineColor?.count ?? 0) + ($1.strikeColor?.count ?? 0)) * MemoryLayout<Double>.stride
                 + $1.decoration.utf8.count + $1.href.utf8.count
         }
     }

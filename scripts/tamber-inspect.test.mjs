@@ -71,6 +71,101 @@ test('a selection is joined to its site\'s source, each row\'s origin and editab
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('a folded `:disabled` or `:checked` row is read as its base, its parts beside it in `states`, where the map says both; one it can\'t explain stays dynamic (LLP 1122 queue item (2))', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-folds-'));
+  try {
+    const app = joinPath(dir, 'app.contract');
+    const lines = ['style Tick', '  background-color="#ffffff"', '  :checked', '    background-color="#00ff00"', '', 'component Card', '  params', '    fill: color = "#0a7aff"', '  view', '    box background-color="param.fill" disabled=off', '      :disabled', '        background-color="#999999"', '    box class=Tick aria-checked=on role="checkbox"', '    link href="/x" disabled=off', '      :disabled', '        color="#999999"', '    box background-color="-Exact-Secondary-Label" disabled=off', '      :disabled', '        background-color="param.fill"', '    text "t" color="#111111" disabled=off', '      :disabled', '        color="#999999"', '    box background-color=" param.fill " disabled=off', '      :disabled', '        background-color="#999999"', ''];
+    const text = lines.join('\n');
+    writeFileSync(app, text);
+    const place = (line, name) => { const col = lines[line - 1].indexOf(name) + 1; return { file: app, line, col, end_col: col + name.length }; };
+    const IR = 'param.f1a2b3c4d.Card.fill';
+    const params = paramsOf({ tokens: [], components: [{ identity: 'app.contract#Card', name: 'Card', params: [{ name: 'app.contract#Card.fill', short: 'Card.fill', token: IR, default: '#0a7aff', set: null }] }] });
+    const node = (line, bindings) => ({ file: app, line, col: 5, end_col: 8, component: 'Card', chain: [], bindings });
+    // (Each source's home, as its components' identities name it: a param's full name is `<home>#<component>.<name>`.)
+    const map = { digest: 'p1', sources: [{ file: app, sha256: sha(text), home: 'app.contract' }], nodes: [
+      node(10, [{ row: 'background_color', origin: 'own', at: place(10, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: place(12, 'background-color') }] }]),
+      node(13, [{ row: 'background_color', origin: 'class:Tick', at: place(2, 'background-color'), attr: 'background-color', states: [{ state: 'checked', origin: 'class:Tick', at: place(4, 'background-color') }] }]),
+      // A link's colour folded over what it takes unwritten: no base in the map.
+      node(14, [{ row: 'text_color', states: [{ state: 'disabled', origin: 'own', at: place(16, 'color') }] }]),
+      node(23, [{ row: 'background_color', origin: 'own', at: place(23, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: place(25, 'background-color') }] }]),
+      node(17, [{ row: 'background_color', origin: 'own', at: place(17, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: place(19, 'background-color') }] }]),
+      node(20, [{ row: 'text_color', origin: 'own', at: place(20, 'color'), attr: 'color', states: [{ state: 'disabled', origin: 'own', at: place(22, 'color') }] }]),
+      // A conditional class's base and part: no place either.
+      node(13, [{ row: 'background_color', origin: 'class:A/B', states: [{ state: 'disabled', origin: 'class:A/B' }] }]),
+    ] };
+    const sel = (site, row) => join({ id: 'web-1' }, { node: site + 1, site, instance: [], rows: [row] }, map, { app: dir, params }).rows[0];
+    // A param's base, folded with `:disabled`: the param rung, its template address the base attribute's, never the part's.
+    const pill = sel(0, { name: 'background_color', value: '#999999', source: 'dynamic', token: { names: [IR], text: `disabled ? "#999999" : ${IR}`, modes: '', implied: false } });
+    expect(pill.editable).toMatchObject({ rung: 'param', param: 'app.contract#Card.fill', short: 'Card.fill', template: { rung: 'template', at: { line: 10 }, row: 'background-color', text: 'param.fill' } });
+    expect(pill.states).toEqual([{ state: 'disabled', source: { file: app, ...place(12, 'background-color') }, editable: { rung: 'template', file: 'app.contract', at: { line: 12, col: place(12, 'background-color').col }, sha256: sha(text), row: 'background-color', state: 'disabled', instances: 1, text: '#999999', component: 'Card' } }]);
+    // Whichever branch the runtime shows now: disabled, its value the part's, no param among its names, still the param.
+    const off = sel(0, { name: 'background_color', value: '#999999', source: 'dynamic', token: { names: [], text: '"#999999"', modes: '', implied: false } });
+    expect(off.editable).toMatchObject({ rung: 'param', param: 'app.contract#Card.fill', template: { at: { line: 10 } } });
+    // By its full name: a component name two files share (no `short`) is no ambiguity.
+    const shared = new Map([[IR, { param: 'app.contract#Card.fill', short: null, token: null, css: null }]]);
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] }, map, { app: dir, params: shared }).rows[0].editable).toMatchObject({ rung: 'param', param: 'app.contract#Card.fill' });
+    // A param this server has not read yet: refused, never a template edit of `param.fill` as text.
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] }, map, { app: dir, params: new Map() }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('not read yet') });
+    // One `param.<name>`, spaces around it as a string may hold them: the param still.
+    expect(sel(3, { name: 'background_color', value: '#999999', source: 'dynamic' }).editable).toMatchObject({ rung: 'param', param: 'app.contract#Card.fill' });
+    // Another file's component of that name is never it: exactly its own identity's param, else not read.
+    const two = new Map([['x', { param: 'b.contract#Card.fill', short: null }], ['y', { param: 'app.contract#Card.fill', short: null }]]);
+    const disabled = { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] };
+    expect(join({ id: 'web-1' }, disabled, map, { app: dir, params: two }).rows[0].editable).toMatchObject({ rung: 'param', param: 'app.contract#Card.fill' });
+    const other = new Map([['x', { param: 'b.contract#Card.fill', short: 'Card.fill' }]]);
+    expect(join({ id: 'web-1' }, disabled, map, { app: dir, params: other }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('not read yet') });
+    // A map that names no home for the file: the param is not named, refused.
+    const homeless = { ...map, sources: [{ file: app, sha256: sha(text) }] };
+    expect(join({ id: 'web-1' }, disabled, homeless, { app: dir, params }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('not read yet') });
+    // A part's own edit stands while the row the host shows reads a param this server has not read.
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#0a7aff', source: 'dynamic', token: { names: [IR], text: IR, modes: '', implied: false } }] }, map, { app: dir, params: new Map() }).rows[0].states[0].editable).toMatchObject({ rung: 'template', state: 'disabled', text: '#999999' });
+    // A role's spelling, any case, offers its token beside the base's own edit; a part naming the param edits that part alone.
+    const role = sel(4, { name: 'background_color', value: '#888888', source: 'dynamic', token: { names: ['secondary-label'], text: 'disabled ? ... : secondary-label', modes: '', implied: false } });
+    expect(role.editable).toMatchObject({ rung: 'template', row: 'background-color', text: '-Exact-Secondary-Label', token: 'secondary-label' });
+    const canvas = joinPath(dir, 'canvas.contract'), canvasText = ['component Card', '  view', '    box background-color="canvastext" disabled=off', '      :disabled', '        background-color="#999999"', ''].join('\n');
+    writeFileSync(canvas, canvasText);
+    const cmap = { digest: 'p3', sources: [{ file: canvas, sha256: sha(canvasText), home: 'canvas.contract' }], nodes: [{ file: canvas, line: 3, col: 5, end_col: 8, component: 'Card', chain: [], bindings: [{ row: 'background_color', origin: 'own', at: { file: canvas, line: 3, col: 9, end_col: 25 }, attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: { file: canvas, line: 5, col: 9, end_col: 25 } }] }] }] };
+    // A bare name matches exactly: a custom token's case is its own (`Brand.Fill` is not `brand.fill`); a system
+    // colour spelled in another case loses only the token beside its own edit.
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#000', source: 'dynamic', token: { names: ['CanvasText'], text: 'CanvasText', modes: '', implied: false } }] }, cmap, { app: dir, params }).rows[0].editable).toMatchObject({ rung: 'template', text: 'canvastext' });
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#000', source: 'dynamic', token: { names: ['CanvasText'], text: 'CanvasText', modes: '', implied: false } }] }, cmap, { app: dir, params }).rows[0].editable.token).toBe(undefined);
+    writeFileSync(canvas, canvasText.replace('canvastext', 'brand.fill'));
+    const bmap = { ...cmap, sources: [{ ...cmap.sources[0], sha256: sha(canvasText.replace('canvastext', 'brand.fill')) }] };
+    const brand = join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#000', source: 'dynamic', token: { names: ['Brand.Fill', 'brand.fill'], text: 'disabled ? Brand.Fill : brand.fill', modes: '', implied: false } }] }, bmap, { app: dir, params }).rows[0];
+    expect([brand.editable.rung, brand.editable.token]).toEqual(['template', 'brand.fill']);
+    expect(role.states[0].editable).toMatchObject({ rung: 'template', row: 'background-color', state: 'disabled', text: 'param.fill', at: { line: 19 } });
+    expect(role.states[0].editable.param).toBe(undefined);
+    // A text colour's part is the `color` its author wrote.
+    expect(sel(5, { name: 'text_color', value: '#999999', source: 'dynamic' }).states[0].editable).toMatchObject({ rung: 'template', row: 'color', state: 'disabled', text: '#999999' });
+    // A part with no place (a conditional class's): its node's, its edit refused.
+    const either = sel(6, { name: 'background_color', value: '#999999', source: 'dynamic' });
+    expect(either.states[0].source).toEqual({ file: app, line: 13, col: 5, end_col: 8 });
+    expect(either.states[0].editable.rung).toBe(null);
+    // A package's component: its param, overridden in the app's design, offered though its source is read-only here.
+    const pkg = joinPath(dir, 'node_modules', 'ui', 'card.contract'), pkgLines = ['component Card', '  params', '    fill: color = "#0a7aff"', '  view', '    box background-color="param.fill" disabled=off', '      :disabled', '        background-color="#999999"', ''];
+    mkdirSync(joinPath(dir, 'node_modules', 'ui'), { recursive: true });
+    writeFileSync(pkg, pkgLines.join('\n'));
+    const at = (line, name) => { const col = pkgLines[line - 1].indexOf(name) + 1; return { file: pkg, line, col, end_col: col + name.length }; };
+    const pmap = { digest: 'p2', sources: [{ file: pkg, sha256: sha(pkgLines.join('\n')), home: '@acme/ui/card.contract' }], nodes: [{ file: pkg, line: 5, col: 5, end_col: 8, component: 'Card', chain: [], bindings: [{ row: 'background_color', origin: 'own', at: at(5, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: at(7, 'background-color') }] }] }] };
+    const vendored = new Map([['z', { param: '@acme/ui/card.contract#Card.fill', short: 'Card.fill' }]]);
+    const inPkg = join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] }, pmap, { app: dir, params: vendored }).rows[0];
+    expect(inPkg.editable).toMatchObject({ rung: 'param', param: '@acme/ui/card.contract#Card.fill' });
+    expect(inPkg.editable.template).toBe(undefined);
+    expect(inPkg.states[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining("a package's component") });
+    // A style's base and part: the style rung on its base, set-state on its `:checked` part.
+    const tick = sel(1, { name: 'background_color', value: '#00ff00', source: 'dynamic', token: { names: [], text: 'checked ? "#00ff00" : "#ffffff"', modes: '', implied: false } });
+    expect(tick.editable).toEqual({ rung: 'style', style: 'Tick', row: 'background-color', file: 'app.contract', text: '#ffffff' });
+    expect(tick.states).toEqual([{ state: 'checked', source: { file: app, ...place(4, 'background-color') }, editable: { rung: 'state', style: 'Tick', state: 'checked', row: 'background-color', file: 'app.contract', text: '#00ff00' } }]);
+    // A fold the map can't explain (no base): dynamic, read-only, no parts offered.
+    const lnk = sel(2, { name: 'text_color', value: '#999999', source: 'dynamic' });
+    expect([lnk.editable.rung, lnk.editable.reason, lnk.states]).toEqual([null, 'a dynamic expression: read-only here', undefined]);
+    // A dynamic row with no folded part is dynamic still.
+    const plain = { ...map, nodes: [node(10, [{ row: 'background_color', origin: 'own', at: place(10, 'background-color'), attr: 'background-color' }])] };
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#fff', source: 'dynamic' }] }, plain, { app: dir, params }).rows[0].editable.rung).toBe(null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('a held `:hover` or `:focus-visible` row is joined at its part, keyed by row and state: the template rung on the node\'s own part, the state rung on a style\'s, never the base row\'s place (LLP 1122 queue item (1))', () => {
   const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-looks-'));
   try {

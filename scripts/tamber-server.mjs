@@ -460,6 +460,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // it, never with a code.
   const pairs = pairing({ ttlMs: pairTtlMs, clock, say: w => { log(w.relay ? `tamber: relayed pairing limited (10 a minute): try again in ${w.retry} s` : `tamber: pairing: ${w.what}${w.peer ? ` (from ${w.peer})` : ''}${w.why ? `: ${w.why}` : ''}`); send({ event: 'pairing', seq: ++seq, epoch, what: w.what }); } });
   const gateway = canvas ? canvas(pairs) : null;
+  let relayGateway = null; // (stage 10c R1b: the relay's canvas, its own origin pair)
   // A build's report (a registration replays pins, inspect and holds) comes
   // after every paired client past its deadline has ended, as a request does.
   const reportFrom = channel.report;
@@ -617,7 +618,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     // A request the server can't take (one too deeply nested to send on,
     // say) is refused, never an uncaught failure.
-    try { reply = await dispatch(request, scope, who.local, who.token, gone.signal); } catch (e) { reply = { status: 400, error: { message: `the request could not be handled: ${String(e?.message ?? e).slice(0, 200)}` } }; }
+    try { reply = await dispatch(request, scope, who.local, who.token, gone.signal, access?.door); } catch (e) { reply = { status: 400, error: { message: `the request could not be handled: ${String(e?.message ?? e).slice(0, 200)}` } }; }
     unend();
     const status = reply.ok !== undefined ? 200 : reply.status ?? (down ? 503 : reply.error?.conflict ? 409 : 400);
     json(res, status, reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error });
@@ -670,7 +671,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
 
   /** One request: the server's, or one of the wire's own (`commit`, a held
    * proposal's `accept` and `drop`). */
-  async function dispatch(request, scope, local = false, paired = null, signal = undefined) {
+  async function dispatch(request, scope, local = false, paired = null, signal = undefined, door = undefined) {
     // Every method's scope, in one place, before any handler: none is no
     // method this wire serves (fail closed; scripts/tamber-pairing.mjs).
     const need = needs(request, id => proposals.get(id)?.client ?? null);
@@ -680,7 +681,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     absent(); delete request.restore; // `restore` (a revert's or an import's override line, *1.14*) is the server's
     // A paired client's canvas grant (stage 10 C), for the token it came with.
     // (Plain HTTP from off this machine never reaches here: `viaDoor`, above.)
-    if (request.method === 'canvas') return !gateway ? { status: 404, error: { message: 'this server has no canvas gateway' } } : paired ? gateway.mint(paired) : { status: 400, error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } };
+    // (minted by the gateway of the door the request came through: the relay's own pair, or the TLS door's; never across)
+    const gw = door === 'relay' ? relayGateway : gateway;
+    if (request.method === 'canvas') return !gw ? { status: 404, error: { message: 'this server has no canvas gateway' } } : paired ? gw.mint(paired) : { status: 400, error: { message: '`canvas` is a paired client\'s: the local tool frames the dev loop itself' } };
     if (request.method === 'pair-code') {
       // Beside the code, where a remote client reaches this server and the certificate it checks (1.13).
       const minted = pairs.mint({ scope: request.scope, name: request.name }), doors = minted.ok ? remote() : [];
@@ -1175,7 +1178,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // `compete()`: the dev loop's build of an edit the watcher does not see
   // (a Contract source's), which ends a scrub as a hand edit does.
   // `pairing`: the run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`; scripts/tamber-pairing.mjs).
-  return { handle, close, ready, channel, pairing: pairs, canvas: gateway, compete: () => scrubs.compete(), get token() { return token; }, get down() { return down; } };
+  return { handle, close, ready, channel, pairing: pairs, canvas: gateway, relayCanvas: g => { relayGateway = g; }, compete: () => scrubs.compete(), get token() { return token; }, get down() { return down; } };
 }
 
 /** The app directory an argument names (a directory, or a file in it). */

@@ -1310,6 +1310,14 @@ extension Agent {
         // Whether the simulator driver may take the display's pixels for this picture (devices.mjs `withDisplay`).
         if wholeWindow { r["front"] = displayFront() }
         if wholeWindow, let window = vp.window { r["opaque"] = displayOwnPoints(window) }
+        // Glass or a blur in the page's picture is drawHierarchy's approximation: the picture's area in window
+        // points, for the simulator driver to put the display's pixels there (devices.mjs `withMaterials`).
+        if !wholeWindow, req["film"] as? Bool != true, let window = vp.window {
+            let area = captureView.convert(captureView.bounds.inset(by: margins), to: window)
+            if backdropRects(window).contains(where: { $0.insetBy(dx: 12, dy: 12).intersects(area) }) {
+                r["materials"] = [Agent.r2(area.minX), Agent.r2(area.minY), Agent.r2(area.width), Agent.r2(area.height)]
+            }
+        }
         if moving { r["moving"] = true }
         #if os(iOS)
         // The status bar is SpringBoard's, never in the window's picture: its height, for the simulator driver to put it in (devices.mjs `withDisplay`).
@@ -1363,10 +1371,25 @@ extension Agent {
     /// `drawHierarchy` drew, for the simulator driver's check that nothing of
     /// another process lies over the app (a notification banner leaves the
     /// app active and its window key): a 16-point grid, less the status bar,
-    /// the bottom safe area, the keyboard, and each visible layer that draws
-    /// what is behind it (glass, a blur, a portal) or filters what it draws,
-    /// with 12 points around it for a glass edge's light and shadow.
+    /// the bottom safe area, the keyboard, and each of `backdropRects`.
     func displayOwnPoints(_ window: UIWindow) -> [[Double]] {
+        let skipped = backdropRects(window)
+        let top = window.safeAreaInsets.top + 4
+        let bottom = min(window.bounds.height - window.safeAreaInsets.bottom, keyboardTopForCheck() ?? .infinity) - 4
+        var points: [[Double]] = []
+        for y in stride(from: top, through: bottom, by: 16) {
+            for x in stride(from: CGFloat(8), through: window.bounds.width - 8, by: 16) where !skipped.contains(where: { $0.contains(CGPoint(x: x, y: y)) }) {
+                points.append([Agent.r2(x), Agent.r2(y)])
+            }
+        }
+        return points
+    }
+
+    /// Each visible layer of `window` that draws what is behind it (glass, a
+    /// blur, a portal) or filters what it draws, in window points, with 12
+    /// points around it for a glass edge's light and shadow: what
+    /// `drawHierarchy` draws only approximately.
+    func backdropRects(_ window: UIWindow) -> [CGRect] {
         var skipped: [CGRect] = []
         // A blur whose radius is unset or 0 (a navigation bar's between
         // transitions) changes nothing: there the display matched the app's
@@ -1391,15 +1414,7 @@ extension Agent {
             layer.sublayers?.forEach(visit)
         }
         visit(window.layer)
-        let top = window.safeAreaInsets.top + 4
-        let bottom = min(window.bounds.height - window.safeAreaInsets.bottom, keyboardTopForCheck() ?? .infinity) - 4
-        var points: [[Double]] = []
-        for y in stride(from: top, through: bottom, by: 16) {
-            for x in stride(from: CGFloat(8), through: window.bounds.width - 8, by: 16) where !skipped.contains(where: { $0.contains(CGPoint(x: x, y: y)) }) {
-                points.append([Agent.r2(x), Agent.r2(y)])
-            }
-        }
-        return points
+        return skipped
     }
 
     /// What UIKit has presented over the app's window, by what a person calls it: "alert", "action sheet", "menu",

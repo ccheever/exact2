@@ -86,6 +86,15 @@ test('an iOS drag without real touches scrolls the scroller it starts on', async
   expect(r.delivery).toBe('recognized');
   expect(r.scrolledBy).toEqual([0, 300]);
   expect(r.drag).toEqual(expect.objectContaining({ dx: 0, dy: -300 }));
+  expect(r.note).toBeUndefined();
+});
+
+// euxy FRICTION 9: a sheet's scroller as tall as its form took drags that moved nothing, and said nothing.
+test('an iOS drag that scrolls nothing says what to look at', async () => {
+  const r = await iosDrive(() => ({ tapped: 9, at: [200, 370], scrolledBy: [0, 0], delivery: 'recognized', native: 'scroll' })).run();
+  expect(r.note).toContain('nothing scrolled');
+  expect(r.note).toContain('`layout content`');
+  expect(r.note).toContain('lower-scroll-grows');
 });
 
 test('an iOS drag the host cannot recognize fails, naming --touch platform', async () => {

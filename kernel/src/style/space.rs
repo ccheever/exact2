@@ -162,10 +162,37 @@ pub fn perspective(text: &str) -> Option<f32> {
     parse_pixel_length(t).filter(|n| *n >= 0.0)
 }
 
+/// `font-stretch` (CSS Fonts 4 §2.4) as a percentage of normal width: a
+/// nonnegative `<percentage>` or one of the nine keywords.
+pub fn font_stretch(text: &str) -> Option<f32> {
+    let t = text.trim();
+    if let Some(n) = t.strip_suffix('%') {
+        return exact_num::parse_f32(n.trim_end())
+            .ok()
+            .filter(|n| n.is_finite() && *n >= 0.0);
+    }
+    const KEYWORDS: [(&str, f32); 9] = [
+        ("ultra-condensed", 50.0),
+        ("extra-condensed", 62.5),
+        ("condensed", 75.0),
+        ("semi-condensed", 87.5),
+        ("normal", 100.0),
+        ("semi-expanded", 112.5),
+        ("expanded", 125.0),
+        ("extra-expanded", 150.0),
+        ("ultra-expanded", 200.0),
+    ];
+    KEYWORDS
+        .iter()
+        .find(|(k, _)| t.eq_ignore_ascii_case(k))
+        .map(|(_, v)| *v)
+}
+
 /// The `f32` rows that take CSS text or a range of their own (LLP 1077):
 /// `rotate`'s angle, `translate`'s z and `perspective` (D8), a symbol's
-/// value (D11) and `-webkit-text-stroke`'s width (D7). `None` for any other
-/// row, which the plain number parse takes.
+/// value (D11), `-webkit-text-stroke`'s width (D7) and `font-stretch`
+/// (LLP 1019 D8). `None` for any other row, which the plain number parse
+/// takes.
 pub(crate) fn f32_row(
     value: &super::StyleValue,
     style: crate::StyleId,
@@ -215,6 +242,18 @@ pub(crate) fn f32_row(
             .map(|(w, _)| w)
             .map_err(|reason| StyleValueError::BadTextStroke { style, reason }),
         (StyleId::TextStrokeWidth, _) => wrong("a nonnegative width in px"),
+        // @ref LLP 1019 D8 — CSS Fonts 4 §2.4: a nonnegative percentage or a
+        // keyword, never a bare number.
+        (StyleId::FontStretch, StyleValue::Percent(p)) if (*p as f32).is_finite() && *p >= 0.0 => {
+            Ok(*p as f32)
+        }
+        (StyleId::FontStretch, StyleValue::Text(t)) => font_stretch(t).map_or_else(
+            || wrong("a nonnegative percentage or a keyword such as `condensed`"),
+            Ok,
+        ),
+        (StyleId::FontStretch, _) => {
+            wrong("a nonnegative percentage or a keyword such as `condensed`")
+        }
         _ => return None,
     })
 }

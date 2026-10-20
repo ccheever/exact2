@@ -34,6 +34,7 @@ mod edits;
 mod error;
 pub mod expr;
 mod fields;
+mod font_axes;
 mod fonts;
 mod grouped;
 mod handlers;
@@ -120,8 +121,10 @@ pub fn join_package_designs(
 pub fn package_references(
     folding: &exact_tamber::Folding,
     packages: &[contract_syntax::DesignSource],
+    all: &[params::ParamToken],
+    identities: &[String],
 ) -> Vec<LowerError> {
-    theme::packages::references(folding, packages)
+    theme::packages::references(folding, packages, all, identities)
 }
 
 /// Package `band`'s `line` as a joined design numbers it, and a message's
@@ -253,6 +256,8 @@ pub(crate) struct Lowerer<'a> {
 #[derive(Debug, Clone)]
 struct DeclaredFont {
     stack: StacksId,
+    /// Each face's heaviest weight (a variable face's range reaches it) and
+    /// whether it is italic.
     faces: Vec<(u16, bool)>,
 }
 

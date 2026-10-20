@@ -38,7 +38,7 @@ import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, crashWatch, developmentLaunchEnvironment, keepInstalledRelease, phone, phoneBridge, showSimulator, simulator, withDisplay, withSoftwareKeyboard } from '../host/apple/devices.mjs';
+import { crashReports, crashWatch, developmentLaunchEnvironment, forwardedEnv, keepInstalledRelease, phone, phoneBridge, showSimulator, simulator, withDisplay, withMaterials, withSoftwareKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -571,7 +571,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   const launched = Date.now(); let closing = false;
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
-        '--environment-variables', JSON.stringify({ ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
+        '--environment-variables', JSON.stringify({ ...forwardedEnv(), ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
     : droid ? droid.spawn(env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : []) : spawn(bin, portable && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : documents, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide:true });
   onProcess?.(child);
   const hostLines = [];
@@ -664,7 +664,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   let kept = null; try { kept = keepInstalledRelease(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a)); if (kept.install) install(dev, bundle, a, hostFixture, true); } catch (e) { await touches?.close(); throw e; }
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
-  const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
+  const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, ...forwardedEnv(), EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
   const crashName = hostFixture ? 'ExactHostIOS' : executableName(a); let closing = false;
@@ -770,13 +770,13 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
         const take = async () => {
           const r = await ask({ op: 'screenshot', path, window, ...(film ? { film } : {}) });
           if (r.error) throw new Error(r.error);
-          const bar = r.statusBar;
-          if (!status) delete r.statusBar;
+          const bar = r.statusBar; if (!status) delete r.statusBar;
           // The host draws the window (with an alert or sheet up, or asked); its pixels are then the display's, `simctl
           // io` captures (about 1 s), which draw glass as the device does and hold the keyboard; the status bar's only
           // when asked. `probe` asks the app, after the display is read, whether it was still in front.
-          if (!(window || r.window === true) || film) return r;
-          return withDisplay(r, path, dev.udid, status ? 0 : bar ?? 0, { own, probe: () => ask({ op: 'screenshot', probe: true }) });
+          const probe = () => ask({ op: 'screenshot', probe: true }); if (film) return r; // a page picture over glass takes the window's display pixels, cut to it:
+          if (!(window || r.window === true)) return own ? (delete r.materials, r) : withMaterials(r, path, async (p) => { const w = await ask({ op: 'screenshot', path: p, window: true }); if (w.error) throw new Error(w.error); return withDisplay(w, p, dev.udid, w.statusBar ?? 0, { probe }); });
+          return withDisplay(r, path, dev.udid, status ? 0 : bar ?? 0, { own, probe });
         };
         // Films take no display: their frames are the app's alone.
         return film ? take() : simulatorDisplay(dev.udid, take);

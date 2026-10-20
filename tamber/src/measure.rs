@@ -1,10 +1,12 @@
 //! Length and number tokens (LLP 1121 D3, stage 6): a length is px, one
 //! `rem` or `em`, or one named length (a text style, `-exact-hairline`);
-//! `calc()`, `min()`, `max()` and `clamp()` over px and numbers fold to px.
-//! A number is a number, or such a function over numbers.
+//! `calc()`, `min()`, `max()` and `clamp()` over px and numbers fold to px,
+//! and over base names the design leaves unset to a [`Residual`] (D11,
+//! stage 12 B2). A number is a number, or such a function over numbers.
 
 use crate::css::Item;
 use crate::fold::{fail, FoldError, Folded, Named, Names};
+use crate::residual::Residual;
 
 /// What QUEUE's `rem`/`em` item says a relative length inside a function
 /// waits on.
@@ -76,8 +78,12 @@ pub enum Length {
     /// The element's font sizes.
     Em(f64),
     /// A named length as written: a text style (`-exact-body`) or
-    /// `-exact-hairline`, which the kernel's relative side table reads.
+    /// `-exact-hairline`, which the kernel's relative side table reads, or
+    /// a base name the design leaves unset (stage 11 B).
     Named(String),
+    /// An expression over base names the design leaves unset, each host's
+    /// in its column (D11, stage 12 B2).
+    Base(Residual),
 }
 
 impl Length {
@@ -88,6 +94,7 @@ impl Length {
             Length::Rem(n) => format!("{}rem", num(*n)),
             Length::Em(n) => format!("{}em", num(*n)),
             Length::Named(n) => n.clone(),
+            Length::Base(r) => r.css(),
         }
     }
 }
@@ -166,10 +173,13 @@ pub(crate) fn num(n: f64) -> String {
 /// or a function over dimensions is a length, a number or a function over
 /// numbers a number; `None` otherwise (a colour, or a name to follow).
 pub(crate) fn inferred(items: &[Item], named: &dyn Fn(&str) -> bool) -> Option<Kind> {
-    fn dims(items: &[Item]) -> bool {
+    // A named length, a base name the design leaves unset among them, is
+    // a dimension too.
+    fn dims(items: &[Item], named: &dyn Fn(&str) -> bool) -> bool {
         items.iter().any(|i| match i {
             Item::Dim(..) => true,
-            Item::Func(_, args, _) => args.iter().any(|a| dims(a)),
+            Item::Ident(name) => named(name),
+            Item::Func(_, args, _) => args.iter().any(|a| dims(a, named)),
             _ => false,
         })
     }
@@ -178,7 +188,7 @@ pub(crate) fn inferred(items: &[Item], named: &dyn Fn(&str) -> bool) -> Option<K
         [Item::Number(_)] => Some(Kind::Number),
         [Item::Ident(name)] if named(name) => Some(Kind::Length),
         [Item::Func(f, args, _)] if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") => {
-            Some(if args.iter().any(|a| dims(a)) {
+            Some(if args.iter().any(|a| dims(a, named)) {
                 Kind::Length
             } else {
                 Kind::Number
@@ -244,6 +254,11 @@ pub(crate) fn length(
         Item::Func(f, args, text) if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") => {
             match func(f, args, text, names)? {
                 Quantity::Px(n) => Ok(Length::Px(n)),
+                // `calc(space.md)` is the alias.
+                Quantity::Base(r) => Ok(match r.bare() {
+                    Some(name) => Length::Named(name.to_string()),
+                    None => Length::Base(r),
+                }),
                 Quantity::Number(_) => fail(
                     "tamber-kind",
                     format!("`{text}` is a number; a length's function folds to px"),
@@ -297,7 +312,7 @@ pub(crate) fn number(items: &[Item], names: &mut dyn Names) -> Result<f64, FoldE
         Item::Func(f, args, text) if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") => {
             match func(f, args, text, names)? {
                 Quantity::Number(n) => Ok(n),
-                Quantity::Px(_) => {
+                Quantity::Px(_) | Quantity::Base(_) => {
                     fail("tamber-kind", format!("`{text}` is a length, not a number"))
                 }
             }
@@ -318,11 +333,36 @@ pub(crate) fn number(items: &[Item], names: &mut dyn Names) -> Result<f64, FoldE
     }
 }
 
-/// A function's operand: px or a plain number.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// A function's operand: px, a plain number, or a length over base names
+/// the design leaves unset.
+#[derive(Debug, Clone, PartialEq)]
 enum Quantity {
     Px(f64),
     Number(f64),
+    Base(Residual),
+}
+
+impl Quantity {
+    fn length(&self) -> bool {
+        !matches!(self, Quantity::Number(_))
+    }
+
+    /// A length as a residual, px as one with no base.
+    fn residual(self) -> Option<Residual> {
+        match self {
+            Quantity::Px(n) => Some(Residual::px(n)),
+            Quantity::Base(r) => Some(r),
+            Quantity::Number(_) => None,
+        }
+    }
+}
+
+/// A residual as a quantity: px when no base is left in it.
+fn based(r: Residual) -> Quantity {
+    match r.constant() {
+        Some(n) => Quantity::Px(n),
+        None => Quantity::Base(r),
+    }
 }
 
 fn func(
@@ -334,45 +374,50 @@ fn func(
     let mut each = args
         .iter()
         .map(|a| sum(a, text, names))
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter();
-    let first = each.next();
-    let rest: Vec<Quantity> = each.collect();
-    let same = |a: Quantity, b: Quantity| match (a, b) {
-        (Quantity::Px(_), Quantity::Px(_)) | (Quantity::Number(_), Quantity::Number(_)) => Ok(()),
-        _ => fail(
+        .collect::<Result<Vec<_>, _>>()?;
+    if each.is_empty() {
+        return fail("tamber-syntax", format!("`{text}` is empty"));
+    }
+    let lengths = each.iter().filter(|q| q.length()).count();
+    if lengths != 0 && lengths != each.len() {
+        return fail(
             "tamber-kind",
             format!("`{text}` mixes a length and a number"),
-        ),
+        );
+    }
+    // Over a base name: kept, its px parts folded.
+    let residual = each.iter().any(|q| matches!(q, Quantity::Base(_)));
+    let v = |q: &Quantity| match q {
+        Quantity::Px(n) | Quantity::Number(n) => *n,
+        Quantity::Base(_) => f64::NAN,
     };
-    let v = |q: Quantity| match q {
-        Quantity::Px(n) | Quantity::Number(n) => n,
+    let pick = |pick: fn(f64, f64) -> f64| -> Quantity {
+        let n = each[1..].iter().fold(v(&each[0]), |m, q| pick(m, v(q)));
+        with(&each[0], n)
     };
-    let Some(first) = first else {
-        return fail("tamber-syntax", format!("`{text}` is empty"));
-    };
-    let pick = |pick: fn(f64, f64) -> f64| -> Result<Quantity, FoldError> {
-        let mut out = first;
-        for q in &rest {
-            same(out, *q)?;
-            out = with(out, pick(v(out), v(*q)));
-        }
-        Ok(out)
-    };
-    match (f, rest.len()) {
+    match (f, each.len()) {
         // `calc()`, or a group in one: `(2px + 3px)`.
-        ("calc" | "", 0) => Ok(first),
+        ("calc" | "", 1) => Ok(each.pop().expect("one")),
         ("calc", _) => fail(
             "tamber-syntax",
             format!("`{text}`: `calc()` takes one expression"),
         ),
-        ("min", _) => pick(f64::min),
-        ("max", _) => pick(f64::max),
-        ("clamp", 2) => {
-            same(first, rest[0])?;
-            same(first, rest[1])?;
-            let (lo, mid, hi) = (v(first), v(rest[0]), v(rest[1]));
-            Ok(with(first, mid.min(hi).max(lo)))
+        ("min" | "max", _) if residual => Ok(based(Residual::pick(
+            each.into_iter().filter_map(Quantity::residual).collect(),
+            f == "max",
+        ))),
+        ("min", _) => Ok(pick(f64::min)),
+        ("max", _) => Ok(pick(f64::max)),
+        ("clamp", 3) if residual => {
+            let mut r = each.into_iter().filter_map(Quantity::residual);
+            let (Some(lo), Some(mid), Some(hi)) = (r.next(), r.next(), r.next()) else {
+                unreachable!("three lengths")
+            };
+            Ok(Quantity::Base(Residual::clamp(lo, mid, hi)))
+        }
+        ("clamp", 3) => {
+            let (lo, mid, hi) = (v(&each[0]), v(&each[1]), v(&each[2]));
+            Ok(with(&each[0], mid.min(hi).max(lo)))
         }
         ("clamp", _) => fail(
             "tamber-syntax",
@@ -382,10 +427,10 @@ fn func(
     }
 }
 
-fn with(q: Quantity, n: f64) -> Quantity {
+fn with(q: &Quantity, n: f64) -> Quantity {
     match q {
-        Quantity::Px(_) => Quantity::Px(n),
         Quantity::Number(_) => Quantity::Number(n),
+        _ => Quantity::Px(n),
     }
 }
 
@@ -410,6 +455,13 @@ fn sum(items: &[Item], text: &str, names: &mut dyn Names) -> Result<Quantity, Fo
             (Quantity::Number(a), Quantity::Number(b)) => {
                 Quantity::Number(if op == '+' { a + b } else { a - b })
             }
+            (a, b) if a.length() && b.length() => {
+                let sign = if op == '+' { 1.0 } else { -1.0 };
+                let (Some(a), Some(b)) = (a.residual(), b.residual()) else {
+                    unreachable!("two lengths")
+                };
+                based(a.plus(b, sign))
+            }
             _ => {
                 return fail(
                     "tamber-kind",
@@ -418,7 +470,22 @@ fn sum(items: &[Item], text: &str, names: &mut dyn Names) -> Result<Quantity, Fo
             }
         };
     }
-    Ok(out)
+    finite(out, text)
+}
+
+/// `q`, or the refusal when it doesn't fold to a finite value.
+fn finite(q: Quantity, text: &str) -> Result<Quantity, FoldError> {
+    let finite = match &q {
+        Quantity::Px(n) | Quantity::Number(n) => n.is_finite(),
+        Quantity::Base(r) => r.finite(),
+    };
+    match finite {
+        true => Ok(q),
+        false => fail(
+            "tamber-kind",
+            format!("`{text}` does not fold to a finite value"),
+        ),
+    }
 }
 
 /// `a * b / c …`: at most one side of each a length.
@@ -458,6 +525,17 @@ fn product(items: &[Item], text: &str, names: &mut dyn Names) -> Result<Quantity
                 (Quantity::Px(a), Quantity::Number(b), '*')
                 | (Quantity::Number(b), Quantity::Px(a), '*') => Quantity::Px(a * b),
                 (Quantity::Px(a), Quantity::Number(b), _) => Quantity::Px(a / b),
+                (Quantity::Base(r), Quantity::Number(b), '*')
+                | (Quantity::Number(b), Quantity::Base(r), '*') => based(r.times(b)),
+                (Quantity::Base(r), Quantity::Number(b), _) => based(r.over(b)),
+                (Quantity::Number(_), Quantity::Base(_), _) => {
+                    return fail(
+                        "tamber-kind",
+                        format!("`{text}`: a number over a length is no length"),
+                    )
+                }
+                // A base name is a length: one times or over a length, a
+                // base name's or px, is no length.
                 _ => {
                     return fail(
                         "tamber-kind",
@@ -466,16 +544,16 @@ fn product(items: &[Item], text: &str, names: &mut dyn Names) -> Result<Quantity
                 }
             },
         });
+        // Each step finite: `x / 0 * 0` is refused, as in px.
+        if let Some(q) = out.take() {
+            out = Some(finite(q, text)?);
+        }
     }
     if op.is_some() {
         return fail("tamber-syntax", format!("`{text}`: an operand is missing"));
     }
     match out {
-        Some(Quantity::Px(n) | Quantity::Number(n)) if !n.is_finite() => fail(
-            "tamber-kind",
-            format!("`{text}` does not fold to a finite value"),
-        ),
-        Some(q) => Ok(q),
+        Some(q) => finite(q, text),
         None => fail("tamber-syntax", format!("`{text}`: an operand is missing")),
     }
 }
@@ -496,9 +574,22 @@ fn operand(item: &Item, text: &str, names: &mut dyn Names) -> Result<Quantity, F
         {
             func(f, args, inner, names)
         }
+        // A base name the design leaves unset: kept, each host's.
+        Item::Ident(name) if names.base(name) => Ok(Quantity::Base(Residual::base(name))),
         Item::Ident(name) => match names.named(name)? {
             Named::Number(n) => Ok(Quantity::Number(n)),
             Named::Length(Length::Px(n)) => Ok(Quantity::Px(n)),
+            // A token over base names, an alias of one among them: inlined.
+            Named::Length(Length::Named(n)) if names.base(&n) => {
+                Ok(Quantity::Base(Residual::base(&n)))
+            }
+            Named::Length(Length::Base(r)) => {
+                // Its base names are read here too, whatever folding leaves.
+                for b in r.bases() {
+                    names.base(b);
+                }
+                Ok(Quantity::Base(r))
+            }
             Named::Length(_) => fail(
                 "tamber-kind",
                 format!("`{name}` in `{text}`: {RELATIVE_IN_CALC}"),

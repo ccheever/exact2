@@ -1,0 +1,9 @@
+// The design of the stage 11 gate's app (LLP 1121 §5 stage 11): one base
+// value, space.md, set once for every package that reads it (ruling 4), and
+// one package token set by its full name.
+tamber scalepackages
+
+theme
+  space.md = 20px
+  notes.rule = #00ff00  scheme=fixed
+  probe.ground = #ffffff  scheme=fixed

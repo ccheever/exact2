@@ -31,6 +31,10 @@ pub(crate) struct Sources {
     /// source map says them, so a reader knows a file has not moved since
     /// (LLP 1122 D5, D6's fail-closed rule).
     pub(crate) digests: Vec<String>,
+    /// Each source's home, by source id, as its components' identities
+    /// name it (`home`; LLP 1121 D15): the source map says it, so a reader
+    /// names a param by its full name from the file it reads it in.
+    pub(crate) homes: Vec<Option<String>>,
     /// Each source's text as compiled, by source id: the source map checks
     /// a row's written place against it (LLP 1122 D6), never the disk.
     pub(crate) texts: Vec<std::sync::Arc<str>>,
@@ -104,6 +108,11 @@ impl Sources {
             .zip(self.digests.iter().map(String::as_str))
     }
 
+    /// Source `id`'s home, as its components' identities name it.
+    pub(crate) fn home(&self, id: usize) -> Option<&str> {
+        self.homes.get(id).and_then(|h| h.as_deref())
+    }
+
     pub(crate) fn path(&self, span: contract_syntax::Span) -> &Path {
         &self.paths[span.source_id as usize]
     }
@@ -146,6 +155,7 @@ pub(crate) fn load_partial(
             paths: vec![path.to_path_buf()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            homes: Vec::new(),
             texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
@@ -216,10 +226,16 @@ impl Loader<'_> {
         let design = design(path, &mut self.sources).map_err(|e| vec![e])?;
         let package_designs =
             packages::designs(&mut self.sources, code_beside(path)).map_err(|e| vec![e])?;
-        // The design's components that aren't Contract, named and checked as
-        // Contract params are (D15).
-        if let Some(d) = &design {
-            let (designed, mut refused) = contract_lower::params::design_tokens(d);
+        // The design's components that aren't Contract, and its packages'
+        // designs' (stage 12 B1), named and checked as Contract params are
+        // (D15).
+        if design.is_some() || !package_designs.is_empty() {
+            let (mut designed, mut refused) = (Vec::new(), Vec::new());
+            for d in design.iter().chain(&package_designs) {
+                let (tokens, errors) = contract_lower::params::design_tokens(d);
+                designed.extend(tokens);
+                refused.extend(errors);
+            }
             let all: Vec<_> = params.iter().chain(&designed).cloned().collect();
             refused.extend(contract_lower::params::collisions(&all));
             if !refused.is_empty() {
@@ -463,6 +479,7 @@ pub(crate) fn use_fixes(
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            homes: Vec::new(),
             texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
@@ -551,6 +568,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            homes: Vec::new(),
             texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
@@ -572,10 +590,22 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     for unit in &mut loader.units {
         let _ = contract_lower::params::rewrite(&mut unit.file);
     }
+    // A package design's components' too (stage 12 B1 round 3): an icon
+    // param's SVG is read by the build as the app's own are.
+    let package_designs: Vec<_> = packages::read(&loader.sources, false)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(d, _)| d)
+        .collect();
     let params: Vec<_> = loader
         .units
         .iter()
         .flat_map(|u| contract_lower::params::tokens(&u.file))
+        .chain(
+            package_designs
+                .iter()
+                .flat_map(|d| contract_lower::params::design_tokens(d).0),
+        )
         .collect();
     let errors = match loaded {
         Err(all) => all,
@@ -608,11 +638,6 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         None => (!params.is_empty()).then(|| "tamber app\n".to_string()),
     };
     // With its packages' tokens, which an app token may name (D11).
-    let package_designs: Vec<_> = packages::read(&loader.sources, false)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(d, _)| d)
-        .collect();
     let icons: Vec<PathBuf> = text
         .and_then(|text| exact_tamber::parse(&text).ok())
         .and_then(|d| contract_lower::with_package_designs(Some(d), &package_designs))
@@ -730,6 +755,11 @@ impl Loader<'_> {
         for c in &mut file.components {
             c.params.identity = Some(format!("{home}#{}", c.name));
         }
+        let homes = &mut self.sources.homes;
+        if homes.len() <= source_id as usize {
+            homes.resize(source_id as usize + 1, None);
+        }
+        homes[source_id as usize] = Some(home);
         contract_analyze::check_routes_root(&file, self.active.len() == 1)
             .map_err(|e| vec![CompileError::from(e)])?;
         self.units.push(Unit {

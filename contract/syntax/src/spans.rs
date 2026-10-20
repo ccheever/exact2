@@ -68,7 +68,10 @@ macro_rules! leaves {
         }
     )* };
 }
-leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind, TapForm, ParamValue, ModuleKind);
+leaves!(
+    String, bool, f64, u16, [u16; 2], u32, usize, BinOp, UnOp, TaskKind, TapForm, ParamValue,
+    ModuleKind
+);
 
 macro_rules! structs {
     ($($ty:ident { $($field:ident),* $(,)? })*) => { $(
