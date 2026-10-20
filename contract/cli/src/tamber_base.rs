@@ -36,17 +36,19 @@ fn columns_of(text: &str) -> Option<Value> {
     let columns: serde_json::Map<String, Value> = scale::COLUMNS
         .iter()
         .filter_map(|(key, column)| {
-            // (the evaluator's f32, to the thousandth: no float noise in the text)
-            let n = (f64::from(scale::evaluate(text, *column)?) * 1000.0).round() / 1000.0;
-            // (the terminal's in cells: the evaluator reads a cell, `1ch`, as
-            // its column's px, so back to cells, as its host rounds them)
+            let n = scale::evaluate(text, *column)?;
+            // The evaluator's own f32, shortest (Rust's Display), a zero never negative.
+            let n = if n == 0.0 { 0.0 } else { n };
+            // (the terminal's in cells before its layout rounds them: the
+            // evaluator reads a cell, `1ch`, as its column's px, so a
+            // column-width cell here, as `Env::cell_spaces` then rounds on
+            // the axis it spaces)
             let v = match *key {
-                "terminal" => ScaleValue::Cells(
-                    (n / f64::from(exact_kernel::style::cells::COLUMN) * 1000.0).round() / 1000.0,
-                ),
-                _ => ScaleValue::Px(n),
+                "terminal" if n == 0.0 => "0".to_string(),
+                "terminal" => format!("{}cell", n / exact_kernel::style::cells::COLUMN),
+                _ => format!("{n}px"),
             };
-            Some((key.to_string(), json!({ "value": value(v) })))
+            Some((key.to_string(), json!({ "value": v })))
         })
         .collect();
     (!columns.is_empty()).then_some(Value::Object(columns))

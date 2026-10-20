@@ -223,9 +223,19 @@ fn a_length_over_base_names_answers_each_column() {
 
 axes
   density = roomy | tight
+  tone = calm | loud
 
 theme
   pad2 = calc(space.md * 2)
+  third = calc(space.md / 3)
+  round = calc(radius.full - 1px)
+  spec = 1px
+    when density=tight: calc(space.xs * 2)
+    when density=tight tone=loud: calc(space.sm * 2)
+  shadowed = 1px
+    when tone=loud: calc(space.lg * 2)
+    when density=roomy tone=loud: 2px
+    when density=tight tone=loud: 3px
   gap.m = max(space.sm, 12px)
   edge = 4px
     when density=tight: calc(space.xs + 2px)
@@ -245,10 +255,15 @@ theme
             scale::ScaleValue::Full => unreachable!(),
         }
     };
-    let text = |key: &str, n: f64| match key {
-        "terminal" if n == 0.0 => "0".to_string(),
-        "terminal" => format!("{n}cell"),
-        _ => format!("{n}px"),
+    // As the wire writes a column: the f32 the evaluator folds, shortest;
+    // the terminal in column-width cells (`1ch` is 8px to the evaluator).
+    let text = |key: &str, n: f64| {
+        let n = n as f32;
+        match key {
+            "terminal" if n == 0.0 => "0".to_string(),
+            "terminal" => format!("{}cell", n),
+            _ => format!("{n}px"),
+        }
     };
     let (pad2, _) = s.ask(json!({"method": "resolve", "token": "pad2"}));
     for (key, _) in scale::COLUMNS {
@@ -266,6 +281,55 @@ theme
             "{key} {gap}"
         );
     }
+    // The terminal's mixed: a cell is 8px to the evaluator, 12px one and a half.
+    assert_eq!(
+        gap["ok"]["tuples"][0]["columns"]["terminal"]["value"],
+        text(
+            "terminal",
+            (px("space.sm", "terminal") * 8.0).max(12.0) / 8.0
+        ),
+        "{gap}"
+    );
+    // A fraction, as the evaluator's f32 has it; radius.full in one.
+    let (third, _) = s.ask(json!({"method": "resolve", "token": "third"}));
+    assert_eq!(
+        third["ok"]["tuples"][0]["columns"]["ios"]["value"],
+        format!("{}px", px("space.md", "ios") as f32 / 3.0),
+        "{third}"
+    );
+    let (round, _) = s.ask(json!({"method": "resolve", "token": "round"}));
+    assert!(
+        round["ok"]["tuples"][0]["columns"]["ios"]["value"]
+            .as_str()
+            .unwrap()
+            .ends_with("px"),
+        "{round}"
+    );
+    // explain: the default's own, when it reads one.
+    let (pad2e, _) = s.ask(json!({"method": "explain", "token": "pad2"}));
+    assert_eq!(
+        pad2e["ok"]["columns"]["ios"]["value"],
+        text("ios", px("space.md", "ios") * 2.0),
+        "{pad2e}"
+    );
+    // The line a tuple chooses is the one naming the most axes: each line its own columns.
+    let (spec, _) = s.ask(json!({"method": "explain", "token": "spec"}));
+    assert_eq!(
+        spec["ok"]["whens"][0]["columns"]["ios"]["value"],
+        text("ios", px("space.xs", "ios") * 2.0),
+        "{spec}"
+    );
+    assert_eq!(
+        spec["ok"]["whens"][1]["columns"]["ios"]["value"],
+        text("ios", px("space.sm", "ios") * 2.0),
+        "{spec}"
+    );
+    // A line no tuple chooses (both two-axis lines cover it): no columns.
+    let (shadowed, _) = s.ask(json!({"method": "explain", "token": "shadowed"}));
+    assert!(
+        shadowed["ok"]["whens"][0]["columns"].is_null(),
+        "{shadowed}"
+    );
     // explain: the default (4px) has none; the tight line's own.
     let (edge, _) = s.ask(json!({"method": "explain", "token": "edge"}));
     assert!(edge["ok"]["columns"].is_null(), "{edge}");
@@ -279,8 +343,13 @@ theme
         resolved["ok"]["tuples"][0]["columns"].is_null(),
         "{resolved}"
     );
+    // (roomy's two tuples 4px; tight's two the expression's)
     assert!(
-        !resolved["ok"]["tuples"][1]["columns"].is_null(),
+        resolved["ok"]["tuples"][1]["columns"].is_null(),
+        "{resolved}"
+    );
+    assert!(
+        !resolved["ok"]["tuples"][2]["columns"].is_null(),
         "{resolved}"
     );
     // One over an app-set base name is one value; one over none, too.

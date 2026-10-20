@@ -504,11 +504,14 @@ tuple:
   tool reads and edits its `when` lines.
 - **A length over unset base names** (*1.15*, stage 12 D1): an alias of one, or an expression
   (`calc(space.md * 2)`, stage 12 B2), whose value is each host's, adds `columns` on `explain`'s
-  value and on each `when` line that tuples choose, and on each of `resolve`'s tuples:
+  value and on each `when` line, as the first tuple that chooses that line folds it (a line no
+  tuple chooses, the default included, has none), and on each of `resolve`'s tuples:
   `{ios, mac, neutral, material, terminal: {value}}`, each the expression folded for that column
   by the kernel's own per-column evaluator, written as the base rows write a column's value
-  (`"32px"`, the terminal's `"2cell"` or `"0"`); a column it doesn't fold in is left out. One over
-  an app-set base name is one value and has none (the set name folds in).
+  (`"32px"`; the terminal's `"2cell"`, `"1.5cell"` or `"0"`, in column-width cells before its
+  layout rounds a space to whole cells on the axis it spaces); a column it doesn't fold in is left
+  out. An app-set base name folds into its own value, so one whose fold reaches no unset base name
+  is one value and has none (`space.md = space.sm` still reaches `space.sm`, and has them).
 - **A token whose values name base names** (*1.14*), an overridden base name's own line included,
   adds `bases`: each base name any of its lines reaches, `when` lines no tuple selects included (an
   unset one named bare, a set one as the token it names), and those any line of each token it
