@@ -85,6 +85,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSy
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { conformArgs } from './conform-args.mjs';
+import { withoutSlots } from './conform-linux.mjs';
 import { parseStep } from './conform-steps.mjs';
 import { open } from '../../scripts/agent.mjs';
 import { refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
@@ -423,7 +424,9 @@ async function drive(t, report, fail, dir, ws, js) {
       await onLinux(step, async L => {
         const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [];
         plainWrites(sl); addSession(sl);
-        for (const k of STATE_KEYS) diffJSON(sw[k], sl[k], k, o, 'linux');
+        // A `{ slots }` entry leaves only those slots uncompared (conform-linux.mjs).
+        const apart = LINUX_APART[t.name], own = (k, s) => (k === 'slots' ? withoutSlots(apart, s) : s);
+        for (const k of STATE_KEYS) diffJSON(own(k, sw[k]), own(k, sl[k]), k, o, 'linux');
         if (!linux.stateOnly) o.push(...diffLists(norm(tw), norm(tl), 'tree', 'linux').slice(0, 4));
         if (linux.layout) linuxLayout = await L.layout();
         o.forEach(x => fail(step, 'linux ' + x));
@@ -758,7 +761,8 @@ const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer', 'drag', 'down', 'mov
 // ends there, saying why (each is a host difference, not the runner's):
 // [step, why] stops before that step (null: from the start); [step, why,
 // { slot, value }], where Linux's answer is specified, takes the step, holds
-// the slot read after it to that value, then stops.
+// the slot read after it to that value, then stops. { slots, why } instead
+// leaves only those state slots uncompared, the drive compared to its end.
 const LINUX_APART = {
   caltrain: ['tap open-deck', 'its deck screen is an iframe, whose load and message only a browser delivers'],
   'markdown-stress': ['tap toggle-single', "its editor's selection report (formats, links) is the web's markup editor's, which the Linux host's text field does not make"],
@@ -767,8 +771,8 @@ const LINUX_APART = {
   messages: ['tap conversation-maya', 'its data sources write drafts and reads to storage on the Linux host, where the page refuses storage in agent mode without --storage (QUEUE)'],
   'interaction-gallery': ['drag sheet-handle 0 -150 300', "the sheet's full stop is its bay's height (`frame`), under three rows of 12 px buttons whose text each host sets in its own sans: Chrome's system-ui, and on macOS the Linux host's Arial (text/fonts.rs, no fontconfig), a row 1 px shorter, so 521 against the page's 518"],
   'synthetic-iframes': ['tap show', 'the Linux host loads no iframe, whose load and message only a browser delivers'],
+  'synthetic-decorations': { slots: ['sizes'], why: "rangeFrame's sizes are each host's fonts' (wasm and JS compare them; Linux's are pinned in host/linux's range_frame_tests.rs)" },
   'synthetic-native-buttons': ['tap open-dialog', 'the Linux host does not present dialogs (LLP 1001, LLP 1021 D2): it refuses a `commandfor` press, so the opener keeps the focus'],
-  'synthetic-decorations': ['tap measure', "its rangeFrame is the host's text field reader, which the Linux host does not have, so it answers unavailable (docs/contract-grammar.md, rangeFrame; LLP 1114.007)", { slot: 'geometry', value: 'unavailable' }],
 };
 const linuxCrate = app => { const f = resolve(root, 'apps', app, 'linux', 'Cargo.toml'); return existsSync(f) ? /^name\s*=\s*"([^"]+)"/m.exec(readFileSync(f, 'utf8'))?.[1] : null; };
 function linuxFor(t) {

@@ -160,3 +160,17 @@ need('chrome', missing.chromium)('chromium: rangeFrame on a Markdown field reads
     expect(newline[3]).toBeGreaterThan(word[3] * 1.5);
   }, true, 'first line\n**bold** word');
 }, 30000);
+
+// The web's stated deviation (docs/contract-grammar.md, theme2's 18:42
+// ruling): Chrome's createValueRange gives an empty line's caret the end of
+// the text before it, and an empty field's a zero rectangle at the
+// viewport's origin, where Linux answers the painted caret (QUEUE).
+need('chrome', missing.chromium)('chromium: rangeFrame on an empty line and an empty field is Chrome\'s', async () => {
+  await page('chromium', async p => {
+    const [last, end] = await p.evaluate(() => [range(3, 3), range(2, 2)]);
+    expect(last).toEqual(end);
+  }, false, 'ab\n');
+  await page('chromium', async p => {
+    expect(await p.evaluate(() => range(0, 0))).toEqual([0, 0, 0, 0]);
+  }, false, '');
+}, 30000);

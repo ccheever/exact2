@@ -1151,13 +1151,22 @@ terminal paint nothing yet. Only the web paints `text-shadow`. `input` and
 
 An action may call `rangeFrame(id, start, end)` for the `Geometry` of a textarea's UTF-16
 range, plain or `markup="markdown"` (source offsets), as DOM's
-`Range.getBoundingClientRect()` gives it: a collapsed range is the caret's rectangle (width
-0, the line's height), a wider one the union of its lines, in viewport coordinates and not
-trimmed by scrolling or the field's clip. Offsets are truncated toward zero; a non-finite or
-negative offset, a start past the end, an end past the text, a missing or hidden field,
-composition, and a host with no reader (Linux, Windows, Android, the terminal, a browser
-without `createValueRange` for a plain textarea) give `unavailable`. It reads the layout
-last drawn, so a `setRangeText` earlier in the same action is not yet measured.
+`Range.getBoundingClientRect()` gives it: a collapsed range is the caret's rectangle where
+the caret is painted (width 0, the height of the text there: its font's content area, as
+Chrome measures it; an empty line's caret on that line, an empty field's at its start), a
+wider one the union of its lines' text boxes (a line break's empty box counted only when
+every box is empty), in viewport coordinates and not trimmed by scrolling or the field's
+clip. Offsets are truncated toward zero; a non-finite or negative offset, a start past the
+end, an end past the text, a missing or hidden field, composition, an `input`, and a host
+with no reader (Android, whose field is the platform's own; the terminal; a browser without
+`createValueRange` for a plain textarea) give `unavailable`. Linux and Windows read the
+field as they last painted it: its text boxes (its glyphs across, their font's content area
+down) through the transform it was painted with, bounded; a field placed by a perspective
+is `unavailable` there (Windows by construction, the same presenter, not yet run on
+Windows). The web's known deviation is Chrome's: an empty field's collapsed range is a zero
+rectangle at the viewport's origin, and an empty line's is at the end of the text before it
+(QUEUE). It reads the layout last drawn, so a `setRangeText` earlier in the same action is
+not yet measured.
 
 ### Markdown: `markup`, `format`, `select`
 
