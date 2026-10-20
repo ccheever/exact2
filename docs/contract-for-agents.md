@@ -577,10 +577,10 @@ half-typed `-` or `1.` survives). That makes the contract:
 - **on commit** (`change`, which a text field fires on Enter and on blur), the
   action writes the accepted value and writes the normalized text back into the
   draft, which changes the binding and redraws the field.
-  Since `change` also fires on blur, it is no "submit on Return": a form
-  submitting on it submits on every tap away from the field (an eye, a
-  "Forgot password?"). Submit on Return with `key`: `key=returned`,
-  `action returned(k: string)` acting when `k == "Enter"`.
+  Since `change` also fires when an edited field loses focus, it is no
+  "submit on Return": a form submitting on it submits on a tap away from the
+  field (an eye, a "Forgot password?"). Submit on Return with `submit`, which
+  runs on Return alone, after the commit (and never for an IME's Return).
 
 A field bound straight to the accepted value breaks this: an action that
 normalizes `-2` to the `0` it already held leaves the binding unchanged, so the
