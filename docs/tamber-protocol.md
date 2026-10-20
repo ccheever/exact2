@@ -122,7 +122,7 @@ on macOS and Linux.
   (stage 12 B3); a param's levels (stage 12 B2-levels):
   `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name`, and
   `describe`'s param rows' `reaches`; `describe`'s library components' `parts`, `variants` and
-  `library`, and each param's `winning` per tuple (stage 12 D3); a relay session's `spki` with its
+  `library` (stage 12 D3; a param's winning level per tuple is `resolve`'s, B2-levels); a relay session's `spki` with its
   certificate got by ACME (stage 10c R2); and names this machine's files in no answer:
   every `file` field and file name in an answer or event is app-relative, or `<package>/<path inside it>`
   for a package's file (a package linked from outside the app included), never absolute, `hello`'s `app`
@@ -475,9 +475,6 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     A param whose default is a reference adds `reaches: {token, base, app_set}` (*1.15*): the first
     token its default reaches, the base name every tuple reaches (or null), and whether the app
     overrides that token (`explain`'s `levels`, compact; none where `levels` is null).
-    Each param has `winning` (*1.15*, stage 12 D3, LLP 1139 D5): per tuple, beside `values`, the
-    level that won and the name there, `{level, name}`, as `resolve`'s tuples say it (`level` one of
-    `app-param`, `app-token`, `package`, `base`, `role`, `default`).
     An exported library component (LLP 1139 D0) adds `library: true`, `parts: [{name, groups, slot}]`
     (`slot: true` on the part whose node holds `children`) and `variants: [{prop, options}]` (each
     enum or bool prop its own view reads in a class condition, a `?:` or a `match`), from the IR; one

@@ -1,7 +1,7 @@
 //! LLP 1139 D5, LLP 1121 stage 12 D3 (*1.15*): `describe` lists each
 //! exported library component's parts and variant props (from C's IR), with
-//! params or without, and each param's winning level per tuple (`winning`,
-//! beside `values`), from B2-levels' one walker, as `resolve` says it.
+//! params or without; each of its params' winning level per tuple is
+//! `resolve`'s (B2-levels' one walker), for each of the five levels.
 #![cfg(unix)]
 
 use super::tamber_serve::{app, Serve};
@@ -76,68 +76,48 @@ fn describe_lists_a_library_components_parts_variants_and_each_params_winning_le
         card["variants"],
         json!([{"prop": "tone", "options": ["plain", "quiet"]}])
     );
-    // Each param's winner, in every tuple: the app's own value, the app's override of the token, the
-    // package's default, a base name, a role.
-    let winning = |param: &str| -> Vec<(String, String)> {
-        let row = card["params"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|p| p["param"] == param)
-            .unwrap_or_else(|| panic!("{param}: {card}"));
-        let w = row["winning"]
-            .as_array()
-            .unwrap_or_else(|| panic!("{param}: {row}"));
-        assert_eq!(w.len(), row["values"].as_array().unwrap().len(), "{row}");
-        w.iter()
-            .map(|t| {
-                (
-                    t["level"].as_str().unwrap().to_string(),
-                    t["name"].as_str().unwrap().to_string(),
-                )
-            })
-            .collect()
-    };
-    for (param, level, name) in [
-        ("set", "app-param", "@acme/lib/index.contract#Card.set"),
-        ("app", "app-token", "lib.gap"),
-        ("pkg", "package", "lib.pad"),
-        ("base", "base", "space.md"),
-    ] {
-        let got = winning(param);
-        assert!(
-            got.iter().all(|(l, n)| l == level && n == name),
-            "{param}: {got:?}"
-        );
-    }
-    let ink = winning("ink");
-    assert!(ink.iter().all(|(l, _)| l == "role"), "{ink:?}");
-    // As `resolve` says it, tuple by tuple.
-    let full = |param: &str| {
+    // Each param's winner per tuple is `resolve`'s (B2-levels; theme2's 07:20Z ruling: describe keeps only
+    // `reaches`): the app's own value, the app's override of the token, the package's default, a base
+    // name, a role, through the library component's params.
+    let row = |param: &str| {
         card["params"]
             .as_array()
             .unwrap()
             .iter()
             .find(|p| p["param"] == param)
-            .unwrap()["name"]
-            .as_str()
-            .unwrap()
-            .to_string()
+            .unwrap_or_else(|| panic!("{param}: {card}"))
+            .clone()
     };
-    for param in ["set", "app", "pkg", "base", "ink"] {
-        let (r, _) = s.ask(json!({"method": "resolve", "token": full(param)}));
-        let resolved: Vec<(String, String)> = r["ok"]["tuples"]
+    assert!(
+        card["params"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|t| {
-                (
-                    t["level"].as_str().unwrap().to_string(),
-                    t["name"].as_str().unwrap().to_string(),
-                )
-            })
-            .collect();
-        assert_eq!(resolved, winning(param), "{param}");
+            .all(|p| p.get("winning").is_none()),
+        "{card}"
+    );
+    for (param, level, name) in [
+        (
+            "set",
+            "app-param",
+            Some("@acme/lib/index.contract#Card.set"),
+        ),
+        ("app", "app-token", Some("lib.gap")),
+        ("pkg", "package", Some("lib.pad")),
+        ("base", "base", Some("space.md")),
+        ("ink", "role", None),
+    ] {
+        let (r, _) = s.ask(json!({"method": "resolve", "token": row(param)["name"]}));
+        let tuples = r["ok"]["tuples"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{param}: {r}"));
+        assert!(!tuples.is_empty());
+        for t in tuples {
+            assert_eq!(t["level"], level, "{param}: {t}");
+            if let Some(name) = name {
+                assert_eq!(t["name"], name, "{param}: {t}");
+            }
+        }
     }
     // A library component with no params: listed all the same.
     let badge = all.iter().find(|c| c["name"] == "Badge").expect("Badge");

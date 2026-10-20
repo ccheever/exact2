@@ -487,17 +487,6 @@ pub fn components(
                 if let Some(reaches) = designs.reaches(q) {
                     row["reaches"] = reaches;
                 }
-                // Each tuple's winning level and the name there (LLP 1139 D5,
-                // stage 12 D3, *1.15*): B2-levels' one walker, as `resolve`'s
-                // tuples say it, beside `values`.
-                if let Some(f) = folding.as_ref() {
-                    row["winning"] = json!((0..f.tuples)
-                        .map(|t| {
-                            let step = designs.walk(q, t);
-                            json!({"level": step.level, "name": step.name})
-                        })
-                        .collect::<Vec<_>>());
-                }
                 row
             })
             .collect();
