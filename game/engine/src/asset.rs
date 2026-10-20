@@ -54,6 +54,12 @@ pub struct MeshOutline {
 }
 #[derive(Data, Clone, Debug)]
 pub struct MaterialData {
+    /// The glTF material's name, empty when it has none. Informational only:
+    /// names may repeat, and a mesh's `material` index is what selects one.
+    /// Unwritten when empty, so a model with no names keeps its bytes and its
+    /// identity in saves.
+    #[data(omit_default)]
+    pub name: String,
     pub base_color: [f32; 4],
     pub metallic: f32,
     pub rim: f32,
@@ -75,6 +81,7 @@ pub struct MaterialData {
 impl Default for MaterialData {
     fn default() -> Self {
         Self {
+            name: String::new(),
             base_color: [1.0; 4],
             metallic: 1.0,
             rim: 0.0,

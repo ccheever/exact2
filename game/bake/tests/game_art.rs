@@ -167,3 +167,48 @@ fn a_double_sided_material_and_black_vertex_colours_bake_as_exported() {
     assert_eq!(joined.meshes[0].colors, [0., 0., 0., 1.].repeat(24));
     fs::remove_dir_all(game).unwrap();
 }
+
+struct Crates;
+impl Game for Crates {
+    const ID: &'static str = "game-art-crates";
+    const ASSETS: &'static [&'static str] = &["crate.model", "pair.model"];
+    type Args = ();
+    fn setup(_: &mut World, _: &()) {}
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+// LLP 1139.004 D3: a baked material keeps its glTF name, read through
+// `world().model(..).materials`; the index stays what selects one.
+#[test]
+fn a_baked_material_keeps_its_gltf_name_and_its_index() {
+    let game = temp("names");
+    let scaffold = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../new-assets/art/crate.gltf");
+    fs::copy(&scaffold, game.join("art/crate.gltf")).unwrap();
+    // Two materials of one name and one with none, each on its own primitive.
+    let mut pair: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&scaffold).unwrap()).unwrap();
+    let crate_material = pair["materials"][0].clone();
+    pair["materials"] = serde_json::json!([crate_material, crate_material, {}]);
+    let primitive = pair["meshes"][0]["primitives"][0].clone();
+    pair["meshes"][0]["primitives"] = (0..3)
+        .map(|i| {
+            let mut p = primitive.clone();
+            p["material"] = i.into();
+            p
+        })
+        .collect();
+    fs::write(game.join("art/pair.gltf"), pair.to_string()).unwrap();
+    let art = exact_game_bake::art(&game).unwrap();
+    let sim = Sim::<Crates>::with_assets((), |name| art.get(name).cloned().ok_or(name.to_owned()))
+        .unwrap();
+    let names = |model: &str| -> Vec<String> {
+        let model = sim.world().model(model).unwrap();
+        model.materials.iter().map(|m| m.name.clone()).collect()
+    };
+    assert_eq!(names("crate.model"), ["Crate"]);
+    assert_eq!(names("pair.model"), ["Crate", "Crate", ""]);
+    let pair = sim.world().model("pair.model").unwrap();
+    let used: Vec<u32> = pair.meshes.iter().map(|m| m.material).collect();
+    assert_eq!(used, [0, 1, 2], "indices select, whatever the names");
+    fs::remove_dir_all(game).unwrap();
+}

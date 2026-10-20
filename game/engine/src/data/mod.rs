@@ -370,6 +370,12 @@ pub(crate) fn type_name<T>() -> &'static str {
     std::any::type_name::<T>().rsplit("::").next().unwrap()
 }
 
+/// Whether a `data(omit_default)` field holds its default and so is not written.
+#[doc(hidden)]
+pub fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
+
 /// Decode and check finite JSON before replacing a live-edit candidate's field.
 #[doc(hidden)]
 pub fn edit_field<T: Data>(value: &mut T, text: &str) -> Result<(), DataError> {

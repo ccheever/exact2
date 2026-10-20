@@ -42,6 +42,16 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
   for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
   1046.012 F5, 2026-10-07.)
 
+- **`model.materials[i].name` is empty for a material Blender names.** Cause: the
+  `.model` was baked before the bake kept material names (LLP 1139.004 D3) and an
+  older bake output is still what loads (a copied `assets/`), or the glTF material
+  has no `name`. The engine reads an older model
+  with empty names rather than refusing it. Fix: bake again (any build, or
+  `sim_with_art!` in a test, bakes `art/` afresh). The bake's material record
+  changed then, so the next bake moves every model's bytes and a repin's `inputs`;
+  world saves and generated models' identities do not change. Select a material
+  by index: names may repeat.
+
 ## Input
 
 - **A HUD shortcut's chord does not reach the focused world.** On every host a shown

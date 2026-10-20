@@ -167,3 +167,16 @@ fn setup_reconstructs_generated_geometry_and_drops_old_identities() {
     assert_eq!(sim.world().save(), fresh.world().save());
     sim.restore(&fresh.save().unwrap()).unwrap();
 }
+
+/// A generated model's identity is in every save of a world that holds it.
+/// Material names (LLP 1139.004 D3) are informational: an unnamed material
+/// writes no name, so the identity, and the saves, of existing generated
+/// models stay as they were.
+#[test]
+fn an_unnamed_material_keeps_a_generated_models_identity() {
+    let mut w = World::new(60, 0);
+    w.generated("rock.model", triangle()).unwrap();
+    let model = w.model("rock.model").unwrap();
+    assert_eq!(model.materials.len(), 1);
+    assert_eq!(exact_game::hash::of(model), 9794033405689772318);
+}

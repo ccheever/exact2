@@ -325,6 +325,9 @@ pass and uses equal-depth colour testing; coplanar ties follow draw order. It is
 off by default. See [the renderer](../render/README.md) for coverage and measurement.
 See [toon rendering and parity options](../render/README.md#toon-models) for
 `MeshData.outline`, `MaterialData.rim` and their glTF import names.
+`MaterialData.name` is the glTF material's name, empty when it has none; names may
+repeat, and the mesh's `material` index is what selects one
+([Blender export](../recipes/blender-export.md)).
 
 ## Saves and assets
 
