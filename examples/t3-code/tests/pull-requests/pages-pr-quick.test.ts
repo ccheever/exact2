@@ -1,6 +1,6 @@
 // The Pull Requests page's row extras: the Shift quick actions
 // (PullRequestSpeedActions: which buttons a row offers, the merge's own checks, the toasts and the row
-// it writes), speed mode read from the native monitor, and the checks and stack popovers read when
+// it writes), speed mode left to the window, and the checks and stack popovers read when
 // opened. Driven through the list resource (pages-prs.ts pullRequestsPage) and the panel's command
 // route (pages-pr-detail.ts prCommand) against injected host replies.
 import { describe, expect, test } from 'bun:test';
@@ -25,7 +25,7 @@ const detail = (number: number, extra: Obj = {}): Obj => ({ ...entry(number), wo
   viewerPermissions: { actions: ['merge', 'close', 'reopen', 'ready'] }, mergeCapabilities: { merge: false, squash: true, rebase: true },
   checks: [{ name: 'ci/build', status: 'success', url: 'https://ci/1' }, { name: 'ci/test', status: 'failure', description: '2 tests failed', url: 'https://ci/2' }], ...extra });
 type Reply = (payload: Obj) => unknown;
-function fakeClient(replies: Record<string, Reply>, speed = false) {
+function fakeClient(replies: Record<string, Reply>) {
   const calls: { method: string; payload: Obj; write: boolean }[] = [];
   const client = {
     environmentId: 'env', threadId: '', projectId: 'p1', ready: true, revision: 0, generation: 1, local: {} as Obj,
@@ -37,7 +37,7 @@ function fakeClient(replies: Record<string, Reply>, speed = false) {
       if (!reply) throw new Error(`no reply for ${method}`);
       return reply(payload);
     },
-    restAccess: () => ({ call: async (request: Obj) => (request.op === 'sidebarSpeedMode' ? { speedMode: speed } : {}) }),
+    restAccess: () => ({ call: async (request: Obj) => { if (request.op === 'sidebarSpeedMode') throw new Error('the module has no speed mode'); return {}; } }),
   } as unknown as T3Client;
   client.projectGroups = () => client.shell.projects.map(project => ({ key: String(project.id), name: String(project.title ?? ''), members: [project] }));
   return { client, calls };
@@ -77,9 +77,10 @@ describe('the Shift quick actions (PullRequestSpeedActions)', () => {
     expect(speedActions(entry(6, { stack: { number: 120, position: 1, size: 2, base: 'main' } }), false)[1]).toMatchObject({ disabled: true, tooltip: 'Open this pull request to merge its stack' });
     expect(speedActions(entry(3), true).every(action => action.disabled)).toBe(true);
   });
-  test('speed mode is the native monitor\'s, read with every answer of the page', async () => {
-    expect((await page(fakeClient(listOf(entry(1)), true).client)).speedMode).toBe(true);
-    expect((await page(fakeClient(listOf(entry(1)), false).client)).speedMode).toBe(false);
+  test('speed mode is the window\'s: the page answers its rows\' actions without it', async () => {
+    const answer = await page(fakeClient(listOf(entry(1))).client);
+    expect('speedMode' in answer).toBe(false);
+    expect(rows(answer)[0]!.speed.length).toBeGreaterThan(0);
   });
   test('Close runs at once, says "Pull request closed", writes the row closed and reads the list again', async () => {
     const { client, calls } = fakeClient({ ...listOf(entry(7)), 'pullRequests.runAction': () => ({}) });

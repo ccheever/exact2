@@ -104,7 +104,7 @@ component ToolsField
     submit: action
     testId: string
   view
-    input value=value input=input submit=submit placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" spellcheck="false" testId=testId flex=1 min-width=0 height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=toolsInputBorder() background-color=toolsFieldBackground() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=toolsInk()
+    input value=value input=input submit=submit placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" spellcheck="false" testId=testId flex=1 min-width=0 height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=toolsInputBorder() background-color=toolsFieldBackground() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=toolsInk() id=`field-${testId}` data-editable="yes"
       ::placeholder
         color=toolsMuted()
 

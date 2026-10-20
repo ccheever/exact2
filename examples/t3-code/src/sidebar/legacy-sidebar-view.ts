@@ -16,7 +16,7 @@ import type { ProjectGlyph } from './sidebar-glyph';
 import { canArchive, menuRows, type MenuRow } from './sidebar-menu';
 import { lastVisited } from './sidebar-model';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
-import { terminalProcessCount, shortcutLabel, type SidebarHelpers } from './sidebar-view';
+import { terminalProcessCount, shortcutLabel, threadJumpModifiers, type SidebarHelpers } from './sidebar-view';
 import { currentPullRequestLink } from '../panel/shell-pr';
 import { lifecycle, lifecycleIcon, shortName, providerOfUrl } from '../panel/pr-surface';
 import { branchPrTooltip, branchPullRequest } from './sidebar-branch-pr';
@@ -49,7 +49,7 @@ export interface LegacyProjectRow {
 }
 export interface LegacySidebarView {
   enabled: boolean; projects: LegacyProjectRow[]; manual: boolean; projectSort: string; threadSort: string; previewCount: number;
-  newThreadTip: string; searchShortcut: string; confirmArchive: boolean; noProjects: boolean; jumpHints: boolean;
+  newThreadTip: string; searchShortcut: string; confirmArchive: boolean; noProjects: boolean; jumpModifiers: string[];
   dialog: string; dialogTitle: string; dialogDescription: string; dialogField: string; dialogDetail: string; dialogGrouping: string; dialogGroupingLabel: string;
   dialogGroupingDescription: string; dialogConfirmLabel: string; dialogTarget: string;
 }
@@ -284,11 +284,11 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
   const base = { enabled, manual: projectSortOrder(client) === 'manual', projectSort: projectSortOrder(client), threadSort: threadSortOrder(client), previewCount: previewCount(client),
     newThreadTip: newThread ? `New thread (${newThread})` : 'New thread', searchShortcut: shortcutLabel(client, 'commandPalette.toggle'),
     confirmArchive: client.local.clientSettings?.confirmThreadArchive === true, noProjects: enabled && entries.length === 0,
-    jumpHints: !terminalFocused(client) && client.presentation.sidebarJumpHints === true, ...dialogView(client) };
+    jumpModifiers: terminalFocused(client) ? [] : threadJumpModifiers(client), ...dialogView(client) };
   if (!enabled) { forgetArrivals(client); return { ...base, projects: [] }; }
   const views = entries.map(({ group, threads }) => projectThreads(client, group, threads));
   const entering = arrivalsOf(client, now, [...entries.map(entry => `project:${entry.group.key}`), ...views.flatMap(view => view.rendered.map(thread => `thread:${str(thread.id)}`))]);
-  const jumps = base.jumpHints ? Array.from({ length: 9 }, (_, index) => shortcutLabel(client, `thread.jump.${index + 1}`)) : [];
+  const jumps = base.jumpModifiers.length ? Array.from({ length: 9 }, (_, index) => shortcutLabel(client, `thread.jump.${index + 1}`)) : [];
   let visibleIndex = 0;
   const multi = multiSelectMenu(client);
   const projects = entries.map(({ group, threads }, at): LegacyProjectRow => {
