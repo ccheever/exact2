@@ -5952,6 +5952,7 @@
     ["sheet-width", "length", "35rem"],
     ["sheet-max-height", "length", "45rem"],
     ["sheet-margin", "length", 64],
+    ["sheet-top", "length", 12],
     ["raised-shadow-y", "length", 4],
     ["raised-shadow-blur", "length", 12],
     ["raised-shadow-alpha", "number", 0.12],

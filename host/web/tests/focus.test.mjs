@@ -260,7 +260,9 @@ test('action dialog commands keep modal focus and preserve bare close as window 
     const page = await browser.newPage();
     await page.setContent('<div id="exact-root"><button id="opener">Open</button><button id="outside">Outside</button><dialog id="form"><button id="first">First</button><button id="last">Last</button></dialog><div id="box"></div></div><dialog id="other"></dialog>');
     const source = readFileSync(new URL('../../web-js/commands.js', import.meta.url), 'utf8').replace(/^import .*$/gm, '').replace('export const commands', 'const commands');
-    await page.addScriptTag({content: `${source}\nwindow.journal=[];window.quit=0;window.close=()=>quit++;window.hostCommands=commands(line=>journal.push(line));`});
+    // Of commands.js's imports the dialog commands reach only navigation.js's `liveById`; nothing leaves here, so
+    // finding by id is enough.
+    await page.addScriptTag({content: `const liveById = id => document.getElementById(id);\n${source}\nwindow.journal=[];window.quit=0;window.close=()=>quit++;window.hostCommands=commands(line=>journal.push(line));`});
     const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
     const runtime = readFileSync(new URL('../../web-js/rt.js', import.meta.url), 'utf8');
     await page.addScriptTag({content: `(() => {

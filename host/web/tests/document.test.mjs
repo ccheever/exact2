@@ -885,7 +885,8 @@ browserCheck('modal routes use the page\'s ground, keep author paint, and reveal
       expect(facts.second.background).toBe(facts.canvas.background);
       expect(facts.second.background).not.toBe('rgba(0, 0, 0, 0)');
       expect(facts.bare.background).toBe('rgba(0, 0, 0, 0)');
-      expect(facts.home.visibility).toBe('hidden');
+      // The page under the sheets is drawn too, covered: it shows above a narrow sheet's top.
+      expect([facts.home.visibility, facts.home.covered, facts.home.inert]).toEqual(['visible', true, true]);
       expect(facts.first.covered).toBe(true);
       expect(facts.first.inert).toBe(true);
       expect(facts.second.inert).toBe(false);

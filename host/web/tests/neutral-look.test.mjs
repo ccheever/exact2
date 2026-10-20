@@ -5,6 +5,7 @@ import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { withLook, appleColors } from '../look.mjs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
+import { glueDeclarations } from './glue-fixture.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
@@ -75,7 +76,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
     'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'],
     'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding'], 'menu-row-gap': ['--exact-button-space-width'],
-    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-max-height': ['max-height'], 'sheet-margin': ['width', 'max-height'],
+    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-max-height': ['max-height'], 'sheet-margin': ['width', 'max-height'], 'sheet-top': ['inset'],
     'list-row-inset': ['padding-left', 'padding-right'],
     'raised-shadow-y': ['--exact-raised'], 'raised-shadow-blur': ['--exact-raised'], 'modal-shadow-y': ['--exact-modal'], 'modal-shadow-blur': ['--exact-modal'],
   };
@@ -400,13 +401,269 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', '12px', SURFACE[scheme], 178, 178, true, false]]);
       await context.close();
     }
-    // A narrow window: the sheet is the page's own box, full-bleed. A touch device: a control is 44 px.
+    // A touch device: a control is 44 px. (A narrow window's sheet is below.)
     const narrow = await browser.newContext({ viewport: { width: 390, height: 700 }, hasTouch: true, ...(engine === 'chromium' ? { isMobile: true } : {}) });
     const page = await narrow.newPage();
     await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>${sheet()}</style>${fixture}<script>${helpers}</script>`);
-    expect([engine, await page.evaluate(() => css('sheet', 'position'))]).toEqual([engine, 'absolute']);
     expect([engine, await page.evaluate(() => [matchMedia('(any-pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3], box('check')[3]])]).toEqual([engine, [true, 44, 44, 44, 24]]);
   } finally { await browser.close(); }
+}, 90000);
+
+// A sheet in a narrow window (D4.8) is iOS's: from 12 px below the window's top to its bottom, over the tab bar, its top
+// corners a surface's. One that opens slides up from the window's bottom edge, unless the person asks for less motion.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet in a narrow window rises from the bottom edge`, async () => {
+  const browser = await launch(engine);
+  try {
+    for (const reducedMotion of ['no-preference', 'reduce']) {
+      const context = await browser.newContext({ viewport: { width: 400, height: 700 }, reducedMotion });
+      const page = await context.newPage();
+      await page.setContent(`<style>${sheet()}</style>${fixture}<script>${helpers}</script>`);
+      const got = await page.evaluate(() => {
+        const opened = document.getElementById('sheet').cloneNode(true);
+        opened.id = 'opened';
+        document.getElementById('p1').append(opened);
+        const moving = opened.getAnimations().map((a) => a.transitionProperty).sort();
+        // Where it is as it starts and halfway: from the window's bottom edge, upward.
+        const at = (t) => { for (const a of opened.getAnimations()) { a.pause(); a.currentTime = t; } return Math.round(box('opened')[1]); };
+        const path = moving.length ? [at(0), at(200)] : [];
+        for (const a of opened.getAnimations()) a.finish();
+        return [css('opened', 'position'), box('opened'), css('opened', 'borderTopLeftRadius'), css('opened', 'borderBottomLeftRadius'), box('tabs')[1] < box('opened')[1] + box('opened')[3], css('opened', 'zIndex'), moving, path.length === 0 || (path[0] === 712 && path[1] > 12 && path[1] < 712)];
+      });
+      expect([engine, reducedMotion, got]).toEqual([engine, reducedMotion, ['fixed', [0, 12, 400, 688], '12px', '0px', true, '1', reducedMotion === 'reduce' ? [] : ['box-shadow', 'translate'], true]]);
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+}, 90000);
+
+// As it closes, it slides back down (navigation.js `sheetLeaves`): the route a commit removes stays, out of input,
+// accessibility and the routes, until it is off the window; under reduced motion it is gone at once.
+// The wasm runtime's commit (glue.js `apply`), with the host pieces a destroy and a reorder do not reach inert.
+const glueApply = `(() => {
+  globalThis.exact ??= {};
+  const views = window.glueViews = new Map(), retiredViews = new WeakSet(), root = document.getElementById('exact-root'), log = () => {};
+  const presence = { live: null }, listSelection = null, page = null, agentMode = false, inputReady = false, inputHandlers = null;
+  const motion = { destroy() {} }, arrange = { destroy() {} }, collections = { commit() {}, restyled() {}, jump() {} };
+  const followedScrolls = new Map(), pendingScrolls = new Map(), lists = new WeakSet(), messageFrames = new WeakMap(), messageViews = new Map();
+  const viewFor = (_, id) => views.get(id), prepareContexts = () => {}, forgetList = () => {}, followScroll = () => {}, settleFollow = () => {}, settleValue = () => {};
+  const refreshSymbols = () => {}, syncLists = () => {}, focusAutofocus = () => {}, positionContexts = () => {}, markScrollDocument = () => {}, rememberScroll = () => {};
+  ${glueDeclarations(read('../glue.js'), ['apply'])}
+  return apply;
+})()`;
+const closing = `<div id="exact-root"><main id="nav" navigationKey="1" navigationBack="back" style="position:relative;height:600px">
+  <div navigationKey="1" id="under"><header><h1>Inbox</h1></header></div>
+  <div navigationKey="2" navigationPresentation="modal" id="leaving" style="position:absolute;inset:0"><header><h2>New</h2></header><button type="button" id="inside">Add</button><svg><defs><linearGradient id="shade"><stop offset="0" stop-color="red"/></linearGradient></defs><rect id="swatch" width="10" height="10" fill="url(#shade)"/><use id="again" href="#swatch"/></svg></div>
+</main></div>`;
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet slides back down as it closes`, async () => {
+  const browser = await launch(engine);
+  try {
+    for (const reducedMotion of ['no-preference', 'reduce']) {
+      const context = await browser.newContext({ viewport: { width: 400, height: 700 }, reducedMotion });
+      const page = await context.newPage();
+      await page.setContent(`<style>${sheet()}</style>${closing}<script type="module">${read('../navigation.js')}
+        const host = document.getElementById('exact-root');
+        navigation.connect(host, () => false, () => {});
+        window.select = (key) => { document.getElementById('nav').setAttribute('navigationKey', key); navigation.project(host, () => {}); };
+        window.sheetLeaves = sheetLeaves; window.animationClock = animationClock; window.glueApply = ${glueApply}; window.focusById = (id) => runFocusCommands([{ name: 'focus', args: [id] }], { root: host, ready: true, inertAncestor, log: () => {} });
+        // A route of the stack (a sheet unless said), what a runtime does as it removes one, and its animations ended.
+        window.route = (id, key, presentation = 'modal', html = '<header><h2>Over</h2></header>', parent = document.getElementById('nav')) => { const r = Object.assign(document.createElement('div'), { id }); r.setAttribute('navigationKey', key); if (presentation) r.setAttribute('navigationPresentation', presentation); r.innerHTML = html; parent.append(r); return r; };
+        window.leave = (r) => { if (!sheetLeaves(r)) r.remove(); };
+        window.finish = (...routes) => { for (const r of routes) for (const a of r.getAnimations()) a.finish(); };
+        window.tick = () => new Promise((r) => setTimeout(r));
+        select('2'); window.ready = true;</script>`);
+      await page.waitForFunction('window.ready === true');
+      // The commit removes the sheet once it has risen, asking first, as a runtime does, and names the route beneath.
+      await page.evaluate(() => { const route = document.getElementById('leaving'); finish(route); leave(route); select('1'); });
+      // It stays where it was, whole (its ids, so its gradient and `use` still resolve), and moves from where it stood
+      // down to the window's bottom edge.
+      const leaving = await page.evaluate(() => {
+        const ghost = document.querySelector('[data-exiting]');
+        if (!ghost) return null;
+        const at = (t) => { for (const a of ghost.getAnimations()) { a.pause(); a.currentTime = t; } return Math.round(ghost.getBoundingClientRect().top); };
+        const path = [at(0), at(200), at(399.9)];
+        for (const a of ghost.getAnimations()) a.play();
+        return [ghost.id, ghost.getAttribute('navigationKey'), ghost.getAttribute('aria-hidden'), ghost.inert, ghost.previousElementSibling?.id, ghost.querySelector('rect').getAttribute('fill'), document.getElementById('shade')?.closest('[data-exiting]') === ghost, path[0] === 12 && path[1] > 12 && path[2] > 700, document.getElementById('under').inert];
+      });
+      expect([engine, reducedMotion, leaving]).toEqual([engine, reducedMotion, reducedMotion === 'reduce' ? null : ['leaving', '', 'true', true, 'under', 'url(#shade)', true, true, false]]);
+      const gone = await page.evaluate(async () => {
+        await Promise.all(document.querySelector('[data-exiting]')?.getAnimations().map((a) => (a.finish(), a.finished)) ?? []);
+        await tick();
+        return document.querySelector('[data-exiting], #leaving') === null;
+      });
+      expect([engine, reducedMotion, gone]).toEqual([engine, reducedMotion, true]);
+      // A sheet that opens while one leaves ends it, as they may share ids; one it uncovers does not, and it slides
+      // down over that one. While one is over the other, only the one above draws the scrim.
+      const uncovered = await page.evaluate(async () => {
+        const below = route('below', '6'); select('6');
+        const above = route('above', '7'); select('7');
+        await tick();
+        finish(below, above);
+        const scrims = [below, above].map((r) => getComputedStyle(r).boxShadow !== 'none').concat(getComputedStyle(document.getElementById('under')).visibility === 'visible');
+        leave(above);
+        select('6');
+        await tick();
+        const out = [above.isConnected, !above.isConnected ? 'gone' : above.compareDocumentPosition(below) & Node.DOCUMENT_POSITION_PRECEDING && getComputedStyle(above).zIndex === getComputedStyle(below).zIndex ? 'over' : 'under', scrims];
+        finish(below, above); below.remove(); above.remove();
+        select('1');
+        return out;
+      });
+      expect([engine, reducedMotion, uncovered]).toEqual([engine, reducedMotion, reducedMotion === 'reduce' ? [false, 'gone', [false, true, true]] : [true, 'over', [false, true, true]]]);
+      // A full-screen route it uncovers keeps it too; a sheet that replaces it in the same commit ends it; one closed as
+      // it still rises turns back from where it is; one that holds media, a field's painted decorations, or an open
+      // dialog or popover closes at once; and one that holds a native view slides, showing what its module left in it.
+      const more = await page.evaluate(async () => {
+        const settle = (...routes) => { finish(...routes); for (const r of routes) r.remove(); select('1'); };
+        const full = route('full', '8', 'fullscreen'); select('8');
+        const sheet = route('over-full', '9'); select('9');
+        await tick();
+        leave(sheet);
+        select('8');
+        await tick();
+        const overFull = sheet.isConnected;
+        settle(full, sheet);
+        const first = route('first-of-two', '10'); select('10');
+        await tick();
+        // (A replace keeps the visit's key.)
+        const second = route('second-of-two', '10');
+        leave(first);
+        select('10');
+        await tick();
+        const replaced = first.isConnected;
+        settle(first, second);
+        await tick();
+        const rising = route('rising', '12'); select('12');
+        leave(rising);
+        select('1');
+        const turned = rising.isConnected && (() => { for (const a of rising.getAnimations()) { a.pause(); a.currentTime = 0; } return Math.round(rising.getBoundingClientRect().top); })();
+        settle(rising);
+        const playing = route('playing', '13', 'modal', '<video></video>'); select('13');
+        await tick();
+        leave(playing);
+        select('1');
+        // (An open dialog or popover is in the top layer, where the slide would leave it frozen.)
+        const alerting = route('alerting', '14', 'modal', '<dialog></dialog><div popover></div>'); select('14');
+        await tick();
+        alerting.querySelector('[popover]').showPopover();
+        leave(alerting);
+        select('1');
+        const menuing = route('menuing', '15', 'modal', '<dialog></dialog>'); select('15');
+        await tick();
+        menuing.firstChild.showModal();
+        leave(menuing);
+        select('1');
+        const topLayer = alerting.isConnected || menuing.isConnected;
+        settle(alerting, menuing);
+        const native = route('native', '16', 'modal', '<photo-editor></photo-editor>'); native.firstChild.exactNative = { id: 1 }; select('16');
+        await tick();
+        leave(native);
+        const nativeSlides = native.isConnected;
+        finish(native);
+        select('1');
+        // (Decorations are painted where a field gives its value's ranges, `createValueRange`; elsewhere it slides, as
+        // any sheet does unless the person asks for less motion.)
+        const decorated = route('decorated', '20', 'modal', '<textarea data-decorations="{}"></textarea>'); select('20');
+        await tick();
+        leave(decorated);
+        select('1');
+        const slides = decorated.isConnected === (!matchMedia('(prefers-reduced-motion: reduce)').matches && !('createValueRange' in HTMLTextAreaElement.prototype));
+        finish(decorated);
+        return [overFull, replaced, turned === false ? false : turned > 600, playing.isConnected, topLayer, nativeSlides, slides];
+      });
+      expect([engine, reducedMotion, more]).toEqual([engine, reducedMotion, reducedMotion === 'reduce' ? [false, false, false, false, false, false, true] : [true, false, true, false, false, true, true]]);
+      const ended = await page.evaluate(async () => {
+        const open = (id, key) => { const r = route(id, key); select(key); return r; };
+        const first = open('first', '3');
+        await tick();
+        leave(first);
+        select('1');
+        const leftThen = first.isConnected;
+        open('second', '4');
+        await tick();
+        return [leftThen, first.isConnected];
+      });
+      expect([engine, reducedMotion, ended]).toEqual([engine, reducedMotion, [reducedMotion !== 'reduce', false]]);
+      // It keeps its ids while it leaves, for its own references, but a focus the same commit asks for by an id it shares
+      // lands on the live route's: one that opens over it ends it at once, and an ordinary route it uncovers (which
+      // does not end it) is found first. (A field outside the app's root with that id is none of the app's.)
+      const ids = await page.evaluate(async () => {
+        const field = (id, key, presentation = 'modal') => route(id, key, presentation, '<input id="title" aria-label="Title">');
+        const outside = document.body.insertBefore(Object.assign(document.createElement('input'), { id: 'title' }), document.body.firstChild);
+        const first = field('first-title', '17'); select('17');
+        await tick();
+        finish(first);
+        leave(first);
+        select('1');
+        await tick();
+        const again = field('again-title', '18'); select('18'); focusById('title');
+        const reopened = [first.isConnected, document.activeElement.parentElement?.id];
+        finish(again);
+        document.activeElement.blur();
+        const page = field('page-title', '19', '');
+        leave(again);
+        select('19'); focusById('title');
+        const pushed = [again.isConnected, document.activeElement.parentElement?.id];
+        finish(again);
+        await tick();
+        page.remove(); outside.remove(); select('1');
+        return [reopened, pushed];
+      });
+      expect([engine, reducedMotion, ids]).toEqual([engine, reducedMotion, [[false, 'again-title'], [reducedMotion !== 'reduce', 'page-title']]]);
+      // One that opens in another stack leaves it be.
+      const elsewhere = await page.evaluate(async () => {
+        const nav = document.getElementById('nav'), other = Object.assign(document.createElement('main'), { id: 'nav-2' });
+        other.setAttribute('navigationKey', 'a'); other.setAttribute('navigationBack', 'back'); other.innerHTML = '<div navigationKey="a"></div>';
+        document.getElementById('exact-root').append(other);
+        const open = (parent, id, key) => { const r = route(id, key, 'modal', '', parent); parent.setAttribute('navigationKey', key); select(nav.getAttribute('navigationKey')); return r; };
+        const mine = open(nav, 'mine', '14');
+        await tick();
+        leave(mine);
+        select('1');
+        open(other, 'theirs', 'b');
+        await tick();
+        const stays = mine.isConnected;
+        finish(mine);
+        other.remove(); mine.remove(); select('1');
+        return stays;
+      });
+      expect([engine, reducedMotion, elsewhere]).toEqual([engine, reducedMotion, reducedMotion !== 'reduce']);
+      // The wasm runtime asks too: its commit destroys the sheet and then what it holds (parent first, as the kernel
+      // orders them), and lays out the stack without it, which passes over a leaving sheet.
+      const wasm = await page.evaluate(async () => {
+        const nav = document.getElementById('nav'), under = document.getElementById('under'), sheet = route('wasm-sheet', '15', 'modal', '<button type="button" id="wasm-inside">Add</button>');
+        select('15');
+        await tick();
+        const inside = sheet.firstElementChild;
+        for (const [id, el] of [[1, nav], [2, under], [3, sheet], [4, inside]]) glueViews.set(id, el);
+        nav.setAttribute('navigationKey', '1');
+        glueApply({ ops: [{ op: 'destroy', id: 3 }, { op: 'destroy', id: 4 }, { op: 'children', id: 1, ids: [2] }] });
+        const out = [sheet.isConnected && sheet.hasAttribute('data-exiting'), inside.parentElement === sheet, [...nav.children].map((c) => c.id)];
+        finish(sheet);
+        await tick();
+        return [...out, sheet.isConnected];
+      });
+      expect([engine, reducedMotion, wasm]).toEqual([engine, reducedMotion, reducedMotion === 'reduce' ? [false, true, ['under'], false] : [true, true, ['under', 'wasm-sheet'], false]]);
+      // Under the agent's clock (glue.js's `at`): a sheet a commit at 100 ms closes starts then, so at 700 ms it is gone.
+      const clocked = await page.evaluate(async () => {
+        let t = 100;
+        const clock = animationClock(() => t, () => null, () => {}), r = route('clocked', '5');
+        select('5');
+        await tick();
+        clock.register(0);
+        leave(r);
+        select('1');
+        clock.register(t);
+        t = 700;
+        clock.seek(t);
+        await tick();
+        return r.isConnected;
+      });
+      expect([engine, reducedMotion, clocked]).toEqual([engine, reducedMotion, false]);
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
 }, 90000);
 
 // What the author writes wins (LLP 1115). In CSS a minimum outranks a size and a border box is never narrower than

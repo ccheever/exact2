@@ -297,16 +297,23 @@
   @media (hover: hover) { #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:enabled:hover { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); } }
   @media (any-pointer: coarse) { #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style] { min-height: 44px; } }
 
-  /* A modal route is a sheet (D4.8): the page's ground, full-bleed in a narrow window; in a wide one (900 px, the
-     navigation glue's `WIDE`) a card over a scrim, as tall as its content up to the window. The layout is the
-     platform's, as the sidebar's and the split's are; a colour the author wrote still wins. The card says it is
-     above its siblings (`z-index`): WebKit paints a sidebar that scrolls over the scrim otherwise. */
+  /* A modal route is a sheet (D4.8): the page's ground over a scrim, above its siblings and the tab bar (`z-index`:
+     WebKit paints a sidebar that scrolls over the scrim otherwise). Narrow, it is iOS's sheet, from 12 px below the
+     window's safe area at the top to its bottom, its top corners rounded; wide (900 px, the navigation glue's
+     `WIDE`), a card as tall as its content up to the window. It slides up as it opens and back down as it closes
+     (navigation.js `sheetLeaves`), unless the person asks for less motion; a sheet beneath another leaves the scrim
+     to the one above. The layout is the platform's, as the sidebar's is; a colour the author wrote still wins. */
   :where(#exact-root [navigationPresentation="modal"]) { color: var(--exact-label); }
   /* Every browser uses the same sheet ground; an authored ground still wins. */
-  #exact-root [navigationPresentation="modal"] { background-color: var(--exact-background); }
+  #exact-root [navigationPresentation="modal"] { background-color: var(--exact-background); position: fixed !important; inset: calc(env(safe-area-inset-top, 0px) + 12px) 0 0 !important; margin: 0 !important; box-sizing: border-box !important; width: auto !important; height: auto !important; max-height: none !important; z-index: 1; border-radius: 12px 12px 0 0; overflow: clip; box-shadow: 0 0 0 100vmax var(--exact-scrim); transition: translate .4s cubic-bezier(.32, .72, 0, 1), box-shadow .4s cubic-bezier(.32, .72, 0, 1); }
+  @starting-style { #exact-root [navigationPresentation="modal"] { translate: 0 100vh; box-shadow: 0 0 0 100vmax transparent; } }
+  @media (prefers-reduced-motion: reduce) { #exact-root [navigationPresentation="modal"] { transition: none; } }
+  #exact-root [data-exact-covered]::after { content: none; }
+  #exact-root [navigationPresentation="modal"][data-exact-covered] { box-shadow: none; }
   @media (min-width: 900px) {
-    #exact-root [navigationPresentation="modal"] { position: fixed !important; inset: 0 !important; margin: auto !important; box-sizing: border-box !important; width: min(35rem, calc(100vw - 64px)) !important; height: fit-content !important; max-height: min(45rem, calc(100vh - 64px)) !important; z-index: 1; border-radius: 12px; overflow: clip; box-shadow: var(--exact-modal), 0 0 0 100vmax var(--exact-scrim); }
-    #exact-root [data-exact-covered]::after { content: none; }
+    #exact-root [navigationPresentation="modal"][data-exact-covered] { box-shadow: var(--exact-modal); }
+    #exact-root [navigationPresentation="modal"] { inset: 0 !important; margin: auto !important; width: min(35rem, calc(100vw - 64px)) !important; height: fit-content !important; max-height: min(45rem, calc(100vh - 64px)) !important; border-radius: 12px; box-shadow: var(--exact-modal), 0 0 0 100vmax var(--exact-scrim); }
+    @starting-style { #exact-root [navigationPresentation="modal"] { box-shadow: var(--exact-modal), 0 0 0 100vmax transparent; } }
   }
 
   /* A grouped list: the grouped ground under cards with 12 px corners. Its sheet is the compiler's (LLP 1084), whose

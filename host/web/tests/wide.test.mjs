@@ -170,9 +170,9 @@ check('a list whose rows push is beside its detail on a wide window, and pushes 
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r2'), document.getElementById('r2').getAttribute('data-exact-split'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row'), back('r2'), off(), placeholder('p1')]`))
     .toEqual([true, true, [560, 0, 720, 800], 'detail', true, false, ['p2', 'r3'], null]);
   // A sheet stays a sheet over both, the list and the detail inert beneath it. In a wide window the look draws it as a
-  // card (LLP 1115.000 D4.8): 560 wide, as tall as its content, in the window's middle.
+  // card (LLP 1115.000 D4.8): 560 wide, as tall as its content, in the window's middle once it has slid up.
   await evaluate(`push('3', '/people/bo/edit')`);
-  const sheet = await evaluate(`box('r3')`);
+  const sheet = await evaluate(`document.getElementById('r3').getAnimations().forEach(a => a.finish()); box('r3')`);
   expect([sheet[0], sheet[2], sheet[3] < 800, Math.abs(sheet[1] * 2 + sheet[3] - 800) <= 1]).toEqual([360, 560, true, true]);
   expect(await evaluate(`[document.getElementById('r3').hasAttribute('data-exact-split'), shown('r1'), shown('r2'), document.getElementById('r1').hasAttribute('data-exact-covered'), off()]`))
     .toEqual([false, false, false, true, ['p2', 'r1', 'r2']]);
