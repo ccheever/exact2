@@ -384,7 +384,6 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     const key = `${label} ${run}`;
     let session = sessions.get(key);
     if (!session) {
-      if ([...sessions.values()].filter(s => s.label === label).length >= limits.sessionsPerAccount) return refuse(`more than ${limits.sessionsPerAccount} sessions on this account`);
       let said;
       if (names) {
         said = namesFor(label, run, ...names.split(' '));
@@ -393,13 +392,14 @@ export function relayServer(config, { log = line => console.log(line), now = () 
         const id = idOf(label, run);
         said = { tool: `${id}-tool.${label}.${domain}`, canvas: `${id}-canvas.${label}.${domain}`, id };
       }
-      // (names a session of this account holds with no connection left, in its grace: a restarted server, a new
-      // run, takes them over; a live session's are refused, and another account's never reach here)
-      for (const n of [said.tool, said.canvas]) {
-        const held = byName.get(n);
-        if (held && held.label === label && !held.idle.length && !held.carried.size && !held.waiting.size) drop(held, 'taken over by a new run');
-      }
-      if (byName.has(said.tool) || byName.has(said.canvas)) return refuse('names in use by another session');
+      // (names a session of this account holds with no connector connection left, in its grace: a restarted
+      // server, a new run, takes them over, the clients waiting on the old one closed (they dial again); a live
+      // session's are refused, and another account's never reach here)
+      const lapsed = [said.tool, said.canvas].map(n => byName.get(n)).filter(h => h && h.label === label && !h.idle.length && !h.carried.size);
+      if ([said.tool, said.canvas].some(n => byName.has(n) && !lapsed.includes(byName.get(n)))) return refuse('names in use by another session');
+      // (the cap counted after the session it replaces is gone)
+      if ([...sessions.values()].filter(x => x.label === label && !lapsed.includes(x)).length >= limits.sessionsPerAccount) return refuse(`more than ${limits.sessionsPerAccount} sessions on this account`);
+      for (const held of new Set(lapsed)) drop(held, 'taken over by a new run');
       session = { key, label, run, ...said, idle: [], carried: new Set(), waiting: new Set(), grace: null };
       sessions.set(key, session);
       byName.set(session.tool, session);

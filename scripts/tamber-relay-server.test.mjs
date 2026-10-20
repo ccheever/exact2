@@ -502,3 +502,21 @@ test('round 3 (Grok): an account\'s TXT requests under way at once are capped; a
   expect(keyOf('2001:db8::1')).toBe(keyOf('2001:db8:0:0:ffff::2'));
   expect(keyOf('::ffff:203.0.113.9')).toBe('203.0.113.9');
 });
+
+test('round 3 re-check (Astra): a client waiting on a lapsed session, or the account\'s session cap, never keeps a restarted server from its names', async () => {
+  const { port } = await startRelay({ limits: { graceMs: 60_000, sessionsPerAccount: 1, waitMs: 30_000 } });
+  const byo = 'names: tool.tamber.example.com canvas.tamber.example.com';
+  const first = await greet(port, hello('other', TOKENS.other, [`run: ${RUN}`, byo]));
+  expect(first.line).toMatch(/^READY /);
+  first.conn.destroy();
+  await new Promise(ok => setTimeout(ok, 100));
+  // A stranger's client arrives for the name meanwhile, and waits.
+  const hello1 = await helloTo('tool.tamber.example.com');
+  const stranger = connectTCP({ host: '127.0.0.1', port }, () => stranger.write(hello1));
+  const gone = new Promise(ok => stranger.on('close', ok));
+  stranger.on('error', () => {});
+  await new Promise(ok => setTimeout(ok, 100));
+  // The restarted server (a new run), at the account's cap of one: its names back; the waiting client closed.
+  expect((await greet(port, hello('other', TOKENS.other, [`run: ${'f'.repeat(32)}`, byo]))).line).toBe('READY tool.tamber.example.com canvas.tamber.example.com');
+  await gone;
+});
