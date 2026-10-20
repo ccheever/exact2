@@ -224,6 +224,7 @@ impl Lowerer<'_> {
     ) -> exact_kernel::style::theme::ThemeScope {
         crate::icons::clear(asset_root);
         ROLES.with(|r| r.borrow_mut().clear());
+        crate::control_roles::note_accent(None);
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
         MEASURES.with(|m| m.borrow_mut().clear());
@@ -414,6 +415,7 @@ impl Lowerer<'_> {
         if self.package_references(&folding, file) {
             return exact_kernel::style::theme::declarations([]);
         }
+        crate::control_roles::note_accent(tamber::white_over(&folding.tokens, "AccentColor"));
         for e in crate::params::folded(&kinded, &folding, &overridden, None) {
             self.push(e);
         }

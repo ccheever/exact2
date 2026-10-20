@@ -383,6 +383,31 @@ fn modes_of(design: &Design, tuple: usize) -> String {
     out.join(" ")
 }
 
+/// The lowest contrast white text has over the colour of the token that
+/// overrides `role` (by the schema's name), over the tuples and both
+/// schemes, and whether it falls in dark: what a filled button's white
+/// label reads at on `AccentColor` (LLP 1116.019 D3). None when no token
+/// overrides the role or its colour is the host's.
+pub fn white_over(tokens: &[Checked], role: &str) -> Option<(f64, bool)> {
+    let t = tokens.iter().find(|t| t.role.as_deref() == Some(role))?;
+    let mut lowest: Option<(f64, bool)> = None;
+    for v in t.values.iter().filter_map(Value::color) {
+        let sides = match v {
+            Folded::One(h) => [*h, *h],
+            Folded::Pair(l, d) => [*l, *d],
+            Folded::Host(_) => continue,
+        };
+        for (dark, h) in [false, true].into_iter().zip(sides) {
+            if let Some(r) = ratio("#ffffff", &h.clip()) {
+                if lowest.is_none_or(|(l, _)| r < l) {
+                    lowest = Some((r, dark));
+                }
+            }
+        }
+    }
+    lowest
+}
+
 /// WCAG 2's contrast ratio of a text colour over a background, each
 /// `#rrggbb[aa]`, the text composited over the background; none when the
 /// background is not opaque or either is no such colour.
