@@ -21,6 +21,9 @@ import { openScratchProject } from '../composer/scratch-project';
 import { startTrackedClone } from '../shell/project-clones-live';
 import { cloneTracking } from '../client/live-streams';
 import { letGo } from '../client/let-go';
+import { composerNow } from '../composer/composer-controls';
+import { addTarget, targetRequest, type AddEnvironment } from './palette-environments';
+import { fleet, fleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
 export type PaletteResult = { revision: number; ok: boolean; close: boolean; page: string; query: string; project: string; thread: string; message: string };
 const message = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
@@ -35,12 +38,20 @@ function openProject(client: T3Client, projectId: string): PaletteResult {
   const latest = sortedThreads(client.shell.threads.filter(thread => thread.projectId === projectId))[0];
   return latest && latest.settledOverride !== 'settled' ? done(client, '', str(latest.id)) : done(client, projectId);
 }
-async function createProject(client: T3Client, native: Native, storage: Files, cwd: string, failureTitle: string): Promise<PaletteResult> {
+/**
+ * handleAddProjectForEnvironment: an existing project opens; else the project is created on the target
+ * environment. Another environment's project opens by its `fleet:` id, which moves the window there.
+ */
+async function createProject(client: T3Client, native: Native, storage: Files, target: AddEnvironment, cwd: string, failureTitle: string, source: EnvironmentFleet): Promise<PaletteResult> {
   const access = client.restAccess(native);
-  const existing = client.shell.projects.find(project => str(project.workspaceRoot).replace(/\/+$/, '') === cwd);
-  if (existing) return openProject(client, str(existing.id));
+  const existing = target.projects.find(project => str(project.workspaceRoot).replace(/\/+$/, '') === cwd);
+  if (existing) return target.focused ? openProject(client, str(existing.id)) : done(client, fleetThreadId(target.environmentId, str(existing.id)));
   try {
     const [commandId, projectId] = await access.ids(2);
+    if (!target.focused) {
+      await targetRequest(client, native, target, 'projects.mutate', { type: 'project.create', commandId, projectId: projectId!, title: inferTitle(cwd), workspaceRoot: cwd, createWorkspaceRootIfMissing: true, defaultModelSelection: null }, true, source);
+      return done(client, fleetThreadId(target.environmentId, projectId!));
+    }
     await access.write(storage, { method: 'projects.mutate', description: 'Add project', threadId: '', text: '', uncertain: false,
       payload: { type: 'project.create', commandId, projectId: projectId!, title: inferTitle(cwd), workspaceRoot: cwd, createWorkspaceRootIfMissing: true, defaultModelSelection: null } });
     await refreshShell(client, native);
@@ -53,15 +64,13 @@ async function createProject(client: T3Client, native: Native, storage: Files, c
   }
 }
 
-export async function paletteCommand(client: T3Client, native: Native | null | undefined, storage: Files, op: string, id: string, value: string): Promise<PaletteResult> {
+export async function paletteCommand(client: T3Client, native: Native | null | undefined, storage: Files, op: string, id: string, value: string, source: EnvironmentFleet = fleet): Promise<PaletteResult> {
   // A thread row and New thread in <project>: the palette closes and the window navigates.
   if (op === 'thread') return done(client, '', id);
   if (op === 'new-thread') return done(client, id);
   if (!native?.available) return stay(client, false, 'Open this app on macOS to connect to T3 Code.');
   const flow = flowOf(client);
   const access = client.restAccess(native);
-  const current = client.shell.projects.find(project => project.id === client.projectId);
-  const cwd = str(current?.workspaceRoot);
   try {
     if (op === 'copy-prompt-link') { await copyPromptLink(client, native, composerPromptLink(client, id === 'context')); return done(client); }
     if (op === 'restart-session') return await restartSession(client, native, storage, id);
@@ -75,11 +84,16 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op === 'scratch') return await startScratch(client, native);
     if (op === 'link-pr') return (await linkPullRequest(client, access, storage, id)) ? done(client) : stay(client, false);
     if (op === 'pr-link-thread') return (await linkFromPicker(client, native, storage, id)) ? done(client) : stay(client, false); // the thread picker
-    if (!client.ready) {
+    // The add-project ops act on the environment the page chose (browseEnvironmentId).
+    const target = addTarget(client, value, source);
+    if (!target) {
       pushToast(client, { kind: 'error', title: 'Environment unavailable', description: `${str(obj(client.config.environment).label, 'The selected environment')} is not connected.` });
       return stay(client, false, 'Environment unavailable');
     }
-    if (['add-path', 'new-project', 'clone', 'pick-folder'].includes(op) && client.pending) {
+    const request = (method: string, payload: Obj, write = false) => targetRequest(client, native, target, method, payload, write, source);
+    const current = target.focused ? client.shell.projects.find(project => project.id === client.projectId) : undefined;
+    const cwd = str(current?.workspaceRoot);
+    if (['add-path', 'new-project', 'clone', 'pick-folder'].includes(op) && target.focused && client.pending) {
       pushToast(client, { kind: 'error', title: op === 'clone' ? 'Clone failed' : 'Failed to add project', description: 'Resolve the previous operation before sending another.' });
       return stay(client, false);
     }
@@ -87,7 +101,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       // Open in Finder: the native folder picker, starting at the browsed folder.
       const picked = obj(await access.call({ op: 'pickFolder', path: id }));
       const path = str(picked.path);
-      return path ? await createProject(client, native, storage, path, 'Failed to add project') : stay(client);
+      return path ? await createProject(client, native, storage, target, path, 'Failed to add project', source) : stay(client);
     }
     if (op === 'add-path') {
       const raw = id.trim();
@@ -96,7 +110,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
         pushToast(client, { kind: 'error', title: 'Failed to add project', description: 'Relative paths require an active project.' });
         return stay(client, false);
       }
-      return await createProject(client, native, storage, resolvePath(raw, cwd), 'Failed to add project');
+      return await createProject(client, native, storage, target, resolvePath(raw, cwd), 'Failed to add project', source);
     }
     if (op === 'new-project') {
       const name = id.trim();
@@ -105,7 +119,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       const publishTarget = flow.publish ? targets.find(target => target.definition.kind === flow.publishKind) ?? targets[0] : null;
       if (flow.publish && !publishTarget) throw new Error('No ready host can publish this repository.');
       let created: Obj;
-      try { created = await access.request('projects.createNew', { name }, true); }
+      try { created = await request('projects.createNew', { name }, true); }
       catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not create the project', description: message(error) }); return stay(client, false, message(error)); }
       const workspaceRoot = str(created.workspaceRoot), commitError = str(created.commitError), projectId = str(created.projectId);
       pushToast(client, commitError ? { kind: 'warning', title: `Created ${name} without a first commit`, description: `${commitError} The project is in ${workspaceRoot}.` }
@@ -113,11 +127,12 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       if (publishTarget) {
         const target = publishTarget, account = target.owner;
         const folder = workspaceRoot.split('/').filter(Boolean).pop() ?? '';
-        access.request('sourceControl.publishRepository', { cwd: workspaceRoot, provider: target.definition.kind, repository: account ? `${account}/${folder}` : folder, visibility: 'private' }, true)
+        request('sourceControl.publishRepository', { cwd: workspaceRoot, provider: target.definition.kind, repository: account ? `${account}/${folder}` : folder, visibility: 'private' }, true)
           .then(result => { pushToast(client, { kind: 'success', title: `Published to ${target.definition.label}`, description: str(obj(obj(result).repository).nameWithOwner) }); client.revision++; })
           .catch(error => { if (letGo(error)) return; pushToast(client, { kind: 'error', title: `Could not create the ${target.definition.label} repository`, description: `${message(error)} Use Publish Repository in the Git menu to try again.` }); client.revision++; });
       }
       flow.publish = false;
+      if (!target.focused) return done(client, fleetThreadId(target.environmentId, projectId));
       try { await refreshShell(client, native); } catch { /* the shell stream catches up */ }
       if (!client.shell.projects.some(project => project.id === projectId)) {
         pushToast(client, { kind: 'error', title: 'Failed to open project', description: 'The project was created. It will appear in the sidebar once this client catches up.' });
@@ -126,19 +141,19 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       return done(client, projectId);
     }
     if (op.startsWith('clone-repository:')) {
-      const source = op.slice('clone-repository:'.length), raw = id.trim();
+      const kind = op.slice('clone-repository:'.length), raw = id.trim();
       if (!raw) return stay(client);
-      const parentPath = initialBrowseQuery(client);
-      if (source === 'url') {
-        flow.clone = { source, repositoryInput: raw, title: raw, description: normalizeCloneUrl(raw), remoteUrl: normalizeCloneUrl(raw), pinned: cloneDirectoryName(raw) };
+      const parentPath = initialBrowseQuery(target.config);
+      if (kind === 'url') {
+        flow.clone = { source: kind, repositoryInput: raw, title: raw, description: normalizeCloneUrl(raw), remoteUrl: normalizeCloneUrl(raw), pinned: cloneDirectoryName(raw) };
         return { ...stay(client), page: `${value}/confirm`, query: cloneDestination(parentPath, cloneDirectoryName(raw)) };
       }
       let repository: Obj;
-      try { repository = await access.request('sourceControl.lookupRepository', { provider: source, repository: raw }); }
+      try { repository = await request('sourceControl.lookupRepository', { provider: kind, repository: raw }); }
       catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Repository lookup failed', description: message(error) }); return stay(client, false, message(error)); }
       const nameWithOwner = str(repository.nameWithOwner, raw);
-      const remoteUrl = sourceControlHost(source)?.cloneTransport === 'https' ? str(repository.url) : str(repository.sshUrl, str(repository.url));
-      flow.clone = { source, repositoryInput: raw, title: nameWithOwner, description: str(repository.url, remoteUrl), remoteUrl, pinned: cloneDirectoryName(nameWithOwner) };
+      const remoteUrl = sourceControlHost(kind)?.cloneTransport === 'https' ? str(repository.url) : str(repository.sshUrl, str(repository.url));
+      flow.clone = { source: kind, repositoryInput: raw, title: nameWithOwner, description: str(repository.url, remoteUrl), remoteUrl, pinned: cloneDirectoryName(nameWithOwner) };
       return { ...stay(client), page: `${value}/confirm`, query: cloneDestination(parentPath, cloneDirectoryName(nameWithOwner)) };
     }
     if (op === 'clone') {
@@ -151,7 +166,19 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       const destinationPath = resolvePath(raw, cwd), name = inferTitle(destinationPath);
       // The server creates the project and clones in the background (projectCloneTracking): the
       // palette closes once git runs; progress is the clone's toast and its draft's banner.
-      if (cloneTracking(client.config)) {
+      if (!target.focused && cloneTracking(target.config)) {
+        try {
+          const [projectId] = await access.ids(1);
+          await request('projectClone.start', { projectId, title: name, createdAt: new Date(composerNow(client)).toISOString(), remoteUrl: clone.remoteUrl, destinationPath }, true);
+          flow.clone = null;
+          return done(client, fleetThreadId(target.environmentId, projectId!));
+        } catch (error) {
+          if (letGo(error)) throw error;
+          pushToast(client, { kind: 'error', title: 'Clone failed', description: message(error), stacked: true });
+          return stay(client, false, message(error));
+        }
+      }
+      if (target.focused && cloneTracking(client.config)) {
         const started = await startTrackedClone(client, native, clone.remoteUrl, destinationPath, name); // project-clones-live.ts
         if (!started.ok) return stay(client, false, started.message);
         flow.clone = null;
@@ -161,7 +188,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       // then adds the project; progress shows as the reference's clone toasts.
       const loading = pushToast(client, { kind: 'loading', title: `Cloning ${name}`, description: `${SOURCE_LABELS[clone.source] ?? 'Git'} · ${destinationPath}` });
       let cloned: Obj;
-      try { cloned = await access.request('sourceControl.cloneRepository', { remoteUrl: clone.remoteUrl, destinationPath }, true); }
+      try { cloned = await request('sourceControl.cloneRepository', { remoteUrl: clone.remoteUrl, destinationPath }, true); }
       catch (error) {
         dismissLoading(client, loading);
         if (letGo(error)) throw error;
@@ -171,7 +198,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       dismissLoading(client, loading);
       pushToast(client, { kind: 'success', title: `Cloned ${name}`, description: str(cloned.cwd, destinationPath) });
       flow.clone = null;
-      return await createProject(client, native, storage, str(cloned.cwd, destinationPath), 'Failed to add project');
+      return await createProject(client, native, storage, target, str(cloned.cwd, destinationPath), 'Failed to add project', source);
     }
     throw new Error(`Unknown palette command: ${op}`);
   } catch (error) {

@@ -90,6 +90,7 @@ shape Thread
   providerBadge: string
   providerBadgeColor: string
   providerName: string
+  providerIcon: string
   age: string
   badge: string
   stacked: bool
