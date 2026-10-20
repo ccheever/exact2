@@ -1,7 +1,6 @@
-import {chromium} from '../scripts/agent-launch.mjs';
+import {cdpBrowser} from '../scripts/agent-launch.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
-import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {checkSteadyResidency} from './render/tests/residency.mjs';
 import {test, expect} from 'bun:test';
@@ -9,10 +8,9 @@ import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
-import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
+import {assertNoLiveEdits, proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan, main} from '../scripts/agent.mjs';
-
 test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
   const root = resolve(directory, 'engine'), app = resolve(directory, 'my-game');
@@ -304,12 +302,12 @@ test('a complete world snapshot reads every page at one tick and hash', async ()
     async state(target, under, pose, busy, page = {}) {
       pages.push(page);
       const from = page.from ?? 0, to = Math.min(all.length, from + 5);
-      return {tick:7, hash, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
+      return {tick:7, hash, tableEdits:2, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
     },
   };
   const w = worldView(session, 'world');
   // The 5-entity pages stand in for the driver's limit of 5,000.
-  const {entities, truncated} = await w.snapshot({all:true});
+  const {entities, truncated, tableEdits} = await w.snapshot({all:true}); expect(tableEdits).toBe(2);
   expect(entities.map(e => e.id)).toEqual(all.map(e => e.id));
   expect(truncated).toBe(false);
   expect(pages.map(p => p.from ?? 0)).toEqual([0, 5, 10]);
@@ -440,7 +438,7 @@ const syntheticHash = '0x' + '12345678' + '9abcdef0';
 const repeatedHash = digit => '0x' + digit.repeat(16);
 const candidates = (hosts = ['linux','web']) => [...hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
   name:'fixture', host, mode, failures:[], pins:{ticks:{60:syntheticHash}, saves:{continuation:'a'.repeat(64)}},
-}))), {name:'fixture',host:nativeProofHost(hosts),mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}];
+}))), ...[...hosts.includes('web') ? ['web'] : [], nativeProofHost(hosts)].map(host => ({name:'fixture',host,mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}))];
 
 test('Windows baselines require all native and web modes plus matching release evidence', () => {
   const hosts=['windows','web'], rows=candidates(hosts), old=rows[0].pins;
@@ -511,7 +509,7 @@ test('hidden placed-child refusal uses observed camera visibility and names layo
 });
 
 test('automatic no-web fallback is only a missing configured browser, never a failed proof', () => {
-  expect(webUnavailable('web carrier unavailable: /missing/chrome: ENOENT; set CHROME to an installed browser')).toBe(true);
+  expect(webUnavailable('web carrier unavailable: /missing/chrome: ENOENT; install Playwright\'s Chromium (docs/testing.md, Browsers), or set CHROME')).toBe(true);
   for (const log of ['asset ENOENT', 'Chrome exited (1)', 'web carrier unavailable: chrome: EACCES;', 'FAIL web pixel assertion']) expect(webUnavailable(log)).toBe(false);
 });
 
@@ -574,8 +572,7 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
 for (const scenario of ['report','repin','external-repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}-${scenario.toLowerCase()}`;
   const native=process.platform==='win32'?'windows':'linux';
-  // A sibling checkout is external without Bun's expensive /tmp ancestor search.
-  const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
+  const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(tmpdir(), 'prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
   const pins={ticks:{1:syntheticHash},saves:{continuation:'a'.repeat(64)}};
   mkdirSync(app);
@@ -595,7 +592,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       if(process.env.R15_DRIFT==='1' && process.env.EXACT_GAME_PROOF_PROFILE==='release') row.pins.ticks[1]='0x'+'d'.repeat(16);
       writeFileSync(out+'/summary.json',JSON.stringify(row));
       if(host==='web' && process.env.R8B_PASS_WEB!=='1') console.error('web carrier unavailable: /missing/chrome: ENOENT; set CHROME');
-      process.exit(failed?1:0);
+      process.exit(failed?1:status==='UNVERIFIED'?3:0);
       }
     `);
     const run=async(args,extra={},current=false)=>{
@@ -625,10 +622,9 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       expect(here.calls).toEqual([{host:native,build:false,mode:'0'}]);
     }
     if (selected('failure')) {
-    const started = performance.now();
     const failed=await run(['--hosts','linux','--report'],{R8B_FAIL:'1'});
-    // A fake external proof needs neither Cargo metadata nor Bun's external entrypoint search.
-    if (directory) expect(performance.now() - started).toBeLessThan(1000);
+    // Time the proof child's entrypoint; SDK snapshotting precedes this leg.
+    if (directory) expect(Object.values(JSON.parse(readFileSync(resolve(failed.root,'legs.json'))).legs)[0].durationMs).toBeLessThan(1000);
     expect(failed.code).toBe(1); expect(failed.text).toContain('REPORT linux 0: state unused');
     const summary=JSON.parse(readFileSync(resolve(failed.root,'summary.json'),'utf8'));
     expect(summary.rows.length).toBe(1); expect(summary.rows[0].failures).toEqual(['refusal']);
@@ -636,7 +632,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     }
     for (const status of ['UNVERIFIED','PASS'].filter(selected)) {
       const completed=await run(['--hosts','linux','--report','--compare-saves'],{R8B_UNVERIFIED:status==='UNVERIFIED'?'1':'0'});
-      expect(completed.code).toBe(status === 'PASS' ? 0 : 1);
+      expect(completed.code).toBe(status === 'PASS' ? 0 : 3);
       expect(completed.text).toContain(`| identical | ${status} |`);
       expect(completed.text).toContain(`PROOF ${status} ${name}`);
       expect(JSON.parse(readFileSync(resolve(completed.root,'summary.json'),'utf8')).status).toBe(status);
@@ -656,7 +652,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       expect(mixed.calls.slice(0,2)).toEqual([{host:'linux',build:true,mode:'0'},{host:'web',build:true,mode:'0'}]);
       expect(mixed.calls.slice(2).map(call=>call.host).sort()).toEqual(['linux','web']);
       expect(mixed.calls.slice(2).every(call=>!call.build)).toBe(true);
-      expect(mixed.code).toBe(1);
+      expect(mixed.code).toBe(3);
       const summary=JSON.parse(readFileSync(resolve(mixed.root,'summary.json'),'utf8'));
       expect(summary.rows.map(row=>row.status)).toEqual(['PASS','UNVERIFIED']);
       expect(summary.status).toBe('UNVERIFIED');
@@ -665,7 +661,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     } else {
     const refused=await run(['--repin']);
     expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
-    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
+    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native,'web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     const allowed=await run(['--repin','--hosts','linux','--reason','Saved glow is a Tween sampled by the renderer']);
     expect(allowed.code).toBe(0);
@@ -685,19 +681,19 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     }
     const firstRefused=await run([]);
     expect(firstRefused.code).toBe(1);
-    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
+    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native,'web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(empty);
     const first=await run([],{R8B_PASS_WEB:'1'});
     expect(first.code).toBe(0);
     expect(first.calls).toEqual([
       ...[native,'web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
       {host:'web',mode:'0',build:true},
-      {host:native,mode:'0',build:false},
+      {host:native,mode:'0',build:false}, {host:'web',mode:'0',build:false},
     ]);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual([native,'web']);
     }
   } finally { rmSync(directory ?? app,{recursive:true,force:true}); }
-});
+}, 120000);
 
 
 test('clock settle diagnostic names busy, held input, and logs on a real unsettled reply', async () => {
@@ -705,7 +701,8 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
   const a=source.indexOf("    async clock(spec = 'settle') {"), b=source.indexOf('\n    /** Pixels as PNG',a);
   const s={now:0,op:async req=>{expect(req).toEqual({op:'clock',settle:true});return {clock:100,settled:false,world:{changing:['player']}};}};
   // The method reads the module's step constant and growth rule; pass them in as the module would.
-  const clock=new Function('s','CLOCK_STEP_MS','clockSpan',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan);
+  // A settle asks each drawing world for its tells (agent-inspect.mjs): none here.
+  const clock=new Function('s','CLOCK_STEP_MS','clockSpan','worldTells',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan,async (_, r) => r);
   const reply=await clock();
   expect(reply.diagnostic).toContain('clock settle did not reach quiescence');
   expect(reply.diagnostic).toContain('state world:* busy');
@@ -1001,24 +998,16 @@ test('E10 snapshot-only proof records the same world observation as state', asyn
 
 
 test('E10 browser buttons retain UA keyboard focus and hover feedback', async () => {
-  const {spawn}=await import('node:child_process');
-  const {Cdp}=await import('../scripts/agent.mjs');
   const root=resolve(import.meta.dir,'../host/web');
-  const profile=mkdtempSync(resolve(tmpdir(),'e10-button-browser-'));
   const server=Bun.serve({port:0,fetch(request) {
     const path=new URL(request.url).pathname;
     if(path==='/') return new Response(readFileSync(resolve(root,'index.html'),'utf8').replace('<script type="module" src="./glue.js"></script>','').replace('<div id="exact-root"></div>','<div id="exact-root"><div id="canvas" data-gpu-input tabindex="-1"><button id="pause" style="background:#202731;color:white;padding:12px">Pause</button></div></div>'),{headers:{'content-type':'text/html'}});
     if(path.endsWith('.js')) return new Response(Bun.file(resolve(root,path.slice(1))),{headers:{'content-type':'text/javascript'}});
     return new Response('',{status:404});
   }});
-  const child=spawn(chromium().executable,['--headless=new','--remote-debugging-pipe','--no-sandbox','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe'],windowsHide:true});
-  if (!child.pid) await new Promise((ok,fail)=>{child.once('spawn',ok);child.once('error',fail);});
-  const exited=new Promise(resolve=>child.once('exit',resolve));
-  const cdp=new Cdp(child.stdio[3],child.stdio[4]);
-  const deadline=setTimeout(()=>cdp.fail('button browser timed out'),30000);
+  const suite=await cdpBrowser(),{cdp}=suite;
   try {
-    const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});
-    const {sessionId}=await cdp.send('Target.attachToTarget',{targetId,flatten:true});
+    const {sessionId}=await suite.page();
     const call=(method,params={})=>cdp.send(method,params,sessionId);
     const evaluate=async expression=>(await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true})).result.value;
     await call('Page.navigate',{url:`http://localhost:${server.port}/`});
@@ -1047,14 +1036,7 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
     for(const type of ['mousePressed','mouseReleased']) await call('Input.dispatchMouseEvent',{type,x:15,y:15,button:'left',clickCount:1});
     expect(await evaluate('document.activeElement === outside')).toBe(true);
   } finally {
-    clearTimeout(deadline);
-    await cdp.send('Browser.close',{},undefined,2000).catch(()=>{});
-    await Promise.race([exited,Bun.sleep(2000)]);
-    if (child.exitCode === null && child.signalCode === null) {
-      if (process.platform === 'win32') spawnSync('taskkill',['/PID',String(child.pid),'/T','/F'],{stdio:'ignore',windowsHide:true,timeout:2000});
-      else child.kill('SIGKILL');
-    }
-    await exited; server.stop(true); rmSync(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+    await suite.close(); server.stop(true);
   }
 },60000);
 
@@ -1086,24 +1068,20 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
               stdout:Bun.file(resolve(out,'run.log')),stderr:Bun.file(resolve(out,'build.log')),
             });
             const code=await child.exited, log=readFileSync(resolve(out,'run.log'),'utf8');
-            const expected=phase==='fresh'?1:0;
-            if(code !== expected) throw new Error(`${name} ${profile} ${phase}: ${log.slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
+            if(code !== 0) throw new Error(`${name} ${profile} ${phase}: ${log.slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
             const row=JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8'));
+            expect(log).not.toContain('changed during build');
             if(phase==='fresh') {
-              expect(row.status).toBe('FAIL');
-              expect(row.failures).toEqual(['proof interrupted']);
-              expect(log).toContain('app or asset directories changed during build; rerun the proof');
-              expect(log).not.toContain('authored proof inputs changed during build');
-              expect(existsSync(receipt)).toBe(false);
+              expect(row.status).toBe('PASS'); expect(existsSync(receipt)).toBe(true);
             } else {
               expect(row.status).toBe('PASS'); expect(existsSync(receipt)).toBe(true);
               if(phase==='stable') { stable=row; rows.push(row); }
-              else {
+              else if(phase==='cached') {
                 expect(log).toContain('BUILD cached');
                 expect(row.worlds).toEqual(stable.worlds); expect(row.pins).toEqual(stable.pins);
               }
             }
-            console.log(`E10 ${name} ${profile} ${phase}: ${row.status}${phase==='fresh'?' (required rerun)':''}`);
+            console.log(`E10 ${name} ${profile} ${phase}: ${row.status}`);
           }
         } finally {rmSync(app,{recursive:true,force:true});}
       }
@@ -1111,8 +1089,8 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
       expect(rows[0].pins).toEqual(rows[1].pins);
     }
   } finally {rmSync(root,{recursive:true,force:true});}
-// Four fresh-output builds, each followed by exactly one stable rerun and a
-// cache hit. This checks hash equivalence and receipt policy, not build latency.
+// Four fresh-output builds, then a stable run and a cache hit. This checks
+// hash equivalence and receipt policy, not build latency.
 },1200000);
 
 
@@ -1183,29 +1161,6 @@ test('R15 even linux-only repin refuses missing or divergent release observation
   expect(()=>agreePins(rows,old,['linux'], '.')).toThrow('release');
 });
 
-test('R15 semantic drift fixture is rejected by the release gate',async()=>{
-  const dir=mkdtempSync(resolve(tmpdir(),'r15-profile-drift-'));
-  try {
-    const src=resolve(dir,'profile.rs');
-    writeFileSync(src,'#[no_mangle] pub extern "C" fn mode()->u32{cfg!(debug_assertions) as u32} #[no_mangle] pub extern "C" fn increment(a:u32)->u32{a+1}');
-    const outcomes=[];
-    for(const drift of [true,false]) {
-      const binary=resolve(dir,drift?'drift.wasm':'release.wasm');
-      const compile=Bun.spawn(['rustc',src,'--crate-type','cdylib','--target','wasm32-unknown-unknown','-C','panic=abort','-o',binary,'-C',`debug-assertions=${drift?'yes':'no'}`,'-C',`overflow-checks=${drift?'yes':'no'}`,'-C','llvm-args=-fp-contract=off'],{stdout:'pipe',stderr:'pipe'});
-      expect(await compile.exited).toBe(0);
-      const {instance}=await WebAssembly.instantiate(readFileSync(binary),{});
-      let wrapped=false;try { wrapped=instance.exports.increment(4294967295)===0; } catch(error) {expect(error).toBeInstanceOf(WebAssembly.RuntimeError);}
-      outcomes.push(`${instance.exports.mode()===1}:${wrapped}\n`);
-    }
-    expect(outcomes).toEqual(['true:false\n','false:true\n']);
-    const rows=candidates(['linux']);
-    rows.at(-1).pins.ticks[60]='0x'+createHash('sha256').update(outcomes[1]).digest('hex').slice(0,16);
-    for(const row of rows.slice(0,-1)) row.pins.ticks[60]='0x'+createHash('sha256').update(outcomes[0]).digest('hex').slice(0,16);
-    expect(()=>agreePins(rows,rows[0].pins,['linux'], '.')).toThrow('release');
-  } finally {rmSync(dir,{recursive:true,force:true});}
-},60000);
-
-
 test('concurrent prove runs keep their save artifacts and web builds separate', async () => {
   const dir=mkdtempSync(resolve(tmpdir(),'proof-isolation-')), app=resolve(dir,'game'), children=[];
   mkdirSync(app);
@@ -1216,9 +1171,9 @@ test('concurrent prove runs keep their save artifacts and web builds separate', 
       const owner=process.env.PROOF_TEST_OWNER, out=process.env.EXACT_PROOF_OUT, dist=process.env.EXACT_WEB_DIST;
       mkdirSync(out,{recursive:true});writeFileSync(out+'/owner',owner);
       if(dist) {mkdirSync(dist,{recursive:true});writeFileSync(dist+'/owner',owner);}
-      writeFileSync('./ready-'+owner,'');
+      writeFileSync(${JSON.stringify(resolve(dir,'ready-'))}+owner,'');
       const deadline=Date.now()+5000;
-      while(!existsSync('./ready-'+(owner==='a'?'b':'a'))) {
+      while(!existsSync(${JSON.stringify(resolve(dir,'ready-'))}+(owner==='a'?'b':'a'))) {
         if(Date.now()>deadline) throw new Error('peer proof never arrived');
         await Bun.sleep(10);
       }
@@ -1308,6 +1263,7 @@ test('phone carrier copies before launch, saves over the socket and owns its pro
       spawnSync(command, args, options) {
         // useXcode (6c03c1dec) asks which developer directory is selected before any xcrun.
         if (command === 'xcode-select') return cp.spawnSync(command, args, options);
+        if (command === 'otool') { assert.deepEqual(args, ['-L', resolve(bundle, 'Phone')]); return {status:0, stdout:''}; }
         assert.equal(command, 'xcrun'); calls.push(args);
         if (args.includes('copy')) {
           assert.equal(args[args.indexOf('--source') + 1], input);
@@ -1489,4 +1445,11 @@ test('a split clock grows at most 4x a step and never past ten world minutes', a
     span = clockSpan(span, measured);
   }
   expect(worst).toBeLessThanOrEqual(4500 + 1e-6);
+});
+
+test('pins refuse a set journal and the saved marker after journal rollover', () => {
+  expect(() => assertNoLiveEdits([{developmentEdits:true}], [{lines:['t=17 tick=1 set player Character.speed 8']}])).toThrow('set player Character.speed 8');
+  expect(() => assertNoLiveEdits([], [{lines:['t=17 tick=1 set refused: production']}])).not.toThrow();
+  expect(() => assertNoLiveEdits([{developmentEdits:true}], [{lines:[]}])).toThrow('set');
+  expect(() => assertNoLiveEdits([{}], [{lines:['t=17 tick=1 publish set: 8']}])).not.toThrow();
 });

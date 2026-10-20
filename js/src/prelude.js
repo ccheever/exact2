@@ -105,7 +105,6 @@
     fixed(global, name, function () {});
   });
   fixed(global, "performance", Object.freeze({ now: function () { return refuseAmbient("performance.now()"); } }));
-
   // Intl's formatting methods also default an omitted/undefined date to
   // machine time. Guard the prototype before an app can capture its bound
   // format getter or formatToParts method; explicit timestamps still use
@@ -143,7 +142,6 @@
       fixed(dateFormat, "formatToParts", explicitFormat(dateFormat.formatToParts, "formatToParts"));
     }
   }
-
   // --- crypto (LLP 1069.005): digests are pure; entropy is a device read ---
   // Each draw inside an answer counts as an external read (op 8), as a secret
   // or SQLite read does: bake compiles no value that drew one, and the host
@@ -206,7 +204,6 @@
       return stream ? formatUuid(stream) : platformUuid();
     });
   };
-
   // Host work an answer waits on that is neither a fetch nor storage (the
   // browser's digest settles in a later task): on the web it joins the
   // answer's storage turn, so the answer is pending on it, not on nothing.
@@ -273,7 +270,6 @@
       throw new DOMException("crypto.subtle.digest(): " + name + " needs a secure context (HTTPS or localhost)", "NotSupportedError");
     });
   };
-
   // ECDSA P-256 for DPoP (D1b): generate, sign (ES256, raw r‖s), and JWK
   // import and export, with the web's names, argument shapes and errors.
   // Generating and signing draw a nonce: each is a counted read, and refuses
@@ -451,7 +447,6 @@
   Object.defineProperty(global, "SubtleCrypto", { value: SubtleCrypto, writable: true, configurable: true });
   Object.defineProperty(global, "Crypto", { value: Crypto, writable: true, configurable: true });
   fixed(global, "crypto", cryptoObject);
-
   function fromBase64(text) {
     return Uint8Array.from(global.atob(text), function (c) { return c.charCodeAt(0); });
   }
@@ -468,7 +463,6 @@
     }
     return out.join("");
   }
-
   // A string's UTF-8 bytes as TextEncoder makes them: a pair is 4, a lone
   // surrogate its replacement character's 3.
   function utf8Length(s) {
@@ -482,14 +476,13 @@
     }
     return n;
   }
-
   // --- fetch: a request the host runs; a Promise for its reply -------------
   var nextTicket = 1;
   // ticket -> { resolve, reject, call, claimed, stream, signal, release }:
   // `claimed` once a settle has handed the executor its request, `release`
   // ends its watch on `signal`.
-  var pending = new Map();
-  var currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
+  var pending = new Map(), currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
+  global.__exact_async_context = Object.freeze({ current: function () { return currentCall; }, swap: function (call) { var before = currentCall; currentCall = call; return before; } }); // the bundle's async helper resumes each step under its answer (LLP 1133.002 D14)
   // A fetch's `signal` is watched through Ibex's own abort hooks natively,
   // which run before any listener and so cannot be stopped by one; a
   // browser realm's signal is the browser's, watched by a listener, and
@@ -501,7 +494,6 @@
     call.storage--;
     if (!call.storage) storing.delete(call);
   }
-
   // --- background work (LLP 1097 D1–D3) ------------------------------------
   // An answer replies when its value is ready, as in a browser: storage it
   // started and did not await moves to `background`, the module's own owner,
@@ -513,7 +505,7 @@
   var background = { id: 0, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, background: true };
   // The module's storage operations that landed and failed, and the last
   // failure's line (`state.background`, LLP 1097 D8).
-  var storageCounts = { done: 0, failed: 0, last: null };
+  var storageCounts = { writes: 0, done: 0, failed: 0, last: null };
   // Set before the first answer, never after: an app cannot turn it on.
   global.__exact_main_thread = function () { if (initializing) moving = true; };
   // Where a completion's count lives: the call that issued it, or the
@@ -559,7 +551,6 @@
     if (p) { pending.delete(ticket); p.release(); }
     return p;
   }
-
   function Response(r) {
     this.status = r.status;
     this.ok = r.status >= 200 && r.status < 300;
@@ -942,6 +933,14 @@
         unstore(at);
         if (ok) {
           storageCounts.done++;
+          if (/^(writeFile|atomicWriteFile|appendFile|mkdir|rm|rename|copyFile)$/.test(method) && [method === "copyFile" ? argv[1] : argv[0], method === "rename" ? argv[1] : null].some(function (path) {
+            if (typeof path !== "string" || !/^app:\//.test(path)) return false;
+            path = new URL(path).href.replace(/\/$/, "");
+            return String(global.exact.grants).split("\n").some(function (line) {
+              var grant = line.trim().split(/\s+/), root = (grant[1] || "").replace(/\/$/, "");
+              return grant[0] === "fs.read" && /^app:\//.test(root) && (path === root || path.indexOf(root + "/") === 0 || root.indexOf(path + "/") === 0);
+            });
+          })) storageCounts.writes++;
           try { resolve(convert ? convert(value) : value); } catch (e) { reject(e); }
           return;
         }
@@ -1021,6 +1020,7 @@
     if (typeof path !== "string" || path.indexOf("doc:/") !== 0) throw new TypeError("storage.fs.watch(): path must be a doc:/ path");
     host(6, "watch", (options && options.recursive ? "doc-watch-recursive:" : "doc-watch:") + path);
   };
+  files.recentDocuments = function () { return kept(""); }; files.forgetDocument = function (path) { return kept("forget " + path); }; function kept(ask) { try { var r = host(6, "kept", ask); return Promise.resolve(r ? JSON.parse(r) : undefined); } catch (e) { return Promise.reject(storageError(String(e && e.message || e))); } } // LLP 1069.010.000 D5 (doc.keep): the host's kept list, which watch("doc:/") hears change, and the app's own removal
   // `fs.compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002
   // A1): its options are checked here, before anything is queued, and travel
   // to the host as two numbers; natively the reply is `width\theight\tsize`,
@@ -1211,6 +1211,16 @@
       "fetch, or share the resolved value rather than the promise. Storage is different: an answer queued behind another's " +
       "storage turn waits for it"));
   }
+  var nativeCall = global.__exact_module_sync = function (request) { // `native.call`, and a module binding's synchronous form (LLP 1133.002 D14)
+    if (overlaying) throw inOverlay("native.call()");
+    if (currentCall === background) {
+      journal("data: native.call() called from background work: it was never run");
+      throw new Error("native.call() called from background work: it was never run. Call it inside an answer");
+    }
+    if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
+    try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
+    catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
+  };
   // The executor: `__exact_call(source, argsJson)` → tag 3 with a call id
   // (a value given at once too: see its end) — then it drains microtasks and asks
   // `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the
@@ -1224,16 +1234,6 @@
     var result;
     currentCall = call;
     try {
-      var nativeCall = function (request) {
-        if (overlaying) throw inOverlay("native.call()");
-        if (currentCall === background) {
-          journal("data: native.call() called from background work: it was never run");
-          throw new Error("native.call() called from background work: it was never run. Call it inside an answer");
-        }
-        if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
-        try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
-        catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
-      };
       // Null only where no module can be (a page with no page module). Else an
       // object; whether a module is linked is the device's fact, not the
       // build's, so asking `available` marks the answer as the device's: the
@@ -1416,7 +1416,7 @@
     checkpoint();
     currentCall = null;
     return JSON.stringify({ head: headOwner() === background, queued: queue.length, inFlight: head ? 1 : 0,
-      done: storageCounts.done, failed: storageCounts.failed, last: storageCounts.last });
+      writes: storageCounts.writes, done: storageCounts.done, failed: storageCounts.failed, last: storageCounts.last });
   };
   // An overlay (`overlay(source, args, answer, writes)`): what a resource
   // shows while writes affect it, called synchronously with no answer current. It has

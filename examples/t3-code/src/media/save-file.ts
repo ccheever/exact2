@@ -27,7 +27,7 @@ export function appFiles(): AppFiles {
 export const SAVES = 'app:/tmp/saves';
 
 type Request = { from: string; name: string; nonce: number };
-const requests = new WeakMap<object, Request>();
+const requests = new WeakMap<object, { serial: number; pending: Request[] }>();
 let written = 0;
 
 /** A file name without path separators, else `fallback` (T3MediaActions.fileName's rule). */
@@ -38,7 +38,15 @@ export function saveName(raw: string | undefined, fallback: string): string {
 
 /** Asks the window to save the app file `from` as `name`. */
 export function requestSave(client: object, from: string, name: string): void {
-  requests.set(client, { from, name, nonce: (requests.get(client)?.nonce ?? 0) + 1 });
+  const queue = requests.get(client) ?? { serial: 0, pending: [] };
+  if (queue.pending.length >= 32) throw new Error('Too many files are waiting to be saved.');
+  queue.pending.push({ from, name, nonce: ++queue.serial }); requests.set(client, queue);
+}
+
+/** The hidden Save field acknowledges change or cancel before the next panel is requested. */
+export function completeSave(client: object, nonce: number): void {
+  const queue = requests.get(client);
+  if (queue?.pending[0]?.nonce === nonce) queue.pending.shift();
 }
 
 /** Writes `bytes` under app:/tmp/saves/ and asks the window to save them as `name`. */
@@ -49,7 +57,7 @@ export async function saveBytes(client: object, bytes: Uint8Array, name: string)
   requestSave(client, `${directory}/${name}`, name);
 }
 
-/** The snapshot's save request (shapes.contract SaveRequest): none, or the newest. */
+/** The snapshot's save request (shapes.contract SaveRequest): none, or the first file waiting for its panel. */
 export function saveSnapshot(client: object): { saveRequest: Request } {
-  return { saveRequest: requests.get(client) ?? { from: '', name: '', nonce: 0 } };
+  return { saveRequest: requests.get(client)?.pending[0] ?? { from: '', name: '', nonce: 0 } };
 }

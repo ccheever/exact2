@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0x678050877109b354",
-    "90": "0x56d7b1520ecf2871"
+    "0": "0x2961d75463b1486e",
+    "90": "0xdf2367cf46480dc2"
   },
   "saves": {
-    "continuation": "b1789afc4b212d1ae0c596d8071ce9f7159efa18e2832ac79e7cf7eda096c47f"
+    "continuation": "78a0b179e63ae2b66c50f02a1fa0dd1e80debae181678e7925b66cfaa761f47b"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "fd7f4f9da33341fc9a9806d23a4e92a5552fc06245d619f8e6597bd5583ab61c",
+  "inputs": "18229a5ebff2dceb52d738497c22804a6c3a1f36325d588d56f09bfb3eb16bbf",
+  "sourceInputs": "5496dd98f3beec2e8bac8053f0ef7cdfdfd22f11f222325bdeacf7d64a2544f5",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "b671b1c006b24915e786b30647f0c70b0a47141f",
+  "reason": "movement tables (TableValues in the hash) on main's rings-and-halos baseline; EXGAME v6 (tableInputs)"
 }

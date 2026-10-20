@@ -2,14 +2,15 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { open, jsonLines, MalformedOperation, main } from './agent.mjs';
-import { chromium, launchFacts } from './agent-launch.mjs';
+import { chromium, launchFacts, noteDefaultStore } from './agent-launch.mjs';
 import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
-import { stateOp } from './agent-inspect.mjs';
+import { render, stateOp } from './agent-inspect.mjs';
 
 need('chrome', chromium().unavailable)('the web agent keeps desktop input facts through preferences and injected touches', async () => {
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(
@@ -104,6 +105,15 @@ test('accepted pointer, wheel, media and zero-time forms still reach the carrier
     };
     await assert.rejects(() => s.resize(100, 100), e => e instanceof MalformedOperation && e.message === 'tap: tap resize needs two dimensions');
   }
+});
+
+test('Android relative clocks start where the reader hands its live clock to the driver', async () => {
+  const calls = [], carrier = { host: 'android', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) { calls.push(req); return req.op === 'tags' ? { clock: 62.5 } : { clock: req.to }; } };
+  const s = await open({ reuse: carrier });
+  assert.equal(s.now, 62.5);
+  await s.clock('+1');
+  assert.deepEqual(calls, [{ op: 'tags' }, { op: 'clock', to: 63.5 }]);
 });
 
 // A hold is the clock's (euxy FRICTION §2: a dice charge did nothing while held): the carrier is told it is virtual, no
@@ -251,6 +261,31 @@ test('compare: what one picture has and the other lacks is a region, both ways',
   assert.doesNotMatch(text, /sits/);
 });
 
+test('compare: the regions up close, a row each, cut from both pictures at their own pixels', async () => {
+  const { grid, compareGrids, closeUp, report } = await import('./agent-compare.mjs');
+  // A 3x reference and screen: a box only the screen has, and one the reference has 4 pt lower.
+  const ref = picture(120, 200, [[10, 110, 30, 20]], 3), screen = picture(120, 200, [[60, 20, 40, 10], [10, 106, 30, 20]], 3);
+  const result = compareGrids(grid(ref, 120, 200), grid(screen, 120, 200));
+  const sheet = closeUp(ref, screen, result), n = result.regions.length;
+  // Three panels of the widest padded region (40 + 16 pt) at 3 px a point, two gaps; a band and a row a region.
+  assert.equal(sheet.width, 3 * 56 * 3 + 8);
+  const rows = result.regions.map(({ screen: b }) => (Math.min(200, b.y + b.h + 8) - Math.max(0, b.y - 8)) * 3);
+  assert.equal(sheet.height, rows.reduce((a, b) => a + 10 + b, 0));
+  // The first row's screen panel shows the screen's box, black, where the reference panel beside it is white.
+  const at = (x, y) => Array.from(sheet.data.subarray((y * sheet.width + x) * 4, (y * sheet.width + x) * 4 + 3));
+  const first = result.regions[0].screen, y = 10 + (8 + 2) * 3, x = (first.x - Math.max(0, first.x - 8) + 2) * 3;
+  assert.deepEqual([at(x, y), at(56 * 3 + 4 + x, y)], [[255, 255, 255], [20, 20, 20]]);
+  assert.equal(closeUp(ref, ref, compareGrids(grid(ref, 120, 200), grid(ref, 120, 200))), null, 'nothing differs: no sheet');
+  // A reference just under 1% shorter than the screen's shape, and a region at the bottom: each axis is cut by its own
+  // scale, inside the picture.
+  // (Cut by the width's scale, the bottom region's padded top lay below the reference's last row.)
+  const short = { ...picture(100, 1200, [], 3), height: 3564 }; short.data = short.data.subarray(0, 300 * 3564 * 4);
+  const low = picture(100, 1200, [[10, 1197, 30, 3]], 3), bottom = compareGrids(grid(short, 100, 1200), grid(low, 100, 1200));
+  assert.deepEqual(bottom.regions.map(box), [[10, 1197, 30, 3]]);
+  assert.ok(closeUp(short, low, bottom).height > 0);
+  assert.match(report(result, [], { reference: 'r', diff: 'd', close: 'c' }).split('\n')[0], new RegExp(`; up close, c \\(a row a region, 1 to ${n}\\)$`));
+});
+
 test('compare: an edge\'s anti-aliasing is no colour of the picture it is in', async () => {
   // The reference's box has a soft left edge (three grey columns), the screen's a hard one 7 pt further left: the
   // reference's differing cells are white and that edge's greys, which are no ink of its own (euxy port: "#bbb").
@@ -378,6 +413,18 @@ test('compare: the CLI form and the reference are checked before any comparison'
   assert.match(helpText('agent'), /\(a select, date or checkbox: its value\)/);
 });
 
+// The euxy port's "BPM +5 per tap": a library an earlier plain drive stored, where compare drives start empty.
+test('the first drive from an app directory that keeps the store `default` says so, once per directory and device', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-store-note-')), said = [], error = console.error;
+  console.error = (line) => said.push(line);
+  try {
+    const drive = (dir, device = 'sim-a') => noteDefaultStore({ host: 'ios', device, appId: 'dev.example.app', dir }, root);
+    drive('/ports/one'); drive('/ports/one'); drive('/ports/two'); drive('/ports/one', 'sim-b');
+    assert.equal(said.length, 3);
+    assert.match(said[0], /^note: no --storage named, so this drive keeps the store `default`, what earlier drives of this app on this device stored \(one that compares with a reference starts empty\)/);
+  } finally { console.error = error; rmSync(root, { recursive: true, force: true }); }
+});
+
 test('a native named store is kept unless the drive resets it, under its lock; a web one starts empty unless kept', async () => {
   const quiet = [console.log, console.error];
   console.log = () => {}; console.error = () => {};
@@ -399,7 +446,108 @@ test('a native named store is kept unless the drive resets it, under its lock; a
       assert.equal(lock?.storage === 's1', locked, `${host} lock`);
       if (locked) { assert.equal(lock.device, `the one ${host} device`); assert.deepEqual(order, ['resolve', 'lock', 'open']); }
     }
+    // A native drive that names no store has `default`, which --reset-storage empties; a web drive has none to reset.
+    let env = null, lock = null;
+    const injected = { open: async (o) => { env = o.env; return { state: async () => ({}), close: async () => {} }; }, driveServer: async () => null,
+      exclusiveNativeStore: async (key, launch) => { lock = key; return launch(); }, resolveDevice: () => 'a device' };
+    assert.equal(await main(['ios', '--reset-storage', 'state'], injected), 0);
+    assert.deepEqual([lock?.storage, env?.EXACT_AGENT_STORAGE_FRESH], ['default', '1']);
+    await assert.rejects(main(['web', '--reset-storage', 'state'], injected), /need --storage <name>/);
   } finally { [console.log, console.error] = quiet; }
+});
+
+test('storage advice preserves canvas journal entries through the host seam', async () => {
+  const { driveNotes } = await import('./agent-test.mjs');
+  for (const probe of [s => s.landed({ tapped: true }), s => driveNotes(s, { host: 'linux' })('tap')]) {
+    const journal = ['loop wind on'], lines = [], calls = [];
+    let cursor = 0;
+    const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
+      async ask(req) {
+        calls.push(req.op);
+        if (req.op !== 'logs') return { epoch: 0, clock: 0 };
+        const from = cursor; cursor = journal.length;
+        return { from: req.since, next: lines.length, lines: lines.slice(req.since),
+          world: [{ canvas: 7, from, next: cursor, lines: journal.slice(from) }] };
+      } };
+    const s = await open({ reuse: carrier });
+    carrier.host = 'linux';
+    await probe(s);
+    assert.ok(calls.includes('logs'), 'the input ran the storage probe');
+    journal.push('beacon-1 lit', 'sfx chime');
+    const logs = await s.logs();
+    assert.deepEqual(logs.world, [
+      { canvas: 7, from: 0, next: 1, lines: journal.slice(0, 1) },
+      { canvas: 7, from: 1, next: 3, lines: journal.slice(1) },
+    ]);
+    assert.deepEqual((await s.logs()).world[0].lines, [], 'the caller consumes each entry once');
+  }
+});
+
+test('canvas journal errors survive before and after buffered entries', async () => {
+  const { peekLogs } = await import('./agent-test.mjs');
+  const entry = { canvas: 7, from: 100, next: 101, lines: ['saved entry'] };
+  const error = { canvas: 7, error: 'journal unavailable' };
+  for (const rows of [[entry, error], [error, entry]]) {
+    const pending = [...rows];
+    const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
+      async ask(req) { return req.op === 'logs' ? { from: 0, next: 0, lines: [], world: pending.length ? [pending.shift()] : [] } : {}; } };
+    const s = await open({ reuse: carrier });
+    await peekLogs(s, 0);
+    assert.deepEqual((await s.logs()).world, rows);
+    assert.deepEqual((await s.logs()).world, [], 'entries and errors are consumed once');
+  }
+});
+
+test('a failed journal read retains the buffered entries for retry', async () => {
+  const { peekLogs, takeWorldLogs } = await import('./agent-test.mjs');
+  const entry = { canvas: 7, from: 0, next: 1, lines: ['saved entry'] };
+  const s = { op: async () => ({ world: [entry] }) };
+  await peekLogs(s, 0);
+  const broken = { [Symbol.iterator]() { throw new Error('cannot read batch'); } };
+  assert.throws(() => takeWorldLogs(s, broken), /cannot read batch/);
+  assert.deepEqual(takeWorldLogs(s, []), [entry]);
+  assert.deepEqual(takeWorldLogs(s, []), []);
+});
+
+test('canvas journals separate restarted cursors and reset with a web reload', async () => {
+  const { peekLogs, reloadWeb } = await import('./agent-test.mjs');
+  const old = { canvas: 7, from: 100, next: 110, lines: ['old canvas'] };
+  const fresh = { canvas: 7, from: 0, next: 1, lines: ['new canvas'] };
+  let pending = [old, fresh];
+  const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}),
+    reset() { pending = [fresh]; },
+    async ask(req) { return req.op === 'logs' ? { from: req.since, next: req.since, lines: [], world: pending.length ? [pending.shift()] : [] } : {}; } };
+  const s = await open({ reuse: carrier });
+  pending = [old, fresh];
+  await peekLogs(s, 0);
+  assert.deepEqual((await s.logs()).world, [old, fresh], 'replacement without reload keeps lifetimes separate');
+  const restored = { canvas: 7, from: 5000, next: 9096, dropped: 5000, lines: ['restored canvas'] };
+  pending = [old, restored];
+  await peekLogs(s, 0);
+  assert.deepEqual((await s.logs()).world, [old, restored], 'a replacement with a later cursor retains its own span and dropped count');
+  assert.deepEqual((await s.logs()).world, [], 'both lifetimes are consumed once');
+  const contiguous = { canvas: 7, from: 110, next: 4206, dropped: 110, lines: ['replacement at the old boundary'] };
+  pending = [old, contiguous];
+  await peekLogs(s, 0);
+  assert.deepEqual((await s.logs()).world, [old, contiguous], 'equal boundaries do not merge replacement metadata into the old lifetime');
+  assert.deepEqual((await s.logs()).world, [], 'equal-boundary lifetimes are consumed once');
+  pending = [old];
+  s.logCursor = 99;
+  await peekLogs(s, 99);
+  await reloadWeb(s);
+  assert.equal(s.logCursor, 0);
+  assert.deepEqual((await s.logs()).world, [fresh], 'reload discards the old page journal');
+  assert.deepEqual((await s.logs()).world, []);
+
+  let finish;
+  carrier.ask = () => new Promise(resolve => { finish = resolve; });
+  const inFlight = peekLogs(s, 0);
+  carrier.ask = async () => ({});
+  await reloadWeb(s);
+  finish({ world: [old] });
+  await inFlight;
+  carrier.ask = async () => ({ from: 0, next: 0, lines: [], world: [fresh] });
+  assert.deepEqual((await s.logs()).world, [fresh], 'a late probe cannot refill the old page buffer');
 });
 
 test('a drive with no store says its storage was refused after the first op that met it, a screenshot too, once', async () => {
@@ -429,15 +577,60 @@ test('a screenshot with a system sheet held says it is not drawn, and where the 
   const s = (touch, extra = {}) => ({ launchFacts: {}, carrier: { touch, ...extra }, op: async () => ({ lines: [], next: 0 }), state: async () => ({ pending }) });
   console.error = (line) => said.push(line);
   try {
-    await driveNotes(s('agent', { installNote: 'kept the Release build' }), { host: 'ios', storage: 's1' })('screenshot');
-    assert.equal(said.length, 3);
+    await driveNotes(s('agent', { installNote: 'kept the Release build', axNote: 'accessibility is on' }), { host: 'ios', storage: 's1' })('screenshot');
+    assert.equal(said.length, 4);
     assert.match(said[0], /^note: kept the Release build$/);
+    assert.match(said[1], /^note: accessibility is on$/);
+    said.splice(1, 1);
     assert.match(said[1], /no share sheet: under the agent it is held \(@1\).*under --touch platform the real one is presented/);
     assert.doesNotMatch(said[2], /--touch platform/);
     said.length = 0;
     // Under --touch platform the share sheet is presented: only the picker, which is not, is said.
     await driveNotes(s('platform'), { host: 'ios', storage: 's1' })('screenshot');
     assert.deepEqual(said.map((l) => /@(\d)/.exec(l)?.[1]), ['2']);
+  } finally { console.error = quiet; }
+});
+
+// The euxy port's pattern menu: painted in the page by the agent, it read as an app bug.
+test('a tap that opens a menu the agent paints says UIKit presents it, under --touch platform, once', async () => {
+  const { driveNotes } = await import('./agent-test.mjs');
+  const said = [], quiet = console.error;
+  const tree = (open) => [
+    { id: 1, parent: null, props: {} },
+    { id: 2, parent: 1, type: 'View', props: { popovertarget: 'patmenu', testId: 'pattern-menu' } },
+    { id: 3, parent: 2, props: {} }, // the invoker's label, which the tap may land on
+    { id: 4, parent: 1, open, props: { id: 'patmenu', popover: 'auto', accessibilityRole: 'menu' } },
+    { id: 5, parent: 4, props: { popovertarget: 'patmenu', popovertargetaction: 'hide' } }, // a row that closes it
+    { id: 6, parent: 1, props: { commandfor: 'ask', command: 'show-modal' } },
+    { id: 7, parent: 1, open: true, props: { id: 'ask', popover: 'auto', semanticTag: 'dialog' } },
+    // native-fixture's `open-native-popover`: a native button's content popover, form controls, no `role="menu"`.
+    { id: 8, parent: 1, type: 'Control', props: { type: 'button', popovertarget: 'form' } },
+    { id: 9, parent: 1, open: true, props: { id: 'form', popover: 'auto' } },
+    // A native button's popover that is `role="menu"`: UIKit's pull-down.
+    { id: 10, parent: 1, type: 'Control', props: { type: 'button', popovertarget: 'more' } },
+    { id: 11, parent: 1, open: true, props: { id: 'more', popover: 'auto', accessibilityRole: 'menu' } },
+  ];
+  let open = false;
+  const s = (touch) => ({ launchFacts: {}, carrier: { touch }, op: async () => ({ lines: [], next: 0 }), state: async () => ({}), tree: async () => ({ nodes: tree(open) }) });
+  const tap = (tapped, delivery = 'activation') => ({ tapped, delivery });
+  console.error = (line) => said.push(line);
+  try {
+    const notes = driveNotes(s('agent'), { host: 'ios', storage: 's1' });
+    // A row that closes it, a dialog, a content popover, the invoker's tap that left it closed, a hover, a contact's phase.
+    for (const reply of [tap(5), tap(6), tap(8), tap(3), tap(2, 'recognized'), { tapped: 2, delivery: 'activation', phase: 'down' }]) await notes('tap', reply);
+    open = true;
+    await notes('tap', { tapped: 2, wheel: [0, 40] }); // a wheel while it is open, as iOS replies (AgentIOS.swift)
+    await notes('tap', tap(2, 'recognized')); // a hover or pinch
+    assert.deepEqual(said, []);
+    await notes('tap', tap(3)); await notes('tap', tap(2));
+    assert.deepEqual(said, ["note: the tap opened the popover `patmenu` as the agent paints it, in the page; the app presents it as UIKit's pull-down menu, which a drive shows under --touch platform"]);
+    said.length = 0;
+    await driveNotes(s('agent'), { host: 'ios', storage: 's1' })('tap', tap(10));
+    assert.match(said[0] ?? '', /popover `more`/);
+    said.length = 0;
+    await driveNotes(s('platform'), { host: 'ios', storage: 's1' })('tap', tap(2));
+    await driveNotes(s('agent'), { host: 'web', storage: 's1' })('tap', tap(2));
+    assert.deepEqual(said, []);
   } finally { console.error = quiet; }
 });
 
@@ -499,4 +692,54 @@ test('compare on a capture: nodes where the window has them, its safe area not s
     const m = await compareOp(mac, resolve(dir, 'ref.png'), async () => ({ screenshot: resolve(dir, 'shot.png'), w: 120, h: 200, notShown: { windows: ['NSPopover'], see: 'screenshot <png> window' } }));
     assert.match(m.text, /capture: not in the capture, as windows of their own: NSPopover/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('logs --all requests the retained journal after a delta read', async () => {
+  const calls = [], lines = ['first', 'second'];
+  const carrier = {host:'web', browser:'chrome', hostLines:[], launchFacts:launchFacts({}), reset() {},
+    async ask(req) { calls.push(req); return {from:req.since, next:lines.length, lines:lines.slice(req.since)}; }};
+  const s = await open({reuse:carrier});
+  assert.deepEqual((await s.logs()).lines, lines);
+  assert.deepEqual((await s.logs()).lines, []);
+  assert.deepEqual((await s.logs({all:true})).lines, lines);
+  assert.deepEqual(calls.filter(c=>c.op==='logs').map(c=>[c.since, c.all ?? false]), [[0,false],[2,false],[0,true]]);
+});
+
+test('whole-journal text names each canvas and its dropped prefix', () => {
+  const text = render('logs', {lines:[], world:[
+    {canvas:7, dropped:904, lines:['last a']},
+    {canvas:8, dropped:2, lines:['last b']},
+  ]});
+  assert.match(text, /world 7 \(904 earlier lines dropped/);
+  assert.match(text, /world 8 \(2 earlier lines dropped/);
+  assert.match(text, /world last a/);
+  assert.match(text, /world last b/);
+});
+
+test('a plain screenshot in an app that keeps reference pictures names compare; no folder, or a compare, says nothing', async () => {
+  const { referenceNote } = await import('./agent-compare.mjs');
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const app = mkdtempSync(resolve(tmpdir(), 'exact-ref-'));
+  try {
+    const note = (ops) => { const said = []; referenceNote(ops, app, (l) => said.push(l)); return said.join('\n'); };
+    assert.equal(note(['screenshot .exact/home.png']), '');
+    mkdirSync(resolve(app, 'ref'));
+    for (const f of ['home.png', 'list.png']) writeFileSync(resolve(app, 'ref', f), '');
+    assert.match(note(['tap add', 'screenshot .exact/home.png window']), /ref\/ holds 2 reference pictures: "screenshot \.exact\/home\.png compare \S*ref\/home\.png"/);
+    assert.match(note(['screenshot .exact/other.png']), /compare \S*ref\/<name>\.png"/);
+    assert.equal(note(['screenshot .exact/home.png compare ref/home.png']), '');
+    assert.equal(note(['screenshot .exact/a.apng over 600 every 50']), '');
+  } finally { rmSync(app, { recursive: true, force: true }); }
+});
+
+test('logs after reload include the new document host diagnostics', async () => {
+  const {reloadWeb}=await import('./agent-test.mjs');
+  const carrier={host:'web',browser:'chrome',hostLines:['before'],launchFacts:launchFacts({}),
+    reset(){this.hostLines.length=0;this.hostLines.push('after');},
+    async ask(req){return req.op==='logs'?{lines:[],from:0,next:0}:{};}};
+  const s=await open({reuse:carrier}); carrier.hostLines.length=0; carrier.hostLines.push('before');
+  assert.deepEqual((await s.logs()).host,['before']);
+  await reloadWeb(s);
+  assert.deepEqual((await s.logs()).host,['after']);
 });

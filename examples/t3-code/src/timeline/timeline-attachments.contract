@@ -36,6 +36,7 @@ shape AttachmentUrl
   ink: string
 shape TimelineAttachmentUrls
   items: AttachmentUrl[]
+  posted: number // messages queued for inline documents so far (inline-documents.ts)
 
 component MessageAttachments
   props

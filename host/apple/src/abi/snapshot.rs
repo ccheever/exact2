@@ -77,13 +77,62 @@ impl<D: DataSource> Bridge<D> {
             Err(e) => self.refuse(&format!("{e:?}")),
         }
     }
-    /// Query the declared refresh source in the already booted entry.
+    /// Query the declared refresh source in the already booted entry. A test's
+    /// fake source answers at once, but a test binary under a full parallel run
+    /// can be starved past the extension's 900 ms; the deadline is not what
+    /// these tests check.
+    #[cfg(test)]
     pub fn entry_timeline(&mut self, now: f64) -> u32 {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        self.entry_timeline_until(now, deadline, "", &[])
+    }
+    /// Borrow the pinned pair for admission; no bridge input or concatenation.
+    pub fn entry_timeline_module(
+        &mut self,
+        now: f64,
+        remaining_ms: f64,
+        receipt: &[u8],
+        module: &[u8],
+    ) -> u32 {
+        if receipt.len() > 1 << 20
+            || module.len() > 32 << 20
+            || receipt.is_empty() != module.is_empty()
+            || !remaining_ms.is_finite()
+            || remaining_ms <= 0.0
+            || remaining_ms > 900.0
+        {
+            return self.emit(
+                serde_json::json!({"error":"invalid snapshot input or expired deadline"})
+                    .to_string(),
+            );
+        }
+        let Ok(text) = std::str::from_utf8(receipt) else {
+            return self
+                .emit(serde_json::json!({"error":"invalid snapshot module receipt"}).to_string());
+        };
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs_f64(remaining_ms / 1000.0);
+        self.entry_timeline_until(now, deadline, text, module)
+    }
+    fn entry_timeline_until(
+        &mut self,
+        now: f64,
+        deadline: std::time::Instant,
+        receipt: &str,
+        module: &[u8],
+    ) -> u32 {
         let result = self
             .host
             .as_mut()
             .ok_or_else(|| "not booted".to_owned())
-            .and_then(|host| host.entry_timeline(now, self.links.io));
+            .and_then(|host| {
+                host.entry_timeline(
+                    now,
+                    self.links.io,
+                    (!receipt.is_empty()).then_some((receipt, module)),
+                    deadline,
+                )
+            });
         self.emit(match result {
             Ok(json) => json,
             Err(e) => serde_json::json!({"error":e}).to_string(),
@@ -133,8 +182,8 @@ mod tests {
         }
     }
     fn entry() -> Vec<u8> {
-        contract::snapshot::compile("shape Props\n  title: string\ncomponent Card\n  props\n    title: string\n  view\n    text title\n", &contract::Widget {
-            kind: "card".into(), title: None, description: None, families: vec!["systemSmall".into()], component: "Card".into(), props: "Props".into(), refresh: "refresh".into(), preview: serde_json::json!({"title":"preview"})
+        contract::snapshot::compile("shape Props\n  title: string\ncomponent Card\n  props\n    title: string\n  view\n    text title\n", &contract::Widget { requires_secrets: false,
+            kind: "card".into(), title: None, description: None, families: vec!["systemSmall".into()], watch_families: vec![], component: "Card".into(), props: "Props".into(), refresh: "refresh".into(), preview: serde_json::json!({"title":"preview"})
         }).unwrap().encode()
     }
     #[test]

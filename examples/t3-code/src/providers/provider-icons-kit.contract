@@ -50,7 +50,7 @@ component AcpRegistryAgentIcon
     failed = icon
   view
     box width=`${size / 16}rem` height=`${size / 16}rem` position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 testId=(icon == "" ? "acp-icon-fallback" : `acp-icon-${loaded == icon ? "loaded" : failed == icon ? "failed" : "loading"}`)
-      if loaded != icon
+      if icon == "" or loaded != icon
         AcpRegistryGlyph(size=size, color=color)
       if icon != "" and failed != icon
         image icon width=`${size / 16}rem` height=`${size / 16}rem` object-fit="contain" aria-hidden=true -exact-tint-color=color load=didLoad error=didFail position=(loaded == icon ? "relative" : "absolute") left=0 top=0 visibility=(loaded == icon ? "visible" : "hidden")

@@ -226,6 +226,16 @@ final class AppControlActivationTargetTests: XCTestCase {
         XCTAssertNil(T3AppControl.activationTarget(main: nil, windows: [panel, Stand("closed")]))
     }
 
+    /// `host.macos.window.keepRunning`: Close Window orders the session's window out without closing it, so it is
+    /// neither on screen nor in the Dock, and a request brings it back, as the reference opens a main window.
+    func test_aWindowCloseWindowHidIsTheOneShown() {
+        let panel = Stand("snapshot flash", visible: true, document: false), hidden = Stand("T3 Code")
+        XCTAssertTrue(T3AppControl.activationTarget(main: nil, windows: [panel, hidden], kept: [hidden]) === hidden)
+        let shown = Stand("second", visible: true)
+        XCTAssertTrue(T3AppControl.activationTarget(main: nil, windows: [hidden, shown], kept: [hidden]) === shown, "a window on screen comes first")
+        XCTAssertNil(T3AppControl.activationTarget(main: nil, windows: [panel, hidden], kept: []), "a window that closed is not kept")
+    }
+
     func test_whatAppKitSaysOfAWindowItHidesOrPanels() {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)

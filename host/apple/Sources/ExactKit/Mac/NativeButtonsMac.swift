@@ -16,6 +16,11 @@ import AppKit
 /// its node's, offered where the node offers it (X84): a `contextPopover`.
 final class NativeButtonCellMac: NSButtonCell {
     private var owner: NodeView? { (controlView as? NativeButtonMac)?.owner }
+    /// AppKit's highlight while the mouse holds it, and a held press's beside it (HeldState.swift).
+    override var isHighlighted: Bool {
+        get { super.isHighlighted || owner?.holds("active") == true }
+        set { super.isHighlighted = newValue }
+    }
     override func accessibilityPerformShowMenu() -> Bool { owner?.accessibilityPerformShowMenu() ?? false }
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         selector == #selector(accessibilityPerformShowMenu) ? owner?.isAccessibilitySelectorAllowed(selector) == true : super.isAccessibilitySelectorAllowed(selector)
@@ -217,7 +222,15 @@ extension NodeView {
 }
 
 extension NodeView {
-    package var fieldInk: NSColor { color("text_color", SystemColor.canvasText) }
+    /// A field's text: its own `color`, else the design's `FieldText`, else
+    /// the platform's; an inherited colour never tints a field (LLP 1115 D4,
+    /// LLP 1121 D9).
+    /// A field of the author's own (`appearance="none"`) is their box, and
+    /// inherits as text does.
+    var fieldInk: NSColor {
+        showsOwnTextColor || !isNativeTextControl ? color("text_color", SystemColor.canvasText) : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
+    }
+
     /// Whether the author wrote the style row `key` on this node (it is false of a value the node only
     /// inherits and of a row the compiler implied), as iOS reads it.
     func wrote(_ key: String) -> Bool {
@@ -296,7 +309,7 @@ extension ControlHost {
             standIns["accent-color"] = "AppKit applies its disabled bezel tint despite the authored accent"
         }
         return ["view": "NSButton", "style": face.style as Any, "drawn": button.drawn, "title": face.title as Any,
-                "symbol": face.symbol as Any, "enabled": button.isEnabled,
+                "symbol": FaceSymbol.observed(face.symbol, icon: face.symbolIcon) as Any, "enabled": button.isEnabled,
                 "rows": rows, "standIns": standIns, "imagePosition": button.imagePosition.rawValue,
                 "pointerEvents": button.written?.interactive == false ? "none" : "auto",
                 "size": [Agent.r2(button.frame.width), Agent.r2(button.frame.height)]]

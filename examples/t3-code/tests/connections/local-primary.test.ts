@@ -407,6 +407,8 @@ describe('first run and the landing with a primary', () => {
     const view = await welcomeView(client, new Fake([]), { step: 'connect', now: Date.parse('2026-10-07T12:00:00.000Z') });
     expect(view.show).toBe(true);
     expect(view.computers.map(computer => [computer.label, computer.status, computer.selected])).toEqual([['Lane Mac', 'Connected', true]]);
+    // The local server runs (WelcomeWizard's localAvailable): "Add a computer" starts closed and Continue takes the focus.
+    expect(view.pairStartsOpen).toBe(false);
     expect(primaryWelcome()).toMatchObject({ bootstrapStatus: 'complete' });
   });
 

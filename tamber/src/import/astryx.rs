@@ -296,6 +296,8 @@ pub fn import(
         offers,
         unmapped,
         counted,
+        dials: Vec::new(),
+        pins: Vec::new(),
     })
 }
 

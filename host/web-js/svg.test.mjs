@@ -3,9 +3,9 @@ import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { chromium, webkit } from 'playwright-core';
+import { webkit } from 'playwright-core';
 import { decodePng } from '../../scripts/png.mjs';
-import { chromium as browserPath } from '../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 test('compiled SVG geometry bindings render, change, unset and preserve zero', async () => {
   const root = resolve(import.meta.dir, '../..');
@@ -28,7 +28,7 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
         .map(base => resolve(base, path)).find(existsSync);
       return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
     } });
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
     await page.goto(server.url.href);
     const nested = page.getByTestId('nested');
@@ -175,7 +175,7 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
     }
     await browser.close();
     if (existsSync(webkit.executablePath())) {
-      browser = await webkit.launch({ headless: true });
+      browser = await suiteBrowser('webkit');
       const safari = await browser.newPage({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 2 });
       await safari.goto(server.url.href);
       await safari.getByTestId('hairline-pattern').waitFor({ state: 'attached' });

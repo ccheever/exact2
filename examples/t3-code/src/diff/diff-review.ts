@@ -13,7 +13,7 @@ import { createGitDiffFileContentsLoader, changeType, expandRange, loadFileConte
 import { buildDiffReviewComment, findDiffReviewLineIndex, reviewCommentContextRecord, type SelectedLineRange, type SelectionSide } from './diff-comments';
 import { dragTo, gutterClick, parseLineCellId, pressGutter, pressLine, releaseDrag, type RowIndex } from './diff-line-drag';
 import { contentsKey, currentSelection, diffFiles, noteDraftFocus, reviewLinesOf, reviewSection } from './diff';
-import { addReviewCommentChip, insertContext, localId, removeReviewCommentChip } from '../composer/composer-editor';
+import { addReviewCommentChip, localId, removeReviewCommentChip } from '../composer/composer-editor';
 import { ASSISTANT_CITATION_MAX_TEXT_LENGTH, createAssistantTextSelector, formatAssistantCitationHref, parseAssistantCitationHref } from '../timeline/diff-citations';
 import { openCitationComment, rememberCitedStart } from '../timeline/citation-comment';
 import { pushToast } from '../shell/toast';
@@ -115,14 +115,14 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     const comment = buildDiffReviewComment({ id: draft.id, sectionId: section.id, sectionTitle: section.title, filePath: draft.path, lines: reviewLinesOf(state, target), range: draft.range, text: value });
     if (!comment) throw new ClientError('Those lines are no longer in the diff.');
     const record = reviewCommentContextRecord(comment);
-    await addReviewCommentChip(client, native, record);
-    state.saved.push({ contextId: record.contextId, scope: draft.scope, path: draft.path, range: draft.range, rangeLabel: comment.rangeLabel, text: comment.text });
-    state.draft = null; state.selection = null; noteDraftFocus(client, false);
+    await addReviewCommentChip(client, native, record, { applied: () => {
+      state.saved.push({ contextId: record.contextId, scope: draft.scope, path: draft.path, range: draft.range, rangeLabel: comment.rangeLabel, text: comment.text });
+      if (state.draft === draft) { state.draft = null; state.selection = null; noteDraftFocus(client, false); }
+    } });
     return '';
   }
   if (action === 'delete') {
-    await removeReviewCommentChip(client, native, value);
-    state.saved = state.saved.filter(entry => entry.contextId !== value);
+    await removeReviewCommentChip(client, native, value, { applied: () => { state.saved = state.saved.filter(entry => entry.contextId !== value); } });
     return '';
   }
   throw new ClientError('Unsupported diff review action.');
@@ -198,8 +198,7 @@ async function citeSelection(client: T3Client, native: Native, rowId: string, va
   if (!parseAssistantCitationHref(href)) throw new ClientError('Unable to cite this selection.');
   // Where the quote starts in the answer's text stream, for its highlight while the comment is open.
   rememberCitedStart(client, citation, Math.min(...ranges.map(range => range[0]!)));
-  try { await insertContext(client, native, 'citation', href); }
+  try { if (!await openCitationComment(client, native, href, source)) throw new ClientError('The composer is not ready.'); }
   catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'warning', title: 'The composer is not ready', description: 'Try citing the selection after the connection or pending input is resolved.', hideCopy: true }); return ''; }
-  await openCitationComment(native, href, source);
   return '';
 }

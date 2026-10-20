@@ -211,12 +211,13 @@ impl Targets {
 
 /// A direct frame's attachments at its target's own size: at 4x, MSAA colour in
 /// the target's format, which the forward pass resolves into the target; at 1x
-/// none, as the pass draws into the target. Depth is transient unless the depth
-/// prepass writes it for the forward pass to load (`retained`).
+/// none, as the pass draws into the target. Both are transient unless
+/// `retained`: a look frame that counts particles stores them after the opaque
+/// pass, and its translucent pass loads the colour, resolves it and samples
+/// the depth.
 pub(crate) struct DirectTargets {
     pub format: wgpu::TextureFormat,
     pub size: wgpu::Extent3d,
-    pub retained: bool,
     pub color: Option<wgpu::TextureView>,
     pub depth: wgpu::TextureView,
 }
@@ -229,7 +230,7 @@ impl DirectTargets {
         samples: u32,
         retained: bool,
     ) -> Self {
-        let texture = |format, transient| {
+        let texture = |format, sampled| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some("game direct"),
@@ -239,8 +240,10 @@ impl DirectTargets {
                     dimension: wgpu::TextureDimension::D2,
                     format,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | if transient {
+                        | if !retained {
                             transient_usage()
+                        } else if sampled {
+                            wgpu::TextureUsages::TEXTURE_BINDING
                         } else {
                             wgpu::TextureUsages::empty()
                         },
@@ -251,9 +254,8 @@ impl DirectTargets {
         Self {
             format,
             size,
-            retained,
-            color: (samples > 1).then(|| texture(format, true)),
-            depth: texture(wgpu::TextureFormat::Depth32Float, !retained),
+            color: (samples > 1).then(|| texture(format, false)),
+            depth: texture(wgpu::TextureFormat::Depth32Float, true),
         }
     }
     /// The textures it made, for `Stats::texture_creations`.

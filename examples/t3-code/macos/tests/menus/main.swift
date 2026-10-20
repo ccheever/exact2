@@ -368,6 +368,21 @@ final class QuitHoldTests: XCTestCase {
         XCTAssertEqual(window.alphaValue, 0)
         XCTAssertTrue(window.isVisible)
     }
+    /// A window that Close Window ordered out (`host.macos.window.keepRunning`) leaves ⌘Q to the menu's Quit, as the
+    /// reference's has no page to hold it; a shown, concealed or minimized window keeps the hold.
+    func testCommandQSkipsTheHoldWhileTheWindowIsOrderedOut() {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled, .miniaturizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        XCTAssertTrue(T3Menus.holdsQuit(nil), "before the composer attaches a window")
+        window.orderFront(nil)
+        XCTAssertTrue(T3Menus.holdsQuit(window))
+        window.alphaValue = 0
+        XCTAssertTrue(T3Menus.holdsQuit(window), "a hold that concealed its window still owns the keys")
+        window.alphaValue = 1
+        window.orderOut(nil)
+        XCTAssertFalse(T3Menus.holdsQuit(window))
+    }
 }
 
 private func keyEvent(_ type: NSEvent.EventType, _ characters: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [.command], repeating: Bool = false) -> NSEvent {
@@ -391,6 +406,17 @@ final class MenuTests: XCTestCase {
         XCTAssertTrue(h.hold.handle(keyEvent(.keyDown, "q", 12)))
         XCTAssertFalse(h.hold.handle(keyEvent(.flagsChanged, "", 56, [.command, .shift])), "modifier events are never consumed")
         XCTAssertEqual(h.notifications, [HOLD_DOWN, UP])
+    }
+    /// What quits at once while the window is ordered out: a ⌘Q press, by key code under Korean 2-Set too.
+    func testAQuitPressWithoutTheHold() {
+        XCTAssertTrue(T3Menus.isQuitPress(keyEvent(.keyDown, "q", 12)))
+        XCTAssertTrue(T3Menus.isQuitPress(keyEvent(.keyDown, "ㅂ", 12)), "Korean 2-Set: the menu's ⌘Q misses it")
+        XCTAssertFalse(T3Menus.isQuitPress(keyEvent(.keyDown, "q", 12, repeating: true)))
+        XCTAssertFalse(T3Menus.isQuitPress(keyEvent(.keyDown, "q", 12, [.command, .option])))
+        XCTAssertFalse(T3Menus.isQuitPress(keyEvent(.keyDown, "q", 12, [.command, .shift])))
+        XCTAssertFalse(T3Menus.isQuitPress(keyEvent(.keyDown, "q", 12, [])))
+        XCTAssertFalse(T3Menus.isQuitPress(keyEvent(.keyUp, "q", 12)))
+        XCTAssertFalse(T3Menus.isQuitPress(keyEvent(.keyDown, "w", 13)))
     }
     func testHeldCommandWRepeatsAreDroppedButAPressIsNot() {
         XCTAssertFalse(T3Menus.dropsHeldClose(keyEvent(.keyDown, "w", 13)), "a deliberate press reaches Close Window")

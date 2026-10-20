@@ -10,7 +10,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect as netConnect } from "node:net";
 import { join, resolve } from "node:path";
-import { connect, ensureProject } from "../github-lane/lib.mjs";
+import { connect, ensureProject, LANE_SCOPES } from "../github-lane/lib.mjs";
 import { AGENT, install as installStandin, refresh as refreshStandin, status as standinStatus } from "../acp-standin/install.mjs";
 
 export const checkout = resolve(import.meta.dir, "../../../..");
@@ -366,7 +366,8 @@ async function seedPullRequestThread(paths, name, conn, projectId, live, { timeo
 export async function seed(paths, name, seeds = SEEDS[name] ?? [{ repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: [`Shared notes on ${name}`] }], { turns = false, limits = false, pullRequest = false } = {}) {
   const running = recorded(paths, name);
   if (!running) throw new Error(`${name}: no fixture server running`);
-  const conn = await connect(`http://127.0.0.1:${running.port}`, pairingToken(paths, name, "Fixture seed"));
+  // Project scripts, the stand-in's provider pin and usage accounts are settings and provider writes.
+  const conn = await connect(`http://127.0.0.1:${running.port}`, pairingToken(paths, name, "Fixture seed"), `${LANE_SCOPES} settings:write providers:manage`);
   try {
     const out = [];
     if (limits) out.push({ usageHub: `http://127.0.0.1:${(await startHub(paths)).port}`, accounts: await addHub(conn, hubPort()) });

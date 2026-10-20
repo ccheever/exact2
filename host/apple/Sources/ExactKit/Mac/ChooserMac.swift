@@ -181,7 +181,7 @@ extension MenuHost {
     /// fetches, and an image still loading is no image until the next open.
     func image(of row: NodeView) -> NSImage? {
         guard row.isButton else { return nil }
-        if let symbol = row.face?.symbol { return NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+        if let symbol = row.face?.symbol { return FaceSymbol.image(symbol) }
         guard !row.isNativeButton, let img = Self.firstImage(in: row) else { return nil }
         if img.imageSource?.hasPrefix("symbol:") == true { return img.image }
         return img.raster.map { Self.rowImage($0.image.image) }

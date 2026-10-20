@@ -62,10 +62,29 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         if monitor == nil {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
                 guard let self else { return event }
-                if self.quit.handle(event) { return nil }
+                if !Self.holdsQuit(self.window) {
+                    if Self.isQuitPress(event) { self.quit.quit(); return nil }
+                } else if self.quit.handle(event) { return nil }
                 return Self.dropsHeldClose(event) ? nil : event
             }
         }
+    }
+
+    /// Whether the quit shortcut goes through the hold: not while the main window is ordered out
+    /// (Close Window under `host.macos.window.keepRunning`). The reference's hold listens on the
+    /// window's page (`before-input-event`), and with no window its ⌘Q is the menu's Quit, at once.
+    static func holdsQuit(_ window: NSWindow?) -> Bool {
+        guard let window else { return true }
+        return window.isVisible || window.isMiniaturized
+    }
+
+    /// A ⌘Q press, which quits at once while the hold is off. Matched here rather than left to the
+    /// menu's Quit, whose key equivalent AppKit misses when the input source types no Latin letter
+    /// on Q's key (Korean 2-Set's ㅂ), as `key(_:)` says.
+    static func isQuitPress(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return event.type == .keyDown && !event.isARepeat && flags.contains(.command)
+            && flags.isDisjoint(with: [.option, .control, .shift]) && T3QuitHold.key(event) == "q"
     }
 
     /// DesktopWindow.ts: a held ⌘W can outlive the panel that took its first press, so its

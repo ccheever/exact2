@@ -4,12 +4,13 @@ import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp, chromium } from '../../../scripts/agent-launch.mjs';
+import { Cdp, cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
 
 const { executable, unavailable } = chromium(), check = need('chrome', unavailable);
-let child, profile, cdp, server;
+let server;
+/** A browser of the test's own, for a test about the browser process itself (it exits, or is killed, mid-readiness). */
 function browser() {
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-page-ready-'));
   const child = spawn(executable, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
@@ -33,26 +34,21 @@ beforeAll(() => {
     return pages[path] ? new Response(pages[path], { headers: { 'content-type': 'text/html' } })
       : new Response('missing', { status: 404 });
   } });
-  ({ child, profile, cdp } = browser());
 });
-afterAll(() => {
-  child?.kill(); server?.stop(true);
-  if (profile) rmSync(profile, { recursive: true, force: true });
-});
+afterAll(() => { server?.stop(true); });
 
 async function withPage(run) {
-  const { browserContextId } = await cdp.send('Target.createBrowserContext');
+  const suite = await cdpBrowser(), { cdp } = suite;
   const listeners = cdp.listeners.length;
   const closeListeners = cdp.closeListeners.size;
   try {
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', browserContextId });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     await run((path, options) => readyPage(cdp, sessionId, `${server.url.origin}${path}`, options),
       (method, params) => cdp.send(method, params, sessionId));
     expect(cdp.listeners.length).toBe(listeners);
     expect(cdp.closeListeners.size).toBe(closeListeners);
   } finally {
-    await cdp.send('Target.disposeBrowserContext', { browserContextId });
+    await suite.close();
   }
 }
 
@@ -180,6 +176,9 @@ check('readiness rejects when its target detaches, but ignores another target cl
 }), 60000);
 
 check('a page fixture disposes its browser context when attachment fails', async () => {
+  // The shared browser's pipe, which withPage's suite uses too.
+  const probe = await cdpBrowser(), { cdp } = probe;
+  await probe.close();
   const send = cdp.send.bind(cdp), before = await send('Target.getBrowserContexts');
   const failure = new Error('fixture attachment refused');
   const calls = spyOn(cdp, 'send').mockImplementation((method, ...args) =>

@@ -229,3 +229,23 @@ fn an_astryx_import_with_every_offer_accepted_compiles() {
         panic!("{e:?}\n{design}");
     }
 }
+
+/// An icon naming another reads in an app with no params, as the build
+/// reads it: `check`, `eval` and `export` refused it (`tamber-kind`) where
+/// only the params fold resolved it (an export leaves icons out).
+#[test]
+fn an_icon_alias_reads_without_params() {
+    let design =
+        format!("{DESIGN}\nicons\n  icon.house = icon(sf \"house\")\n  icon.home = icon.house\n");
+    let dir = app("alias", &design);
+    let at = dir.to_str().unwrap();
+    for verb in [
+        &["tamber", "check", at][..],
+        &["tamber", "eval", at],
+        &["tamber", "export", "dtcg", at],
+    ] {
+        let (ok, _, err) = contract(verb);
+        assert!(ok, "{verb:?}: {err}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

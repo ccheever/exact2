@@ -425,7 +425,14 @@ past `MAX_STRING` built by a binding, or a route segment a binding asks
 first, plan index on ties), each at its own due time, then moves the clock.
 It is a seek: the countdown after `advance(60_000)` equals the countdown after
 sixty `advance`s of a second; a backwards call is a no-op and a non-finite one
-is refused (`NonFiniteClock`).
+is refused (`NonFiniteClock`). A fresh runner's clock starts at zero, unless
+its boot is told where a host's live clock reads (`time::Launch::clock`,
+2026-10-18): then it starts there, so what the boot arms (`after(ms)`, a
+task's first beat) is due `ms` after the boot however long the process ran
+before it. Apple's clock counts from the process's start and the web's from
+the page's, so a window, widget or page booted later fired every boot-armed
+timer shorter than its age at its first advance. A carried or checkpointed
+runner keeps its own clock; a seek clock's boot (the agent's) starts at zero.
 
 ## 7. Boundaries
 

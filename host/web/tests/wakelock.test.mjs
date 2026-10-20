@@ -6,17 +6,14 @@
 // visible page lost it, and a missing API or a refused request is journaled
 // once. The JS target's wakelock.js journals a bad word as the runner does.
 import { test, expect, beforeAll, afterAll } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 // `?api=missing` removes the API, `?api=refuses` rejects every request.
@@ -127,7 +124,7 @@ const navJsPage = `<div id="exact-root">
 </script>`;
 
 const script = body => [200, { 'content-type': 'text/javascript' }, body];
-let server, profile, child, cdp;
+let server, suite, cdp;
 beforeAll(async () => {
   if (unavailable) return;
   server = createServer((req, res) => {
@@ -139,20 +136,16 @@ beforeAll(async () => {
     res.writeHead(status, headers); res.end(body);
   });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
-  profile = mkdtempSync(resolve(tmpdir(), 'exact-wakelock-'));
-  child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
-  cdp = new Cdp(child.stdio[3], child.stdio[4]);
+  suite = await cdpBrowser();
+  ({ cdp } = suite);
 });
-afterAll(() => {
-  child?.kill();
+afterAll(async () => {
+  await suite?.close();
   server?.close();
-  if (profile) rmSync(profile, { recursive: true, force: true });
 });
 
 async function open(path) {
-  const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+  const { targetId, sessionId } = await suite.page();
   const call = (method, params) => cdp.send(method, params, sessionId);
   const evaluate = async expression => {
     const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });

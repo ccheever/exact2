@@ -232,6 +232,9 @@ fn links_and_neighbours_open_documents() {
         "{}",
         screens[1]
     );
+    // The list closed as the document opened: its press made the list anew,
+    // and its button with it, so the list closes itself first.
+    assert!(!screens[1].contains("Links ("), "{}", screens[1]);
     assert!(
         screens[2]
             .lines()

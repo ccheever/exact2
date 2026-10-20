@@ -12,7 +12,7 @@ import { autoBalanceState } from './auto-balance';
 import { autoBalanceNotices, type MachineRow } from './auto-balance-banner';
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import { activeRun } from '../client/protocol';
-import { composerSelection } from './composer-provider-selection'; // one provider rule
+import { antigravitySendBlockReason, composerSelection } from './composer-provider-selection'; // one provider rule
 import { fanoutSelections } from './composer-controls-fanout';
 import type { T3Client } from '../client/client';
 import { followUpBehavior, isCompacting, planFollowUp, resolveDispatchMode, resumeState, sendQueuesBehindSetup } from './composer-controls';
@@ -110,7 +110,12 @@ export function primaryAction(client: T3Client, phase: string) {
   const unavailable = client.connection !== 'connected';
   const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch';
   const preparing = !!client.threadId && !setupQueue && threadWorktreeSetup(client).preparing;
-  const status = unavailable ? 'Environment disconnected' : pendingThreadImports(client) ? 'Loading thread context…' : machineChanging(client) ? 'Preparing machine' : feedbackUploading(client) ? 'Sending feedback' : preparing ? 'Preparing worktree' : projectCloneBlock(client) || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
+  // sendDisabledReason: !canOperateThread first, the provider's own block reason after the thread's.
+  const chosen = fanoutSelections(client) ? null : composerSelection(client);
+  const providerBlock = chosen?.provider ? antigravitySendBlockReason(chosen.provider, chosen.model) : '';
+  const status = unavailable ? 'Environment disconnected' : !client.scopes.includes('orchestration:operate') ? 'This connection cannot change threads.'
+    : pendingThreadImports(client) ? 'Loading thread context…' : machineChanging(client) ? 'Preparing machine' : feedbackUploading(client) ? 'Sending feedback' : preparing ? 'Preparing worktree'
+      : projectCloneBlock(client) || providerBlock || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
   const plan = planFollowUp(client);
   const alternate = followUp === 'queue' ? 'steer' : 'queue';
   // alternateShortcutLabel: composer.sendAlternate's effective binding, as formatShortcutLabel prints it (⌘Enter).

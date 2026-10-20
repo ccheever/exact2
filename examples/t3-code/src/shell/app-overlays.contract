@@ -110,14 +110,21 @@ component WelcomeLayer
     // The Codex rows' setup commands (providerOp's setup: queue) and that queue's pending.
     providerOp: action
     setupBusy: bool
-  // The wizard's help disclosure (moved from app.contract: only this layer reads or writes it).
+  // The wizard's help disclosure (moved from app.contract: only this layer reads or writes it). The reference's
+  // PairingForm holds it and mounts again with "Add a computer" and with the Connect step, so either starts it closed.
   state welcomeHelpOpen = false
   action welcomeToggleHelp
     welcomeHelpOpen = not welcomeHelpOpen
+  action welcomeTogglePairing
+    welcomeHelpOpen = false
+    welcomeTogglePair()
+  action welcomeGoStep(step: string)
+    welcomeHelpOpen = false
+    welcomeGo(step)
   view
     DialogFinalFocus(open=welcome.show, owner="welcome-dialog")
     if welcome.show
-      WelcomeWizard(view=welcome, scheme=scheme, viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish, setupOp=providerOp, setupBusy=setupBusy, ui=providerUi)
+      WelcomeWizard(view=welcome, scheme=scheme, viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGoStep, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePairing, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish, setupOp=providerOp, setupBusy=setupBusy, ui=providerUi)
 
 // Window overlays above everything: model picker, palette, thread details, title menu, dialogs, toasts.
 component WindowOverlays

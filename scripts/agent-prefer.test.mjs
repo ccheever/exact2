@@ -63,3 +63,24 @@ test('page preference refusals omit the malformed property', () => {
   try { prefer({ banana: true }); throw new Error('expected malformed input'); }
   catch (error) { expect(error.malformed).toBe(true); }
 });
+
+test('pointer and hover are media facts, emulated in Chrome by its touch screen (LLP 1132 D10)', async () => {
+  expect(preferGroups({ pointer: 'coarse', hover: 'none' }).media).toEqual({ pointer: 'coarse', hover: 'none' });
+  expect(() => preferGroups({ pointer: 'pen' })).toThrow(/^prefer: pointer pen: expected .*pointer coarse\|fine\|none/);
+  const drive = media => {
+    const calls = [];
+    const done = preferWeb({ media, page: {}, emulated: {}, call: async (method, params) => calls.push([method, params]), frame: async () => {}, evaluate: async () => ({}) });
+    return done.then(() => calls, error => { throw Object.assign(error, { calls }); });
+  };
+  expect(await drive({ pointer: 'coarse' })).toEqual([['Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }]]);
+  expect(await drive({ pointer: 'fine', hover: 'hover' })).toEqual([['Emulation.setTouchEmulationEnabled', { enabled: false }]]);
+  expect(await drive({ hover: 'none', 'prefers-color-scheme': 'dark' })).toEqual([
+    ['Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }],
+    ['Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] }],
+  ]);
+  for (const media of [{ pointer: 'none' }, { pointer: 'coarse', hover: 'hover' }, { pointer: 'fine', hover: 'none' }]) {
+    const error = await drive(media).catch(e => e);
+    expect(error.message).toMatch(/^Chrome prefer cannot emulate .*: its touch emulation pairs pointer coarse with hover none/);
+    expect(error.calls).toEqual([]);
+  }
+});

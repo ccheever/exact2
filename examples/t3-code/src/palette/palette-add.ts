@@ -8,7 +8,8 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { closedView, filterGroups, flatten, row, type Group, type Item, type PaletteView } from './palette';
 import { letGo } from '../client/let-go';
-import { focusedOnPrimary } from '../connections/local-primary';
+import { addProjectEnvironments, addTarget, targetRequest, type AddEnvironment } from './palette-environments';
+import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
 export const SOURCES = sourceControlHosts.map(host => host.kind);
 export const SOURCE_LABELS: Record<string, string> = { url: 'Git URL', ...Object.fromEntries(sourceControlHosts.map(host => [host.kind, host.pickerLabel])) };
@@ -78,8 +79,9 @@ export const cloneDestination = (directory: string, name: string) => name.trim()
 export function newProjectFolder(name: string): string {
   return name.trim().normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
 }
-export function initialBrowseQuery(client: T3Client): string {
-  const base = str(obj(client.config.settings).addProjectBaseDirectory).trim();
+/** getAddProjectInitialQueryForEnvironment: the environment's base directory, else `~/`. */
+export function initialBrowseQuery(config: Obj): string {
+  const base = str(obj(config.settings).addProjectBaseDirectory).trim();
   return base ? ensureDirectory(base) : '~/';
 }
 
@@ -118,23 +120,24 @@ export function newProjectPublishTargets(discovery: Obj | null) {
     return owner ? [{ definition, owner }] : [];
   });
 }
-async function discover(client: T3Client, native: Native): Promise<Obj | null> {
-  const flow = flowOf(client), key = `${client.origin}:${client.generation}`;
+/** sourceControlEnvironment.discovery on the environment being added to. */
+async function discover(client: T3Client, native: Native, target: AddEnvironment): Promise<Obj | null> {
+  const flow = flowOf(client), key = `${target.environmentId}:${target.focused ? client.origin : 'fleet'}:${target.generation}`;
   if (flow.discovery?.key === key) return flow.discovery.value;
   // A failed discovery (often an answer let go mid-request) is not kept: the reference's query
   // asks again, so one lost request must not mark every provider "Setup Required" for the session.
   // Bounded: after a failure the next ask waits for the client's state to move (its revision), not every palette read.
   if (flow.discoveryFailed?.key === key && flow.discoveryFailed.revision === client.revision) return {};
-  try { flow.discovery = { key, value: await client.restAccess(native).request('server.discoverSourceControl', {}) }; }
+  try { flow.discovery = { key, value: await targetRequest(client, native, target, 'server.discoverSourceControl', {}) }; }
   catch { flow.discoveryFailed = { key, revision: client.revision }; return {}; }
   return flow.discovery.value;
 }
 
-export function sourceItems(client: T3Client, ready: Readiness, page: string): Item[] {
+export function sourceItems(config: Obj, ready: Readiness, page: string): Item[] {
   const items: Item[] = [];
-  if (str(client.config.newProjectsRoot)) items.push({ terms: ['new project', 'create', 'empty', 'repository', 'git init'],
+  if (str(config.newProjectsRoot)) items.push({ terms: ['new project', 'create', 'empty', 'repository', 'git init'],
     row: row({ key: 'new', op: 'page', arg: `${page}/new-project`, icon: 'folder-git', title: 'New project', description: 'Start a new Git repository from a name' }) });
-  items.push({ terms: ['local', 'folder', 'directory', 'browse'], row: row({ key: 'local', op: 'browse', arg: `${page}/browse`, arg2: initialBrowseQuery(client), icon: 'folder-plus', title: 'Local folder', description: 'Browse a folder on disk' }) });
+  items.push({ terms: ['local', 'folder', 'directory', 'browse'], row: row({ key: 'local', op: 'browse', arg: `${page}/browse`, arg2: initialBrowseQuery(config), icon: 'folder-plus', title: 'Local folder', description: 'Browse a folder on disk' }) });
   const providers = [...SOURCES].sort((a, b) => Number(ready[b]!.ready) - Number(ready[a]!.ready) || SOURCE_LABELS[a]!.localeCompare(SOURCE_LABELS[b]!));
   for (const source of ['url', ...providers]) {
     const label = SOURCE_LABELS[source]!, ok = ready[source]!.ready;
@@ -146,11 +149,11 @@ export function sourceItems(client: T3Client, ready: Readiness, page: string): I
 }
 
 /** The Directories group for a browse query (filterFilesystemBrowseEntries + buildBrowseGroups). */
-async function browseGroups(client: T3Client, native: Native, query: string, label: string, cwd: string): Promise<{ groups: Group[]; exact: string; parent: string; pending: boolean; error: string }> {
+async function browseGroups(client: T3Client, native: Native, target: AddEnvironment, query: string, label: string, cwd: string): Promise<{ groups: Group[]; exact: string; parent: string; pending: boolean; error: string }> {
   const directory = browseDirectory(query), leaf = hasTrailingSeparator(query) ? '' : browseLeaf(query);
-  const flow = flowOf(client), key = `${client.generation}:${directory}:${cwd}`;
+  const flow = flowOf(client), key = `${target.environmentId}:${target.generation}:${directory}:${cwd}`;
   if (flow.browse?.key !== key) {
-    try { flow.browse = { key, value: await client.restAccess(native).request('filesystem.browse', { partialPath: directory, ...(cwd ? { cwd } : {}) }), error: '' }; }
+    try { flow.browse = { key, value: await targetRequest(client, native, target, 'filesystem.browse', { partialPath: directory, ...(cwd ? { cwd } : {}) }), error: '' }; }
     catch (failure) { if (letGo(failure)) throw failure; flow.browse = { key, value: {}, error: failure instanceof Error ? failure.message : 'Could not read that folder.' }; }
   }
   const entries = arr(flow.browse.value.entries), lower = leaf.toLowerCase(), hidden = leaf.startsWith('.');
@@ -163,22 +166,41 @@ async function browseGroups(client: T3Client, native: Native, query: string, lab
   return { groups: [{ value: 'directories', label, items }], exact, parent: str(flow.browse.value.parentPath), pending: false, error: flow.browse.error };
 }
 
+/** buildEnvironmentItem: an environment of the Environments step; choosing it opens its Sources. */
+export function environmentItem(option: AddEnvironment): Item {
+  return { terms: [option.label, option.environmentId, option.isPrimary ? 'this device' : ''],
+    row: row({ key: option.environmentId, op: 'page', arg: `add-project/env:${option.environmentId}`, icon: 'machine', project: option.machine, title: option.label,
+      description: option.isPrimary ? 'This device' : option.environmentId }) };
+}
+
 export type AddContext = { page: string; query: string; highlighted: boolean };
-/** Every add-project page; the root's browse mode (a path typed at the root) too. */
-export async function addProjectView(client: T3Client, native: Native | null | undefined, context: AddContext): Promise<PaletteView> {
+/**
+ * Every add-project page; the root's browse mode (a path typed at the root) too. With several connected
+ * environments `add-project` is the Environments step and each one's Sources is `add-project/env:<id>`
+ * (openAddProjectFlow); with one, `add-project` is its Sources. The later pages nest under it.
+ */
+export async function addProjectView(client: T3Client, native: Native | null | undefined, context: AddContext, source: EnvironmentFleet = fleet): Promise<PaletteView> {
   const { page, query } = context;
   const parent = page.includes('/') ? page.slice(0, page.lastIndexOf('/')) : '';
   const submenu = page !== '';
   const base: PaletteView = { ...closedView, open: true, page, parent, back: submenu, backHint: submenu, addon: submenu ? 'back' : 'search', placeholder: 'Search...', enterLabel: 'Select' };
-  if (!native?.available || !client.ready) return { ...base, empty: 'Connect an environment to add projects.' };
-  const current = client.shell.projects.find(project => project.id === client.projectId);
+  if (!native?.available) return { ...base, empty: 'Connect an environment to add projects.' };
+  const options = addProjectEnvironments(client, source);
+  if (page === 'add-project' && options.length > 1 && !isBrowseQuery(query)) {
+    const rows = flatten(filterGroups([{ value: 'environments', label: 'Environments', items: options.map(environmentItem) }], query, true, { projects: [], settings: [], threads: [] }));
+    return { ...base, rows, count: rows.length, empty: rows.length ? '' : 'No matching commands, projects, or threads.' };
+  }
+  const target = addTarget(client, page, source);
+  if (!target) return { ...base, empty: 'Connect an environment to add projects.' };
+  // Relative paths resolve against the current project only on its own environment (currentProjectCwdForBrowse).
+  const current = target.focused ? client.shell.projects.find(project => project.id === client.projectId) : undefined;
   const cwd = str(current?.workspaceRoot);
   const leafPage = page.split('/').pop() ?? '';
   const flow = flowOf(client);
-  const discovery = await discover(client, native);
+  const discovery = await discover(client, native, target), newProjectsRoot = str(target.config.newProjectsRoot);
   // New project: the name step.
   if (leafPage === 'new-project') {
-    const root = str(client.config.newProjectsRoot), name = query.trim();
+    const root = newProjectsRoot, name = query.trim();
     const targets = newProjectPublishTargets(discovery), target = targets.find(target => target.definition.kind === flow.publishKind) ?? targets[0];
     const preview = root ? cloneDestination(root, newProjectFolder(name)) : '';
     const groups: Group[] = [];
@@ -188,7 +210,7 @@ export async function addProjectView(client: T3Client, native: Native | null | u
         publishHost: target.definition.kind, publishHostLabel: target.definition.label,
         publishHosts: targets.length > 1 ? targets.map(candidate => ({ value: candidate.definition.kind, label: candidate.definition.label, selected: candidate === target })) : [] }) }] });
     }
-    groups.push({ value: 'new-project-existing', label: '', items: [{ terms: [], row: row({ key: 'existing', op: 'page', arg: parent.endsWith('add-project') ? parent : 'add-project', icon: 'folder-plus',
+    groups.push({ value: 'new-project-existing', label: '', items: [{ terms: [], row: row({ key: 'existing', op: 'page', arg: parent.endsWith('add-project') || /\/env:[^/]+$/.test(parent) ? parent : 'add-project', icon: 'folder-plus',
       title: 'Add existing project', description: 'Open a folder or clone a repository', trailing: 'chevron' }) }] });
     const rows = flatten(groups);
     return { ...base, addon: 'back', placeholder: 'Project name', rows, count: rows.length, autoHighlight: false, popOnEmpty: false,
@@ -212,7 +234,7 @@ export async function addProjectView(client: T3Client, native: Native | null | u
   if (confirming || leafPage === 'browse' || isBrowseQuery(query)) {
     const relativeBlocked = (query.startsWith('./') || query.startsWith('../')) && !cwd;
     const browse = relativeBlocked ? { groups: [] as Group[], exact: '', parent: '', pending: false, error: '' }
-      : await browseGroups(client, native, query, confirming ? 'Select where to clone' : 'Directories', cwd);
+      : await browseGroups(client, native, target, query, confirming ? 'Select where to clone' : 'Directories', cwd);
     const filtered = browse.groups[0]!.items.length ? browse.groups : [];
     const rows = flatten(filtered);
     const resolved = hasTrailingSeparator(query) ? (browse.parent || query.trim()) : (browse.exact || query.trim());
@@ -223,14 +245,14 @@ export async function addProjectView(client: T3Client, native: Native | null | u
     return { ...base, addon: submenu ? 'back' : 'folder-plus', placeholder: submenu ? 'Enter path (e.g. ~/projects/my-app)' : 'Enter project path (e.g. ~/projects/my-app)', rows, count: rows.length,
       autoHighlight: false, popOnEmpty: leafPage === 'browse', enterLabel: context.highlighted ? 'Select' : '', enterOp: 'flow', enterArg: submitOp, enterArg2: resolved,
       accessory: label, accessoryKey: context.highlighted ? '⌘ Enter' : 'Enter', accessoryEnabled: !relativeBlocked && query.trim().length > 0, accessoryOp: 'flow', accessoryArg: submitOp, accessoryArg2: resolved,
-      inputPaddingRight: willCreate ? 152 : context.highlighted ? 120 : 96, footerAction: focusedOnPrimary(client) ? 'Open in Finder' : '', // canOpenProjectFromFileManager: the primary environment only (local-primary.ts)
+      inputPaddingRight: willCreate ? 152 : context.highlighted ? 120 : 96, footerAction: target.isPrimary ? 'Open in Finder' : '', // canOpenProjectFromFileManager: the primary environment only (local-primary.ts)
       contextLabel: confirming && clone ? 'Repository' : '', contextTitle: clone && confirming ? clone.title : '', contextDescription: clone && confirming ? clone.description : '', contextIcon: clone && confirming ? `source-${clone.source}` : '',
       empty: rows.length ? '' : relativeBlocked ? 'Relative paths require an active project.' : confirming ? 'Choose a destination path and press Enter to clone.'
         : willCreate ? 'Press Enter to create this folder and add it as a project.' : browse.error || '' };
   }
   // Sources.
   const ready = readiness(discovery);
-  const groups = filterGroups([{ value: `sources`, label: 'Sources', items: sourceItems(client, ready, page || 'add-project') }], query, true, { projects: [], settings: [], threads: [] });
+  const groups = filterGroups([{ value: `sources`, label: 'Sources', items: sourceItems(target.config, ready, page || 'add-project') }], query, true, { projects: [], settings: [], threads: [] });
   const rows = flatten(groups);
   return { ...base, rows, count: rows.filter(entry => entry.index >= 0).length, empty: rows.length ? '' : 'No matching commands, projects, or threads.' };
 }

@@ -114,6 +114,8 @@ public final class ExactView: NSView {
                     guard let self, note.object == nil || note.object as AnyObject? === self.window || note.object is NSApplication else { return }
                     self.session.tellPreferences()
                     self.session.rasters.displayChanged()
+                    // The title bar leaves the window in full screen and comes back after it.
+                    if note.name == NSWindow.didEnterFullScreenNotification || note.name == NSWindow.didExitFullScreenNotification { self.syncInsets() }
                 }
             }
         }
@@ -275,7 +277,11 @@ public final class ExactView: NSView {
                 }
                 if event.type != .keyDown && event.type != .keyUp {
                     // A click is a new place for Tab to start from (`tabStart`): the window's, as before.
-                    if event.type == .leftMouseDown || event.type == .rightMouseDown { self.session.presenter.tabStart = nil }
+                    if event.type == .leftMouseDown || event.type == .rightMouseDown {
+                        self.session.presenter.tabStart = nil
+                        // A press on a held node, or in it, lets its hold go (HeldState.swift), whatever view takes it.
+                        self.session.presenter.heldPointerDown(event)
+                    }
                     self.session.presenter.menus.pointer(event)
                     // A click on the window behind a `closedby="any"` sheet is the sheet's.
                     return self.session.presenter.dialogs.pointer(event) ? nil : event
@@ -301,7 +307,8 @@ public final class ExactView: NSView {
 
     /// The insets the kernel gets: under `viewport-fit=cover` the view's own
     /// safe area (the titlebar, when the window's content includes it);
-    /// zero otherwise. Then AppKit's layout regions (LLP 1123 D10).
+    /// zero otherwise. Then AppKit's layout regions (LLP 1123 D10) and the
+    /// title-bar area beside the window's controls.
     public func syncInsets() {
         if session.presenter.deferGeometry({ [weak self] in self?.fit() }) { return }
         let next = viewportFit == "cover" ? safeAreaInsets : NSEdgeInsetsZero
@@ -312,13 +319,20 @@ public final class ExactView: NSView {
         }
         guard session.booted else { return }
         let regions = LayoutRegionsMac.insets(of: self)
-        guard !regionsTold || regions != session.presenter.regions else { return }
-        regionsTold = true
-        session.presenter.regions = regions
-        session.regions(regions)
+        if !regionsTold || regions != session.presenter.regions {
+            regionsTold = true
+            session.presenter.regions = regions
+            session.regions(regions)
+        }
+        let area = TitleBarAreaMac.rect(of: self, cover: viewportFit == "cover")
+        if !titlebarTold || area != session.presenter.titlebarArea {
+            titlebarTold = true
+            session.presenter.titlebarArea = area
+            session.titlebarArea(area)
+        }
     }
-    /// Whether the runner has the layout regions (LLP 1123 D10).
-    private var regionsTold = false
+    /// Whether the runner has the layout regions (LLP 1123 D10) and the title-bar area.
+    private var regionsTold = false, titlebarTold = false
 
     /// After a restart from a new plan: the new runner knows nothing of the
     /// insets — hand them over again, and fit the root. AppKit has no fold
@@ -327,7 +341,7 @@ public final class ExactView: NSView {
     func rebooted() {
         let i = session.presenter.insets
         if i.top != 0 || i.left != 0 || i.bottom != 0 || i.right != 0 { session.insets(top: i.top, right: i.right, bottom: i.bottom, left: i.left) }
-        regionsTold = false  // the next fit tells the new runner
+        regionsTold = false; titlebarTold = false  // the next fit tells the new runner
         session.segments(session.presenter.fold)
         viewDidChangeEffectiveAppearance()
         needsLayout = true

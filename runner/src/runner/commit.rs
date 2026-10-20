@@ -600,6 +600,8 @@ impl<D: DataSource> Runner<D> {
             ));
         }
         self.take_set_modes(first_command);
+        // The scheme and root size a development host holds: kept as asked, not applied (LLP 1122 T7).
+        self.take_held(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
         // commit's layout, and the command stays for a host that mirrors it;
         // a refused one is journaled as refused, never as a command.
@@ -855,6 +857,10 @@ impl<D: DataSource> Runner<D> {
     /// on this thread, after the commit that handed the request out, so a
     /// worker's snapshot is the store as committed then.
     pub fn dispatch_work(&mut self, token: u64) -> Dispatch {
+        // A module request the runner holds for the agent (LLP 1133.002 §6).
+        if let Some(dispatch) = self.module_dispatch(token) {
+            return dispatch;
+        }
         self.data.dispatch(token, &self.store)
     }
 
@@ -869,6 +875,11 @@ impl<D: DataSource> Runner<D> {
     /// body to the source's native handler with the reply, on the host's
     /// worker, which returns at once — the module's own thread answers.
     pub fn native_work(&mut self, request: &Request) -> Dispatch {
+        // A module's name called from data code: the runner's admission, then
+        // the module (LLP 1133.002 D14).
+        if let Some(dispatch) = self.module_call(&request.body) {
+            return dispatch;
+        }
         let handler = self.native_slot().handler();
         let body = request.body.clone();
         Dispatch::Run(crate::Work::Later(Box::new(move |reply| match handler {
@@ -883,7 +894,9 @@ impl<D: DataSource> Runner<D> {
     /// Work the source held at dispatch and the last commit releases, in
     /// order; a host asks after every commit.
     pub fn release_work(&mut self) -> Vec<(u64, Dispatch)> {
-        self.data.release(&self.store)
+        let mut out = self.data.release(&self.store);
+        out.extend(self.module_release());
+        out
     }
 
     /// A request a refused transaction dropped before it was handed out:
@@ -926,7 +939,13 @@ impl<D: DataSource> Runner<D> {
             || self
                 .pending
                 .iter()
-                .any(|p| p.in_flight() && !self.device_holds.iter().any(|h| h.ticket == p.ticket))
+                .any(|p| p.in_flight() && !self.held_for_agent(p))
+    }
+
+    /// A request held for the agent: a device's, or a module's (LLP 1133.002 §6).
+    fn held_for_agent(&self, p: &PendingReq) -> bool {
+        self.device_holds.iter().any(|h| h.ticket == p.ticket)
+            || self.extensions.holds_token(p.continuation)
     }
 
     /// The requests in flight, as `has_pending` counts them: the agent's
@@ -936,7 +955,7 @@ impl<D: DataSource> Runner<D> {
         let mut out: Vec<(String, u64)> = self
             .pending
             .iter()
-            .filter(|p| p.in_flight() && !self.device_holds.iter().any(|h| h.ticket == p.ticket))
+            .filter(|p| p.in_flight() && !self.held_for_agent(p))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect();
         out.extend(
@@ -1121,9 +1140,14 @@ impl<D: DataSource> Runner<D> {
         };
         self.store.take_topics();
         self.snapshot_sockets();
-        let parsed = self
-            .data
-            .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+        let parsed = if Self::activity_send(&p.source) {
+            Self::activity_reply(&self.plan, ty, outcome)
+        } else if self.plan.module_named(&p.source).is_some() {
+            self.module_parse(ty, &p.source, outcome)
+        } else {
+            self.data
+                .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome)
+        };
         // Only a socket's mapper answering a frame stages for this commit
         // (LLP 1016.000 D7); a turn of an answer sends whatever it answered
         // (the amendment of 2026-10-18).
@@ -1138,7 +1162,10 @@ impl<D: DataSource> Runner<D> {
         // the reply says: a turn that yields another request (a long native
         // call) watched them as much as the one that answers.
         if let Target::Resource(i) = p.target {
-            for topic in self.store.take_topics() {
+            // A module's source that data code read: the answer is asked
+            // again when that source's answer changes (LLP 1133.002 D14).
+            let module = (p.keepable.as_ref()).and_then(|r| self.module_topic(&r.body));
+            for topic in self.store.take_topics().into_iter().chain(module) {
                 if !self.watching[i].contains(&topic) {
                     self.watching[i].push(topic);
                 }

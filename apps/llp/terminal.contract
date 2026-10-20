@@ -229,6 +229,12 @@ component Reader
     showModal("outline")
   action openLinks
     showModal("links")
+  // A document from the links list: the list closes first. Opening it
+  // makes the page's list anew, its button with it, and a button no longer
+  // there invokes nothing after its press (as HTML resolves it).
+  action openLink(path: string)
+    close("links")
+    open(path)
 
   view
     column width="100%" height="100%"
@@ -315,7 +321,7 @@ component Reader
             text "No links in this document" color="#6c6c6c"
           for k in page.links key=k.id
             if k.local
-              button press=open(k.href) commandfor="links" command="close" text-align="start" width="100%" testId=`link-${k.id}`
+              button press=openLink(k.href) commandfor="links" command="close" text-align="start" width="100%" testId=`link-${k.id}`
                 row width="100%" gap="2ch"
                   text k.text color="#5fafff" font-weight=700 flex-shrink=0 white-space="nowrap"
                   text k.title color="#8a8a8a" white-space="nowrap" text-overflow="ellipsis" min-width=0 flex-shrink=1

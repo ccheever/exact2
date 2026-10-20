@@ -15,12 +15,12 @@ final class RevealKeyboardIOSTests: XCTestCase {
         let window = UIWindow(frame: p.viewport.frame)
         window.addSubview(p.viewport)
         window.isHidden = false
-        // The action (3, with a child of its own so it is a view) sits at
+        // The action (3, a view by its testId, with a child of its own) sits at
         // y 700–740: in the root page, or in a 2000-point scroller (2).
         var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
         if let widget { ops.append(["op": "props", "id": 1, "set": ["interactiveWidget": widget]]) }
         ops += [
-            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "create", "id": 3, "kind": "view", "props": ["testId": "action"]],
             ["op": "create", "id": 4, "kind": "view"],
             ["op": "children", "id": 3, "ids": [4]],
         ]
@@ -102,7 +102,7 @@ final class RevealKeyboardIOSTests: XCTestCase {
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "view", "style": ["overflow_x": "scroll"]],
             ["op": "create", "id": 5, "kind": "view"],
-            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "create", "id": 3, "kind": "view", "props": ["testId": "action"]],
             ["op": "create", "id": 4, "kind": "view"],
             ["op": "children", "id": 3, "ids": [4]],
             ["op": "children", "id": 5, "ids": [3]],

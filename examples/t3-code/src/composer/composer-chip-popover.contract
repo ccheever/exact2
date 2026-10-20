@@ -10,7 +10,22 @@
 // sample's chip included), as Base UI portals the popup to the body. Base UI's collision avoidance: the
 // side flips below when the window leaves no room above, and the popup shifts to stay 5 pt inside it.
 
+shape ComposerChipFinish
+  seq: number
+  generation: number
+  snapshotOwner: string
+  owner: string
+  value: string
+  inputSerial: number
+  surface: string
+  start: number
+  end: number
+  focus: string
+  send: bool
+  interaction: number
+
 shape ChipPopover
+  finish: ComposerChipFinish
   seq: number
   open: bool
   surface: string

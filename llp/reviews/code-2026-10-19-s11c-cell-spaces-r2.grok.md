@@ -1,0 +1,23 @@
+# Code review: Stage 11 (c): the terminal's spaces in whole cells, laid out by the kernel (Env::cell_spaces), round 2, 2026-10-19 (grok)
+
+- **Family:** xAI. Grok 4.7 via the Grok CLI, reasoning effort xhigh, no subagents, edits denied, a throwaway worktree at `370578281f`.
+- **Method:** one brief (sha256 `15b6f8ec1943a92e5e44cdd7cffbd665ae9c395cfc49f75357d6163c42883bd0`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** nothing blocking; one should-fix (a keyed jump's non-number margins), one nit (a stray word)
+- **Disposition:** taken in bd8de9c01a: the jump reads the kernel's laid margins
+
+**should-fix** — The keyed jump still treats a non-number root margin as zero, so a length the kernel rounds to one row lands one row off. `runner/src/instance/collection/into_view.rs:136`
+
+`root_margins` rounds only `Value::Number`. Anything else, including a longhand the plan keeps as text, takes the `_ => 0.0` arm. `contract/lower/src/lib.rs:776` stores a fixed style as a number only when the literal parses as `f64`, so `margin-bottom="14px"`, `"12px"`, `"10px"`, `"1lh"`, and `calc(0% + 14px)` stay strings. The kernel parses those to points and `Dimension::spaced` rounds 10–14 px down to 16. The row wrapper's measured height includes that 16 (`runner/src/instance/collection/views.rs:28`). `aligned` then does `prefix + height - after` (`into_view.rs:184`). With `after` at 0, `block=end` scrolls one row too far: the bottom screen row is the blank margin and the item's text sits on the row above. `margin-bottom=8` in `a_keyed_jump_aligns_rows_by_their_margins_in_whole_cells` rounds to 0, and that test drops empty lines, so a trailing blank row still leaves `"row 30"` as the last non-empty line.
+
+Resolve the row root's kernel dimension through `Dimension::spaced` (the value layout stored) and use that for both ends. Assert the bottom screen row itself, for `margin-bottom="14px"` or `"1lh"`, and for a `calc()` with no percentage.
+
+**nit** — Stray word in the LLP 1101 row. `llp/1101-terminal-apps.rfc.md:458`
+
+The new sentence says a length "is rounded so before layout". Delete that "so".
+
+Conditions (2), (3), (4), and (5) hold. `cell_spaces` defaults off, only `host/terminal/src/host.rs:235` sets it, and it is absent from the schema, the wire, and any digest. With the flag off, `spaced` and both gap sites return the authored length, so other hosts stay byte-identical. §10 has the stated numbers (sm and md 0 rows, lg and xl 1, 14/12/10 px one row each), the even-box acceptance, and the "equal rows above and below" line. The gap-sm paint test and the reveal of item 30 are in `host_scale_tests.rs`. Condition (1) holds on the layout path: `Dimension::spaced` rounds a resolved point length, including `env()`, viewport and segment lengths, a basis-free `min`/`max`/`clamp`, and a `calc()` whose percentage is 0 (`kernel/src/style/cells.rs:51`, exercised for `calc(0% + 14px)` and for `calc(env() + 12px)` in `kernel/tests/it/env.rs`). A percentage, or a `calc()` that still has one, is left alone. The jump reader above is the hole in (1).
+
+`space` ties toward zero and returns `+0` at a tie, including `-8` px down; a negative margin keeps its sign (`-24` → `-16`); negative padding is then floored to 0 by `floor_lp`. The f64 divide keeps a large exact cell multiple. Multicol `column-gap`, including CSS `normal`, goes through `cells::space` on the column axis. Toggling the flag restyles every live node. 9 px down is one row by that formula; the unit table steps from 8 to 10.
+
+`cover.rs:150` and `without_inset` at line 194 rewrite padding with `floor_lp` and no `spaced`. Grouped margins adjust the already-lowered lengths and publish `at_basis` margins. No shipping host turns `cell_spaces` on together with a cover or grouped margins; the terminal host sets neither. `scroll_padding` (`runner/src/runner/collection.rs:427`) and `scroll_margin` (line 446) stay raw points, and the jump subtracts that raw scroll-margin from the spaced margin. Those properties are outside the 1101 row. On a port that is already whole rows, the painter's half-away snap places a one-row box on the same row `cells::space` would, including at the 8 px tie. `resolved_padding`, field content rects, the collection port, and resize `content_rect` read the engine's used padding. Terminal button measure and paint use a fixed one-cell chrome. `transform.rs` and `region/state.rs` still look at the authored length, so an 8 px padding that lays out as 0 rows keeps the conservative path.

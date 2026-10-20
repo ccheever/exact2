@@ -173,6 +173,23 @@ impl<D: DataSource> Host<D> {
             return;
         }
         let now = self.engine.now();
+        // A track the reader plays whose node now has something painted over
+        // the property (a press row, a look naming it, set while it played)
+        // is the engine's again, from where its curve is (LLP 1121 D8).
+        for (node, t) in &self.played {
+            let Some(n) = self
+                .runner
+                .kernel()
+                .node_by_key(exact_kernel::motion::node_key(*node))
+            else {
+                continue;
+            };
+            for (property, _) in t {
+                if crate::host::press::paints_over(&n, *property) {
+                    self.engine.reclaim_played(*node, *property);
+                }
+            }
+        }
         let mut ended = Vec::new();
         self.played.retain(|node, t| {
             let before = t.len();

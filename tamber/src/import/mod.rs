@@ -9,6 +9,7 @@
 //! unchanged source proposes nothing.
 
 use crate::edit::{Op, WhenLine};
+pub use crate::export_dials::{marks_of, DialChange, Impact, Pin};
 use crate::{Design, Diagnostic};
 
 pub mod astryx;
@@ -32,6 +33,10 @@ pub struct Import {
     pub unmapped: Vec<Unmapped>,
     /// The count the import was checked against.
     pub counted: Counted,
+    /// A re-import's dial changes: each dial set, and what it moves (D14).
+    pub dials: Vec<DialChange>,
+    /// A re-import's literals over lines that followed others (D14's mark).
+    pub pins: Vec<Pin>,
 }
 
 /// One offered choice: what it means and its operations (none where the
@@ -316,14 +321,143 @@ pub struct Block {
 /// comments, strings (with escapes) and parentheses hide braces and
 /// semicolons; a block's own declarations count beside its nested rules.
 pub fn css_blocks(css: &str) -> Vec<Block> {
-    let text = strip_comments(css);
-    let mut out = Vec::new();
-    body(&text, &[], &mut out);
-    out
+    css_read(css).0
+}
+
+/// A rule whose body is not read, nested past [`NESTING`] or past what its
+/// enclosing rules may copy ([`COPIED`]): its prelude (its first 80
+/// characters; those around it are not kept, as each such rule would copy
+/// them), its line in the source, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Deep {
+    /// Its prelude, cut at 80 characters.
+    pub prelude: String,
+    /// Its line, from 1.
+    pub line: usize,
+    /// Why it is not read.
+    pub why: &'static str,
+}
+
+/// [`css_blocks`], and the rules nested too deep to read, for an importer
+/// to report.
+pub fn css_read(css: &str) -> (Vec<Block>, Vec<Deep>) {
+    let (text, comments) = stripped(css);
+    let mut read = Reading::default();
+    let marks = marks(&text);
+    // Each `{`'s matching `}`, by mark index, found once (as a scan from
+    // the `{` counting braces finds it).
+    let mut matched = vec![usize::MAX; marks.len()];
+    let mut open = Vec::new();
+    for (k, &(_, c)) in marks.iter().enumerate() {
+        match c {
+            '{' => open.push(k),
+            '}' => {
+                if let Some(o) = open.pop() {
+                    matched[o] = k;
+                }
+            }
+            _ => {}
+        }
+    }
+    let marked = Marked {
+        text: &text,
+        marks: &marks,
+        matched: &matched,
+    };
+    body(
+        &marked,
+        (0, text.len()),
+        (0, marks.len()),
+        0,
+        &mut Vec::new(),
+        &mut read,
+    );
+    let Reading { out, mut deep, .. } = read;
+    deep.sort_by_key(|d| d.1);
+    // Each one's line: the source's, counting a comment's newlines.
+    let mut at = (0, 1, comments.iter().peekable());
+    let deep = deep
+        .into_iter()
+        .map(|(prelude, offset, why)| {
+            let (from, line, rest) = &mut at;
+            *line += text.as_bytes()[*from..offset]
+                .iter()
+                .filter(|&&b| b == b'\n')
+                .count();
+            while let Some(&&(o, lines)) = rest.peek() {
+                if o >= offset {
+                    break;
+                }
+                *line += lines;
+                rest.next();
+            }
+            *from = offset;
+            Deep {
+                prelude,
+                line: *line,
+                why,
+            }
+        })
+        .collect();
+    (out, deep)
+}
+
+/// How deep rules nest before a deeper one's body is not read but reported:
+/// past any stylesheet's, short of the stack (each level reads its body
+/// again).
+const NESTING: usize = 64;
+
+/// The longest custom property name, and value or prelude, read: past them
+/// a declaration or a rule is reported, not copied about (no real one is
+/// near them).
+const NAME: usize = 256;
+const VALUE: usize = 4096;
+
+/// How many bytes of enclosing preludes the blocks may copy, all told: each
+/// block keeps its context, so 64 long preludes around many small rules
+/// would multiply.
+const COPIED: usize = 1 << 23;
+
+/// What [`body`] has read so far: the blocks, the rules not read (each its
+/// prelude, offset and why), and the bytes of context the blocks copied.
+#[derive(Default)]
+struct Reading {
+    out: Vec<Block>,
+    deep: Vec<(String, usize, &'static str)>,
+    copied: usize,
+}
+
+impl Reading {
+    /// A block with `context`, or, past [`COPIED`], a rule not read. Its
+    /// cost is its context, kept once and copied into the label of each of
+    /// its declarations, and each one's report.
+    fn push(&mut self, context: &[String], decls: Vec<(String, String)>, at: usize) {
+        let cost = context.iter().map(|p| p.len() + 1).sum::<usize>() * (1 + 2 * decls.len());
+        if self.copied + cost > COPIED {
+            let prelude = context
+                .last()
+                .map_or(String::new(), |p| p.chars().take(80).collect());
+            self.deep
+                .push((prelude, at, "its enclosing rules copy past 8 MiB"));
+            return;
+        }
+        self.copied += cost;
+        self.out.push(Block {
+            context: context.to_vec(),
+            decls,
+        });
+    }
 }
 
 /// `css` without `/* … */`, a comment's opener inside a string kept.
 pub(crate) fn strip_comments(css: &str) -> String {
+    stripped(css).0
+}
+
+/// [`strip_comments`], and each comment's place in what is left (the
+/// space it leaves) with the newlines it held.
+fn stripped(css: &str) -> (String, Vec<(usize, usize)>) {
+    let mut comments = Vec::new();
     let mut out = String::new();
     let mut chars = css.chars().peekable();
     let mut quote = None;
@@ -341,13 +475,15 @@ pub(crate) fn strip_comments(css: &str) -> String {
             }
             None if c == '/' && chars.peek() == Some(&'*') => {
                 chars.next();
-                let mut last = ' ';
+                let (mut last, mut lines) = (' ', 0);
                 for n in chars.by_ref() {
                     if last == '*' && n == '/' {
                         break;
                     }
+                    lines += usize::from(n == '\n');
                     last = n;
                 }
+                comments.push((out.len(), lines));
                 out.push(' ');
             }
             None => {
@@ -358,11 +494,12 @@ pub(crate) fn strip_comments(css: &str) -> String {
             }
         }
     }
-    out
+    (out, comments)
 }
 
 /// The byte index of each top-level `{`, `}` and `;` in `text`: outside
-/// strings and parentheses.
+/// strings and parentheses (a stray `)` closes none, so every rule's body
+/// reads its marks as the whole text does).
 fn marks(text: &str) -> Vec<(usize, char)> {
     let mut out = Vec::new();
     let (mut quote, mut nesting, mut escaped) = (None, 0i32, false);
@@ -385,63 +522,80 @@ fn marks(text: &str) -> Vec<(usize, char)> {
             '\\' => escaped = true,
             '"' | '\'' => quote = Some(c),
             '(' | '[' => nesting += 1,
-            ')' | ']' => nesting -= 1,
-            '{' | '}' | ';' if nesting <= 0 => out.push((i, c)),
+            ')' | ']' => nesting = (nesting - 1).max(0),
+            '{' | '}' | ';' if nesting == 0 => out.push((i, c)),
             _ => {}
         }
     }
     out
 }
 
-fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
-    let marks = marks(text);
+/// A stylesheet's text with its marks and each `{`'s matching `}`.
+struct Marked<'a> {
+    text: &'a str,
+    marks: &'a [(usize, char)],
+    matched: &'a [usize],
+}
+
+/// The blocks of the body `bytes` (start, end) of `css`, whose marks are
+/// `range` (start, end) of its marks, under `context`; `at` is where its
+/// prelude starts, for a report. Each level reads its own marks once and
+/// passes over a nested rule's, so the whole stylesheet is read once.
+fn body(
+    css: &Marked<'_>,
+    (lo, hi): (usize, usize),
+    (from, to): (usize, usize),
+    at: usize,
+    context: &mut Vec<String>,
+    read: &mut Reading,
+) {
+    let (text, marks) = (css.text, css.marks);
     let mut decls = Vec::new();
-    let (mut start, mut k) = (0, 0);
-    let declaration = |segment: &str, decls: &mut Vec<(String, String)>| {
-        if let Some((name, value)) = segment.split_once(':') {
-            let name = name.trim();
-            if name.starts_with("--") && name.len() > 2 {
-                decls.push((name.to_string(), value.trim().to_string()));
+    let (mut start, mut k) = (lo, from);
+    // A custom property, or, its name or value past what one may be, a
+    // value reported.
+    let declaration =
+        |(from, to): (usize, usize), decls: &mut Vec<(String, String)>, read: &mut Reading| {
+            let segment = &text[from..to];
+            if let Some((name, value)) = segment.split_once(':') {
+                let name = name.trim();
+                if name.starts_with("--") && name.len() > 2 {
+                    let value = value.trim();
+                    if name.len() > NAME || value.len() > VALUE {
+                        let at = from + (segment.len() - segment.trim_start().len());
+                        let why = match name.len() > NAME {
+                            true => "a custom property's name past 256 bytes",
+                            false => "a custom property's value past 4 KiB",
+                        };
+                        read.deep.push((name.chars().take(80).collect(), at, why));
+                        return;
+                    }
+                    decls.push((name.to_string(), value.to_string()));
+                }
             }
-        }
-    };
+        };
     // Declarations so far, as one block, before a nested rule's: the order
     // the source has them.
-    let flush = |decls: &mut Vec<(String, String)>, out: &mut Vec<Block>| {
+    let flush = |decls: &mut Vec<(String, String)>, context: &[String], read: &mut Reading| {
         if !decls.is_empty() && !context.is_empty() {
-            out.push(Block {
-                context: context.to_vec(),
-                decls: std::mem::take(decls),
-            });
+            read.push(context, std::mem::take(decls), at);
         }
     };
-    // The mark index of the `}` matching the `{` at mark `k`, if any.
-    let matching = |k: usize| {
-        let mut depth = 0;
-        for (j, &(_, m)) in marks.iter().enumerate().skip(k) {
-            match m {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(j);
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    };
-    while k < marks.len() {
+    // The mark index of the `}` matching the `{` at mark `k`, if any, in
+    // this body.
+    let matching = |k: usize| Some(css.matched[k]).filter(|&j| j < to);
+    while k < to {
         let (i, c) = marks[k];
         match c {
             ';' => {
-                declaration(&text[start..i], &mut decls);
+                declaration((start, i), &mut decls, read);
                 start = i + 1;
                 k += 1;
             }
             '{' => {
-                let prelude = text[start..i].trim();
+                let raw = &text[start..i];
+                let prelude = raw.trim();
+                let prelude_at = start + (raw.len() - raw.trim_start().len());
                 let end = matching(k);
                 // A custom property's value may hold braces: its declaration
                 // runs on to the `;` after them.
@@ -453,22 +607,32 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
                 // Unclosed: the rest is its body.
                 let (j, close) = match end {
                     Some(j) => (j, marks[j].0),
-                    None => (marks.len(), text.len()),
+                    None => (to, hi),
                 };
-                flush(&mut decls, out);
-                let mut inner = context.to_vec();
-                inner.push(prelude.to_string());
-                let before = out.len();
-                body(&text[i + 1..close], &inner, out);
+                flush(&mut decls, context, read);
+                let past = match (context.len() >= NESTING, prelude.len() > VALUE) {
+                    (true, _) => Some("nested past 64 rules"),
+                    (_, true) => Some("its prelude past 4 KiB"),
+                    _ => None,
+                };
+                if let Some(why) = past {
+                    let prelude = prelude.chars().take(80).collect();
+                    read.deep.push((prelude, prelude_at, why));
+                    start = (close + 1).min(hi);
+                    k = j + 1;
+                    continue;
+                }
+                // The context borrowed down, copied only into a block kept.
+                context.push(prelude.to_string());
+                let before = read.out.len();
+                body(css, (i + 1, close), (k + 1, j), prelude_at, context, read);
                 // An `@theme` with no custom properties still marks where
                 // Tailwind writes the theme.
-                if prelude.starts_with("@theme") && out.len() == before {
-                    out.push(Block {
-                        context: inner,
-                        decls: Vec::new(),
-                    });
+                if prelude.starts_with("@theme") && read.out.len() == before {
+                    read.push(context, Vec::new(), prelude_at);
                 }
-                start = (close + 1).min(text.len());
+                context.pop();
+                start = (close + 1).min(hi);
                 k = j + 1;
             }
             // A stray close: passed over.
@@ -479,10 +643,10 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
         }
     }
     // The last declaration may have no `;`.
-    if start < text.len() {
-        declaration(&text[start..], &mut decls);
+    if start < hi {
+        declaration((start, hi), &mut decls, read);
     }
-    flush(&mut decls, out);
+    flush(&mut decls, context, read);
 }
 
 /// The design's own role overrides a changed value could split: one whose

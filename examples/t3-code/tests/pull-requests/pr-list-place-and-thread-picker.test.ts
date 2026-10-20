@@ -8,7 +8,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import { ClientError, type Native } from '../../src/client/protocol';
 import { fleet, EnvironmentFleet } from '../../src/connections/settings-b-fleet';
-import { pullRequestsPage, type PrInput } from '../../src/pull-requests/pages-prs';
+import { prLocal, pullRequestsPage, type PrInput } from '../../src/pull-requests/pages-prs';
 import { environmentQueries } from '../../src/pull-requests/pages-pr-paging';
 import { threadPickerView } from '../../src/pull-requests/pages-pr-links';
 import { contractComponent, value } from '../support/contract-action-fixture';
@@ -247,5 +247,52 @@ describe('The checkout dialog\'s field focuses and selects its reference as it o
     field.call('laidOut', state, scope, [0, 0]);
     field.call('laidOut', state, scope, [1, 1]);
     expect(calls).toEqual([['focus', 'reference'], ['select', 'reference', 0, 4]]);
+  });
+});
+
+// ── The provider menu after a failed list, and the Server filter ───────────
+
+describe('The Pull Requests filters name the hosts and servers the page knows', () => {
+  test('with the list failed, the provider menu still has All and each host the projects expect', async () => {
+    const lane = backgroundTransport();
+    const { client, page } = focusedClient();
+    await fleet.sync(lane.native, client as unknown as { origin: string; environmentId: string; connection: string });
+    client.rpc = (async (_native: unknown, method: string) => {
+      if (method === 'pullRequests.list') throw new ClientError('Pull request operation list failed: Could not reach GitHub at github.com.');
+      return {};
+    }) as unknown as T3Client['rpc'];
+    const view = await page();
+    expect([view.empty, view.emptyDetail]).toEqual(['Could not load pull requests', 'Pull request operation list failed: Could not reach GitHub at github.com.']);
+    expect(view.hosts.map(host => [host.value, host.label, host.selected])).toEqual([['', 'All', true], ['github.com', 'GitHub', false]]);
+  });
+  test('two servers that read pull requests give Filters a Server row; choosing one reads only that server', async () => {
+    const lane = backgroundTransport();
+    const { client, page, listed } = focusedClient();
+    await fleet.sync(lane.native, client as unknown as { origin: string; environmentId: string; connection: string });
+    const all = await page();
+    expect(all.servers.map(server => [server.value, server.label, server.selected])).toEqual([['', 'All servers', true], ['env', 'This machine', false], [GH, 'GitHub lane', false]]);
+    expect([all.serverLabel, all.filterBadge]).toEqual(['All servers', '']);
+    prLocal(client, 'project', 'p1');
+    prLocal(client, 'server', GH);
+    expect(environmentQueries(client, '', GH).map(query => query.environmentId)).toEqual([GH]);
+    listed.length = 0;
+    const scoped = await page({ refresh: 1 });
+    expect(listed).toEqual([GH]);
+    expect([scoped.server, scoped.serverLabel, scoped.filterBadge, scoped.projectId]).toEqual([GH, 'GitHub lane', '1', '']);
+    expect(numbers(scoped).slice(0, 2)).toEqual([144, 143]);
+    // A project brings its own server back (the focused one's projects are the ones listed).
+    prLocal(client, 'project', 'p1');
+    expect((await page({ refresh: 2 })).server).toBe('env');
+    // A chosen server that is not connected reads nothing, not every other server (usePullRequestScope).
+    prLocal(client, 'server', GH);
+    for (const entry of fleet.entries.values()) entry.phase = 'connecting';
+    expect(environmentQueries(client, '', GH)).toEqual([]);
+  });
+  test('one server shows no Server row (serverOptions.length > 2)', async () => {
+    const body = await source('src/pull-requests/pages-prs.contract');
+    expect(body).toContain('derive serverShown = page.servers.length > 2');
+    expect(body).toMatch(/if serverShown\n[^\n]+role="separator"\n[^\n]+testId="pr-filter-server"/);
+    const { page } = focusedClient();
+    expect((await page()).servers.map(server => server.label)).toEqual(['All servers', 'This machine']);
   });
 });

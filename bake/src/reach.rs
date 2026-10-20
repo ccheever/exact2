@@ -144,6 +144,9 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     // entitlements the platform's signature must carry.
     let mut usage = Map::new();
     let mut entitlements = Vec::new();
+    let mut flags: Vec<&str> = Vec::new();
+    // Android's permissions: the Canvas host on Android bakes as Linux.
+    let mut android: Vec<&str> = Vec::new();
     let keys_of = |device: &Device| match platform {
         "ios" => device.ios,
         "macos" => device.macos,
@@ -159,7 +162,11 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         // `reach.auth` (below).
         match platform {
             "macos" => entitlements.extend(grant.device.hardened),
-            "ios" => entitlements.extend(grant.device.ios_entitlements),
+            "ios" => {
+                entitlements.extend(grant.device.ios_entitlements);
+                flags.extend(grant.device.ios_flags);
+            }
+            "linux" => android.extend(grant.device.android),
             _ => {}
         }
     }
@@ -219,12 +226,16 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     } else {
         Vec::new()
     };
+    android.sort_unstable();
+    android.dedup();
     let auth = auth(&ceiling, platform, compat)?;
     compat.reach = json!({
         "base": base,
         "locales": strings.as_ref().map(|s| s.tables.keys().cloned().collect::<Vec<_>>()),
         "rows": rows,
         "usage": usage,
+        "flags": flags,
+        "android": android,
         "entitlements": entitlements,
         "helperEntitlements": helpers,
         "tvOmits": tv_omits,
@@ -330,6 +341,7 @@ fn family_enforcement(line: &str) -> &'static str {
         "auth.session" | "auth.callback" => {
             "the host's exact-auth: arm (Apple, web; Linux answers 501)"
         }
+        "doc.keep" => "the host's kept documents (macOS; Linux and the web keep nothing yet)",
         _ => "runtime",
     }
 }

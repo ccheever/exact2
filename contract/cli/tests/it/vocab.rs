@@ -616,7 +616,7 @@ fn no_name_prints_the_card_and_all_prints_every_table() {
         "persist",
         "negative `min` gives the pad its ± key",
         "symbol roles: back close",
-        "idioms, whole with their code",
+        "idioms with code",
     ] {
         assert!(card.contains(want), "{want} missing:\n{card}");
     }
@@ -1078,6 +1078,84 @@ fn symbol_lists_the_roles() {
     assert!(error.contains("did you mean `symbol:settings`?"), "{error}");
 }
 
+/// An empty `symbol:` name is no symbol, as an empty `sf/` one is: a
+/// computed source whose caller passes "" under its own `if` builds, and
+/// draws only the other caller's (LLP 1121 stage 9 H, theme2 02:15).
+#[test]
+fn an_empty_symbol_name_is_no_symbol() {
+    struct NoData;
+    impl exact_runner::DataSource for NoData {
+        fn query(
+            &mut self,
+            source: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::UnknownSource(source.into()))
+        }
+    }
+    let src = "component App\n  view\n    column testId=\"root\"\n      Row(symbol=\"\")\n      Row(symbol=\"close\")\n\ncomponent Row\n  props\n    symbol: string\n  view\n    row\n      if symbol != \"\"\n        image `symbol:${symbol}`\n      text \"a\"\n";
+    let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
+    let plan = contract::bake(plan, NoData).unwrap();
+    let r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let (mut images, mut stack) = (
+        Vec::new(),
+        vec![k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id],
+    );
+    while let Some(id) = stack.pop() {
+        let node = k.node(id).unwrap();
+        stack.extend(node.children());
+        if node.node_type == exact_kernel::NodeType::Image {
+            images.push(
+                node.props
+                    .str(exact_kernel::PropId::ImageSource)
+                    .unwrap_or("")
+                    .to_owned(),
+            );
+        }
+    }
+    assert_eq!(images, ["symbol:close"]);
+    // Written alone, it builds; the kernel gives it no Apple name and no
+    // path, as it gives an empty `sf/` one.
+    assert!(contract::compile("component App\n  view\n    image \"symbol:\"\n").is_ok());
+    assert_eq!(exact_kernel::apple_symbol_name(""), "");
+    assert!(exact_kernel::symbol_path("").is_none());
+    // A grouped row led by one is a standard cell with no symbol, as one led
+    // by an empty `sf/` is (Astra's and Grok's round 1).
+    let rows = |lead: &str| {
+        let src = format!("component App\n  action go\n  view\n    column testId=\"root\" width=402 height=874\n      list appearance=\"auto\" testId=\"list\" flex=1\n        section\n          button press=go\n            image \"{lead}\"\n            text \"Reply\"\n");
+        let plan = contract::bake(contract::compile(&src).unwrap(), NoData).unwrap();
+        let mut r = exact_runner::Runner::boot(
+            plan,
+            NoData,
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let k = r.kernel_mut();
+        let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(root, exact_kernel::Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let list = k.node_by_key(k.find_by_test_id("list")[0]).unwrap().id;
+        let row = &k.grouped_list(list).unwrap().sections[0].rows[0];
+        (row.custom, row.symbol.clone(), row.title.clone())
+    };
+    assert_eq!(rows("symbol:"), rows("symbol:sf/"));
+    assert_eq!(
+        rows("symbol:"),
+        (false, Some(String::new()), Some("Reply".into()))
+    );
+}
+
 /// Every recipe and pattern under `docs/` answers by its name: the lists
 /// `contract vocab` embeds are the directories'.
 #[test]
@@ -1102,6 +1180,33 @@ fn every_recipe_and_pattern_answers_by_name() {
         assert!(
             out.contains(&format!("`bun exact.mjs pattern {name}`")),
             "{name}: add it to vocab/recipes.rs"
+        );
+    }
+}
+
+/// An `iframe`'s `name` is HTML's frame name (the design tool names its
+/// live copies by it, LLP 1122 T7), written as the frame's own prop; on the
+/// other tags this checks it is still refused (a native button, which
+/// returns earlier, predates this).
+#[test]
+fn an_iframe_takes_a_frame_name() {
+    let source = "component App\n  view\n    iframe name=\"exact-copy-1\" src=\"https://example.com\" sandbox=\"allow-scripts\"\n";
+    let plan = contract::compile(source).expect("an iframe's name compiles");
+    assert!(
+        format!("{plan:?}").contains("exact-copy-1"),
+        "the name is the frame's prop"
+    );
+    for refused in [
+        "text \"a\" name=\"x\"",
+        "view name=\"x\"",
+        "image src=\"a.png\" name=\"x\"",
+        "input type=\"checkbox\" name=\"x\"",
+    ] {
+        let error =
+            contract::compile(&format!("component App\n  view\n    {refused}\n")).unwrap_err();
+        assert!(
+            format!("{error:?}").contains("lower-attr-tag"),
+            "{refused}: {error:?}"
         );
     }
 }

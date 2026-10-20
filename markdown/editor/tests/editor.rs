@@ -1,7 +1,7 @@
 //! The editing rules, driven the way a browser drives them: `beforeinput`
 //! events, and plain typing the platform performs itself and reports back.
 
-use exact_markdown_editor::{view::HIDDEN, Deco, Editor, Input, Outcome, Selected};
+use exact_markdown_editor::{view::HIDDEN, Deco, Editor, Input, Outcome, Selected, SelectionMode};
 
 fn u(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()
@@ -435,4 +435,75 @@ fn native_range_readback_matches_whole_source_including_history() {
             assert_eq!(range.selection(), whole.selection());
         }
     }
+}
+
+#[test]
+fn a_range_replacement_places_the_selection_as_html_does() {
+    // `setRangeText("XY", 2, 4, mode)` on "abcdef" with "bcde" selected.
+    for (mode, sel) in [
+        (SelectionMode::Preserve, (1, 5)),
+        (SelectionMode::Select, (2, 4)),
+        (SelectionMode::Start, (2, 2)),
+        (SelectionMode::End, (4, 4)),
+    ] {
+        let mut p = Page::open("abcdef");
+        p.e.set_selection(1, 5);
+        p.e.replace(2, 4, &u("XY"), mode, 0.0);
+        assert_eq!(
+            (p.source().as_str(), p.e.selection()),
+            ("abXYef", sel),
+            "{mode:?}"
+        );
+    }
+    // Preserve moves an end after the range by the change in length, and an
+    // end inside it to the range's edge; CRLF arrives as LF.
+    let mut p = Page::open("abcdef");
+    p.e.set_selection(3, 6);
+    p.e.replace(1, 4, &u("x\r\ny"), SelectionMode::Preserve, 0.0);
+    assert_eq!(p.source(), "ax\nyef");
+    assert_eq!(p.e.selection(), (1, 6));
+}
+
+#[test]
+fn each_range_replacement_is_one_undo_step_that_restores_the_selection() {
+    let mut p = Page::open("");
+    p.type_("hello");
+    p.e.set_selection(5, 5);
+    // Two replacements at once: two steps, never merged with each other or
+    // with the typing before them.
+    p.e.replace(5, 5, &u("!"), SelectionMode::End, p.now);
+    p.e.replace(6, 6, &u("?"), SelectionMode::End, p.now);
+    assert_eq!((p.source().as_str(), p.e.selection()), ("hello!?", (7, 7)));
+    p.tool("undo");
+    assert_eq!((p.source().as_str(), p.e.selection()), ("hello!", (6, 6)));
+    p.tool("undo");
+    assert_eq!((p.source().as_str(), p.e.selection()), ("hello", (5, 5)));
+    p.tool("redo");
+    assert_eq!((p.source().as_str(), p.e.selection()), ("hello!", (6, 6)));
+    p.tool("undo");
+    p.tool("undo");
+    assert_eq!(p.source(), "", "the typing's own step survives");
+    // Typing right after a replacement is a step of its own.
+    let mut p = Page::open("ab");
+    p.e.replace(2, 2, &u("@x"), SelectionMode::End, 0.0);
+    p.type_("y");
+    p.tool("undo");
+    assert_eq!(p.source(), "ab@x");
+}
+
+#[test]
+fn an_app_caret_in_hidden_syntax_moves_to_its_visible_edge() {
+    let mut p = Page::open("a **b** c");
+    // Inside the opening `**`: the caret is drawn where the platform can
+    // draw it, on the visible text beside it.
+    p.e.set_selection(3, 3);
+    let (s, e) = p.e.selection();
+    assert_eq!(s, e);
+    assert!(s == 2 || s == 4, "{s}");
+    // A range is kept as the app gave it.
+    p.e.set_selection(3, 6);
+    assert_eq!(p.e.selection(), (3, 6));
+    // Past the end clamps, as HTML's does.
+    p.e.set_selection(99, 99);
+    assert_eq!(p.e.selection(), (9, 9));
 }

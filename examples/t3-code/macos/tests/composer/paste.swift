@@ -78,14 +78,14 @@ final class ComposerPasteTests: XCTestCase {
         XCTAssertEqual(written.lastPathComponent, "image.png")
         XCTAssertTrue(FileManager.default.fileExists(atPath: written.path))
         let attach = T3ComposerAttach(dataRoot: root.appendingPathComponent("data", isDirectory: true), agent: false)
-        let files = fixture.composer.editor.takePastedFiles { attach.stage($0, fileLimit: 1024) }
+        let files = fixture.composer.editor.takePastedFiles(fixture.identity) { attach.stage($0, fileLimit: 1024) }
         XCTAssertEqual(files.map { $0["kind"] as? String }, ["file", "image"])
         XCTAssertEqual(files.map { $0["name"] as? String }, ["notes.md", "image.png"])
         XCTAssertNotNil(files[0]["id"] as? String, "the plain file is staged within the limit")
         XCTAssertFalse(FileManager.default.fileExists(atPath: written.deletingLastPathComponent().path), "the written image's folder goes")
         XCTAssertTrue(FileManager.default.fileExists(atPath: notes.path), "the pasted file itself stays")
         XCTAssertTrue(fixture.composer.editor.pastedFiles.isEmpty)
-        XCTAssertEqual(fixture.composer.editor.takePastedFiles { attach.stage($0, fileLimit: 1024) }.count, 0, "taken once")
+        XCTAssertEqual(fixture.composer.editor.takePastedFiles(fixture.identity) { attach.stage($0, fileLimit: 1024) }.count, 0, "taken once")
         // Text on the pasteboard is the text view's own paste (which reads the general pasteboard, left untouched here).
         board.clearContents(); board.setString("hello", forType: .string)
         fixture.editor.paste(nil)
@@ -125,7 +125,7 @@ final class ComposerPasteTests: XCTestCase {
         fixture.editor.paste(nil)
         XCTAssertEqual(fixture.composer.editor.pastedFiles.map(\.asText), [true, true, false])
         let attach = T3ComposerAttach(dataRoot: root.appendingPathComponent("data", isDirectory: true), agent: false)
-        let files = fixture.composer.editor.takePastedFiles { attach.stage($0, fileLimit: 1024) }
+        let files = fixture.composer.editor.takePastedFiles(fixture.identity) { attach.stage($0, fileLimit: 1024) }
         XCTAssertEqual(files.map { $0["asText"] as? Bool }, [true, true, nil])
         XCTAssertEqual(files.map { $0["kind"] as? String }, ["file", "image", "image"])
         // Another text view's Paste as Text is its own.
@@ -136,4 +136,40 @@ final class ComposerPasteTests: XCTestCase {
         other.pasteAsPlainText(nil)
         XCTAssertTrue(fixture.composer.editor.pastedFiles.isEmpty)
     }
+    func testStaleTakeCannotConsumeReplacementQueueAndCleansOnlyOwnedImages() {
+        let fixture = EditorFixture(), adapter = fixture.composer.editor
+        adapter.pasteDirectory = root.appendingPathComponent("paste", isDirectory: true)
+        let notes = file("notes.md", Data("original".utf8))
+        board.writeObjects([notes as NSURL])
+        XCTAssertTrue(adapter.pasteFiles(from: board))
+        board.clearContents(); board.setData(png(), forType: .png)
+        XCTAssertTrue(adapter.pasteFiles(from: board))
+        let temporary = adapter.pastedFiles[1].url
+        fixture.replaceOwner()
+        XCTAssertTrue(adapter.pastedFiles.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: notes.path))
+        board.clearContents(); board.writeObjects([notes as NSURL])
+        XCTAssertTrue(adapter.pasteFiles(from: board))
+        var staged = 0
+        XCTAssertTrue(adapter.takePastedFiles(fixture.identity) { _ in staged += 1; return [:] }.isEmpty)
+        XCTAssertEqual(adapter.pastedFiles.count, 1, "old owner never consumes the new owner's queue")
+        XCTAssertEqual(staged, 0)
+        let taken = adapter.takePastedFiles(["snapshotOwner": "owner-b", "fieldOwner": "field-b"]) { _ in staged += 1; return ["name": "notes.md"] }
+        XCTAssertEqual(taken.count, 1); XCTAssertEqual(staged, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: notes.path))
+    }
+
+    func testRemovingComposerRefusesQueuedFilesAndRestoresOrdinaryPasteTypes() {
+        let fixture = EditorFixture(), adapter = fixture.composer.editor
+        adapter.pasteDirectory = root.appendingPathComponent("paste", isDirectory: true)
+        board.setData(png(), forType: .png)
+        XCTAssertTrue(adapter.pasteFiles(from: board))
+        let temporary = adapter.pastedFiles[0].url
+        fixture.composer.remove(fixture.element)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
+        XCTAssertTrue(adapter.takePastedFiles(fixture.identity) { _ in XCTFail("stale queue staged"); return [:] }.isEmpty)
+        XCTAssertFalse(fixture.editor.readablePasteboardTypes.contains(.png))
+    }
+
 }

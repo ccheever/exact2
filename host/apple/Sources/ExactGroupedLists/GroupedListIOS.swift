@@ -115,6 +115,11 @@ struct GroupedListModel: Equatable {
         var action = false
         var destructive = false
         var disabled = false
+        /// Its author wrote the edge under it, or the next row's author
+        /// that row's top edge, which replaces UIKit's separator there
+        /// when that row is carried and draws it (LLP 1084 D7).
+        var authoredEdge = false
+        var nextAuthoredTop = false
         var titleLook = Look()
         var secondaryLook = Look()
     }
@@ -146,12 +151,15 @@ struct GroupedListModel: Equatable {
             guard let view = id(s["view"]) else { return nil }
             let rows: [Row] = (s["rows"] as? [[String: Any]] ?? []).compactMap { r in
                 guard let view = id(r["view"]) else { return nil }
-                return Row(view: view, custom: r["custom"] as? Bool ?? false, symbol: r["symbol"] as? String,
+                // An svg-only icon's path as its token (FaceSymbol, stage 9 A2).
+                return Row(view: view, custom: r["custom"] as? Bool ?? false, symbol: FaceSymbol.of(r),
                            title: r["title"] as? String, secondary: r["secondary"] as? String,
                            subtitle: r["subtitle"] as? Bool ?? false, accessory: r["accessory"] as? String ?? "none",
                            target: id(r["target"]), checked: r["checked"] as? Bool ?? false, pressable: r["pressable"] as? Bool ?? false,
                            action: r["action"] as? Bool ?? false,
                            destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false,
+                           authoredEdge: r["authoredEdge"] as? Bool ?? false,
+                           nextAuthoredTop: r["nextAuthoredTop"] as? Bool ?? false,
                            titleLook: Look(json: r["titleLook"]), secondaryLook: Look(json: r["secondaryLook"]))
             }
             return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String,
@@ -371,7 +379,8 @@ final class GroupedListHost: GroupedLists {
             return ["error": "tap #\(id): its cell's middle is under the software keyboard; dismiss it or scroll the row above it first"]
         }
         let at = presenter.viewportScroll.convert(middle, from: nil)
-        let reply: [String: Any] = ["tapped": id, "at": [Agent.r2(at.x), Agent.r2(at.y - presenter.viewportScroll.contentOffset.y)],
+        let page = presenter.viewportScroll.pageOrigin // a box's space (LLP 1130)
+        let reply: [String: Any] = ["tapped": id, "at": [Agent.r2(at.x - page.x), Agent.r2(at.y - page.y)],
                                     "delivery": "host-activation", "native": "grouped-list"]
         if row.view != node.id, row.accessory == "toggle" {
             guard list.toggle(row.view) else { return ["error": "tap #\(id): the switch is disabled"] }
@@ -400,7 +409,8 @@ final class GroupedListHost: GroupedLists {
         var seen: [String: Any] = ["view": "UICollectionViewListCell", "accessory": row.accessory, "custom": row.custom]
         if let cell = list.cell(row.view) {
             let r = cell.convert(cell.bounds, to: presenter.viewportScroll)
-            seen["frame"] = [Agent.r2(r.minX), Agent.r2(r.minY - presenter.viewportScroll.contentOffset.y), Agent.r2(r.width), Agent.r2(r.height)]
+            let page = presenter.viewportScroll.pageOrigin
+            seen["frame"] = [Agent.r2(r.minX - page.x), Agent.r2(r.minY - page.y), Agent.r2(r.width), Agent.r2(r.height)]
         }
         return seen
     }
@@ -510,10 +520,20 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private func label(_ view: UICollectionViewListCell, header: Bool, section index: Int) {
         let s = section(at: index)
         var c = view.defaultContentConfiguration()
-        c.text = header ? s?.header : s?.footer
         // UIKit's header and footer ink is the secondary label: the theme's where it replaces it.
         if let ink = ThemeRoles.color("secondary-label", in: host.presenter.root) { c.textProperties.color = ink }
         (header ? s?.headerLook : s?.footerLook)?.apply(to: &c.textProperties, engine: owner.text)
+        // A grouped table's header and footer hyphenate only a line that
+        // would otherwise be less than 0.45 full (their labels'
+        // hyphenationFactor, iOS 27). A collection view list's take 1, as
+        // its cells do, and hyphenate "Reading to-gether" at the largest
+        // text size, where a hand-built table wraps the word whole.
+        if let text = header ? s?.header : s?.footer {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.hyphenationFactor = 0.45
+            paragraph.lineBreakMode = c.textProperties.lineBreakMode
+            c.attributedText = NSAttributedString(string: text, attributes: [.paragraphStyle: paragraph])
+        }
         view.contentConfiguration = c
         view.marginsIgnoreSafeArea()
     }
@@ -530,6 +550,22 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             c.footerMode = s?.footer == nil ? .none : .supplementary
             #if !os(tvOS)
             c.showsSeparators = s?.card ?? true
+            // Where a row's author wrote the edge under it, a carried row
+            // shows that edge instead of UIKit's line (LLP 1084 D7), as a
+            // hand-built cell hides its separator. A standard cell draws no
+            // authored box, so UIKit's line stays beside one.
+            c.itemSeparatorHandler = { [weak self] path, separator in
+                var separator = separator
+                let rows = self?.section(at: path.section)?.rows ?? []
+                func owned(_ i: Int) -> Bool {
+                    guard i >= 0, i < rows.count else { return false }
+                    return rows[i].authoredEdge && rows[i].custom
+                        || rows[i].nextAuthoredTop && i + 1 < rows.count && rows[i + 1].custom
+                }
+                if owned(path.item) { separator.bottomSeparatorVisibility = .hidden }
+                if owned(path.item - 1) { separator.topSeparatorVisibility = .hidden }
+                return separator
+            }
             #endif
             #if os(iOS)
             // A row that names swipe actions swipes as a hand-built list's
@@ -592,7 +628,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         // Changed native parts configure the cell again. A custom row keeps
         // its own live views; mount carries their current box into the cell.
-        // A standard row whose symbol's authored tint changed is too (D7).
+        // A standard row whose symbol's authored tint or written colour
+        // changed is too (D7).
         let tints: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, tint(of: $0)) })
         // A row whose card changed (its section gained or lost one, or the
         // row moved between sections) is configured again.
@@ -669,7 +706,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // A short settings list bounces, as UIKit's collection default would not.
         assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
         assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
-        assign(collection, \.frame, owner.bounds)
+        assign(collection, \.frame, owner.scrollFrame) // with the page's bands it reaches (LLP 1130 D3)
         for cell in collection.visibleCells {
             guard let cell = cell as? GroupedCell, let id = cell.row else { continue }
             carry(id, into: cell)
@@ -755,7 +792,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         guard let container = viewport.superview, owner.window != nil, owner.isDescendant(of: viewport),
               presenter.keyboardInset == 0, viewport.contentSize.height <= viewport.bounds.height + 0.5,
               viewport.contentSize.width <= viewport.bounds.width + 0.5 else { skirt?.isHidden = true; return }
-        let port = viewport.frame, whole = container.bounds, box = owner.convert(owner.bounds, to: container)
+        // The page's area, which the viewport is drawn past (LLP 1130).
+        let port = presenter.pageFrame, whole = container.bounds, box = owner.convert(owner.bounds, to: container)
         let meets = { (a: CGFloat, b: CGFloat) in abs(a - b) < 0.5 }
         let top = meets(box.minY, port.minY) && port.minY > whole.minY ? whole.minY : box.minY
         let bottom = meets(box.maxY, port.maxY) && port.maxY < whole.maxY ? whole.maxY : box.maxY
@@ -775,10 +813,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             skirtKey = sides
             view.backgroundColor = UIColor { [weak root = host.presenter.root] traits in sides[traits.userInterfaceStyle == .dark ? 1 : 0].map(TextEngine.color) ?? ThemeRoles.color("grouped-background", in: root, or: .systemGroupedBackground) }
         }
-        if view.superview !== container || container.subviews.firstIndex(of: view).map({ $0 > (container.subviews.firstIndex(of: viewport) ?? 0) }) == true {
-            container.insertSubview(view, belowSubview: viewport)
+        // Inside the viewport, behind the document: the viewport now covers the whole view.
+        let document = presenter.root
+        if view.superview !== viewport || viewport.subviews.firstIndex(of: view).map({ $0 > (viewport.subviews.firstIndex(of: document) ?? 0) }) == true {
+            viewport.insertSubview(view, belowSubview: document)
         }
-        assign(view, \.frame, reach)
+        assign(view, \.frame, viewport.convert(reach, from: container))
         assign(view, \.isHidden, false)
     }
     #endif
@@ -880,14 +920,34 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         for case let carried as NodeView in cell.contentView.subviews { carried.removeFromSuperview() }
         cell.height = nil
         var c: UIListContentConfiguration = row.subtitle ? .subtitleCell() : row.secondary != nil ? .valueCell() : .cell()
-        c.image = row.symbol.flatMap { UIImage(systemName: $0) }
+        c.image = row.symbol.flatMap { FaceSymbol.image($0, points: GroupedCell.pathPoints(cell.traitCollection)) }
+        // An svg-only icon's path (stage 9 A2): the layout space UIKit gives
+        // an SF Symbol here (an image is laid out at its own size, a symbol
+        // in the standard space, so titles stay aligned), its size the
+        // cell's Dynamic Type size, drawn again as that changes.
+        let path = row.symbol.flatMap { FaceSymbol.isPath($0) ? $0 : nil }
+        cell.pathSymbol = path
+        if path != nil {
+            c.imageProperties.reservedLayoutSize = CGSize(width: UIListContentConfiguration.ImageProperties.standardDimension,
+                                                          height: UIListContentConfiguration.ImageProperties.standardDimension)
+        }
         // The symbol's tint as the sheet draws it (D7): the author's over the
         // sheet's own, each side of a light-dark() pair for its appearance.
         // The accent (`AccentColor`, the sheet's own) is UIKit's: the cell's
         // tint, which an authored accent-color sets (LLP 1116.004 D2).
-        if let symbol = symbolView(of: id), let value = symbol.style["tint_color"], !symbol.followsTint("tint_color") {
-            c.imageProperties.tintColor = UIColor { traits in
-                value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
+        let symbolNode = symbolView(of: id)
+        // The row the image is drawn in: its tint; untinted, a colour its
+        // author wrote, on it or above (LLP 1121 stage 9 B, `symbolInk`), as
+        // the row is a page image on the web and the Mac.
+        let key = symbolNode.map { $0.style["tint_color"] == nil && $0.props["symbolColorWritten"] == "1" } == true ? "text_color" : "tint_color"
+        // One that follows the accent leaves the image the cell's tint (nil here, on purpose).
+        let followsAccent = symbolNode.map { $0.style[key] != nil && $0.followsTint(key) } ?? false
+        // A destructive or disabled row's colour still goes over it (below).
+        if let symbol = symbolNode {
+            if let value = symbol.style[key], !symbol.followsTint(key) {
+                c.imageProperties.tintColor = UIColor { traits in
+                    value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
+                }
             }
         }
         c.text = row.title
@@ -914,6 +974,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             c.textProperties.color = gray
             c.secondaryTextProperties.color = gray
             c.imageProperties.tintColor = gray
+        }
+        // An untinted symbol is the label colour; a path image takes it as
+        // set, as the title takes it where its author gave none (not an
+        // action row's accent title). One that follows the accent keeps the
+        // cell's tint, which an image with no tint of its own is drawn in.
+        if path != nil, c.imageProperties.tintColor == nil, !followsAccent {
+            c.imageProperties.tintColor = ThemeRoles.color("label", in: host.presenter.root, or: .label)
         }
         cell.contentConfiguration = c
         cell.marginsIgnoreSafeArea()
@@ -1024,12 +1091,17 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let name = source.dropFirst("symbol:".count)
         return name.hasPrefix("sf/") && name.dropFirst(3) != symbol ? nil : image
     }
+    /// What the standard row's symbol is drawn in: its tint, and its
+    /// written colour (LLP 1121 stage 9 B), for the reconfigure key.
     private func tint(of id: UInt32) -> BatchValue? {
-        symbolView(of: id)?.style["tint_color"]
+        guard let symbol = symbolView(of: id) else { return nil }
+        let ink = symbol.props["symbolColorWritten"] == "1" ? symbol.style["text_color"] ?? .null : .null
+        return .array([symbol.style["tint_color"] ?? .null, ink])
     }
 
     /// A custom row's own views in its cell, at the row's place in its
-    /// group, as tall as the row less the separator the cell draws instead.
+    /// group, as tall as the row: its separator is decoration, which the
+    /// cell draws instead, and a bottom border its author wrote is its own.
     private func carry(_ id: UInt32, into cell: GroupedCell) {
         guard rows[id]?.custom == true, let row = host.presenter.views[id] else { return }
         for case let other as NodeView in cell.contentView.subviews where other !== row { other.removeFromSuperview() }
@@ -1045,7 +1117,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // twice a batch.
         let drawn = row.grid.map { CGRect(x: PixelGrid.round($0.layout.minX, scale: host.presenter.gridScale), y: 0, width: $0.drawn.width, height: $0.drawn.height) }
             ?? CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
-        let height = cellHeight(id, row: drawn.height)
+        let height = drawn.height
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
         if cell.height != height { cell.height = height; resized = true }
@@ -1062,15 +1134,6 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         row.frame = drawn
     }
 
-    /// A custom row's cell height for a row box `height` tall: less the
-    /// separator the cell draws instead of the row's own border. A card-less
-    /// section has no UIKit separator to stand in for it, so the row keeps
-    /// its full height (§6.2).
-    private func cellHeight(_ id: UInt32, row height: CGFloat) -> CGFloat {
-        let separator = card(of: id) ? CGFloat(host.presenter.views[id]?.style["border_width_bottom"]?.number ?? 0) : 0
-        return max(0, height - separator)
-    }
-
     /// A row whose cell was sized to nothing and that has a box now (the
     /// sheet over it closed and gave back its geometry) comes into the list
     /// again: UIKit configures and measures its cell anew, which carries the
@@ -1078,7 +1141,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private func remeasure() {
         unsized = unsized.filter { rows[$0]?.custom == true }
         let grown = unsized.filter { id in
-            host.presenter.views[id].map { cellHeight(id, row: carried[id]?.frame.height ?? $0.frame.height) > 0 } ?? false
+            host.presenter.views[id].map { (carried[id]?.frame.height ?? $0.frame.height) > 0 } ?? false
         }
         guard !grown.isEmpty else { return }
         unsized.subtract(grown)
@@ -1236,6 +1299,26 @@ final class GroupedCell: UICollectionViewListCell {
     /// The node of its row's switch or detail button.
     var target: UInt32?
     var height: CGFloat?
+    /// Its standard row's svg-only icon path token, drawn again at a new
+    /// Dynamic Type size (stage 9 A2); nil for an SF Symbol or none.
+    var pathSymbol: String? {
+        didSet {
+            guard pathSymbol != nil, !watchesSize else { return }
+            watchesSize = true
+            registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (cell: GroupedCell, _: UITraitCollection) in cell.redrawPath() }
+        }
+    }
+    private var watchesSize = false
+    /// A path's side: the body text's size under these traits, as a symbol
+    /// with no configuration in a list cell takes.
+    static func pathPoints(_ traits: UITraitCollection) -> CGFloat {
+        UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).pointSize
+    }
+    func redrawPath() {
+        guard let pathSymbol, var c = contentConfiguration as? UIListContentConfiguration else { return }
+        c.image = FaceSymbol.image(pathSymbol, points: Self.pathPoints(traitCollection))
+        contentConfiguration = c
+    }
     #if os(iOS)
     /// A touch its row leaves to no control goes to the row's one field: the
     /// cell is the field (LLP 1116.005 D2).

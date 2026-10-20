@@ -1,7 +1,4 @@
-// @ref LLP 1123 D2 — what of a window is the session's: its viewport, and
-// each presentation's controller view, where a presented route is mounted.
-// Whether a view is mounted there, where a finger reaches it, and ending
-// the session's editing ask these, never whether the viewport holds a view.
+// @ref LLP 1123 D2 — session ownership and presentation crossings.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -42,16 +39,17 @@ extension Presenter {
     /// Whether `view` is mounted in this session: in its viewport, or in a
     /// presentation beside it.
     func mounts(_ view: UIView) -> Bool {
-        view.isDescendant(of: viewport) || modals.mounts(view)
+        view.isDescendant(of: viewport) || surface(containing: view).map { $0.kind != .document } == true
     }
 
     /// Where a finger reaches `view`, in viewport points (the viewport's
     /// coordinates less its scrolling, as the agent's boxes are): the
     /// viewport for the document; for a presentation's content, its
-    /// presentation's view within the window.
+    /// presentation's view within the window; over a dialog's sheet, the
+    /// popover's layer there.
     func reach(of view: UIView) -> CGRect {
         let mount = port(of: view)
-        guard mount !== viewport, let window = viewport.window else { return CGRect(origin: .zero, size: viewport.bounds.size) }
+        guard mount !== viewport, let window = viewport.window else { return CGRect(origin: .zero, size: viewportSize) }
         let shown = mount.convert(mount.bounds, to: nil).intersection(window.bounds)
         return viewportPoints(viewport.convert(shown, from: nil))
     }
@@ -67,7 +65,7 @@ extension Presenter {
     /// Ends editing wherever the session is mounted; whether any editor resigned.
     @discardableResult
     package func endEditing() -> Bool {
-        modals.mountRoots.reduce(viewport.endEditing(true)) { $1.endEditing(true) || $0 }
+        presentations(includingRetiring: true).reduce(viewport.endEditing(true)) { $1.endEditing(true) || $0 }
     }
 
     /// The next view reached by a touch or its listeners: the superview,
@@ -112,7 +110,10 @@ extension Presenter {
 
     /// The port `view` is mounted in: its presentation's mount, or the
     /// viewport.
-    func port(of view: UIView) -> UIView { modals.mountRoots.last { view.isDescendant(of: $0) } ?? viewport }
+    func port(of view: UIView) -> UIView {
+        guard let surface = surface(containing: view), surface.kind != .document else { return viewport }
+        return surface.view
+    }
 
     /// Reveals the field being edited as the keys move, unless it is in a
     /// presentation, whose editor waits for the keys to settle
@@ -170,14 +171,13 @@ final class OwnerBlocks {
     /// whether a window shows that view: a route under a pushed one, or in a
     /// tab not selected, is out of the window.
     private var routes: [(route: RouteController, view: UIView, block: CGRect, shown: Bool, presented: Bool)] {
-        let navigation = presenter.navigation
-        let primary = navigation.allNavigations.filter { nav in !navigation.presentedNavigations.contains { $0 === nav } }
-        return primary.flatMap { routes(of: $0, presented: false) } + presenter.modals.navigations.flatMap { routes(of: $0, presented: true) }
+        presenter.navigation.primaryStacks.flatMap { routes(of: $0, presented: false) } + presenter.modals.navigations.flatMap { routes(of: $0, presented: true) }
     }
 
-    private func routes(of nav: UINavigationController, presented: Bool) -> [(route: RouteController, view: UIView, block: CGRect, shown: Bool, presented: Bool)] {
-        var controllers = nav.viewControllers
-        if let leaving = nav.transitionCoordinator?.viewController(forKey: .from),
+    /// A stack's routes: a navigation controller's, or a tab's held one.
+    private func routes(of stack: UIViewController, presented: Bool) -> [(route: RouteController, view: UIView, block: CGRect, shown: Bool, presented: Bool)] {
+        var controllers = stack.stackRoutes
+        if let leaving = (stack as? UINavigationController)?.transitionCoordinator?.viewController(forKey: .from),
            !controllers.contains(where: { $0 === leaving }) { controllers.append(leaving) }
         return controllers.compactMap { controller in
             guard let route = controller as? RouteController, let view = route.viewIfLoaded,
@@ -347,7 +347,7 @@ extension Presenter {
     /// A rectangle in the viewport's coordinates, less its scrolling: where
     /// a person sees it in the viewport, as the runner reads a top-layer box.
     func viewportPoints(_ rect: CGRect) -> CGRect {
-        rect.offsetBy(dx: -viewport.contentOffset.x, dy: -viewport.contentOffset.y)
+        rect.offsetBy(dx: -viewport.pageOrigin.x, dy: -viewport.pageOrigin.y)
     }
 }
 #endif

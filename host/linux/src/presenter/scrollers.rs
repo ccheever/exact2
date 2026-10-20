@@ -77,7 +77,7 @@ pub(super) struct Reader {
 }
 
 impl Reader {
-    /// A list corrected its own offset from `was` to `now`: its content
+    /// A scroller corrected its own offset from `was` to `now`: its content
     /// stays where it shows, so the reader's moves still stand.
     pub(super) fn rebased(&mut self, id: ViewId, was: (f32, f32), now: (f32, f32)) {
         if let Some((_, at)) = self.tracked.get_mut(&id) {
@@ -231,7 +231,21 @@ impl<D: DataSource> Presenter<D> {
     /// Scroll `id` to `to`, clamped to its travel on the axes it scrolls
     /// along; where it then is, or `None` when `id` is no scroll container.
     pub fn scroll_to(&mut self, id: ViewId, to: (f32, f32)) -> Option<(f32, f32)> {
-        self.scroll_to_completion(id, to, Completion::Instant)
+        if !to.0.is_finite() || !to.1.is_finite() {
+            return None;
+        }
+        self.restore_scroll_anchors();
+        // An absolute destination supersedes the previous position's correction.
+        self.cancel_anchor_correction(id);
+        let result = self.scroll_to_completion(id, to, Completion::Instant, None);
+        self.arm_scroll_anchors();
+        result.map(|_| {
+            if id == PAGE {
+                self.page
+            } else {
+                self.scroll_of(id)
+            }
+        })
     }
 
     fn scroll_to_completion(
@@ -239,6 +253,7 @@ impl<D: DataSource> Presenter<D> {
         id: ViewId,
         to: (f32, f32),
         completion: Completion,
+        relative: Option<(f32, f32)>,
     ) -> Option<(f32, f32)> {
         if !to.0.is_finite() || !to.1.is_finite() {
             return None;
@@ -257,14 +272,22 @@ impl<D: DataSource> Presenter<D> {
                 s.offset.1
             },
         );
-        if next == s.offset {
+        let moved = relative
+            .and_then(|by| self.anchor_input(id, s.offset, if s.axes.1 { by.1 } else { 0. }, next));
+        if next == s.offset && moved.is_none_or(|dy| dy == 0.) {
             return Some(next);
+        }
+        if completion == Completion::Reader {
+            if let Some((_, accepted)) = self.reader.tracked.get_mut(&id) {
+                // A scroll handler may rebase this position before dispatch returns.
+                *accepted = next;
+            }
         }
         if id == PAGE {
             self.page = next;
         } else {
             self.scroll.insert(id, next);
-            self.scroll_end_moved(id, completion);
+            self.scroll_end_input(id, s.offset, completion);
             self.collection_scrolled(id);
         }
         self.dirty = true;
@@ -279,6 +302,7 @@ impl<D: DataSource> Presenter<D> {
     /// it knew the app had moved the scroller (dropped), or for a scroller
     /// it was never told of.
     pub fn reader_scrolled(&mut self, id: ViewId, by: (f32, f32), rev: u32) -> Option<(f32, f32)> {
+        self.restore_scroll_anchors();
         if !self.reader.tracked.contains_key(&id) {
             return None;
         }
@@ -290,9 +314,12 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let from = s.offset;
-        let to =
-            self.scroll_to_completion(id, (from.0 + by.0, from.1 + by.1), Completion::Reader)?;
-        self.reader.tracked.insert(id, (rev, to));
+        let to = self.scroll_to_completion(
+            id,
+            (from.0 + by.0, from.1 + by.1),
+            Completion::Reader,
+            Some(by),
+        )?;
         Some((to.0 - from.0, to.1 - from.1))
     }
 

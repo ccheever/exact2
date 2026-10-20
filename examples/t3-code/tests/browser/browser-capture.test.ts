@@ -7,7 +7,8 @@
 // composer send path", "warns when main dropped the crop before handing over the pick") are followed here.
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { applyCaptureResults, artifactLocal, browserCaptureView, browserMiniView, cancelHiddenPicks, captureHost, captureLocal, emptyCaptureView, floatingTabOf } from '../../src/browser/browser-capture';
+import { applyCaptureResults as applyCaptureResultsActual, artifactLocal, browserCaptureView, browserMiniView, cancelHiddenPicks, captureHost, captureLocal, emptyCaptureView, floatingTabOf } from '../../src/browser/browser-capture';
+import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 import { browserMiniSessions, browserHost, browserView } from '../../src/browser/browser-surface';
 import { previewRuntimeTabId } from '../../src/browser/browser-state';
 import { panelKey, panelState, panelView, surfaceLocal, surfaceStore, type PanelState } from '../../src/panel/panel-surfaces';
@@ -30,6 +31,15 @@ import { appPath } from '../support/app-files';
 const ref = { environmentId: 'local', threadId: 'thread-1' };
 const threadKey = 'local:thread-1';
 const runtimeId = previewRuntimeTabId(ref, 'epoch-1', 'tab-1');
+async function applyCaptureResults(client: T3Client, native: Native, tabs: Parameters<typeof applyCaptureResultsActual>[2]) {
+  observeComposer(client, client.draft);
+  const shared: Native = { available: native.available, watch: topic => native.watch(topic), later: async request => {
+    const reply = obj(await native.later(request)), value = obj(reply.value);
+    if (obj(request).op === 'editorInsert' && reply.ok && value.applied === true) return { ...reply, value: { ...value, applied: acceptComposerEdit(client, request) } };
+    return reply;
+  } };
+  return applyCaptureResultsActual(client, shared, tabs);
+}
 type Call = Obj & { op: string };
 
 /** The module's capture ops (T3BrowserSessions.performCapture), answered from `handlers`. */
@@ -49,7 +59,7 @@ function fakeModule(handlers: Record<string, (request: Call) => Obj | Promise<Ob
 function fakeClient(tab: Obj = { kind: 'Success', url: 'https://example.com/', title: 'Example' }) {
   return {
     scopes: ['preview:operate'],
-    environmentId: 'local', threadId: 'thread-1', projectId: 'p1', generation: 1, connection: 'connected', ready: true, diffOpen: false, draftKey: threadKey,
+    environmentId: 'local', threadId: 'thread-1', projectId: 'p1', snapshotOwner: threadKey, projection: { turnItems: [], runtimeRequests: [] }, generation: 1, connection: 'connected', ready: true, diffOpen: false, draftKey: threadKey,
     presentation: { browserTabs: { [runtimeId]: tab } } as Obj, config: { environment: { capabilities: {} } }, shell: { threads: [{ id: 'thread-1', projectId: 'p1' }], projects: [] },
     local: { clientSettings: {}, deviceSettings: {}, drafts: {} as Record<string, string>, snapshotDrafts: {} as Record<string, Obj[]> },
     get snapshotDrafts() { return (this.local.snapshotDrafts as Record<string, Obj[]>)[threadKey] ?? []; },
@@ -93,6 +103,22 @@ describe('PreviewChromeRow: Annotate, Capture and Float preview', () => {
 describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () => {
   let client: T3Client;
   beforeEach(() => { client = fakeClient({ kind: 'Success', pick: { active: false, serial: 1, ready: true } }); });
+  it('never directly appends into a background target that becomes the active field during OS take', async () => {
+    const targetKey = 'local:thread-2', targetRuntime = previewRuntimeTabId({ environmentId: 'local', threadId: 'thread-2' }, 'epoch-1', 'tab-2');
+    client.presentation.browserTabs[targetRuntime] = { kind: 'Success', pick: { active: false, serial: 1, ready: true } };
+    const module = fakeModule({ 'browserAnnotate:take': async () => {
+      await Promise.resolve();
+      Object.assign(client, { threadId: 'thread-2', draftKey: targetKey, snapshotOwner: targetKey });
+      client.local.drafts[targetKey] = 'new active source';
+      observeComposer(client, 'new active source', true);
+      return { result: { annotation, submission: 'send' }, serial: 1 };
+    } });
+    await applyCaptureResults(client, module.native, [{ runtimeId: targetRuntime, threadKey: targetKey }]);
+    expect(client.local.drafts[targetKey]).toBe('new active source');
+    expect(module.calls.some(call => call.op === 'editorInsert')).toBe(false);
+    expect(captureHost(client).sendSerial).toBe(0);
+    expect(module.calls.at(-1)).toMatchObject({ action: 'applied', outcome: 'refused' });
+  });
 
   it('puts the chip at the composer\'s caret and the crop on the shelf, once per pick', async () => {
     const inserted: string[] = [];
@@ -103,7 +129,8 @@ describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () =
     await applyCaptureResults(client, module.native, [{ runtimeId, threadKey }]);
     expect(inserted).toEqual(['[Tighten this spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_1)']);
     expect(client.snapshotDrafts).toEqual([{ id: crop.id, name: crop.name, mimeType: 'image/png', sizeBytes: 812 }]);
-    expect(module.ops()).toContain('editorFocus'); // the focus goes back to the composer, as previouslyFocused.focus()
+    expect(module.calls.find(call => call.op === 'editorInsert')).toMatchObject({ focus: true });
+    expect(module.ops()).not.toContain('editorFocus');
     expect(toasts(client)).toEqual([]);
     await applyCaptureResults(client, module.native, [{ runtimeId, threadKey }]);
     expect(module.ops().filter(op => op === 'browserAnnotate:take')).toHaveLength(1);
@@ -129,8 +156,11 @@ describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () =
     const module = fakeModule({ 'browserAnnotate:take': () => ({ result: { annotation, submission: 'attach', screenshotFailed: true }, serial: 1 }), editorInsert: () => ({ applied: false }) });
     await applyCaptureResults(client, module.native, [{ runtimeId, threadKey }]);
     expect(client.snapshotDrafts).toEqual([]);
-    expect(client.draft).toBe('[Tighten this spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_1) ');
-    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not capture the picked element', 'The annotation was kept without the screenshot.']]);
+    expect(client.draft).toBe('');
+    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([
+      ['info', 'Annotation was not added', 'The prompt changed. The annotation was kept; insert it again when the prompt is ready.'],
+      ['error', 'Could not capture the picked element', 'The annotation was kept without the screenshot.'],
+    ]);
   });
 
   it('forwards Cmd/Ctrl+Enter annotations to the composer send path', async () => {
@@ -420,9 +450,9 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'info', title: 'Annotation attached to draft' });
   });
 
-  it('an unavailable provider: the annotation stays in the draft with the info toast, not the send error', async () => {
+  it('no provider: the annotation stays in the draft with the info toast, not the send error', async () => {
     const { client, native, command } = await opened();
-    for (const entry of client.config.providers as Obj[]) entry.auth = { status: 'unauthenticated' };
+    for (const entry of client.config.providers as Obj[]) entry.enabled = false;
     const committed = native.committed.length;
     markAnnotationSend(client);
     const result = await command('send', '', 'Send this one too');

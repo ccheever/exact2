@@ -1,0 +1,75 @@
+package dev.exact.reference
+
+import android.os.Bundle
+import android.util.Log
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameMillis
+import androidx.compose.ui.graphics.toArgb
+
+/**
+ * The catalogue on a phone (LLP 1115.001.001 D4): one specimen of `specimens.json`, `--es id <id> --es scheme
+ * light|dark`, drawn as `DrawTest` draws it on the JVM, over the whole screen with the system bars hidden, so that a
+ * screenshot holds only the specimen. `--es scheme dynamic-light|dynamic-dark` draws it in the phone's own colours,
+ * which the reader shows Exact's side in, and each launch logs those two schemes (tag `reference`) for the door. Once
+ * the specimen has settled (600 ms of the phone's frames for a focus and a label's float, a keyboard a focus raised
+ * put away, as it would move the window) it logs `drawn <nonce>`, the launch's `--es nonce`, for `oracle.mjs
+ * --phone` to take its picture.
+ */
+class Catalogue : ComponentActivity() {
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
+        val id = intent.getStringExtra("id") ?: "text-field-filled"
+        val scheme = when (intent.getStringExtra("scheme")) {
+            "dark" -> darkColorScheme()
+            "dynamic-light" -> dynamicLightColorScheme(this)
+            "dynamic-dark" -> dynamicDarkColorScheme(this)
+            else -> lightColorScheme()
+        }
+        for ((name, s) in listOf("light" to dynamicLightColorScheme(this), "dark" to dynamicDarkColorScheme(this))) {
+            Log.i("reference", "dynamic $name " + roles(s).joinToString(",") { (k, v) -> "$k=${v.toArgb().toLong() and 0xFFFFFFFFL}" })
+        }
+        setContent {
+            Specimen(id, scheme)
+            LaunchedEffect(Unit) {
+                val start = withFrameMillis { it }
+                while (withFrameMillis { it } - start < 600) Unit
+                window.insetsController?.hide(WindowInsets.Type.ime())
+                while (window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true) withFrameMillis { }
+                repeat(10) { withFrameMillis { } }
+                Log.i("reference", "drawn ${intent.getStringExtra("nonce")}")
+            }
+        }
+        window.setDecorFitsSystemWindows(false)
+        window.insetsController?.apply {
+            hide(WindowInsets.Type.systemBars())
+            systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+}
+
+/** Every role of [s], by Material's name. */
+fun roles(s: ColorScheme) = listOf(
+    "primary" to s.primary, "onPrimary" to s.onPrimary, "primaryContainer" to s.primaryContainer,
+    "onPrimaryContainer" to s.onPrimaryContainer, "inversePrimary" to s.inversePrimary,
+    "secondary" to s.secondary, "onSecondary" to s.onSecondary, "secondaryContainer" to s.secondaryContainer,
+    "onSecondaryContainer" to s.onSecondaryContainer, "tertiary" to s.tertiary, "onTertiary" to s.onTertiary,
+    "tertiaryContainer" to s.tertiaryContainer, "onTertiaryContainer" to s.onTertiaryContainer,
+    "background" to s.background, "onBackground" to s.onBackground, "surface" to s.surface,
+    "onSurface" to s.onSurface, "surfaceVariant" to s.surfaceVariant, "onSurfaceVariant" to s.onSurfaceVariant,
+    "surfaceTint" to s.surfaceTint, "inverseSurface" to s.inverseSurface, "inverseOnSurface" to s.inverseOnSurface,
+    "error" to s.error, "onError" to s.onError, "errorContainer" to s.errorContainer,
+    "onErrorContainer" to s.onErrorContainer, "outline" to s.outline, "outlineVariant" to s.outlineVariant,
+    "scrim" to s.scrim, "surfaceBright" to s.surfaceBright, "surfaceDim" to s.surfaceDim,
+    "surfaceContainerLowest" to s.surfaceContainerLowest, "surfaceContainerLow" to s.surfaceContainerLow,
+    "surfaceContainer" to s.surfaceContainer, "surfaceContainerHigh" to s.surfaceContainerHigh,
+    "surfaceContainerHighest" to s.surfaceContainerHighest,
+)

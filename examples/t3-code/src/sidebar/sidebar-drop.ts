@@ -101,10 +101,8 @@ export async function sidebarDrop(client: T3Client, native: Native, id: string, 
     if (!geometry.overComposer || !targetOf(client, id)) return '';
     // The dragged threads: the multi-selection when the lifted row is part of it.
     const ids = session.selection.includes(id) ? [...session.selection] : [id];
-    for (const threadId of ids) {
-      try { await insertContext(client, native, 'thread', threadId); }
-      catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: error instanceof Error ? error.message : 'Unable to add to chat' }); break; }
-    }
+    try { await insertContext(client, native, 'threads', JSON.stringify(ids)); }
+    catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: error instanceof Error ? error.message : 'Unable to add to chat' }); }
     return '';
   }
   const lifted = targetOf(client, id);

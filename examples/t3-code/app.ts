@@ -19,7 +19,12 @@ import { settingsCore } from './src/settings/settings-core-view';
 import { archivedSettings, licenseSettings, storageSettings } from './src/settings/settings-data';
 import { T3Client } from './src/client/client';
 import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } from './src/composer/composer-editor';
+import { composerRichSource } from './src/composer/composer-rich-source';
+import { composerFieldOwner } from './src/composer/auto-balance-owner';
+import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource } from './src/composer/composer-field-bridge';
+import { composerIntentAnswer } from './src/composer/composer-intent-source';
 import { chipPopoverView } from './src/composer/composer-chip-popover'; // a skill chip's details popover
+import { composerChipObserved, composerChipPressed } from './src/composer/composer-chip-events';
 import { composerBranches } from './src/composer/composer-controls-branch';
 import { providerFieldValues } from './src/providers/providers';
 import { providersRoute, scopedAcpRegistry, scopedProviderPage, scopedProviderWizard, scopedSetupOp, scopedUpkeepOp } from './src/providers/providers-scope';
@@ -40,6 +45,7 @@ import { adoptAppFiles } from './src/media/save-file';
 import { noteTranscriptFacts } from './src/timeline/transcript-facts';
 import { paletteView } from './src/palette/palette-view';
 import { attachmentUrls } from './src/timeline/timeline-attachments';
+import { inlineDocumentsPosted } from './src/timeline/inline-documents';
 import { noteNow } from './src/composer/composer-controls';
 import { prepareTimeline, refreshTimelineReads } from './src/timeline/timeline-prepare';
 import { paletteCommand } from './src/palette/palette-commands';
@@ -102,7 +108,7 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
 // hands its own scripted server. The disconnected answer is baked. Native work starts only when Exact reports
 // that the module is available, after its ordinary first-frame adoption.
 export async function answerClient(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
-  if (native?.available) native = letGoAware(native);
+  if (native?.available) native = composerFieldNative(client, letGoAware(native), () => composerFieldOwner(client));
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = native?.available ? nativeFiles(native) : _storage;
   if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
@@ -133,7 +139,14 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'composerWorkspace') return composerWorkspaceView(client, args[1] !== false, typeof args[2] === 'number' ? args[2] : undefined); // args[1]: the chat view is on screen (ChatComposer mounted)
   if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
   if (source === 'composerEditor') return composerEditorView(client, native, Number(args[1]) || 0);
-  if (source === 'composerChip') return chipPopoverView(client, native); // composer-chip-popover.ts: args[0] re-asks on each revision
+  if (source === 'composerRich') return composerRichSource(client, { snapshotOwner: String(args[0] ?? ''), owner: String(args[1] ?? ''), value: String(args[2] ?? ''), inputType: String(args[4] ?? ''), surface: args[5] === 'preview' ? 'preview' : 'composer' });
+  if (source === 'composerField') return composerFieldResource(client, args, composerFieldOwner(client), native);
+  if (source === 'composerFieldObserved') return composerFieldObserved(client, args, composerFieldOwner(client));
+  if (source === 'composerFieldAcknowledged') return composerFieldAcknowledged(client, args, composerFieldOwner(client), native);
+  if (source === 'composerIntent') return composerIntentAnswer(client, args);
+  if (source === 'composerChip') return chipPopoverView(client);
+  if (source === 'composerChipObserved') return composerChipObserved(client, args[0]);
+  if (source === 'composerChipPressed') return composerChipPressed(client, args[0]);
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);
   const scoped = PROJECT_SCOPED_PAGES.has(source) ? settingsPageClient(client, native, args) : { client, args }; // a background environment's project (projects-fleet.ts)
   const pageClient = scoped.client; args = scoped.args;
@@ -144,7 +157,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'pagesHome') return pagesHome(client, native);
   if (source === 'usagePage') return usagePage(client, native, storage, { open: args[0] === true, metric: String(args[1] || ''), windowDays: Number(args[2]) || 0, breakdown: String(args[3] || 'model'), refresh: Number(args[4]) || 0, width: plotWidth(Number(args[5]) || 1280, Number(args[6]) || 0), now: Number(args[7]) || 0, viewport: Number(args[5]) || 1280, sidebar: Number(args[6]) || 0 });
   if (source === 'usageKeys') return usageKeys(client.config, ariaChord);
-  if (source === 'timelineAttachments') return attachmentUrls(client, native, Number(args[1]) || 0); // timeline-attachments.ts
+  if (source === 'timelineAttachments') return { ...await attachmentUrls(client, native, Number(args[1]) || 0, String(args[3] || '')), posted: inlineDocumentsPosted(client) }; // timeline-attachments.ts
   if (source === 'prList' || source === 'prDetail' || source === 'welcome') return pagesSource(client, native, source, args, storage);
   if (source === 'connectionsPage') return connectionsPage(client, native, args[0] === true, Number(args[5]) || 0); // args[5]: the clock, each second while Authorized clients show
   if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // pairing-fields.ts

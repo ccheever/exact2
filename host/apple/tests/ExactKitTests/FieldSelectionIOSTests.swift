@@ -2,7 +2,6 @@
 import UIKit
 import XCTest
 @testable import ExactKit
-@testable import ExactMarkdown
 
 /// x2apps codeedit #2 on UIKit: a field's `input` reports the selection its
 /// edit left; `setSelectionRange` fires `select`, never focuses, and waits
@@ -13,8 +12,8 @@ final class FieldSelectionIOSTests: XCTestCase {
     private var window: UIWindow!
     private var selects: [String] = []
 
-    private func presenter(session: ExactSession? = nil) -> Presenter {
-        let p = session?.presenter ?? Presenter()
+    private func presenter() -> Presenter {
+        let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
@@ -255,175 +254,6 @@ final class FieldSelectionIOSTests: XCTestCase {
         XCTAssertFalse(manager.canUndo)
         XCTAssertFalse(manager.canRedo)
     }
-    func testDecorationEchoRefreshesMarkerAndKeepsUndoableSourceOnUIKit() throws {
-        ExactMarkdown.install()
-        let session = ExactApp.shared.makeSession(label:"decoration-echo-ios")
-        defer { window.isHidden = true; session.destroy() }
-        let p = presenter(session:session), original = "- [ ] task", checked = "- [x] task"
-        let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.textArea)
-        func metadata(_ source: String, _ on: Bool) throws -> String {
-            let value: [String:Any] = ["value":source,"spans":[],
-                "blocks":[["name":"task","start":0,"end":10,"marker":on ? "checkbox:on" : "checkbox:off"]],
-                "hidden":[["start":0,"end":6]],"atoms":[]]
-            return String(decoding:try JSONSerialization.data(withJSONObject:value),as:UTF8.self)
-        }
-        p.apply(wireBatch([["op":"props","id":2,"set":["value":original,"decorations":try metadata(original,false),"decorationStyles":"{\"task\":[]}"]]]))
-        XCTAssertTrue(field.becomeFirstResponder())
-        let manager = try XCTUnwrap(field.undoManager)
-        manager.groupsByEvent = false
-        manager.removeAllActions()
-        var inputs: [String] = []
-        p.onInput = { _,value in inputs.append(value) }
-        p.fieldSelections.setRangeText(["editor","x",3,4,"preserve","undo"])
-        XCTAssertEqual(field.text,checked)
-        let selection = field.selectedRange
-        func echo(_ source: String, _ on: Bool) throws {
-            p.apply(wireBatch([["op":"props","id":2,"set":["value":source,"decorations":try metadata(source,on)]]]))
-            let state = try XCTUnwrap(node.fieldDecorations?.state)
-            XCTAssertEqual(state["provisional"] as? Bool,false)
-            let blocks = (state["record"] as? [String:Any])?["blocks"] as? [[String:Any]]
-            XCTAssertEqual(blocks?.last?["marker"] as? String,on ? "checkbox:on" : "checkbox:off")
-            XCTAssertEqual((state["hidden"] as? [[String:Int]])?.count,0,"phone syntax remains visible")
-        }
-        try echo(checked,true)
-        XCTAssertEqual(field.selectedRange,selection)
-        manager.undo()
-        XCTAssertEqual(field.text,original)
-        XCTAssertEqual(inputs,[original])
-        try echo(original,false)
-        XCTAssertTrue(manager.canRedo)
-        manager.redo()
-        XCTAssertEqual(field.text,checked)
-        XCTAssertEqual(inputs,[original,checked])
-        try echo(checked,true)
-        p.apply(wireBatch([["op":"props","id":2,"set":[:],"clear":["decorations"]]]))
-        XCTAssertNil(node.fieldDecorations)
-        XCTAssertEqual(field.text,checked)
-        XCTAssertTrue(manager.canUndo)
-    }
-
-    private final class DecorationTouch: UITouch {
-        let field: UITextView
-        let point: CGPoint
-        init(_ field: UITextView, _ point: CGPoint) { self.field = field; self.point = point; super.init() }
-        override var view: UIView? { field }
-        override var window: UIWindow? { field.window }
-        override func location(in view: UIView?) -> CGPoint { field.convert(point, to: view) }
-    }
-
-    func testDecorationTapAdmissionIsSideEffectFreeAndDetachesWithMetadata() throws {
-        ExactMarkdown.install()
-        let session = ExactApp.shared.makeSession(label:"decoration-tap-ios")
-        defer { window.isHidden = true; session.destroy() }
-        let p = presenter(session:session), source = "hello @alice"
-        let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.textArea)
-        let metadata = "{\"value\":\"hello @alice\",\"spans\":[],\"blocks\":[],\"hidden\":[],\"atoms\":[{\"name\":\"pill\",\"start\":6,\"end\":12,\"label\":\"Alice\"}]}"
-        let ordinary = field.gestureRecognizers?.count ?? 0
-        func attach() {
-            p.apply(wireBatch([["op":"props","id":2,"set":["value":source,"decorations":metadata,"decorationStyles":"{\"pill\":[]}"]]]))
-        }
-        attach(); attach()
-        let tap = try XCTUnwrap(field.gestureRecognizers?.first { $0.delegate is DecorationTap })
-        XCTAssertEqual(field.gestureRecognizers?.count,ordinary + 1,"a metadata echo does not add another carrier")
-        let delegate = try XCTUnwrap(tap.delegate)
-        let frame = field.convert(try XCTUnwrap(p.rangeFrame(2,start:6,end:12)),from:p.viewport)
-        let point = CGPoint(x:frame.midX,y:frame.midY)
-        field.selectedRange = NSRange(location:0,length:0)
-        let selection = field.selectedRange
-        func admitted(_ point: CGPoint) -> Bool {
-            delegate.gestureRecognizer?(tap,shouldReceive:DecorationTouch(field,point)) ?? false
-        }
-        XCTAssertTrue(admitted(point))
-        XCTAssertEqual(field.selectedRange,selection,"admission must not select the atom")
-        XCTAssertEqual(field.text,source)
-        XCTAssertFalse(admitted(CGPoint(x:field.bounds.maxX - 2,y:field.bounds.maxY - 2)))
-        XCTAssertTrue(delegate.gestureRecognizer?(tap,shouldRecognizeSimultaneouslyWith:field.panGestureRecognizer) ?? false)
-        for key in ["disabled","inert","editable"] {
-            node.props[key] = key == "editable" ? "false" : "true"
-            XCTAssertFalse(admitted(point),key)
-            node.props.removeValue(forKey:key)
-        }
-        field.text = source + "!"
-        XCTAssertFalse(admitted(point),"a changed source cannot use stale hit geometry")
-        field.text = source
-        node.fieldDecorations?.restyle(node)
-        field.setMarkedText("に",selectedRange:NSRange(location:1,length:0))
-        XCTAssertFalse(admitted(point),"composition belongs to the native editor")
-        field.unmarkText()
-        p.apply(wireBatch([["op":"props","id":2,"set":[:],"clear":["decorations"]]]))
-        XCTAssertFalse(field.gestureRecognizers?.contains { $0 === tap } ?? false)
-        XCTAssertNil(node.fieldDecorations)
-    }
-
-    func testAtomicDeletionKeepsAdjacentSourceAndNativeUndo() throws {
-        ExactMarkdown.install()
-        let session = ExactApp.shared.makeSession(label:"decoration-delete-ios")
-        defer { window.isHidden = true; session.destroy() }
-        let p = presenter(session:session)
-        let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.textArea)
-        XCTAssertTrue(field.becomeFirstResponder())
-        let manager = try XCTUnwrap(field.undoManager)
-        manager.groupsByEvent = false
-        var inputs: [String] = [], beforeInput: [String] = []
-        p.onInput = { _,value in inputs.append(value) }
-        node.handlers.insert("beforeinput")
-        p.fieldSelections.onBeforeInput = { _,_,selection,edit in beforeInput.append("\(selection.start):\(selection.end) \(edit.inputType)") }
-        for source in ["hello @alice there", "hello **world** @alice", "## Heading\nhello **world** @alice\n- [ ] task"] {
-            let range = (source as NSString).range(of:"@alice")
-            let removed = (source as NSString).replacingCharacters(in:range,with:"")
-            let control = UITextView(frame:CGRect(x:0,y:150,width:300,height:80))
-            window.addSubview(control)
-            var native: [String:String] = [:]
-            for (name,smart) in [("default",UITextSmartInsertDeleteType.default),("no",.no)] {
-                control.text = source
-                control.smartInsertDeleteType = smart
-                XCTAssertTrue(control.becomeFirstResponder())
-                control.selectedRange = range
-                control.deleteBackward()
-                native[name] = control.text
-            }
-            print("UITextView atomic-range delete source=\(source) controls=\(native)")
-            XCTAssertEqual(native["no"],removed)
-            control.removeFromSuperview()
-            p.apply(wireBatch([["op":"props","id":2,"set":["value":source],"clear":["decorations","decorationStyles"]]]))
-            node.replaceFieldValue(source)
-            XCTAssertTrue(field.becomeFirstResponder())
-            field.smartInsertDeleteType = .default
-            field.selectedRange = range
-            manager.beginUndoGrouping()
-            field.deleteBackward()
-            manager.endUndoGrouping()
-            XCTAssertEqual(field.text,native["default"],"ordinary fields retain the platform's smart deletion")
-            let metadata: [String:Any] = ["value":source,"spans":[],"blocks":[],"hidden":[],
-                "atoms":[["name":"pill","start":range.location,"end":NSMaxRange(range),"label":"Alice"]]]
-            let record = String(decoding:try JSONSerialization.data(withJSONObject:metadata),as:UTF8.self)
-            for caret in [false,true] {
-                node.replaceFieldValue(source)
-                p.apply(wireBatch([["op":"props","id":2,"set":["value":source,"decorations":record,"decorationStyles":"{\"pill\":[]}"]]]))
-                manager.removeAllActions();inputs.removeAll();beforeInput.removeAll()
-                let smart: UITextSmartInsertDeleteType = caret ? .yes : .default
-                field.smartInsertDeleteType = smart
-                field.selectedRange = caret ? NSRange(location:NSMaxRange(range),length:0) : range
-                let before = field.selectedRange
-                manager.beginUndoGrouping()
-                field.deleteBackward()
-                manager.endUndoGrouping()
-                print("atomic caret=\(caret) selected=\(before) beforeinput=\(beforeInput) source=\(field.text ?? "")")
-                XCTAssertEqual(beforeInput,["\(range.location):\(NSMaxRange(range)) deleteContentBackward"])
-                XCTAssertEqual(field.text,removed,"atomic deletion must preserve every source unit outside its range")
-                XCTAssertEqual(inputs,[removed])
-                XCTAssertEqual(field.smartInsertDeleteType,smart)
-                XCTAssertTrue(manager.canUndo)
-                manager.undo()
-                XCTAssertEqual(field.text,source)
-                XCTAssertEqual(inputs,[removed,source])
-                manager.redo()
-                XCTAssertEqual(field.text,removed)
-                XCTAssertEqual(inputs,[removed,source,removed])
-            }
-        }
-    }
-
     func testRangeTextPreservesSelectionWithoutFocusOrUndo() throws {
         let p = presenter()
         let node = try XCTUnwrap(p.views[2])

@@ -37,25 +37,41 @@ package enum PageFacts {
     private static let agentChanged = Notification.Name("ExactPageFactsChanged")
     private static func changed() { NotificationCenter.default.post(name: agentChanged, object: nil) }
 
-    /// One path monitor for the process, started when a session's plan
-    /// reads `onLine`: it loads Network and keeps a queue, which an app that
-    /// never asks should not pay. Until its first update the device is taken
-    /// to be online, as a browser starts.
+    /// One path monitor for the process, started at the first read of
+    /// `onLine`: by a session whose plan reads it, or by a native module's
+    /// `app.onLine`. It loads Network and keeps a queue, which an app that
+    /// never asks should not pay. Until its first path, about a millisecond
+    /// after it starts, the device is taken to be online, as a browser
+    /// starts; a first path that says otherwise is a change, which the plan
+    /// and the hatches hear, as `navigator.onLine` corrects itself after
+    /// load. Nothing waits for it: the first read is on main, before first
+    /// pixel when the plan reads it.
     nonisolated(unsafe) private static var monitor: NWPathMonitor?
+    /// Online as main last heard it; online until the monitor's first path.
     nonisolated(unsafe) private static var satisfied = true
     private static func startMonitor() {
         guard monitor == nil else { return }
         let m = NWPathMonitor()
         m.pathUpdateHandler = { path in
             let online = path.status == .satisfied
-            DispatchQueue.main.async {
-                guard online != satisfied else { return }
-                satisfied = online
-                changed()
-            }
+            DispatchQueue.main.async { heard(online: online) }
         }
         m.start(queue: DispatchQueue(label: "exact.page.path"))
         monitor = m
+    }
+    /// A path the monitor reported, on main.
+    static func heard(online: Bool) {
+        guard online != satisfied else { return }
+        satisfied = online
+        changed()
+    }
+    /// Whether the path monitor runs.
+    static var watchesPath: Bool { monitor != nil }
+    /// Stops the monitor and forgets what it heard: a test's fresh start.
+    static func stopWatchingPath() {
+        monitor?.cancel()
+        monitor = nil
+        satisfied = true
     }
 
     /// Nothing of the app can be seen: iOS in the background; macOS hidden,
@@ -77,6 +93,8 @@ package enum PageFacts {
         startMonitor()
         return satisfied
     }
+    /// `onLine` as last read, starting no monitor: online until something reads it.
+    static var lastOnLine: Bool { substituted ? agent.onLine : satisfied }
     /// Both Apple platforms have a share sheet.
     static var canShare: Bool { substituted ? agent.canShare : true }
     /// iOS's and the Mac's sheets take file URLs and a node's picture
@@ -123,7 +141,7 @@ package enum PageFacts {
     /// the preferred content size category. macOS: `NSFont.systemFontSize`,
     /// 13. tvOS keeps CSS's 16 scaled by the category until its own pass
     /// (its body style is 29 points, read at ten feet).
-    package static var rootFontSize: Double {
+    static var rootFontSize: Double {
         if let pinnedRootFontSize { return pinnedRootFontSize }
         if substituted, let size = agent.rootFontSize { return size }
         #if os(macOS)
@@ -152,7 +170,7 @@ package enum PageFacts {
     /// is one device pixel of it, so it is told to the kernel as the root
     /// font size is. Under the agent it is still the display's, which is the
     /// simulator's or the Mac's own, unless the drive names one.
-    package static func displayScale(_ view: PlatformView?) -> Double {
+    static func displayScale(_ view: PlatformView?) -> Double {
         if let agentDisplayScale { return agentDisplayScale }
         #if os(macOS)
         return Double(max(1, view?.window?.backingScaleFactor ?? 1))
@@ -178,7 +196,7 @@ package enum PageFacts {
     /// 9 a share takes files and pictures. A session whose plan does not read
     /// `onLine` starts no monitor for it.
     static func bits(_ window: FocusWindow?, readsOnLine: Bool = true) -> UInt32 {
-        let online = readsOnLine ? onLine : substituted ? agent.onLine : satisfied
+        let online = readsOnLine ? onLine : lastOnLine
         return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0)
     }
 

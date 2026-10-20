@@ -101,8 +101,12 @@ pub trait InlineGeometry: std::fmt::Debug {
     /// The last presented run, or `UNAVAILABLE` when it is not mounted.
     fn frame(&self, view: ViewId) -> GeometryAnswer;
 
-    /// A field's UTF-16 source range in viewport coordinates (LLP 1114.007).
-    /// Until a host links its editor range reader, the answer is unavailable.
+    /// `rangeFrame`: a text field's UTF-16 range `start..end` as its field
+    /// last drew it, in viewport coordinates (LLP 1114.007): a collapsed
+    /// range is the caret's rectangle, a wider one the union of its line
+    /// fragments, untrimmed by scrolling or the field's clip. Unavailable
+    /// past the field's text, while text is composed, when the field is
+    /// hidden, and on a host with no reader (this default).
     fn range_frame(&self, _view: ViewId, _start: u32, _end: u32) -> GeometryAnswer {
         GeometryAnswer::UNAVAILABLE
     }
@@ -271,7 +275,7 @@ impl Scrolled {
 /// geometry carries none of it (LLP 1047 D3).
 #[derive(Clone, Copy)]
 pub struct GeometryLinks {
-    range_frame: fn(&Kernel, &Scrolled, ViewId, f64, f64) -> GeometryAnswer,
+    range_frame: fn(&Kernel, &Scrolled, ViewId, u32, u32) -> GeometryAnswer,
     frame: fn(&Kernel, &Scrolled, ViewId) -> GeometryAnswer,
     measure: fn(&mut Kernel, &Scrolled, ViewId) -> GeometryAnswer,
     point: fn(&Kernel, &Scrolled, f64, f64) -> Option<ViewId>,
@@ -307,10 +311,11 @@ impl GeometryLinks {
         }
     }
 
-    /// Use the host editor's source-range geometry in viewport coordinates.
+    /// A host's `rangeFrame` reader in place of [`InlineGeometry::range_frame`]
+    /// (the web's), given offsets already checked as `rangeFrame` checks them.
     pub const fn with_range_frame(
         mut self,
-        range_frame: fn(&Kernel, &Scrolled, ViewId, f64, f64) -> GeometryAnswer,
+        range_frame: fn(&Kernel, &Scrolled, ViewId, u32, u32) -> GeometryAnswer,
     ) -> Self {
         self.range_frame = range_frame;
         self
@@ -721,14 +726,16 @@ fn read(env: &GeometryEnv<'_>, plan: &Plan, f: Stdlib, args: &[Value]) -> Option
     }
     let id = args.first()?.as_str()?;
     if f == Stdlib::RangeFrame {
-        let start = args.get(1)?.as_number()?;
-        let end = args.get(2)?.as_number()?;
+        let (start, end) = (args.get(1)?.as_number()?, args.get(2)?.as_number()?);
         let answer = view_of(env.kernel, id).map_or(GeometryAnswer::UNAVAILABLE, |view| {
-            if !start.is_finite() || !end.is_finite() || start < 0. || start > end {
-                GeometryAnswer::UNAVAILABLE
-            } else {
-                (env.links.range_frame)(env.kernel, env.scrolled, view, start, end)
-            }
+            field_range_frame(
+                env.kernel,
+                env.scrolled,
+                env.links.range_frame,
+                view,
+                start,
+                end,
+            )
         });
         return Some(answer.value());
     }
@@ -745,32 +752,61 @@ fn read(env: &GeometryEnv<'_>, plan: &Plan, f: Stdlib, args: &[Value]) -> Option
     Some(answer.value())
 }
 
+/// `rangeFrame`'s offsets, truncated toward zero: none for a non-finite or
+/// negative offset or a start past the end. A range past the field's text is
+/// the host's to refuse, which knows the text it drew.
+fn range_offsets(start: f64, end: f64) -> Option<(u32, u32)> {
+    let offset = |n: f64| {
+        let n = n.trunc();
+        (n.is_finite() && n >= 0. && n <= f64::from(u32::MAX)).then_some(n as u32)
+    };
+    let (start, end) = (offset(start)?, offset(end)?);
+    (start <= end).then_some((start, end))
+}
+
+/// A native presenter's range reader, through [`Scrolled::inline`].
 fn kernel_range_frame(
     kernel: &Kernel,
     scrolled: &Scrolled,
     view: ViewId,
-    start: f64,
-    end: f64,
+    start: u32,
+    end: u32,
 ) -> GeometryAnswer {
-    if !start.is_finite() || !end.is_finite() || start > end {
-        return GeometryAnswer::UNAVAILABLE;
-    }
-    let Some(node) = kernel
+    // A native field is read only while laid out, and its answer is
+    // provisional, as `frame`'s is, while its layout is.
+    let Some((_, provisional)) = kernel
         .node(view)
-        .filter(|node| node.node_type == exact_kernel::NodeType::TextInput)
+        .and_then(|node| kernel.laid_out_frame(node.key))
     else {
         return GeometryAnswer::UNAVAILABLE;
     };
-    let Some((_, provisional)) = kernel.laid_out_frame(node.key) else {
-        return GeometryAnswer::UNAVAILABLE;
-    };
-    let offset = |n: f64| n.trunc().clamp(0., f64::from(u32::MAX)) as u32;
     let mut answer = scrolled
         .inline
         .as_ref()
         .map_or(GeometryAnswer::UNAVAILABLE, |read| {
-            read.range_frame(view, offset(start), offset(end))
+            read.range_frame(view, start, end)
         });
+    answer.provisional |= provisional;
+    answer
+}
+
+/// `rangeFrame(id, start, end)` once `id` names `view`: asked of the host's
+/// reader only for a text field and checked offsets, and kept only as a box.
+fn field_range_frame(
+    kernel: &Kernel,
+    scrolled: &Scrolled,
+    read: fn(&Kernel, &Scrolled, ViewId, u32, u32) -> GeometryAnswer,
+    view: ViewId,
+    start: f64,
+    end: f64,
+) -> GeometryAnswer {
+    let field = kernel
+        .node(view)
+        .is_some_and(|node| node.node_type == exact_kernel::NodeType::TextInput);
+    let Some((start, end)) = range_offsets(start, end).filter(|_| field) else {
+        return GeometryAnswer::UNAVAILABLE;
+    };
+    let answer = read(kernel, scrolled, view, start, end);
     if answer.unavailable
         || ![answer.x, answer.y, answer.width, answer.height]
             .iter()
@@ -780,7 +816,6 @@ fn kernel_range_frame(
     {
         return GeometryAnswer::UNAVAILABLE;
     }
-    answer.provisional |= provisional;
     answer
 }
 

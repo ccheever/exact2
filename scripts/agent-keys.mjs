@@ -5,10 +5,26 @@ import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { dragArguments } from './agent-drag.mjs';
 
+export function refusalMessage(reply) {
+  const r = reply?.refused;
+  return r && ['host','subsystem','message'].every(key => typeof r[key] === 'string')
+    ? `host ${r.host} refused (${r.subsystem}): ${r.message}` : null;
+}
+export function hostReply(reply) {
+  const message = refusalMessage(reply);
+  if (message) {
+    const error = Object.assign(new Error(message), {reply});
+    if (!process.env.EXACT_AGENT_DEBUG && !process.argv.includes('--json')) error.stack = message;
+    throw error;
+  }
+  return reply;
+}
+
 /** Independent of the app and its state. A host sets `malformed: true` on its JSON reply; `reply()` raises this error from that flag. */
 export class MalformedOperation extends Error {
   malformed = true;
   static reply(reply) {
+    hostReply(reply);
     if (reply?.malformed === true && reply.error != null) throw Object.assign(new MalformedOperation(reply.error), { reply });
     return reply;
   }
@@ -200,7 +216,7 @@ export function pasteChord() {
  * Copy and cut stay the clipboard event. `keyDown`/`keyUp` default to CDP. */
 export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown, keyUp, insertText }) {
   const f = await ask({ op: 'focus', id, select: false });
-  if (f.error) throw new Error(f.error);
+  hostReply(f); if (f.error) throw new Error(f.error);
   // Firefox builds a synthetic paste's clipboardData from its own `dataType`
   // and `data` and ignores `clipboardData`, so its paste carried no text.
   const send = async () => {
@@ -278,12 +294,12 @@ export async function nativeKey({id, opts, ask}) {
   const {ownedRelease, ...input} = opts;
   const release = async () => {
     const r = await ask({op:'type', releaseKey, phase:'up'});
-    if (r.error) throw new Error(r.error);
+    hostReply(r); if (r.error) throw new Error(r.error);
     return r;
   };
   try {
     const r = await ask({op:'type', id, ...input, ...(releaseKey ? {releaseKey} : {})});
-    if (r.error) throw new Error(r.error);
+    hostReply(r); if (r.error) throw new Error(r.error);
     return {...r, ...(releaseKey ? {release} : {})};
   } catch (error) { if (releaseKey) error.release = release; throw error; }
 }
@@ -426,6 +442,10 @@ export function tapWords(args, held = false) {
     case 'at': return [first, options(args.slice(1), ['at', 'modifiers'])];
     case 'down': return [first, { down: true, ...options(rest, ['at', 'modifiers']) }];
     case 'hover': return [first, { hover: true, ...options(rest, []) }];
+    // A held state (LLP 1122 D8): `tap <target> hold-state active|hover|focus-visible|none`, as the host's own.
+    case 'hold-state':
+      if (rest.length !== 1 || !['active', 'hover', 'focus-visible', 'none'].includes(rest[0])) refuse('hold-state takes active, hover, focus-visible or none');
+      return [first, { holdState: rest[0] === 'none' ? null : rest[0] }];
     case 'history': if (rest.length !== 1) refuse('history takes one step, as history -1'); return [first, { history: number(rest[0], 'history') }];
     case 'mediasession':
       if (!rest[0] || rest.length > 2) refuse('mediasession <action> [seconds]');

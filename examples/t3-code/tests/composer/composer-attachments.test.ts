@@ -1,3 +1,4 @@
+import { observeComposer } from '../support/composer-field-fixture';
 import { describe, expect, test } from 'bun:test';
 import { referencedImageIds, removeInlineContextReference, videoMimeType, videoTiles } from '../../src/composer/composer-attachments';
 import { contextId } from '../../src/composer/composer-editor-menu';
@@ -51,9 +52,11 @@ describe('keybinding labels', () => {
 
 class Recorder implements Native {
   available = true; requests: Record<string, unknown>[] = []; applied = true;
+  input?: (request: Record<string, unknown>) => void;
   watch() {}
   async later(input: unknown): Promise<unknown> {
     const request = input as Record<string, unknown>; this.requests.push(request);
+    if (request.op === 'editorEdit' && this.applied) this.input?.(request);
     return { ok: true, generation: 1, value: request.op === 'editorEdit' ? { applied: this.applied } : { removed: true } };
   }
 }
@@ -62,8 +65,13 @@ function draftClient(prompt: string): { client: T3Client; native: Recorder; file
   const client = new T3Client(); Object.assign(client, { environmentId: 'env', threadId: 't' });
   const file: DraftFile = { id: vid, contextId: `file_${vid}`, draftKey: 'env:t', environmentId: 'env', name: 'clip.mov', mimeType: 'video/quicktime', sizeBytes: 4096, source: 'attached', attachmentId: '', status: 'staged' };
   setDraftFiles(client.local, [file]);
-  client.local.drafts['env:t'] = prompt;
-  return { client, native: new Recorder(), file };
+  client.local.drafts['env:t'] = prompt; observeComposer(client, prompt);
+  const native = new Recorder();
+  native.input = request => {
+    expect(client.local.drafts['env:t']).toBe(request.expect as string);
+    client.local.drafts['env:t'] = request.text as string; observeComposer(client, String(request.text), true);
+  };
+  return { client, native, file };
 }
 
 describe('the shelf\'s references and videos in the client', () => {
@@ -73,6 +81,20 @@ describe('the shelf\'s references and videos in the client', () => {
     expect(client.local.drafts['env:t']).toBe('look at now');
     expect(native.requests).toEqual([{ op: 'editorEdit', all: true, expect: `look at ${chip} now`, text: 'look at now', focus: false }]);
     expect(await removeAttachmentReferences(client, native, 'env:t', 'image', id)).toBe(false);
+  });
+  test('a refused live edit preserves the current prompt', async () => {
+    const prompt = `look at ${chip} now`, { client, native } = draftClient(prompt);
+    native.applied = false;
+    await expect(removeAttachmentReferences(client, native, 'env:t', 'image', id)).rejects.toThrow('The prompt changed before attachment references could be removed.');
+    expect(client.local.drafts['env:t']).toBe(prompt);
+  });
+  test('a background draft loses references without touching the open field', async () => {
+    const { client, native } = draftClient('open prompt');
+    client.local.drafts['env:background'] = `look at ${chip} now`;
+    expect(await removeAttachmentReferences(client, native, 'env:background', 'image', id)).toBe(true);
+    expect(client.local.drafts['env:background']).toBe('look at now');
+    expect(client.local.drafts['env:t']).toBe('open prompt');
+    expect(native.requests).toEqual([]);
   });
   test('a video chip carries the video kind (FilmIcon, its tint)', () => {
     const { client, file } = draftClient('');
@@ -89,7 +111,7 @@ describe('the shelf\'s references and videos in the client', () => {
     await videoOp(client, native, 'shelf-video-remove', vid);
     expect(composerVideoSnapshot(client).composerVideos).toEqual([]);
     expect(client.local.drafts['env:t']).toBe('see please');
-    expect(native.requests.map(request => request.op)).toEqual(['editorEdit', 'composerAttachRemove']);
+    expect(native.requests.map(request => request.op)).toEqual(['editorEdit', 'writePreferences', 'composerAttachRemove']);
     await expect(videoOp(client, native, 'shelf-video-play', vid)).rejects.toThrow('That video is no longer attached.');
     expect(file.name).toBe('clip.mov');
   });

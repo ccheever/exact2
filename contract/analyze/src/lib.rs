@@ -17,6 +17,9 @@ mod calls;
 mod gates;
 mod rereads;
 mod sends;
+mod shortcuts;
+
+pub use shortcuts::{check_shortcut_keys, chord_codes, declares_shortcuts};
 
 pub use contract_types::handler_arity_message;
 
@@ -671,7 +674,7 @@ fn check_handler(
     let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if let Ref::Action(index) = r {
-        let checked_attr = if attr == "selectionchange" && control == Some("field") {
+        let checked_attr = if attr == "selectionchange" && contract_syntax::edits_text(control) {
             "beforeinput"
         } else {
             attr

@@ -2,9 +2,12 @@
 
 A macOS client for [T3 Code](https://github.com/pingdotgg/t3code) servers, written with Exact.
 Contract draws the interface; TypeScript owns the client state, the projections and the server
-connections (HTTP, WebSocket RPC, the saved environments and their credentials); an app-local
-Swift module (`modules/apple/`) handles the composer's text view, the terminal and browser web
-views, menus, notifications and window chrome. Provider execution, workspaces, Git and conversation history stay on the T3 server.
+connections (HTTP, WebSocket RPC, the saved environments and their credentials). Exact's
+Markdown editor owns composer text, selection, styling and undo; TypeScript supplies the
+source's block and reference projection and guarded edit intents. An app-local Swift module (`modules/apple/`)
+adapts OS clipboard and drop facts, focus and modifier events, terminal and browser web views,
+menus, notifications and window chrome. Provider execution, workspaces, Git and conversation
+history stay on the T3 server.
 The app carries the official T3 server release (the CLI archive of the release built from the
 reference pin, unmodified; `server-runtime/runtime-pin.json`) and runs it as its own local
 server, "This machine". It does not modify T3 Code.
@@ -39,8 +42,8 @@ packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the ver
 reference locks; network once) and from committed inputs: the Shiki grammar tables
 (`src/highlight/grammar*.ts`), the CSS word lists (`src/highlight/css-words.ts`), the Lucide and
 Pierre icon data (`src/settings/settings-b-lucide.ts`, `src/shared/pages-icons.contract`,
-`src/shared/timeline-files.contract` and `timeline-files-tables.ts`, `data/pierre-icons.tsv`,
-`assets/composer-icons.json`), the ten icon tables (`icons`, `shell-icons`, `sidebar-icons`,
+`src/shared/timeline-files.contract`, `timeline-files-tables.ts` and `data/pierre-icons.tsv`),
+the ten icon tables (`icons`, `shell-icons`, `sidebar-icons`,
 `timeline-icons`, `panel-icons`, `settings-icons`, `provider-icons`, `diff-glyphs`, `editor-icons`
 and `settings-brands`, each a `.contract` in its feature's folder under `src/`, from the Lucide names
 in `tools/generate/icon-tables.mjs` and the marks in `icon-marks.mjs`; their hand-written
@@ -67,7 +70,14 @@ reuses the cache in `.runtime-cache/`). The bundle carries that folder as
 `Contents/Resources/t3-runtime` (`app.json` `host.macos.resources`). At the first launch the app
 unpacks it into `<T3 home>/runtime/versions/<version>` and starts `t3 --bootstrap-fd 0` with the
 desktop envelope; it restarts the server with T3 Code's backoff, keeps its failure log in
-`<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. A development build
+`<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. Closing the window
+(⌘W, File › Close Window, the red button) does not quit: `app.json` sets
+`host.macos.window.keepRunning`, so the window hides and the app, its session and the server keep
+running, as the reference's (`DesktopLifecycle.ts`: `window-all-closed` quits only off macOS). The
+reopen event (a Dock click, `open -a`) and a `t3 app` request show the window again; with it
+hidden, ⌘Q quits at once, as the reference's menu Quit does with no page to hold it. The reference
+builds a new window on a new draft, its other threads' drafts kept; the clone's window comes back as
+it was, on the thread and draft it closed on. A development build
 starts it only with an isolated home and a lane port, never `~/.t3` or 3773:
 
 ```sh
@@ -451,8 +461,8 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   at the focused node's centre.
 - `T3ToolActivityIcon.swift`: a muted tool icon is drawn at the reference's `brightness(0.6)` in the
   light appearance; CSS `filter` applies only to SVG elements, and an SVG `image` is not built.
-- `T3ImageAccent.swift` and the composer's image chips (`T3ComposerImageChip.swift`): an image's
-  average colour needs its pixels, and readback is refused.
+- `T3ImageAccent.swift` and `T3ComposerImageChip.swift`: an image's average colour needs its
+  pixels, and readback is refused. The latter supplies raw image facts only.
 - `T3RowDrop.swift`: a legacy row takes any file and rings while a drag is over it; `drop` takes only
   `file_handlers` types and has no `dragenter` or `dragleave`.
 - `RightPanelTabsInput.swift`: the device tab's rename field keeps Escape and ⌘ chords to itself;
@@ -464,9 +474,16 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   `env(titlebar-area-*)`), `T3RootFont.swift` (the native views' rem), `T3PanelsNative.swift` (the
   Files editor's caret under the press that mounted it), and the data module's sleep
   (`timelineSleep`: data modules have no timers).
-- The composer's editor core and what rides on it (`T3ComposerAttach`, `T3ComposerIntent`,
-  `T3ComposerQueueKey` and the rest of `T3Composer*`): inline atoms, the caret's rectangle, pasted
-  files and a video's first frame are not in main's Markdown editor or media surface.
+- Composer OS adapters (`T3ComposerAttach`, `T3ComposerIntent`, `T3ComposerQueueKey` and
+  `T3ComposerEditor`) retain clipboard/file staging, folder extraction, modifier and focus
+  routing, and video first-frame facts. The composer is Exact's Markdown editor (`textarea
+  markup="markdown"`, LLP 1045): it styles lists, tasks, quotes, headings, rules and fenced code
+  as they are typed, owns ⌘B/⌘I (`format`), and keeps native undo. The app reads the source
+  selection from its `beforeinput`, `input` and `selectionchange`, and edits it only with
+  `setRangeText` (one undo step each) and `setSelectionRange`: completions, draft history, the
+  code language picker, citations and Enter/Tab/paste in code. References and code languages are
+  ordinary controls beside the field. Plain and literal answers stay ordinary textareas. The
+  editor does not draw app-supplied highlights or atomic chips; references stay source text.
 
 Differences that belong to the app:
 
@@ -625,7 +642,8 @@ above.
 - A chip pressed to open its preview stays selected after the preview closes, and a letter typed
   after Escape, Close or a backdrop click replaces the file or image chip (C14/C23). T3 Code's
   Tiptap editor keeps the chip's NodeSelection and Base UI's finalFocus gives the editor back the
-  focus; measured on the reference web build. `macos/tests/composer/chipactions.swift` pins it.
+  focus; measured on the reference web build. The old native-handler test was retired with that
+  owner; this reference measurement does not qualify the shared field's current behavior.
 - Dragging a zoomed preview image past an edge (row 4, E-D4): ZoomableImage's drag keeps its
   press as the origin, so the image moves back only once the pointer passes where the edge was
   hit. Measured on the reference's own ZoomableImage.tsx in Chrome for Testing 154;
@@ -801,7 +819,7 @@ text." and stays on the new thread's empty Message, which has the keyboard focus
 on to 'Default, collapsed, button' (3 of 3). The reference (the Electron oracle on an isolated home,
 its own server seeded with two threads, the chip picked from the `@` menu) says "Message, Ask for
 changes, send follow-ups, or attach images, list box pop up, text entry area, Insertion at beginning
-of text." with the keyboard focus on that prompt (3 of 3). The chip now leads to the prompt: leading
+of text." with the keyboard focus on that prompt (3 of 3). At that revision the native chip led to the prompt: leading
 to itself, it took VoiceOver's cursor to 'Go to threads' as it went with the old draft, and a focus
 change posted for the prompt after the switch was not followed (`98be292b9`, replaced). The citation
 chip's link still keeps VoiceOver on it ('lane note, selected'; 1 of 1).
@@ -811,7 +829,9 @@ chip's link, from the end of the thread, scrolls the timeline to the cited text 
 VoiceOver on 'View cited assistant text: …, link', with the keyboard focus on the prompt, as in
 the reference (5 of 5). VoiceOver follows a link it presses to the link's linked elements; with
 none, it took the element that appeared within about half a second of the press, the 'Scroll to
-end' pill. The link now leads to itself (`T3ComposerChipElement.accessibilityLinkedUIElements`).
+end' pill. That revision linked the chip to itself through
+`T3ComposerChipElement.accessibilityLinkedUIElements`. The shared-field composer retires that
+native AX projection; this historical drive does not qualify its current VoiceOver behavior.
 
 **Checked by agent drive and real input after main's #687 and #688** (2026-10-17, bundle of
 `c4f9f4b38`): a press on the floating theme editor's swatch, its picker's plane and hue slider,
@@ -1003,8 +1023,8 @@ module facade, the app's generated data keys, every file in `modules/apple/` (th
 out `T3Module.swift` and its `T3Module+<area>.swift` op files; an `extension T3Module` goes in one
 of those op files, never beside other code, or these three binaries do not compile) and the test
 directory's sources, and every one Exact's `host/apple/modules/ExactTamber.swift`.
-`EXACT_ASSETS` must be an absolute path: the module looks up `assets/` only under one, and three of
-the composer's icon tests fail without it. Run from the repository root:
+`EXACT_ASSETS` must be an absolute path: the modules resolve their bundled assets under that
+root. Run from the repository root:
 
 ```sh
 X=$(xcode-select -p); F="$X/Platforms/MacOSX.platform/Developer/Library/Frameworks"; L="$X/Platforms/MacOSX.platform/Developer/usr/lib"

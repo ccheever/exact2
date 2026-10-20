@@ -189,3 +189,142 @@ fn uses_of_a_length_lists_a_shadow_folded_over_it() {
         "{sites:?}"
     );
 }
+
+const MIXES: &str = "tamber t\n\ntheme\n  c.ink = light-dark(#000000, #ffffff)\n";
+
+/// A view with `color-mix()` over a token in a choice's arm and in a
+/// shadow, and an arm that is no colour.
+fn mixes(view_extra: &str) -> String {
+    format!("component App\n  state on = false\n  view\n    column\n      box background-color=(on ? \"color-mix(in srgb, c.ink 35%, transparent)\" : \"transparent\")\n      box box-shadow=(on ? \"0 0 8px color-mix(in srgb, c.ink 60%, transparent)\" : \"none\")\n      box border-color=(on ? \"color-mix(in srgb, c.ink 70%, transparent)\" : \"notacolour\")\n{view_extra}")
+}
+
+/// The euxy port: a mix over a token in a choice's arm or a shadow was
+/// refused as no colour whenever the type checker refused another line,
+/// while the same mix written whole was not. The build folds it in every
+/// arm; the arm that is no colour is still named.
+#[test]
+fn a_mix_over_a_token_in_an_arm_or_a_shadow_is_folded_beside_another_refusal() {
+    let lines = |errors: &[contract::CompileError]| -> Vec<(String, u32)> {
+        errors.iter().map(|e| (e.id.clone(), e.span.line)).collect()
+    };
+    let refused = |name: &str, extra: &str| {
+        let path = app(
+            name,
+            &[("app.tamber", MIXES), ("app.contract", &mixes(extra))],
+        );
+        contract::compile_path_all(&path, false).err().unwrap()
+    };
+    let errors = refused("mix-arms", "      box class=\"card\"\n");
+    assert_eq!(
+        lines(&errors),
+        [
+            ("type-class-name".into(), 8),
+            ("tamber-unknown-token".into(), 7)
+        ],
+        "{errors:#?}"
+    );
+    assert!(
+        errors[1].message.contains("notacolour"),
+        "{}",
+        errors[1].message
+    );
+    let errors = refused("mix-arms-clean", "");
+    assert_eq!(
+        lines(&errors),
+        [("tamber-unknown-token".into(), 7)],
+        "{errors:#?}"
+    );
+}
+
+/// A mix of colours alone is no colour a host reads: the refusal names the
+/// token to declare, with the value written over it, and that edit builds.
+#[test]
+fn a_mix_of_colours_alone_names_the_token_to_declare() {
+    let view = |bg: &str, shadow: &str| {
+        format!("component App\n  state on = false\n  view\n    column\n      box background-color=(on ? \"{bg}\" : \"transparent\")\n      box box-shadow=\"0 0 8px {shadow}\"\n")
+    };
+    let mix = "color-mix(in srgb, red 35%, transparent)";
+    let path = app("mix-literal", &[("app.contract", &view(mix, mix))]);
+    let errors = contract::compile_path_all(&path, false).err().unwrap();
+    let messages: Vec<&str> = errors.iter().map(|e| e.message.as_str()).collect();
+    let lead = "declare the mix as a token in app.tamber's `theme` (a new app.tamber's first line is `tamber <name>`), `mixed = color-mix(in srgb, red 35%, transparent)`, and write";
+    assert_eq!(messages.len(), 2, "{messages:#?}");
+    assert!(
+        messages[0].starts_with(&format!(
+            "{lead} `\"mixed\"` for `\"{mix}\"` in `background-color`"
+        )),
+        "{}",
+        messages[0]
+    );
+    assert!(
+        messages[1].starts_with(&format!(
+            "{lead} `\"0 0 8px mixed\"` for `\"0 0 8px {mix}\"` in `box-shadow`"
+        )),
+        "{}",
+        messages[1]
+    );
+    let design = format!("tamber t\n\ntheme\n  mixed = {mix}\n");
+    let path = app(
+        "mix-literal-edit",
+        &[
+            ("app.tamber", &design),
+            ("app.contract", &view("mixed", "mixed")),
+        ],
+    );
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// A mix over a token the fold refuses is said where it is written, and the
+/// design and the mixes that folded stay bound: no other line is refused,
+/// and no line is told to declare a mix the fold read.
+#[test]
+fn a_refused_mix_leaves_the_design_and_the_other_mixes_bound() {
+    let view = "component App\n  state on = false\n  view\n    column\n      box background-color=(on ? \"color-mix(in srgb, c.ink 36%, transparent)\" : \"color-mix(in srgb, c.ink 35, nope)\")\n      box background-color=(on ? \"color-mix(in srgb, c.ink 37%, transparent)\" : \"c.ink\")\n      box box-shadow=\"0 0 8px color-mix(in srgb, c.ink 38%, transparent)\"\n";
+    let path = app(
+        "mix-refused",
+        &[("app.tamber", MIXES), ("app.contract", view)],
+    );
+    let errors = contract::compile_path_all(&path, false).err().unwrap();
+    assert_eq!(errors[0].id, "tamber-syntax", "{errors:#?}");
+    assert!(
+        errors
+            .iter()
+            .all(|e| e.span.line == 5 && !e.message.contains("declare the mix")),
+        "{errors:#?}"
+    );
+}
+
+/// The euxy port's LED glow: a colour token written inside a shadow, as a
+/// literal, in a template, through a `fn` and in a list, is the token's
+/// light/dark pair, as it is in `background-color`; a name no token has is
+/// refused, not drawn as nothing.
+#[test]
+fn a_colour_token_inside_a_shadow_is_its_light_dark_pair() {
+    let design = "tamber t\n\ntheme\n  eu.glow = light-dark(#0a0a0c8c, #f6f4f48c)\n";
+    let view = "fn glow(x: number): string = `0px 0px ${x}px eu.glow`\n\ncomponent App\n  state n = 3\n  view\n    column\n      view testId=\"bg\" width=9 height=9 background-color=\"eu.glow\"\n      view testId=\"lit\" width=9 height=9 box-shadow=\"0px 0px 8px eu.glow\"\n      view testId=\"tmpl\" width=9 height=9 box-shadow=`0px 0px ${n}px eu.glow`\n      view testId=\"fn\" width=9 height=9 box-shadow=glow(n)\n      view testId=\"list\" width=9 height=9 box-shadow=\"0px 0px 8px eu.glow, 0px 2px 4px eu.glow\"\n      text \"a\" testId=\"text\" text-shadow=\"0px 0px 8px eu.glow\"\n";
+    let path = app(
+        "colour-in-shadow",
+        &[("app.tamber", design), ("app.contract", view)],
+    );
+    let r = booted(contract::compile_path(&path).unwrap());
+    let pair = "LightDark(Color(168430732), Color(4143248524))";
+    assert!(row(&r, "bg", StyleId::BackgroundColor).contains(pair));
+    for id in ["lit", "tmpl", "fn", "list"] {
+        let shadow = row(&r, id, StyleId::BoxShadow);
+        assert!(shadow.contains(&format!("color: {pair}")), "{id}: {shadow}");
+    }
+    assert_eq!(row(&r, "list", StyleId::BoxShadow).matches(pair).count(), 2);
+    assert!(row(&r, "text", StyleId::TextShadow).contains(pair));
+    let unknown = app(
+        "colour-in-shadow-unknown",
+        &[
+            ("app.tamber", design),
+            (
+                "app.contract",
+                "component App\n  view\n    view width=9 height=9 box-shadow=\"0px 0px 8px eu.nope\"\n",
+            ),
+        ],
+    );
+    let e = contract::compile_path(&unknown).unwrap_err();
+    assert_eq!(e.id, "lower-attr-value", "{e:?}");
+}

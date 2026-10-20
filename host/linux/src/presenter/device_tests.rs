@@ -159,20 +159,20 @@ fn a_date_control_is_materials_field_and_fits_the_value_as_the_device_writes_it(
     // Told nothing, the field fits HTML's value; 56 points tall either way.
     assert!(p.set_device(&phone()).is_none());
     let iso = size(&p);
-    assert_eq!(iso.1, crate::paint::material::HEIGHT);
+    assert_eq!(iso.1, crate::paint::material::height());
     let us = Device {
         dates: US_DATES.into(),
         ..phone()
     };
     assert!(p.set_device(&us).is_none());
     let written = size(&p);
-    assert_eq!(written.1, crate::paint::material::HEIGHT);
+    assert_eq!(written.1, crate::paint::material::height());
     // The widest month's date and the trailing icon.
     let widest = ["May 28, 2000", "Sep 28, 2000", "Dec 28, 2000"]
         .map(|s| text(&p, s))
         .into_iter()
         .fold(0f32, f32::max);
-    assert!(written.0 >= (widest + crate::paint::material::WITH_ICON).floor());
+    assert!(written.0 >= (widest + crate::paint::material::with_icon()).floor());
     assert_ne!(written, iso);
     // A telling of nothing returns to HTML's value.
     assert!(p.set_device(&phone()).is_none());
@@ -220,4 +220,34 @@ fn bold_text_weights_the_system_font() {
     assert_eq!(weight(&p), 600);
     assert!(p.set_device(&phone()).is_none());
     assert_eq!(weight(&p), 400);
+}
+
+#[test]
+fn a_touch_screen_alone_is_the_primary_pointer() {
+    let touch = Pointing {
+        absolute: true,
+        touch: true,
+        ..Default::default()
+    };
+    let touchpad = Pointing {
+        absolute: true,
+        touch: true,
+        left: true,
+        ..Default::default()
+    };
+    let mouse = Pointing {
+        relative: true,
+        left: true,
+        ..Default::default()
+    };
+    let kvm = Pointing {
+        absolute: true,
+        left: true,
+        ..Default::default()
+    };
+    assert!(touch_only(&[touch]));
+    assert!(!touch_only(&[touch, mouse]), "a laptop's mouse is primary");
+    assert!(!touch_only(&[touchpad]));
+    assert!(!touch_only(&[kvm]));
+    assert!(!touch_only(&[]));
 }

@@ -1,11 +1,9 @@
 #if os(macOS)
 import AppKit
 
-/// Stands in as the composer text view's delegate. Exact's node stays the
-/// real delegate: every message this object does not answer is forwarded to
-/// it, so its change, selection and editing notifications arrive unchanged.
-/// Only `doCommandBy` (the key commands the editor's behaviours claim) and
-/// the change hook (undo grouping, large pastes) are answered here first.
+/// Intercepts OS attachment pastes, folder drops and the open command menus'
+/// keys. Exact remains the text/selection delegate and every other command's;
+/// its shared field owns every source edit.
 final class T3ComposerTextDelegate: NSObject, NSTextViewDelegate {
     weak var inner: NSObject?
     weak var editor: T3ComposerEditor?
@@ -16,140 +14,87 @@ final class T3ComposerTextDelegate: NSObject, NSTextViewDelegate {
     override func forwardingTarget(for selector: Selector!) -> Any? {
         inner?.responds(to: selector) == true ? inner : super.forwardingTarget(for: selector)
     }
-    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        if editor?.command(selector, in: textView) == true { return true }
-        return (inner as? NSTextViewDelegate)?.textView?(textView, doCommandBy: selector) ?? false
-    }
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
         if editor?.shouldChange(textView, range: range, text: text) == false { return false }
         return (inner as? NSTextViewDelegate)?.textView?(textView, shouldChangeTextIn: range, replacementString: text) ?? true
     }
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if editor?.menuCommand(selector, in: textView) == true { return true }
+        return (inner as? NSTextViewDelegate)?.textView?(textView, doCommandBy: selector) ?? false
+    }
 }
 
-/// The prompt editor's behaviours on Exact's ordinary textarea (T3's
-/// ChatComposer onComposerCommandKey, ComposerPromptEditorTiptap): trigger
-/// detection for the command menus, the menus' keys, list continuation, Tab
-/// indent, prompt-history recall, the plan toggle chord, atomic chips and
-/// undo grouping. The Contract owns the menus' rows and highlight; this
-/// reports the active trigger and presses the menu's hidden key buttons.
+/// Observes the mounted composer and holds OS facts until the shared field
+/// accepts or refuses them. It never edits text, selection, styles or undo.
 final class T3ComposerEditor {
     private let changed: (String) -> Void
-    /// The textarea this editor takes: the composer's, or Settings › Appearance's prompt
-    /// sample (`t3-prompt-preview`, SettingsFontPreviews PromptFontPreview), which edits on
-    /// its own: chips, atomic chip keys and undo steps, but none of the composer's keys.
-    private let hatch: ExactHatchKey
     private(set) weak var textView: NSTextView?
     private weak var element: ExactElement?
     private let proxy = T3ComposerTextDelegate()
-    private var observers: [NSObjectProtocol] = []
     private final class Key { weak var element: ExactElement?; init(_ element: ExactElement) { self.element = element } }
     private var keys: [String: Key] = [:]
-
-    private(set) var trigger: T3ComposerTrigger?
-    private var dismissed: T3ComposerTrigger?
-    private(set) var owner = ""
-    private var seq = 0
-    private var reported = ""
-
-    var history: [T3ComposerText.HistoryEntry] = []
-    /// The thread whose sent prompts `history` holds.
-    var historyOwner = ""
-    private var historyPosition: T3ComposerText.HistoryPosition?
-    let styler = T3ComposerStyler()
-
-    // Undo grouping (composer-undo-grouping.ts): a new step after 1 s idle
-    // and whenever typing switches between inserting and deleting.
-    static let undoGroupDelay: TimeInterval = 1.0
-    private var lastEditKind = ""
-    private var lastEditAt: TimeInterval = 0
-    var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
-    /// Set while Paste as Text (⇧⌘V) pastes, so a large paste stays inline (T3ComposerPasteHook).
-    var pastingAsText = false
-    /// Whether an insertion is a paste (injectable for tests, which never touch the pasteboard).
-    var pasteDetector: (String) -> Bool = T3ComposerEditor.isPaste
-    /// Toasts the editor raised (title, description), taken by the next sync.
+    private struct Owner: Equatable {
+        let snapshot: String
+        let field: String
+        var valid: Bool { !snapshot.isEmpty && !field.isEmpty }
+    }
+    private var owner = Owner(snapshot: "", field: "")
+    static let maxRecordID = 9_007_199_254_740_991
+    static func nextRecordID(after current: Int) -> Int? {
+        current >= 0 && current < maxRecordID ? current + 1 : nil
+    }
+    private var recordID = 0
+    private(set) var folds: [[String: Any]] = []
+    private(set) var drops: [[String: Any]] = []
     private(set) var notices: [[String: String]] = []
-    func takeNotices() -> [[String: String]] { defer { notices.removeAll() }; return notices }
+    private(set) var localEnvironment = false
+    private(set) var foldLimit = 0
+    var pastingAsText = false
+    var pasteDetector: (String) -> Bool = T3ComposerEditor.isPaste
+    var dragPasteboard: () -> NSPasteboard = { NSPasteboard(name: .drag) }
+    var pasteboard: () -> NSPasteboard = { .general }
+    var pasteDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("t3-composer-paste", isDirectory: true)
 
-    init(changed: @escaping (String) -> Void, hatch: ExactHatchKey = .t3Composer) {
+    init(changed: @escaping (String) -> Void) {
         self.changed = changed
-        self.hatch = hatch
         proxy.editor = self
-        styler.editor = self
-        styler.press.surface = hatch == .t3Composer ? "composer" : "preview"
-        styler.press.owner = { [weak self] in self?.owner ?? "" }
     }
 
-    // MARK: Elements
-
     func install(_ element: ExactElement) {
-        if element.hatch == .t3ComposerKey, hatch == .t3Composer {
+        if element.hatch == .t3ComposerKey {
             let name = element.data[.anchor] ?? ""
             if !name.isEmpty { keys[name] = Key(element) }
             return
         }
-        guard element.hatch == hatch else { return }
-        self.element = element
-        owner = element.data[.snapshotOwner] ?? ""
-        guard let view = element.textView else { return }
-        if textView !== view { attach(view) }
-        refresh()
+        guard element.hatch == .t3Composer else { return }
+        if self.element !== element || textView !== element.textView {
+            detach()
+            self.element = element
+            if let view = element.textView {
+                textView = view
+                proxy.inner = view.delegate as? NSObject
+                view.delegate = proxy
+                T3ComposerPasteHook.attach(self, to: view)
+            }
+        }
+        refreshOwner()
     }
 
     func remove(_ element: ExactElement) {
         for (name, key) in keys where key.element == nil || key.element === element { keys[name] = nil }
-        if self.element === element { detach(); self.element = nil }
+        if self.element === element { detach() }
     }
-
     func destroy() { detach(); keys.removeAll() }
 
-    private func attach(_ view: NSTextView) {
-        detach()
-        textView = view
-        if view.delegate !== proxy {
-            proxy.inner = view.delegate as? NSObject
-            view.delegate = proxy
-        }
-        let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: NSText.didChangeNotification, object: view, queue: nil) { [weak self] _ in
-            self?.textChanged()
-        })
-        observers.append(center.addObserver(forName: NSTextView.didChangeSelectionNotification, object: view, queue: nil) { [weak self] _ in
-            self?.selectionChanged()
-        })
-        if let storage = view.textStorage {
-            observers.append(center.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil) { [weak self] _ in
-                self?.styler.storageEdited()
-            })
-        }
-        styler.attach(view)
-        T3ComposerPasteHook.attach(self, to: view)
-    }
-
     private func detach() {
-        for observer in observers { NotificationCenter.default.removeObserver(observer) }
-        observers.removeAll()
-        styler.detach()
-        if let view = textView { T3ComposerPasteHook.detach(view) }
-        if let view = textView, view.delegate === proxy { view.delegate = proxy.inner as? NSTextViewDelegate }
+        if let view = textView {
+            T3ComposerPasteHook.detach(view)
+            if view.delegate === proxy { view.delegate = proxy.inner as? NSTextViewDelegate }
+        }
         proxy.inner = nil
         textView = nil
-    }
-
-    private func textChanged() {
-        // An edit closes a skill chip's details (the reference's popover holds the focus). A citation's comment is the app's
-        // to settle: held open past 8,000 characters while the prompt has the focus, it stays open as the prompt is edited
-        // and follows its chip (T3ComposerChipPress.validate), as the reference's node view keeps its popover.
-        if styler.press.chip?.kind != "citation" { styler.press.close() }
-        styler.restyle()
-        refresh()
-    }
-
-    private func selectionChanged() {
-        if styler.snapSelection() { return }
-        styler.restyleIfTextMoved()
-        styler.noteSelection()
-        refresh()
+        element = nil
+        resetOwner(Owner(snapshot: "", field: ""))
     }
 
     func key(_ name: String) -> ExactElement? {
@@ -157,331 +102,180 @@ final class T3ComposerEditor {
         return element
     }
 
-    // MARK: Trigger (useComposerTriggerState)
-
-    /// Recompute the trigger at the caret, keeping a dismissed one closed
-    /// until the caret leaves its token.
-    func refresh() {
-        var candidate: T3ComposerTrigger?
-        if let view = textView, !view.hasMarkedText() {
-            let selection = view.selectedRange()
-            if selection.length == 0 { candidate = T3ComposerText.trigger(view.string as NSString, cursor: selection.location) }
-        } else if textView?.hasMarkedText() == true { return }
-        var active = candidate
-        if let candidate, let dismissed, candidate.kind == dismissed.kind, candidate.start == dismissed.start { active = nil }
-        if candidate == nil || active != nil { dismissed = nil }
-        trigger = active
-        report()
-    }
-
-    func dismiss() {
-        dismissed = trigger
-        trigger = nil
-        report()
-    }
-
-    private func report() {
-        let signature = "\(owner)|\(trigger.map { "\($0.kind):\($0.query):\($0.start):\($0.end)" } ?? "")"
-        guard signature != reported else { return }
-        reported = signature
-        seq += 1
-        changed("t3.editor")
-    }
-
-    var state: [String: Any] {
-        var value: [String: Any] = ["owner": owner, "seq": seq, "trigger": NSNull(), "atStart": false, "blankAround": false]
-        if let trigger, let view = textView {
-            value["trigger"] = trigger.dictionary
-            let text = view.string as NSString
-            let before = text.substring(to: min(trigger.start, text.length))
-            let after = text.substring(from: min(trigger.end, text.length))
-            value["atStart"] = trigger.start == 0
-            value["blankAround"] = before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && after.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// An open command or stash menu's keys (ChatComposer onComposerCommandKey):
+    /// its hidden key buttons are mounted only while it is open, and take ↑, ↓,
+    /// Return, Tab (the highlighted item) and Escape before the field's own command.
+    func menuCommand(_ selector: Selector, in view: NSTextView) -> Bool {
+        guard view === textView, view.isEditable, !view.hasMarkedText() else { return false }
+        if let step = Self.arrow(selector, NSApp.currentEvent) {
+            // ⌥↓ is two commands (moveForward:, moveToEndOfParagraph:): its first press holds the second.
+            if let event = NSApp.currentEvent, event === arrowEvent { return true }
+            let pressed = step > 0 ? press("ArrowDown") || press("stash-ArrowDown") : press("ArrowUp") || press("stash-ArrowUp")
+            arrowEvent = pressed ? NSApp.currentEvent : nil
+            return pressed
         }
-        value["focused"] = textView.map { $0.window?.firstResponder === $0 } ?? false
-        value["empty"] = textView?.string.isEmpty ?? true
-        // The selection's start in UTF-16 units, as TypeScript indexes the text.
-        value["caret"] = textView?.selectedRange().location ?? 0
-        return value
+        switch selector {
+        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
+            return press("Enter") || press("stash-Enter")
+        case #selector(NSResponder.insertTab(_:)): return press("Enter")
+        case #selector(NSResponder.cancelOperation(_:)): return press("Escape")
+        case #selector(NSResponder.deleteToBeginningOfLine(_:)): return press("stash-Delete")
+        default: return false
+        }
     }
-
-    // MARK: Commands (onComposerCommandKey)
-
+    private weak var arrowEvent: NSEvent?
+    /// The menus read `event.key` (onComposerCommandKey, ComposerStashMenu), so ↑ and ↓ move the highlight with
+    /// any modifier held, ⇧ included, while ⌃N and ⌃P, which AppKit binds to moveDown: and moveUp: too, move the
+    /// caret. With no key event (a command sent directly), the selector alone decides.
+    static func arrow(_ selector: Selector, _ event: NSEvent?) -> Int? {
+        if let event, event.type == .keyDown {
+            switch event.charactersIgnoringModifiers?.unicodeScalars.first.map({ Int($0.value) }) {
+            case NSDownArrowFunctionKey: return 1
+            case NSUpArrowFunctionKey: return -1
+            default: return nil
+            }
+        }
+        switch selector {
+        case #selector(NSResponder.moveDown(_:)): return 1
+        case #selector(NSResponder.moveUp(_:)): return -1
+        default: return nil
+        }
+    }
     private func press(_ name: String) -> Bool {
         guard let key = key(name) else { return false }
         key.click()
         return true
     }
 
-    func command(_ selector: Selector, in view: NSTextView) -> Bool {
-        guard view === textView, view.isEditable, !view.hasMarkedText() else { return false }
-        // The prompt sample is ComposerPromptEditor with no command-key handler: Tab and ⇧Tab
-        // keep walking the Settings page, and only the chips' own keys apply.
-        // Escape closes an open skill chip's details first (Base UI's Popover). A citation's comment is the app's: the window's
-        // Escape (ChipPopoverEscape, before the prompt hears the key) closes it as Base UI's escape-key dismissal does, which
-        // keeps the chip and drops the draft (`finishCitation` with `escape`); the prompt's own Escape stays its own.
-        if selector == #selector(NSResponder.cancelOperation(_:)), styler.press.isOpen, styler.press.chip?.kind != "citation" { styler.press.close(); return true }
-        if hatch != .t3Composer {
-            switch selector {
-            case #selector(NSResponder.insertTab(_:)): view.window?.selectNextKeyView(view); return true
-            case #selector(NSResponder.insertBacktab(_:)): view.window?.selectPreviousKeyView(view); return true
-            case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveRight(_:)),
-                 #selector(NSResponder.deleteBackward(_:)), #selector(NSResponder.deleteForward(_:)):
-                return styler.chipCommand(selector, in: view)
-            default: return false
-            }
+    private func refreshOwner() {
+        let mounted = element.flatMap { $0.isLive ? $0 : nil }
+        let next = Owner(snapshot: mounted?.data[.snapshotOwner] ?? "", field: mounted?.data[.owner] ?? "")
+        if next != owner { resetOwner(next) }
+    }
+    private func resetOwner(_ next: Owner) {
+        discardPastedFiles()
+        folds.removeAll(); drops.removeAll(); notices.removeAll()
+        localEnvironment = false; foldLimit = 0
+        owner = next
+    }
+    private func matches(_ request: [String: Any]) -> Bool {
+        owner.valid && request["snapshotOwner"] as? String == owner.snapshot && request["fieldOwner"] as? String == owner.field
+    }
+
+    func sync(_ request: [String: Any]) -> [String: Any] {
+        refreshOwner()
+        if matches(request) {
+            if let local = request["localEnvironment"] as? Bool { localEnvironment = local }
+            if let limit = request["foldLimit"] as? Int { foldLimit = max(0, limit) }
         }
-        switch selector {
-        case #selector(NSResponder.insertBacktab(_:)):
-            // ⇧Tab toggles Build/Plan when the plan toggle is shown.
-            return press("plan")
-        case #selector(NSResponder.cancelOperation(_:)):
-            guard trigger != nil else { return false }
-            dismiss()
-            return true
-        case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.moveUp(_:)):
-            let down = selector == #selector(NSResponder.moveDown(_:))
-            if trigger != nil, press(down ? "ArrowDown" : "ArrowUp") { return true }
-            // The open stash menu takes the arrows (ComposerStashMenu).
-            if press(down ? "stash-ArrowDown" : "stash-ArrowUp") { return true }
-            return recall(backward: !down, in: view)
-        case #selector(NSResponder.deleteToBeginningOfLine(_:)):
-            return press("stash-Delete")
-        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
-            if trigger != nil, press("Enter") { return true }
-            if press("stash-Enter") { return true }
-            let selection = view.selectedRange()
-            guard selection.length == 0, let edit = T3ComposerText.listContinuation(view.string, cursor: selection.location) else { return false }
-            return apply(NSRange(location: edit.start, length: edit.end - edit.start), edit.replacement, in: view)
-        case #selector(NSResponder.insertTab(_:)):
-            if trigger != nil, press("Enter") { return true }
-            let selection = view.selectedRange()
-            guard let edit = T3ComposerText.listIndent(view.string, start: selection.location, end: selection.location + selection.length) else { return false }
-            return apply(NSRange(location: edit.start, length: 0), edit.replacement, in: view, caret: selection.location + 2)
-        case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveRight(_:)),
-             #selector(NSResponder.deleteBackward(_:)), #selector(NSResponder.deleteForward(_:)):
-            return styler.chipCommand(selector, in: view)
-        default:
-            return false
+        let result: [String: Any] = ["snapshotOwner": owner.snapshot, "fieldOwner": owner.field,
+            "focused": textView.map { $0.window?.firstResponder === $0 } ?? false,
+            "composing": textView?.hasMarkedText() ?? false,
+            "notices": notices, "folds": folds, "drops": drops, "pastes": pastedFiles.count]
+        if matches(request) { notices.removeAll() }
+        return result
+    }
+
+    func forgetFold(_ id: Int) {
+        refreshOwner()
+        folds.removeAll { $0["id"] as? Int == id }
+        drops.removeAll { $0["id"] as? Int == id }
+    }
+
+    private func refuse(_ title: String, _ description: String) {
+        notices.append(["kind": "error", "title": title, "description": description])
+        changed("t3.editor")
+    }
+
+    /// The observed full source and UTF-16 range are evidence for a later
+    /// guarded shared-field edit, never authority to mutate a replacement field.
+    private func record(_ view: NSTextView, range: NSRange) -> [String: Any]? {
+        refreshOwner()
+        let value = view.string as NSString
+        guard view === textView, owner.valid, range.location >= 0, range.length >= 0,
+              range.location <= value.length, range.length <= value.length - range.location else { return nil }
+        guard folds.count + drops.count < 4 else {
+            refuse("Too many pending pastes or drops", "Wait for the previous attachments, then try again.")
+            return nil
         }
-    }
-
-    // MARK: Prompt history (composerPromptHistory.ts)
-
-    private func recall(backward: Bool, in view: NSTextView) -> Bool {
-        if historyPosition == nil && !view.string.isEmpty { return false }
-        guard styler.caretOnVisualEdge(first: backward, in: view) else { return false }
-        guard let step = T3ComposerText.historyStep(backward: backward, entries: history, position: historyPosition, current: view.string) else { return false }
-        historyPosition = step.position
-        let whole = NSRange(location: 0, length: (view.string as NSString).length)
-        _ = apply(whole, step.prompt, in: view)
-        return true
-    }
-
-    /// The composer's owner changed (another thread): recall restarts.
-    func resetHistory() { historyPosition = nil }
-
-    // MARK: Edits
-
-    /// One programmatic edit as one undo step, announced like typing.
-    @discardableResult
-    func apply(_ range: NSRange, _ text: String, in view: NSTextView, caret: Int? = nil) -> Bool {
-        guard view.isEditable, !view.hasMarkedText(), NSMaxRange(range) <= (view.string as NSString).length else { return false }
-        view.breakUndoCoalescing()
-        guard view.shouldChangeText(in: range, replacementString: text) else { return false }
-        view.textStorage?.replaceCharacters(in: range, with: NSAttributedString(string: text, attributes: view.typingAttributes))
-        view.didChangeText()
-        view.setSelectedRange(NSRange(location: caret ?? (range.location + (text as NSString).length), length: 0))
-        view.breakUndoCoalescing()
-        lastEditKind = ""
-        view.scrollRangeToVisible(view.selectedRange())
-        return true
-    }
-
-    /// TypeScript's replace (a picked menu row, an inserted chip): only when
-    /// the range still holds what the menu saw.
-    func edit(_ request: [String: Any]) -> [String: Any] {
-        if let fold = request["fold"] as? Int { folds.removeAll { $0["id"] as? Int == fold } }
-        guard let view = textView else { return ["applied": false, "reason": "no composer"] }
-        let text = view.string as NSString
-        let all = request["all"] as? Bool == true
-        let start = all ? 0 : (request["start"] as? Int) ?? text.length
-        var end = all ? text.length : (request["end"] as? Int) ?? start
-        let expect = request["expect"] as? String
-        guard start >= 0, start <= end, end <= text.length else { return ["applied": false, "reason": "range"] }
-        if let expect, text.substring(with: NSRange(location: start, length: end - start)) != expect { return ["applied": false, "reason": "changed"] }
-        // A menu pick applies only to the trigger the menu was built for.
-        if let kind = request["kind"] as? String {
-            guard let trigger, trigger.kind == kind, trigger.start == start, trigger.end == end else { return ["applied": false, "reason": "changed"] }
+        guard let next = Self.nextRecordID(after: recordID) else {
+            refuse("Attachment queue is unavailable", "Close and reopen this window before pasting or dropping more attachments.")
+            return nil
         }
-        var replacement = request["text"] as? String ?? ""
-        // A chip placed into running text keeps a space before it.
-        if request["pad"] as? Bool == true, start > 0, !T3ComposerText.isBlank(text.character(at: start - 1)) { replacement = " " + replacement }
-        if request["extendSpace"] as? Bool == true, replacement.hasSuffix(" "), end < text.length, text.character(at: end) == 32 { end += 1 }
-        if request["focus"] as? Bool != false, let window = view.window, window.firstResponder !== view { window.makeFirstResponder(view) }
-        // `caret` places the caret in the new text (an effort step keeps it on the same character); else it follows the replacement.
-        let caret = (request["caret"] as? Int).map { max(0, min($0, text.length - (end - start) + (replacement as NSString).length)) }
-        let applied = apply(NSRange(location: start, length: end - start), replacement, in: view, caret: caret)
-        if applied, let then = request["then"] as? String, !then.isEmpty { _ = press(then) }
-        return ["applied": applied, "caret": view.selectedRange().location]
+        recordID = next
+        return ["id": recordID, "snapshotOwner": owner.snapshot, "fieldOwner": owner.field,
+            "value": view.string, "start": range.location, "end": NSMaxRange(range), "expect": value.substring(with: range)]
     }
 
-    /// Insert at the caret, padding with spaces only where words would join
-    /// (insertComposerText at "cursor"). The caret is the selection's start and
-    /// the selection stays in the text: a chip left selected after its preview
-    /// closes is not replaced by context another panel adds.
-    func insert(_ request: [String: Any]) -> [String: Any] {
-        guard let view = textView else { return ["applied": false, "reason": "no composer"] }
-        // A caller naming its composer (a sidebar row's dropped files) never types into another thread's.
-        if let wanted = request["owner"] as? String, !wanted.isEmpty, wanted != owner { return ["applied": false, "reason": "another composer"] }
-        let text = view.string as NSString
-        // Terminal/file menus take focus, but the editor retains the user's insertion range.
-        let start = min(view.selectedRange().location, text.length)
-        let lead = start > 0 && !T3ComposerText.isBlank(text.character(at: start - 1)) ? " " : ""
-        let replaceEnd = start < text.length && text.character(at: start) == 32 ? start + 1 : start
-        let body = request["text"] as? String ?? ""
-        if let window = view.window, window.firstResponder !== view { window.makeFirstResponder(view) }
-        let applied = apply(NSRange(location: start, length: replaceEnd - start), lead + body + (body.hasSuffix(" ") ? "" : " "), in: view)
-        return ["applied": applied]
-    }
-
-    /// Tiptap's toggleBold / toggleItalic on Markdown source: unwrap a
-    /// selection already wrapped by the marker, else wrap it; an empty
-    /// selection opens a marked span for what is typed next.
-    func toggleMark(_ marker: String, in view: NSTextView) {
-        let text = view.string as NSString
-        let selection = view.selectedRange()
-        let width = (marker as NSString).length
-        let before = selection.location >= width ? text.substring(with: NSRange(location: selection.location - width, length: width)) : ""
-        let after = NSMaxRange(selection) + width <= text.length ? text.substring(with: NSRange(location: NSMaxRange(selection), length: width)) : ""
-        // A lone `*` beside a `**` is bold's, not italic's.
-        let bolder = width == 1 && (selection.location >= 2 && text.substring(with: NSRange(location: selection.location - 2, length: 2)) == "**")
-        if before == marker, after == marker, !bolder {
-            let outer = NSRange(location: selection.location - width, length: selection.length + width * 2)
-            let inner = text.substring(with: selection)
-            apply(outer, inner, in: view, caret: selection.location - width)
-            view.setSelectedRange(NSRange(location: selection.location - width, length: selection.length))
-            return
-        }
-        let inner = text.substring(with: selection)
-        apply(selection, marker + inner + marker, in: view, caret: selection.location + width)
-        view.setSelectedRange(NSRange(location: selection.location + width, length: selection.length))
-    }
-
-    // MARK: Folder drops (ChatComposer addDroppedFolders)
-
-    /// Whether the T3 server runs on this Mac (TypeScript's sync says).
-    var localEnvironment = true
-    /// The drag pasteboard (injectable for tests).
-    var dragPasteboard: () -> NSPasteboard = { NSPasteboard(name: .drag) }
-
-    /// NSTextView inserts a dropped file's path; when every dropped URL is a
-    /// folder and the insertion is exactly their paths, the drop is ours.
     func droppedFolders(_ text: String) -> [URL]? {
         if let event = NSApp.currentEvent, event.type == .keyDown { return nil }
         guard let urls = dragPasteboard().readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty else { return nil }
         let paths = urls.map(\.path)
         guard paths.contains(text) || paths.joined(separator: "\n") == text || paths.joined(separator: " ") == text else { return nil }
-        let folders = urls.filter { var directory: ObjCBool = false; return FileManager.default.fileExists(atPath: $0.path, isDirectory: &directory) && directory.boolValue }
-        return folders.count == urls.count ? folders : nil
+        return urls.allSatisfy { url in
+            var directory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) && directory.boolValue
+        } ? urls : nil
     }
 
-    func dropFolders(_ folders: [URL], in view: NSView) {
+    private func dropFolders(_ folders: [URL], view: NSTextView, range: NSRange) {
+        refreshOwner()
         guard localEnvironment else {
-            notices.append(["kind": "error", "title": "Folders can't be dropped into remote environments", "description": "Type the folder path with @ instead."])
-            changed("t3.editor")
+            refuse("Folders can't be dropped into remote environments", "Type the folder path with @ instead.")
             return
         }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let editor = self.textView else { return }
-            for folder in folders {
-                let text = editor.string as NSString
-                let lead = text.length > 0 && !T3ComposerText.isBlank(text.character(at: text.length - 1)) ? " " : ""
-                self.apply(NSRange(location: text.length, length: 0), lead + T3ComposerEditor.fileLink(folder.path) + " ", in: editor)
-            }
-            editor.window?.makeFirstResponder(editor)
+        guard folders.count <= 100 else {
+            refuse("Too many folders", "Drop at most 100 folders at a time.")
+            return
         }
+        guard var fact = record(view, range: range) else { return }
+        fact["paths"] = folders.map(\.path)
+        drops.append(fact)
+        changed("t3.editor")
     }
-
-    /// serializeComposerFileLink: `[basename](encodeURI(path))` with ( ) # ? \ escaped.
-    static func fileLink(_ path: String) -> String {
-        let label = T3ComposerText.basename(path).replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "[", with: "\\[").replacingOccurrences(of: "]", with: "\\]")
-        var allowed = CharacterSet.alphanumerics.intersection(CharacterSet(charactersIn: Unicode.Scalar(0)...Unicode.Scalar(127)))
-        allowed.insert(charactersIn: ";,/:@&=+$-_.!~*'")
-        let destination = path.addingPercentEncoding(withAllowedCharacters: allowed) ?? path
-        return "[\(label)](\(destination))"
-    }
-
-    // MARK: Change hook
 
     func shouldChange(_ view: NSTextView, range: NSRange, text: String?) -> Bool {
-        guard view === textView, let text else { return true }
-        // Folder drops and pasted-text attachments are the composer's (the prompt sample's onPaste is a no-op).
-        let composing = hatch == .t3Composer
-        if composing, let folders = droppedFolders(text) { dropFolders(folders, in: view); return false }
-        let length = (text as NSString).length
-        if composing, !pastingAsText, length > 0, let allowed = foldPaste(view, range: range, text: text) { return allowed }
-        if !view.hasMarkedText() {
-            let kind = length == 0 ? "delete" : range.length == 0 ? "insert" : "replace"
-            let at = now()
-            if kind != lastEditKind || at - lastEditAt > T3ComposerEditor.undoGroupDelay { view.breakUndoCoalescing() }
-            lastEditKind = kind
-            lastEditAt = at
-        }
-        styler.noteEdit(range, replacement: length)
+        guard view === textView, let text, view.isEditable, !view.hasMarkedText() else { return true }
+        if let folders = droppedFolders(text) { dropFolders(folders, view: view, range: range); return false }
+        if !pastingAsText, !text.isEmpty, let allowed = foldPaste(view, range: range, text: text) { return allowed }
         return true
     }
 
     static let promptLimit = 120_000
-    /// PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES.
     static let foldThreshold = 32 * 1024
-    /// The largest paste TypeScript can stage as a file (0: this server or
-    /// draft takes none), from the sync.
-    var foldLimit = 0
-    /// Pastes held back for TypeScript to fold into pasted-text.txt. Each
-    /// stays until an edit names it, so a sync whose answer is lost retries.
-    private(set) var folds: [[String: Any]] = []
-    private var foldSeq = 0
 
-    /// foldPastedText (pastedTextDisposition): a paste of 32 KiB or more, or
-    /// one that would pass the prompt limit, becomes a file attachment; one
-    /// that cannot fold stays inline unless it would pass the limit, which is
-    /// refused with the reference's toast. Nil lets the paste through.
     func foldPaste(_ view: NSTextView, range: NSRange, text: String) -> Bool? {
+        refreshOwner()
+        let source = view.string as NSString
+        guard range.location >= 0, range.length >= 0, range.location <= source.length,
+              range.length <= source.length - range.location else { return nil }
         let length = (text as NSString).length, bytes = text.utf8.count
-        let exceeds = (view.string as NSString).length - range.length + length > T3ComposerEditor.promptLimit
-        let large = length >= T3ComposerEditor.foldThreshold || bytes >= T3ComposerEditor.foldThreshold
+        let exceeds = source.length - range.length + length > Self.promptLimit
+        let large = length >= Self.foldThreshold || bytes >= Self.foldThreshold
         guard large || exceeds, pasteDetector(text) else { return nil }
         if foldLimit <= 0 || bytes > foldLimit {
             guard exceeds else { return nil }
             let tooLarge = foldLimit > 0
-            notices.append(["kind": "error", "title": tooLarge ? "Pasted text is too large to attach" : "Pasted text is too large for this message",
-                            "description": tooLarge ? "Reduce the clipboard contents or save a smaller excerpt as a file." : "Remove some text or an attachment, then paste again."])
-            changed("t3.editor")
+            refuse(tooLarge ? "Pasted text is too large to attach" : "Pasted text is too large for this message",
+                tooLarge ? "Reduce the clipboard contents or save a smaller excerpt as a file." : "Remove some text or an attachment, then paste again.")
             return false
         }
-        let expect = (view.string as NSString).substring(with: range)
-        foldSeq += 1
-        folds.append(["id": foldSeq, "text": text, "start": range.location, "end": NSMaxRange(range), "expect": expect])
-        if folds.count > 4 { folds.removeFirst() }
+        guard var fact = record(view, range: range) else { return false }
+        fact["text"] = text
+        folds.append(fact)
         changed("t3.editor")
         return false
     }
 
-    // MARK: Pasted files (ChatComposer onComposerPaste)
+    struct PastedFile {
+        let url: URL
+        let asText: Bool
+        fileprivate let snapshotOwner: String
+        fileprivate let fieldOwner: String
+        fileprivate let temporary: Bool
+    }
+    private(set) var pastedFiles: [PastedFile] = []
 
-    /// Files a paste took from the pasteboard, held until TypeScript stages and attaches them (`composerPasteTake`);
-    /// `asText` for Paste as Text's.
-    private(set) var pastedFiles: [(url: URL, asText: Bool)] = []
-    /// The pasteboard a paste reads (injectable for tests).
-    var pasteboard: () -> NSPasteboard = { .general }
-    /// Where a pasted image with no file of its own is written before it is staged.
-    var pasteDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("t3-composer-paste", isDirectory: true)
-
-    /// shouldHandleComposerAttachmentPaste over `pasteboard`: the files a paste attaches, or nil to let the text paste
-    /// go on. The files are its file URLs (folders aside), or else its image, as Chromium hands a page a copied image
-    /// (`image.png`). An image claims the paste; with only plain files, text keeps it a text paste unless the text is
-    /// just the files' names or paths, which Finder's copy puts beside them.
     static func pasteClaim(_ pasteboard: NSPasteboard) -> (urls: [URL], image: Data?)? {
         let urls = (pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
         if !urls.isEmpty {
@@ -501,40 +295,56 @@ final class T3ComposerEditor {
         return ([], png)
     }
 
-    /// Whether a paste here can attach files: the composer's, not the Appearance prompt sample's.
-    var takesPastedFiles: Bool { hatch == .t3Composer }
+    var takesPastedFiles: Bool { true }
 
-    /// A paste with files or an image on `pasteboard` (T3ComposerPasteHook): they are held for TypeScript and the text
-    /// view pastes nothing. False leaves the paste to the text view. Paste as Text (`asText`) attaches them too; its
-    /// images get no inline chip (onComposerPaste's `skipImageInlineChip`, read in composer-controls-attach.ts).
     func pasteFiles(from pasteboard: NSPasteboard, asText: Bool = false) -> Bool {
-        guard takesPastedFiles, let claim = Self.pasteClaim(pasteboard) else { return false }
+        refreshOwner()
+        guard owner.valid, let claim = Self.pasteClaim(pasteboard) else { return false }
+        guard pastedFiles.count + claim.urls.count + (claim.image == nil ? 0 : 1) <= 100 else {
+            refuse("Too many pasted files", "Paste at most 100 files at a time.")
+            return true
+        }
         var urls = claim.urls
         if let image = claim.image {
             let folder = pasteDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
             let file = folder.appendingPathComponent("image.png")
-            guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil,
-                  (try? image.write(to: file, options: .atomic)) != nil else { return false }
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try image.write(to: file, options: .atomic)
+            } catch {
+                try? FileManager.default.removeItem(at: folder)
+                refuse("Image could not be pasted", "Try copying the image again.")
+                return true
+            }
             urls = [file]
         }
-        pastedFiles += urls.map { ($0, asText) }
+        pastedFiles += urls.map { PastedFile(url: $0, asText: asText, snapshotOwner: owner.snapshot,
+            fieldOwner: owner.field, temporary: claim.image != nil) }
         changed("t3.editor")
         return true
     }
 
-    /// The held pasted files, once; a written image's folder is removed once `stage` has copied it.
-    func takePastedFiles(_ stage: (URL) -> [String: Any]) -> [[String: Any]] {
+    func takePastedFiles(_ request: [String: Any], stage: (URL) -> [String: Any]) -> [[String: Any]] {
+        refreshOwner()
+        guard matches(request) else { return [] }
         let held = pastedFiles
         pastedFiles.removeAll()
-        let files = held.prefix(100).map { file in
+        defer { cleanTemporaryFiles(held) }
+        return held.filter { $0.snapshotOwner == owner.snapshot && $0.fieldOwner == owner.field }.map { file in
             var staged = stage(file.url)
             if file.asText { staged["asText"] = true }
             return staged
         }
-        for url in held.map(\.url) where url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path == pasteDirectory.standardizedFileURL.path {
-            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+    }
+
+    private func discardPastedFiles() {
+        cleanTemporaryFiles(pastedFiles)
+        pastedFiles.removeAll()
+    }
+    private func cleanTemporaryFiles(_ files: [PastedFile]) {
+        for file in files where file.temporary {
+            try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent())
         }
-        return Array(files)
     }
 
     static func isPaste(_ text: String) -> Bool {
@@ -549,14 +359,8 @@ final class T3ComposerEditor {
     deinit { destroy() }
 }
 
-/// ⌘V, Edit › Paste and the text menu's Paste each reach the text view's `paste:`; ⇧⌘V and Edit › Paste as Text its
-/// `pasteAsPlainText:`. Both are wrapped once per class, as T3ComposerAccessibleTextHooks wraps the accessibility
-/// answers: on the composer's text view a paste with files or an image attaches them (`T3ComposerEditor.pasteFiles`), as
-/// the reference's paste event attaches them whether or not Paste as Text armed it (ChatComposer.tsx onComposerPaste);
-/// any other paste, and any other text view's, is the text view's own, Paste as Text's keeping a large paste inline.
-/// AppKit enables those Paste items only for a pasteboard the view can read, and a plain-text view reads no image, so the
-/// composer's `readablePasteboardTypes` also name PNG and TIFF: without them an image alone left Paste disabled and ⌘V
-/// never sent `paste:`.
+/// Wrap only installed composer views; every other view keeps its own paste
+/// implementation. Paste as Text still attaches files but leaves text inline.
 enum T3ComposerPasteHook {
     private static var installed: Set<ObjectIdentifier> = []
     private static var key = 0
@@ -570,8 +374,15 @@ enum T3ComposerPasteHook {
 
     private static func editor(of view: NSTextView) -> T3ComposerEditor? { (objc_getAssociatedObject(view, &key) as? Owner)?.editor }
 
+    /// KVO's notifying subclass inherits the original class's wrapped methods.
+    private static func baseClass(_ object: AnyObject) -> AnyClass? {
+        var cls: AnyClass? = object_getClass(object)
+        while let current = cls, NSStringFromClass(current).hasPrefix("NSKVONotifying_") { cls = class_getSuperclass(current) }
+        return cls
+    }
+
     private static func install(on view: NSTextView) {
-        guard let cls = T3ComposerAccessibleTextHooks.baseClass(view), !installed.contains(ObjectIdentifier(cls)) else { return }
+        guard let cls = baseClass(view), !installed.contains(ObjectIdentifier(cls)) else { return }
         installed.insert(ObjectIdentifier(cls))
         for (selector, asText) in [(#selector(NSText.paste(_:)), false), (#selector(NSTextView.pasteAsPlainText(_:)), true)] {
             guard let method = class_getInstanceMethod(cls, selector) else { continue }

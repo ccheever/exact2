@@ -1,7 +1,9 @@
 //! Form controls, painted (LLP 1069.001 D7): this host has no platform
 //! controls to show. Where it has no platform at all (the Linux desktop,
 //! Windows) each is the web's neutral look's (`neutral.rs`; LLP 1115.000
-//! D17). Else, which is Android's reader until its controls are Material's,
+//! D17). Under the Material look a checkbox and a radio are Material's
+//! (`material.rs`). Else, which is Android's reader until its other controls
+//! are Material's,
 //! a checkbox is Chrome's rounded square, a radio its circle and a switch a
 //! pill with a thumb, filled with `accent-color`, else the platform's accent
 //! where the host reported one ([`accents`]). `appearance: none` draws
@@ -141,6 +143,28 @@ pub(crate) fn accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
     node.computed_style(StyleMask::INHERITED)
         .accent_color
         .map(|c| rgba(c.resolve(dark)))
+}
+
+/// An authored accent: an `accent-color` on the node or above it, else the
+/// design's `AccentColor` (LLP 1121 D9); none where only the platform's.
+/// `accent-color: AccentColor` names the platform's (or the design's), not
+/// an authored one, except under an authored accent, which it keeps, as the
+/// web's `var(--exact-accent, AccentColor)` does (stage 9 F1): the painting
+/// scope holds that one ([`roles::scoped_accent`]).
+pub(crate) fn authored_accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
+    use exact_kernel::style::roles;
+    let platform = roles::role("AccentColor");
+    let accent = node.computed_style(StyleMask::INHERITED).accent_color;
+    let role = matches!(accent, Some(exact_kernel::ColorValue::Role(id)) if Some(id) == platform);
+    let written = if role {
+        roles::scoped_accent()
+            .filter(|c| !matches!(c, exact_kernel::ColorValue::Role(id) if Some(*id) == platform))
+    } else {
+        accent
+    };
+    written
+        .map(|c| rgba(c.resolve(dark)))
+        .or_else(|| roles::overridden(platform?).map(|c| rgba(c.resolve(dark))))
 }
 
 /// A focused node's accent ([`accents`]), except native neutral fields
@@ -378,7 +402,9 @@ impl super::Painter {
 
 /// Paint `node`'s control in its content box; `held` is an unbound
 /// checkbox's own state, which the host keeps as a browser does, and
-/// `hovered` whether a pointer that hovers is over it.
+/// `hovered` whether a pointer that hovers is over it. `scale` is device
+/// pixels a point.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint(
     backend: &mut dyn Backend,
     node: &NodeRef<'_>,
@@ -387,6 +413,7 @@ pub(super) fn paint(
     dark: bool,
     held: Option<bool>,
     hovered: bool,
+    scale: f32,
 ) {
     if node.style.appearance == Appearance::None {
         return;
@@ -399,6 +426,14 @@ pub(super) fn paint(
             neutral::mark(backend, node, content, ts, dark, on, hovered);
         }
         return;
+    }
+    let switch = node.props.str(PropId::AccessibilityRole) == Some("switch");
+    let radio = node.props.str(PropId::Type) == Some("radio");
+    if look::material() && !switch {
+        return match radio {
+            true => super::material::radio(backend, node, content, ts, dark, on, scale),
+            false => super::material::checkbox(backend, node, content, ts, dark, on, scale),
+        };
     }
     let disabled = node.props.bool(PropId::Disabled) == Some(true);
     let (accent, on_accent) = accents(accent(node, dark), dark);
@@ -489,7 +524,14 @@ pub(super) fn progress(
         return;
     }
     let (cx, cy) = (x + w / 2.0, y + h / 2.0);
-    let ink = rgba(node.text_color().resolve(dark));
+    // Its own `color`, else an authored accent, else the platform's
+    // (Material's spinner is in the primary colour): an inherited colour is
+    // not the spinner's (LLP 1115 D4, LLP 1121 D9).
+    let ink = if node.style.written.has(exact_kernel::StyleId::TextColor) {
+        rgba(node.text_color().resolve(dark))
+    } else {
+        accents(authored_accent(node, dark), dark).0
+    };
     let (thick, long) = (s * 0.1, s * 0.27);
     let spoke = Shape::new(
         (cx - thick / 2.0, cy - s / 2.0, thick, long),

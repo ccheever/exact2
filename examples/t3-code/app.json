@@ -57,7 +57,8 @@
         "width": 1280,
         "height": 840,
         "minWidth": 840,
-        "minHeight": 620
+        "minHeight": 620,
+        "keepRunning": true
       },
       "resources": [{ "from": "server-runtime", "to": "Resources/t3-runtime" }]
     }
@@ -74,6 +75,7 @@
     "snapshot-id",
     "anchor",
     "snapshot-owner",
+    "owner",
     "frame",
     "media-url",
     "media-kind",

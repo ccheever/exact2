@@ -1,6 +1,5 @@
 import { test, expect } from 'bun:test';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 test('structural selectors retain the front modal and later popovers, with modal inert escape', async () => {
   const server = Bun.serve({ port: 0, fetch(request) {
@@ -28,7 +27,7 @@ test('structural selectors retain the front modal and later popovers, with modal
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.goto(server.url.href);
     await page.waitForFunction(() => !!window.read);
@@ -97,7 +96,7 @@ test('dialog modality excludes fullscreen and orders nested or intercepted openi
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     const results = {};
     for (const scenario of ['fullscreen', 'nested-dialog', 'nested-popover', 'same-target', 'intercepted']) {
@@ -153,7 +152,7 @@ test('unobserved modals rank below observed openings and auto popovers replace t
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     const results = {};
     for (const scenario of ['late-import', 'late-import-unread', 'auto', 'auto-reopened']) {

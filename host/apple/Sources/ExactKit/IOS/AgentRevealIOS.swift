@@ -92,7 +92,7 @@ extension Agent {
     /// and `overlays-content`, which insets nothing, all count it
     /// (LLP 1086.000.000 D2).
     func visiblePort(_ sv: UIScrollView) -> CGRect {
-        var port = sv.bounds.inset(by: sv.adjustedContentInset)
+        var port = sv.pageBounds.inset(by: sv.adjustedContentInset)
         guard let window = sv.window else { return port }
         var covers = bars(over: sv).map { $0.convert($0.bounds, to: nil) }
         if let top = keyboardTopInWindow() {
@@ -116,19 +116,23 @@ extension Agent {
     }
 
     /// The bars UIKit shows over `sv`: the navigation bar and toolbar of each
-    /// navigation controller holding it, and a tab bar controller's tab bar.
+    /// navigation controller holding it, and a tab bar controller's tab bar
+    /// (on an iPad, its floating list of items at the top).
     func bars(over sv: UIScrollView) -> [UIView] {
         var out: [UIView] = []
-        var at: UIResponder? = sv
-        while let responder = at {
+        for responder in ViewPresentation.controllers(for: sv) {
             if let nav = responder as? UINavigationController {
                 if !nav.isNavigationBarHidden { out.append(nav.navigationBar) }
                 #if !os(tvOS)
                 if !nav.isToolbarHidden { out.append(nav.toolbar) }
                 #endif
             }
-            if let tabs = responder as? UITabBarController { out.append(tabs.tabBar) }
-            at = responder.next
+            if let tabs = responder as? UITabBarController {
+                out.append(tabs.tabBar)
+                #if os(iOS)
+                if let list = tabs.floatingTabList { out.append(list) }
+                #endif
+            }
         }
         return out.filter { $0.window === sv.window && !$0.isHidden && $0.alpha > 0.01 }
     }

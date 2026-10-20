@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { noPrimary, resetPrimary } from '../support/local-primary-fixture';
 // These cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
 beforeEach(noPrimary);
 afterEach(resetPrimary);
 import { splitOnboardingProjectPath, hostedDecision, transition, agentRows, providerState, decodeCandidates, recentCandidates, welcomeView, welcomeLocal, importProjects, welcomeShowing } from '../../src/pages/pages-welcome';
 import { pagesPrefs } from '../../src/pages/pages-prefs';
+import { fleet, environmentKey } from '../../src/connections/settings-b-fleet';
+import { initialShell } from '../../src/client/domain';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
@@ -79,6 +81,8 @@ test('the wizard lists the paired computer, sets it up, scans, and finishing lan
   const native = fakeNative([]);
   const connect = await welcomeView(client, native, { step: 'connect', now: Date.now() });
   expect(connect.show).toBe(true);
+  // No local server runs (the hosted rules): "Add a computer" starts open (expandPairingInitially).
+  expect(connect.pairStartsOpen).toBe(true);
   expect(welcomeShowing(client)).toBe(true);
   expect(connect.computers).toEqual([{ key: connect.computers[0]!.key, environmentId: 'env-1', label: 'Morgan’s MacBook Pro', url: 'http://127.0.0.1:14807/', status: 'Connected', selected: true }]);
   expect(connect.ready).toBe(true);
@@ -90,6 +94,8 @@ test('the wizard lists the paired computer, sets it up, scans, and finishing lan
   expect(agents.machines.map(machine => [machine.label, machine.agents.length, machine.chatgpt])).toEqual([['Morgan’s MacBook Pro', 3, true]]);
   const projects = await welcomeView(client, native, { step: 'import', now: Date.now() });
   expect([projects.candidateCount, projects.selectedCount, projects.selectionLabel, projects.importLabel]).toEqual([1, 1, '1 of 1 selected', 'Import 1 project']);
+  // One computer: its group has no legend.
+  expect([projects.legend, projects.scans.map(scan => [scan.label, scan.empty, scan.candidates.length])]).toEqual([false, [['Morgan’s MacBook Pro', false, 1]]]);
   await importProjects(client, native);
   expect(calls.map(call => call.method)).toEqual(['agentSessions.scan', 'projects.mutate', 'agentSessions.import']);
   expect(calls[1]!.payload).toMatchObject({ type: 'project.create', projectId: 'project-1', title: 'app', workspaceRoot: '/work/app', createWorkspaceRootIfMissing: false });
@@ -164,4 +170,69 @@ test('project paths keep sibling checkout names visible on Unix and Windows', ()
   expect(splitOnboardingProjectPath('/Users/me/Projects/app/')).toEqual({ name: 'app', parent: '/Users/me/Projects/' });
   expect(splitOnboardingProjectPath('C:\\Users\\me\\app\\')).toEqual({ name: 'app', parent: 'C:\\Users\\me\\' });
   for (const path of ['/', 'C:\\', '//server/share/']) expect(splitOnboardingProjectPath(path)).toEqual({ name: path, parent: '' });
+});
+
+// ImportStep: one fieldset per computer set up, each with its own empty or error state, and a legend only when
+// there are several (WelcomeWizard.tsx:1444-1490); a candidate is imported on its own computer.
+describe('the projects step with two computers', () => {
+  const SECOND = environmentKey('https://second.example', 'env-b');
+  afterEach(() => { fleet.entries.delete(SECOND); fleet.saved = []; });
+
+  function twoComputers(secondScan: { ok: boolean; value?: Obj; message?: string }) {
+    const focusedCalls: string[] = [], secondCalls: Obj[] = [];
+    fleet.entries.set(SECOND, { key: SECOND, origin: 'https://second.example', environmentId: 'env-b', phase: 'connected', message: '', traceId: '',
+      generation: 2, synchronized: 2, lastEvent: 0, subscriptions: {}, config: { environment: { environmentId: 'env-b', label: 'Lane Second' } },
+      shell: initialShell(), scopes: [], error: '', requested: true });
+    const client = {
+      local: { deviceSettings: { appearanceMode: 'system' } }, origin: 'http://127.0.0.1:14807', environmentId: 'env-1', connection: 'connected', statusMessage: '', scopes: [],
+      config: { environment: { label: 'This machine' } }, shell: { projects: [] as Obj[], threads: [], sequence: 0 }, threadId: '', projectId: '',
+      rpc: async (_native: Native, method: string) => { focusedCalls.push(method); return method === 'agentSessions.scan' ? { candidates: [] } : {}; },
+      restAccess: () => ({ http: async () => ({ snapshotSequence: 2, projects: [], threads: [] }) }),
+    } as unknown as T3Client;
+    const saved = [{ origin: 'https://second.example', environmentId: 'env-b', label: 'Lane Second', enabled: true }];
+    let listed: Obj[] = [];
+    const native = { available: true, watch: () => {}, later: async (request: Obj) => {
+      if (request.op === 'environments') return { ok: true, value: { saved: listed }, generation: 1 };
+      if (request.op === 'ids') return { ok: true, value: ['command-1', 'project-b'], generation: 1 };
+      if (request.op === 'request' && request.fleet === SECOND) {
+        secondCalls.push({ method: request.method, payload: request.payload });
+        if (request.method === 'agentSessions.scan') return secondScan.ok ? { ok: true, value: secondScan.value, generation: 2 } : { ok: false, error: { message: secondScan.message }, generation: 2 };
+        if (request.method === 'agentSessions.import') return { ok: true, value: { importedCount: 2, skippedCount: 0 }, generation: 2 };
+        return { ok: true, value: {}, generation: 2 };
+      }
+      return { ok: true, value: {}, generation: 1 };
+    } } as unknown as Native;
+    // The setup reads the fleet's copy of the saved list, which a sync keeps.
+    return { client, native, focusedCalls, secondCalls, pair: () => { listed = saved; fleet.saved = saved; } };
+  }
+
+  test('each computer is its own labelled group with its own empty or error state', async () => {
+    const { client, native, pair } = twoComputers({ ok: false, message: 'The environment is not connected.' });
+    expect((await welcomeView(client, native, { step: 'connect', now: Date.now() })).show).toBe(true);
+    pair();
+    const connect = await welcomeView(client, native, { step: 'connect', now: Date.now() });
+    expect(connect.computers.map(computer => [computer.label, computer.selected])).toEqual([['This machine', true], ['Lane Second', true]]);
+    await welcomeLocal(client, native, 'setup', '', '');
+    const view = await welcomeView(client, native, { step: 'import', now: Date.now() });
+    expect(view.legend).toBe(true);
+    expect(view.scans.map(scan => [scan.label, scan.empty, scan.error])).toEqual([['This machine', true, ''], ['Lane Second', false, 'The environment is not connected.']]);
+  });
+
+  test("a candidate from the second computer is created and imported there, not on this connection", async () => {
+    const scanned = { candidates: [{ path: '/lane/app', title: 'app', sources: ['codex'], threadCount: 1, lastActiveAt: new Date(Date.now() - 86_400_000).toISOString(), alreadyImported: false, git: { root: '/lane/app' } }] };
+    const { client, native, pair, focusedCalls, secondCalls } = twoComputers({ ok: true, value: scanned });
+    await welcomeView(client, native, { step: 'connect', now: Date.now() });
+    pair();
+    await welcomeView(client, native, { step: 'connect', now: Date.now() });
+    await welcomeLocal(client, native, 'setup', '', '');
+    const view = await welcomeView(client, native, { step: 'import', now: Date.now() });
+    const second = view.scans[1]!;
+    expect([second.label, second.candidates.map(candidate => candidate.title), view.selectedCount]).toEqual(['Lane Second', ['app'], 0]);
+    await welcomeLocal(client, native, 'pick', second.candidates[0]!.key, '');
+    await importProjects(client, native);
+    expect(focusedCalls).toEqual(['agentSessions.scan']);
+    expect(secondCalls.map(call => call.method)).toEqual(['agentSessions.scan', 'projects.mutate', 'agentSessions.import']);
+    expect(secondCalls[1]!.payload).toMatchObject({ type: 'project.create', projectId: 'project-b', workspaceRoot: '/lane/app' });
+    expect(secondCalls[2]!.payload).toEqual({ projectId: 'project-b', expectedWorkspaceRoot: '/lane/app' });
+  });
 });

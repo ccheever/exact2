@@ -74,7 +74,10 @@ extension NodeView {
     /// multi-column `text`'s: its column width). Its lines break at this
     /// width; points mapped by `paragraphPoint` are in its space.
     func paragraphBox() -> CGRect {
-        let box = contentBox()
+        // A flex text's lines go down its box as CSS's anonymous flex item (`Kernel::text_line_offset`).
+        let down = props["textOffset"].flatMap(Double.init).map { CGFloat($0) } ?? 0
+        var box = contentBox()
+        box.origin.y += down; box.size.height = max(0, box.height - down)
         guard let record = columnRecord, let first = record.fragments.first else { return box }
         let width = record.columns.isEmpty ? first.rect.width - (layoutBounds.width - box.width) : first.rect.width
         return CGRect(x: box.minX, y: box.minY, width: max(0, width), height: 1e7)
@@ -122,7 +125,7 @@ extension NodeView {
     /// moved by its offset, with the unfragmented box and that offset (what a
     /// dirty rect in this view's space must be moved back by).
     func eachFragment(_ ctx: CGContext, _ body: (CGRect, CGPoint) -> Void) {
-        guard let frags = columnRecord?.fragments, !frags.isEmpty else { return body(contentBox(), .zero) }
+        guard let frags = columnRecord?.fragments, !frags.isEmpty else { return body(paragraphBox(), .zero) }
         let box = paragraphBox()
         for f in frags {
             ctx.saveGState()

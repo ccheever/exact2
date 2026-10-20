@@ -17,13 +17,16 @@ import { dispatchSelection, promptForSend, ultrathinkChoice } from '../composer/
 import { stepReasoningEffort } from '../composer/composer-effort-step';
 import { queuedEdit, saveQueuedEdit } from '../composer/composer-controls-queue';
 import { fanoutBase, serverThreadWorkspace, workspaceStrategy } from '../composer/composer-controls-branch';
-import { composerSelection } from '../composer/composer-provider-selection'; // the sent selection
+import { antigravitySendBlockReason, composerSelection } from '../composer/composer-provider-selection'; // the sent selection
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from '../composer/composer-controls-usage';
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from '../composer/composer-feedback';
 import { threadContextRecords, withMessageContext } from '../composer/composer-editor';
 import { projectPendingUserInputAnswer } from '../timeline/thread-links';
 import { pendingThreadImports } from '../composer/composer-thread-import';
 import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from '../browser/browser-annotation'; // an annotation's send
+import { markAnnotationSend } from '../browser/browser-annotation';
+import { annotationDispatchCurrent, takeAnnotationDispatch } from '../browser/browser-capture';
+import { composerChipFinishCurrent, takeComposerChipFinish } from '../composer/composer-chip-bridge';
 import { pressGesture, sendIntent } from '../composer/composer-editor-intent';
 import { launchTitle } from '../composer/composer-editor-title';
 import { promptLengthMessage } from '../composer/composer-editor-menu';
@@ -75,13 +78,27 @@ export async function composerOps(this: T3Client, op: string, id: string, value:
 export async function composerWrites(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
   let resultMessage = '';
   try {
+    const annotation = op === 'send-annotation' ? takeAnnotationDispatch(this, Number(id)) : null;
+    const citation = op === 'send-citation' ? takeComposerChipFinish(this, Number(id)) : null;
+    if (op === 'send-citation') {
+      if (!citation?.send || composerInput(this)) return true;
+      op = 'send'; id = ''; value = citation.value;
+    }
+    if (op === 'send-annotation') {
+      if (!annotation) return true;
+      op = 'send'; id = ''; value = annotation.value;
+    }
     if (['send', 'submit-answers', 'advance-question', 'pick-option'].includes(op) && pendingThreadImports(this)) throw new ClientError('Still bringing attached context into this message. Send again once its chip resolves.');
     // A request held while the user typed (composer-typing-guard.ts) leaves the composer theirs: this send goes to the
     // thread, and sending releases the request.
     if (op === 'send' && composerRequests(this).approvals.length) throw new ClientError('Resolve this approval request to continue.');
-    else if (op === 'send' && composerInput(this) && annotationSendMarked(this)) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
+    else if (op === 'send' && composerInput(this) && (annotation !== null || annotationSendMarked(this))) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
     else if (op === 'send' && composerInput(this)) await submitAnswers.call(this, native, storage, '', value);
-    else if (op === 'send') { try { await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value, id)) || ''; }); } finally { releaseHeldRequests(this); } } // onSend's guard (a move in flight finishes first)
+    else if (op === 'send') { try { await autoBalanceSend(this, native, async () => {
+      if (citation && !composerChipFinishCurrent(this, citation)) return;
+      if (annotation) { if (!annotationDispatchCurrent(this, annotation)) return; markAnnotationSend(this); }
+      resultMessage = (await send.call(this, native, storage, value, id)) || '';
+    }); } finally { releaseHeldRequests(this); } } // onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value, n === 1); // n 1: the picker's Shift+click or Shift+Return
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     // composer.increaseEffort / composer.decreaseEffort (keyboard-dispatch.ts): id is the direction.
@@ -137,8 +154,10 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   // An annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
   const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
   const provider = arr(this.config.providers).find(provider => provider.instanceId === sendProviderId);
-  if (!provider || !providerAvailable(provider)) { if (annotationSend) return annotationAttachedToDraft(this); throw new ClientError('This provider is unavailable. Configure it in T3 Code.'); } // onSend: !providerAvailable
-  if (!arr(provider.models).some(model => model.slug === sendModelId)) throw new ClientError('Choose one of the models advertised by T3.');
+  // onSend's !providerAvailable: no provider entry, or Antigravity's block reason. A listed provider whose probe failed
+  // still sends, and the server's failure shows on the thread.
+  const blocked = provider && (chosen.entry || fanoutSelections(this)) ? antigravitySendBlockReason(provider, sendModelId) : 'This provider is unavailable. Configure it in T3 Code.';
+  if (blocked || !provider) { if (annotationSend) return annotationAttachedToDraft(this); throw new ClientError(blocked); }
   if (Array.isArray(provider.supportedRuntimeModes) && !provider.supportedRuntimeModes.includes(this.runtimeMode)) {
     throw new ClientError('Choose a permission mode supported by this provider.');
   }
@@ -147,6 +166,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const serverWorkspace = selection.threadId && !setupQueue ? serverThreadWorkspace(this) : null;
   const attachments = [...await this.uploadSnapshots(native, storage), ...await composerFileAttachments(this, native, text)]; // + folded pastes (composer-editor-files.ts)
   assertOwner();
+  const title = launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)); // onSend's titleSeed
   const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // a draft launches as its own id
   assertOwner();
   if (selection.threadId) {
@@ -160,8 +180,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
       // startThreadTurn with bootstrap.prepareWorktree: launchThread on the existing thread (reuseExistingThread).
       const payload = launchPayload(commandId, selection.threadId, messageId, selection.projectId, text,
         dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)), selection.runtimeMode, submission?.interactionMode || selection.interactionMode, attachments);
-      Object.assign(payload, { reuseExistingThread: true, workspaceStrategy: serverWorkspace,
-        title: launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)) });
+      Object.assign(payload, { reuseExistingThread: true, workspaceStrategy: serverWorkspace, title });
       await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
         description: 'Send', threadId: selection.threadId, text, uncertain: false }, assertOwner);
     } else {
@@ -175,7 +194,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
         assertOwner();
         await this.dispatch(native, storage, withDispatchMode(sendPayload(compactCommandId, selection.threadId, compactMessageId, '/compact', []), 'auto', turnSelection), 'Compact context', assertOwner);
       }
-      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode, turnSelection);
+      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments, title), text), mode, turnSelection);
       if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
       await this.dispatch(native, storage, payload, 'Send', assertOwner);
       setKeepFullHistory(this, false, selection.threadId); // a turn that starts clears the chip's choice; a failed send keeps it
@@ -192,7 +211,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     const payload = launchPayload(commandId, threadId, messageId, selection.projectId, text,
       dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)), selection.runtimeMode, selection.interactionMode, attachments);
     payload.workspaceStrategy = workspaceStrategy(this);
-    payload.title = launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)); // composer-editor-title.ts
+    payload.title = title;
     const result = await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
       description: 'Create thread', threadId, text, uncertain: false }, assertOwner);
     forgetDraftThreadId(this, launchKey);

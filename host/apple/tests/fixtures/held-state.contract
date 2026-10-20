@@ -1,0 +1,14 @@
+// HeldStateTests (LLP 1121 stage 8 E2): a card that presses, its `:active`
+// the press paint, with a child that is a flat leaf on iOS (a box with only a
+// fill and its size: no props, no handlers), and the count of its presses.
+component App
+  state n = 0
+  action go
+    n = n + 1
+  view
+    main testId="root" width=400 height=400 background-color="#ffffff"
+      box testId="card" press=go width=200 height=100 background-color="#ffffff"
+        :active
+          background-color = "#0000ff"
+        box width=20 height=20 background-color="#00ff00"
+      text `n ${n}` testId="count"

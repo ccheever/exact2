@@ -147,13 +147,13 @@ async function compile() {
   // Generated output is not a captured input. Remove it before resolution,
   // so an app's ./app.js import follows the same TS substitution as one-shot.
   rmSync(resolve(stage,'app.js'),{force:true});
-  const { configure, check, bundleOptions, capturedSources } = await import(resolve(stage,'__exact_config.mjs'));
+  const { configure, check, dataBundle } = await import(resolve(stage,'__exact_config.mjs'));
   configure(stage, true, parseSync);
   const checking=check(stage,tsc,libraries).then(()=>null,error=>error);
   let failed;
   try {
-  const bundle=await rolldown({...bundleOptions,cwd:stage,input:resolve(stage,'__exact_entry.ts'),
-    tsconfig:config,plugins:[capturedSources(stage)]});
+  const bundle=await rolldown({...dataBundle(stage),cwd:stage,input:resolve(stage,'__exact_entry.ts'),
+    tsconfig:config});
   try { await bundle.write({file:resolve(stage,'app.js'),format:'iife',name:'exact'}); }
   finally { await bundle.close(); }
   process.stdout.write('{"phase":"bundled"}\n');
@@ -275,12 +275,22 @@ mod tests {
         std::fs::create_dir(stage.0.join(".exact")).unwrap();
         write(".exact/backend-origin", "http://127.0.0.1:4412");
         assert!(resident().unwrap().contains("4412"));
+        let warning = || {
+            serde_json::from_str::<Option<String>>(
+                &std::fs::read_to_string(stage.0.join("__exact_backend_warning.json")).unwrap(),
+            )
+            .unwrap()
+        };
+        assert!(warning()
+            .unwrap()
+            .contains("overriding the app.ts origin literal"));
         compile_once(&stage.0, &tools).unwrap();
         assert!(std::fs::read_to_string(stage.0.join("app.js"))
             .unwrap()
             .contains("4412"));
         std::fs::remove_file(stage.0.join(".exact/backend-origin")).unwrap();
         assert!(resident().unwrap().contains("4400"));
+        assert_eq!(warning(), None);
         compile_once(&stage.0, &tools).unwrap();
         assert!(std::fs::read_to_string(stage.0.join("app.js"))
             .unwrap()

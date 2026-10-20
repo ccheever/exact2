@@ -29,6 +29,12 @@
         "systemMedium",
         "accessoryRectangular"
       ],
+      "watchFamilies": [
+        "accessoryRectangular",
+        "accessoryCircular",
+        "accessoryInline",
+        "accessoryCorner"
+      ],
       "component": "NextTrains",
       "props": "NextTrainsProps",
       "refresh": "nextTrains",
@@ -50,6 +56,36 @@
             "at": 1787916300000
           }
         ]
+      }
+    }
+  ],
+  "data": ["privacy"],
+  "live_activities": [
+    {
+      "kind": "departure",
+      "title": "Train Departure",
+      "description": "Follow your next train.",
+      "component": "DepartureActivity",
+      "state": "DepartureState",
+      "preview": {
+        "station": "Mountain View",
+        "headsign": "San Francisco",
+        "train": 101,
+        "at": 1787915700000,
+        "status": "On time"
+      }
+    },
+    {
+      "kind": "service-alert",
+      "title": "Service Alert",
+      "description": "Follow a service disruption.",
+      "component": "ServiceAlertActivity",
+      "state": "ServiceAlertState",
+      "push": true,
+      "preview": {
+        "title": "Service delay",
+        "message": "Northbound trains delayed by 10 minutes.",
+        "updatedAt": 1787915700000
       }
     }
   ],

@@ -127,6 +127,18 @@ impl Actions {
         }
         self
     }
+    /// Each physical key a button or stick binds, with the action it
+    /// drives, in declaration order. The GPU build writes them for the
+    /// Contract bake, which warns of a button shortcut on the same key.
+    pub fn keys(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.entries.iter().flat_map(|a| {
+            let stick = a.stick.iter().flat_map(|s| s.keys.iter().flatten());
+            a.keys
+                .iter()
+                .chain(stick)
+                .map(move |k| (k.as_str(), a.name.as_str()))
+        })
+    }
     pub(crate) fn json(&self) -> String {
         use crate::Writer;
         let mut w = crate::json::Encoder::rounded();
@@ -339,6 +351,8 @@ pub(crate) struct ControlContact {
 pub struct Input {
     #[data(skip)]
     actions: Option<Arc<Actions>>,
+    #[data(skip)]
+    pub(crate) events: crate::events::InputEvents,
     pub(crate) keys: Vec<String>,
     pressed: Vec<String>,
     released: Vec<String>,
@@ -349,6 +363,15 @@ pub struct Input {
     messages: Vec<String>,
 }
 impl Input {
+    /// Events produced by the preceding tick, in emission order for this type.
+    pub fn events<E: crate::TypedEvent>(&self) -> &[E] {
+        self.events
+            .0
+            .get(E::NAME)
+            .and_then(|v| v.downcast_ref::<Vec<E>>())
+            .map_or(&[], Vec::as_slice)
+    }
+
     pub(crate) fn new(actions: Actions) -> Self {
         Self {
             actions: (!actions.entries.is_empty()).then(|| Arc::new(actions)),
@@ -769,6 +792,25 @@ mod control_tests {
             buttons,
             at_ms: 0.,
         }
+    }
+    #[test]
+    fn keys_name_every_bound_key_with_its_action() {
+        let actions = Actions::new()
+            .stick("move", Stick::wasd().or_touch(Region::Left))
+            .button("buy", &[])
+            .button("one", &["Digit1", "Numpad1"]);
+        let keys: Vec<_> = actions.keys().collect();
+        assert_eq!(
+            keys,
+            [
+                ("KeyW", "move"),
+                ("KeyS", "move"),
+                ("KeyA", "move"),
+                ("KeyD", "move"),
+                ("Digit1", "one"),
+                ("Numpad1", "one"),
+            ]
+        );
     }
     #[test]
     fn primary_origin_survives_both_button_chords_and_secondary_release() {

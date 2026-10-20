@@ -602,7 +602,7 @@ class Collection {
     const height = this.geometry ? this.geometry.port_main : f.port_main;
     this.leaveEndIfMoved(fill.velocity ?? 0);
     const extent = this.index.total;
-    const anchor = this.restoring(f) ?? this.reportAnchor(f.offset, height, padding);
+    const anchor = this.restoring(f) ?? this.reportAnchor(f.offset, height, padding, height !== f.port_main && !(fill.velocity ?? 0));
     [this.index.leading, this.index.trailing] = padding;
     this.geometry = { ...f, measurements: [] };
     this.correction = null;
@@ -620,13 +620,16 @@ class Collection {
     return [changed, this.edge()];
   }
   /** inset.rs `report_anchor`: on the old range, where the port is as far down as a grown padding
-   * before the rows moved them (none before a first report), or on the new one when only that follows the end. */
-  reportAnchor(offset, port, padding) {
+   * before the rows moved them (none before a first report), or on the new one when only that follows the end;
+   * `resized` (not by the reader) keeps an end the last report was at. */
+  reportAnchor(offset, port, padding, resized) {
     const i = this.index, down = this.geometry ? padding[0] - i.leading : 0;
+    const atEnd = resized && this.geometry && this.follows() && i.anchor(this.anchorOffset(this.geometry.offset), port, true).follows;
     let a = i.anchor(this.anchorOffset(offset + down), port, this.follows());
     const moved = padding[0] !== i.leading || padding[1] !== i.trailing;
     [i.leading, i.trailing] = padding;
     if (moved && this.follows() && !a.follows) { const b = i.anchor(this.anchorOffset(offset), port, this.follows()); if (b.follows) a = b; }
+    if (atEnd && !a.follows) a = i.anchor(this.anchorOffset(i.maxOffset(port)), port, true);
     return a;
   }
   travelWithin(f, byView, fill) {

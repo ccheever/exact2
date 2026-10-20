@@ -203,6 +203,7 @@ export function runCaps(root = process.cwd()) {
   }
 
   harnesses(root, files);
+  helps(root);
 
   return { problems, counted };
 }
@@ -217,14 +218,17 @@ export function runCaps(root = process.cwd()) {
 function harnesses(root, files) {
   if (!existsSync(resolve(root, 'Cargo.toml'))) return;
   const result = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  if (result.status !== 0) {
-    fail('tests:metadata', 'cargo metadata failed, so no test harness was checked.', result.stderr.trim().split('\n').slice(-3).join(' '));
+  // A cargo that never started (not on PATH) leaves an error and a null stderr; output past maxBuffer leaves an error
+  // (ENOBUFS) beside a status that can be 0 and stdout cut short.
+  if (result.error || result.status !== 0) {
+    fail('tests:metadata', 'cargo metadata failed, so no test harness was checked.',
+      result.error ? result.error.message : result.stderr.trim().split('\n').slice(-3).join(' '));
     return;
   }
   const metadata = JSON.parse(result.stdout);
   const members = new Set(metadata.workspace_members);
   const packages = metadata.packages.filter((p) => members.has(p.id))
-    .map((p) => ({ ...p, dir: p.manifest_path.slice(metadata.workspace_root.length + 1, -'Cargo.toml'.length) }))
+    .map((p) => ({ ...p, dir: p.manifest_path.slice(metadata.workspace_root.length + 1, -'Cargo.toml'.length).replaceAll('\\', '/') }))
     .filter((p) => !VENDORED.test(p.dir));
   // A source file belongs to the package whose directory holds it most closely
   const deepestFirst = [...packages].sort((a, b) => b.dir.length - a.dir.length);
@@ -257,6 +261,23 @@ function harnesses(root, files) {
     if (!tests && harnessed.length && !on.length) skipped += 1;
   }
   counted.push(`workspace packages without tests: ${skipped}, every library and binary test harness skipped`);
+}
+
+/**
+ * The helps against the scripts they describe, where a checkout has them (exact2's scripts/help-parity.mjs): a flag
+ * with no help row, a row naming a flag no script parses, or a help over its length fails here, before a push, as it
+ * would fail help.test after one. Read from source: no browser, no build.
+ */
+function helps(root) {
+  const parity = resolve(root, 'scripts/help-parity.mjs');
+  if (!existsSync(parity)) return;
+  let found;
+  try { found = require(parity).helpParity(root); } catch (e) {
+    fail('help:parity', `scripts/help-parity.mjs could not run, so no help was checked: ${e.message}`);
+    return;
+  }
+  for (const p of found) fail(p.code, p.message, p.detail);
+  counted.push(`helps: each verb's flags against its script's, its rows and lengths, ${found.length} problems`);
 }
 
 function main() {

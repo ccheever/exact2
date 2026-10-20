@@ -57,20 +57,26 @@ pub struct Site {
     pub tokens: Vec<String>,
 }
 
-/// The design's duration and easing tokens, and its components' params of
-/// those kinds, each name and value; none when it does not check (lowering
-/// reports why). An inline `theme`'s names
+/// The design's duration and easing tokens, its packages' (LLP 1121 D11),
+/// and its components' params of those kinds, each name and value; none
+/// when it does not check (lowering reports why). An inline `theme`'s names
 /// are undotted, so it declares none (`tamber-motion-name`).
 pub fn tokens(
     design: Option<&str>,
+    packages: &[contract_syntax::DesignSource],
     params: &[crate::params::ParamToken],
     components: &[String],
 ) -> Vec<(String, String)> {
-    let mut design = match design {
+    let design = match design {
         Some(text) => match tamber::parse(text) {
-            Ok(d) => d,
+            Ok(d) => Some(d),
             Err(_) => return Vec::new(),
         },
+        None => None,
+    };
+    let design = crate::theme::packages::merge(design, packages).0;
+    let mut design = match design {
+        Some(d) => d,
         None if params.is_empty() => return Vec::new(),
         None => tamber::Design::default(),
     };

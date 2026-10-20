@@ -69,6 +69,38 @@ final class NodePoolIOSTests: XCTestCase {
         }
     }
 
+    /// A hover held on a row's descendant (stage 9 G3: the hold put a look
+    /// recognizer on it): the row is not pooled with it, the hold goes once
+    /// (`gone`), and nothing of it survives the next row of that shape.
+    @MainActor func testAHoverHeldOnARowsDescendantGoesWithTheRow() throws {
+        let p = fixture(), row = try XCTUnwrap(p.views[10]), button = try XCTUnwrap(p.views[12])
+        defer { HeldState.letGo(nil) }
+        var reasons: [String] = []
+        XCTAssertEqual(button.hold("hover", dropped: { reasons.append($0) }).held, "hover")
+        XCTAssertNotNil(button.lookHoverRecognizer, "the hold's recognizer")
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + rowOps(20, y: 44, label: "Save 20")
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertEqual(reasons, ["gone"])
+        XCTAssertNil(HeldState.view)
+        XCTAssertFalse(p.views[20] === row, "a row holding a hover is not pooled")
+        XCTAssertNil(button.lookHoverRecognizer, "the hold's recognizer went with it")
+        XCTAssertNil(p.views[22]?.lookHoverRecognizer, "the next row's button has none")
+    }
+
+    /// A pooled view lets its hold go as it is recycled (`recycle`), whatever
+    /// kept its row in the pool: once, its recognizer with it.
+    @MainActor func testARecycledViewLetsItsHoldGo() throws {
+        let p = fixture(), button = try XCTUnwrap(p.views[12])
+        defer { HeldState.letGo(nil) }
+        var reasons: [String] = []
+        XCTAssertEqual(button.hold("hover", dropped: { reasons.append($0) }).held, "hover")
+        button.recycle()
+        XCTAssertEqual(reasons, ["gone"])
+        XCTAssertNil(HeldState.view)
+        XCTAssertNil(button.lookHoverRecognizer)
+        withExtendedLifetime(p) {}
+    }
+
     func testARetiredRowsViewsComeBackUnderTheNextRowsIds() throws {
         let p = fixture()
         let row = try XCTUnwrap(p.views[10]), glyph = try XCTUnwrap(p.views[11]), button = try XCTUnwrap(p.views[12])

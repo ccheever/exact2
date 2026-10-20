@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'bun:test';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 mock.module('./rt.js', () => ({ clock: {}, Clocked: [], effect() {}, onEnd() {}, drive() {} }));
 mock.module('./navigation.js', () => ({ reportTime() {}, reportPlace() {} }));
 const { formatted } = await import('./live-time.js');
@@ -71,8 +72,6 @@ test('old browsers show durations and their reservation uses only the displayed 
 });
 
 test('reservation spans measure the element font longhands, numeric features and transforms', async () => {
-  const { chromium } = await import('playwright-core');
-  const { chromium: browserPath } = await import('../../scripts/agent-launch.mjs');
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/live-time.js') return new Response(Bun.file(`${import.meta.dir}/live-time.js`), { headers: { 'content-type': 'text/javascript' } });
@@ -82,7 +81,7 @@ test('reservation spans measure the element font longhands, numeric features and
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.goto(server.url.href);
     const results = await page.evaluate(async () => {

@@ -40,9 +40,10 @@ fn ticks(bridge: &Bridge<NoData>) -> f64 {
 fn the_pages_clock_reaches_every_boot_until_the_agents_takes_time() {
     let plan = contract::compile(TICKER).unwrap().encode();
     let mut bridge = Bridge::<NoData>::new();
-    PAGE.set(3500.0);
+    PAGE.set(500.0);
     bridge.set_live_clock(Some(page));
     bridge.boot(&plan, NoData, 400., 400., "/");
+    PAGE.set(3500.0);
     bridge.advance(3500., 0);
     assert_eq!(ticks(&bridge), 1.0, "three missed beats, one fire");
     // A dev restart, carrying the state and the timer, keeps the page's clock.
@@ -55,6 +56,37 @@ fn the_pages_clock_reaches_every_boot_until_the_agents_takes_time() {
     bridge.set_live_clock(None);
     bridge.advance(10_500., 0);
     assert_eq!(ticks(&bridge), 5.0);
+}
+
+#[test]
+fn a_fresh_boot_on_the_pages_clock_starts_where_it_reads() {
+    let plan = contract::compile(TICKER).unwrap().encode();
+    let mut bridge = Bridge::<NoData>::new();
+    PAGE.set(60_000.0);
+    bridge.set_live_clock(Some(page));
+    bridge.boot(&plan, NoData, 400., 400., "/");
+    let due = bridge.host.as_ref().unwrap().runner().timer_due_ms();
+    assert_eq!(
+        due,
+        Some(61_000.0),
+        "a beat after the boot, not 59 missed since 0"
+    );
+    bridge.advance(60_500., 0);
+    assert_eq!(ticks(&bridge), 0.0);
+    // A first dev generation, booted fresh through `boot_plan`, the same.
+    let mut fresh = Bridge::<NoData>::new();
+    fresh.set_live_clock(Some(page));
+    let len = fresh.input_write(&plan);
+    fresh.boot_plan(len, NoData, 400., 400., "/");
+    let due = fresh.host.as_ref().unwrap().runner().timer_due_ms();
+    assert_eq!(due, Some(61_000.0));
+    // The agent's clock boots at zero.
+    bridge.set_live_clock(None);
+    bridge.boot(&plan, NoData, 400., 400., "/");
+    assert_eq!(
+        bridge.host.as_ref().unwrap().runner().timer_due_ms(),
+        Some(1000.0)
+    );
 }
 
 #[test]

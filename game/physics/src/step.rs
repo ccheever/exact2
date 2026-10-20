@@ -411,6 +411,7 @@ impl EventHandler for Events {
 /// Advance one PhysicsPipeline step at exactly `world.dt()`, reflecting game edits
 /// and publishing poses, velocities, sleeping state and ordered collision events.
 pub fn step(world: &mut World) {
+    let _span = world.span("physics::step");
     let physics = world.resource::<Physics>();
     assert!(physics.gravity.is_finite(), "physics: invalid gravity");
     let mut saved = physics.executor.0.borrow_mut();

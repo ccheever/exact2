@@ -1,10 +1,10 @@
 # LLP 1123: Content owners — one viewport per session, local geometry and safe areas per native container
 
 **Type:** RFC
-**Status:** Review (revised on LLP 1115.002 D8.2's host blocks)
+**Status:** Review (revised on LLP 1115.002 D8.2's host blocks); stage 2 (D3, D4, D9) accepted (Charlie, 2026-10-18)
 **Systems:** Kernel (what a host block gains for an owner: local insets, the primary scroller; clearance inside the block; rendering ancestry for public geometry; `var(--exact-safe-area-inset-*)` as a term of a calculation tree); Runner (`client_rect`, `elementFromPoint`, `exactSurface` `container:` records); Apple host (iOS, iPadOS, tvOS: `ExactViewIOS.fit`, `ModalHost`, `NavigationHost`, `NavigationBarIOS.reportCovers`, keyboard ownership; macOS windows and dialogs); Web host and JS target (owners for emulated chrome, `nav-chrome.js`; registered custom properties in `index.html`); Linux, Windows (flat hosts); Contract (`-exact-safe-area`, `navigationSizing`, `keyboardAvoidance`, `--exact-safe-area-inset-*`, the layout regions' `env(-exact-<region>-inset-*)`); Agent (coordinates, hit testing, screenshots of presented content)
 **Author:** Claude (Opus 5.5) for ide
-**Implementer:** to be assigned on acceptance
+**Implementer:** stage 2: Krzysztof Magiera, from 2026-10-18, reworking #618 into D4's `-exact-safe-area` with the top and bottom executors first; the rest to be assigned on acceptance
 **Date:** 2026-10-08
 **Revised:** 2026-10-13
 **Related:**
@@ -17,7 +17,7 @@
   - [CSS Position 4](https://drafts.csswg.org/css-position-4/#top-layer): the top layer. [HTML modal dialogs and inert subtrees](https://html.spec.whatwg.org/multipage/interaction.html#modal-dialogs-and-inert-subtrees).
   - [CSS Viewport 1](https://drafts.csswg.org/css-viewport/#interactive-widget-section): `interactive-widget`. [Virtual Keyboard API](https://www.w3.org/TR/virtual-keyboard/).
   - [WebKit, "Designing websites for iPhone X"](https://webkit.org/blog/7929/designing-websites-for-iphone-x/).
-- **Apple documentation.** Linked where each API is discussed in §"Apple's APIs and the HIG". iPhone Duo and iOS 27.1 material is beta-SDK evidence, not hardware verification.
+- **Apple documentation.** Linked where each API is discussed in §"Apple's APIs and the HIG". iPhone Duo and iOS 27.1 material is iOS 27.1 SDK and simulator evidence, not hardware verification.
 - **Lab.** Each stage is verified on the iPhone Duo (open and closed) and an iPhone simulator, natively and in Safari, with a lab app outside the repository that has a screen per case in §"Cases" it covers. `apps/duo-lab` stays LLP 1078's fixture.
 
 ## Summary
@@ -74,7 +74,7 @@ Every case below is one the HIG or Apple's APIs define. Each row gives the behav
 | C11b | A bottom toolbar projected from authored content | LLP 1075.003 §3.5 | The toolbar is bar chrome: it enters `local` through `safeAreaInsets`, like the navigation bar. | D3 | `nav-inline` with a toolbar |
 | C12 | A header lifted into the bar | LLP 1035.001 D9 | The lifted header is `display: none` and neither clears nor is credited; the route's top clearance is its whole local top inset. | D3 | `nav-inline` |
 
-### iPhone Duo (iOS 27.1 beta SDK)
+### iPhone Duo (iOS 27.1 SDK)
 
 | # | Case | Source | Required behavior | By | Lab screen |
 |---|---|---|---|---|---|
@@ -82,7 +82,7 @@ Every case below is one the HIG or Apple's APIs define. Each row gives the behav
 | C14 | Open: the inner screen's bars | [Tech Talk: Raise the bar with iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111462/), [Tech Talk: Design for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111466/) | In landscape the bars are a side strip, as C13. In portrait, in a sheet centred on the inner screen, and in an app that opts out of side bars, the bars are horizontal (top and bottom); a sheet placed at the side of the inner screen, and sheets on the cover screen, can carry a side bar. In every arrangement clearance follows `safeAreaInsets`; nothing in Exact assumes which edge carries the bars. | D3 | `strip`, open, both orientations |
 | C14a | The inner front-facing camera while it is active | [HIG: Designing for iPhone Duo](https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo), [`UIView.ReservedRegion`](https://developer.apple.com/documentation/uikit/uiview/reservedregion) | While the camera is active, UIKit reports an occlusion region. Exact clears what `safeAreaInsets` reports; whether the region enters `safeAreaInsets` is to be confirmed on the iOS 27.1 simulator. A rectangle that does not enter them is deferred with a consumer (D6). | D3, D6 | `strip` with the camera active |
 | C15 | Open in a book pose: the fold | [`UIView.ReservedRegion`](https://developer.apple.com/documentation/uikit/uiview/reservedregion), LLP 1078 | The document reports two segments and `folded`; content uses `env(viewport-segment-*)`. Automatic clearance does not protect an interior fold. | LLP 1078, D6 (deferred) | `segments` |
-| C16 | A sheet on a partially open fold | [Tech Talk: Design for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111466/) | UIKit moves the sheet off the fold; the sheet's owner follows its new allocation. | D2 | `sheet-page` in a book pose |
+| C16 | A sheet on a partially open fold | [Tech Talk: Design for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111466/) | On a book fold UIKit moves the sheet onto one segment; the sheet's owner follows its new allocation. | D2 | `sheet-page` in a book pose |
 
 ### Presentations
 
@@ -132,7 +132,7 @@ Every case below is one the HIG or Apple's APIs define. Each row gives the behav
 
 ## Apple's APIs and the HIG, and how Exact maps each
 
-Exact follows CSS where CSS has a word, follows UIKit where only UIKit does, and declares each deviation. The tables say, per API, what it does and what Exact does with it: **follows**, **deviates** (with the reason), or **defers** (until a consumer). iPhone Duo rows are iOS 27.1 beta-SDK evidence.
+Exact follows CSS where CSS has a word, follows UIKit where only UIKit does, and declares each deviation. The tables say, per API, what it does and what Exact does with it: **follows**, **deviates** (with the reason), or **defers** (until a consumer). iPhone Duo rows are iOS 27.1 SDK evidence.
 
 ### A view's size and traits
 
@@ -188,14 +188,14 @@ Exact follows CSS where CSS has a word, follows UIKit where only UIKit does, and
 | [`UIWindowScene.effectiveGeometry`](https://developer.apple.com/documentation/uikit/uiwindowscene/effectivegeometry) | The scene's coordinate space, system frame, orientation and interactive-resizing state. | Follows upstream: the scene's size is not the session's. A session is sized by its own `ExactView`; an embedded session in a sheet takes the sheet's size as its document size (D1). |
 | [Multitasking on iPad, Mac and Apple Vision Pro](https://developer.apple.com/documentation/uikit/multitasking-on-ipad-mac-and-apple-vision-pro) | Split View, Slide Over and Stage Manager resize windows continuously; no width table applies. | Follows: a window resize is a real resize of the session root (document facts change, LLP 1039 D2) and of every owner (D2). Only transforms are excluded. |
 
-### iPhone Duo (iOS 27.1 beta SDK)
+### iPhone Duo (iOS 27.1 SDK)
 
 | API | What it does | Exact |
 |---|---|---|
-| [`UIView.ReservedRegion`](https://developer.apple.com/documentation/uikit/uiview/reservedregion), [`frame`](https://developer.apple.com/documentation/uikit/uiview/reservedregion/frame) | Division (fold) and occlusion regions, local to the queried view, with identity and an active state. A region's frame is in that view's coordinates and already includes the interaction margins. | Follows for the document: LLP 1078 D5 maps the session view's active divisions to viewport segments, margins included (its Q5 ruling). Owner-local segments are deferred (D6): they need ordered rectangles, not four insets, and join the `container:` record with a consumer. Occlusion regions (the inner camera while active) are reported as regions; Exact clears only what `safeAreaInsets` includes, and whether they are included is beta behavior to confirm (C14a). LLP 1078 D5's sentence that they "stay what they already are, the safe-area insets" is amended to match. |
+| [`UIView.ReservedRegion`](https://developer.apple.com/documentation/uikit/uiview/reservedregion), [`frame`](https://developer.apple.com/documentation/uikit/uiview/reservedregion/frame) | Division (fold) and occlusion regions, local to the queried view, with identity and an active state. A region's frame is in that view's coordinates and already includes the interaction margins. | Follows for the document: LLP 1078 D5 maps the session view's active divisions to viewport segments, margins included (its Q5 ruling). Owner-local segments are deferred (D6): they need ordered rectangles, not four insets, and join the `container:` record with a consumer. Occlusion regions (the inner camera while active) are reported as regions; Exact clears only what `safeAreaInsets` includes, and whether they are included is still to confirm (C14a). LLP 1078 D5's sentence that they "stay what they already are, the safe-area insets" is amended to match. |
 | [`UIHingeInteraction`](https://developer.apple.com/documentation/uikit/uihingeinteraction) | Hinge status and angle, observed on a view hierarchy; a fold from flat to a book angle changes region activity without changing bounds. | Follows (LLP 1078 D5): posture comes from the hinge; a status change relayouts. A fold without a bounds change invalidates every owner's snapshot (D2). |
-| `ArrangementView`, `UIArrangementViewController` ([Tech Talk: Strike a pose with adaptive layouts on iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111463/)) | Split or overlay arrangement of panes within given bounds; layout, not navigation. Named in Apple's Tech Talks; their documentation pages are beta and not linked here. | Defers: `navigationArrangement` waits for an app (D7). A pane an arrangement gives Exact is an app-owned container, so it is an owner. |
-| Standard sheets on a partial fold ([Tech Talk: Design for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111466/)) | UIKit moves a standard sheet off a partially open fold and adapts its controls. | Follows: Exact's page sheet is a standard sheet, so UIKit moves it; the sheet owner's allocation follows the move (D2). Beta evidence. |
+| `ArrangementView`, `UIArrangementViewController` ([Tech Talk: Strike a pose with adaptive layouts on iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111463/)) | Split or overlay arrangement of panes within given bounds; layout, not navigation. Named in Apple's Tech Talks; their documentation pages are not linked here. | Defers: `navigationArrangement` waits for an app (D7). A pane an arrangement gives Exact is an app-owned container, so it is an owner. |
+| Standard sheets on a partial fold ([Tech Talk: Design for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111466/)) | Apple's talk: UIKit moves a standard sheet off a partially open fold and adapts its controls. On the iOS 27.1 simulator a book fold moves a page or form sheet to the left segment, its edge about 12 points into the band, and a laptop fold leaves it across the fold. | Follows: Exact's page sheet is a standard sheet, so UIKit moves it; the sheet owner's allocation follows the move (D2). |
 
 ### tvOS
 
@@ -517,7 +517,7 @@ Once stage 1 proves it, these are deleted:
 - holding the background's geometry while a sheet is up (`ModalHost.deferGeometry` and its replay): the background is laid out at its own size throughout;
 - the dismissal-width cover guard in `NavigationBarIOS.reportCovers`;
 - side covers (`HostCover::Edges` right and left) and the `header_inset` transfer (`kernel/src/kernel/cover.rs`);
-- the app-side workaround in Lexy that holds its layout wide across a sheet's dismissal.
+- an app-side workaround that holds an app's layout wide across a sheet's dismissal.
 
 The provisional-title sampling (`scrollOriginProvisional`) goes only if the publication rule covers its case. The matching `QUEUE.md` entries go too.
 

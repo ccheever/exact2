@@ -4,14 +4,14 @@
 // timestamp the test supplies; a voice's playback rate and pan (LLP 1125
 // D10); a sequence's retraction before a voice starts, and its timed haptics
 // (LLP 1125 D3); the held voice of a `{0, 0}` timestamp; the Audio Session
-// API; and the drop before a user activation. Firefox and
-// WebKit come from Playwright (`bunx playwright@1.63.0 install firefox
-// webkit`), Chrome from the machine's; an engine that is missing is skipped.
+// API; and the drop before a user activation. Every engine comes from
+// Playwright (`bunx playwright@1.64.1 install chromium-headless-shell firefox
+// webkit`); an engine that is missing is skipped.
 import { afterAll, test, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
-import { chromium as installed } from '../../../scripts/agent-launch.mjs';
+import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
@@ -72,12 +72,12 @@ const engineTest = Object.fromEntries(await Promise.all(engines.map(async e => [
 async function launch(name) {
   const playwright = await import('playwright-core');
   if (name === 'chromium') {
-    const { executable, unavailable } = installed();
+    const { unavailable } = installed();
     if (unavailable) return null;
-    return playwright.chromium.launch({ executablePath: executable, headless: true, args: ['--autoplay-policy=user-gesture-required'] });
+    return suiteBrowser('chromium', { args: ['--autoplay-policy=user-gesture-required'] });
   }
   if (!existsSync(playwright[name].executablePath())) return null;
-  return playwright[name].launch({ headless: true });
+  return suiteBrowser(name);
 }
 
 // One browser per engine for this file, and a context of its own for each

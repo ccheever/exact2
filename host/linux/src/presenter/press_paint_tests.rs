@@ -122,3 +122,88 @@ fn the_agents_contact_shows_the_paint_at_once() {
     assert_eq!(pixel(&mut p, ground.0, ground.1), [0, 255, 0]);
     assert!(!p.host.motion());
 }
+
+/// LLP 1115 D4: a platform field's text is its own colour, else FieldText;
+/// a pressed ancestor's press colour does not reach it, as its `color`
+/// doesn't. A field of the author's own (`appearance="none"`) takes it.
+#[test]
+fn a_pressed_ancestor_leaves_a_native_fields_ink() {
+    const FIELDS: &str = r##"component App
+  state words = "IIIIIIII"
+  action go
+    words = words
+  action write(value: string)
+    words = value
+  view
+    column width=400 height=400 background-color="#ffffff"
+      box press=go -exact-press-color="#ff0000" color="#000000" width=300 height=200 testId="painted"
+        input value=words change=write font-size=40 aria-label="Native" testId="native"
+        input value=words change=write font-size=40 appearance="none" aria-label="Own" testId="own"
+"##;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(FIELDS)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .encode(),
+        (),
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let b = rect(&mut p, "painted");
+    let (native, own) = (rect(&mut p, "native"), rect(&mut p, "own"));
+    assert!(!reddened(&mut p, native) && !reddened(&mut p, own));
+    let ground = (b.0 + b.2 - 4., b.1 + b.3 - 4.);
+    assert!(p.pointer_down(ground.0, ground.1, 0.).unwrap());
+    p.clock(200.);
+    assert!(
+        reddened(&mut p, own),
+        "the author's field takes the press colour"
+    );
+    assert!(!reddened(&mut p, native), "a native field keeps its ink");
+}
+
+/// LLP 1104 D4, LLP 1115 D4: an ancestor's moving colour stops at a
+/// platform field as its colour does; a field of the author's own takes it.
+#[test]
+fn an_ancestors_moving_colour_stops_at_a_native_field() {
+    const FIELDS: &str = r##"component App
+  state red = false
+  state words = "IIIIIIII"
+  action go
+    red = !red
+  action write(value: string)
+    words = value
+  view
+    column width=400 height=400 background-color="#ffffff"
+      box press=go color=(red ? "#ff0000" : "#000000") transition="color 1s" width=300 height=200 testId="painted"
+        input value=words change=write font-size=40 aria-label="Native" testId="native"
+        input value=words change=write font-size=40 appearance="none" aria-label="Own" testId="own"
+"##;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(FIELDS)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .encode(),
+        (),
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let b = rect(&mut p, "painted");
+    let (native, own) = (rect(&mut p, "native"), rect(&mut p, "own"));
+    let ground = (b.0 + b.2 - 4., b.1 + b.3 - 4.);
+    assert!(p.pointer_down(ground.0, ground.1, 0.).unwrap());
+    p.pointer_up(ground.0, ground.1, 10.).unwrap();
+    p.clock(900.);
+    assert!(p.host.motion(), "the colour still moves");
+    assert!(
+        reddened(&mut p, own),
+        "the author's field takes the moving colour"
+    );
+    assert!(!reddened(&mut p, native), "a native field keeps its ink");
+}

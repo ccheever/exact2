@@ -1,7 +1,7 @@
 import type { Storage } from "../../../vendor/ibex/crates/ibex2/src/bindings/storage";
 type Store = { get(name:string):string|null; set(name:string,value:string):void; forget(name:string):void };
 const appId = "dev.exact.storage-test";
-const grants = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+const grants = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
 
 // Work queued behind whatever the module started last, the way an app serializes its
 // database operations. The second answer's storage calls run in a later microtask.
@@ -131,6 +131,16 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join(" ")};
   }
+  // LLP 1069.010.000 D5: what the host keeps, watched, and one forgotten.
+  if (op === "kept") {
+    storage.fs.watch("doc:/");
+    const listed = await storage.fs.recentDocuments();
+    await storage.fs.forgetDocument(value);
+    let again = "";
+    try { await storage.fs.forgetDocument(value); } catch (e: any) { again = e.code; }
+    const left = (await storage.fs.recentDocuments()).length;
+    return {text: [listed.map((d) => `${d.path} ${d.kind} ${d.mode}`).join(","), left, again].join(" | ")};
+  }
   // LLP 1069.010.000 D1, D2a: the answer watches a chosen file and its
   // folder, and a write that expects a stale stat is refused.
   if (op === "doc-watch") {
@@ -221,6 +231,14 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     await storage.fs.atomicWriteFile(ordered, new Uint8Array(Array.from(before + value).map(c => c.charCodeAt(0))));
     store.set("session", value);
     return {text: value};
+  }
+  if (op === "write-only") {
+    await storage.fs.atomicWriteFile('app:/cache/widget-hidden', new Uint8Array([1]));
+    return {text:'written'};
+  }
+  if (op === "copy-to-write-only") {
+    await storage.fs.copyFile(path, 'app:/cache/widget-copy');
+    return {text:'copied'};
   }
   if (op === "file" || op === "file-kept") {
     await storage.fs.atomicWriteFile(path, new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
