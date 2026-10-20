@@ -7,6 +7,7 @@ use Snapshot from "../shared/shapes.contract"
 use ProjectMark from "../shared/icons-kit.contract"
 use PgIcon from "../shared/pages-icons.contract"
 use dbStep from "../diff/diff.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
 
 shape HeroProject
   id: string
@@ -153,7 +154,8 @@ component HeroPicker
             row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" align-items="flex-start" position="relative" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#1b4ed8, #346bf1)"
               box position="absolute" left=0 top="0.375rem" width="1rem" height="1rem" pointer-events="none"
                 PgIcon(name="search", size=16, color="light-dark(#71717b8c, #8181818c)")
-              input id="hero-project-search" value=query input=search key=searchKey submit=pick autofocus=true role="combobox" aria-expanded=true placeholder="Search projects..." aria-label="Search projects" spellcheck="false" autocorrect="off" testId="hero-project-search" flex=1 width=0 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right=0 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
+              DialogOpenFocus(target="hero-project-search")
+              input id="hero-project-search" value=query input=search key=searchKey submit=pick autofocus=true role="combobox" aria-expanded=true placeholder="Search projects..." aria-label="Search projects" spellcheck="false" autocorrect="off" testId="hero-project-search" flex=1 width=0 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right=0 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" data-editable="yes"
                 ::placeholder
                   color="light-dark(#71717b, #818181)"
           if rowIds.length == 0

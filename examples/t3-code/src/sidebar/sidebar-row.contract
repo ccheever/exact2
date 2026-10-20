@@ -78,6 +78,8 @@ component TerminalPulse
       path d="m4 17 6-5-6-5M12 19h8"
 
 component ThreadRow
+  inject
+    threadJumpHints: bool // a thread.jump.N shortcut's modifiers held alone for 200 ms (app.contract)
   props
     t: Thread
     reduced: bool
@@ -293,7 +295,7 @@ component ThreadRow
                 if swept
                   // variantAction "unsettle": [&:not(:hover):not(:focus-within)_*]:text-secondary-label/70 recedes the badge ink too.
                   SidebarDropVerb(verb=sweptBadge, ink=(t.section == "settled" ? "light-dark(#71717bb3, #818181b3)" : "light-dark(#1b4ed8, #346bf1)"))
-        if t.jump != ""
+        if threadJumpHints and t.jump != ""
           box position="absolute" right="0.375rem" top=(t.card ? "1.9375rem" : "0.5rem") height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff0c)" background-color="light-dark(#fcfcfcf2, #0a0a0af2)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" pointer-events="none" aria-hidden=true
             text t.jump font-family="ui-monospace" font-size="0.625rem" line-height="0.75rem" font-weight=500 letter-spacing=-0.25 color="light-dark(#27272a, #f3f3f3)"
 
@@ -478,7 +480,7 @@ component SidebarRenameField
     title = value
   view
     FieldOpenSelect(target=`sidebar-rename-${t.id}`, length=t.title.length)
-    input id=`sidebar-rename-${t.id}` value=title input=edit submit=run("rename", t.id, title) blur=run("rename", t.id, title) key=local("rename-key", t.id) autofocus=true aria-label="Thread title" testId=`rename-${t.id}` flex=1 min-width=0 height="1.375rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#27272a, #f3f3f3)" background-color="light-dark(#ffffff, #000000)" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f3f3f3)" autocorrect="off"
+    input id=`sidebar-rename-${t.id}` value=title input=edit submit=run("rename", t.id, title) blur=run("rename", t.id, title) key=local("rename-key", t.id) autofocus=true aria-label="Thread title" testId=`rename-${t.id}` flex=1 min-width=0 height="1.375rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#27272a, #f3f3f3)" background-color="light-dark(#ffffff, #000000)" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f3f3f3)" autocorrect="off" data-editable="yes"
 
 // A thread search result: title row with a faded age, and for a message match
 // the speaker label plus the excerpt with every hit in semibold ink. The

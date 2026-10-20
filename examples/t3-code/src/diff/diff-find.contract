@@ -1,4 +1,5 @@
 use Icon from "../shared/icons.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
 shape FindDiffSegment
   id: string
   text: string
@@ -31,7 +32,8 @@ component DiffFindBar
   view
     row width="100%" min-height=36 padding-left=8 padding-right=4 box-sizing="border-box" align-items="center" gap=4 background-color="light-dark(#fefefe, #171717)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" role="search" aria-label="Find in diff" testId=`${prefix}-find-bar`
       for focus in [find.focus] key=focus
-        input id=`${prefix}-find-query` type="search" value=find.query input=query key=key aria-label="Find in diff" placeholder="Find in diff" autofocus=true spellcheck=false autocomplete="off" flex=1 min-width=0 border-width=0 background-color="#00000000" font-size=13 testId=`${prefix}-find-query` autocorrect="off"
+        DialogOpenFocus(target=`${prefix}-find-query`)
+        input id=`${prefix}-find-query` type="search" value=find.query input=query key=key aria-label="Find in diff" placeholder="Find in diff" autofocus=true spellcheck=false autocomplete="off" flex=1 min-width=0 border-width=0 background-color="#00000000" font-size=13 testId=`${prefix}-find-query` autocorrect="off" data-editable="yes"
       button press=op("case", "") aria-label="Match case" aria-pressed=find.caseSensitive width=24 height=24 padding=0 border-width=0 background-color=(find.caseSensitive ? "light-dark(#e4e4e7, #3f3f46)" : "#00000000")
         text "Aa" font-size=11
       button press=op("word", "") aria-label="Match whole word" aria-pressed=find.wholeWord width=24 height=24 padding=0 border-width=0 background-color=(find.wholeWord ? "light-dark(#e4e4e7, #3f3f46)" : "#00000000")

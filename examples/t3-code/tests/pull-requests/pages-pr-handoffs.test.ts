@@ -4,12 +4,11 @@ import { obj, str } from '../../src/client/domain';
 // tests with their original names (pullRequestDetail.logic.test.ts "fix findings handoff", "findings that
 // cannot be attached", "one finding handed over on its own", "findings that are already on a line",
 // "asking about a change rather than working on it", "a second ask into the same composer", "pull
-// request panel context beside a thread"; shortcutModifierState.test.ts). Changes: a chip's link is the
+// request panel context beside a thread"; shortcutModifierState.test.ts is shortcut-modifiers.test.ts). Changes: a chip's link is the
 // clone's (`chipLink`, composer-editor-menu.ts contextLink) where the reference formats its own
 // inline reference. Not ported: "preserves PR plan feedback with prose" (resolvePlanFollowUpSubmission and
-// serializeLegacyContextMessage, a plan follow-up's legacy send, which the clone does not have: n/a-feature)
-// and useShortcutModifierState's render test (a React hook: n/a-ui; the native monitor's AppKit test
-// is macos/tests/sidebar). The second half drives the clone's panel (pages-pr-detail.ts →
+// serializeLegacyContextMessage, a plan follow-up's legacy send, which the clone does not have: n/a-feature).
+// The second half drives the clone's panel (pages-pr-detail.ts →
 // pages-pr-handoffs.ts → pr-row-actions.ts) against injected host replies.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
@@ -25,7 +24,6 @@ import {
   buildPullRequestReferenceContext, chipLink, handoffReviewComments, pullRequestFindingKey, pullRequestHandoffLabels, pullRequestPanelContext,
   stripPullRequestHandoffReferences, type HandoffComment,
 } from '../../src/pull-requests/pages-pr-handoffs-logic';
-import { areShortcutModifierStatesEqual, shortcutModifierStateAfterKeyboardEvent, speedMode, type ShortcutModifierState } from '../../src/pull-requests/shortcut-modifier-state';
 
 // ── Ported (original names) ─────────────────────────────────────────────────
 
@@ -271,42 +269,6 @@ describe('pull request panel context beside a thread', () => {
     expect(pullRequestPanelContext({ projectId: 'proj-a', branchPullRequest: legacy }, surface(3))).toBe('thread');
     expect(pullRequestPanelContext({ projectId: 'proj-a', pullRequests: [] }, surface(3))).toBe('page');
     expect(pullRequestPanelContext({ projectId: null }, surface(3))).toBe('page');
-  });
-});
-
-describe('shortcutModifierState', () => {
-  const emptyState = (): ShortcutModifierState => ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false });
-  const keyboardEventLike = (type: 'keydown' | 'keyup', init: Partial<ShortcutModifierState & { key: string }>) => ({ type, key: '', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...init });
-  test('compares modifier states by value', () => {
-    expect(areShortcutModifierStatesEqual({ metaKey: false, ctrlKey: true, altKey: false, shiftKey: true }, { metaKey: false, ctrlKey: true, altKey: false, shiftKey: true })).toBe(true);
-    expect(areShortcutModifierStatesEqual({ metaKey: false, ctrlKey: true, altKey: false, shiftKey: true }, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: true })).toBe(false);
-  });
-  test('preserves the current object when modifier values do not change', () => {
-    const initialState = emptyState();
-    expect(shortcutModifierStateAfterKeyboardEvent(initialState, keyboardEventLike('keyup', { key: 'Shift' }))).toBe(initialState);
-  });
-  test('tracks bare modifier keydown and keyup events explicitly', () => {
-    let state = emptyState();
-    state = shortcutModifierStateAfterKeyboardEvent(state, keyboardEventLike('keydown', { key: 'Meta', metaKey: false }));
-    expect(state).toEqual({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false });
-    state = shortcutModifierStateAfterKeyboardEvent(state, keyboardEventLike('keydown', { key: 'Shift', metaKey: true, shiftKey: false }));
-    expect(state).toEqual({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: true });
-    state = shortcutModifierStateAfterKeyboardEvent(state, keyboardEventLike('keyup', { key: 'Meta', metaKey: true, shiftKey: true }));
-    expect(state).toEqual({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: true });
-    state = shortcutModifierStateAfterKeyboardEvent(state, keyboardEventLike('keyup', { key: 'Shift', shiftKey: true }));
-    expect(state).toEqual(emptyState());
-  });
-  test('ignores poisoned modifier flags on non-modifier keys', () => {
-    expect(shortcutModifierStateAfterKeyboardEvent(emptyState(), keyboardEventLike('keydown', { key: 'Enter', metaKey: true }))).toEqual(emptyState());
-  });
-  test('clears a held modifier when a non-modifier key reports it released', () => {
-    const heldMeta = { metaKey: true, ctrlKey: false, altKey: false, shiftKey: false };
-    expect(shortcutModifierStateAfterKeyboardEvent(heldMeta, keyboardEventLike('keydown', { key: 'a', metaKey: false }))).toEqual(emptyState());
-  });
-  test('speed mode is Shift alone (the route: not with ⌘, ⌃ or ⌥)', () => {
-    expect(speedMode({ ...emptyState(), shiftKey: true })).toBe(true);
-    for (const other of ['metaKey', 'ctrlKey', 'altKey'] as const) expect(speedMode({ ...emptyState(), shiftKey: true, [other]: true })).toBe(false);
-    expect(speedMode(emptyState())).toBe(false);
   });
 });
 
