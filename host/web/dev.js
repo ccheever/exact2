@@ -448,7 +448,7 @@ if (es) {
     if (p.rootFontSize && asked.rootFontSize != null && asked.rootFontSize !== p.rootFontSize) out.rootFontSize = String(asked.rootFontSize).slice(0, 64);
     // (Within the status's bounds: each axis and value at most 64 characters, the whole at most 1 KiB.)
     const mode = Object.fromEntries(Object.entries(asked.mode ?? {}).filter(([a, v]) => p.mode?.[a] !== undefined && p.mode[a] !== v && a.length <= 64 && String(v).length <= 64));
-    if (Object.keys(mode).length && new TextEncoder().encode(JSON.stringify(mode)).length <= 900) out.mode = mode;
+    if (Object.keys(mode).length && new TextEncoder().encode(JSON.stringify(mode)).length <= 800) out.mode = mode;
     return Object.keys(out).length ? out : null;
   }
   // (A question applies no batch, so asking is never a commit that asks again.)
@@ -458,7 +458,8 @@ if (es) {
     await x.ready;
     if (typeof x.wasm?.exact_hold_facts !== "function") return;
     const n = x.wasm.exact_hold_facts(x.writeIn(text)), out = JSON.parse(x.readOut(n));
-    if (text !== "?") x.send(n);
+    // (Applied quietly: a refused one's batch is no commit for `committed` to ask after; a taken one says its status.)
+    if (text !== "?") { quiet = true; try { x.send(n); } finally { quiet = false; } if (!out?.error) committed(); }
     if (out?.asked) asked = out.asked;
     return out;
   };
@@ -467,10 +468,10 @@ if (es) {
   // `setMode` and `setRootFontSize`: after its commits, once a turn, a status
   // when they moved.
   for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)"]) matchMedia(query).addEventListener?.("change", () => { if (channel.nonce) status(); });
-  let due = false;
+  let due = false, quiet = false;
   const committed = () => {
     // A scrub frame's own commit is said once the drag rests, with these facts.
-    if (due || !channel.nonce || scrubSend) return;
+    if (due || !channel.nonce || scrubSend || quiet) return;
     due = true;
     setTimeout(() => {
       designing = designing.then(async () => {
@@ -573,7 +574,9 @@ if (es) {
     // (Handed back, a copy's held facts are the app's latest own choices.)
     // A hand-back the runner refuses is asked again after each commit until it is taken.
     if (!p) { channel.before = null; const out = await holdFacts("-"); channel.releasing = !!out?.error; if (out?.error) report({ kind: "unsupported", what: "pin.hold", detail: String(out.error).slice(0, 1024), revision: frame.revision }); }
-    channel.held = p ? frame : null;
+    else channel.releasing = false;
+    // (A copy's pin refused for its modes holds the axes held before: what it holds, as hand-back reads it.)
+    channel.held = p ? (copy && refusedModes ? { ...frame, pin: { ...p, mode: channel.held?.pin?.mode } } : frame) : null;
     channel.revision = frame.revision;
     status();
   };
