@@ -517,11 +517,11 @@ component WorkEntries
       scroll width="100%" max-height=`calc(min(${18 * rem}px, 50dvh) + ${opened}px)` overflow-x="hidden" aria-label="Tool calls" testId=`tool-calls-${message.id}`
         column width="100%"
           for entry in message.activities key=`${entry.id}\t${entry.label}`
-            WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized, urls=urls)
+            WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize, md=message.md, sized=entrySized, urls=urls)
     else
       column width="100%"
         for entry in message.activities key=`${entry.id}\t${entry.label}`
-          WorkEntry(entry=entry, grouped=false, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized, urls=urls)
+          WorkEntry(entry=entry, grouped=false, command=command, code=message.code, codeSize=message.md.codeSize, md=message.md, sized=entrySized, urls=urls)
 
 // TimelineHistoryControl: "Load earlier turns" leads the scrolling timeline and
 // a failed load reads as a centred status line beneath it.

@@ -10,6 +10,7 @@ use Activity from "../shared/shapes.contract"
 use InspectorResult from "../shared/shapes.contract"
 use DriverMark from "../providers/provider-icons-kit.contract"
 use CodeHighlight from "./markdown.contract"
+use ChatDocument, MarkdownEnv, EnvBlocks from "./markdown.contract"
 use synColor from "./markdown.contract"
 use synSlant from "./markdown.contract"
 use Icon from "../shared/icons.contract"
@@ -299,6 +300,8 @@ component WorkEntry
     code: CodeHighlight[]
     // toolCallExpandedBodyClassName: text-(length:--font-size-code) leading-relaxed.
     codeSize: number
+    // The transcript's Markdown settings, for a thought's trace.
+    md: MarkdownEnv
     urls: AttachmentUrl[]
     // (id, extra): what this row adds over a compact row while open (WorkEntries' expandedContentHeight).
     sized: action
@@ -342,7 +345,7 @@ component WorkEntry
           row width="1rem" height="1rem" flex-shrink=0 align-items="center" justify-content="center" opacity=(entry.expandable ? 0.7 : 0) rotate=(expanded ? 90 : 0)
             Icon(name="right", size=12, color="light-dark(#71717b, #818181)")
         if expanded and entry.reasoning
-          ReasoningTrace(id=entry.id, text=entry.output, followLive=(entry.status == "Thinking"))
+          ReasoningTrace(id=entry.id, text=entry.output, followLive=(entry.status == "Thinking"), local=mediaLocal, code=code, env=md)
         if expanded and code.filter((hl) => hl.id == entry.id and hl.icon == "QA").length > 0
           for hl in code.filter((hl) => hl.id == entry.id and hl.icon == "QA") key=hl.id
             column margin-left="1.75rem" margin-top="0.5rem"
@@ -403,11 +406,17 @@ component WorkEntry
 // WorkLogDetails (WorkLog.tsx at 9c161462c9) for a reasoning trace: a scroll box at most 24rem tall
 // (max-h-96 overflow-auto). While the thought streams (`followLive`) it keeps the newest text in view
 // until the reader scrolls up, and follows again once they return within 4px of the end (LIVE_EDGE_PX).
+// The trace is ChatMarkdown (ReasoningTraceContent); its plain text stands in until the parse arrives.
 component ReasoningTrace
+  inject
+    traceDocuments: ChatDocument[]
   props
     id: string
     text: string
     followLive: bool
+    local: action
+    code: CodeHighlight[]
+    env: MarkdownEnv
   state top = 0
   state atEdge = true
   state portHeight = 0
@@ -426,7 +435,11 @@ component ReasoningTrace
   view
     scroll scroll=scrolled scrollTop=top resize=portSized testId=`reasoning-trace-${id}` margin-left="1.75rem" max-height="24rem" overflow-x="hidden"
       column resize=contentSized width="100%" padding-left="0.125rem" padding-right="0.125rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box"
-        text text font-size="0.875rem" line-height="1.421875rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+        if traceDocuments.filter((doc) => doc.id == `trace:${id}`).length > 0
+          for document in traceDocuments.filter((doc) => doc.id == `trace:${id}`) key=document.id
+            EnvBlocks(document=document, local=local, code=code, prose="light-dark(#27272a, #f5f5f5)", fit=false, env=env)
+        else
+          text text font-size="0.875rem" line-height="1.421875rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
 
 // One V2ItemInspector list item. A file result: its path, line and column (mono) over its preview.
 // A web result: its title as a link with the external-link mark (the system browser, as the
