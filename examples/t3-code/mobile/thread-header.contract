@@ -18,6 +18,7 @@ shape ThreadHeaderSnapshot
   routeKey: string
   version: string
   configuration: string
+  visible: bool
   ready: bool
   needsPrepare: bool
   error: string

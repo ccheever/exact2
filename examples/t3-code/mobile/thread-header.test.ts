@@ -234,3 +234,87 @@ test('same-ID replace and away-back route ABA during terminal open never inject 
     expect(f.calls.some(call => call.method === 'terminal.write')).toBe(false); expect(f.snapshot().pendingLaunch).toBe('');
   }
 });
+// ThreadRouteScreen.tsx:284-291 mounts the chrome once the shell thread is known; liveness gates only metadata preparation.
+const notLive: Record<string, (client: T3Client) => void> = {
+  'detail loading': client => { client.threadEpoch++; client.thread = null; client.threadSubscription = ''; client.threadLive = false; },
+  'held completion marker': client => { client.config.threadResumeCompletionMarker = true; client.threadSubscription = 't'; client.threadLive = false; },
+  'stream ended': client => { client.threadLive = false; client.error = 'The live stream ended. Reconnect to continue.'; },
+};
+const items = (config: Obj, key: string) => Object.fromEntries((config[key] as Obj[]).map(entry => [entry.id, entry.disabled]));
+for (const [name, enter] of Object.entries(notLive)) test(`first open shows Git/Files/Terminal while ${name}; grants read when connected, metadata when live`, async () => {
+  const f = fixture(); enter(f.client); expect(f.client.ready).toBe(false);
+  expect(f.snapshot()).toMatchObject({ visible: true, ready: false, needsPrepare: true });
+  const config = configuration(f);
+  // ThreadRouteScreen.tsx:869-872: Files needs the workspace root; Terminal also needs a known read/operate grant.
+  expect(config).toMatchObject({ focused: true, title: 'Actual thread', canOpenFiles: true, canOpenTerminal: false });
+  expect(items(config, 'gitItems')).toMatchObject({ 'git:branch': true, 'git:review': false, 'git:more': false });
+  expect(items(config, 'terminalItems')).toMatchObject({ 'terminal:script:test': true, 'terminal:new': true });
+  expect(await f.action('files')).toMatchObject({ navigation: 'threadFiles', location: '/threads/e/t/files' });
+  expect(await f.action('git:review')).toMatchObject({ navigation: 'threadReview', location: '/threads/e/t/review' });
+  expect(await f.action('git:more')).toMatchObject({ navigation: 'gitOverview', location: '/threads/e/t/git' });
+  for (const id of ['terminal:new', 'terminal:script:test']) expect(await f.action(id)).toMatchObject({ navigation: '', message: '' });
+  expect(f.calls).toHaveLength(0);
+  // client-runtime state/session.ts: the grant follows the prepared connection, not the thread detail.
+  await f.prepare(); expect(f.calls.map(call => call.path ?? call.method ?? call.op)).toEqual(['/api/auth/session']);
+  expect(f.snapshot()).toMatchObject({ visible: true, ready: false, needsPrepare: false });
+  expect(configuration(f).canOpenTerminal).toBe(true);
+  expect(items(configuration(f), 'terminalItems')).toMatchObject({ 'terminal:script:test': false, 'terminal:new': false });
+  await f.prepare(); expect(f.calls).toHaveLength(1);
+  const staged = await f.action('terminal:script:test'); expect(staged).toMatchObject({ navigation: 'threadTerminal', message: '' });
+  expect(staged.pendingLaunch).not.toBe(''); expect(f.calls.some(call => call.method === 'terminal.open' || call.method === 'terminal.write')).toBe(false);
+  f.client.threadLive = true; f.client.error = '';
+  expect(f.snapshot()).toMatchObject({ visible: true, ready: true, needsPrepare: true }); const before = f.calls.length;
+  await f.prepare(); expect(f.calls.slice(before).some(call => call.method === 'subscribeTerminalMetadata')).toBe(true);
+  expect(f.calls.slice(before).some(call => call.method === 'vcs.refreshStatus')).toBe(true);
+});
+test('unknown or denied grants keep a visible Terminal disabled', async () => {
+  const f = fixture(); notLive['detail loading']!(f.client); f.client.connection = 'disconnected';
+  expect(f.snapshot()).toMatchObject({ visible: true, needsPrepare: false }); await f.prepare(); expect(f.calls).toHaveLength(0);
+  expect(configuration(f)).toMatchObject({ canOpenFiles: true, canOpenTerminal: false });
+  f.client.connection = 'connected'; f.grant(['orchestration:read']); await f.prepare();
+  expect(configuration(f).canOpenTerminal).toBe(false); expect(items(configuration(f), 'terminalItems')['terminal:new']).toBe(true);
+  expect((await f.action('terminal:new')).navigation).toBe('');
+  const failed = fixture(); notLive['detail loading']!(failed.client);
+  failed.hook(request => request.path === '/api/auth/session' ? { ok: false, generation: 9, error: { kind: 'transport', message: 'Offline' } } : undefined);
+  await failed.prepare(); expect(failed.snapshot()).toMatchObject({ needsPrepare: false, error: 'Offline' });
+  expect(configuration(failed).canOpenTerminal).toBe(false);
+});
+test('thread stream end keeps known grants and holds the metadata retry until live', async () => {
+  const f = fixture(); await f.prepare(); f.metadata();
+  notLive['stream ended']!(f.client);
+  mobileThreadHeaderEvents([{ key: 'terminal-metadata', generation: 9, subscriptionId: 'subscription-1', seq: 2, value: { _streamEnded: true } }], f.client);
+  expect(f.snapshot()).toMatchObject({ visible: true, ready: false, needsPrepare: false });
+  expect(configuration(f)).toMatchObject({ focused: true, canOpenFiles: true, canOpenTerminal: true });
+  const count = f.calls.length; await f.prepare(); expect(f.calls).toHaveLength(count);
+  f.client.threadLive = true; f.client.error = ''; expect(f.snapshot().needsPrepare).toBe(true);
+});
+test('liveness lost during preparation lets the read go and prepares again once live', async () => {
+  const f = fixture(); let release!: () => void;
+  f.hook(request => request.path === '/api/auth/session' ? new Promise(resolve => { release = () => resolve({ ok: true, generation: 9, value: { authenticated: true, permissions: ['terminal:read'] } }); }) : undefined);
+  const pending = f.prepare(); for (let i = 0; i < 20 && !release; i++) await Promise.resolve();
+  notLive['stream ended']!(f.client); release();
+  await expect(pending).rejects.toThrow('screen changed');
+  expect(f.calls.some(call => call.method === 'vcs.refreshStatus' || call.method === 'subscribeTerminalMetadata')).toBe(false);
+  f.hook(undefined); f.client.threadLive = true; f.client.error = ''; expect(f.snapshot().needsPrepare).toBe(true);
+});
+test('no shell thread or project gives no header, and its callbacks have no effect', async () => {
+  for (const missing of ['thread', 'project']) {
+    const f = fixture(); notLive['detail loading']!(f.client); const raw = f.event('files');
+    if (missing === 'thread') f.client.shell.threads = [{ id: 'other', title: 'Other', projectId: 'p' }]; else f.client.shell.projects = [];
+    expect(f.snapshot()).toMatchObject({ visible: false, needsPrepare: false }); expect(configuration(f).focused).toBe(false);
+    const count = f.calls.length;
+    for (const id of ['files', 'git:more', 'git:review']) expect((await f.action(id)).navigation).toBe('');
+    expect((await f.action('', raw)).navigation).toBe(''); await f.prepare(); expect(f.calls).toHaveLength(count);
+  }
+});
+test('route departure or a reopened thread retires a configuration made before liveness', async () => {
+  const f = fixture(); notLive['held completion marker']!(f.client); const raw = f.event('files');
+  f.options.routeKey = '3'; f.options.focused = false;
+  expect(f.snapshot()).toMatchObject({ visible: false, needsPrepare: false }); expect((await f.action('', raw)).navigation).toBe('');
+  f.options.focused = true; expect(f.snapshot().visible).toBe(true); expect((await f.action('', raw)).navigation).toBe('');
+  const current = f.event('files'); f.options.routeIdentity = '/threads/e/t/files:default'; f.snapshot();
+  expect((await f.action('', current)).navigation).toBe('');
+  const reopened = f.event('files'); notLive['detail loading']!(f.client); f.snapshot();
+  expect((await f.action('', reopened)).navigation).toBe('');
+  expect((await f.action('files')).navigation).toBe('threadFiles');
+});
