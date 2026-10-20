@@ -1,6 +1,6 @@
 # Recipe: app.json, assets and modules
 
-`app.json` names the app and what it ships; its `$schema` gives an editor every key with its
+`app.json` names the app and what it ships; its `$schema` gives an editor every key and its
 description. Files the app carries are folders beside it, not keys.
 
 ```json
@@ -11,8 +11,7 @@ description. Files the app carries are folders beside it, not keys.
   "modules": ["waveform-view"],
   "audio_session": "playback",
   "icons": [{ "src": "assets/icon-1024.png", "sizes": "1024x1024", "type": "image/png" }],
-  "typescript": { "sources": { "core": "../shared/core" } },
-  "commands": { "seed": ["bun", "tools/seed.mjs"] }
+  "protocol_handlers": [{ "protocol": "euxy", "url": "/p/%s" }]
 }
 ```
 
@@ -43,8 +42,9 @@ component App
 - **`host.ios.launchImage`** `{ "src": "assets/splash.png", "width": 276 }`: a PNG the launch
   screen centres on `background_color`, `width` points wide.
 - **`host.ios.icon`** `"assets/App.icon"`: an Icon Composer `.icon`, in place of `icons`.
-- **`protocol_handlers`** `[{ "protocol": "euxy", "url": "/p/%s" }]`: a custom URL scheme.
-  `euxy://p/abc` reaches the navigation root whole at `%s`: `/p/euxy%3A%2F%2Fp%2Fabc`.
+- **`protocol_handlers`**: `euxy://p/abc` is `/p/euxy%3A%2F%2Fp%2Fabc` (whole at `%s`).
+  `navigate` hears it while the app runs; a cold launch opens it as the first
+  location, so declare its route (`p "/p/:d"`) or it is Not Found.
 - **Other keys:** `icons`, `data` (the `data-*`
   words a hatch reads), `tamber` (the design's file, else `app.tamber`), `strings` (string
   tables), `typescript.sources` (directories outside the app that `app.ts` imports),
