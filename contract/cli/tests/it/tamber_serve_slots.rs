@@ -107,13 +107,9 @@ fn a_write_to_a_base_name_a_chain_reaches_through_an_alias_is_checked_one_reachi
     // `space.md` 0: `lib.w` is `space.md`, the chain's width 0.
     let (base, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "set-token", "name": "space.md", "value": "0px"}]}));
     assert_eq!(refusals(&base).len(), 1, "{base}");
-    // (said at the chain's token's own line: `lib.w`'s, in the package's design)
+    // (said in the app's design, never a package's: reload1's 64d8760971 places a refusal only at an app line)
     let at = &base["error"]["diagnostics"][0];
-    assert_eq!(
-        (at["file"].as_str(), at["line"].as_u64()),
-        (Some("node_modules/@acme/lib/lib.tamber"), Some(5)),
-        "{base}"
-    );
+    assert_eq!(at["file"].as_str(), Some("app.tamber"), "{base}");
     // A write no chain reaches is taken, even where a chain's own token is
     // already one the check refuses (the app's line for `lib.op` is 0).
     let bad = "tamber app\n\ntheme\n  other = 2px\n  lib.op = 0\n";
@@ -257,7 +253,8 @@ fn a_package_default_the_app_replaced_selects_no_chain() {
 
 #[test]
 fn a_write_to_a_token_a_rows_expression_names_is_checked() {
-    // The chain's width an expression over `lib.w` (reload1's 3cdc0401b9 folds it as the compiler does).
+    // The chain's width an expression over `lib.w`, which the compiler can't fold on a chain row and refuses as
+    // written (reload1's 64d8760971): a write to `lib.w` reaches it, refused in the compiler's own words.
     let dir = app("expr", DESIGN);
     std::fs::write(
         dir.join("node_modules/@acme/lib/index.contract"),
@@ -266,18 +263,17 @@ fn a_write_to_a_token_a_rows_expression_names_is_checked() {
     .unwrap();
     let mut s = Serve::start(&dir, &[]);
     let files = || json!({"app.tamber": digest(&dir.join("app.tamber"))});
-    let (zero, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "set-token", "name": "lib.w", "value": "0px"}]}));
-    assert_eq!(refusals(&zero).len(), 1, "{zero}");
-    // The compiler refuses it too, once written. (in other words at 3cdc0401b9, "a value the check can't
-    // read" where the server says "gives it no room": asked of reload1)
+    let (written, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "set-token", "name": "lib.w", "value": "12px"}]}));
+    assert_eq!(refusals(&written).len(), 1, "{written}");
     std::fs::write(
         dir.join("app.tamber"),
-        "tamber app\n\ntheme\n  other = 2px\n  lib.w = 0px\n",
+        "tamber app\n\ntheme\n  other = 2px\n  lib.w = 12px\n",
     )
     .unwrap();
-    assert_eq!(compiled(&dir).len(), 1);
-    let (fine, _) = s.ask(json!({"method": "transaction", "client": "t", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": "lib.w", "value": "12px"}]}));
-    assert!(fine["ok"].is_object(), "{fine}");
+    assert_eq!(compiled(&dir), refusals(&written));
+    // A write reaching no chain is still not asked.
+    let (other, _) = s.ask(json!({"method": "transaction", "client": "t", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": "other", "value": "3px"}]}));
+    assert!(other["ok"].is_object(), "{other}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

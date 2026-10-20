@@ -601,8 +601,8 @@ mod tests {
 
 /// The token names a row's value says: each run of identifiers joined by
 /// `.` (an identifier a letter or `_` first, then letters, digits, `_` and
-/// `-`, as the lexer reads one), but a function's name (its `(` next) and
-/// anything in quotes.
+/// `-`, a trailing `-` its own, as the lexer reads one), but a function's
+/// name (its `(` next) and anything in quotes.
 fn row_names(value: &str) -> Vec<&str> {
     let bytes = value.as_bytes();
     let (mut out, mut i, mut quote) = (Vec::new(), 0, None);
@@ -632,7 +632,7 @@ fn row_names(value: &str) -> Vec<&str> {
         {
             i += 1;
         }
-        let name = value[from..i].trim_end_matches(['.', '-']);
+        let name = value[from..i].trim_end_matches('.');
         if bytes.get(i) != Some(&b'(') && !name.is_empty() {
             out.push(name);
         }
@@ -654,5 +654,6 @@ mod row_names_tests {
             ["a.b"]
         );
         assert_eq!(super::row_names("12px"), Vec::<&str>::new());
+        assert_eq!(super::row_names("calc(lib.w- * 2)"), ["lib.w-"]);
     }
 }
