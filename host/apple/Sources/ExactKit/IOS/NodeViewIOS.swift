@@ -1150,14 +1150,16 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if ownInert { endEditing(true) }
             isUserInteractionEnabled = !ownInert
         }
-        accessibilityElementsHidden = hidesAccessibility
+        // UIKit keeps each accessibility property a view is given, an unchanged
+        // one too, in an associated object table: so each is set only on change.
+        if accessibilityElementsHidden != hidesAccessibility { accessibilityElementsHidden = hidesAccessibility }
         updateKeyboardDismissal()
         updateMaterial()
         applyTextArea()
         if let f = field { applyField(f, set: set, clear: clear) }
-        if disabled || ariaUnavailable { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
-        accessibilityIdentifier = props["testId"]
-        accessibilityLabel = props["accessibilityLabel"]
+        if accessibilityTraits.contains(.notEnabled) != (disabled || ariaUnavailable) { accessibilityTraits.formSymmetricDifference(.notEnabled) }
+        if accessibilityIdentifier != props["testId"] { accessibilityIdentifier = props["testId"] }
+        if accessibilityLabel != props["accessibilityLabel"] { accessibilityLabel = props["accessibilityLabel"] }
         updateTextAccessibility()
         if actsAsButton {
             isAccessibilityElement = true
@@ -1233,6 +1235,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }
+        if superview != nil, style["color_scheme"] != nil || overrideUserInterfaceStyle != .unspecified { settleColorScheme() }
     }
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update(); layoutContent(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }

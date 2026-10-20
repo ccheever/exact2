@@ -36,6 +36,25 @@ final class ColorSchemeIOSTests: XCTestCase {
         XCTAssertEqual(child.layer.backgroundColor?.components?.first ?? -1, 0, accuracy: 0.01, "and re-resolved its fill")
         XCTAssertEqual(material.traitCollection.userInterfaceStyle, .dark, "a material below resolves dark")
 
+        // The property is inherited: a child carrying its parent's scheme
+        // overrides nothing, and decides again when the parent's changes.
+        child.applyStyle(["background_color": pair, "color_scheme": "dark"])
+        XCTAssertEqual(child.overrideUserInterfaceStyle, .unspecified)
+        XCTAssertTrue(child.drawsDark)
+        sheet.applyStyle(["color_scheme": "light"])
+        XCTAssertEqual(child.overrideUserInterfaceStyle, .dark)
+        XCTAssertTrue(child.drawsDark, "its own scheme, now another than its parent's")
+        sheet.applyStyle(["color_scheme": "dark"])
+        XCTAssertEqual(child.overrideUserInterfaceStyle, .unspecified)
+        XCTAssertTrue(child.drawsDark)
+        // A view styled before it is placed decides where it lands.
+        let late = NodeView(id: 3, kind: "view", presenter: p)
+        late.applyStyle(["color_scheme": "light"])
+        p.views[3] = late; sheet.container.addSubview(late)
+        XCTAssertEqual(late.overrideUserInterfaceStyle, .light)
+        XCTAssertFalse(late.drawsDark)
+        late.removeFromSuperview(); p.views[3] = nil
+
         // A nested `light` wins below it.
         child.applyStyle(["background_color": pair, "color_scheme": "light"])
         XCTAssertFalse(child.drawsDark)
