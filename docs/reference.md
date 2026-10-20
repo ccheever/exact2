@@ -884,6 +884,23 @@ example, 20 resources fetching once beside one source fetching 20 times can
 all wait and answer. A failed resource keeps its last value; `refresh` asks
 again. See LLP 1041 §8.4 for the byte reservations and cancellation policy.
 
+That queue runs one request at a time, so a screen that reads twenty feeds
+waits for each in turn. A read whose request and reply may both be handled
+out of order can leave it: `fetch(url, { exactIndependentHttp:
+{ maxResponseBytes: 4194304 } })` in TypeScript, or
+`Request::get(url).independent_http(4 << 20)` from a Rust source. A native app
+then runs up to six such reads at once, within their own budget of 128
+requests and 64 MiB. A running read counts twice its ceiling, so a ceiling
+above about 32 MiB is refused when the read is made: keep it near the largest
+reply you expect. A browser has no lanes and schedules every fetch itself, so
+there only the ceiling applies. On every host a reply larger than
+`maxResponseBytes` fails as `refused`. The ceiling is 1 byte to 64 MiB, and
+anything else is a `TypeError`. A `GET` is
+not independent by default, because a source may depend on its replies
+arriving in order. Leave writes, and any read whose parse depends on an
+earlier reply, in the queue. Storage steps and native continuations cannot
+opt out of it.
+
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
 and `Math.random()`: time and seeds are source arguments. Every executor

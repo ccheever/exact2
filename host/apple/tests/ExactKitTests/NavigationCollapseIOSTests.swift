@@ -201,6 +201,30 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(pull["scrolledBy"] as? [Double])[1], -300, accuracy: 0.5, "the content moved back by the 300 it went")
     }
 
+    /// LLP 1054 A4: the agent's drag pulls to refresh as a finger does. A
+    /// real touch's 200 points past the top refreshed, 180 did not (iOS 27).
+    func testTheAgentsDragPullsToRefreshAsAFingerDoes() throws {
+        let session = try booted("EXACT_PULL_REFRESH_PLAN", label: "pull-refresh")
+        let agent = Agent(session: session)
+        let feed = try node(session, "feed"), control = try XCTUnwrap(feed.scroll?.refreshControl)
+        let short = agent.tap(["id": Int(feed.id), "scrollDrag": [0.0, 150.0]])
+        XCTAssertNil(short["error"], "\(short)")
+        XCTAssertEqual(short["refreshed"] as? Bool, false, "short of the pull")
+        XCTAssertFalse(control.isRefreshing)
+        let pull = agent.tap(["id": Int(feed.id), "scrollDrag": [0.0, 300.0]])
+        XCTAssertNil(pull["error"], "\(pull)")
+        XCTAssertEqual(pull["refreshed"] as? Bool, true)
+        XCTAssertTrue(control.isRefreshing, "the spinner shows until the app's `refreshing` says otherwise")
+        // Target-action goes through UIApplication, which a bare test run has
+        // none of: the control's own actions, sent as UIKit would.
+        for target in control.allTargets {
+            for action in control.actions(forTarget: target, forControlEvent: .valueChanged) ?? [] {
+                _ = (target.base as AnyObject).perform(NSSelectorFromString(action), with: control)
+            }
+        }
+        until("the refresh ran the app's action") { (try? self.node(session, "pulls"))?.props["text"] == "1" }
+    }
+
     /// A diagonal agent drag moves a scroller along the axes it scrolls
     /// alone, though its content overflows the other (the page is 800 wide,
     /// the strip's row 100 tall), and reports the drag's own distance while
