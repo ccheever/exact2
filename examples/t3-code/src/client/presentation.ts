@@ -19,7 +19,7 @@ import { requestPresentation } from '../composer/requests';
 import { threadErrorView } from '../timeline/timeline-errors';
 import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from '../diff/diff';
 import { composerSnapshot } from '../composer/composer-presentation';
-import { composerSelection } from '../composer/composer-provider-selection';
+import { antigravitySendBlockReason, composerSelection } from '../composer/composer-provider-selection';
 import { fanoutSelections } from '../composer/composer-controls-fanout';
 import { triggerModelName } from '../composer/composer-controls-model';
 import { pickerCatalog, withJumpLabels } from '../composer/model-catalog';
@@ -117,7 +117,9 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
     .find(option => option.type === 'select' && ['reasoningEffort', 'effort'].includes(str(option.id)));
   const selectedOption = client.modelOptions.find(selection => selection.id === option?.id)?.value
     ?? option?.currentValue ?? arr(option?.options).find(choice => choice.isDefault === true)?.id;
-  const modelReady = !!selectedProvider && providerAvailable(selectedProvider) && !!currentModel;
+  // onSend sends on any listed provider and model (a failed probe and an empty catalog included); only Antigravity's
+  // block reason stops it, and the server answers for the rest.
+  const modelReady = !!selectedProvider && !!selectedModel && !antigravitySendBlockReason(selectedProvider, selectedModel);
   const run = activeRun(client.projection);
   const pending = client.pending;
   const transcript = transcriptPresentation(client);
