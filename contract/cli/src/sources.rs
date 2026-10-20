@@ -31,6 +31,10 @@ pub(crate) struct Sources {
     /// source map says them, so a reader knows a file has not moved since
     /// (LLP 1122 D5, D6's fail-closed rule).
     pub(crate) digests: Vec<String>,
+    /// Each source's home, by source id, as its components' identities
+    /// name it (`home`; LLP 1121 D15): the source map says it, so a reader
+    /// names a param by its full name from the file it reads it in.
+    pub(crate) homes: Vec<Option<String>>,
     /// Each source's text as compiled, by source id: the source map checks
     /// a row's written place against it (LLP 1122 D6), never the disk.
     pub(crate) texts: Vec<std::sync::Arc<str>>,
@@ -104,6 +108,11 @@ impl Sources {
             .zip(self.digests.iter().map(String::as_str))
     }
 
+    /// Source `id`'s home, as its components' identities name it.
+    pub(crate) fn home(&self, id: usize) -> Option<&str> {
+        self.homes.get(id).and_then(|h| h.as_deref())
+    }
+
     pub(crate) fn path(&self, span: contract_syntax::Span) -> &Path {
         &self.paths[span.source_id as usize]
     }
@@ -146,6 +155,7 @@ pub(crate) fn load_partial(
             paths: vec![path.to_path_buf()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            homes: Vec::new(),
             texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
@@ -469,6 +479,7 @@ pub(crate) fn use_fixes(
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            homes: Vec::new(),
             texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
@@ -557,6 +568,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            homes: Vec::new(),
             texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
@@ -743,6 +755,11 @@ impl Loader<'_> {
         for c in &mut file.components {
             c.params.identity = Some(format!("{home}#{}", c.name));
         }
+        let homes = &mut self.sources.homes;
+        if homes.len() <= source_id as usize {
+            homes.resize(source_id as usize + 1, None);
+        }
+        homes[source_id as usize] = Some(home);
         contract_analyze::check_routes_root(&file, self.active.len() == 1)
             .map_err(|e| vec![CompileError::from(e)])?;
         self.units.push(Unit {

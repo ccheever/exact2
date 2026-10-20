@@ -82,7 +82,8 @@ test('a folded `:disabled` or `:checked` row is read as its base, its parts besi
     const IR = 'param.f1a2b3c4d.Card.fill';
     const params = paramsOf({ tokens: [], components: [{ identity: 'app.contract#Card', name: 'Card', params: [{ name: 'app.contract#Card.fill', short: 'Card.fill', token: IR, default: '#0a7aff', set: null }] }] });
     const node = (line, bindings) => ({ file: app, line, col: 5, end_col: 8, component: 'Card', chain: [], bindings });
-    const map = { digest: 'p1', sources: [{ file: app, sha256: sha(text) }], nodes: [
+    // (Each source's home, as its components' identities name it: a param's full name is `<home>#<component>.<name>`.)
+    const map = { digest: 'p1', sources: [{ file: app, sha256: sha(text), home: 'app.contract' }], nodes: [
       node(10, [{ row: 'background_color', origin: 'own', at: place(10, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: place(12, 'background-color') }] }]),
       node(13, [{ row: 'background_color', origin: 'class:Tick', at: place(2, 'background-color'), attr: 'background-color', states: [{ state: 'checked', origin: 'class:Tick', at: place(4, 'background-color') }] }]),
       // A link's colour folded over what it takes unwritten: no base in the map.
@@ -108,16 +109,25 @@ test('a folded `:disabled` or `:checked` row is read as its base, its parts besi
     expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] }, map, { app: dir, params: new Map() }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('not read yet') });
     // One `param.<name>`, spaces around it as a string may hold them: the param still.
     expect(sel(3, { name: 'background_color', value: '#999999', source: 'dynamic' }).editable).toMatchObject({ rung: 'param', param: 'app.contract#Card.fill' });
-    // Two params of components named alike, and nothing to choose between them: said so, no template edit of the text.
-    const two = new Map([['x', { param: 'a.contract#Card.fill', short: null }], ['y', { param: 'b.contract#Card.fill', short: null }]]);
-    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] }, map, { app: dir, params: two }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('one of 2 params') });
-    // ... the runtime's names choosing, where the row shows the param.
-    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#0a7aff', source: 'dynamic', token: { names: ['b.contract#Card.fill'], text: 'b.contract#Card.fill', modes: '', implied: false } }] }, map, { app: dir, params: two }).rows[0].editable).toMatchObject({ rung: 'param', param: 'b.contract#Card.fill' });
+    // Another file's component of that name is never it: exactly its own identity's param, else not read.
+    const two = new Map([['x', { param: 'b.contract#Card.fill', short: null }], ['y', { param: 'app.contract#Card.fill', short: null }]]);
+    const disabled = { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] };
+    expect(join({ id: 'web-1' }, disabled, map, { app: dir, params: two }).rows[0].editable).toMatchObject({ rung: 'param', param: 'app.contract#Card.fill' });
+    const other = new Map([['x', { param: 'b.contract#Card.fill', short: 'Card.fill' }]]);
+    expect(join({ id: 'web-1' }, disabled, map, { app: dir, params: other }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('not read yet') });
+    // A map that names no home for the file: the param is not named, refused.
+    const homeless = { ...map, sources: [{ file: app, sha256: sha(text) }] };
+    expect(join({ id: 'web-1' }, disabled, homeless, { app: dir, params }).rows[0].editable).toMatchObject({ rung: null, reason: expect.stringContaining('not read yet') });
     // A part's own edit stands while the row the host shows reads a param this server has not read.
     expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#0a7aff', source: 'dynamic', token: { names: [IR], text: IR, modes: '', implied: false } }] }, map, { app: dir, params: new Map() }).rows[0].states[0].editable).toMatchObject({ rung: 'template', state: 'disabled', text: '#999999' });
     // A role's spelling, any case, offers its token beside the base's own edit; a part naming the param edits that part alone.
     const role = sel(4, { name: 'background_color', value: '#888888', source: 'dynamic', token: { names: ['secondary-label'], text: 'disabled ? ... : secondary-label', modes: '', implied: false } });
     expect(role.editable).toMatchObject({ rung: 'template', row: 'background-color', text: '-Exact-Secondary-Label', token: 'secondary-label' });
+    // ... a bare one too, as the kernel reads it (`canvastext` for `CanvasText`).
+    const canvas = joinPath(dir, 'canvas.contract'), canvasText = ['component Card', '  view', '    box background-color="canvastext" disabled=off', '      :disabled', '        background-color="#999999"', ''].join('\n');
+    writeFileSync(canvas, canvasText);
+    const cmap = { digest: 'p3', sources: [{ file: canvas, sha256: sha(canvasText), home: 'canvas.contract' }], nodes: [{ file: canvas, line: 3, col: 5, end_col: 8, component: 'Card', chain: [], bindings: [{ row: 'background_color', origin: 'own', at: { file: canvas, line: 3, col: 9, end_col: 25 }, attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: { file: canvas, line: 5, col: 9, end_col: 25 } }] }] }] };
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#000', source: 'dynamic', token: { names: ['CanvasText'], text: 'CanvasText', modes: '', implied: false } }] }, cmap, { app: dir, params }).rows[0].editable).toMatchObject({ rung: 'template', text: 'canvastext', token: 'CanvasText' });
     expect(role.states[0].editable).toMatchObject({ rung: 'template', row: 'background-color', state: 'disabled', text: 'param.fill', at: { line: 19 } });
     expect(role.states[0].editable.param).toBe(undefined);
     // A text colour's part is the `color` its author wrote.
@@ -131,7 +141,7 @@ test('a folded `:disabled` or `:checked` row is read as its base, its parts besi
     mkdirSync(joinPath(dir, 'node_modules', 'ui'), { recursive: true });
     writeFileSync(pkg, pkgLines.join('\n'));
     const at = (line, name) => { const col = pkgLines[line - 1].indexOf(name) + 1; return { file: pkg, line, col, end_col: col + name.length }; };
-    const pmap = { digest: 'p2', sources: [{ file: pkg, sha256: sha(pkgLines.join('\n')) }], nodes: [{ file: pkg, line: 5, col: 5, end_col: 8, component: 'Card', chain: [], bindings: [{ row: 'background_color', origin: 'own', at: at(5, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: at(7, 'background-color') }] }] }] };
+    const pmap = { digest: 'p2', sources: [{ file: pkg, sha256: sha(pkgLines.join('\n')), home: '@acme/ui/card.contract' }], nodes: [{ file: pkg, line: 5, col: 5, end_col: 8, component: 'Card', chain: [], bindings: [{ row: 'background_color', origin: 'own', at: at(5, 'background-color'), attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: at(7, 'background-color') }] }] }] };
     const vendored = new Map([['z', { param: '@acme/ui/card.contract#Card.fill', short: 'Card.fill' }]]);
     const inPkg = join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#999999', source: 'dynamic' }] }, pmap, { app: dir, params: vendored }).rows[0];
     expect(inPkg.editable).toMatchObject({ rung: 'param', param: '@acme/ui/card.contract#Card.fill' });

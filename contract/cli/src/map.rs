@@ -346,6 +346,13 @@ impl SourceMap {
             quote(&mut out, &path.to_string_lossy());
             out.extend_from_slice(b",\"sha256\":");
             quote(&mut out, digest);
+            // Its components' identities' home (LLP 1121 D15): a param's
+            // full name, `<home>#<component>.<param>`, from the file it
+            // is read in (LLP 1122's queue item (2)).
+            if let Some(home) = self.sources.home(i) {
+                out.extend_from_slice(b",\"home\":");
+                quote(&mut out, home);
+            }
             out.push(b'}');
         }
         out.extend_from_slice(b"],\"slots\":");

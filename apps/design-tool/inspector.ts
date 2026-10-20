@@ -108,7 +108,7 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     // it writes as written, its own edit; two of one state (a class's and the node's) told apart by their places.
     rows: (e.rows ?? []).flatMap((r: any) => [row(r), ...(r.states ?? []).map((p: any, _: number, all: any[]) => {
       const x = row({ name: r.name, value: String(p.editable?.text ?? ''), state: p.state, source: p.source, editable: p.editable });
-      return all.filter((q: any) => q.state === p.state).length > 1 ? { ...x, name: `${x.name} · ${partAt(p.source)}` } : x;
+      return all.filter((q: any) => q.state === p.state).length > 1 ? { ...x, name: `${x.name} · ${String(p.source?.file ?? '')}:${p.source?.line}` } : x;
     })]),
   };
 }

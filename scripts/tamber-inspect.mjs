@@ -444,9 +444,9 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       const folds = asBase(bound.get(r.name)) && row.source === 'dynamic' ? (bound.get(r.name).states ?? []).filter(p => p.state === 'disabled' || p.state === 'checked') : [];
       const rung = rowRung(row, b, map, app, copies, read, own);
       // (Its base's token, from the base as written, whichever branch the runtime shows now.)
-      const base = folds.length ? writtenToken(row, writtenAt(b, b.attr, read), params) : null;
+      const base = folds.length ? writtenToken(row, writtenAt(b, b.attr, read, map), params) : null;
       const shown = base ? { ...row, source: 'authored', token: base.token } : row;
-      const offered = base?.reason ? { rung: null, reason: base.reason } : editable({ ...shown, ...part }, origin, params, unread || !!base?.unread, stateRung(row, b, app, read, own), rung);
+      const offered = editable({ ...shown, ...part }, origin, params, unread || !!base?.unread, stateRung(row, b, app, read, own), rung);
       const shut = o => (readOnly ? { rung: null, reason: readOnly, link: o.link ?? o.param ?? o.token ?? null } : o);
       const states = folds.map(p => {
         const v = { row: r.name, origin: p.origin, state: p.state, at: p.at }, w = rowRung(row, v, map, app, copies, read, own), st = stateRung(row, v, app, read, own);
@@ -463,10 +463,11 @@ export function join(build, selected, map, { read = readFileSync, served = null,
 }
 
 /** A row's value as written at its place (`b.at`), its base attribute's (`attr`) or, for a part, by the name written
- * there (`writtenAs`), and the component it is written in (the top-level `component` above it, none under another
- * declaration); null where the file can't be read or the place says no such name. Read whether or not the file is
- * the app's own: a param a package's component reads is overridden in the app's design. */
-function writtenAt(b, attr, read) {
+ * there (`writtenAs`), the component it is written in (the top-level `component` above it, none under another
+ * declaration), and that component's identity (`<home>#<component>`, its file's home as `map` says it); null where
+ * the file can't be read or the place says no such name. Read whether or not the file is the app's own: a param a
+ * package's component reads is overridden in the app's design. */
+function writtenAt(b, attr, read, map = null) {
   if (!b?.at?.file) return null;
   let lines;
   try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
@@ -477,14 +478,15 @@ function writtenAt(b, attr, read) {
     const l = lines[i] ?? '';
     if (/^\S/.test(l) && !/^\/\//.test(l)) { component = /^component\s+([A-Za-z_][\w-]*)/.exec(l)?.[1] ?? null; break; }
   }
-  return { text: plainAt(lines[b.at.line - 1] ?? '', b.at.col, name), component };
+  const home = (map?.sources ?? []).find(x => x.file === b.at.file)?.home;
+  return { text: plainAt(lines[b.at.line - 1] ?? '', b.at.col, name), component, identity: home && component ? `${home}#${component}` : null };
 }
 
 /** The token a folded row's base or part reads, from its value as written (`w`, `writtenAt`'s), whichever branch the
- * runtime shows now (queue item (2)): a param, one `param.<name>`, by its full name, `<identity>#<component>.<name>`
- * among the params read (the runtime's names choose between several), never for a part (`part`), whose edit is its
- * own; a token by its name or its role's spelling (any case, `-exact-`) where the row's names hold it; else none.
- * `unread` where no param of that name is read yet; `reason` where several are and nothing chooses. */
+ * runtime shows now (queue item (2)): a param, one `param.<name>`, by its full name, its component's identity and
+ * the name (`<home>#<component>.<name>`, as the compiler names it), among the params read; never for a part
+ * (`part`), whose edit is its own; a token by its name or its role's spelling (any case, `-exact-`) where the row's
+ * names hold it; else none. `unread` where that param is not read (yet, or the map names no home for its file). */
 function writtenToken(row, w, params, part = false) {
   const names = row.token?.names ?? [], modes = row.token?.modes ?? '';
   const text = typeof w?.text === 'string' ? w.text.trim() : null;
@@ -493,13 +495,12 @@ function writtenToken(row, w, params, part = false) {
   const name = /^param\.([A-Za-z_][\w-]*)$/.exec(text)?.[1];
   if (name) {
     if (part) return none;
-    const of = w.component ? [...params.values()].filter(p => String(p.param).endsWith(`#${w.component}.${name}`)) : [];
-    const param = of.find(p => names.includes(p.param)) ?? (of.length === 1 ? of[0] : null);
-    if (param) return { token: { names: [param.param], text: param.param, modes } };
-    if (of.length) return { ...none, reason: `\`${text}\` is one of ${of.length} params of components named ${w.component}: select it while it shows the param, or edit it in the source` };
-    return { ...none, unread: true };
+    const full = w.identity ? `${w.identity}.${name}` : null;
+    const param = full && [...params.values()].find(p => p.param === full);
+    return param ? { token: { names: [param.param], text: param.param, modes } } : { ...none, unread: true };
   }
-  const low = text.toLowerCase(), token = names.find(n => n === text || (low.startsWith('-exact-') && low.slice(7) === n));
+  // (A role's spelling in any case, `-exact-` or bare, as the kernel parses it: `canvastext` for `CanvasText`.)
+  const low = text.toLowerCase().replace(/^-exact-/, ''), token = names.find(n => n === text || n.toLowerCase() === low);
   return token ? { token: { names: [token], text: token, modes } } : none;
 }
 

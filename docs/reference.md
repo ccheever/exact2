@@ -199,7 +199,9 @@ and `:focus-visible`'s (LLP 1121 D8, LLP 1122); a conditional class's
 (`class=(c ? A : B)`) says no `at`, as its base row says none; a row a
 `:disabled` or `:checked` part folds over its base says the base's attribute
 as its base and each folded part in `states`. A row only a state part
-writes, a press row among them, has no base fields. Slots, derives and actions retain their declarations,
+writes, a press row among them, has no base fields. Each source is listed
+with its digest and its `home`, as its components' identities name it (a
+param's full name is `<home>#<component>.<param>`). Slots, derives and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside

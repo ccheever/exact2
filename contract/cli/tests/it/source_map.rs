@@ -1069,3 +1069,19 @@ style Card
         [("disabled".to_string(), "class:Card".to_string(), Some(12))]
     );
 }
+
+/// Each source says its home, as its components' identities name it
+/// (LLP 1121 D15), so a reader names a param by its full name from the
+/// file it reads it in (LLP 1122's queue item (2)).
+#[test]
+fn each_source_says_its_home() {
+    let app = App::new("homes");
+    app.write(
+        "app.contract",
+        "component App\n  view\n    Card()\n\ncomponent Card\n  params\n    fill: color = \"#0a7aff\"\n  view\n    box background-color=\"param.fill\" testId=\"card\"\n",
+    );
+    let (_, map) = app.compile();
+    let sources = map["sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 1, "{sources:?}");
+    assert_eq!(sources[0]["home"], "app.contract", "{sources:?}");
+}
