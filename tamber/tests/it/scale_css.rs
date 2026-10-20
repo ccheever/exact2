@@ -1,36 +1,61 @@
 //! The CSS importers and the dial marks on large inputs (rt1's QUEUE entry,
 //! from E23 round 5): each path linear, a large valid input read as it should
 //! be, and a shape that multiplies cut off rather than run. Linear is held as
-//! a ratio, not a wall clock: an input four times the size takes under ten
+//! a ratio, not a wall clock: an input four times the size takes under eight
 //! times as long (four for a linear path, sixteen for a quadratic one), each
-//! the best of three, which a loaded machine slows alike.
+//! the best of three in the thread's own CPU time, which a loaded machine
+//! leaves be.
 
 use crate::common::vocab;
 use exact_tamber::import::{css_blocks, css_read, marks_of, shadcn, tailwind};
 use exact_tamber::{parse, Op};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-/// That `run` grows linearly on `make`'s inputs: its time at `4n` within ten
-/// times its time at `n`, each the best of three (built before the clock
-/// starts), with a floor for inputs too small to time.
+/// That `run` grows linearly on `make`'s inputs: its CPU time at `4n`
+/// within eight times its time at `n`, each the best of three runs taken in
+/// turn (built before the clock starts); a run at `n` under 50 ms, too short
+/// to time, is held to 400 ms at `4n` instead.
 fn linear<I>(what: &str, n: usize, make: impl Fn(usize) -> I, run: impl Fn(&I)) {
-    let best = |input: &I| {
-        (0..3)
-            .map(|_| {
-                let t = Instant::now();
-                run(input);
-                t.elapsed()
-            })
-            .min()
-            .expect("three runs")
+    let time = |input: &I| {
+        let t = cpu();
+        run(input);
+        cpu() - t
     };
     let (small, large) = (make(n), make(4 * n));
-    let (a, b) = (best(&small), best(&large));
+    let (mut a, mut b) = (Duration::MAX, Duration::MAX);
+    for _ in 0..3 {
+        a = a.min(time(&small));
+        b = b.min(time(&large));
+    }
+    let limit = match a > Duration::from_millis(50) {
+        true => a * 8,
+        false => Duration::from_millis(400),
+    };
     assert!(
-        b <= a * 10 + Duration::from_millis(50),
+        b <= limit,
         "{what}: {a:?} at {n}, {b:?} at {}: not linear",
         4 * n
     );
+}
+
+/// The CPU time this thread has run: what it did, not what it waited for.
+#[cfg(unix)]
+fn cpu() -> Duration {
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `t` is a valid timespec for the call to fill.
+    let ok = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+    assert_eq!(ok, 0, "the thread's CPU clock");
+    Duration::new(t.tv_sec as u64, t.tv_nsec as u32)
+}
+
+/// Elsewhere, the wall clock.
+#[cfg(not(unix))]
+fn cpu() -> Duration {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed()
 }
 
 fn design() -> exact_tamber::Design {
@@ -38,7 +63,11 @@ fn design() -> exact_tamber::Design {
 }
 
 fn shadcn_of(css: &str) -> exact_tamber::import::Import {
-    shadcn::import(css, "shadcn", &design(), &vocab()).unwrap()
+    // (Built once, outside the timed runs.)
+    thread_local! {
+        static BUILT: (exact_tamber::Design, exact_tamber::Vocab) = (design(), vocab());
+    }
+    BUILT.with(|(d, v)| shadcn::import(css, "shadcn", d, v).unwrap())
 }
 
 #[test]
@@ -100,8 +129,9 @@ fn nesting_reads_each_level_and_stops_at_its_cap() {
     });
     // 64 long preludes around many small rules: each block would copy them
     // all; past 8 MiB of copies, the rest are reported instead.
+    // (The preludes grow with the rules: the sheet four times the size.)
     let copied = |n: usize| {
-        let long = format!(".{}{{", "x".repeat(4_000));
+        let long = format!(".{}{{", "x".repeat(n / 5));
         let many: String = (0..n).map(|i| format!(".r{{--v{i}: #000;}}")).collect();
         format!("{}{many}{}", long.repeat(63), "}".repeat(63))
     };
@@ -190,6 +220,18 @@ fn css_alias_chains_resolve_each_link_once() {
         import.unmapped.first()
     );
     linear("alias chains", 20, chains, |css| {
+        shadcn_of(css);
+    });
+    // And by depth, under the cut: one chain of 40 links and of 160, each
+    // link followed once (each token rewalking its chain is the square).
+    let deep = |links: usize| {
+        let mut css = String::from(":root{--d0: #102030;");
+        for i in 1..links {
+            css += &format!("--d{i}: var(--d{});", i - 1);
+        }
+        css + "}"
+    };
+    linear("one chain's depth", 40, deep, |css| {
         shadcn_of(css);
     });
     // A chain past 256 links, as the DTCG importer has it: each variable
@@ -324,11 +366,12 @@ fn marks_look_each_token_up_once() {
         (design, ops)
     };
     let (design, ops) = marked(3_000);
-    let (changes, pins) = marks_of(&design, &ops, &vocab()).unwrap();
+    let vocab = vocab();
+    let (changes, pins) = marks_of(&design, &ops, &vocab).unwrap();
     assert_eq!(pins.len(), 3_000);
     assert_eq!(changes[0].impact.len(), 3_000);
     linear("marks", 750, marked, |(design, ops)| {
-        marks_of(design, ops, &vocab()).unwrap();
+        marks_of(design, ops, &vocab).unwrap();
     });
 }
 
