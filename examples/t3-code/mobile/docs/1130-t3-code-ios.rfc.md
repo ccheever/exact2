@@ -1,4 +1,4 @@
-# LLP 1130: T3 Code on iPhone and iPad
+# App-local LLP 1130: T3 Code on iPhone and iPad
 
 **Type:** RFC
 **Status:** Draft
