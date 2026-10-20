@@ -1570,7 +1570,8 @@ icon token), an `app:/data|cache|tmp/…` file
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
 nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
 `storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
-upright JPEG with no location metadata ([reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
+upright JPEG with no location metadata (`type: "image/png"` writes a PNG that
+keeps transparency; [reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
 Linux answers `unsupported`. Upload a file with `fetch(url, {method: "POST", headers:
 {"content-type": "image/jpeg"}, exactBodyFrom: path})`, not `readFile` then `body`: the host
 reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo never passes
