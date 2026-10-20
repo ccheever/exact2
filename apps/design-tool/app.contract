@@ -523,7 +523,7 @@ shape Design
   axes: AxisChoice[]
   // The design's icons (LLP 1121 D10), read only: no operation writes one.
   icons: IconRow[]
-  // Each component with params (LLP 1121 D15).
+  // Each component with params (LLP 1121 D15) or variant props (LLP 1139 D5).
   components: ComponentPanel[]
 
 shape IconRow
@@ -1863,7 +1863,7 @@ component DesignTool
                         text (k.native ? `${k.identity} · a native view's` : k.identity) color="-exact-secondary-label" font="-exact-footnote" testId=`component-${k.name}-identity`
                       if k.variants.length > 0
                         column gap=4 testId=`variants-${k.name}`
-                          text "Variants (each varies its look; pins on an instance come later, LLP 1139 §9 Q5)" color="-exact-secondary-label" font="-exact-footnote"
+                          text "Variants: the options each prop takes (the tool pins none on an instance)" color="-exact-secondary-label" font="-exact-footnote"
                           for v in k.variants key=v.prop
                             text `${v.prop}: ${v.options.join(" · ")}` testId=`variant-${k.name}-${v.prop}`
                       for g in k.groups key=g.name

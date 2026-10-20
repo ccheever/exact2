@@ -2205,7 +2205,7 @@ test "a library component's variant props listed in its panel entry, each with i
   expect text "variant-Chip-compact" == "compact: false · true"
   expect text "component-Badge-identity" == "@acme/cards/badge.contract#Badge"
   expect text "variant-Badge-size" == "size: small · medium · large"
-  // No control: nothing to choose, and nothing claims a value is the one shown.
+  // Badge has no params, so no param group (its variants are text lines above).
   expect tree missing "param-group-Badge-"
   // A component with neither (the app's own Card has params, no variants): no variants block.
   expect tree missing "variants-Card"
