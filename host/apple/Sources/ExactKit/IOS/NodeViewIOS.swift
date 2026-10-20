@@ -833,9 +833,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // padding and footer room remain content), and the
         // port plus the range UIKit clamps a settled offset to, so at the
         // end `scrollHeight - scrollTop - clientHeight` is 0 (chat F4).
-        let inset = sv.adjustedContentInset, viewportInset = scrollPortInsets(sv)
-        let port = CGSize(width: max(0, sv.bounds.width - viewportInset.left - viewportInset.right),
-                          height: max(0, sv.bounds.height - viewportInset.top - viewportInset.bottom))
+        let inset = sv.adjustedContentInset, port = scrollPort(sv).size
         let range = CGSize(width: max(0, sv.contentSize.width + inset.right - sv.bounds.width),
                            height: max(0, sv.contentSize.height + inset.bottom - sv.bounds.height + top))
         presenter?.scroll(id, [point.x, point.y + top, port.width + range.width, port.height + range.height,

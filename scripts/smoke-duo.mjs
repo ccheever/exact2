@@ -1,8 +1,9 @@
 // The iPhone Duo suite (LLP 1078 D9): `bun scripts/smoke.mjs duo`. Drives
-// `apps/duo-lab` and the `insets` and `keyboard-bar` corpus fixtures on the
-// Duo simulator fully open, partially folded and closed (the hinge at 180°, 130°
-// and 0°), the hinge set from inside the simulator by `scripts/duo/hinge_helper.c`
-// (compiled per run with the selected Xcode's simulator SDK). At every pose:
+// `apps/duo-lab` and the `insets` and `keyboard-bar` corpus fixtures, with
+// UIKit's bars as a person sees them (`--chrome platform`), on the Duo simulator
+// fully open, partially folded and closed (the hinge at 180°, 130° and 0°), the
+// hinge set from inside the simulator by `scripts/duo/hinge_helper.c` (compiled
+// per run with the selected Xcode's simulator SDK). At every pose:
 // the cover-root and inset invariants `smoke ios` checks; the Fold screen's
 // two panes exactly on the division's segments (one pane flat or closed);
 // `devicePosture` folded only when partially folded; no control on the band between
@@ -155,9 +156,11 @@ async function suite({ open: openSession, check: record }, reset) {
     const p = resolve(out, `${String(++shots).padStart(2, '0')}-${at.replace(/[^A-Za-z0-9-]+/g, '_')}.png`);
     try { await s.screenshot(p); console.log(`  screenshot ${p}`); } catch (e) { console.log(`  no screenshot at ${at}: ${e.message}`); }
   };
-  /** A session whose state-changing operations take a failure's screenshot first (`shot`). */
+  /** A session as a person sees the app, with UIKit's bars (`--chrome platform`), whose state-changing operations take
+   * a failure's screenshot first (`shot`). The agent's default chrome lays the authored tablist out in its own place
+   * below the routes, as the web does, whereas the Duo shows UIKit's tab bar. */
   const open = async (options) => {
-    const s = await openSession(options);
+    const s = await openSession({ chrome: 'platform', ...options });
     keyboardGone = false; // a new launch has its keyboard again
     for (const op of ['tap', 'type', 'close']) {
       const run = s[op].bind(s);
@@ -329,8 +332,8 @@ async function suite({ open: openSession, check: record }, reset) {
   /** At a fold, layout `l` has two segments, and no control of the screen shown lies on the band between them, the
    * hinge: a button, a field, a sheet's drag handle (`heightDragFor`). Scrolling content may cross it (Apple's
    * adaptive-layout talk, developer.apple.com/videos/play/tech-talks/111463), so a control inside a scroller is exempt.
-   * So is the authored tablist, which the agent's default chrome paints over the bottom where a person sees UIKit's tab
-   * bar: a rail at the inner panel's right edge upright, a bar at its bottom turned, under the keyboard while it is up. */
+   * So is the authored tablist, which UIKit's tab bar stands for: a rail at the inner panel's right edge upright, a bar
+   * at its bottom turned, under the keyboard while it is up. */
   const offBand = async (s, l, tag) => {
     const segs = l.env['viewport-segments'];
     if (!check(segs?.length === 2, `${tag}: two segments to check the band against, not ${JSON.stringify(segs)}`)) return;
@@ -545,14 +548,21 @@ async function suite({ open: openSession, check: record }, reset) {
       // Images: a virtualized list of image rows, folded mid-scroll, twice.
       await s.tap('tab-images'); await settle(s);
       check(byTestId(await s.tree(), 'screen-images') != null, 'the Images tab opened');
-      // The row under the list's top edge and how far up it sits: a fold keeps both.
+      // The row under the list's top edge, where its port begins below UIKit's bar, and how far up it sits: a fold keeps both.
+      const edge = (l) => box(l, 'image-list')?.port?.[1];
       const anchor = (l) => {
-        const list = box(l, 'image-list');
-        const row = list && l.nodes.find((n) => n.testId?.startsWith('image-row-') && n.y <= list.y && n.y + n.h > list.y);
-        return row ? { id: row.testId, by: list.y - row.y, sy: list.sy } : null;
+        const list = box(l, 'image-list'), top = edge(l);
+        const row = list && l.nodes.find((n) => n.testId?.startsWith('image-row-') && n.y <= top && n.y + n.h > top);
+        return row ? { id: row.testId, by: top - row.y, sy: list.sy } : null;
       };
+      // UIKit's bar insets the Images list and Reflow's scroller at the top and bottom, and must give neither a sideways
+      // range, though the panels' status column is a side inset. A wheel could not show one on the Images list, which
+      // writes `overflow-x: hidden`; `layout` reports each scroller's range (`rx`) whatever input may move it.
+      const sideways = (l, tag, id, name) => check(box(l, id)?.rx === 0, `${tag}: ${name} has no sideways range under UIKit's bar; layout gives it ${box(l, id)?.rx}`);
       await eachPose(s, 'images', async ({ l }, tag, deg) => {
         check(box(l, 'image-list') != null, `${tag}: the image list is up`);
+        check(edge(l) != null, `${tag}: layout reports the image list's port`);
+        sideways(l, tag, 'image-list', 'the Images list');
         if (folded(deg)) await offBand(s, l, tag);
         // Twice: out and back, then out again, the next pose going on from there
         for (let round = 0; round < 2; round++) {
@@ -562,7 +572,7 @@ async function suite({ open: openSession, check: record }, reset) {
           for (const [, next, fold] of folds(tag, deg)) {
             await pose(s, next);
             const l2 = await s.layout(), now = anchor(l2), row = before && box(l2, before.id);
-            check(before && row && near(box(l2, 'image-list').y - row.y, before.by, 1), `${fold} round ${round + 1}: the row under the top edge stayed there across the fold: ${JSON.stringify(before)} → ${JSON.stringify(now)}`);
+            check(before && row && near(edge(l2) - row.y, before.by, 1), `${fold} round ${round + 1}: the row under the top edge stayed there across the fold: ${JSON.stringify(before)} → ${JSON.stringify(now)}`);
             before = now;
           }
           if (round === 0) await pose(s, deg);
@@ -575,15 +585,16 @@ async function suite({ open: openSession, check: record }, reset) {
       await eachPose(s, 'reflow', async ({ l }, tag, deg) => {
         const doc = box(l, 'document');
         check(doc && doc.w > 0 && doc.w <= l.viewport.w - l.env['safe-area-inset-right'] && doc.h > l.viewport.h, `${tag}: the document fills its panel's width ${JSON.stringify(doc)} in ${JSON.stringify(l.viewport)}`);
+        sideways(l, tag, 'reflow-scroll', "Reflow's scroller");
         if (folded(deg)) await offBand(s, l, tag);
         await s.tap('reflow-scroll', { wheel: [0, 1200] }); await settle(s);
         let before = box(await s.layout(), 'reflow-scroll')?.sy ?? 0;
         for (const [, next, fold] of folds(tag, deg)) {
           await pose(s, next);
-          const l2 = await s.layout(), port = box(l2, 'reflow-scroll');
-          const afterFold = port?.sy ?? 0;
+          const l2 = await s.layout(), scroller = box(l2, 'reflow-scroll');
+          const afterFold = scroller?.sy ?? 0;
           // The document reflows, so the offset moves; it stays inside the content (`oy`: how far past an end it sits)
-          check(before > 0 && afterFold > 0 && port.oy == null && box(l2, 'document') != null, `${fold}: the document is up and its offset survived inside the content (${before} → ${afterFold}${port?.oy != null ? `, ${port.oy} past an end` : ''})`);
+          check(before > 0 && afterFold > 0 && scroller.oy == null && box(l2, 'document') != null, `${fold}: the document is up and its offset survived inside the content (${before} → ${afterFold}${scroller?.oy != null ? `, ${scroller.oy} past an end` : ''})`);
           before = afterFold;
         }
         await s.tap('reflow-scroll', { wheel: [0, -100000] }); await settle(s);
@@ -637,20 +648,6 @@ async function suite({ open: openSession, check: record }, reset) {
         check(echo === `Draft so far: ${title} / ${draft}`, `${tag}: the draft is echoed on the Combinations screen: ${echo}`);
       });
     } catch (e) { check(false, `duo-lab: ${e.message}`); } finally { await s.close(); }
-    // Only under `--chrome platform` does UIKit's navigation bar take Reflow's scroller. It insets the scroller's top and
-    // bottom and must give it no sideways range, though the panels' status column is a side inset; nor may it give one
-    // to the Images list, which writes `overflow-x: hidden`, so that no wheel could show the range. `layout` reports
-    // each scroller's range (`rx`) whatever input may move it.
-    const p = await open({ host: 'ios', app: 'duo-lab', chrome: 'platform' });
-    try {
-      for (const [tab, scroller, name] of [['tab-reflow', 'reflow-scroll', "Reflow's scroller"], ['tab-images', 'image-list', 'the Images list']]) {
-        await p.tap(tab); await settle(p);
-        await eachPose(p, `sideways-${scroller}`, async (_f, tag) => {
-          const port = box(await p.layout(), scroller);
-          check(port?.rx === 0, `${tag}: ${name} has no sideways range under UIKit's bar; layout gives it ${port?.rx}`);
-        });
-      }
-    } catch (e) { check(false, `duo-lab under --chrome platform: ${e.message}`); } finally { await p.close(); }
   }
 
   // 4. The two-session sample host: both panes follow the pose.
