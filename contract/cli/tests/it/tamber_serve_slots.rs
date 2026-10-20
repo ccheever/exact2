@@ -266,3 +266,39 @@ fn a_base_name_reached_only_through_the_apps_own_aliases_is_checked() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// theme2's bar (about 10 ms a candidate) for the check alone, on a
+/// clone-sized design: the Bluesky clone's whole design as the app's, the
+/// library package beside it; warm, the median of five, for a touched name
+/// that reaches the chain and for every chain at once. The figures are
+/// printed for the review record.
+#[test]
+fn the_slot_check_alone_is_under_ten_milliseconds_on_a_clone_sized_design() {
+    let clone = include_str!("../../../../tamber/tests/fmt/bluesky-clone.tamber");
+    let dir = app("clone-sized", clone);
+    let app = contract::tamber_params::params_of(&dir.join("app.contract"));
+    let chains = contract_lower::anatomy::slot::SlotChains::from_ir(
+        &contract::tamber_params::library(&app, None),
+    );
+    let (folding, _) =
+        contract::tamber_params::fold_with(clone, &app, &contract_lower::tamber_vocab()).unwrap();
+    let median = |touched: &[&str]| {
+        let _ = contract_lower::anatomy::slot::check_slots(&folding, None, &chains, touched); // (warm)
+        let mut runs: Vec<std::time::Duration> = (0..5)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                let _ =
+                    contract_lower::anatomy::slot::check_slots(&folding, None, &chains, touched);
+                t.elapsed()
+            })
+            .collect();
+        runs.sort();
+        runs[2]
+    };
+    let one = median(&["lib.op"]);
+    let all = median(&[]);
+    eprintln!("check_slots on the clone's design ({} tokens): one touched name {one:?}, every chain {all:?} (median of 5, warm)", folding.tokens.len());
+    assert!(one < std::time::Duration::from_millis(10), "{one:?}");
+    assert!(all < std::time::Duration::from_millis(10), "{all:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
