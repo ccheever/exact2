@@ -229,7 +229,27 @@ impl Server {
             .collect();
         if let (Some(chains), Some((path, folding)), false) = (&chains, &folded, touched.is_empty())
         {
-            let all = contract_lower::anatomy::slot::check_slots(folding, chains, &touched);
+            let mut all =
+                contract_lower::anatomy::slot::check_slots(folding, None, chains, &touched);
+            // Refused: said at the line the write replaces where the candidate
+            // has none (a removed override), the design as it was folded too,
+            // only then (a write that passes folds nothing more).
+            if !all.is_empty() {
+                let was = texts
+                    .iter()
+                    .find(|(p, _)| *p == self.design)
+                    .and_then(|(_, t)| {
+                        contract::tamber_params::fold_with(t, &app, &self.vocab).ok()
+                    });
+                if let Some((before, _)) = &was {
+                    all = contract_lower::anatomy::slot::check_slots(
+                        folding,
+                        Some(before),
+                        chains,
+                        &touched,
+                    );
+                }
+            }
             if !all.is_empty() {
                 return Err(
                     json!({"message": "refused", "diagnostics": all.iter().map(|d| super::located(path, d, &app)).collect::<Vec<_>>()}),

@@ -157,7 +157,8 @@ fn the_slot_check_is_cheap() {
     let t = std::time::Instant::now();
     for _ in 0..100 {
         assert!(
-            contract_lower::anatomy::slot::check_slots(&folding, &chains, &["lib.op"]).is_empty()
+            contract_lower::anatomy::slot::check_slots(&folding, None, &chains, &["lib.op"])
+                .is_empty()
         );
     }
     let each = t.elapsed() / 100;
@@ -209,6 +210,13 @@ fn a_propose_and_a_removed_override_are_checked_too() {
     // Removing the app's radius.sm gives the chain the base's: 0 cells on the terminal.
     let (removed, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "remove-token", "name": "radius.sm"}]}));
     assert_eq!(refusals(&removed).len(), 1, "{removed}");
+    // (said at the line it removes, the design as it was: never 1:1)
+    let at = &removed["error"]["diagnostics"][0];
+    assert_eq!(
+        (at["file"].as_str(), at["line"].as_u64()),
+        (Some("app.tamber"), Some(5)),
+        "{removed}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
