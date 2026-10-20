@@ -28,6 +28,16 @@ export class TransportFailure extends Error {
   }
 }
 
+/**
+ * failRemoteRequest (rpc/http.ts) for a request that got no answer: past its deadline, the timeout; otherwise
+ * the transport error, as effect's HttpClientError prints it (a refused port, an unknown host).
+ */
+export function remoteRequestFailure(url: string, method: string, error: unknown, timeoutMs: number): string {
+  const kind = error !== null && typeof error === 'object' ? (error as { kind?: unknown }).kind : undefined;
+  if (kind === 'Timeout') return `Remote environment endpoint ${url} timed out after ${timeoutMs}ms.`;
+  return `Failed to fetch remote environment endpoint ${url} (HttpClientError: Transport error (${method} ${url})).`;
+}
+
 /** A typed error's context fields a client reads (ProjectReadFileError's failure, operation and the paths it tried). */
 const CONTEXT_FIELDS = ['failure', 'operation', 'cwd', 'relativePath', 'resolvedPath', 'operationPath'];
 

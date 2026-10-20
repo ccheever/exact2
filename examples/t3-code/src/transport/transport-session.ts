@@ -24,7 +24,7 @@ import { credentialOrigins, type Catalog, type Route } from './transport-catalog
 import {
   TransportFailure, MAXIMUM_BYTES, PING_INTERVAL_MS, PONG_TIMEOUT_MS, QUICK_PROBE_MS, FOREGROUND_PROBE_MS, SOCKET_OPEN_TIMEOUT_MS,
   BACKOFF_RESET_AFTER_MS, compatibility, credential as parseCredential, decode, encode, exchangeForm, exchangeScopes, failure as wireFailure, failureMessage, failureReason,
-  identifier, letGoAbort, origin as parseOrigin, path as onOrigin, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
+  identifier, letGoAbort, origin as parseOrigin, path as onOrigin, remoteRequestFailure, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
   type Frame,
 } from './transport-wire';
 import type { ActivityReporter } from './transport-activity';
@@ -965,8 +965,9 @@ export class Session {
       let reply: HttpReply;
       const headers: Record<string, string> = { 'x-t3-orchestration-protocol': '2', Accept: 'application/json' };
       if (body !== undefined) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-      try { reply = await this.hooks.http(onOrigin(where, target), { method: body === undefined ? 'GET' : 'POST', headers, body, timeoutMs: 30_000 }); }
-      catch (error) { throw new TransportFailure('Network', scrub(error instanceof Error ? error.message : String(error))); }
+      const url = onOrigin(where, target), method = body === undefined ? 'GET' : 'POST';
+      try { reply = await this.hooks.http(url, { method, headers, body, timeoutMs: 30_000 }); }
+      catch (error) { throw new TransportFailure('Network', scrub(remoteRequestFailure(url, method, error, 30_000))); }
       const decoded = json(reply);
       if (reply.status < 200 || reply.status >= 300 || typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
         throw new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', scrub(failureMessage(decoded, reply.status)), false, failureReason(decoded));
