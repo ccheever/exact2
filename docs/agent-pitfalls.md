@@ -96,6 +96,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   an image's content size is its intrinsic size. Fix: give the image or its flex
   parent `min-height=0` (`min-width=0` across a row), or position it absolutely in
   a sized box. (Signal Clone DIARY, build 7.)
+- **A sheet's form does not scroll, and `tap <scroll> drag 0 -400` moves nothing.** The
+  sheet's root `column flex=1` grew to its form (1315 pt), as a browser's would, and the
+  `scroll flex=1` inside with it. Cause: CSS `min-height: auto` on the column. Fix:
+  `min-height=0` on the column, as `lower-scroll-grows` says; `layout <scroll>` shows the
+  height. A UIKit sheet sizes nothing for you here. (euxy port 14, FRICTION 9.)
 - **A sized `symbol:` image is stretched.** An ellipsis became three tall bars.
   Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: don't size a symbol;
   it follows its text (in a button, tab or bar item, its title's font; give it a
