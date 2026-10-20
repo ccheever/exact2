@@ -432,6 +432,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // seek moves when the platform gives none.
         "metadata" => AttrTarget::MediaMetadata,
         "decorations" => AttrTarget::Prop(PropId::Decorations),
+        "alertPart" => AttrTarget::Prop(PropId::AlertPart),
         "seekbackward" => AttrTarget::Handler("seekbackward"),
         "seekforward" => AttrTarget::Handler("seekforward"),
         "seekto" => AttrTarget::Handler("seekto"),

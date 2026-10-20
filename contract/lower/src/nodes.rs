@@ -117,6 +117,7 @@ impl Lowerer<'_> {
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         menus::check_invoker(tag, expanded)?;
+        crate::alert_parts::check_authored(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
         // @ref LLP 1121 D3 — a motion token an expansion carried in (a
         // component's prop, a sheet) is written in before the longhands
@@ -170,6 +171,8 @@ impl Lowerer<'_> {
         controls::check_progress(tag, expanded, children)?;
         crate::live_time::check(tag, expanded, *span)?;
         let alert = self.check_menu_shapes(tag, expanded, children, *span)?;
+        let parted = self.alert_parts(tag, expanded, children, alert, *span, *instance);
+        let children: &[Node] = parted.as_deref().unwrap_or(children);
         let closedby = menus::implied_closedby(tag, expanded, *span, alert);
         let expanded = closedby.as_deref().unwrap_or(expanded);
         let numeric = controls::range_attrs(tag, control, expanded);
@@ -877,6 +880,8 @@ impl Lowerer<'_> {
             std::borrow::Cow::Owned(rows)
         } else if let Some(face) = face {
             std::borrow::Cow::Owned(face)
+        } else if let Some(parts) = parted {
+            std::borrow::Cow::Owned(parts)
         } else {
             std::borrow::Cow::Borrowed(authored_children.as_slice())
         };

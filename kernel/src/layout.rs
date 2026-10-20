@@ -285,6 +285,10 @@ impl LayoutMirror for LayoutTree {
 
     fn restyle(&mut self, arena: &NodeArena, slot: u32, node: NodeId) {
         self.set_style(node, taffy_style(arena, slot));
+        // The title's box follows its alert's grouping (layout/alert.rs)
+        if let Some(prefix) = self.alert_prefixes.get(&slot).copied() {
+            self.write_style(prefix, alert::prefix_style(arena.grouped_alert(slot)));
+        }
     }
 
     fn sync_children(&mut self, arena: &NodeArena, parent: u32, node: NodeId) -> usize {

@@ -467,7 +467,7 @@ final class MenuHost {
     /// field shown is no longer the input's.
     private func followPrompt(_ owner: Confirmation) {
         guard let pop = owner.popover, !owner.finishing else { return }
-        let shown = pop.container.subviews.compactMap { $0 as? NodeView }.filter(\.isPromptField)
+        let shown = pop.confirmationRows.filter(\.isPromptField)
         guard shown.count == owner.fields.count, zip(shown, owner.fields).allSatisfy({ $0 === $1.node }) else {
             resetConfirmation()
             return
@@ -941,7 +941,7 @@ final class MenuHost {
     func shownAction(_ node: NodeView) -> Result<(alert: UIAlertController, action: UIAlertAction, title: String), AimRefusal>? {
         guard let owner = confirmation, let pop = owner.popover, node.isDescendant(of: pop) else { return nil }
         var at: UIView = node
-        while let up = at.superview, up !== pop.container { at = up }
+        while !(owner.actions.contains { $0.node === at } || owner.cancel?.node === at), let up = at.superview, up !== pop.container { at = up }
         let index = owner.actions.firstIndex { $0.node === at }
         guard index != nil || owner.cancel.map({ $0.node === at }) == true else { return nil }
         // UIKit draws no cancel in a popover.
@@ -1110,7 +1110,7 @@ final class MenuHost {
     /// A confirmation's rows: its children, its actions (buttons with a
     /// `press`) and its cancels (buttons that only close it).
     private func rows(of pop: NodeView, modal: Bool) -> (children: [NodeView], actions: [NodeView], cancels: [NodeView]) {
-        let children = pop.container.subviews.compactMap { $0 as? NodeView }
+        let children = pop.confirmationRows
         return (children, children.filter { $0.isButton && $0.handlers.contains("press") },
                 children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop, modal: modal) })
     }
@@ -1159,7 +1159,7 @@ final class MenuHost {
     /// action may be disabled while it opens (Save, until a name is typed):
     /// its field and its cancel are still there.
     private func prompts(_ pop: NodeView) -> Bool {
-        pop.props["accessibilityRole"] == "alertdialog" && pop.container.subviews.contains { ($0 as? NodeView)?.isPromptField == true }
+        pop.props["accessibilityRole"] == "alertdialog" && pop.confirmationRows.contains(where: \.isPromptField)
     }
     /// LLP 1115.000 D11.5: a `dialog` that is not a confirmation by its rows
     /// is a sheet, its content laid out by the kernel (DialogSheetIOS.swift).

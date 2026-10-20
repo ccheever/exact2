@@ -1142,8 +1142,16 @@ fn sync_children(arena: &NodeArena, layout: &mut dyn LayoutMirror, parent: u32) 
         return;
     };
     let _entries = layout.sync_children(arena, parent, node);
-    if arena.neutral_alert(parent) {
-        for child in arena.children(parent) {
+    // An alert's defaults read its children: whether it is grouped or a part
+    // box empty (its own and, for its actions' margin, its siblings'), and a
+    // row's place among them (arena/alert.rs)
+    if arena.neutral_alert(parent) || arena.alert_group(parent) {
+        layout.restyle(arena, parent, node);
+        let siblings = match arena.parent(parent) {
+            Some(alert) if arena.alert_group(parent) => arena.children(alert),
+            _ => &[],
+        };
+        for child in arena.children(parent).iter().chain(siblings) {
             if let Some(node) = arena.taffy(*child) {
                 layout.restyle(arena, *child, node);
                 layout.mark_dirty(node);

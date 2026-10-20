@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod alert_parts;
 pub mod anatomy;
 mod buttons;
 mod cells;
