@@ -141,6 +141,20 @@ final class MarkupHiddenTests: XCTestCase {
         XCTAssertEqual(g.string, "[](b)[](d)")
     }
 
+    func testDeletingBesideALinksBracketTakesTheGraphemePastIt() throws {
+        let (_, f, window) = editor("see [docs](x)", selection: NSRange(location: 5, length: 0))
+        defer { window.close() }
+        f.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+        XCTAssertEqual(f.string, "see[docs](x)", "Backspace after the `[` takes the space before it")
+        XCTAssertEqual(f.selectedRange(), NSRange(location: 3, length: 0))
+        try XCTUnwrap(f.undoManager).undo()
+        XCTAssertEqual(f.string, "see [docs](x)")
+        f.setSelectedRange(NSRange(location: 4, length: 0))
+        f.doCommand(by: #selector(NSResponder.deleteForward(_:)))
+        XCTAssertEqual(f.string, "see [ocs](x)", "Delete before the `[` takes the letter after it")
+        XCTAssertEqual(f.selectedRange(), NSRange(location: 4, length: 0))
+    }
+
     func testCopyOfALabelTakesItsBracketAndDestination() {
         let (_, f, window) = editor("x [a](b) y", selection: NSRange(location: 3, length: 1))
         defer { window.close() }
@@ -261,6 +275,14 @@ final class MarkupHiddenIOSTests: XCTestCase {
         g.selectedRange = NSRange(location: 4, length: 16)
         g.insertText("Z")
         XCTAssertEqual(g.text, "see [Z](http://x) now")
+    }
+
+    func testBackspaceBesideALinksBracketTakesTheGraphemeBeforeIt() {
+        let (_, _, f) = field("see [docs](x)")
+        f.selectedRange = NSRange(location: 5, length: 0)
+        f.deleteBackward()
+        XCTAssertEqual(f.text, "see[docs](x)")
+        XCTAssertEqual(f.selectedRange, NSRange(location: 3, length: 0))
     }
 
     func testACompositionOverADestinationKeepsItAndComposes() {

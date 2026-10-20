@@ -56,9 +56,10 @@ package protocol MarkdownEditing: AnyObject {
     /// when it starts where it is.
     func crossing(_ caret: Int, backward: Bool, in storage: NSAttributedString) -> Int?
     /// A native replacement of `range` by `text` as the editor's rules make
-    /// it: hidden source stays, and only the visible parts change. Nil when
+    /// it: hidden source stays, and only the visible parts change. `caret`
+    /// is the collapsed selection a deletion starts from, else nil. Nil when
     /// the native edit is already that.
-    func rewrite(_ range: NSRange, with text: String, in storage: NSAttributedString) -> MarkupRewrite?
+    func rewrite(_ range: NSRange, with text: String, caret: Int?, in storage: NSAttributedString) -> MarkupRewrite?
     /// The source a copy of `range` takes.
     func copyRange(_ range: NSRange, in storage: NSAttributedString) -> NSRange
 }

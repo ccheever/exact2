@@ -141,7 +141,7 @@ package final class TextArea: NSTextView {
         // Asked before `super`, which registers the native edit's undo: the
         // editor's own edit replaces it and registers its own.
         if let markup, !markup.applying, !hasMarkedText(), !markingText, let text = replacementString, let storage = textStorage,
-           let rewrite = markup.rewrite(affectedCharRange, with: text, in: storage) {
+           let rewrite = markup.rewrite(affectedCharRange, with: text, caret: selectedRange().length == 0 ? selectedRange().location : nil, in: storage) {
             if let owner, owner.presenter?.fieldSelections.shouldEdit(owner, range: affectedCharRange, replacement: text, marked: false) == false { return false }
             apply(rewrite, markup)
             return false
@@ -178,8 +178,13 @@ package final class TextArea: NSTextView {
         // destination first deletes what the selection shows, as the editor
         // deletes it, and then composes at the caret.
         if let markup, !markup.applying, !hasMarkedText(), replacementRange.location == NSNotFound, let storage = textStorage,
-           self.selectedRange().length > 0, let rewrite = markup.rewrite(self.selectedRange(), with: "", in: storage) {
-            apply(rewrite, markup)
+           self.selectedRange().length > 0, let rewrite = markup.rewrite(self.selectedRange(), with: "", caret: nil, in: storage) {
+            // The app hears the deletion as its own input first.
+            let fields = owner?.presenter?.fieldSelections, range = self.selectedRange()
+            let heard = fields.map { fields in fields.withIntent(owner, "deleteByComposition") {
+                fields.shouldEdit(owner!, range: range, replacement: "", marked: false)
+            } } ?? true
+            if heard { apply(rewrite, markup) }
         }
         markingText = true
         defer { markingText = false }

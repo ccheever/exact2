@@ -202,8 +202,13 @@ package final class TextArea: UITextView {
         // destination first deletes what the selection shows, as the editor
         // deletes it, and then composes at the caret.
         if let markup, !markup.applying, markedTextRange == nil, self.selectedRange.length > 0, let owner,
-           let rewrite = markup.rewrite(self.selectedRange, with: "", in: textStorage) {
-            owner.applyMarkup(rewrite, in: self, markup)
+           let rewrite = markup.rewrite(self.selectedRange, with: "", caret: nil, in: textStorage) {
+            // The app hears the deletion as its own input first.
+            let fields = owner.presenter?.fieldSelections, range = self.selectedRange
+            let heard = fields.map { fields in fields.withIntent(owner, "deleteByComposition") {
+                fields.shouldEdit(owner, range: range, replacement: "", marked: false)
+            } } ?? true
+            if heard { owner.applyMarkup(rewrite, in: self, markup) }
         }
         markingText = true
         defer { markingText = false }
@@ -246,8 +251,14 @@ package final class TextArea: UITextView {
     /// selection that holds hidden source (LLP 1045 D5); UIKit's key input
     /// need not ask the delegate first.
     private func rewritesSelection(with text: String) -> Bool {
-        guard let markup, !markup.applying, markedTextRange == nil, let owner,
-              let rewrite = markup.rewrite(selectedRange, with: text, in: textStorage) else { return false }
+        guard let markup, !markup.applying, markedTextRange == nil, let owner else { return false }
+        // A Backspace at a caret deletes the grapheme before it.
+        var range = selectedRange, caret: Int?
+        if text.isEmpty, range.length == 0, range.location > 0 {
+            caret = range.location
+            range = (self.text as NSString).rangeOfComposedCharacterSequence(at: range.location - 1)
+        }
+        guard let rewrite = markup.rewrite(range, with: text, caret: caret, in: textStorage) else { return false }
         owner.applyMarkup(rewrite, in: self, markup)
         return true
     }
@@ -542,7 +553,7 @@ extension NodeView {
         guard TextInputLimit.allows(textView.text ?? "", range: range, replacement: text, props: props),
               presenter?.fieldSelections.shouldEdit(self, range: range, replacement: text, marked: textView.markedTextRange != nil) ?? true else { return false }
         guard let f = textView as? TextArea, let editor = f.markup, !editor.applying, f.markedTextRange == nil, !f.markingText else { return true }
-        if let rewrite = editor.rewrite(range, with: text, in: f.textStorage) {
+        if let rewrite = editor.rewrite(range, with: text, caret: f.selectedRange.length == 0 ? f.selectedRange.location : nil, in: f.textStorage) {
             applyMarkup(rewrite, in: f, editor)
             return false
         }

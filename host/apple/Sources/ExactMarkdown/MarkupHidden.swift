@@ -93,7 +93,7 @@ extension MarkupEditor {
         return nil
     }
 
-    func rewrite(_ range: NSRange, with text: String, in s: NSAttributedString) -> MarkupRewrite? {
+    func rewrite(_ range: NSRange, with text: String, caret: Int?, in s: NSAttributedString) -> MarkupRewrite? {
         // Select All owns the whole source, its destinations too.
         if range.location == 0, range.length == s.length { return nil }
         if range.length == 0 {
@@ -114,14 +114,37 @@ extension MarkupEditor {
         guard keeps else { return nil }
         if NSMaxRange(range) > at { parts.append(NSRange(location: at, length: NSMaxRange(range) - at)) }
         guard let first = parts.first else {
-            // Only hidden source: a deletion removes nothing; text lands
-            // where a caret there sits, after the run.
-            guard !text.isEmpty else { return MarkupRewrite(edits: [], caret: nil) }
+            // Only kept source: a deletion from a caret beside a link's `[`
+            // takes the grapheme past it, as the crate's `remove` does; any
+            // other removes nothing. Text lands where a caret there sits,
+            // after the run.
+            guard !text.isEmpty else { return Self.past(range, from: caret, in: s) ?? MarkupRewrite(edits: [], caret: nil) }
             let place = Self.hidden(at: range.location, in: s).map { NSMaxRange($0) } ?? range.location
             return MarkupRewrite(edits: [(NSRange(location: place, length: 0), text)], caret: place + text.utf16.count)
         }
         let edits = parts.enumerated().map { (i, part) in (range: part, text: i == 0 ? text : "") }
         return MarkupRewrite(edits: edits, caret: first.location + text.utf16.count)
+    }
+
+    /// A deletion of a link's `[` from the caret beside it, as one of the
+    /// grapheme on its far side, past any destination there too.
+    static func past(_ range: NSRange, from caret: Int?, in s: NSAttributedString) -> MarkupRewrite? {
+        var opener = NSRange()
+        guard let caret, range.length > 0, range.location < s.length,
+              s.attribute(.markupOpener, at: range.location, longestEffectiveRange: &opener, in: NSRange(location: 0, length: s.length)) != nil,
+              NSLocationInRange(NSMaxRange(range) - 1, opener) else { return nil }
+        if caret == NSMaxRange(range) {
+            var p = opener.location
+            while let run = hidden(at: p, in: s), NSMaxRange(run) == p, run.location < p { p = run.location }
+            guard p > 0 else { return MarkupRewrite(edits: [], caret: nil) }
+            let from = step(p, backward: true, in: s)
+            return MarkupRewrite(edits: [(NSRange(location: from, length: p - from), "")], caret: from)
+        }
+        guard caret == range.location else { return nil }
+        var q = NSMaxRange(opener)
+        while let run = hidden(at: q, in: s), run.location == q { q = NSMaxRange(run) }
+        guard q < s.length else { return MarkupRewrite(edits: [], caret: nil) }
+        return MarkupRewrite(edits: [(NSRange(location: q, length: step(q, backward: false, in: s) - q), "")], caret: caret)
     }
 
     func copyRange(_ range: NSRange, in s: NSAttributedString) -> NSRange {
