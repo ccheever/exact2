@@ -379,7 +379,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   sheets and a popover
   that is no menu as AppKit's popover; each is a window of its own, so a plain
   `screenshot` (the viewport's own drawing) leaves it out and says so
-  (`notShown`). (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
+  (`notShown`). An iOS launch no driver reaches (`simctl launch` with
+  `EXACT_AGENT=1` and `EXACT_AGENT_FAIL_FETCH`, no socket) shows the native bars
+  and menus, its fetches still failing. (Signal Clone, builds 5 and 10; Splitter,
+  rough 4 and 11; Recipe Finder, round 27.)
+- **An `EmptyState`'s button sits at the bottom of the screen.** Cause: the part
+  takes the free height it is given, so a `button` written after it lands at that
+  space's foot. Fix: indent the button under the `EmptyState` call, its slot.
+  (Recipe Finder, round 27.)
 - **An overlay's backdrop stops at the navigation or tab bar.** Cause: content
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
