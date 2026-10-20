@@ -587,7 +587,24 @@ extension NodeView {
             }
             at = view.superview
         }
-        if presenter.hasKeyboardEditor { presenter.endEditing() }
+        guard presenter.hasKeyboardEditor else { return handoff }
+        // A button keeps the keyboard and its field, as a `UIButton` leaves
+        // the first responder alone: what was typed is committed (`change`),
+        // as the web's blur commits it, and the field is not blurred. Ground
+        // that presses nothing ends the editing, as a hand-built screen's
+        // tap on its background does.
+        if let target, target.actsAsButton || target.isNativeButton {
+            // The focus the press leaves is the editor's, which an autofocus
+            // the press mounts may take, as it took the button's (`pressHandsOff`).
+            if let editor = presenter.views.values.lazy.compactMap({ $0.textArea.map { $0 as UIView } ?? $0.field.map { $0 as UIView } }).first(where: \.isFirstResponder) {
+                handoff.control = editor
+            }
+            if let id = presenter.edited, let field = presenter.views[id], let text = field.field?.text ?? field.textArea?.text {
+                presenter.commitEdit(id, text, change: field.handlers.contains("change"))
+            }
+            return handoff
+        }
+        presenter.endEditing()
         return handoff
     }
     /// A finger's touch bubbling from this node reaches a node it pressed
