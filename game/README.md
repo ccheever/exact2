@@ -375,7 +375,18 @@ Commands go the other way as messages: an action calls
 `postMessage("buy carrot", "world")` and the next tick reads every message posted
 since, in order, from `input.messages()`. Nothing is coalesced, nothing needs an
 acknowledgement, and a delivered message is not part of a later save. Use live
-arguments for settings, messages for things that happen once.
+arguments for settings, messages for things that happen once. A paused world holds
+a message for its first tick after the pause.
+
+The driver posts the same message with `post [<surface>] <text>`, short for
+`type <surface> message <text>`: `post spawn-gulper` to the page's one world,
+`post world "spawn gulper"` to a named surface (a canvas's testId works too). It is
+the page's `postMessage` in every respect: saved until a tick reads it, held while
+no canvas of the surface is live (64 at most, the 65th refused by name), and refused
+past the world's 1,024 queued events. Use it to stage or script a scene the game
+already listens for, as `Sim::post` does in a hostless test. As from the page, a
+`set entity Component.field value` message is a
+[development edit](engine/README.md#development-edits), which a pin refuses.
 
 Typed simulation events use `#[derive(Default, Event)]`, `register_event`,
 `emit_event` and next-tick `input.events::<T>()`. Their bounded queues are resources
@@ -576,8 +587,8 @@ comparing state does not advance the clock or mutate the world.
 Use Exact2's same ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer` and `perf`. `trace <file>` reads an exported
 trace separately from these session operations. The CLI also accepts `check`,
-`sample`, `resize`, `close`, `back`, `pick`, `reload`, `fail fetch` and `pass fetch`.
-An entity is addressed as `world:player`.
+`sample`, `resize`, `close`, `back`, `pick`, `reload`, `fail fetch` and `pass fetch`,
+and `post`, a form of `type` (above). An entity is addressed as `world:player`.
 
 ```sh
 EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/artifacts/web-dist bun scripts/agent.mjs web \

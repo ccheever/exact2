@@ -155,7 +155,7 @@ bun exact.mjs agent web --size 390x844 "screenshot phone.png"   # a phone-sized 
 
 The web carrier opens at 420×900; `--size <w>x<h>` (before the operations) opens
 another viewport, and a test's first step `size <w>x<h>` does the same for that test.
-`resize <w>x<h>`, an operation and a test step, resizes it mid-drive as a person
+`resize <w>x<h>` (or `resize <w> <h>`), an operation and a test step, resizes it mid-drive as a person
 dragging the window's edge would: the browser's viewport, a macOS window, the
 Linux presenter. iOS refuses a mid-drive `resize`; a size given at launch (`--size`, a
 test's `size` line) is laid out at that viewport with no safe-area insets, scaled to fit
