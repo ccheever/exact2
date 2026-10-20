@@ -106,7 +106,8 @@ let liveTable = false;
  * the files' digests again after them; if a write landed between, the
  * replies may be of two revisions, so it reads again. `wanted`: false once
  * a newer read overtakes it, which then asks for nothing more. */
-async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown; base?: any[]; targets?: unknown }> {
+type Level = { level: string; name: string; varies: boolean; at: string };
+async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown; base?: any[]; targets?: unknown; levels?: Map<string, Level> }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3 && wanted(); attempt++) {
     const described = await call('/__tamber', { method: 'describe', ...which }, READ_WAIT);
@@ -116,12 +117,16 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
     // A few at a time, so the browser keeps connections for the long poll
     // and the other reads; each waits behind the others at the one design
     // server, so the wait is the whole read's, not one request's.
+    // And, in the app's design, each package component's param (an icon's has no level), for its winning level per tuple.
+    const owned = new Set(Object.keys(described.reply.ok?.files ?? {})), listed = !file && [...owned].some(f => f.endsWith('.contract'));
+    const params: string[] = listed ? (ir.components ?? []).filter((c: { identity: string }) => { const home = c.identity.split('#')[0]; return !owned.has(home) && home !== designFile; }).flatMap((c: { params?: { name: string; kind: string }[] }) => (c.params ?? []).filter(p => p.kind !== 'icon').map(p => p.name)) : [];
+    const asks = [...ir.tokens.map((t: { name: string }) => t.name), ...params];
     const resolved: Awaited<ReturnType<typeof call>>[] = [];
     let next = 0;
-    await Promise.all(Array.from({ length: Math.min(RESOLVES_AT_ONCE, ir.tokens.length) }, async () => {
-      while (next < ir.tokens.length && wanted()) {
+    await Promise.all(Array.from({ length: Math.min(RESOLVES_AT_ONCE, asks.length) }, async () => {
+      while (next < asks.length && wanted()) {
         const i = next++;
-        resolved[i] = await call('/__tamber', { method: 'resolve', token: ir.tokens[i].name, ...which }, READ_WAIT);
+        resolved[i] = await call('/__tamber', { method: 'resolve', token: asks[i], ...which }, READ_WAIT);
       }
     }));
     if (!wanted()) return { error: 'overtaken by a newer read' };
@@ -141,7 +146,12 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
       const col = tuples.find(c => c.tuple === i);
       return !col || ir.axes.every((a: Axis, k: number) => t.modes?.[a.name] === col.values[k]);
     }));
-    if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before, pairs, base: Array.isArray(described.reply.ok?.base) ? described.reply.ok.base : [], targets: described.reply.ok?.targets };
+    if (same && placed) {
+      // Each param's winner at its first tuple (by its column's label) and whether any tuple's differs.
+      const first = tuples.find(c => c.tuple === 0)?.label ?? '', levels = new Map<string, Level>();
+      params.forEach((name, k) => { const t = (resolved[ir.tokens.length + k].reply.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[]; if (t.length && typeof t[0].level === 'string') levels.set(name, { level: t[0].level, name: String(t[0].name ?? ''), varies: t.some(x => x.level !== t[0].level || x.name !== t[0].name), at: first }); });
+      return { error: '', ir, resolved: resolved.slice(0, ir.tokens.length).map(r => r.reply.ok), files: before, pairs, base: Array.isArray(described.reply.ok?.base) ? described.reply.ok.base : [], targets: described.reply.ok?.targets, levels };
+    }
   }
   return { error: wanted() ? 'The design kept changing while it was read. Try again.' : 'overtaken by a newer read' };
 }
@@ -729,16 +739,6 @@ const sources: Sources = {
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
       }
-      // Each package component param's winning level per tuple (`resolve`'s, stage 12 B2-levels), for the panel.
-      const levels = new Map<string, { level: string; name: string; varies: boolean }>();
-      const owned = new Set(Object.keys(read.files ?? {})), listed = [...owned].some(f => f.endsWith('.contract'));
-      if ((!file || file === designFile) && listed) {
-        const packaged = (ir.components ?? []).filter((c: { identity: string }) => { const home = c.identity.split('#')[0]; return !owned.has(home) && home !== designFile; });
-        await Promise.all(packaged.flatMap((c: { params?: { name: string }[] }) => c.params ?? []).map(async (p: { name: string }) => {
-          const r = await call('/__tamber', { method: 'resolve', token: p.name }, READ_WAIT), t = (r.reply?.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[];
-          if (!r.error && t.length && typeof t[0].level === 'string') levels.set(p.name, { level: t[0].level, name: String(t[0].name ?? ''), varies: t.some(x => x.level !== t[0].level || x.name !== t[0].name) });
-        }));
-      }
       return {
         ok: true, error: '', file: file || '', answer: number, groups: panel, axes: axes.map(a => ({ name: a.name, values: a.values })),
         columns: columns.map(({ id, label }) => ({ id, label })), firstColumn: columns[0]?.id ?? '',
@@ -746,7 +746,7 @@ const sources: Sources = {
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
         // A param's line is the app design's: the panel only while that is open.
-        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name))), levels),
+        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name))), read.levels ?? new Map()),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;

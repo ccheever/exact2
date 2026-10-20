@@ -306,8 +306,6 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
-      // A package param's resolve, its tuples' winning level and name (stage 12 B2-levels), as the test gives them.
-      if (request.method === 'resolve' && PACKAGED?.resolve?.[request.token]) return send({ ok: { token: request.token, files: FILES, tuples: PACKAGED.resolve[request.token] } });
       if (request.method === 'describe') { const ir: Record<string, any> = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) };
         if (PACKAGED) ir.components = [...ir.components, ...PACKAGED.components];
         // (A token a package's design defines: its describe row says the package.)
@@ -316,6 +314,10 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
       const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
+      // A package param's resolve, its tuples' winning level and name (stage 12 B2-levels), as the test gives them.
+      // (Each of the design's tuples, by its modes as a token's resolve gives them, its level the test's in turn.)
+      const packagedParam = PACKAGED?.components.some(c => ((c.params ?? []) as { name: string }[]).some(p => p.name === request.token));
+      if (request.method === 'resolve' && packagedParam) { const given = (PACKAGED!.resolve?.[request.token] ?? [{ level: 'default', name: request.token }]) as Record<string, unknown>[]; return send({ ok: { token: request.token, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>, i: number) => ({ modes: u.modes, ...given[i % given.length] }))) } }); }
       // surface.card's dark side moves once app.tamber does (an event's
       // `files`), so a change to it has cells that moved.
       if (request.method === 'resolve' && request.token === 'surface.card' && FILES['app.tamber'] !== 'a'.repeat(64)) {
