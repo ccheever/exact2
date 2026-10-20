@@ -464,6 +464,7 @@ extension NavigationHost {
     /// nothing, after the sync that measured it, so the covers settle only
     /// when they are measured where it now is.
     func followAuthoredTablist() {
+        if ExactEnv.authoredChrome, !syncing { fitOwner() }
         guard tablistAppearanceNone, !syncing, let view = presenter.session?.view,
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) else { return }
         if list.convert(list.bounds, to: view) != measuredTablist { reportCovers() }

@@ -11,7 +11,7 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
-import { baseColumns, groupOf, shippedOf, sourceOf } from './base';
+import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
 import { gridSources } from './grid';
@@ -670,7 +670,7 @@ const sources: Sources = {
         return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells, start: String(tuples[0]?.value ?? ''), ...sourceOf(t, baseRows.get(t.name), targets, designFile) };
       });
       // Exact's base names the app does not override (stage 11): per platform, no fold, so no cells.
-      for (const row of baseRows.values()) if (!row.override && !tokens.some((t: { name: string }) => t.name === row.name)) { const src = sourceOf(null, row, targets, designFile); tokens.push({ name: row.name, kind: 'length', follows: '', cells: [], start: src.columns[0]?.value ?? '', ...src }); }
+      for (const row of baseRows.values()) if (!row.override && !tokens.some((t: { name: string }) => t.name === row.name)) { const src = sourceOf(null, row, targets, designFile); tokens.push({ name: row.name, kind: 'length', follows: '', cells: [], start: writable(src.columns[0]?.value ?? ''), ...src }); }
       // Each declared pair's contrast per cell (LLP 1121 D3, `pair=`): the
       // token over what it is drawn on, a token's stored value or a role's
       // fallback; below 4.5:1, WCAG's for text, it is marked low.
@@ -738,9 +738,9 @@ const sources: Sources = {
     const snap = snapshots.get(answer);
     const col = snap?.columns.find(c => c.id === column);
     if (!token || !col || !snap || snap.file !== file) return none;
-    const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) });
+    const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) }, READ_WAIT);
     if (error) return { ...none, ok: false, error };
-    const raw = reply.ok as { value?: string; whens?: { when: When[]; value: string }[]; dials?: string[]; names?: string[]; files?: Record<string, string>; kind?: string; package?: string; file?: string; base?: { override?: { text?: string } | null; columns?: Record<string, { value?: string }> } };
+    const raw = reply.ok as { value?: string; whens?: { when: When[]; value: string }[]; dials?: string[]; names?: string[]; bases?: string[]; files?: Record<string, string>; kind?: string; package?: string; file?: string; base?: { override?: { text?: string } | null; columns?: Record<string, { value?: string }> } };
     // A base name (stage 11, `kind: 'base'`): its override is the app's line, edited as one; with none, the
     // base's value, read only (no per-tuple fold: each platform's, the first the app ships said).
     // An override with its branches (`whens`, as an app token's explain gives them) is edited as one; a base
@@ -756,7 +756,8 @@ const sources: Sources = {
     const value = b.index >= 0 ? x.whens[b.index].value : x.value;
     // An expression's inputs: the tokens and dials it names; a dial's
     // control is where it is edited.
-    const inputs = inputsOf(value, x.names, x.dials);
+    // (A base name a value names, stage 11, is an input too: explain lists those apart, as `bases`.)
+    const inputs = inputsOf(value, [...x.names, ...(Array.isArray(raw.bases) ? raw.bases : [])], x.dials);
     // A dial with no control (`control=none`) is said, not offered.
     const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false, hidden: !snap.dials.has(name) }));
     return {
@@ -781,7 +782,8 @@ const sources: Sources = {
     let ops = opsOf(file, kind, target, when, value), paramsAt = appParamsKey; // (the params read these ops were made from)
     if (!ops.length && kind === 'detach-param') return { ...idle, ok: false, error: 'This param is set by the app\'s design, or its default reads another param: unset it, or give it a value of its own, before detaching it.' };
     if (!ops.length) return { ...idle, ok: false, error: `${lineName(target)}'s default reads another param, which its line can't: give it a value of its own first, then Only this mode.` };
-    let { error, reply, used } = await call('/__tamber', { method: 'propose', ops });
+    // (A proposal waits as long as a read: the server plans it behind the reads it serializes.)
+    let { error, reply, used } = await call('/__tamber', { method: 'propose', ops }, READ_WAIT);
     for (let n = 0, t: any = null, u: { more: string[]; keep: boolean }; kind === 'detach-param' && error && n < 4 && ((u = unread(error, target, ops)).more.length || (u.keep && !t?.keep)); n++)
       ({ error, reply, used } = await call('/__tamber', { method: 'propose', ops: ops = moveOps(file, kind, (t = { ...(t ?? JSON.parse(target)), keep: t?.keep || u.keep, extra: [...(t?.extra ?? []), ...u.more] }), '', appParams, appKinds) })); // (a detach's closure, as the server names it, D6)
     if (error) return { ...idle, ok: false, error };

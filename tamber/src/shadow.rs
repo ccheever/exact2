@@ -254,6 +254,14 @@ fn length(item: &Item, names: &mut dyn Names) -> Result<Option<f64>, FoldError> 
         }
         Item::Ident(name) => match names.named(name)? {
             Named::Length(Length::Px(n)) => return fits(n),
+            // A token over a base name the design leaves unset (stage 12
+            // B2): each host's, which a shadow's lengths are not yet.
+            Named::Length(Length::Named(n)) if names.base(&n) => {
+                return fail("tamber-base-expression", format!("`{name}` in a shadow is the base length `{n}`, each platform's own: a shadow's lengths are px until QUEUE's item (shadows over base names)"))
+            }
+            Named::Length(l @ Length::Base(_)) => {
+                return fail("tamber-base-expression", format!("`{name}` in a shadow is `{}`, over a base length, each platform's own: a shadow's lengths are px until QUEUE's item (shadows over base names)", l.css()))
+            }
             Named::Length(_) => {
                 return fail("tamber-kind", format!("`{name}` in a shadow: {RELATIVE}"))
             }
@@ -266,6 +274,29 @@ fn length(item: &Item, names: &mut dyn Names) -> Result<Option<f64>, FoldError> 
             // A colour by elimination: the colour fold reads it.
             _ => None,
         },
+        // A length's function over a base name (stage 12 B2), which a
+        // shadow doesn't hold yet.
+        Item::Func(f, args, text)
+            if matches!(f.as_str(), "calc" | "min" | "max" | "clamp")
+                && args.iter().any(|a| over_base(a, names)) =>
+        {
+            return fail("tamber-base-expression", format!("`{text}` in a shadow is over a base length, each platform's own: a shadow's lengths are px until QUEUE's item (shadows over base names)"))
+        }
         _ => None,
+    })
+}
+
+/// Whether `items` name a base name the design leaves unset, at any depth,
+/// or a token over one (an alias of one among them).
+fn over_base(items: &[Item], names: &mut dyn Names) -> bool {
+    items.iter().any(|i| match i {
+        Item::Ident(n) if names.base(n) => true,
+        Item::Ident(n) => match names.named(n) {
+            Ok(Named::Length(Length::Base(_))) => true,
+            Ok(Named::Length(Length::Named(m))) => names.base(&m),
+            _ => false,
+        },
+        Item::Func(_, args, _) => args.iter().any(|a| over_base(a, names)),
+        _ => false,
     })
 }

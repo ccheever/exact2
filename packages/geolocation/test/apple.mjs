@@ -40,7 +40,14 @@ const WORDS = ['notDetermined', 'restricted', 'denied', 'authorizedWhenInUse', '
 
 for (const host of hosts.length ? hosts : ['macos', 'ios']) {
   const where = host === 'ios' ? 'ios-simulator' : 'macos';
-  run('bun', [resolve(root, 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios', ...(sim ? ['--sim', sim] : [])] : []), `${name}-apple`], root);
+  run('bun', [resolve(root, 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios', ...(sim ? ['--sim', sim] : [])] : ['--bundle']), `${name}-apple`], root);
+  // On macOS the drive runs the binary inside the `.app`: CoreLocation shows its dialog for a bundled app, not a bare executable.
+  if (host === 'macos') {
+    const bundle = readdirSync(resolve(app, 'target'), { recursive: true }).find((f) => /macos/.test(f) && f.endsWith('.app/Contents/Info.plist'));
+    if (!bundle) throw new Error('no macOS .app under target/ (build.mjs --bundle)');
+    const contents = resolve(app, 'target', bundle, '..'), executable = JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', resolve(contents, 'Info.plist')])).CFBundleExecutable;
+    process.env.EXACT_MAC_BIN = resolve(contents, 'MacOS', executable);
+  }
   let udid = null;
   if (host === 'ios') {
     const booted = JSON.parse(run('xcrun', ['simctl', 'list', 'devices', 'booted', '--json'])).devices;

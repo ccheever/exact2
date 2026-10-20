@@ -103,6 +103,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("font-size", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontSize])),
     ("font-weight", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontWeight])),
     ("font-style", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontStyle])),
+    // @ref LLP 1019 D8
+    ("font-stretch", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontStretch])),
     ("font-family", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontFamily])),
     ("color", "css CSS Color 4", AttrTarget::Styles(&[StyleId::TextColor])),
     ("background-color", "css CSS Backgrounds 3", AttrTarget::Styles(&[StyleId::BackgroundColor])),

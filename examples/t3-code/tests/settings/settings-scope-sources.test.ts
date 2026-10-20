@@ -278,6 +278,20 @@ describe('eight-machine settings', () => {
     changed.config.settings = { deviceHosts: [{ ...host, label: 'Different label' }] };
     expect(scopedDeviceHostsView(as(client), native, scope.selected, scope.environments, null, false).groups).toHaveLength(8);
   });
+  test('folded device hosts identify configured hosts and summarize more than two names', () => {
+    const host = { id: 'shared', label: 'Build host', target: 'builder' };
+    const client = focused({ deviceHosts: [host] });
+    Object.assign(client, { shell: initialShell() });
+    fleet.entries.set(B, entry(B, 'env-b', 'Studio', { deviceHosts: [
+      { ...host, label: 'Mac mini' }, { id: 'sim', label: 'Simulator', target: 'simulator' }, { id: 'lab', label: 'Device lab', target: 'lab' },
+    ] }));
+    fleet.entries.set(C, entry(C, 'env-c', 'Empty machine', {}));
+    const scope = resolveScope(as(client), '', '', '');
+    const view = scopedDeviceHostsView(as(client), nativeFor(), scope.selected, scope.environments, null, false);
+    expect(view.groups.map(group => [group.id, group.summary])).toEqual([
+      ['env-a', 'Build host'], ['env-b', 'Mac mini, Simulator +1'], ['env-c', 'No device hosts'],
+    ]);
+  });
   test('archives join logical projects, preserve colliding thread ids and cache reads per machine', async () => {
     const client = focused();
     const snapshot = (projectId: string, index: number) => ({ snapshotSequence: 1, projects: [{ id: projectId, title: 'App' }], threads: [{ id: 'same-thread', projectId, title: `Thread ${index}`, createdAt: '2026-10-01T00:00:00Z', archivedAt: `2026-10-${String(index + 1).padStart(2, '0')}T00:00:00Z` }] });
@@ -307,5 +321,15 @@ describe('eight-machine settings', () => {
     expect(lastRunSummary(reports.slice(0, 1), 8)).toBe('Machine 0: 2 removed, 1 kept');
     const section = (id: string, state: string, tasks: never[] = []) => ({ id, label: id, secondary: '', kind: 'laptop', transport: '', heading: true, state, title: '', description: '', linkMissing: false, tasks });
     expect(taskEnvironmentSummaries([section('Offline A', 'disconnected'), section('Offline B', 'disconnected'), section('Empty', 'ready')]).map(summary => summary.text)).toEqual(['Not connected: Offline A (Disconnected), Offline B (Disconnected)']);
+    expect(taskEnvironmentSummaries([
+      { ...section('a', 'disconnected'), label: 'Studio', secondary: '127.0.0.1:16501' },
+      { ...section('b', 'disconnected'), label: 'Studio', secondary: '127.0.0.1:16502' },
+      { ...section('c', 'loading'), label: 'Studio', secondary: '127.0.0.1:16503' },
+      { ...section('d', 'error'), label: 'Studio', secondary: '127.0.0.1:16504', description: 'Read failed' },
+    ]).map(summary => summary.text)).toEqual([
+      'Not connected: Studio · 127.0.0.1:16501 (Disconnected), Studio · 127.0.0.1:16502 (Disconnected)',
+      'Loading scheduled tasks on Studio · 127.0.0.1:16503',
+      'Could not load scheduled tasks: Studio · 127.0.0.1:16504: Read failed',
+    ]);
   });
 });

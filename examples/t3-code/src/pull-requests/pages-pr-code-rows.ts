@@ -8,7 +8,7 @@
 import { hunkRows, plain, ROW_LIMIT, type Row, type Segment } from '../diff/diff';
 import { diffReviewLines, type ReviewLine, type SelectedLineRange } from '../diff/diff-comments';
 import { utilityPlacement } from '../diff/diff-line-drag';
-import type { FileContents, Expansion } from '../diff/diff-lazy';
+import { changeType, type FileContents, type Expansion } from '../diff/diff-lazy';
 import { isFileDiffCollapsed, reviewPositionAnchor, type DiffFoldOverride, type PrDiffFile, type PrDiffSide, type PullRequestReviewPosition } from './pages-pr-code-logic';
 
 export type CodeItem = {
@@ -136,12 +136,17 @@ export function codeRows(input: RowsInput): { items: CodeItem[]; truncated: bool
     file.hunks.forEach((hunk, hunkIndex) => {
       const oldStart = hunk.oldStart + (hunk.deletionCount === 0 ? 1 : 0), newStart = hunk.newStart + (hunk.additionCount === 0 ? 1 : 0);
       hidden(newStart - newNext, hunkIndex, newNext, newStart - oldStart, false);
-      const { stacked, split } = hunkRows(hunk, file.path);
+      const { stacked, split } = hunkRows(hunk, file.path, true);
       (input.layout === 'split' ? split : stacked).forEach((row, index) => push(row, `${hunkIndex}:${index}`));
       oldNext = oldStart + hunk.deletionCount; newNext = newStart + hunk.additionCount;
     });
-    // After the last hunk: known once the contents are in (as the thread diff panel draws it).
+    // Partial patches can hydrate trailing context before its count is known, as the Diff panel does.
     if (loaded && file.hunks.length > 0) hidden(Math.max(0, newLines.length - (loaded.newContents.endsWith('\n') ? 1 : 0) - newNext + 1), file.hunks.length, newNext, newNext - oldNext, true);
+    else if (file.hunks.length > 0 && ['change', 'rename-changed'].includes(changeType(file.status, file.hunks.length))) {
+      const failed = contents?.state === 'error';
+      items.push({ ...BASE, id: `gap:${file.path}:${file.hunks.length}`, kind: 'gap', path: file.path, expanded, line: file.hunks.length, expandable: !failed,
+        label: failed ? contents.error || 'Unable to load file contents.' : 'More unchanged context may be available' });
+    }
     items.push({ ...BASE, id: `pad:${file.path}`, kind: 'pad', path: file.path, expanded });
   }
   return { items, truncated: rows > (input.finding ? 100_000 : ROW_LIMIT) };

@@ -74,6 +74,89 @@ pub fn text(name: &str) -> Option<String> {
     of(name, crate::style::metrics::column()).map(css)
 }
 
+/// The base names `expr` reads, each a whole word of it, in order, each
+/// once: a length token's expression over base names the design leaves
+/// unset (LLP 1121 D11, stage 12 B2), which the compiler writes with each
+/// operator spaced (`calc(space.md * 2 + 4px)`).
+pub fn named_in(expr: &str) -> Vec<&'static str> {
+    let mut out = Vec::new();
+    for word in words(expr) {
+        if let Some(r) = row(word).filter(|r| !out.contains(&r.name)) {
+            out.push(r.name);
+        }
+    }
+    out
+}
+
+/// Each run of a name's or a number's characters in `text`.
+fn words(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')))
+        .filter(|w| !w.is_empty())
+}
+
+/// Whether `text` has white space outside any parentheses: a sum, which
+/// a product's operand must be grouped as.
+fn spaced(text: &str) -> bool {
+    let mut depth = 0u32;
+    text.chars().any(|c| {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        depth == 0 && c.is_whitespace()
+    })
+}
+
+/// `expr` with each base name in it replaced by `base`'s text for it (one
+/// with white space outside parentheses grouped in them); `None` when
+/// `base` gives none for one.
+pub fn substitute_with(expr: &str, mut base: impl FnMut(&str) -> Option<String>) -> Option<String> {
+    let mut out = String::with_capacity(expr.len());
+    let mut rest = expr;
+    while let Some(word) = words(rest).next() {
+        let at = rest.find(word).expect("a word of it");
+        out.push_str(&rest[..at]);
+        match row(word) {
+            Some(r) => {
+                let text = base(r.name)?;
+                match spaced(text.trim()) {
+                    false => out.push_str(text.trim()),
+                    true => out.push_str(&format!("({})", text.trim())),
+                }
+            }
+            None => out.push_str(word),
+        }
+        rest = &rest[at + word.len()..];
+    }
+    out.push_str(rest);
+    Some(out)
+}
+
+/// `expr` with each base name in it replaced by its length in `column`
+/// (the terminal's in cells, `1ch`, which the kernel's `calc()` reads as
+/// px).
+pub fn substitute(expr: &str, column: Column) -> Option<String> {
+    substitute_with(expr, |name| of(name, column).map(css))
+}
+
+/// A length's px as the kernel's `calc()` folds it (`calc(16px * 2)` is
+/// 32); `None` for a text that folds to no px.
+pub fn fold(text: &str) -> Option<f32> {
+    match crate::style::calc::parse(text) {
+        // Past f32's range the calc saturates: no length a row reads back.
+        Ok(Some(crate::style::Dimension::Points(n))) if n.is_finite() && n.abs() < f32::MAX => {
+            Some(n)
+        }
+        _ => None,
+    }
+}
+
+/// Expression `expr`'s px in `column`: what that column's host reads.
+pub fn evaluate(expr: &str, column: Column) -> Option<f32> {
+    fold(&substitute(expr, column)?)
+}
+
 /// The table's columns, by the name a reader of the table keys it by (stage
 /// 10 D's `describe`, `resolve` and `explain`). `Column::Web` reads the
 /// neutral one ([`cell`]).
@@ -326,6 +409,67 @@ mod tests {
         );
     }
 
+    // Stage 12 B2: a length token over base names reads each base as an
+    // alias does, the design's own definition first, both reads recorded,
+    // and folds to px in the process's column.
+    #[test]
+    fn an_expression_token_folds_in_the_process_column() {
+        use crate::style::theme::{self, Kind};
+        let length = |k: Kind, _| k == Kind::Length;
+        let read = |entries: &[(&str, &str)], name: &str| {
+            let table = theme::kinded(
+                entries
+                    .iter()
+                    .map(|(n, v)| (*n, *v, false, Kind::Length, false)),
+            );
+            let _scope = theme::bind(&table);
+            theme::recorded(|| theme::measure(name, length).map(|(_, v)| v.to_string()))
+        };
+        let column = crate::style::metrics::column();
+        let want = |expr: &str| {
+            Some(format!(
+                "{}px",
+                exact_num::Shortest32(evaluate(expr, column).unwrap())
+            ))
+        };
+        let (value, names) = read(&[("card.pad", "calc(space.md * 2 + 4px)")], "card.pad");
+        assert_eq!(value, want("calc(space.md * 2 + 4px)"));
+        assert_eq!(
+            names,
+            vec![Box::<str>::from("card.pad"), Box::<str>::from("space.md")]
+        );
+        assert_eq!(
+            read(
+                &[
+                    ("card.pad", "min(space.md, space.lg)"),
+                    ("space.md", "40px")
+                ],
+                "card.pad"
+            )
+            .0
+            .as_deref(),
+            want("min(40px, space.lg)").as_deref()
+        );
+        // A base the design defines as an alias of another reads that one.
+        assert_eq!(
+            read(
+                &[("card.pad", "calc(space.md / 2)"), ("space.md", "space.xl")],
+                "card.pad"
+            )
+            .0,
+            want("calc(space.xl / 2)")
+        );
+        // One that folds to no px is no token's value: the row reads its text.
+        assert_eq!(
+            read(
+                &[("card.pad", "calc(space.md + 1px)"), ("space.md", "1rem")],
+                "card.pad"
+            )
+            .0,
+            None
+        );
+    }
+
     // No web column (theme2): `Column::Web`, a process that says no column
     // and Material's fallback, reads the neutral cell, for every name.
     #[test]
@@ -339,6 +483,62 @@ mod tests {
                 r.name
             );
         }
+    }
+
+    // Stage 12 B2: an expression over base names is each column's, its
+    // bases substituted and folded by the kernel's own `calc()`: `min()`,
+    // `max()` and `clamp()` too, and the terminal's cells as px.
+    #[test]
+    fn an_expression_reads_each_columns_bases() {
+        let expr = "calc(space.md * 2 + 4px)";
+        assert_eq!(named_in(expr), ["space.md"]);
+        assert_eq!(
+            named_in("min(space.lg, space.md * 3, space.lg)"),
+            ["space.lg", "space.md"]
+        );
+        assert!(named_in("calc(space.md2 + x.space.md)").is_empty());
+        assert_eq!(
+            substitute(expr, Column::Mac).as_deref(),
+            Some("calc(10px * 2 + 4px)")
+        );
+        assert_eq!(evaluate(expr, Column::Mac), Some(24.0));
+        assert_eq!(
+            evaluate(expr, Column::Terminal),
+            Some(2.0 * crate::style::cells::COLUMN + 4.0)
+        );
+        for (column_name, column) in COLUMNS {
+            let base = |n: &str| match of(n, column).unwrap() {
+                ScaleValue::Px(n) => n as f32,
+                ScaleValue::Cells(n) => n as f32 * crate::style::cells::COLUMN,
+                ScaleValue::Full => RADIUS_FULL as f32,
+            };
+            let (md, lg) = (base("space.md"), base("space.lg"));
+            for (expr, want) in [
+                ("min(space.md, 4px)", md.min(4.0)),
+                ("max(space.md, space.lg)", md.max(lg)),
+                (
+                    "clamp(2px, space.md * 3, 30px)",
+                    (md * 3.0).clamp(2.0, 30.0),
+                ),
+                (
+                    "calc(max(space.md * 2, 4px) - 1px)",
+                    (md * 2.0).max(4.0) - 1.0,
+                ),
+                ("calc(radius.full / 2)", base("radius.full") / 2.0),
+            ] {
+                assert_eq!(evaluate(expr, column), Some(want), "{column_name}: {expr}");
+            }
+        }
+        // A base the design defines is read as `base` gives it.
+        assert_eq!(
+            substitute_with(expr, |_| Some("calc(1px + 2px)".into())).as_deref(),
+            Some("calc(calc(1px + 2px) * 2 + 4px)")
+        );
+        assert_eq!(
+            substitute_with(expr, |_| Some("1px + 2px".into())).as_deref(),
+            Some("calc((1px + 2px) * 2 + 4px)")
+        );
+        assert_eq!(substitute_with(expr, |_| None), None);
     }
 
     #[test]

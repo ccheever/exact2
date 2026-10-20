@@ -22,7 +22,10 @@ pub struct FontInfo {
     width: FontWidth,
     style: FontStyle,
     weight: FontWeight,
-    pinned_weight: Option<f32>,
+    /// The `wght` coordinates a declaration covers, clamped to the axis.
+    declared_weights: Option<(f32, f32)>,
+    /// The `wdth` coordinates (percent) a declaration covers, clamped to the axis.
+    declared_widths: Option<(f32, f32)>,
     axes: AxisVec,
     attr_axes: u8,
     charmap_index: CharmapIndex,
@@ -75,7 +78,8 @@ impl FontInfo {
             width,
             style,
             weight,
-            pinned_weight: None,
+            declared_weights: None,
+            declared_widths: None,
             axes: axes.iter().copied().collect(),
             attr_axes,
             charmap_index,
@@ -123,30 +127,59 @@ impl FontInfo {
         self.weight
     }
 
-    /// Pins the `wght` axis to this face's declared weight, clamped to its
-    /// range. Matching still uses the declared weight; synthesis always emits
-    /// the pinned coordinate, even when the requested weight matches it.
-    /// Faces without a weight axis, or with reversed or NaN bounds, are unchanged.
-    pub fn with_pinned_weight(mut self) -> Self {
-        self.pinned_weight = self
-            .axes
-            .iter()
-            .find(|axis| axis.tag == Tag::new(b"wght"))
-            .filter(|axis| axis.min <= axis.max)
-            .map(|axis| self.weight.value().clamp(axis.min, axis.max));
+    /// The weights and widths (percent) this face covers, as `@font-face`'s
+    /// `font-weight` and `font-stretch` descriptors: one value pins its axis,
+    /// a range draws each request on the axis, clamped to the range and the
+    /// axis. Matching treats a range as its value nearest the request (CSS
+    /// Fonts 4 §5.2); synthesis always emits the coordinate, even when the
+    /// request equals the declaration. An axis the file lacks, or one with
+    /// reversed or NaN bounds, is unchanged.
+    pub fn with_declared_ranges(mut self, weights: (f32, f32), widths: (f32, f32)) -> Self {
+        let clamped = |tag: &[u8; 4], (low, high): (f32, f32)| {
+            self.axes
+                .iter()
+                .find(|axis| axis.tag == Tag::new(tag))
+                .filter(|axis| axis.min <= axis.max && low <= high)
+                .map(|axis| (low.clamp(axis.min, axis.max), high.clamp(axis.min, axis.max)))
+        };
+        self.declared_weights = clamped(b"wght", weights);
+        self.declared_widths = clamped(b"wdth", widths);
         self
+    }
+
+    /// The weight this face is matched at for a `requested` one: a declared
+    /// range's value nearest it, else the face's weight.
+    pub fn matching_weight(&self, requested: FontWeight) -> FontWeight {
+        match self.declared_weights {
+            Some((low, high)) if low < high => FontWeight::new(requested.value().clamp(low, high)),
+            _ => self.weight,
+        }
+    }
+
+    /// The width this face is matched at for a `requested` one, as
+    /// [`Self::matching_weight`].
+    pub fn matching_width(&self, requested: FontWidth) -> FontWidth {
+        match self.declared_widths {
+            Some((low, high)) if low < high => {
+                FontWidth::from_percentage(requested.percentage().clamp(low, high))
+            }
+            _ => self.width,
+        }
     }
 
     /// Returns synthesis suggestions for this font with the given attributes.
     pub fn synthesis(&self, width: FontWidth, style: FontStyle, weight: FontWeight) -> Synthesis {
         let mut synth = Synthesis::default();
         let mut len = 0_usize;
-        if self.has_width_axis() && self.width != width {
+        if let Some((low, high)) = self.declared_widths {
+            synth.vars[len] = (Tag::new(b"wdth"), width.percentage().clamp(low, high));
+            len += 1;
+        } else if self.has_width_axis() && self.width != width {
             synth.vars[len] = (Tag::new(b"wdth"), width.percentage());
             len += 1;
         }
-        if let Some(weight) = self.pinned_weight {
-            synth.vars[len] = (Tag::new(b"wght"), weight);
+        if let Some((low, high)) = self.declared_weights {
+            synth.vars[len] = (Tag::new(b"wght"), weight.value().clamp(low, high));
             len += 1;
         } else if self.weight != weight {
             if self.has_weight_axis() {
@@ -304,7 +337,8 @@ impl FontInfo {
             width,
             style,
             weight,
-            pinned_weight: None,
+            declared_weights: None,
+            declared_widths: None,
             axes,
             attr_axes,
             charmap_index,

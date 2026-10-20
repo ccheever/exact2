@@ -253,6 +253,23 @@ fn measure_at(
             }
             return measure_at(alias, takes, depth + 1);
         }
+        // An expression over base names the design left unset (stage 12
+        // B2): each base read as a bare alias reads it, the design's own
+        // definition first and the read recorded, and the whole folded to
+        // px by the kernel's `calc()`, in this process's column.
+        if kind == Kind::Length && alias.contains('(') && depth < 8 {
+            let bases = super::scale::named_in(alias);
+            if !bases.is_empty() {
+                let text = super::scale::substitute_with(alias, |base| {
+                    measure_at(base, takes, depth + 1).map(|(_, t)| t.into())
+                })?;
+                let px = super::scale::fold(&text)?;
+                return Some((
+                    Kind::Length,
+                    format!("{}px", exact_num::Shortest32(px)).into(),
+                ));
+            }
+        }
         return Some((kind, value));
     }
     // A base name no entry defines (LLP 1121 stage 11 B): the scale's length

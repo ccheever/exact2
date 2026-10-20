@@ -387,7 +387,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
  * media file, the open item named for the preferred editor and the server-worded reveal only for
  * a resolved local environment, then the copies.
  */
-export async function markdownFileMenu(client: T3Client, native: Native, target: string): Promise<void> {
+export async function markdownFileMenu(client: T3Client, native: Native, target: string, context: { cwd?: string; previewMedia?: boolean } = {}): Promise<void> {
   if (!target) return;
   const environment = client.environmentId, origin = client.origin;
   await loadSshAliases(native);
@@ -396,13 +396,13 @@ export async function markdownFileMenu(client: T3Client, native: Native, target:
   const available = availableEditorIds(client.config);
   const editor = preferredEditor(available, lastEditor(client)) || null;
   const filePath = target.replace(/:\d+(?::\d+)?$/, ''), name = baseName(filePath), dot = name.lastIndexOf('.');
-  const canPreviewMedia = !!client.threadId && dot >= 0 && mediaMimeTypeFromExtension(name.slice(dot)) !== null;
+  const canPreviewMedia = context.previewMedia !== false && !!client.threadId && dot >= 0 && mediaMimeTypeFromExtension(name.slice(dot)) !== null;
   const items = markdownFileMenuItems({ canPreviewMedia, canOpen, preferredEditor: editor, revealLabel: revealLabelFor(client.config, environment || null) });
   const picked = await showContextMenu(client, native, items);
   if (!picked || client.environmentId !== environment || client.origin !== origin) return;
   // openMarkdownMedia: the expanded media dialog with the link's media (timeline-attachments.ts).
   if (picked === 'preview-media') {
-    try { await openMarkdownMediaPreview(client, native, target, workspaceOf(client).cwd); }
+    try { await openMarkdownMediaPreview(client, native, target, context.cwd ?? workspaceOf(client).cwd); }
     catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Media unavailable', description: error instanceof Error ? error.message : 'The file could not be loaded. It may have been moved or deleted.', stacked: true }); }
     return;
   }
@@ -420,7 +420,7 @@ export async function markdownFileMenu(client: T3Client, native: Native, target:
     } catch (error) { if (letGo(error)) throw error; failed(error instanceof Error && error.message ? error.message : 'An error occurred.'); }
     return;
   }
-  const root = workspaceOf(client).cwd.replace(/\/+$/, '');
+  const root = (context.cwd ?? workspaceOf(client).cwd).replace(/\/+$/, '');
   const text = picked === 'copy-relative' && root && target.startsWith(`${root}/`) ? target.slice(root.length + 1) : target;
   await client.restAccess(native).call({ op: 'copyText', text });
 }

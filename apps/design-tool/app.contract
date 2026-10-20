@@ -1222,6 +1222,8 @@ component DesignTool
     // (One platform's value becomes the app's on every platform: said beside the proposal.)
     setForAppNote = from != "" ? `${name} for this app starts from ${from}, and the app's value is every platform's.` : ""
     setForAppName = name
+    // (A new edit: the read-only branch a base's or package's cell opened is closed, so its guard is not this one's.)
+    selToken = ""
     if scrubShown
       scrubTick = scrubTick + 1
       scrubWant = false

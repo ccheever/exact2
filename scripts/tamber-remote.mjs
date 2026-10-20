@@ -135,7 +135,7 @@ export async function pluginOnLoopback(wire, req, res) {
   stripCookies(req);
   for (const [k, v] of Object.entries({ 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', ...CORS })) res.setHeader(k, v);
   if (req.method === 'OPTIONS') { res.writeHead(204, PREFLIGHT); res.end(); return true; }
-  const access = { allowed: true, local: false, remote: true, tunnel: false, plugin: true, peer: req.socket.remoteAddress };
+  const access = { allowed: true, local: false, remote: true, tunnel: false, door: 'local', plugin: true, peer: req.socket.remoteAddress };
   if (!(await wire.handle(req, res, url, access)) && !res.headersSent) refuse(res, 404, 'not found');
   return true;
 }
@@ -172,7 +172,7 @@ function targetOf(req, scheme, host) {
   } catch { return null; }
 }
 
-export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIST, plugin = false, publicName = () => false, peerOf = req => (isIP(req.socket?.remoteAddress ?? '') ? req.socket.remoteAddress : null) }) {
+export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIST, plugin = false, publicName = () => false, peerOf = req => (isIP(req.socket?.remoteAddress ?? '') ? req.socket.remoteAddress : null), door = tunnel ? 'tunnel' : 'tls' }) {
   return async (req, res) => {
     // A connection 8 MiB behind on what it was sent asks nothing more, the
     // tool's files included: answers queue only while they are read.
@@ -218,7 +218,8 @@ export function remoteHandler(wire, { tunnel, scheme, admits, toolDir = TOOL_DIS
       return serveToolFiles(req, res, url, toolDir, { 'content-security-policy': "frame-ancestors 'none'" });
     }
     if (!WIRE.has(url.pathname)) return refuse(res, 404, 'not found');
-    const access = { allowed: true, local: false, remote: true, tunnel, peer: peerOf(req), ...(req.socket?.relayed ? { reported: req.socket.relayed } : {}) };
+    // (`door`: which door it came through, set by this code where it accepted the stream, never read from a request or the relay)
+    const access = { allowed: true, local: false, remote: true, tunnel, door, peer: peerOf(req), ...(req.socket?.relayed ? { reported: req.socket.relayed } : {}) };
     if (!(await wire.handle(req, res, url, access)) && !res.headersSent) refuse(res, 404, 'not found');
   };
 }
@@ -332,42 +333,64 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
   // serves this session by, or the developer's own). Every relayed request's
   // peer is the session's (its pairing limit, `relay:<name>`); the address the
   // relay reports is shown only.
-  let relayed = null, connector = null;
+  let relayed = null, connector = null, relayCanvas = () => {}, session = null;
+  const waiting = [];
   if (relay) {
     const cert = { cert: relay.cert, key: relay.key, fingerprint: new X509Certificate(relay.cert).fingerprint256 };
     let names = relay.names;
     // Each relayed stream's TLS ended by a socket of its own (so the address
     // the relay reports rides on the socket every request reads), under the
     // same count and deadlines as a listener's (`guard`).
-    const http = createPlain(remoteHandler(wire, { tunnel: false, scheme: 'https', admits: at => !!names && at.name === names.tool && (!at.port || at.port === '443'), toolDir, plugin, peerOf: () => `relay:${names.tool}` }));
+    const http = createPlain(remoteHandler(wire, { tunnel: false, scheme: 'https', admits: at => !!names && at.name === names.tool && (!at.port || at.port === '443'), toolDir, plugin, peerOf: () => `relay:${names.tool}`, door: 'relay' }));
     const context = createSecureContext({ cert: cert.cert, key: cert.key, minVersion: 'TLSv1.2' });
-    const door = guard(Object.assign(new EventEmitter(), { close: done => done() }), timeoutMs, http);
+    const front = () => Object.assign(new EventEmitter(), { close: done => done() });
+    const door = guard(front(), timeoutMs, http);
     servers.push(door);
+    // The canvas's name (R1b): its own HTTP server and guard, given the
+    // relay's canvas gateway once `relayCanvas` names its handler; until
+    // then, and for any Host that is not the canvas's name, nothing.
+    let canvasHandler = null;
+    const canvasHttp = createPlain((req, res) => {
+      if ((req.socket?.writableLength || 0) > 8 << 20) { req.socket.destroy(); return; }
+      const at = hostOf(req, 'https'), url = at && names && at.name === names.canvas && (!at.port || at.port === '443') ? targetOf(req, 'https', at.host) : null;
+      if (!url || !canvasHandler) return refuse(res, 404, 'not found');
+      if (req.headers.origin !== undefined) {
+        let same = false;
+        try { const o = new URL(req.headers.origin); same = o.protocol === 'https:' && o.host === at.host; } catch { /* refused */ }
+        if (!same) return refuse(res, 403, 'another origin');
+      }
+      return canvasHandler(req, res, url, { allowed: true, local: false, remote: true, tunnel: false, door: 'relay', peer: `relay:${names.tool}`, ...(req.socket?.relayed ? { reported: req.socket.relayed } : {}), port: 'canvas' });
+    });
+    const canvasDoor = guard(front(), timeoutMs, canvasHttp);
+    servers.push(canvasDoor);
     connector = connectRelay(relay, {
       warn,
       ...(connect ? { connect } : {}),
       // The relay's names only when this server's certificate covers them (never an origin the relay alone chose).
-      named: served => { const x = new X509Certificate(cert.cert); if (!x.checkHost(served.tool) || !x.checkHost(served.canvas)) return false; names ??= served; return true; },
+      // (and the session told at once, so the relay canvas is in place before a client greeted in the same write is routed)
+      named: served => { const x = new X509Certificate(cert.cert); if (!x.checkHost(served.tool) || !x.checkHost(served.canvas)) return false; names ??= served; session = { ...names }; for (const f of waiting.splice(0)) f(session); return true; },
       ended: () => { relayed = null; },
       client: (sni, address, stream, settled) => {
-        // (the tool's name only, until the canvas comes through the relay too)
-        if (!names || sni !== names.tool) return false;
+        // The SNI decides the server: the tool's, or the canvas's once it has a gateway; nothing else.
+        const to = !names ? null : sni === names.tool ? [door, http] : sni === names.canvas && canvasHandler ? [canvasDoor, canvasHttp] : null;
+        if (!to) return false;
         const socket = new TLSSocket(stream, { isServer: true, secureContext: context });
         socket.relayed = address;
         socket.on('error', () => socket.destroy());
-        // Settled once its own ClientHello named the tool (the relay's word
-        // for the name checked against the client's), its requests read
-        // only then; failed, if it closes first.
+        // Settled once its own ClientHello named what the relay said (the
+        // relay's word for the name checked against the client's), its
+        // requests read only then; failed, if it closes first.
         socket.once('close', () => settled(false));
         socket.once('secure', () => {
-          if (socket.servername !== names.tool || socket.destroyed || connector.closed) return socket.destroy();
+          if (socket.servername !== sni || socket.destroyed || connector.closed) return socket.destroy();
           settled(true);
-          http.emit('connection', socket);
+          to[1].emit('connection', socket);
         });
-        door.emit('connection', socket);
+        to[0].emit('connection', socket);
         return true;
       },
     });
+    relayCanvas = handler => { canvasHandler = handler; };
     connector.ready.then(() => {
       if (connector.closed) return;
       relayed = { origin: `https://${names.tool}`, fingerprint: cert.fingerprint, relay: true };
@@ -383,6 +406,10 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     list: () => [...(certificate ? [{ origin, fingerprint: certificate.fingerprint }] : []), ...(tunnelOrigin ? [{ origin: tunnelOrigin, tunnel: true }] : []), ...(relayed ? [relayed] : [])],
     /** The relay's session, once it has named it: `{origin, fingerprint, relay: true}`. */
     relay: () => relayed,
+    /** `f({tool, canvas})` once the relay names this run's one session (at once if it has). */
+    onRelay: f => { if (session) f(session); else if (relay) waiting.push(f); },
+    /** The relay canvas's gateway handler (R1b): its name's requests go to it from now on. */
+    relayCanvas: handler => relayCanvas(handler),
     async addPort({ host, port, handler }) {
       if (!certificate) throw new Error('addPort needs the TLS listener (--remote)');
       const server = secure(certificate, (req, res) => {
@@ -395,7 +422,7 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
           try { const o = new URL(req.headers.origin); same = o.protocol === 'https:' && o.host === at.host; } catch { /* refused */ }
           if (!same) return refuse(res, 403, 'another origin');
         }
-        return handler(req, res, url, { allowed: true, local: false, remote: true, tunnel: false, peer: req.socket?.remoteAddress ?? null, port: 'canvas' });
+        return handler(req, res, url, { allowed: true, local: false, remote: true, tunnel: false, door: 'tls', peer: req.socket?.remoteAddress ?? null, port: 'canvas' });
       }, timeoutMs);
       return bind(server, port, host, 'canvas port');
     },

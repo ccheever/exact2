@@ -1063,10 +1063,17 @@ font "Body"
   400 = "assets/body-regular.ttf"
   700 = "assets/body-bold.ttf"
   400 italic = "assets/body-italic.ttf"
+font "Flex"
+  100 1000 = "assets/RobotoFlex.ttf"
 ```
 
 These are syntax examples requiring real font files. Apply with
 `font-family="Brand"`. Respect the font's license and use the app's asset layout.
+A face is an `@font-face` rule: one weight, or for a variable file a range
+(`100 1000`), which draws every `font-weight` in it on the file's `wght` axis.
+The one-line form takes the file's own ranges, so a variable file declared
+with it covers all its weights. A file's `wdth` axis is its `font-stretch`
+range: `font-stretch="75%"` (or `condensed`) draws narrower type on it.
 
 ## Input, events, and commands
 

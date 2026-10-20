@@ -25,6 +25,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { appleArtifacts } from '../host/apple/build.mjs';
+import { logEntry, logStream } from '../host/apple/cloak.mjs';
 import { simulator, simulators } from '../host/apple/devices.mjs';
 import { HOST_DEV, resolveApp } from './app.mjs';
 
@@ -708,35 +709,70 @@ async function suite({ open: openSession, check: record }, reset) {
     await s.tap('tab-fold'); await settle(s);
   };
   if (leg('rotate')) {
-    const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['duo-lab-tall'] });
-    try {
-      where = 'rotate';
-      await pose(s, 180);
-      applies(await s.layout());
-      await s.tap('item-2'); await settle(s);
-      const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
-      check(typeof chosen === 'string' && chosen.length > 0, `${where}: item-2 selected a detail: ${chosen}`);
-      for (const [tag, deg] of POSES) {
-        where = `rotate-${tag}`;
-        await pose(s, deg);
-        for (const [turn] of TURNS) {
-          where = `rotate-${tag}-${turn}`;
-          await orient(turn, s);
-          const [orientation, w, h, insets] = TURNED[deg === 0 ? 'cover' : 'inner'][turn];
-          // The scene turned: its interface orientation, and the record's panel when it applies
-          const there = (l) => l.screen?.orientation === orientation && (!recorded || (l.viewport.w === w && l.viewport.h === h));
-          let l;
-          for (let i = 0; i < 50 && !(l && there(l)); i++) { if (i > 0) await sleep(100); l = await s.layout(); }
-          await settle(s);
-          l = await s.layout();
-          const safe = ['top', 'right', 'bottom', 'left'].map((edge) => l.env[`safe-area-inset-${edge}`]);
-          check(there(l) && l.screen.w === l.viewport.w && l.screen.h === l.viewport.h, `${where}: the session turned with the device: ${l.screen?.orientation} ${l.viewport.w}×${l.viewport.h} on ${l.screen?.w}×${l.screen?.h}, expected ${orientation}${recorded ? ` ${w}×${h}` : ''}`);
-          if (recorded) check(JSON.stringify(safe) === JSON.stringify(insets), `${where}: the safe area is UIKit's ${insets.join(' ')}, not ${safe.join(' ')}`);
-          await foldScreen(s, l, where, deg, chosen);
-          if (folded(deg) && l.env['vertical-viewport-segments'] === 2) await laptop(s, where);
+    // SpringBoard's lines about its orientation deferrals and the device's pose, which a turn after closing waits on
+    const sb = [];
+    const stream = logStream(udid, 'process == "SpringBoard" AND (category == "DeviceOrientationUpdateDeferral" OR category == "DevicePose")', (line) => {
+      const entry = logEntry(line);
+      if (entry) sb.push(entry);
+    });
+    const until = async (done, ms) => {
+      for (const end = Date.now() + ms; !done(); await sleep(50)) if (Date.now() > end) return false;
+      return true;
+    };
+    /** After the Duo closes, SpringBoard can take the first turn that reaches it once its display swap is over to end
+     * its fold transition, and turn no app (iOS 27.1; QUEUE). So, from SpringBoard's log, the swap's orientation
+     * deferrals end, the Duo turns upside down, which an app on the cover panel does not take, and SpringBoard sees
+     * that pose, before the turns the leg checks. `since` is when the Duo began to close. */
+    const spend = async (s, since) => {
+      const swapped = () => {
+        const held = new Set();
+        let began = false;
+        for (const { t, message } of sb) {
+          const scene = t >= since && /window scene: (\S+) reason: Display content mode transition/.exec(message)?.[1];
+          if (!scene) continue;
+          if (message.startsWith('Acquiring')) { began = true; held.add(scene); } else if (message.startsWith('Releasing')) held.delete(scene);
         }
-      }
-    } catch (e) { check(false, `${where}: ${e.message}`); } finally { await orient('portrait', s); await s.close(); }
+        return began && held.size === 0;
+      };
+      if (!check(await until(swapped, 10000), `${where}: SpringBoard's log shows no end of its display swap within 10 s`)) return;
+      const turned = Date.now();
+      await orient('pud', s);
+      check(await until(() => sb.some(({ t, message }) => t >= turned && /surface orientation changed: cover \w+ -> Pu/.test(message)), 5000), `${where}: SpringBoard's log shows no upside-down pose within 5 s`);
+    };
+    try {
+      await stream.ready();
+      const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['duo-lab-tall'] });
+      try {
+        where = 'rotate';
+        await pose(s, 180);
+        applies(await s.layout());
+        await s.tap('item-2'); await settle(s);
+        const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
+        check(typeof chosen === 'string' && chosen.length > 0, `${where}: item-2 selected a detail: ${chosen}`);
+        for (const [tag, deg] of POSES) {
+          where = `rotate-${tag}`;
+          const posed = Date.now();
+          await pose(s, deg);
+          if (deg === 0) await spend(s, posed);
+          for (const [turn] of TURNS) {
+            where = `rotate-${tag}-${turn}`;
+            await orient(turn, s);
+            const [orientation, w, h, insets] = TURNED[deg === 0 ? 'cover' : 'inner'][turn];
+            // The scene turned: its interface orientation, and the record's panel when it applies
+            const there = (l) => l.screen?.orientation === orientation && (!recorded || (l.viewport.w === w && l.viewport.h === h));
+            let l;
+            for (let i = 0; i < 50 && !(l && there(l)); i++) { if (i > 0) await sleep(100); l = await s.layout(); }
+            await settle(s);
+            l = await s.layout();
+            const safe = ['top', 'right', 'bottom', 'left'].map((edge) => l.env[`safe-area-inset-${edge}`]);
+            check(there(l) && l.screen.w === l.viewport.w && l.screen.h === l.viewport.h, `${where}: the session turned with the device: ${l.screen?.orientation} ${l.viewport.w}×${l.viewport.h} on ${l.screen?.w}×${l.screen?.h}, expected ${orientation}${recorded ? ` ${w}×${h}` : ''}`);
+            if (recorded) check(JSON.stringify(safe) === JSON.stringify(insets), `${where}: the safe area is UIKit's ${insets.join(' ')}, not ${safe.join(' ')}`);
+            await foldScreen(s, l, where, deg, chosen);
+            if (folded(deg) && l.env['vertical-viewport-segments'] === 2) await laptop(s, where);
+          }
+        }
+      } catch (e) { check(false, `${where}: ${e.message}`); } finally { await orient('portrait', s); await s.close(); }
+    } finally { stream.close(); }
   }
 
 }

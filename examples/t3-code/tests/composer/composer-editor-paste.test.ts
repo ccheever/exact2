@@ -6,11 +6,14 @@ import { T3Client } from '../../src/client/client';
 import { Backend, storage } from '../support/client-fixture';
 import { composerEditorView } from '../../src/composer/composer-editor';
 import { acceptAttachedFile } from '../../src/composer/composer-editor-attach';
-import { draftFiles } from '../../src/composer/composer-editor-files';
+import { draftFiles, fileChipContexts } from '../../src/composer/composer-editor-files';
 import { obj, str, type Obj } from '../../src/client/domain';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 import { fileChipLink } from '../../src/composer/composer-editor-files';
 import { toasts } from '../../src/shell/toast';
+import { addAttachedFiles } from '../../src/composer/composer-controls-attach';
+import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
+import { composerFieldAcknowledged, composerFieldNative, composerFieldResource } from '../../src/composer/composer-field-bridge';
 
 const uuid = (n: number) => `1b4e28ba-2fa1-11d2-883f-0016d3cca42${n}`;
 
@@ -20,11 +23,11 @@ class EditorBackend extends Backend {
   state: Obj = { empty: false };
   pasted: Obj[] = [];
   /** Runs as the native editor reads its state for a sync (before the reply reaches TypeScript). */
-  onSync: () => void = () => {};
+  onSync: () => void | Promise<void> = () => {};
   onTake: () => void = () => {};
   override async later(input: unknown): Promise<unknown> {
     const request = obj(input);
-    if (request.op === 'editorSync') { this.calls.push(request); this.onSync(); return this.good({ snapshotOwner: request.snapshotOwner, fieldOwner: request.fieldOwner, ...this.state, pastes: this.pasted.length }); }
+    if (request.op === 'editorSync') { this.calls.push(request); await this.onSync(); return this.good({ snapshotOwner: request.snapshotOwner, fieldOwner: request.fieldOwner, ...this.state, pastes: this.pasted.length }); }
     if (request.op === 'composerPasteTake') { this.calls.push(request); this.onTake(); const files = this.pasted; this.pasted = []; return this.good({ files }); }
     if (request.op === 'editorInsert' || request.op === 'editorEdit') { this.calls.push(request); return this.good({ applied: this.client && acceptComposerEdit(this.client, request) }); }
     if (request.op === 'composerAttachRemove') { this.calls.push(request); return this.good({ removed: true }); }
@@ -136,6 +139,52 @@ describe('a paste with files on the pasteboard (onComposerPaste)', () => {
 });
 
 describe('an emptied draft\'s files', () => {
+  test.each([{ label: 'file only', withImage: false }, { label: 'file and image', withImage: true }])('keeps staged files through queued insertion and an older empty sync: $label', async ({ withImage }) => {
+    const { client, native } = await opened();
+    const owner = composerFieldOwner(client), empty = observeComposer(client, '');
+    const fieldNative = composerFieldNative(client, native, () => composerFieldOwner(client));
+    const files = [{ kind: 'file', id: uuid(1), name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 26 },
+      ...(withImage ? [{ kind: 'image', id: uuid(2), name: 'image.png', sizeBytes: 120 }] : [])];
+    await addAttachedFiles(client, fieldNative, files);
+    const link = `[notes.txt](t3-context://v1/file/file_${uuid(1)})`;
+    expect(client.draft).toBe('');
+    await composerEditorView(client, fieldNative);
+    expect(draftFiles(client.local)).toMatchObject([{ id: uuid(1), status: 'staged' }]);
+    expect(fileChipContexts(client, link)).toEqual({ [`file/file_${uuid(1)}`]: 'file\t1 KB' });
+    expect(ops(native, 'composerAttachRemove')).toEqual([]);
+
+    const read = Promise.withResolvers<void>(), resumed = Promise.withResolvers<void>();
+    native.onSync = () => { read.resolve(); return resumed.promise; };
+    const syncing = composerEditorView(client, fieldNative);
+    await read.promise;
+    const edit = composerFieldResource(client, [empty, 0], owner);
+    expect(edit.ready).toBe(true);
+    const inserted = observeComposer(client, `${link} `, true);
+    expect((await composerFieldAcknowledged(client, [inserted, edit.seq, true], owner, native)).applied).toBe(true);
+    // The field's input and ACK can arrive before the separate draft persistence command.
+    expect(client.draft).toBe('');
+    resumed.resolve();
+    await syncing;
+    expect(draftFiles(client.local)).toHaveLength(1);
+    expect(client.snapshotDrafts).toHaveLength(withImage ? 1 : 0);
+    expect(ops(native, 'composerAttachRemove')).toEqual([]);
+
+    native.onSync = () => {};
+    observeComposer(client, '', true);
+    await composerEditorView(client, fieldNative);
+    expect(draftFiles(client.local)).toEqual([]);
+    expect(ops(native, 'composerAttachRemove')).toMatchObject([{ id: uuid(1) }]);
+  });
+  test('a refused queued insertion releases files when its original empty draft is abandoned', async () => {
+    const { client, native } = await opened();
+    const fieldNative = composerFieldNative(client, native, () => composerFieldOwner(client));
+    await addAttachedFiles(client, fieldNative, [{ kind: 'file', id: uuid(1), name: 'notes.txt', sizeBytes: 26 }]);
+    client.threadId = 't2';
+    observeComposer(client, '');
+    await composerEditorView(client, composerFieldNative(client, native, () => composerFieldOwner(client)));
+    expect(draftFiles(client.local)).toEqual([]);
+    expect(ops(native, 'composerAttachRemove')).toMatchObject([{ id: uuid(1) }]);
+  });
   test('a file attached while the sync was in flight survives that sync\'s empty editor; one from before goes', async () => {
     const { client, native } = await opened();
     const old = acceptAttachedFile(client, { kind: 'file', id: uuid(5), name: 'old.txt', sizeBytes: 3 }).file!;

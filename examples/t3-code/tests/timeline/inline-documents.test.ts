@@ -107,6 +107,34 @@ test('inline width selects responsive measurements and is retained while fullscr
   expect(inlineDocumentView(client, key, responsiveRef).height).toBe(560);
 });
 
+test('MCP fullscreen publishes the measured guest viewport and retains its document on restore', async () => {
+  const appItem = { ...item, toolName: 'weather.forecast', output: { t3McpApp: { attachmentId: 'mcp', server: 'weather', tool: 'forecast', resourceUri: 'ui://weather' } } };
+  const client = fixture(appItem), appRef = inlineReference(appItem)!;
+  let mints = 0;
+  client.rpc = async () => { mints++; return { relativeUrl: '/api/assets/mcp', expiresAt: 10_000_000 }; };
+  const key = inlineDocumentKey(client, 't', 'i', appRef);
+  await syncInlineDocuments(client, native, 0);
+  const initial = inlineDocumentView(client, key, appRef);
+  expect(initial).toMatchObject({ title: 'forecast', server: 'weather' });
+  const config = JSON.parse(decodeURIComponent(initial.src.split('#')[1]!));
+  const message = (value: unknown) => inlineDocumentEvent(client, key, 'message', JSON.stringify({ t3Document: config.token, message: value }));
+  await inlineDocumentEvent(client, key, 'measure', '728|320');
+  await message({ jsonrpc: '2.0', id: 'init', method: 'ui/initialize', params: { appCapabilities: {} } });
+  await message({ jsonrpc: '2.0', method: 'ui/notifications/initialized' });
+  const context = () => inlineDocumentView(client, key, appRef).posts.map(post => JSON.parse(post.text).message)
+    .filter(value => value.method === 'ui/notifications/host-context-changed').reduce((value, message) => ({ ...value, ...message.params }), {});
+  await inlineDocumentEvent(client, key, 'fullscreen', 'open');
+  await inlineDocumentEvent(client, key, 'measure', '1280|800');
+  expect(context()).toMatchObject({ displayMode: 'fullscreen', containerDimensions: { width: 1280, height: 800 } });
+  await message({ jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { height: 800 } });
+  expect(inlineDocumentView(client, key, appRef)).toMatchObject({ fullscreen: true, height: initial.height, src: initial.src });
+  await inlineDocumentEvent(client, key, 'fullscreen', 'close');
+  await inlineDocumentEvent(client, key, 'measure', '728|320');
+  expect(context()).toMatchObject({ displayMode: 'inline', containerDimensions: { width: 728, maxHeight: 2000 } });
+  expect(inlineDocumentView(client, key, appRef)).toMatchObject({ fullscreen: false, height: initial.height, src: initial.src });
+  expect(mints).toBe(1);
+});
+
 for (const identity of ['generation', 'environment', 'origin', 'thread'] as const) {
   test(`MCP queued reads stay with their ${identity} identity while the first read awaits`, async () => {
     const appItem = { ...item, toolName: 'weather.forecast', output: { t3McpApp: { attachmentId: 'mcp', server: 'weather', tool: 'forecast', resourceUri: 'ui://weather' } } };

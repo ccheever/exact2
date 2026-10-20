@@ -181,6 +181,16 @@ const heldOf = (held, params) => ({ ...held, rows: scrubbed(held.rows, params) }
 
 // A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below).
 const authored = name => AUTHORED[name] ?? String(name).replace(/_/g, '-');
+// A state part's row as its author wrote it at its place (`at`, in `lines`): a look's border side is the `border-color`
+// written there, its four sides whole, or the side's own longhand (`border-top-color`), as the source says; null for
+// another, which no edit of this row may write. Else its name (`authored`).
+const writtenAs = (lines, at, name) => {
+  const side = /^border_color_(top|right|bottom|left)$/.exec(name)?.[1];
+  if (!side) return authored(name);
+  // (At the map's UTF-8 byte column, as `plainAt` reads it.)
+  const said = /^[a-z-]+/.exec(Buffer.from(lines[at.line - 1] ?? '', 'utf8').subarray(Math.max(0, at.col - 1)).toString('utf8'))?.[0];
+  return said === 'border-color' || said === `border-${side}-color` ? said : null;
+};
 
 /** A state part's row as `set-state` addresses it (LLP 1122 T4, tamber/1.12):
  * the style whose part writes it, by the name its file declares it with
@@ -201,9 +211,11 @@ export function stateRung(row, b, app, read = readFileSync, own = null) {
   // Its `style` line: the nearest above the part's row, at the line's start.
   const style = styleAbove(lines, b.at.line);
   if (!style) return null;
+  const written = writtenAs(lines, b.at, row.name);
+  if (!written) return null;
   // The row's value as written, where it is one plain value (`plainAt`); else none, and an editor starts empty.
-  const text = plainAt(lines[b.at.line - 1] ?? '', b.at.col, authored(row.name));
-  return { rung: 'state', style, state: b.state, row: authored(row.name), file: rel, ...(text != null ? { text } : {}) };
+  const text = plainAt(lines[b.at.line - 1] ?? '', b.at.col, written);
+  return { rung: 'state', style, state: b.state, row: written, file: rel, ...(text != null ? { text } : {}) };
 }
 
 /** The style a row on `line` (1-based) is written in: the nearest `style Name` above it at the
@@ -240,16 +252,17 @@ export function rowRung(row, b, map, app, instances = 1, read = readFileSync, ow
   const style = /^class:([A-Za-z_][\w-]*)$/.exec(b.origin ?? '')?.[1] ?? null;
   if (b.origin !== 'own' && !style) return null;
   if (style && b.state) return null;
-  // The attribute as written: the map's `attr`, or, for a state row under the node (which has none), its
-  // authored name (`background-color` for the press paint's `press_background_color`).
-  const attr = b.attr ?? (b.state ? authored(row.name) : null);
-  if (!attr) return null;
+  // (The attribute as written, below: the map's `attr`, or, for a state row under the node (which has none), its
+  // authored name at its place: `background-color` for the press paint's `press_background_color`.)
+  if (!b.attr && !b.state) return null;
   // A layout row (D14, the map's `layout`): the author's, as `set-row` says; a token or param it reads is offered.
-  if (b.layout) return { rung: null, layout: true, reason: `\`${attr}\` is a layout row: layout is the author's (LLP 1122 D14); edit it in the source, or at a param's or token's rung where it reads one` };
+  if (b.layout) return { rung: null, layout: true, reason: `\`${b.attr}\` is a layout row: layout is the author's (LLP 1122 D14); edit it in the source, or at a param's or token's rung where it reads one` };
   const rel = ownFile(b.at.file, app, own);
   if (!rel) return { rung: null, reason: style ? `a package's style (${style}): read-only here` : 'a package\'s component: read-only here' };
   let lines;
   try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
+  const attr = b.attr ?? writtenAs(lines, b.at, row.name);
+  if (!attr) return null;
   const text = plainAt(lines[b.at.line - 1] ?? '', b.at.col, attr);
   if (text == null) return { rung: null, reason: `\`${attr}\` is written as an expression or a name in scope, or over more than one line: edit it in the source` };
   if (style) {
@@ -364,6 +377,11 @@ export function editable(row, origin, params = new Map(), unread = false, state 
 // The press rows `:active` lowers to (LLP 1121 D8 as amended; contract/lower/src/states.rs ACTIVE_ROWS), each by
 // the row its author wrote under `:active`.
 const AUTHORED = { press_background_color: 'background-color', press_color: 'color', press_opacity_to: 'opacity', press_scale: '-exact-press-scale' };
+// A map binding as the rungs read it (theme2's 02:46 and 03:18 rulings): one row's base value, its `origin`, `at`, `attr`
+// and `layout`, absent where no base row writes it; and `states`, each state part writing it. `asPart` gives a part's
+// as `{row, origin, state, at}`, `asBase` the base's: never one for the other.
+const asPart = (b, state) => { const p = b?.states?.find(s => s.state === state); return p ? { row: b.row, origin: p.origin, state: p.state, at: p.at } : null; };
+const asBase = b => (b?.origin ? b : null);
 
 /** A build's selection joined to source, for the `selection` event, from
  * `map` (null when the build's map is not here). */
@@ -377,7 +395,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   // The node a state is held on, named on this one inside it (stage 9 E): its rows' places are its own.
   const owner = base.held && Number.isSafeInteger(base.held.site) ? map.nodes[base.held.site] ?? null : node;
   // An `:active` row is written in its part (LLP 1121 D8): its file counts too, and the held node's.
-  const placed = n => n ? [n.file, ...(n.chain ?? []).map(c => c.file), ...(n.bindings ?? []).flatMap(b => b.at ? [b.at.file] : [])] : [];
+  const placed = n => n ? [n.file, ...(n.chain ?? []).map(c => c.file), ...(n.bindings ?? []).flatMap(b => [b.at, ...(b.states ?? []).map(p => p.at)].flatMap(at => at ? [at.file] : []))] : [];
   const files = [...new Set([...placed(node), ...(owner !== node ? placed(owner) : [])])];
   const readOnly = files.map(f => moved(map, f, read)).find(Boolean) || designMoved(map, build, served, design, read) || null;
   const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [] };
@@ -385,8 +403,8 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   // counts them (a `button "…"`'s label shares its span and chain, and is no second copy).
   const copiesOf = n => Math.max(1, new Set(sitesAt(map, n).filter(i => same(map.nodes[i], n)).map(i => JSON.stringify((map.nodes[i].chain ?? []).map(c => [c.file, c.line, c.col])))).size);
   const copies = copiesOf(node);
-  // What is held (LLP 1122 D8): each row where it is written: an `:active` row lowered to the press paint at its
-  // part's place (the map's `at`), a state look's at its node, with the state. Its node is the one it is held on
+  // What is held (LLP 1122 D8): each row where it is written, its part's place (the map's `states`, keyed by row and
+  // state): an `:active` row lowered to the press paint, a `:hover` or `:focus-visible` look's row (queue item (1)). Its node is the one it is held on
   // (the press it resolved to, named on a node inside it: stage 9 E), its site's map node.
   if (base.held) {
     const ownerBound = owner === node ? bound : new Map((owner?.bindings ?? []).map(b => [b.row, b]));
@@ -394,29 +412,29 @@ export function join(build, selected, map, { read = readFileSync, served = null,
     // Edited where it is held (T4): only where the build names that node (its held site); else shown, not offered.
     const heldHere = Number.isSafeInteger(base.held.site) && !!owner;
     base.held = { ...base.held, rows: (base.held.rows ?? []).map((r, i) => {
-      const b = ownerBound.get(r.name);
+      const b = asPart(ownerBound.get(r.name), base.held.state) ?? asBase(ownerBound.get(r.name));
       // An `:active` row is named as its author wrote it, under its part (theme2's 16:13 (2)), the press row it
       // lowered to beside it (`row`).
       const authored = b?.state ? AUTHORED[r.name] ?? null : null;
-      // (A held look's row is set-row's only where it is written under the node in that state: a hover's row
-      // with no place of its own is the base row's binding, not the look's.)
+      // (A held look's row is its part's, never its base row's: a row the map gives no part in the held state is
+      // the base's, which the look is not written at.)
       // (Whether it reads a param not yet read: from the host's own report, before its names were scrubbed.)
       const unread = named(selected.held.rows?.[i]?.token, params).unread;
       const offered = !heldHere || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, unread, stateRung(r, b, app, read, own), b?.state ? rowRung(r, b, map, app, copiesOf(owner), read, own) : null);
-      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state ? b.at ?? null : ownerSource ?? null, ...(offered ? { editable: offered } : {}) };
+      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state && b.at ? b.at : ownerSource ?? null, ...(offered ? { editable: offered } : {}) };
     }) };
   }
   return {
     ...base, source, readOnly,
     rows: rows.map(r => {
-      const b = bound.get(r.name);
+      const b = asBase(bound.get(r.name)) ?? asPart(bound.get(r.name), 'active');
       const origin = b?.origin ?? null;
       // A state part's row, where it is written (the map's `state` and `at`); an
       // own or class row, the attribute it came from and that file's digest as
       // compiled: `set-row`'s address (LLP 1122 D6, tamber/1.12).
       const sha = f => (map.sources ?? []).find(s => s.file === f)?.sha256;
       const written = b?.at && !b.state ? { at: { ...b.at, ...(sha(b.at.file) ? { sha256: sha(b.at.file) } : {}) }, attr: b.attr, ...(b.layout ? { layout: true } : {}) } : {};
-      const part = b?.state ? { state: b.state, at: b.at ?? null } : written;
+      const part = b?.state ? { state: b.state, ...(b.at ? { at: b.at } : {}) } : written;
       const { unread, ...row } = r;
       const offered = editable({ ...row, ...part }, origin, params, unread, stateRung(row, b, app, read, own), rowRung(row, b, map, app, copies, read, own));
       return { ...row, origin, ...part, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.param ?? offered.token ?? null } : offered };
@@ -428,8 +446,8 @@ export function join(build, selected, map, { read = readFileSync, served = null,
 export function sitesAt(map, source) {
   if (!map || !source) return [];
   const here = x => x && x.file === source.file && x.line === source.line && x.col === source.col;
-  // A node, or a state part's row it lowered (`uses` names that row's own place).
-  return map.nodes.flatMap((n, site) => here(n) || (n.bindings ?? []).some(b => b.state && here(b.at)) ? [site] : []);
+  // A node, or a state part's row on it (`uses` names that row's own place).
+  return map.nodes.flatMap((n, site) => here(n) || (n.bindings ?? []).some(b => (b.states ?? []).some(p => here(p.at))) ? [site] : []);
 }
 
 /** The one site of plan map `to` that is site `site` of plan map `from`

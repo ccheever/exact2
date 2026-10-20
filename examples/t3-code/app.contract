@@ -2343,6 +2343,16 @@ component T3Code
     jumpRequest = jumpRequest + 1
     settingsOpen = settingsOpen and not shell.openThreadId.startsWith("activation:")
     utilityPage = shell.openThreadId.startsWith("activation:") ? "" : utilityPage
+  // The reopen after ⌘W (keepRunning hid the window): DesktopLifecycle's `activate` makes a new window, which loads
+  // `/` (IndexDraftLanding): Settings, the utility pages and the palette are gone, and the most recent project's
+  // draft opens. The closed thread keeps its draft. A minimize or a covering window is no return (exactPage().restores).
+  task windowReopen when page.restores > 0 key=page.restores
+    after(1, windowReopened)
+  action windowReopened
+    settingsOpen = false
+    utilityPage = ""
+    paletteOpen = false
+    send fragmentChanged = command("shelllocal:reopen", "", "", 0) // fragmentOpened: the draft's composer
   action toastHovering(over: bool)
     toastHover = over
   action toastAct(id: number, op: string, target: string, value: string)
