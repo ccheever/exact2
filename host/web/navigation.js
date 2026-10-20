@@ -447,6 +447,8 @@ export const navigation = {
 // and a style is set at once, as the controller sets one with nothing held. `o.wasm(name, bytes)` is one
 // wasm call's reply, or null before the wasm; `o.replayed()` follows a replay, as the end of a batch
 // follows its ops.
+// Work after a rendering opportunity (two animation frames) or a second, whichever is first, once: a page in a frame scrolled out of view gets no frames (LLP 1122's queue item (3) and its QUEUE follow-up); no timer under the agent, whose clock owns time.
+export function afterPaint(fn, agent = false) { let ran = false; const once = () => { if (!ran) { ran = true; fn(); } }; requestAnimationFrame(() => requestAnimationFrame(once)); if (!agent) setTimeout(once, 1000); }
 export function afterPaintPieces(load, o) {
   let live = null, loading = null;
   const queue = [];
@@ -492,14 +494,12 @@ export function afterPaintPieces(load, o) {
   for (const name of ['reset', 'dataReady', 'releaseInteraction', 'settle']) collections[name] = call('collections', name, false);
   collections.jump = call('collections', 'jump');
   collections.restyled = () => live?.collections.restyled(); // nothing to restyle before the piece
-  // @ref LLP 1056 D7 — Canvas 2D's replayer and ResizeObserver: its own
-  // piece, injected two animation frames after the first 2D canvas's op.
+  // @ref LLP 1056 D7 — Canvas 2D's replayer and ResizeObserver: its own piece, injected after a rendering opportunity (`afterPaint`) after the first 2D canvas's op.
   let c2d = null, c2dLoading = null; const c2dQueue = [];
   const canvas2d = (op) => {
     if (c2d) return c2d.op(op);
     c2dQueue.push(op);
-    c2dLoading ??= new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
-      .then(() => load('./canvas2d-glue.js', 'canvas2dGlue'))
+    c2dLoading ??= new Promise(r => afterPaint(r, o.agent())).then(() => load('./canvas2d-glue.js', 'canvas2dGlue'))
       .then(make => { c2d = make({ views: o.views, now: o.now, applyBatch: o.applyBatch, generation: o.generation }); for (const q of c2dQueue.splice(0)) c2d.op(q); })
       .catch(error => { c2dLoading = null; c2dQueue.length = 0; console.error('exact: canvas2d:', error); });
   };

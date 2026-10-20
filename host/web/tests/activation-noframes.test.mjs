@@ -4,7 +4,9 @@
 // view, the design tool's canvas scrolled away, gets no requestAnimationFrame.
 // glue.js activates a second on all the same, once, as the JS page's input
 // does (rt.js `input()`); a page with frames activates after its two frames,
-// as before, and also once.
+// as before, and also once. A canvas's after-paint pieces likewise (its QUEUE
+// follow-up, navigation.js `afterPaint`): a Canvas 2D canvas's piece loads
+// within the second, once, and the page is ready.
 import { afterEach, expect, test } from 'bun:test';
 import { createServer } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -34,20 +36,26 @@ const COUNT = () => {
   if (new URL(location.href).searchParams.has('noframes')) window.requestAnimationFrame = () => 0;
 };
 
+// An app's wasm dev loop, served and its first generation ready, each heard as it is said (the tail kept for a
+// failure is the last 8 KB): a generation published later would restart the page (glue.js), a second activation by
+// design. (A first compile that fails says `error:` (dev.mjs) and never a ready line: said at once, not after the wait.)
+async function devLoop(app, dist) {
+  const port = await free();
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let said = '', served = false, planned = false, refused = false;
+  const hear = d => { said += d; served ||= said.includes(`127.0.0.1:${port}/`); planned ||= /plan ready:|module generation ready/.test(said); refused ||= !planned && /^error: /m.test(said); said = said.slice(-8000); };
+  dev.stdout.on('data', hear);
+  dev.stderr.on('data', hear);
+  for (const end = Date.now() + 600_000; !served || !planned;) { if (Date.now() > end || dev.exitCode !== null || refused) { await dev.stop(15_000); throw new Error(`the dev loop never served: ${said}`); } await Bun.sleep(100); }
+  return { dev, base: `http://127.0.0.1:${port}` };
+}
+
 test('a wasm page given no frames activates within its second, once; one with frames after them, once', async () => {
   const dist = mkdtempSync(join(tmpdir(), 'exact-noframes-dist-'));
   let dev = null, browser = null;
   try {
-    const port = await free(), base = `http://127.0.0.1:${port}`;
-    dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-    // Served, and its first plan ready, each heard as it is said (the tail kept for a failure is the last 8 KB): a
-    // generation published later would restart the page (glue.js), a second activation by design.
-    let said = '', served = false, planned = false, refused = false;
-    // (A first compile that fails says `error:` (dev.mjs) and never `plan ready:`: said at once, not after the wait.)
-    const hear = d => { said += d; served ||= said.includes(`127.0.0.1:${port}/`); planned ||= said.includes('plan ready:'); refused ||= !planned && /^error: /m.test(said); said = said.slice(-8000); };
-    dev.stdout.on('data', hear);
-    dev.stderr.on('data', hear);
-    for (const end = Date.now() + 600_000; !served || !planned;) { if (Date.now() > end || dev.exitCode !== null || refused) throw new Error(`the dev loop never served: ${said}`); await Bun.sleep(100); }
+    let base;
+    ({ dev, base } = await devLoop('theme-fixture', dist));
     browser = await (await import('playwright-core')).chromium.launch({ executablePath: chromium().executable, headless: true });
     const page = await browser.newPage();
     await page.addInitScript(COUNT);
@@ -65,6 +73,32 @@ test('a wasm page given no frames activates within its second, once; one with fr
     await Bun.sleep(1500);
     const framed = await state();
     expect([framed.ready, framed.frame !== null, framed.calls, framed.dataReady]).toEqual(['true', true, 1, 1]);
+  } finally {
+    await browser?.close();
+    await dev?.stop(15_000);
+    rmSync(dist, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('a frameless page with a Canvas 2D canvas loads its piece within its second, once, and is ready; with frames too', async () => {
+  const dist = mkdtempSync(join(tmpdir(), 'exact-noframes-canvas-'));
+  let dev = null, browser = null;
+  try {
+    let base;
+    ({ dev, base } = await devLoop('canvas-gallery', dist));
+    browser = await (await import('playwright-core')).chromium.launch({ executablePath: chromium().executable, headless: true });
+    for (const query of ['/?noframes=1', '/']) {
+      const page = await browser.newPage(), asked = [];
+      page.on('request', r => { if (new URL(r.url()).pathname.endsWith('/canvas2d-glue.js')) asked.push(r.url()); });
+      await page.addInitScript(COUNT);
+      await page.goto(`${base}${query}`);
+      // Ready (input and `exact.ready` wait on the piece, glue.js `activateData`): the piece loaded, not only asked for.
+      const t0 = Date.now();
+      while ((await page.evaluate(() => document.getElementById('exact-root')?.dataset.moduleReady ?? null)) !== 'true') { if (Date.now() - t0 > 8000) throw new Error(`${query}: not ready, the piece asked ${asked.length} time(s)`); await Bun.sleep(50); }
+      await Bun.sleep(1500);
+      expect([query, asked.length]).toEqual([query, 1]);
+      await page.close();
+    }
   } finally {
     await browser?.close();
     await dev?.stop(15_000);
