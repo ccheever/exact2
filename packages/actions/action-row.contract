@@ -1,7 +1,7 @@
 use iconReply, iconRepost, iconHeart, iconHeartFilled, iconBookmark, iconBookmarkFilled, iconShare, iconDots, Glyph from "./common.contract"
 
 style ActionCount
-  font-size="0.81875rem" line-height="1.0625rem" font-variant-numeric="tabular-nums"
+  font-size="actions.count-size" line-height="actions.count-line" font-variant-numeric="tabular-nums"
 
 style ActionButton
   :hover
@@ -9,7 +9,7 @@ style ActionButton
   :focus-visible
     background-color="actions.row-hover"
   :disabled
-    opacity=0.6
+    opacity="actions.row-dim"
 
 // A post's action row (the clone's Controls): reply, repost, like, then
 // save, share and more. The app passes the counts as it words them (`""`
@@ -51,14 +51,17 @@ component ActionRow
     share: paint shape space
     more: paint shape space
   view
-    row part="row" testId=`actions-${id}` justify-content="space-between"
+    row part="row" testId=`actions-${id}`
+      justify-content="space-between"
       align-items="center"
       padding-top=(big ? "0px" : "actions.row-top")
       gap="param.gap"
-      row flex=1 max-width=320 align-items="center"
+      row flex=1 max-width="actions.row-max" align-items="center"
         // A threadgate that keeps you out: the reply button does nothing,
         // and dims (its `:disabled`).
-        column flex=1 align-items="flex-start" margin-left=(big ? "actions.row-lead-big" : "actions.row-lead")
+        column flex=1
+          align-items="flex-start"
+          margin-left=(big ? "actions.row-lead-big" : "actions.row-lead")
           button part="reply" class=ActionButton
             testId=`reply-${id}`
             aria-label=`Reply (${replyN})`
@@ -71,10 +74,14 @@ component ActionRow
             padding="param.hit"
             border-radius="param.radius"
             -exact-press-haptic=(haptics ? "impact-light" : "none")
-            Glyph(d=iconReply(), size=(big ? 22 : 18), color="param.tint")
+            Glyph(
+              d=iconReply(),
+              size=(big ? "actions.icon-big" : "actions.icon"),
+              color="param.tint"
+            )
             if replies != ""
               text replies class=ActionCount
-                font-size=(big ? "0.9375rem" : "0.81875rem")
+                font-size=(big ? "actions.count-size-big" : "actions.count-size")
                 color="actions.row-count"
         column flex=1 align-items="flex-start"
           button part="repost" class=ActionButton
@@ -88,10 +95,14 @@ component ActionRow
             padding="param.hit"
             border-radius="param.radius"
             -exact-press-haptic=(haptics ? "impact-light" : "none")
-            Glyph(d=iconRepost(), size=(big ? 22 : 18), color=(reposted ? "actions.row-reposted" : "param.tint"))
+            Glyph(
+              d=iconRepost(),
+              size=(big ? "actions.icon-big" : "actions.icon"),
+              color=(reposted ? "actions.row-reposted" : "param.tint")
+            )
             if reposts != ""
               text reposts class=ActionCount
-                font-size=(big ? "0.9375rem" : "0.81875rem")
+                font-size=(big ? "actions.count-size-big" : "actions.count-size")
                 font-weight=(reposted ? 600 : 400)
                 color=(reposted ? "actions.row-reposted" : "actions.row-count")
         column flex=1 align-items="flex-start"
@@ -107,10 +118,14 @@ component ActionRow
             padding="param.hit"
             border-radius="param.radius"
             -exact-press-haptic=(haptics ? "impact-light" : "none")
-            Glyph(d=(liked ? iconHeartFilled() : iconHeart()), size=(big ? 22 : 18), color=(liked ? "actions.row-liked" : "param.tint"))
+            Glyph(
+              d=(liked ? iconHeartFilled() : iconHeart()),
+              size=(big ? "actions.icon-big" : "actions.icon"),
+              color=(liked ? "actions.row-liked" : "param.tint")
+            )
             if likes != ""
               text likes class=ActionCount
-                font-size=(big ? "0.9375rem" : "0.81875rem")
+                font-size=(big ? "actions.count-size-big" : "actions.count-size")
                 font-weight=(liked ? 600 : 400)
                 color=(liked ? "actions.row-liked" : "actions.row-count")
       row gap=(big ? "actions.row-trail-big" : "actions.row-trail") align-items="center"
@@ -122,7 +137,11 @@ component ActionRow
           padding="param.hit"
           border-radius="param.radius"
           -exact-press-haptic=(haptics ? "impact-light" : "none")
-          Glyph(d=(saved ? iconBookmarkFilled() : iconBookmark()), size=(big ? 22 : 18), color=(saved ? "actions.row-saved" : "param.tint"))
+          Glyph(
+            d=(saved ? iconBookmarkFilled() : iconBookmark()),
+            size=(big ? "actions.icon-big" : "actions.icon"),
+            color=(saved ? "actions.row-saved" : "param.tint")
+          )
         // The share menu; a long press shares at once.
         button part="share" class=ActionButton
           testId=`share-${id}`
@@ -132,7 +151,7 @@ component ActionRow
           padding="param.hit"
           border-radius="param.radius"
           -exact-press-haptic=(haptics ? "impact-light" : "none")
-          Glyph(d=iconShare(), size=(big ? 22 : 18), color="param.tint")
+          Glyph(d=iconShare(), size=(big ? "actions.icon-big" : "actions.icon"), color="param.tint")
         button part="more" class=ActionButton
           testId=`more-${id}`
           aria-label="Open post options menu"
@@ -140,4 +159,4 @@ component ActionRow
           padding="param.hit"
           border-radius="param.radius"
           -exact-press-haptic=(haptics ? "impact-light" : "none")
-          Glyph(d=iconDots(), size=(big ? 22 : 18), color="param.tint")
+          Glyph(d=iconDots(), size=(big ? "actions.icon-big" : "actions.icon"), color="param.tint")

@@ -36,45 +36,58 @@ component PostCard
       testId=`post-${id}`
       padding-left=(inThread ? "cards.pad-start-thread" : "cards.pad-start")
       padding-right=(inThread ? "cards.pad-end-thread" : "cards.pad-end")
-      border-top-width=(lineAbove ? 0 : 0.5)
+      border-top-width=(lineAbove ? "0px" : "cards.hairline")
       border-top-style="solid"
       border-top-color="param.divider"
       padding-bottom=(lineBelow ? "0px" : "cards.pad-bottom")
       background-color="param.surface"
       row gap="cards.column-gap" padding-left="cards.lead"
-        column width=42 align-items="center"
+        column width="cards.avatar" align-items="center"
           if lineAbove
-            box width=2
+            box width="cards.line-width"
               flex-grow=1
               margin-bottom="cards.line-gap"
               background-color=(inThread ? "cards.line-thread" : "cards.line")
         column padding-top=(inThread ? "cards.top-thread" : "cards.top") flex-shrink=1 min-width=0
           if context != "none"
-            row align-items="center" margin-left="cards.context-hang" margin-bottom="cards.context-under" gap="cards.context-gap"
-              Glyph(d=(context == "pinned" ? iconPin() : iconRepost()), size=13, color="param.meta")
-              text contextText font-size="0.81875rem"
+            row align-items="center"
+              margin-left="cards.context-hang"
+              margin-bottom="cards.context-under"
+              gap="cards.context-gap"
+              Glyph(
+                d=(context == "pinned" ? iconPin() : iconRepost()),
+                size="cards.context-icon",
+                color="param.meta"
+              )
+              text contextText font-size="cards.small-size"
                 font-weight=500
-                line-height="1.0625rem"
+                line-height="cards.small-line"
                 white-space="nowrap"
                 text-overflow="ellipsis"
                 overflow="hidden"
                 color="param.meta"
       row margin-top="cards.nudge"
-        column part="avatar" testId=`postcard-avatar-${id}` padding-left="cards.avatar-start" padding-right=(inThread ? "cards.avatar-end-thread" : "cards.avatar-end") align-items="center"
+        column part="avatar" testId=`postcard-avatar-${id}`
+          padding-left="cards.avatar-start"
+          padding-right=(inThread ? "cards.avatar-end-thread" : "cards.avatar-end")
+          align-items="center"
           link href=profileHref testId=`avatar-${id}` aria-label=name display="flex"
-            Avatar(src=avatar, size=42)
+            Avatar(src=avatar, size="cards.avatar")
           if lineBelow
-            box width=2
+            box width="cards.line-width"
               flex-grow=1
               margin-top="cards.line-gap"
               background-color=(inThread ? "cards.line-thread" : "cards.line")
         column part="content" testId=`postcard-content-${id}` flex=1 min-width=0
-          row part="meta" testId=`postcard-meta-${id}` gap="cards.meta-gap" padding-bottom="cards.meta-under" align-items="baseline"
+          row part="meta" testId=`postcard-meta-${id}`
+            gap="cards.meta-gap"
+            padding-bottom="cards.meta-under"
+            align-items="baseline"
             // The name keeps its width up to 70%; the handle gives way first.
             text name testId=`name-${id}`
-              font-size="0.9375rem"
+              font-size="cards.text-size"
               font-weight=600
-              line-height="1.0625rem"
+              line-height="cards.text-line"
               class=Name
               max-width="70%"
               white-space="nowrap"
@@ -83,26 +96,26 @@ component PostCard
               flex-shrink=0
             if badge != ""
               column align-self="center" margin-left="cards.badge-hang" flex-shrink=0
-                VerifiedBadge(badge=badge, size=12)
-            text `@${handle}` font-size="0.9375rem"
-              line-height="1.0625rem"
+                VerifiedBadge(badge=badge, size="cards.badge-size")
+            text `@${handle}` font-size="cards.text-size"
+              line-height="cards.text-line"
               white-space="nowrap"
               text-overflow="ellipsis"
               overflow="hidden"
               flex-shrink=10
               min-width=0
               color="param.meta"
-            text `· ${time}` font-size="0.9375rem"
-              line-height="1.0625rem"
+            text `· ${time}` font-size="cards.text-size"
+              line-height="cards.text-line"
               white-space="nowrap"
               flex-shrink=0
               color="param.meta"
           if replyTo != ""
             row gap="cards.meta-gap" padding-bottom="cards.meta-under" align-items="center"
-              column position="relative" top=-1
-                Glyph(d=iconCornerDownRight(), size=12, color="param.meta")
-              text replyTo font-size="0.81875rem"
-                line-height="1.0625rem"
+              column position="relative" top="cards.reply-rise"
+                Glyph(d=iconCornerDownRight(), size="cards.reply-icon", color="param.meta")
+              text replyTo font-size="cards.small-size"
+                line-height="cards.small-line"
                 white-space="nowrap"
                 text-overflow="ellipsis"
                 overflow="hidden"

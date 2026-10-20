@@ -16,7 +16,7 @@ fn iconDots(): string = "M2 12a2 2 0 1 1 4 0 2 2 0 0 1-4 0Zm16 0a2 2 0 1 1 4 0 2
 component Glyph
   props
     d: string
-    size: number
+    size: string
     color: string
   view
     svg viewBox="0 0 24 24" width=size height=size flex-shrink=0 aria-hidden=true

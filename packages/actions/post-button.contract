@@ -1,6 +1,8 @@
 // The Post button: pressed and faded while it can't post, its own control
 // (LLP 1121 D8), not a platform's prominent button, which would draw a
-// disabled one grey (D9's exception).
+// disabled one grey (D9's exception). Its pressed and faded fills are params
+// beside `fill`: a `:disabled` row beats the node's own base row (LLP 1139
+// D3), so an app that sets `fill` sets these two with it.
 style PostButtonLook
   color="actions.post-ink"
   border-radius="actions.post-corner"
@@ -10,13 +12,15 @@ style PostButtonLook
   justify-content="center"
   align-items="center"
   :active
-    background-color="actions.post-pressed"
+    background-color="param.pressed"
   :disabled
-    background-color="actions.post-dim"
+    background-color="param.dim"
 
 component PostButton
   params
     fill: color = "actions.post-fill" control = "token" group = "Color" priority = 1 label = "Fill"
+    pressed: color = "actions.post-pressed" control = "token" group = "Color" priority = 2 label = "Pressed fill" help = "Set it with Fill: Fill alone leaves it the package's"
+    dim: color = "actions.post-dim" control = "token" group = "Color" priority = 2 label = "Disabled fill" help = "Set it with Fill: Fill alone leaves it the package's"
     height: length = "actions.post-height" range = "24..48" step = 1 control = "slider" group = "Shape" priority = 2 label = "Height"
   props
     // Names its testId: compose-post, or compose-post-<id> beside others.

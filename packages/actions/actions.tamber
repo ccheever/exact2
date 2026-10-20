@@ -1,7 +1,9 @@
 // The design of @exact/actions (LLP 1139 D1): the tokens its components'
-// params default to. Spacing and corners are base names; colours are the
-// package's own, which an app sets by full name (the clone sets them to its
-// palette's roles).
+// params default to. Spacing and corners are base names. A neutral colour
+// (an icon's tint, a count, a hover's ground) is the platform's role, so the
+// row looks native where no app sets it; the brand's are the package's own.
+// An app sets any of them by full name (the clone sets them all to its
+// palette's colours).
 tamber actions
 
 theme
@@ -14,12 +16,12 @@ theme
   actions.post-corner: length = radius.full
   // The action row (ActionRow): its icons' tint, a count's colour, and each
   // toggle's colour when on; its spacing on the base scale.
-  actions.row-tint = light-dark(#667b99, #6f839f)
-  actions.row-count = light-dark(#667b99, #6f839f)
+  actions.row-tint = -exact-secondary-label
+  actions.row-count = -exact-secondary-label
   actions.row-reposted = light-dark(#09b35e, #0ac266)
   actions.row-liked = #ec4899  scheme=fixed
   actions.row-saved = light-dark(#006aff, #0f73ff)
-  actions.row-hover = light-dark(#f9fafb, #1c2736)
+  actions.row-hover = -exact-secondary-background
   actions.row-gap: length = space.md
   actions.row-hit: length = space.xs
   actions.row-corner: length = radius.full
@@ -31,3 +33,13 @@ theme
   // text's line (no base name is negative).
   actions.row-lead: length = -6px
   actions.row-lead-big: length = -2px
+  // Its icons' size and its counts' type, beside a big (a thread's anchor
+  // post's) row's.
+  // The three counted buttons' widest, and a disabled button's opacity.
+  actions.row-max: length = 320px
+  actions.row-dim: number = 0.6
+  actions.icon: length = 18px
+  actions.icon-big: length = 22px
+  actions.count-size: length = 0.81875rem
+  actions.count-size-big: length = 0.9375rem
+  actions.count-line: length = 1.0625rem

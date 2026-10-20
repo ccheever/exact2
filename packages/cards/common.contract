@@ -11,7 +11,7 @@ fn attieIcon(): string = "M14.398 2c4.502 0 8.151 3.634 8.151 8.117q0 .678-.108 
 component Glyph
   props
     d: string
-    size: number
+    size: string
     color: string
   view
     svg viewBox="0 0 24 24" width=size height=size flex-shrink=0 aria-hidden=true
@@ -24,12 +24,12 @@ style Name
 component Avatar
   props
     src: string
-    size: number
+    size: string
   view
     column position="relative"
       width=size
       height=size
-      border-radius=(size / 2)
+      border-radius="cards.avatar-corner"
       overflow="hidden"
       flex-shrink=0
       background-color="cards.avatar-ground"
@@ -43,8 +43,8 @@ component Avatar
             d="M 12.058 22.784 C 9.422 22.784 7.007 21.836 5.137 20.262 C 5.667 17.988 8.534 16.25 11.99 16.25 C 15.494 16.25 18.391 18.036 18.864 20.357 C 17.01 21.874 14.64 22.784 12.058 22.784 Z"
       box position="absolute"
         inset=0
-        border-radius=(size / 2)
-        border-width=0.5
+        border-radius="cards.avatar-corner"
+        border-width="cards.hairline"
         border-style="solid"
         border-color="cards.avatar-ring"
         aria-hidden=true
@@ -53,7 +53,7 @@ component Avatar
 component VerifiedBadge
   props
     badge: string
-    size: number
+    size: string
   view
     if badge == "verified"
       svg testId="verified-badge"

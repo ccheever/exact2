@@ -26,7 +26,7 @@ component AtCard
       flex-direction="column"
       border-radius="cards.link-corner"
       overflow="hidden"
-      border-width=0.5
+      border-width="cards.hairline"
       border-style="solid"
       border-color="cards.link-frame"
       background-color="cards.link-ground"
@@ -37,35 +37,36 @@ component AtCard
           alt=""
           background-color="cards.thumb-ground"
       column padding="cards.link-pad" gap="cards.link-gap"
-        text title font-size="1.05625rem"
+        text title font-size="cards.title-size"
           font-weight=700
-          line-height="1.375rem"
+          line-height="cards.title-line"
           line-clamp=3
           class=Name
         if description != ""
-          text description font-size="0.81875rem"
-            line-height="1.0625rem"
+          text description font-size="cards.small-size"
+            line-height="cards.small-line"
             line-clamp=(thumb != "" ? 3 : 4)
             class=Name
-      box height=0.5 background-color="cards.link-frame"
+      box height="cards.hairline" background-color="cards.link-frame"
       column padding="cards.link-pad" gap="cards.link-pad" align-items="center"
         row align-self="stretch" gap="cards.link-row-gap" align-items="center"
-          Avatar(src=atAvatar, size=32)
+          Avatar(src=atAvatar, size="cards.at-avatar")
           column flex=1 min-width=0 gap="cards.link-name-gap"
-            text atName font-size="0.81875rem"
+            text atName font-size="cards.small-size"
               font-weight=500
-              line-height="0.9375rem"
+              line-height="cards.at-name-line"
               white-space="nowrap"
               text-overflow="ellipsis"
               overflow="hidden"
               class=Name
-            text atHandle font-size="0.70625rem"
-              line-height="0.8125rem"
+            text atHandle font-size="cards.tiny-size"
+              line-height="cards.tiny-line"
               white-space="nowrap"
               text-overflow="ellipsis"
               overflow="hidden"
               color="cards.meta"
-        row part="visit" testId=`atcard-visit-${id}` align-self="stretch"
+        row part="visit" testId=`atcard-visit-${id}`
+          align-self="stretch"
           justify-content="center"
           align-items="center"
           gap="cards.link-row-gap"
@@ -75,6 +76,9 @@ component AtCard
           padding-right="cards.visit-pad-inline"
           border-radius="cards.visit-corner"
           background-color="param.accent"
-          svg viewBox="0 0 24 24" width=20 height=20 aria-hidden=true
+          svg viewBox="0 0 24 24"
+            width="cards.visit-icon"
+            height="cards.visit-icon"
+            aria-hidden=true
             path fill="cards.visit-ink" fill-rule="evenodd" d=attieIcon()
-          text "Visit site" font-size="0.81875rem" font-weight=700 color="cards.visit-ink"
+          text "Visit site" font-size="cards.small-size" font-weight=700 color="cards.visit-ink"
