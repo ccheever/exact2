@@ -1,6 +1,6 @@
 export const proofSDK = import.meta.dir + "/..";
 import {refusalMessage} from '../scripts/agent-keys.mjs';
-import {proofInputs, proofInputReader, proofInputFiles, proofInputExcluded, executionInputFiles} from './inputs.mjs';
+import {statKey, proofInputs, proofInputReader, proofInputFiles, proofInputExcluded, executionInputFiles} from './inputs.mjs';
 export {proofInputs, proofInputReader, proofInputFiles, proofInputExcluded} from './inputs.mjs';
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';

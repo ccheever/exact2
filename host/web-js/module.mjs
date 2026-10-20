@@ -409,7 +409,7 @@ export function warmGameInputs(app, env = process.env) {
       || (env.EXACT_UPDATE_TRUST ?? 'development') !== 'development') return null;
   const inputs = proofInputs(root, app.dir, resolve(app.target, 'proof-web-inputs.json'));
   const flags = Object.entries(env).filter(([key]) => /^(RUST|CARGO_PROFILE_|CARGO_ENCODED_|CARGO_TARGET_.*_(RUSTFLAGS|LINKER)$|EXACT_GAME_PARANOID_COMPARE$)/.test(key)).sort();
-  const configuration = JSON.stringify([app.id, app.target, env.EXACT_GAME_PARANOID ?? '0', flags]);
+  const configuration = JSON.stringify([app.id, env.EXACT_GAME_PARANOID ?? '0', env.EXACT_UPDATE_ORIGIN ?? null, env.EXACT_BACKEND_ORIGIN ?? null, flags]);
   return {...inputs, configuration, key:createHash('sha256').update(inputs.all + configuration).digest('hex')};
 }
 function warmFiles(directory) {
@@ -425,7 +425,7 @@ function warmFiles(directory) {
   walk(directory);
   return files;
 }
-export function keepWarmGame(app, dist, before, env = process.env, gpu = null) {
+export function keepWarmGame(app, dist, before, env = process.env) {
   if (!before) return false;
   let stage;
   try {
@@ -437,17 +437,18 @@ export function keepWarmGame(app, dist, before, env = process.env, gpu = null) {
     stage = mkdtempSync(resolve(cache, 'build-'));
     const copied = resolve(stage, 'dist');
     cpSync(dist, copied, {recursive:true});
-    if (gpu) {
-      const [dir, name] = gpu.stem.includes('/') ? [resolve(copied, 'gpu'), gpu.stem.slice(4)] : [copied, gpu.stem];
-      const bind = spawnSync('wasm-bindgen', ['--target','web','--no-typescript','--out-dir',dir,'--out-name',name,gpu.wasm], {stdio:'inherit'});
-      if (bind.status !== 0) return false;
-    }
     const current = warmGameInputs(app, env);
     if (current?.key !== after.key || current.authoredState !== after.authoredState || current.assetState !== after.assetState) return false;
     const receipt = {key:after.key, directory:stage, files:warmFiles(copied)};
     const path = resolve(cache, `${after.key}.json`);
     replace(path, temp => writeFileSync(temp, JSON.stringify(receipt)));
     stage = null;
+    const entries = readdirSync(cache).filter(name => /^[a-f0-9]{64}\.json$/.test(name)).sort((a,b) => statSync(resolve(cache,b)).mtimeMs - statSync(resolve(cache,a)).mtimeMs);
+    for (const name of entries.slice(6)) {
+      const old = JSON.parse(readFileSync(resolve(cache,name),'utf8'));
+      if (dirname(old.directory) === cache) rmSync(old.directory,{recursive:true,force:true});
+      rmSync(resolve(cache,name),{force:true});
+    }
     return copied;
   } catch (error) { console.warn(`web: warm game product not kept (${error.message})`); return false; }
   finally { if (stage) rmSync(stage, {recursive:true,force:true}); }

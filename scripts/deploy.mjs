@@ -1,5 +1,5 @@
-import { requireReleasePins } from '../game/inputs.mjs';
 #!/usr/bin/env bun
+import { requireReleasePins } from '../game/inputs.mjs';
 // `exact deploy` — the publisher (LLP 1030.000 D3 the verb, D4 the policies,
 // D5 one library in its own process, D7 where things live; LLP 1030 D3 the
 // classifier and D3a the compatibility id; LLP 1026 D11 the signed head).

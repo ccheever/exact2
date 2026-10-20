@@ -58,13 +58,15 @@ const buildTarget = resolve(process.env.CARGO_TARGET_DIR ?? resolve(sourceApp,'t
 const buildEnvironment = {CARGO_TARGET_DIR:buildTarget, CARGO_BUILD_BUILD_DIR:resolve(process.env.CARGO_BUILD_BUILD_DIR ?? buildTarget)};
 // A game without Git can include its generated assets in the captured tree.
 // Finish that bake before recording immutable copies, including after adding art.
-if (!repin && gameDefaults(sourceApp)?.game) {
+const testedInputs = !repin && gameDefaults(sourceApp)?.game ? inventory(resolve(import.meta.dir, '..'), sourceApp) : null;
+if (testedInputs) {
   progress.set({phase:'test-rust'});
   const result = spawnSync(process.execPath, [resolve(import.meta.dir, 'app/shells.mjs'), sourceApp, '--test'], {env:{...process.env, ...buildEnvironment}, stdio:'inherit'});
   if (result.status !== 0) throw new Error('test-rust failed');
 }
 if (!saved && gameDefaults(sourceApp)?.game) prepareProofTree(sourceApp, {...process.env, ...buildEnvironment});
 const record = saved ?? {version:1, before:previous, repin, hosts, config, snapshot:snapshot(resolve(import.meta.dir, '..'), sourceApp, root), legs:{}};
+if (testedInputs) assertInventory(testedInputs, record.snapshot.inputs);
 app = record.snapshot.src;
 const checkSDK = () => {
   const sdkOnly = values => Object.fromEntries(Object.entries(values).filter(([name]) => name.startsWith('sdk/')));

@@ -1,5 +1,5 @@
-import { warmGameInputs, keepWarmGame } from '../web-js/module.mjs';
 #!/usr/bin/env bun
+import { warmGameInputs, keepWarmGame } from '../web-js/module.mjs';
 // Build the web app (LLP 1071): the JS target, `host/web-js/build.mjs`, the
 // plan compiled to one ES module over a small runtime, into the same dist;
 // what it refuses (a capability the runtime lacks, named) fails the build.
