@@ -1192,9 +1192,21 @@ fn every_recipe_and_pattern_answers_by_name() {
 fn an_iframe_takes_a_frame_name() {
     let source = "component App\n  view\n    iframe name=\"exact-copy-1\" src=\"https://example.com\" sandbox=\"allow-scripts\"\n";
     let plan = contract::compile(source).expect("an iframe's name compiles");
-    assert!(format!("{plan:?}").contains("exact-copy-1"), "the name is the frame's prop");
-    for refused in ["text \"a\" name=\"x\"", "view name=\"x\"", "image src=\"a.png\" name=\"x\"", "input type=\"checkbox\" name=\"x\""] {
-        let error = contract::compile(&format!("component App\n  view\n    {refused}\n")).unwrap_err();
-        assert!(format!("{error:?}").contains("lower-attr-tag"), "{refused}: {error:?}");
+    assert!(
+        format!("{plan:?}").contains("exact-copy-1"),
+        "the name is the frame's prop"
+    );
+    for refused in [
+        "text \"a\" name=\"x\"",
+        "view name=\"x\"",
+        "image src=\"a.png\" name=\"x\"",
+        "input type=\"checkbox\" name=\"x\"",
+    ] {
+        let error =
+            contract::compile(&format!("component App\n  view\n    {refused}\n")).unwrap_err();
+        assert!(
+            format!("{error:?}").contains("lower-attr-tag"),
+            "{refused}: {error:?}"
+        );
     }
 }

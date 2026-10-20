@@ -265,6 +265,18 @@ A standalone macOS app treats `kill -TERM <pid>` as an orderly quit: its
 hold, and each session's native module is destroyed before exit. Repeated SIGTERM
 requests share that hold's original deadline. SIGKILL cannot run this cleanup.
 
+A one-window Mac app ends when its window closes. An app with work the person
+expects to go on without the window (a server, a sync), as Mail and Messages
+have, sets `"keepRunning": true` in `app.json`'s `host.macos.window`. ⌘W,
+File ▸ Close Window and the red button then hide the window without asking
+`beforeunload`, and the app keeps running with its session and native module
+alive. A Dock click or `open -a` shows the window again as it was, and a
+document routed to the app shows it too. ⌘Q quits as before, and the app's own
+`close()` still closes the window and ends the app. A `navigate-new` app
+(`launch_handler`) already outlives its last window, and the key changes
+nothing there. The agent's `state.documents.windows[].visible` says whether
+the window is showing.
+
 A native module whose work must finish before the app exits (a child process
 to stop, a socket to flush) overrides `willQuit(done:)`. On every orderly
 quit (⌘Q, the app menu, an Apple Event, SIGTERM, the last window closing),
