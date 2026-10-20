@@ -25,6 +25,13 @@ const registered = (app, platform, distributed) => (app.manifest.protocol_handle
   .filter((h) => (!h.distribution_only || distributed) && (platform === 'macos' || !isWebScheme(h.protocol)))
   .map(({ protocol, url }) => ({ protocol, url }));
 
+/** What an iOS or tvOS build says when it leaves out the pair a Mac build
+ *  of the same kind would register, or null. */
+export function webRefusal(app, distributed, tv) {
+  if (!(app.manifest.protocol_handlers ?? []).some((h) => isWebScheme(h.protocol) && (!h.distribution_only || distributed))) return null;
+  return `host/apple: protocol_handlers http and https: ${tv ? 'tvOS' : 'iOS'} registers neither (a default browser there needs Apple's managed com.apple.developer.web-browser entitlement)`;
+}
+
 /** The web-page document type a Mac app that registers `http` and `https`
  *  also declares: macOS lists an app under Default web browser only when it
  *  opens web pages too. `Viewer` and `Alternate`, so no HTML file changes

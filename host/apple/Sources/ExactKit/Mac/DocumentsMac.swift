@@ -67,11 +67,11 @@ public enum ExactDocuments {
     /// a dropped file must be (studio diary R19), as the pickers offer only
     /// these (LLP 1069.010 D2). An extension another app's type owns on this
     /// Mac (`.board`, Freeform's) still counts when the manifest names it.
-    public static func accepts(_ url: URL) -> Bool {
+    public static func accepts(_ url: URL, metadata: [String: Any] = ExactEnv.appMetadata) -> Bool {
         let ext = url.pathExtension.lowercased()
-        if !ext.isEmpty, Picker.declarations.contains(where: { ($0["CFBundleTypeExtensions"] as? [String] ?? []).contains { $0.lowercased() == ext } }) { return true }
+        if !ext.isEmpty, Picker.declarations(in: metadata).contains(where: { ($0["CFBundleTypeExtensions"] as? [String] ?? []).contains { $0.lowercased() == ext } }) { return true }
         let type = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType) ?? UTType(filenameExtension: ext)
-        return type.map { t in types.contains { t.conforms(to: $0) } } ?? false
+        return type.map { t in Picker.types(in: metadata).contains { t.conforms(to: $0) } } ?? false
     }
 
     /// The paths in `arguments` that name something on disk, made absolute

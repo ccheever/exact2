@@ -261,6 +261,32 @@ final class LaunchURLMacTests: XCTestCase {
         XCTAssertEqual(plain.typedLocation("https://example.com/a"), "/a")
     }
 
+    /// The web-page type a Mac browser declares (`ExactWebPage`) is Launch
+    /// Services' alone: no picker offers it and no drop takes an HTML file
+    /// for it, beside the app's own types or without them; an app whose own
+    /// `file_handlers` name HTML still takes one.
+    func testTheWebPageTypeIsNeitherPickedNorDropped() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("webpage-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let page = dir.appendingPathComponent("page.html"), notes = dir.appendingPathComponent("notes.md")
+        for file in [page, notes] { try Data("<p>hi</p>".utf8).write(to: file) }
+        let web: [String: Any] = ["CFBundleTypeName": "Web page", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
+                                  "LSItemContentTypes": ["public.html", "public.xhtml"], "ExactWebPage": true]
+        let markdown: [String: Any] = ["CFBundleTypeRole": "Viewer", "LSItemContentTypes": ["net.daringfireball.markdown"], "CFBundleTypeExtensions": ["md"]]
+        let browser: [String: Any] = ["CFBundleDocumentTypes": [web]]
+        XCTAssertTrue(Picker.declarations(in: browser).isEmpty)
+        XCTAssertEqual(Picker.types(in: browser), [])
+        XCTAssertFalse(ExactDocuments.accepts(page, metadata: browser))
+        let both: [String: Any] = ["CFBundleDocumentTypes": [markdown, web]]
+        XCTAssertEqual(Picker.declarations(in: both).count, 1)
+        XCTAssertFalse(Picker.types(in: both).contains(.html))
+        XCTAssertFalse(ExactDocuments.accepts(page, metadata: both))
+        XCTAssertTrue(ExactDocuments.accepts(notes, metadata: both))
+        let viewer: [String: Any] = ["CFBundleDocumentTypes": [["CFBundleTypeRole": "Viewer", "LSItemContentTypes": ["public.html"]], web]]
+        XCTAssertTrue(ExactDocuments.accepts(page, metadata: viewer))
+    }
+
     func testNotificationClickUsesLaunchLocationThenWarmNavigateOnce() throws {
         let bytes = try plan(routed)
         let session = ExactApp.shared.makeSession(label: "notification-\(UUID().uuidString)")

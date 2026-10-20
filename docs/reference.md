@@ -345,9 +345,18 @@ the browser's supported schemes and installation behavior. Linux's CLI URL
 argument retains the ordinary location conversion because it does not
 register OS protocol handlers.
 
+For packaged-only Apple registration, add `"distribution_only": true` to an
+entry, for example `{"protocol":"notes","url":"/open?u=%s","distribution_only":true}`.
+Archives and `--distribution` builds include it; local builds, including
+`--bundle` and `--release` alone, omit it from both the registered schemes and
+native handler templates. The default is `false`. This option does not filter
+the web manifest or explicit `host.<platform>.urlSchemes`.
+
 `http` and `https` are the web's own schemes. An app declares both or
-neither, with one `url` and one `distribution_only`, and the build refuses
-any other form. They make the app a web browser:
+neither: each once, with the same `url` and the same `distribution_only`.
+`readManifest` refuses any other form, so every build does, and
+`host.ios.urlSchemes` and `host.macos.urlSchemes` refuse both. The pair makes
+the app a web browser:
 
 | host | what the pair does |
 | --- | --- |
@@ -356,19 +365,16 @@ any other form. They make the app a web browser:
 | web | dropped from `manifest.json`: HTML's protocol handler safelist has neither. |
 | Linux, Windows, Android | not registered, as no protocol handler is there. |
 
-A Mac build for others carries the pair with `distribution_only`, so the
-development build does not join this Mac's browser list.
-For packaged-only Apple registration, add `"distribution_only": true` to an
-entry, for example `{"protocol":"notes","url":"/open?u=%s","distribution_only":true}`.
-Archives and `--distribution` builds include it; local builds, including
-`--bundle` and `--release` alone, omit it from both the registered schemes and
-native handler templates. The default is `false`. This option does not filter
-the web manifest or explicit `host.<platform>.urlSchemes`.
+With `"distribution_only": true` on both entries, only an archive or a
+`--distribution` build is a browser. A local Mac build then registers neither
+scheme, writes no `Web page` type, and does not join this Mac's browser list.
+
 A file chosen in the app's own picker (`showOpenFilePicker`,
 `showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
 and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
-(LLP 1033 D3). One handed over at launch arrives before first pixel, before
+(LLP 1033 D3). In a Mac browser, an HTML file from the command line or Finder
+that `file_handlers` do not accept is a link instead, at the `https` template. One handed over at launch arrives before first pixel, before
 app storage is ready and before a TypeScript data module has loaded: a send its
 `change` makes waits for both and then runs, pending meanwhile, rather than being
 refused (studio diary R14; notes diary). When nothing takes the path, the

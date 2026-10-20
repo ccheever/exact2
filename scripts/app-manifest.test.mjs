@@ -97,6 +97,10 @@ test('http and https come as a pair: a Mac web browser, refused on iOS and dropp
       save(bad);
       assert.throws(() => readManifest(dir, 'links'), /http and https come together/);
     }
+    for (const platform of ['ios', 'macos']) {
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Links', app: { id: 'dev.exact.links', name: 'Links' }, host: { [platform]: { urlSchemes: ['links', 'HTTPS'] } } }));
+      assert.throws(() => readManifest(dir, 'links'), new RegExp(`host\\.${platform}\\.urlSchemes: HTTPS is the web's own scheme; declare http and https together in protocol_handlers`));
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 
   const app = { id: 'dev.exact.links', displayName: 'Links', manifest: { protocol_handlers: [...pair(), { protocol: 'links', url: '/l?u=%s' }], host: { macos: { urlSchemes: ['other'] } } } };
@@ -111,10 +115,17 @@ test('http and https come as a pair: a Mac web browser, refused on iOS and dropp
   const ios = infoPlist(app);
   assert.doesNotMatch(ios, /<string>https?<\/string>|Web site URL|Web page/);
   assert.match(ios, /<string>links<\/string>/);
-  // A distribution-only pair: a local Mac build is no browser.
+  // The iOS and tvOS builds say so, but only when the pair would have been registered.
+  const { webRefusal } = await import('../host/apple/documents.mjs');
+  assert.match(webRefusal(app, false, false), /^host\/apple: protocol_handlers http and https: iOS registers neither/);
+  assert.match(webRefusal(app, false, true), /tvOS registers neither/);
+  assert.equal(webRefusal({ ...app, manifest: { protocol_handlers: [{ protocol: 'links', url: '/l?u=%s' }] } }, true, false), null);
+  // A distribution-only pair: a local Mac build is no browser, and a local iOS build refuses nothing.
   const packaged = { ...app, manifest: { protocol_handlers: pair({ distribution_only: true }) } };
   assert.doesNotMatch(macInfoPlist(packaged), /https|Web page|CFBundleDocumentTypes/);
   assert.match(macInfoPlist(packaged, { distributed: true }), /Web page/);
+  assert.equal(webRefusal(packaged, false, false), null);
+  assert.match(webRefusal(packaged, true, false), /iOS registers neither/);
   // The web registers neither (HTML's safelist): the pair goes, the rest stays.
   assert.deepEqual(webAppManifest(app.manifest, 'Links').protocol_handlers, [{ protocol: 'links', url: '/l?u=%s' }]);
   assert.equal(webAppManifest({ protocol_handlers: pair() }, 'Links').protocol_handlers, undefined);

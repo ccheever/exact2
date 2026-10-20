@@ -534,6 +534,7 @@
             },
             "urlSchemes": {
               "type": "array",
+              "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",
               "items": {
                 "type": "string"
               }
@@ -612,6 +613,7 @@
             },
             "urlSchemes": {
               "type": "array",
+              "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",
               "items": {
                 "type": "string"
               }

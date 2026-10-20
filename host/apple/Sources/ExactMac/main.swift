@@ -748,8 +748,16 @@ func finishLaunching() {
     // the same from here down — and a script's (`agent.mjs --open`), whose
     // driver names the whole command line. Not under the boot smoke, which
     // measures the app's own start. @ref LLP 1033 D3
+    // An HTML file named here reaches a browser's template, as one Launch
+    // Services brings does (`isWebPageFile`).
     if !smoke {
-        route(ExactDocuments.paths(in: CommandLine.arguments))
+        var files: [URL] = []
+        IncomingURLBatch.deliver(ExactDocuments.paths(in: CommandLine.arguments).map { URL(fileURLWithPath: $0) }, development: { _ in false },
+                                 webPage: session.isWebPageFile, document: { files.append($0) }, location: { url in
+            let target = frontWindow() ?? openWindow()
+            if target.session.openURL(url) { target.front() }
+        })
+        route(ExactDocuments.paths(of: files))
     }
     firstWindow.coverChrome()
     window.makeKeyAndOrderFront(nil)

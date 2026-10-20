@@ -2000,15 +2000,17 @@ A drive on macOS or iOS delivers a link as the system would, without iOS's
 "Open in …?" alert: `type <root> "web+notes://auth/callback#done"`.
 For a packaged-only scheme, use
 `[{"protocol":"notes","url":"/open?u=%s","distribution_only":true}]`.
-A Mac web browser declares `https` and `http` together, with one `url`:
-a web link, and an HTML file Finder opens in the app (as its `file:` URL),
-reach that template. The person makes the app the default browser in
-System Settings. iOS and the web register neither
-([reference](reference.md#run-an-app-from-a-terminal-on-macos), its table).
 Apple archives and `--distribution` builds register it; local builds omit both
 its scheme and template. `--bundle` or `--release` alone does not enable it.
-Web builds copy this key into the web app manifest; the browser decides which
-schemes it supports and whether the installed app is registered.
+Web builds copy this key into the web app manifest, without `http` and
+`https`; the browser decides which schemes it supports and whether the
+installed app is registered.
+A Mac web browser declares `https` and `http` together, each with the same
+`url` and the same `distribution_only`: a web link, and an HTML file Finder
+opens in the app (as its `file:` URL), reach that template. The person makes
+the app the default browser in System Settings. iOS registers neither, and
+`host.<platform>.urlSchemes` refuses both
+([reference](reference.md#run-an-app-from-a-terminal-on-macos), its table).
 
 Every route (a node with a `navigationKey` under the root) is a direct child of the
 root or of a `role="tabpanel"` in it — through `for` and `if`, never another
