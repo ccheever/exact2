@@ -116,10 +116,22 @@ mod tests {
 
     #[test]
     fn auto_follows_the_tier_and_a_named_rung_overrides_it() {
-        assert_eq!(Rung::resolve(Quality::Auto, GpuTier::Low).level, GpuTier::Low);
-        assert_eq!(Rung::resolve(Quality::Auto, GpuTier::High).level, GpuTier::High);
-        assert_eq!(Rung::resolve(Quality::High, GpuTier::Low).level, GpuTier::High);
-        assert_eq!(Rung::resolve(Quality::Low, GpuTier::High).level, GpuTier::Low);
+        assert_eq!(
+            Rung::resolve(Quality::Auto, GpuTier::Low).level,
+            GpuTier::Low
+        );
+        assert_eq!(
+            Rung::resolve(Quality::Auto, GpuTier::High).level,
+            GpuTier::High
+        );
+        assert_eq!(
+            Rung::resolve(Quality::High, GpuTier::Low).level,
+            GpuTier::High
+        );
+        assert_eq!(
+            Rung::resolve(Quality::Low, GpuTier::High).level,
+            GpuTier::Low
+        );
     }
 
     #[test]
@@ -129,7 +141,11 @@ mod tests {
         let high = Rung::resolve(Quality::High, GpuTier::Low);
         assert_eq!(low.samples(SceneSamples::Four), SceneSamples::One);
         assert_eq!(mid.samples(SceneSamples::Four), SceneSamples::Four);
-        assert_eq!(mid.samples(SceneSamples::One), SceneSamples::One, "the game's samples are the ceiling");
+        assert_eq!(
+            mid.samples(SceneSamples::One),
+            SceneSamples::One,
+            "the game's samples are the ceiling"
+        );
         assert_eq!(low.scale(1.0), 0.5);
         assert_eq!(mid.scale(1.0), 0.75);
         assert_eq!(high.scale(1.0), 1.0);

@@ -58,8 +58,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             }
             // The quality ladder's rung (LLP 1139.003 D3): read once, from the
             // first arguments and the device's tier, before any renderer exists.
-            self.rung
-                .get_or_insert_with(|| crate::quality::Rung::resolve(G::quality(sim.args()), exact_gpu::tier()));
+            self.rung.get_or_insert_with(|| {
+                crate::quality::Rung::resolve(G::quality(sim.args()), exact_gpu::tier())
+            });
             self.sim = Some(sim);
         }
         if let Err(error) = self.check_primitive_assets() {

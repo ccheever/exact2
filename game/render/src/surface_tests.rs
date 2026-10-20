@@ -1,4 +1,6 @@
 use super::*;
+#[path = "surface_tests/quality.rs"]
+mod quality;
 #[path = "surface_tests/trace.rs"]
 mod trace;
 use exact_game::{Camera, Input, Mesh, Transform, Vec3};

@@ -207,11 +207,26 @@ mod tests {
         assert_eq!(classify("", "", false, true), GpuTier::Low);
         assert_eq!(classify("", "", false, false), GpuTier::High);
         // Native names: Vulkan's on a Pixel 5, Metal's on an iPhone.
-        assert_eq!(classify("qualcomm", "Adreno (TM) 620", false, true), GpuTier::Low);
-        assert_eq!(classify("qualcomm", "Adreno (TM) 740", false, true), GpuTier::Mid);
-        assert_eq!(classify("apple", "Apple A13 GPU", false, true), GpuTier::Low);
-        assert_eq!(classify("apple", "Apple A17 Pro GPU", false, true), GpuTier::Mid);
-        assert_eq!(classify("apple", "Apple M3 Max", false, false), GpuTier::High);
+        assert_eq!(
+            classify("qualcomm", "Adreno (TM) 620", false, true),
+            GpuTier::Low
+        );
+        assert_eq!(
+            classify("qualcomm", "Adreno (TM) 740", false, true),
+            GpuTier::Mid
+        );
+        assert_eq!(
+            classify("apple", "Apple A13 GPU", false, true),
+            GpuTier::Low
+        );
+        assert_eq!(
+            classify("apple", "Apple A17 Pro GPU", false, true),
+            GpuTier::Mid
+        );
+        assert_eq!(
+            classify("apple", "Apple M3 Max", false, false),
+            GpuTier::High
+        );
     }
 
     #[test]

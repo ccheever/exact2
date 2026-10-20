@@ -1439,7 +1439,10 @@ fn agent_tier(abi: &Abi) {
     }
     // SAFETY: `gpu_tier(u32) -> u32` as gpu/src/native.rs declares it; a
     // module built before it has none, and keeps its own choice.
-    if let Ok(tier) = unsafe { abi.library.get::<unsafe extern "C" fn(u32) -> u32>(b"gpu_tier") } {
+    if let Ok(tier) = unsafe {
+        abi.library
+            .get::<unsafe extern "C" fn(u32) -> u32>(b"gpu_tier")
+    } {
         unsafe { tier(0) };
     }
 }

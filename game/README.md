@@ -281,6 +281,35 @@ input coordinates stay in CSS pixels, and ordinary Contract HUD children keep
 native resolution. Bind a `#[live]` argument through this method for an app setting.
 Explicit fixture and readback sizes still render at the caller's requested size.
 
+`Game::quality(args)` picks the renderer's rung of the quality ladder, read once,
+when the renderer is made, and never saved: the world hash is the same on every
+rung. The default `Quality::Auto` follows the device's GPU tier
+(`exactViewport().gpuTier`, chosen before the GPU device from what the adapter
+reports, else the screen's class; `high` under the agent until `prefer gpu-tier
+low|mid|high`). A rung clamps only what the game left unsaid:
+
+| rung | scene samples | sun shadows | raster scale |
+|---|---|---|---|
+| `Low` (a phone GPU of the Adreno 600 class) | 1 | none | 0.5 |
+| `Mid` (a recent phone or tablet) | `Game::SAMPLES` | 1 cascade | 0.75 |
+| `High` (a computer; the agent's) | `Game::SAMPLES` | as `Shadows` says | `render_scale` |
+
+An inserted `Shadows` resource and a `render_scale` below one are the game's and
+stand on every rung; `Low` also lowers an inserted `AmbientOcclusion` to
+`AoQuality::Low`. Return `Quality::High` from an argument for a player's setting.
+On a Pixel 5 the starter draws its world at 16 fps under `High` and at the 90 Hz
+display's 90 under `Low`; the world's `state` reports its row as `quality`
+(`asked`, `tier`, `rung`, `samples`, `scale`). Under the agent `prefer gpu-tier`
+remakes each web world's renderer at the new rung, carrying its world; native hosts
+keep the rung their renderer was made at.
+
+On a browser without WebGPU (or with no adapter) the web host shows, in the
+canvas's box, a `role=status` page that names WebGPU and the browsers that have
+it, and the game's iOS and macOS installs when `app.json`'s `install` lists any;
+the canvas's own HUD is inert under it, the rest of the app keeps working, and a
+world request answers `host web refused (gpu): no adapter: …`. No WebGL renderer
+exists (LLP 1128 I6).
+
 After the first GPU build, the compiler and dev loop check surface names and
 arguments against the emitted `.shells/surfaces.json`, including hidden branches
 and imports. Rust argument edits reach that declaration through the next GPU build,

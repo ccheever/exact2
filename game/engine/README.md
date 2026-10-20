@@ -320,6 +320,8 @@ sRGB encoding. Use exposure 1 and `bloom: None` to avoid those effects too.
 `Game::SAMPLES` selects scene sampling for the renderer's lifetime: override it
 with `const SAMPLES: SceneSamples = SceneSamples::One` for 1×, or leave the 4×
 MSAA default. It is a renderer construction choice, not saved simulation state.
+It is the ceiling of the quality ladder (`Game::quality`, [game/README.md](../README.md#arguments-pause-and-restart)):
+the `Low` rung draws one sample whatever it says.
 At 1×, `Game::DEPTH_PREPASS = true` can reduce opaque overdraw. It adds a depth
 pass and uses equal-depth colour testing; coplanar ties follow draw order. It is
 off by default. See [the renderer](../render/README.md) for coverage and measurement.

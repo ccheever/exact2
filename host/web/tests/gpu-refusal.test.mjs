@@ -64,6 +64,7 @@ test('browser agent settling retains render traps and quarantines all later modu
   `;
   const html = `<div id="host"><canvas data-surface></canvas></div><script type="module">
     globalThis.entries=0; globalThis.armed=false;
+    Object.defineProperty(Navigator.prototype,'gpu',{get(){return {requestAdapter:async()=>({info:{}})};},configurable:true}); // the stub module's adapter
     const host=document.getElementById('host');
     globalThis.exact={views:new Map([[1,host]]),root:document.body,now:()=>0,devAssets:[],generation:0};
     await import('/gpu-glue.js'); exact.gpu.surface(1,'world',[]); await exact.gpu.settled();
@@ -128,3 +129,55 @@ test('a Rust-edit candidate trap leaves the committed world driveable and skips 
   expect(f.exact.gpu.agent(1,{op:'state'}).world.tick).toBe(0);
   expect(f.order.includes('old destroy') || f.order.includes('old unload') || f.order.includes('replace')).toBe(false);
 });
+
+// LLP 1139.003 D1: a browser without WebGPU shows the refusal page in the canvas's box, its HUD
+// inert under it and the rest of the page live; a world request answers the typed refusal and
+// `tree` names the page. The module itself never loads: the tier is chosen before the device.
+test('a browser without WebGPU shows the refusal page in the canvas box and refuses world requests by type', async () => {
+  const {cdpBrowser} = await import('../../../scripts/agent-launch.mjs');
+  const web = resolve(import.meta.dir,'..');
+  const html = `<button id="menu">Menu</button><div id="host" style="width:300px;height:200px"><canvas data-surface></canvas><button id="hud">Play</button></div><script type="module">
+    Object.defineProperty(Navigator.prototype,'gpu',{get(){return undefined;},configurable:true});
+    globalThis.loaded=false;
+    const host=document.getElementById('host');
+    globalThis.exact={views:new Map([[1,host]]),root:document.body,devAssets:[],generation:0,pageFacts:{agent:false,read:()=>({}),tell(){},changed(){}}};
+    await import('/gpu-glue.js'); exact.gpu.surface(1,'world',[]); await exact.gpu.settled();
+    globalThis.ready=true;
+  </script>`;
+  const server=Bun.serve({port:0,hostname:'127.0.0.1',fetch(req){
+    const path=new URL(req.url).pathname;
+    if(path==='/')return new Response(html,{headers:{'content-type':'text/html'}});
+    if(path==='/gpu.js'){globalThis.moduleFetched=true;return new Response('export default function(){}',{headers:{'content-type':'text/javascript'}});}
+    if(path==='/favicon.ico'||path.startsWith('/.exact/'))return new Response('',{status:404});
+    return new Response(Bun.file(resolve(web,path.slice(1))));
+  }});
+  const suite=await cdpBrowser(),{cdp}=suite, lines=[];
+  let listener;
+  try {
+    const {sessionId}=await suite.page();
+    const call=(method,params={})=>cdp.send(method,params,sessionId);
+    cdp.listeners.push(listener = msg => { if(msg.sessionId===sessionId && msg.method==='Runtime.consoleAPICalled')lines.push(msg.params.args.map(a=>a.value??a.description).join(' ')); });
+    await call('Runtime.enable');
+    const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
+    await call('Page.navigate',{url:`http://127.0.0.1:${server.port}/`});
+    const deadline=Date.now()+30000;
+    while(!await evaluate('globalThis.ready === true')) {if(Date.now()>deadline)throw new Error('fixture did not boot: '+lines.join('\n'));await Bun.sleep(50);}
+    const page=await evaluate(`(() => { const s=document.querySelector('#host > [role=status]'), r=s.getBoundingClientRect(), h=document.getElementById('host').getBoundingClientRect();
+      return {text:s.textContent, box:[r.x,r.y,r.width,r.height], host:[h.x,h.y,h.width,h.height], hudInert:document.getElementById('hud').inert, menuInert:document.getElementById('menu').inert}; })()`);
+    expect(page.text).toContain('needs WebGPU');
+    expect(page.text).toContain('Chrome 121 or later on Android 12');
+    expect(page.box).toEqual(page.host);
+    expect(page.hudInert).toBe(true);
+    expect(page.menuInert).toBe(false);
+    const refused=await evaluate(`exact.gpu.handle({op:'state',id:1,world:true}, null, x => x)`);
+    expect(refused.refused).toMatchObject({host:'web',subsystem:'gpu'});
+    expect(refused.refused.message).toContain('no adapter');
+    const tree=await evaluate(`exact.gpu.decorate({op:'tree'},{nodes:[{id:1}]})`);
+    expect(tree.nodes[0].status).toContain('needs WebGPU');
+    expect(globalThis.moduleFetched).toBeUndefined();
+    expect(lines.join('\n')).not.toContain('No available adapters');
+  } finally {
+    if(listener)cdp.listeners.splice(cdp.listeners.indexOf(listener),1);
+    await suite.close();server.stop(true);
+  }
+},120000);

@@ -220,7 +220,10 @@ fn gpu_tier_is_a_page_fact_read_through_the_viewport() {
     let low = exact_runner::Page::from_bits(runner.page().bits() | 2 << 10);
     assert!(runner.set_page(low).unwrap().is_some());
     assert_eq!(runner.resource("viewport").cloned(), tier("low"));
-    assert!(runner.set_page(low).unwrap().is_none(), "the same tier again");
+    assert!(
+        runner.set_page(low).unwrap().is_none(),
+        "the same tier again"
+    );
 }
 
 #[test]

@@ -2608,6 +2608,13 @@ agent each is the device class's from launch; `prefer pointer coarse` and
 `prefer hover none` substitute them. Chrome emulates a touch screen, so it takes
 `coarse` with `none` and `fine` with `hover`, and refuses `pointer none`; the
 Firefox and WebKit carriers refuse both.
+`exactViewport().gpuTier` is `low`, `mid` or `high`: how much GPU work a frame can
+afford, chosen once before the GPU device is made from what the adapter reports
+(a phone GPU of the Adreno 600 class is `low`), else from the screen (a phone-sized
+one `low`, a computer's `high`), never from a measured frame time; a phone-sized
+screen is never `high`. A game's renderer follows it (`Game::quality`); a HUD can
+read it to offer a quality setting. Under the agent it is `high` from launch, and
+`prefer gpu-tier low` substitutes it.
 `exactPage` answers `visibilityState`, `onLine`, `canShare`,
 `canShareFiles` and `canSharePictures` (whether `share(files=…)` takes
 `app:/` files and an element's `"#id"`; the web never takes a picture),

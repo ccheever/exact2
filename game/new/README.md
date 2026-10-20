@@ -21,6 +21,17 @@ Rust hostless tests read simulation time with `sim.world().now()` and save with
 
 The simulation defaults to 120 Hz: the measured 60 Hz tick-wait p95 was about 17 ms. Choosing 60 Hz is an explicit latency/CPU trade, not the starter default.
 
+The HUD is one structure the screen's shape lays out: a `hud-top` group (what the
+player reads at a glance, Pause and Restart), a `hud-bottom` group (the on-screen
+stick and buttons, shown under `pointer: coarse`) and a `panel` (what the player
+opens on purpose: the controls, the Touch controls setting, a shop). In landscape
+the groups sit in the corners and the panel beside the world; when
+`exactViewport()`'s `height` exceeds its `width` they become a top bar and a bottom
+strip and the panel a sheet behind the bar's Menu button, so nothing covers the
+middle third of the world. Add your HUD to these three groups rather than placing
+new corner boxes; the proof drives `resize 420x900`, checks the middle third is
+clear and taps Touch controls through the sheet.
+
 The canvas binds `world(seed=7, paused=paused, restart=again)` by the names in
 `Options`. Reorder these arguments freely; omitted fields use `Options::default()`.
 `world()` takes every default; short positional calls take the remaining defaults.

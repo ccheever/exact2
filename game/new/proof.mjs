@@ -179,6 +179,29 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('Restart returns keyboard focus to the game', node(reset, 'world')?.focused === true);
   await pointerGame.hold('KeyD', 500);
   check('Restart leaves movement running', (await pointerGame.local_position('player'))[0] > 0.5);
+  // One HUD, laid out by the screen's shape: in portrait a top bar and a bottom strip,
+  // the panel a sheet behind Menu, and nothing over the middle third of the world.
+  const tall = await open({fresh:true});
+  await tall.resize(420, 900);
+  await play(tall);
+  const middle = async () => {
+    const tree = await tall.tree(), boxes = await tall.layout(), owner = node(tree, 'world');
+    const box = boxes.nodes.find(n => n.id === owner.id), parents = new Map(tree.nodes.map(n => [n.id, n.parent]));
+    const inside = id => { for (let p = parents.get(id); p != null; p = parents.get(p)) if (p === owner.id) return true; return false; };
+    const third = {x: box.x + box.w / 3, y: box.y + box.h / 3, w: box.w / 3, h: box.h / 3};
+    return boxes.nodes.filter(n => inside(n.id) && n.w > 0 && n.h > 0 && n.x < third.x + third.w && third.x < n.x + n.w && n.y < third.y + third.h && third.y < n.y + n.h)
+      .map(n => tree.nodes.find(t => t.id === n.id)?.props?.testId ?? n.id);
+  };
+  const upright = await tall.tree();
+  check('portrait: the panel waits behind Menu', !node(upright, 'panel') && !!node(upright, 'panel-open'));
+  check('portrait: no HUD node crosses the middle third of the world', (await middle()).length === 0, await middle());
+  await tall.tap('panel-open');
+  await tall.tap('touch-controls');
+  await tall.tap('panel-close');
+  const strip = await tall.tree();
+  check('portrait: the sheet\'s Touch controls show the bottom strip', ['move', 'jump', 'light'].every(id => !!node(strip, id)) && !node(strip, 'panel'));
+  check('portrait: the strip leaves the middle third clear too', (await middle()).length === 0, await middle());
+  await tall.close();
   // The scene from above as well as from the game's camera: what the camera never shows.
   const plan = await look(pointerSession, {top: 30}, 'plan').catch(error => ({unavailable: error.unavailable ?? error.message}));
   say(plan.picture ? `LOOK plan ${plan.picture}: open it once, with the frames below, before you report` : `look: ${plan.unavailable}`);

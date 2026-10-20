@@ -52,7 +52,7 @@ and `error()` for a named rejected replacement. Never step or mutate the simulat
 
 Stages are compute before shadows, opaque, background after sky, an optional
 surface continuation, and optional HDR post before bloom/tone. Geometry uses
-`Game::SAMPLES` (4× MSAA by default); hooks use `FrameView.sample_count`. `SCENE_COPY` supplies resolved HDR and positive view-space depth (zero for
+`Game::SAMPLES` (4× MSAA by default; one under the `Low` rung of `Game::quality`); hooks use `FrameView.sample_count`. `SCENE_COPY` supplies resolved HDR and positive view-space depth (zero for
 sky); `FINAL_DEPTH` requests final sampled depth independently; `HDR_POST` supplies
 a distinct HDR output. Respect the active rectangle inside bucketed textures.
 The refractor writes depth. Transparent objects behind it and intersecting

@@ -861,7 +861,12 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             } else {
                 ",\"device\":false"
             });
-            crate::quality::row(self.rung, G::SAMPLES, G::render_scale(sim.args()), &mut reply);
+            crate::quality::row(
+                self.rung,
+                G::SAMPLES,
+                G::render_scale(sim.args()),
+                &mut reply,
+            );
             self.perf.append(&mut reply);
             reply.pop();
             reply.push_str(",\"tickSpans\":");
