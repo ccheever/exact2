@@ -206,8 +206,9 @@ function keep(path, text) {
  * made whole at once (a link to a file of its holder's pid and a token of
  * its own, so it is never seen empty). A holder's lock is taken over only
  * once that process is gone, and only under a second lock (`lock.reclaim`,
- * made the same way, held for a moment), so two waiters never both take it
- * over; a holder takes away only its own. A live holder is waited for, up
+ * made the same way, held for a moment, never itself taken over: one a
+ * dead process left is refused), so two waiters never both take it over;
+ * a holder takes away only its own. A live holder is waited for, up
  * to `patience` (an order's hooks and polls), or until `signal`. */
 async function locked(dir, f, { patience = 1_200_000, wait = ms => new Promise(ok => setTimeout(ok, ms)), signal = null } = {}) {
   const lock = join(dir, 'lock'), mine = `${process.pid} ${randomBytes(12).toString('hex')}`;
@@ -229,9 +230,10 @@ async function locked(dir, f, { patience = 1_200_000, wait = ms => new Promise(o
     if (make(lock, mine)) break;
     const held = read(lock);
     if (held !== null && gone(held)) {
-      // (one reclaimer at a time; its own lock gone with it, if it died holding it)
+      // (one reclaimer at a time; one that died holding it, in that moment, is never taken over: refused, for the
+      // developer to clear, so no two can ever both reclaim)
       const r = read(reclaim);
-      if (r !== null && gone(r)) { try { if (read(reclaim) === r) unlinkSync(reclaim); } catch { /* raced */ } }
+      if (r !== null && gone(r)) throw new Error(`a process died taking over ${lock}: remove ${reclaim} (and ${lock}, if no tamber runs on this account)`);
       if (make(reclaim, mine)) {
         try { if (read(lock) === held) unlinkSync(lock); } catch { /* raced */ } finally { if (read(reclaim) === mine) unlinkSync(reclaim); }
         continue;

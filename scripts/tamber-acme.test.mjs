@@ -146,6 +146,12 @@ test('round 2: a lock is taken over only from a holder that is gone; a live one 
   writeFileSync(lock, '4194303 gone', { mode: 0o600 });
   expect((await relayCertificate(dir, ['*.acct.relay.test'], options)).renewed).toBe(true);
   expect(existsSync(lock)).toBe(false);
+  // A reclaimer that died in its moment: refused, never taken over (two could otherwise both reclaim).
+  writeFileSync(lock, '4194303 gone', { mode: 0o600 });
+  writeFileSync(join(dir, 'lock.reclaim'), '4194302 died', { mode: 0o600 });
+  await expect(relayCertificate(dir, ['*.acct.relay.test'], options)).rejects.toThrow(`remove ${join(dir, 'lock.reclaim')}`);
+  rmSync(join(dir, 'lock.reclaim'));
+  rmSync(lock);
   // A live holder's (a process of ours that sleeps): waited for, never taken.
   const live = spawn('sleep', ['30'], { stdio: 'ignore' });
   closing.push(() => live.kill());
