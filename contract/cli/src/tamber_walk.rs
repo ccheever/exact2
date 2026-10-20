@@ -281,9 +281,9 @@ pub(super) fn retention_key(texts: &[&str]) -> String {
     let parsed: Vec<Option<exact_tamber::Design>> =
         texts.iter().map(|t| exact_tamber::parse(t).ok()).collect();
     // A name as the checker resolves one: a role's spelling in any case and
-    // with or without `-exact-` (`CANVAS` is `Canvas`), so a reference and a
-    // name are compared, and keyed, folded (re-check: a role alias moved by
-    // case alone kept the key).
+    // with or without `-exact-` (`CANVAS` is `Canvas`), so a reference is
+    // found by its folded form (re-check: a role alias moved by case alone
+    // kept the key) and keyed as written (re-check 2: `Foo` and `foo`).
     let fold = |name: &str| {
         let lower = name.to_ascii_lowercase();
         lower
@@ -302,10 +302,11 @@ pub(super) fn retention_key(texts: &[&str]) -> String {
         })
         .collect();
     let refs = |text: &str| -> String {
+        // Found folded, keyed as written: `Foo` and `foo` are two tokens, so
+        // a reference moved between them changes the key (re-check 2).
         let words = text
             .split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
-            .map(fold)
-            .filter(|w| names.contains(w));
+            .filter(|w| names.contains(&fold(w)));
         words.collect::<Vec<_>>().join(" ")
     };
     // A value's rough kind, as an unwritten kind is inferred from it: a

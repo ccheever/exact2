@@ -706,3 +706,41 @@ fn a_name_moved_between_sections_or_a_pair_moved_builds_again() {
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The key's second re-check (Astra): a reference is found folded but keyed
+/// as written, so two tokens differing only in case (`Foo`, `foo`) stay two:
+/// a param's chain moved from one to the other builds again, and a `when`
+/// on the one no longer read is as a fresh server classes it.
+#[test]
+fn two_tokens_of_one_name_in_two_cases_stay_two() {
+    let dir = reading("pkg-params-two-cases");
+    let file = dir.join("app.tamber");
+    let log = dir.join("retention.log");
+    let builds = || std::fs::read_to_string(&log).map_or(0, |t| t.lines().count());
+    let design = |to: &str| {
+        format!("tamber t\n\naxes\n  mode = a | b\n\ntheme\n  Foo = #111111\n  foo = #222222\n  pick = {to}\n\nparams\n  Map.pin = pick\n")
+    };
+    std::fs::write(&file, design("Foo")).unwrap();
+    let vary = |name: &str| {
+        json!({"method": "propose", "ops": [
+            {"op": "set-token", "name": name, "when": [{"axis": "mode", "value": "b"}], "value": "#444444"}
+        ]})
+    };
+    let mut s = Serve::start(
+        &dir,
+        &[("EXACT_TAMBER_RETENTION_LOG", log.to_str().unwrap())],
+    );
+    let (before, _) = s.ask(vary("Foo"));
+    assert!(before.get("ok").is_some(), "{before}");
+    assert_eq!(builds(), 1);
+    std::fs::write(&file, design("foo")).unwrap();
+    let primed = [s.ask(vary("Foo")).0, s.ask(vary("foo")).0];
+    assert_eq!(builds(), 2, "the chain moved from Foo to foo");
+    drop(s);
+    let mut fresh = Serve::start(&dir, &[]);
+    for (p, name) in primed.iter().zip(["Foo", "foo"]) {
+        let (e, _) = fresh.ask(vary(name));
+        assert_eq!(p["ok"]["class"], e["ok"]["class"], "{name}: {p} vs {e}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

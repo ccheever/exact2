@@ -5348,3 +5348,5 @@ Stage 12 §B's first commit, under no wire change (the server's existing fields 
       Contract sources' (in the walk's key). Test: `a_name_moved_between_sections_or_a_pair_moved_builds_again`:
       `pair=paper` to `pair=ground` builds again, and so does `icon.brand = icon(sf "star")` moved verbatim from
       `icons` to `theme`. Both tests fail without their fixes, checked by hand.
+
+  - After the key's second re-check (Astra): a reference is found by its folded form but keyed as written, so two tokens differing only in case (`Foo`, `foo`) stay two; a chain moved from one to the other builds again (`two_tokens_of_one_name_in_two_cases_stay_two`, failing without the fix).
