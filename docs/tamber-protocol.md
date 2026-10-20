@@ -724,7 +724,10 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   components share (whichever has the param, or neither), is refused (`tamber-param-unknown`,
   `tamber-param-ambiguous`). The line is written by the name the design's line already has, or an
   earlier op of the transaction wrote, or the name given, so a transaction never gives one param
-  two lines; the `params` block is made at the end when there is none, indented as its lines are,
+  two lines. An exported library component's param is written by its full name whatever name it
+  was given, since the build refuses a short one (LLP 1139 D8): a new line, and a line spelled
+  short that a set or a `when` line's unset keeps, which is respelled in place, its value, comment
+  and other `when` lines kept; the `params` block is made at the end when there is none, indented as its lines are,
   and goes when its last line does. A `when` line needs the param's own line first. After any
   write to an app with params, every param folds with the design and is inside its range, each
   value written (a `when`'s too) at its own line (`tamber-param-range`, `tamber-range-unit`; a
