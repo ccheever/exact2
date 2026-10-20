@@ -121,6 +121,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'button-hover-filled': `:hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-filled')}, transparent) 0 0); }`,
     'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-tinted')}, transparent) 0 0); }`,
     'button-pressed-filled': `[data-button-style="bordered-prominent"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-filled')}, transparent) 0 0); }`,
+    'bar-hover-alpha': `{ opacity: var(--exact-hover-dim, ${alpha('bar-hover-alpha')}); }`,
     'select-line-height-coarse': `select:not([multiple]) { line-height: ${value.get('select-line-height-coarse')}; }`,
     'switch-thumb': `radial-gradient(circle closest-side, currentColor ${percent('switch-thumb')},`,
     'segment-shadow-alpha': `box-shadow: 0 1px 2px rgb(0 0 0 / ${alpha('segment-shadow-alpha')});`,
@@ -144,7 +145,7 @@ const fixture = `
 <div id="exact-root">
   <main navigationKey="1" navigationBack="back" id="nav" style="display:flex;flex-direction:column;height:240px;position:relative">
     <div role="tabpanel" id="p1" style="flex:1;position:relative;color:rgb(255, 0, 0)">
-      <div navigationKey="1" id="route"><header id="bar"><h1>Inbox</h1><button type="button" data-native data-button-style="bordered" id="bar-button" style="display:grid"><span data-exact-text>Edit</span></button></header></div>
+      <div navigationKey="1" id="route"><header id="bar"><h1>Inbox</h1><button type="button" data-native data-button-style="bordered" id="bar-button" style="display:grid"><span data-exact-text>Edit</span></button><button type="button" id="bar-plain" style="width:44px;height:44px"></button><button type="button" id="bar-said" style="width:44px;height:44px;--exact-hover-dim:1"></button><button type="button" id="bar-own" data-exact-on="press pointerdown" style="width:44px;height:44px;opacity:.5"></button></header></div>
       <div navigationKey="2" navigationPresentation="modal" id="sheet" style="position:absolute;inset:0;display:flex;flex-direction:column;visibility:hidden"><header><h2>New</h2></header><div style="height:120px"></div></div>
     </div>
     <div role="tablist" id="tabs" style="display:flex"><button type="button" role="tab" aria-controls="p1" aria-selected="true" data-native data-button-style="bordered" id="tab" style="display:grid;flex:1"><span data-exact-text>Inbox</span></button></div>
@@ -273,6 +274,31 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('link'), await page.evaluate(() => css('inline', 'textDecorationLine'))]).toEqual([at('link'), 'underline']);
       await page.mouse.move(1, 1);
       expect(await page.evaluate(() => [css('pressable', 'backgroundImage'), css('inline', 'textDecorationLine')])).toEqual(['none', 'none']);
+      // In a bar it dims instead, to the shell's press dim, with no wash, and at once: nothing moves, hovered or left,
+      // pressed or let go. An author's hover look (here its variable) replaces the dim, and an opacity the author wrote
+      // wins.
+      const seen = (id) => page.evaluate((id) => [css(id, 'opacity'), css(id, 'backgroundImage'), document.getElementById(id).getAnimations().length], id);
+      // A press, held then let go: its opacity each time, and whether anything moved rather than changed at once.
+      const press = (id) => page.evaluate((id) => { const b = document.getElementById(id), held = []; for (const on of [true, false]) { b.toggleAttribute('data-pressed', on); held.push(css(id, 'opacity'), b.getAnimations().length); } return held; }, id);
+      expect([at('bar at rest'), await seen('bar-plain')]).toEqual([at('bar at rest'), ['1', 'none', 0]]);
+      await page.hover('#bar-plain');
+      expect([at('bar hover'), await seen('bar-plain')]).toEqual([at('bar hover'), ['0.65', 'none', 0]]);
+      expect([at('bar hover press'), await press('bar-plain')]).toEqual([at('bar hover press'), ['0.65', 0, '0.65', 0]]);
+      await page.hover('#bar-said');
+      expect([at('bar left'), await seen('bar-plain')]).toEqual([at('bar left'), ['1', 'none', 0]]);
+      expect([at('bar hover said'), await seen('bar-said')]).toEqual([at('bar hover said'), ['1', 'none', 0]]);
+      expect([at('bar press said'), await press('bar-said')]).toEqual([at('bar press said'), ['0.65', 0, '1', 0]]);
+      await page.hover('#bar-own');
+      expect([at('bar hover own'), await seen('bar-own')]).toEqual([at('bar hover own'), ['0.5', 'none', 0]]);
+      expect([at('bar press own'), await press('bar-own')]).toEqual([at('bar press own'), ['0.5', 0, '0.5', 0]]);
+      // A form control in a bar keeps its own hover.
+      await page.evaluate(() => { const select = Object.assign(document.createElement('select'), { id: 'bar-select', innerHTML: '<option>One</option>' }); select.setAttribute('data-exact-on', 'press'); document.getElementById('bar-own').after(select); });
+      await page.hover('#bar-select');
+      expect([at('bar hover select'), (await seen('bar-select'))[0]]).toEqual([at('bar hover select'), '1']);
+      await page.evaluate(() => document.getElementById('bar-select').remove());
+      await page.mouse.move(1, 1);
+      // A press with no hover (a finger) dims and comes back at once, as the shell's press does.
+      expect([at('bar press'), await press('bar-plain')]).toEqual([at('bar press'), ['0.65', 0, '1', 0]]);
 
       // A list's rows (LLP 1115.000 D16): under each row but the last one line in the separator's role, inside the
       // row's box (a row keeps its height); none beside a row whose author wrote its own top or bottom edge; a
