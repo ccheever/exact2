@@ -26,17 +26,17 @@ export interface ThreadHeaderOptions { routeKey: string; routeIdentity: string; 
   canGoBack: boolean; returnToChat: boolean; foreground: string; review?: boolean; reviewRevision?: number; dark?: boolean;
   inspectorAvailable?: boolean; inspectorVisible?: boolean }
 export interface ThreadHeaderSnapshot { owner: string; routeKey: string; version: string; configuration: string;
-  ready: boolean; needsPrepare: boolean; error: string; pendingLaunch: string; pendingTerminalId: string }
+  visible: boolean; ready: boolean; needsPrepare: boolean; error: string; pendingLaunch: string; pendingTerminalId: string }
 export interface ThreadHeaderItem { id: string; title: string; subtitle: string; symbol: string; disabled: boolean }
 export interface ThreadHeaderResult { revision: number; message: string; requestRoute: string; environmentId: string;
   threadId: string; navigation: string; location: string; sourceAction: string; key: string; pendingLaunch: string }
-interface State { owner: string; routeKey: string; routeIdentity: string; visit: number; focused: boolean; prepared: boolean; reading: boolean; busy: boolean;
+interface State { owner: string; routeKey: string; routeIdentity: string; visit: number; focused: boolean; granted: boolean; prepared: boolean; reading: boolean; busy: boolean;
   read: boolean; operate: boolean; merge: boolean; metadataReady: boolean; metadataInvalidated: boolean; retry: boolean; invalidation: number;
   subscription: number; seq: number; error: string }
 const states = new WeakMap<T3Client, State>();
 function stateOf(client: T3Client): State {
   const owner = reviewOwner(client); let state = states.get(client);
-  if (!state || state.owner !== owner) { state = { owner, routeKey: '', routeIdentity: '', visit: 0, focused: false, prepared: false, reading: false, busy: false,
+  if (!state || state.owner !== owner) { state = { owner, routeKey: '', routeIdentity: '', visit: 0, focused: false, granted: false, prepared: false, reading: false, busy: false,
     read: false, operate: false, merge: false, metadataReady: false, metadataInvalidated: false, retry: false, invalidation: 0, subscription: 0, seq: 0, error: '' }; states.set(client, state); }
   return state;
 }
@@ -54,7 +54,8 @@ function item(id: string, title: string, subtitle: string, symbol: string, disab
 }
 function model(options: ThreadHeaderOptions, client: T3Client) {
   const state = stateOf(client), ctx = context(client), status = mobileGitCurrentStatus(client), git = gitState(client);
-  const ready = client.ready && !!ctx.thread && !!ctx.project, focused = options.focused && ready;
+  // The shell thread and project mount the controls (ThreadRouteScreen.tsx:284-291); liveness gates only preparation.
+  const visible = !!ctx.thread && !!ctx.project, ready = client.ready && visible, focused = options.focused && visible;
   const quick = status?.isRepo === false ? { label: 'Git unavailable', disabled: true, kind: 'show_hint' as const, hint: 'This workspace is not a git repository.' } : resolveQuickAction(mobileGitStatus(status), state.busy || !!git.run?.running,
     status?.isDefaultRef === true, status?.hasPrimaryRemote === true);
   const access = mobileGitAccess(client), repository = status?.isRepo !== false;
@@ -106,7 +107,7 @@ export function mobileThreadHeaderSnapshot(options: ThreadHeaderOptions, client:
   if (state.routeKey !== options.routeKey || state.routeIdentity !== options.routeIdentity || state.focused !== view.configuration.focused) state.visit++;
   state.routeIdentity = options.routeIdentity; state.routeKey = options.routeKey; state.focused = view.configuration.focused;
   return { owner: state.owner, routeKey: options.routeKey, version: view.version, configuration: JSON.stringify(view.configuration),
-    ready: view.ready, needsPrepare: state.focused && !state.reading && (!state.prepared || state.retry), error: state.error,
+    visible: state.focused, ready: view.ready, needsPrepare: state.focused && !state.reading && (view.ready ? !state.prepared || state.retry : client.connection === 'connected' && !state.granted), error: state.error,
     pendingLaunch: pending.token, pendingTerminalId: pending.terminalId };
 }
 /** Metadata stays in the copied shared reducer; only preparation/retry admission lives here. */
@@ -124,26 +125,29 @@ export function mobileThreadHeaderEvents(entries: unknown, client: T3Client = mo
     else if (['snapshot', 'upsert', 'remove'].includes(str(value.type))) { state.metadataReady = true; state.metadataInvalidated = false; }
   }
 }
-function scoped(client: T3Client, native: Native, state: State, routeKey: string): Native {
+function scoped(client: T3Client, native: Native, state: State, routeKey: string, need: 'ready' | 'connected' | '' = ''): Native {
   const visit = state.visit;
-  const assert = () => { assertReviewOwner(client, state.owner); if (states.get(client) !== state || state.routeKey !== routeKey || state.visit !== visit || !state.focused)
+  const assert = () => { assertReviewOwner(client, state.owner); if (states.get(client) !== state || state.routeKey !== routeKey || state.visit !== visit || !state.focused || need === 'ready' && !client.ready || need === 'connected' && client.connection !== 'connected')
     throw new ClientError('The thread screen changed.', 'superseded'); };
   const base = letGoAware(mobileNative(native));
   return { available: base.available, watch: topic => base.watch(topic), later: async input => { assert(); const answer = await base.later(input); assert(); return answer; } };
 }
 export async function mobileThreadHeaderPrepare(owner: string, nativeInput: Native | null | undefined, now: number, client: T3Client = mobileClient) {
   const state = stateOf(client), route = state.routeKey, result = () => ({ owner, revision: client.revision, message: state.error });
-  if (owner !== state.owner || !state.focused || state.reading || !nativeInput?.available) return result();
+  // The reference reads the session grant once the connection is prepared (client-runtime state/session.ts
+  // sessionStateAtom), not after thread detail; terminal metadata and Git status still wait for liveness.
+  const full = client.ready;
+  if (owner !== state.owner || !state.focused || state.reading || !nativeInput?.available || !full && (client.connection !== 'connected' || state.granted)) return result();
   state.reading = true; const invalidation = state.invalidation; let completed = true;
   try {
-    const native = scoped(client, nativeInput, state, route), session = await client.http(native, '/api/auth/session');
+    const native = scoped(client, nativeInput, state, route, full ? 'ready' : 'connected'), session = await client.http(native, '/api/auth/session');
     state.read = mobileSessionGrants(session, 'terminal:read'); state.operate = mobileSessionGrants(session, 'terminal:operate');
     state.merge = mobileSessionGrants(session, 'orchestration:operate');
-    if (state.read) { const drawer = await terminalDrawerView(client, native, 0, now); if (!state.metadataInvalidated) state.metadataReady ||= /^\d+ sessions$/.test(drawer.metadata); }
-    await mobileGitRead(owner, now, native, client);
+    if (full && state.read) { const drawer = await terminalDrawerView(client, native, 0, now); if (!state.metadataInvalidated) state.metadataReady ||= /^\d+ sessions$/.test(drawer.metadata); }
+    if (full) await mobileGitRead(owner, now, native, client);
     state.error = '';
   } catch (error) { if (letGo(error)) { completed = false; throw error; } state.error = fail(error); }
-  finally { state.reading = false; state.prepared = completed; if (invalidation === state.invalidation) state.retry = false; client.revision++; }
+  finally { state.reading = false; state.granted = completed; if (full) { state.prepared = completed; if (invalidation === state.invalidation) state.retry = false; } client.revision++; }
   return result();
 }
 const locations: Record<string, string> = { threadFiles: '/files', gitOverview: '/git', threadReview: '/review', gitCommit: '/git/commit', gitConfirm: '/git-confirm', threadTerminal: '/terminal', thread: '', 'return-chat': '' };
