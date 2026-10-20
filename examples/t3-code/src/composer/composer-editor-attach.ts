@@ -8,7 +8,7 @@ import type { T3Client } from '../client/client';
 import { bridgeReply, type Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
 import { contextId, contextLabel, contextLink, contextReferences, stripContextReferences } from './composer-editor-menu';
-import { MAX_FILE_BYTES, draftFiles, fileChipLink, fileStagingLimit, formatAttachmentSize, referencedFiles, setDraftFiles, type DraftFile } from './composer-editor-files';
+import { MAX_FILE_BYTES, draftFiles, fileChipLink, fileStagingLimit, formatAttachmentSize, holdDraftFiles, referencedFiles, setDraftFiles, type DraftFile } from './composer-editor-files';
 
 /** fileAttachmentStagingLimit: unknown capabilities stage up to 50 MB (the send then waits); 0 when the server takes no files. */
 export function attachStagingLimit(client: T3Client): number {
@@ -60,7 +60,8 @@ export async function insertFileChips(client: T3Client, native: Native, files: D
   if (owner && owner !== client.snapshotOwner) return false;
   const text = links.join(' '), key = files[0]?.draftKey ?? client.draftKey;
   if (key === client.draftKey) {
-    const reply = await requestComposerField(native, { op: 'editorInsert', text, ...(owner ? { owner } : {}) }).catch(() => null);
+    const release = holdDraftFiles(client.local, key);
+    const reply = await requestComposerField(native, { op: 'editorInsert', text, ...(owner ? { owner } : {}) }, { applied: release, refused: release }).catch(() => null);
     return reply?.accepted === true;
   }
   const prompt = client.local.drafts[key] ?? '';
@@ -90,9 +91,9 @@ export function imageChipContexts(client: T3Client, text: string): Record<string
   return out;
 }
 
-/** attachmentContextRecord for each image chip whose image is uploaded (the send uploads the shelf first). */
-export function imageContextRecords(client: T3Client, text: string): Obj[] {
-  return referencedImages(client, text).filter(image => str(image.uploadId)).map(image => ({ version: 1, kind: 'image', contextId: contextId('image', str(image.id)),
+/** buildMessageContext binds every uploaded shelf image, including those without an inline chip. */
+export function imageContextRecords(client: T3Client): Obj[] {
+  return client.snapshotDrafts.filter(image => str(image.uploadId)).map(image => ({ version: 1, kind: 'image', contextId: contextId('image', str(image.id)),
     label: contextLabel(str(image.name), 'image'), attachmentId: str(image.uploadId), name: str(image.name), mimeType: str(image.mimeType, 'image/png'), sizeBytes: Number(image.sizeBytes) || 0 }));
 }
 
