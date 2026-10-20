@@ -168,7 +168,8 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         cache.configure(traits, in: p.viewport)
         let measured = cache.measure(unsaid, widthKind: 2, width: 0, traits: traits)
         let fits = reference.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
-        XCTAssertEqual(CGFloat(measured.width), ceil(fits.width * scale) / scale, accuracy: 0.01)
+        // A content width carries the device pixel its drawn edges can lose to the grid.
+        XCTAssertEqual(CGFloat(measured.width), ceil(fits.width * scale) / scale + 1 / scale, accuracy: 0.01)
         XCTAssertEqual(CGFloat(measured.height), ceil(fits.height * scale) / scale, accuracy: 0.01)
         // A destructive one is the same plain button in the system red, as SwiftUI's destructive role draws it
         // (LLP 1116.008 D7 paints every style; with no style that is red text and no fill).
