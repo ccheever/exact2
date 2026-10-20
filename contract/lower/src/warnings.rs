@@ -407,9 +407,8 @@ const OR_NO_BAR: &str =
 /// (`role="status"`, LLP 1075.003 §9.15); the rest of the header is hidden
 /// with it. With no heading or with two, the bar takes nothing and the
 /// header is shown as written: `lower-header-no-bar`'s (LLP 1116.003 D2.2).
-/// An `if` first among the route's children is read branch by branch: a
-/// branch's first node is the route's first child while it is taken, and
-/// `after` the route's nodes past that `if`.
+/// An `if` first among the route's children is read branch by branch: a branch's first node
+/// is the route's first child while it is taken, and `after` the route's nodes past that `if`.
 fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<LowerError>) {
     if let Some(Node::When {
         then, otherwise, ..
