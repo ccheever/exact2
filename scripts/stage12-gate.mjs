@@ -47,6 +47,23 @@ export const SCREENS = [
   ['composer', ['tap bottomBarSignInBtn', 'type loginPasswordInput fixture-password', 'type loginUsernameInput me.fixture.invalid', 'tap loginNextButton', 'tap compose', 'clock +1500 real']],
 ];
 
+/** A screen's allowlisted rectangles, read from its layout after the shot
+ * (theme2 12:06): the composer's text field caret, which blinks on the
+ * platform's own clock, the field's leading 4 px over its first line. */
+export const ALLOW = {
+  composer: { target: 'compose-text', reason: 'the app\'s own text field\'s caret, blinking on the platform\'s clock (theme2 12:06)', rect: ({ x, y, h }, scale) => [x, y, 4, Math.min(h, 40)].map(v => Math.round(v * scale)) },
+};
+
+/** The allowlist rectangles a drive's output gives for `screen`. */
+export function allowOf(screen, out) {
+  const a = ALLOW[screen];
+  if (!a) return [];
+  const line = out.split('\n').findLast(l => l.startsWith('{') && l.includes(`"testId":"${a.target}"`));
+  if (!line) return null;
+  const node = JSON.parse(line).node;
+  return [{ rect: a.rect(node.space.viewport, node.space.capture?.scale ?? 1), reason: a.reason }];
+}
+
 /** What the fixture says in the app's log for a request it refuses: a shot
  * whose drive logged it fails (nothing may reach the network). */
 export const REFUSED = 'FIXTURE-REFUSED';
@@ -73,7 +90,8 @@ export function screenOps(screen, scheme, png) {
   // A second of real time first: the web loads its font in real time, and a
   // header measured before it lands keeps that height (one run in thirteen
   // drew the profile's header 2 px short).
-  return ['clock +1000 real', 'clock settle', `prefer prefers-color-scheme ${scheme}`, ...settle, ...taps.flatMap(t => [t, ...settle]), `screenshot ${png}`, 'logs'];
+  return ['clock +1000 real', 'clock settle', `prefer prefers-color-scheme ${scheme}`, ...settle, ...taps.flatMap(t => [t, ...settle]), `screenshot ${png}`, 'logs',
+    ...(ALLOW[screen] ? [`layout ${ALLOW[screen].target}`] : [])];
 }
 
 /** One host's drive of the copy: every screen, both schemes, each its own
@@ -99,13 +117,14 @@ function driveScreens(copy, host, dir) {
   for (const scheme of SCHEMES) {
     for (const [screen] of SCREENS) {
       const png = join(dir, `${host}-${scheme}-${screen}.png`);
-      const args = [join(copy, 'exact.mjs'), 'agent', host, '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
+      const args = [join(copy, 'exact.mjs'), 'agent', host, '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
       const r = run(process.execPath, args, { cwd: copy });
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length, sha: existsSync(png) ? sha(readFileSync(png)) : null, said });
+      const allow = r.ok ? allowOf(screen, r.out) : [];
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], said: allow === null ? `no layout for ${ALLOW[screen].target}` : said });
     }
   }
   return rows;
