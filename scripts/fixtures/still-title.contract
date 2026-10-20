@@ -2,19 +2,24 @@
 // in place, on iOS. Chat-rooms' shape: a large title over a grouped list that
 // collapses it; a failed load's reason appearing between the two, so the list
 // no longer follows the header and nothing collapses the title; and an error
-// view in the list's place (StillTitleIOSTests).
+// view in the list's place (StillTitleIOSTests). With the reason shown, an
+// empty state's `scroll` takes the list's place below it: made in that batch,
+// it is the route's bottom-edge scroller and rests at its start.
 routes nav
   rooms "/"
 
 component StillTitle
   state failed = false
   state gone = false
+  state empty = false
   action fail
     failed = true
   action recover
     failed = false
   action lose
     gone = true
+  action clear
+    empty = true
   view
     main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%"
       for e in stack(nav) key=e.id
@@ -26,6 +31,9 @@ component StillTitle
           if gone
             column flex=1 align-items="center" justify-content="center" testId="rooms-gone"
               text "No rooms."
+          else if empty
+            scroll id="rooms-list" flex=1 min-height=0 testId="rooms-empty"
+              text "No rooms yet." padding="16px" text-align="center" testId="rooms-empty-text"
           else
             list id="rooms-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0 testId="rooms-list"
               section
@@ -35,3 +43,5 @@ component StillTitle
                   text "Recover"
                 button press=lose testId="lose"
                   text "Lose"
+                button press=clear testId="clear"
+                  text "Clear"
