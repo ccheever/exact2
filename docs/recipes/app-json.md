@@ -43,8 +43,8 @@ component App
   screen centres on `background_color`, `width` points wide.
 - **`host.ios.icon`** `"assets/App.icon"`: an Icon Composer `.icon`, in place of `icons`.
 - **`protocol_handlers`**: `euxy://p/abc` is `/p/euxy%3A%2F%2Fp%2Fabc` (whole at `%s`).
-  A cold launch opens it in its route's tab, so declare it (`p "/p/:d"`); running,
-  `navigate`'s `go` puts it on the selected tab (`contract vocab navigate`). A drive
+  A cold launch opens it in its route's tab: declare it (`p "/p/:d"`). Running, `go` can
+  push it on the selected tab; `open` uses its route's (`vocab navigate`). A drive
   delivers one: `agent ios "type <root> euxy://p/abc"`.
 - **Other keys:** `icons`, `data` (the `data-*`
   words a hatch reads), `tamber` (the design's file, else `app.tamber`), `strings` (string

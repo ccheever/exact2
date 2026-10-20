@@ -773,7 +773,7 @@ const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never
 /// What reaches `navigate=`, and which tab a location lands in (LLP 1038 D8):
 /// the euxy port's warm deep link to another tab's route opened over the
 /// tab it was on.
-const NAVIGATE: &str = "on the navigation root: a location from outside the running app (a link, a protocol handler's or a notification's URL, the web's Back and Forward), whose action chooses the verb (LLP 1038 D8). `go` puts a route another tab declares on the selected tab's stack; into its own tab: `go(select(nav, \"<tab>\"), url)` or `open(nav, url)`. A cold launch's location is no event: it opens in its route's own tab";
+const NAVIGATE: &str = "on the navigation root: a location from outside the running app (a link, a protocol handler's or a notification's URL, the web's Back and Forward), whose action chooses the verb (LLP 1038 D8). `go` pops to the location when the selected stack holds it, selects the tab whose top it is, and otherwise pushes it on the selected tab, whatever tab declares its route. `open(nav, url)` lands in the route's declared tab, that tab's stack its declared chain. A cold launch's location is no event: it opens there, as `open` does";
 
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
