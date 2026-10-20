@@ -90,6 +90,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |Not in a pattern|Look up|
 |---|---|
 |an entry or settings form|`grouped-form`|
+|a sheet that edits the row tapped, filled with its values|`edit-sheet`|
 |rows added and removed in a form|`editable-rows`|
 |a write that may be refused|`after-a-write`|
 |a failure the person must acknowledge (an alert with OK)|`error-alert`|
