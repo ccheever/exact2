@@ -389,7 +389,9 @@ extension NodeView {
     package override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if canvasTouches(touches, phase: "up", event: event) { return }
         guard let contact = currentPressContact(touches) else { return }
-        defer { if pressContact === contact { pressContact = nil } }
+        // Its press may have removed the overlay that held the look with it,
+        // which left the look to this contact: the look is the overlay's alone now.
+        defer { if pressContact === contact { pressContact = nil; if pressed != overlayHoldsPress { pressed = overlayHoldsPress } } }
         guard contact.routeActive else { return }
         guard !disabled else { pressed = false; inlinePressed = nil; linkPressed = nil; svgPressed = nil; return }
         if let target = svgPressed {
