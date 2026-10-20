@@ -446,7 +446,7 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
    * here, and goes on to `/`. Static, and framed by the tool alone. */
   function entryPage(req, res) {
     res.writeHead(200, {
-      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff',
+      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff', 'cross-origin-resource-policy': 'same-origin',
       'content-security-policy': `default-src 'none'; script-src '${ENTRY_SCRIPT_HASH}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${toolOrigin ?? "'none'"}`,
     });
     res.end(req.method === 'HEAD' ? undefined : entryHtml(toolOrigin));
@@ -482,6 +482,13 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
     }
     const session = sessionOf(req);
     const need = needs(req.method, target.path);
+    // A page of another origin including this one's resources (a stylesheet,
+    // an image, a script), its cookie sent along because the two are
+    // same-site (another relay account's canvas, stage 10c R1b's round 2):
+    // refused, as Fetch metadata says it; only this origin's own requests
+    // and navigations are answered.
+    const site = req.headers['sec-fetch-site'];
+    if (site !== undefined && site !== 'same-origin' && site !== 'none' && req.headers['sec-fetch-mode'] !== 'navigate') { notFound(res); return true; }
     if (!session || !need) { notFound(res); return true; }
     if (!may(session.scope, need)) { json(res, 403, { message: `${req.method} ${target.path} needs ${need}`, scope: session.scope, needs: need }); return true; }
     if (req.method === 'POST' && req.headers.origin !== origin) { notFound(res); return true; }
@@ -536,6 +543,8 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
         out[key] = key === 'content-security-policy' || key === 'content-security-policy-report-only' ? frameAncestors(rewrite.text(v), loopPort, origin, toolOrigin) : rewrite.text(v);
       }
       out['cache-control'] = 'no-store';
+      // (and for a browser without Fetch metadata: no other origin may include it)
+      out['cross-origin-resource-policy'] = 'same-origin';
       const type = String(out['content-type'] ?? '');
       const stream = /^text\/event-stream\b/i.test(type);
       const isJSON = /^application\/(?:[\w.+-]+\+)?json\b/i.test(type);

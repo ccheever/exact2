@@ -367,7 +367,8 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       warn,
       ...(connect ? { connect } : {}),
       // The relay's names only when this server's certificate covers them (never an origin the relay alone chose).
-      named: served => { const x = new X509Certificate(cert.cert); if (!x.checkHost(served.tool) || !x.checkHost(served.canvas)) return false; names ??= served; return true; },
+      // (and the session told at once, so the relay canvas is in place before a client greeted in the same write is routed)
+      named: served => { const x = new X509Certificate(cert.cert); if (!x.checkHost(served.tool) || !x.checkHost(served.canvas)) return false; names ??= served; session = { ...names }; for (const f of waiting.splice(0)) f(session); return true; },
       ended: () => { relayed = null; },
       client: (sni, address, stream, settled) => {
         // The SNI decides the server: the tool's, or the canvas's once it has a gateway; nothing else.
@@ -393,8 +394,6 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     connector.ready.then(() => {
       if (connector.closed) return;
       relayed = { origin: `https://${names.tool}`, fingerprint: cert.fingerprint, relay: true };
-      session = { ...names };
-      for (const f of waiting.splice(0)) f(session);
       say(`  relay ${relay.host}: ${relayed.origin}, its clients' TLS ending here (certificate SHA-256 ${cert.fingerprint})`);
       say('  until the relay\'s domain is a public suffix, another account\'s names there are same-site to yours: nothing here trusts that');
     }, () => {});

@@ -248,7 +248,11 @@ statuses:
   from it, through the TLS door from that door's, and a grant of one pair never opens the
   other's; a revoke ends the client's canvas on both, its live streams cut. The mint limit (six
   grants a minute a client) is one across both gateways; the per-client caps on held grants (8),
-  sessions (16) and open requests (32) are each gateway's. One session a run: a connection the relay
+  sessions (16) and open requests (32) are each gateway's. Because a relay's accounts may be
+  same-site to each other (until its domain is a public suffix), no other origin may include a
+  canvas's resources: each answer says `Cross-Origin-Resource-Policy: same-origin`, and a request
+  whose Fetch metadata says another origin made it (`Sec-Fetch-Site` neither `same-origin` nor
+  `none`) is refused unless it is a navigation. One session a run: a connection the relay
   greets with other names is not taken. Every remote request's `access.door` (`tls`, `tunnel`,
   `relay`, `local`) is set where the server accepted the stream, never read from a request. The
   relay's word for a client's name is checked against the client's own ClientHello before any

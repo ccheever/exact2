@@ -29,7 +29,7 @@ afterEach(async () => { for (const c of closing.splice(0)) await c(); });
  * with `CLIENT <sni> <address>` (the SNI as the client sent it, read by the
  * test from its own record), every byte between them kept. */
 async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, label = null, address = '203.0.113.9', drop = false, token = TOKEN } = {}) {
-  const idle = [], ungreeted = [], seen = { hellos: [], bytes: [], dials: 0, carried: [] };
+  const idle = [], ungreeted = [], seen = { hellos: [], bytes: [], dials: 0, greets: 0, carried: [] };
   const control = createTLS({ cert: relayCert.cert, key: relayCert.key }, conn => {
     const ordinal = ++seen.dials; // (this connection's own, as it was accepted)
     let head = '';
@@ -41,7 +41,7 @@ async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, l
       if (refuse) { conn.end(`REFUSED ${refuse}\n`); return; }
       if (!head.startsWith('EXACT-RELAY/1 acct\r\n') || !head.includes(`authorization: Bearer ${token}\r\n`)) { conn.end('REFUSED no such account\n'); return; }
       if (greet === null) { ungreeted.push(conn); return; } // (a relay that greets nothing, until a client comes)
-      conn.write(typeof greet === 'function' ? greet(ordinal) : greet);
+      conn.write(typeof greet === 'function' ? greet(++seen.greets) : greet); // (the order greeted in, which is the order the connector reads names in)
       // (a relay that hands each connection the tool's name and drops it, at once, every time)
       if (drop) { conn.write(`CLIENT ${TOOL} 203.0.113.9\n`); setImmediate(() => conn.destroy()); return; }
       idle.push(conn);
@@ -541,6 +541,11 @@ test('R1b: the canvas through the relay: its own gateway and origin pair, minted
   expect(page.status).toBe(200);
   expect(page.text).toContain(`href="https://${CANVAS}/x"`);
   expect(page.headers['content-security-policy']).toContain(`frame-ancestors 'self' https://${TOOL}`);
+  // No other origin may include its resources: same-origin only, even a same-site one sending the cookie.
+  expect(page.headers['cross-origin-resource-policy']).toBe('same-origin');
+  expect((await https1(relay.pub, CANVAS, { headers: { cookie, 'sec-fetch-site': 'same-site', 'sec-fetch-mode': 'no-cors', 'sec-fetch-dest': 'style' } })).status).toBe(404);
+  expect((await https1(relay.pub, CANVAS, { headers: { cookie, 'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'no-cors' } })).status).toBe(200);
+  expect((await https1(relay.pub, CANVAS, { headers: { cookie, 'sec-fetch-site': 'same-site', 'sec-fetch-mode': 'navigate' } })).status).toBe(200);
   // Host bound to the SNI, both ways: no fronting from one name into the other's server.
   expect((await https1(relay.pub, CANVAS, { host: TOOL, headers: { cookie } })).status).toBe(404);
   // (a page the canvas gateway would answer 200, asked through the tool's SNI with the canvas's Host)
@@ -615,4 +620,18 @@ test('R1b: one session a run: a connection greeted with another session\'s names
   await until(() => shifty.seen.dials >= 2);
   // (the second, greeted as another session, cut: only the first stays)
   await until(() => c.live === 1, 2000);
+});
+
+test('R1b round 2: a canvas client handed down in the same write as the greeting is routed to the relay canvas', async () => {
+  const relay = await fakeRelay({ greet: null });
+  const loop = createHTTP((req, res) => res.end('{}'));
+  await new Promise(ok => loop.listen(0, '127.0.0.1', ok));
+  let doors = null;
+  const w = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, remote: () => doors?.list() ?? [] });
+  doors = await openRemoteCanvas(w, { remote: null, tunnel: null, relay: relayOf(relay.control) }, `http://127.0.0.1:${loop.address().port}`, { connect: toRelay(relay.control), say: () => {}, warn: () => {} });
+  closing.push(async () => { await doors.close(); await w.close(); loop.close(); });
+  await until(() => relay.seen.hellos.length >= 1);
+  // (no session: the canvas answers its entry page, a 200, only once its gateway is in place)
+  const entry = await https1(relay.pub, CANVAS, { path: '/canvas/x/' });
+  expect(entry.status).toBe(200);
 });
