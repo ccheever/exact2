@@ -344,6 +344,9 @@ const sameHold = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.
  * was of the last one, so it is asked for again under this one. */
 const forgetHeld = (id: string) => { if (selectionNow?.e.held && String(selectionNow.e.build) === id) selectionNow.e = { ...selectionNow.e, held: undefined }; };
 let designAxes: Axis[] = [];
+// Each library component's parts, by its declaring identity, as the app design's newest describe lists them (stage
+// 12 D3, LLP 1139 D5): the inspector's part outline. Empty until the server says them.
+let libraryParts = new Map<string, { name: string; slot: boolean }[]>();
 const inspectOn = new Set<string>();
 const latch = () => { if (selectionNow && !selectionNow.stale) selectionNow.stale = staleness(selectionNow, buildsNow.get(String(selectionNow.e.build)), designAxes); };
 // The poll now (a newer one replaces it), and whether the build list must
@@ -713,6 +716,7 @@ const sources: Sources = {
       if (number === issued) {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
+        if (!file || file === designFile) libraryParts = new Map((ir.components ?? []).filter((c: { parts?: unknown }) => Array.isArray(c.parts)).map((c: { identity: string; parts: { name: unknown; slot?: unknown }[] }) => [c.identity, c.parts.map(p => ({ name: String(p.name), slot: p.slot === true }))]));
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir), tokenOf: tokenOfIn(ir) });
         if (!file || file === designFile) { appParams = snapshots.get(number)!.params; appParamsKey = snapshots.get(number)!.digests; appKinds = snapshots.get(number)!.kinds; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
@@ -1367,7 +1371,7 @@ const sources: Sources = {
     }
     latch();
     const b = selectionNow ? buildsNow.get(String(selectionNow.e.build)) : undefined;
-    const view = () => selectionView(selectionNow, selectionNow?.stale ?? '', designAxes, columnsOf(designAxes), inspectOn.size > 0, b?.holding, holdNotes.get(String(selectionNow?.e.build)) ?? '');
+    const view = () => selectionView(selectionNow, selectionNow?.stale ?? '', designAxes, columnsOf(designAxes), inspectOn.size > 0, b?.holding, holdNotes.get(String(selectionNow?.e.build)) ?? '', id => libraryParts.get(id) ?? null);
     const shown = view();
     // Held here and the selection not reporting that state yet (none, or an
     // earlier hold's): its page is asked to report it again, once a hold.

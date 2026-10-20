@@ -93,6 +93,9 @@ let held: Record<string, unknown>[] = [], holds = 0;
 // gives that name, and posts that id to the page framing it. A copy of a
 // name in `noNavigate` can't navigate. Each navigate is kept, in order.
 let copyDelays: Record<string, number> = {}, noNavigate: string[] = [], refuseLater: string[] = [];
+// Stage 12 D3's describe of library components (LLP 1139 D5), as a test turns it on (`/__stub/library`): per
+// identity, its `parts` and `variants`, on describe's component entry (added when the app has none by that name).
+let LIBRARY: Record<string, { name: string; parts: unknown[]; variants: unknown[] }> = {};
 const navs: { client: string; build: string; location: string }[] = [];
 const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(async () => {
   const r = await fetch('/__stub/copy', { method: 'POST', body: JSON.stringify({ name: window.name, location: location.pathname + location.search }) });
@@ -300,7 +303,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
-      if (request.method === 'describe') { const ir = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) }; return send({ ok: { ...DIALS.describe, ir, files: FILES } }); }
+      if (request.method === 'describe') { const ir: Record<string, any> = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) };
+        if (Object.keys(LIBRARY).length) { const known = ir.components.map((c: { identity: string }) => c.identity); ir.components = [...ir.components.map((c: { identity: string }) => (LIBRARY[c.identity] ? { ...c, ...LIBRARY[c.identity] } : c)), ...Object.entries(LIBRARY).filter(([id]) => !known.includes(id)).map(([identity, l]) => ({ identity, params: [], ...l }))]; } return send({ ok: { ...DIALS.describe, ir, files: FILES } }); }
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
       const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
@@ -429,7 +433,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
       paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false;
-      copyDelays = {}; noNavigate = []; refuseLater = []; navs.length = 0;
+      copyDelays = {}; noNavigate = []; refuseLater = []; navs.length = 0; LIBRARY = {};
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;
@@ -437,6 +441,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       return send({ ok: true });
     },
   },
+  '/__stub/library': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); LIBRARY = await req.json(); return send({ ok: true }); } },
   '/__stub/hold': {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);

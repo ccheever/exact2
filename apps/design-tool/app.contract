@@ -271,6 +271,19 @@ shape Inspected
   heldState: string
   heldRows: SelRow[]
   heldNote: string
+  // A node of an exported library component's own view (stage 12 D4, LLP
+  // 1139 D5): the component's declaring identity ("" outside one), the
+  // part this node is ("" for none), and its parts as the server lists them.
+  libraryIdentity: string
+  libraryPart: string
+  libraryParts: LibraryPart[]
+
+// One part of a library component, in the inspector's part outline.
+shape LibraryPart
+  name: string
+  // Whether the selected node is this part, and whether it holds the slot.
+  here: bool
+  slot: bool
 
 // A hold on the selected copy's build, as the inspector says it.
 shape HoldView
@@ -1608,6 +1621,13 @@ component DesignTool
                   for c in inspected.chain key=c
                     text `in ${c}` color="-exact-secondary-label" font="-exact-footnote"
                   text `${inspected.build}${inspected.modes != "" ? ` · ${inspected.modes}` : ""}` color="-exact-secondary-label" font="-exact-footnote" testId="selection-build"
+                  if inspected.libraryIdentity != ""
+                    column gap=2 testId="selection-library"
+                      text `Library: ${inspected.libraryIdentity}` font="-exact-footnote" testId="library-identity"
+                      text (inspected.libraryPart != "" ? `This node is its part ${inspected.libraryPart}` : "This node is no part of it") color="-exact-secondary-label" font="-exact-footnote" testId="library-part"
+                      for p in inspected.libraryParts key=p.name
+                        text `${p.here ? "▸ " : ""}${p.name}${p.slot ? " · its slot" : ""}` color=(p.here ? "-exact-label" : "-exact-secondary-label") font="-exact-footnote" testId=`library-part-${p.name}`
+                      text "Its rows are the package's recipe: read only here." color="-exact-secondary-label" font="-exact-caption1" testId="library-readonly"
                   if inspected.stale != ""
                     text `No longer current: ${inspected.stale}. Select it again to edit from here.` color="-exact-system-orange" testId="selection-stale"
                   if inspected.readOnly != ""

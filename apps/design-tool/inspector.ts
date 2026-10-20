@@ -62,11 +62,17 @@ const rowOf = (x: any, component: string) => x?.rung === 'template' || x?.rung =
       promote: x.rung === 'template' && x.text ? JSON.stringify({ addr: at(x), component: x.component ?? component, text: x.text }) : '', tokenize: x.rung === 'template' && x.text && !x.state, detach: '' }
   : { edit: '', editLabel: '', editText: '', editWords: '', promote: '', tokenize: false, detach: x?.rung === 'param' && x.template ? JSON.stringify({ addr: at(x.template), param: x.param }) : '' };
 const stateOf = (x: any) => x?.style ? { state: [x.style, x.state, x.row, x.file].join('|'), stateLabel: `Edit ${x.style} :${x.state} ${x.row}`, stateText: String(x.text ?? '') } : { state: '', stateLabel: '', stateText: '' };
-const noSelection = { key: '', files: '', has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], modes: '', place: '', rows: [], trimmed: false, inspecting: false, hold: noHold, heldState: '', heldRows: [], heldNote: '' };
+const noSelection = { key: '', files: '', has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], modes: '', place: '', rows: [], trimmed: false, inspecting: false, hold: noHold, heldState: '', heldRows: [], heldNote: '', libraryIdentity: '', libraryPart: '', libraryParts: [] };
+/** The part outline's fields: none outside a library component. */
+function libraryOf(library: any, partsOf: (identity: string) => { name: string; slot: boolean }[] | null) {
+  if (!library || typeof library.identity !== 'string') return { libraryIdentity: '', libraryPart: '', libraryParts: [] };
+  const part = typeof library.part === 'string' ? library.part : '';
+  return { libraryIdentity: library.identity, libraryPart: part, libraryParts: (partsOf(library.identity) ?? []).map(p => ({ name: p.name, here: p.name === part, slot: p.slot })) };
+}
 /** The selection as the inspector shows it: each row's source, and its edit
  * on the branch that won for the copy (D6: its modes' column and scheme), its
  * token link or why it is read-only; nothing to do while stale. */
-export function selectionView(s: Selected | null, stale: string, axes: Axis[], columns: Column[], inspecting: boolean, holding: Holding = { can: false, hold: null, held: null }, note = '') {
+export function selectionView(s: Selected | null, stale: string, axes: Axis[], columns: Column[], inspecting: boolean, holding: Holding = { can: false, hold: null, held: null }, note = '', partsOf: (identity: string) => { name: string; slot: boolean }[] | null = () => null) {
   if (!s) return { ...noSelection, inspecting };
   const e = s.e, dark = s.scheme === 'dark';
   // On a light copy an under-dark axis is its default; any other the copy
@@ -95,6 +101,9 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     key: [e.build, e.node, e.site, JSON.stringify(e.instance ?? []), s.at].join('|'), files: s.files ?? '',
     has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !axes.length ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
     source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any) => at(x)), modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
+    // A node of an exported library component's own view (stage 12 D4, LLP 1139 D5): the component by its declaring
+    // identity, the part this node is or none, and its parts as the server lists them, this one and the slot's marked.
+    ...libraryOf(e.source?.library, partsOf),
     hold: shown,
     // The rows the state held here shows (stage 8 E), or why they are not
     // known: a host that reports none, or says it can't name their tokens,
