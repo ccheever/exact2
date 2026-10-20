@@ -894,3 +894,52 @@ fn into_alignment_is_malformed_before_any_delivery() {
         serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
     assert_eq!(state["slots"]["n"], 0, "{state}");
 }
+
+/// The driver's `post` (LLP 1139.004 D1) is the page's `postMessage`: held per
+/// surface until a canvas of it is live, at most POST_BOUND, refused by name past it.
+#[test]
+fn a_post_is_held_for_its_surface_and_refused_past_the_bound() {
+    let plan =
+        contract::compile("component App\n  view\n    text \"title\" testId=\"title\"\n").unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let reply = handle(&mut p, r#"{"op":"type","message":"spawn"}"#);
+    assert!(reply.contains("no world is live"), "{reply}");
+    for _ in 0..crate::surfaces::POST_BOUND {
+        let reply = handle(
+            &mut p,
+            r#"{"op":"type","message":"spawn","surface":"world"}"#,
+        );
+        assert!(
+            reply.contains(r#""posted":"world""#) && reply.contains(r#""held":true"#),
+            "{reply}"
+        );
+    }
+    let reply = handle(
+        &mut p,
+        r#"{"op":"type","message":"spawn","surface":"world"}"#,
+    );
+    assert!(
+        reply.contains(
+            r#"post refused: postMessage: dropped: 64 posts already wait for surface \"world\""#
+        ),
+        "{reply}"
+    );
+    let title = p.host().kernel().find_by_test_id("title")[0];
+    let id = p.host().kernel().node_by_key(title).unwrap().id;
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","message":"spawn","id":{id}}}"#),
+    );
+    assert!(
+        reply.contains(&format!("view {id} has no world")),
+        "{reply}"
+    );
+}

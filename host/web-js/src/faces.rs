@@ -36,10 +36,11 @@ pub fn fonts(plan: &Plan) -> Result<Fonts, String> {
             return Err(format!("font source {:?} can't be a CSS string", f.source));
         }
         out.css.push_str(&format!(
-            "@font-face{{font-family:\"{}\";src:url(\"{}\");font-weight:{};font-style:{};font-display:optional}}",
+            "@font-face{{font-family:\"{}\";src:url(\"{}\");font-weight:{};font-stretch:{};font-style:{};font-display:optional}}",
             f.family,
             f.source,
-            f.weight,
+            f.weight_css(),
+            f.stretch_css(),
             if f.italic { "italic" } else { "normal" }
         ));
         // host/web/src/page.rs `fonts`: a preload each, for the formats a

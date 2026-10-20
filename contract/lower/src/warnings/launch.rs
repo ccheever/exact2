@@ -5,13 +5,17 @@
 //! or the resource. It differs at every launch, so the answer a
 //! store-reading resource kept at the last launch never matches it, and its
 //! first frame never shows that answer (LLP 1027 D4); after `with` it still
-//! reaches the source but does not identify the answer. A field of that
-//! name on anything else (a saved recording's `epochAtZero`) is the app's
-//! own value, and a time made from the epoch (`epochAtZero +
-//! performanceNow()`) may be what a fetch is about: neither is named.
+//! reaches the source but does not identify the answer. So is one that
+//! equals it at launch, the runner's test (`kept.rs`, `say_of_launch`): plus
+//! or minus a value that is zero then (`epochAtZero + tick * 60000` with
+//! `tick` starting at 0, the Linear Port's `now`). A field of that name on
+//! anything else (a saved recording's `epochAtZero`) is the app's own value,
+//! and a time made from the epoch that differs from it at launch
+//! (`epochAtZero + performanceNow()`) may be what a fetch is about: neither
+//! is named.
 
 use crate::LowerError;
-use contract_syntax::{Component, Expr, FnDecl, ResourceDecl, Stmt};
+use contract_syntax::{BinOp, Component, Expr, FnDecl, ResourceDecl, Stmt, UnOp};
 use std::collections::BTreeSet;
 
 /// The fields of `exactTime()` that differ at every launch.
@@ -25,6 +29,8 @@ struct Names<'a> {
     /// A launch's own value, or a name holding one: a derive, a state's
     /// initial value, or a state an action assigns one.
     launch: BTreeSet<String>,
+    /// A state or derive that is zero at launch.
+    zero: BTreeSet<String>,
 }
 
 /// A `fn` parameter and what its argument held: (name, a clock, the launch's own).
@@ -41,11 +47,16 @@ impl<'a> Names<'a> {
                 .map(|r| r.name.clone())
                 .collect(),
             launch: BTreeSet::new(),
+            zero: BTreeSet::new(),
         };
         // Each round adds the names the last one made known; the bindings
         // bound the rounds.
         for _ in 0..=root.states.len() + root.derives.len() {
-            let (mut clocks, mut launch) = (names.clocks.clone(), names.launch.clone());
+            let (mut clocks, mut launch, mut zero) = (
+                names.clocks.clone(),
+                names.launch.clone(),
+                names.zero.clone(),
+            );
             for b in root.states.iter().chain(&root.derives) {
                 if names.clock(&b.expr, &[]) {
                     clocks.insert(b.name.clone());
@@ -53,14 +64,17 @@ impl<'a> Names<'a> {
                 if names.of_launch(&b.expr, &[], 4) {
                     launch.insert(b.name.clone());
                 }
+                if names.zero(&b.expr, &[]) {
+                    zero.insert(b.name.clone());
+                }
             }
             for a in &root.actions {
                 names.assigns(&a.body, &mut launch);
             }
-            if clocks == names.clocks && launch == names.launch {
+            if clocks == names.clocks && launch == names.launch && zero == names.zero {
                 break;
             }
-            (names.clocks, names.launch) = (clocks, launch);
+            (names.clocks, names.launch, names.zero) = (clocks, launch, zero);
         }
         names
     }
@@ -98,11 +112,34 @@ impl<'a> Names<'a> {
         }
     }
 
+    /// Whether `e` is zero at launch: a literal 0, a state whose initial
+    /// value is, or a derive that is; a product with one; a sum or
+    /// difference of two.
+    fn zero(&self, e: &Expr, locals: &[Local]) -> bool {
+        match e {
+            Expr::Number(n, _) => *n == 0.0,
+            Expr::Ident(n, _) => !locals.iter().any(|(l, ..)| l == n) && self.zero.contains(n),
+            Expr::Typed(inner, _, _) | Expr::Unary(UnOp::Neg, inner, _) => self.zero(inner, locals),
+            Expr::Binary(BinOp::Mul, a, b, _) => self.zero(a, locals) || self.zero(b, locals),
+            Expr::Binary(BinOp::Add | BinOp::Sub, a, b, _) => {
+                self.zero(a, locals) && self.zero(b, locals)
+            }
+            _ => false,
+        }
+    }
+
     /// Whether `e` is the launch's own: a clock's `epochAtZero` or `seed`, a
-    /// name holding one, a list holding one, or a `fn` returning one
-    /// (`depth` bounds the expansion).
+    /// name holding one, a list holding one, a `fn` returning one (`depth`
+    /// bounds the expansion), or one plus or minus a value zero at launch.
     fn of_launch(&self, e: &Expr, locals: &[Local], depth: u32) -> bool {
         match e {
+            Expr::Binary(BinOp::Add, a, b, _) => {
+                (self.of_launch(a, locals, depth) && self.zero(b, locals))
+                    || (self.zero(a, locals) && self.of_launch(b, locals, depth))
+            }
+            Expr::Binary(BinOp::Sub, a, b, _) => {
+                self.of_launch(a, locals, depth) && self.zero(b, locals)
+            }
             Expr::Member(inner, field, _) => {
                 OF_LAUNCH.contains(&field.as_str()) && self.clock(inner, locals)
             }

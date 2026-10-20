@@ -16,7 +16,9 @@
     "exact": "scripts/exact.mjs"
   },
   "dependencies": {
+    "@exact/scale-fixture-cards": "workspace:*",
     "@exact/geolocation": "workspace:*",
+    "@exact/scale-fixture-notes": "workspace:*",
     "@exact/reading": "workspace:*"
   }
 }

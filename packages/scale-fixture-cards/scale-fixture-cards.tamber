@@ -1,0 +1,10 @@
+// The design of @exact/scale-fixture-cards (LLP 1121 D11): its tokens under its name, its
+// spacing and corner the base scale's, which the app may set for every
+// package at once.
+tamber scale-fixture-cards
+
+theme
+  scale-fixture-cards.pad = space.md
+  scale-fixture-cards.corner = radius.md
+  scale-fixture-cards.fill = #0000ff  scheme=fixed
+  scale-fixture-cards.ink = #ffffff  scheme=fixed

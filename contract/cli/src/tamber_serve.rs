@@ -72,7 +72,7 @@ mod walk;
 use answers::{diagnostic, located, modes_of, no_token, refused, temp_name};
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.14";
+pub const PROTOCOL: &str = "tamber/1.15";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -366,26 +366,30 @@ impl Server {
 
     /// The app's synthetic tokens: every expression over tokens its rows
     /// write, folding or not, as the compiler finds them (the plan keeps
-    /// only those that fold). Read again when a Contract source, what
-    /// resolved its imports, or the design's token names change, which is
-    /// what decides them. None when the build stopped before the design:
-    /// not kept, and tried again.
+    /// only those that fold), and the plan's retention beside them. Read
+    /// again when a Contract source or what resolved its imports changes, or
+    /// what of the app's or a package's design can move them does
+    /// (`walk::retention_key`): an edit of a value that names nothing
+    /// keeps them; one that moves an alias, a `params` entry or a component's
+    /// param builds them again on the next propose.
+    /// None when the build stopped before the design: not kept, and tried
+    /// again.
     fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
         let root = self.dir.join("app.contract");
         let mut key = self.sources_key();
-        if let Some(design) = snap
+        // What of the app's design and each package's can move them
+        // (`retention_key`: names and what values name, the `params` block,
+        // components' params), parsed: a value edit naming nothing (a hex)
+        // keeps them, where a whole compile of the clone costs seconds.
+        let app = self.app_params();
+        let texts: Vec<&str> = snap
             .iter()
             .find(|(f, _, _)| *f == self.design)
-            .and_then(|(_, t, _)| exact_tamber::parse(t).ok())
-        {
-            for t in &design.tokens {
-                key.push_str(&t.name.value);
-                key.push('\n');
-            }
-            // A native component's params, kept by their declaration, and
-            // what their defaults read.
-            key.push_str(&format!("{:?}\n", design.components));
-        }
+            .map(|(_, t, _)| t.as_str())
+            .into_iter()
+            .chain(app.packages.iter().map(|p| p.text.as_str()))
+            .collect();
+        key.push_str(&walk::retention_key(&texts));
         if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
                 return Some(exprs.clone());
@@ -393,6 +397,15 @@ impl Server {
         }
         let _ = contract_lower::synthetic_candidates();
         let _ = contract_lower::retention();
+        // A test reads how often they are built (`EXACT_TAMBER_RETENTION_LOG`, a line each).
+        if let Some(log) = std::env::var_os("EXACT_TAMBER_RETENTION_LOG") {
+            use std::io::Write;
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log);
+            let _ = file.and_then(|mut f| f.write_all(b"built\n"));
+        }
         let built = contract::compile_path_all(&root, false);
         let exprs = contract_lower::synthetic_candidates();
         let retention = contract_lower::retention();

@@ -182,6 +182,23 @@ impl Manifest {
         Ok(manifest)
     }
 
+    /// Whether a game's generated `.shells/app.json`, which [`Manifest::read`]
+    /// prefers, was resolved from another `app.json` than `app_dir` holds now.
+    /// The bake records the authored file's content digest beside it
+    /// (`game/app/shells.mjs`); a missing record counts as another.
+    pub fn generated_stale(app_dir: &Path) -> bool {
+        use sha2::{Digest, Sha256};
+        if !app_dir.join(".shells/app.json").is_file() {
+            return false;
+        }
+        let authored = std::fs::read(app_dir.join("app.json")).map_or_else(
+            |_| "none".to_owned(),
+            |bytes| format!("{:x}", Sha256::digest(bytes)),
+        );
+        std::fs::read_to_string(app_dir.join(".shells/app-source.sha256"))
+            .map_or(true, |recorded| recorded.trim() != authored)
+    }
+
     /// `host.<platform>` as an object (empty when absent).
     pub fn host(&self, platform: &str) -> serde_json::Map<String, serde_json::Value> {
         self.json

@@ -396,16 +396,23 @@ impl Catalog {
                     } else {
                         FontStyle::Normal
                     };
+                    // The face's `@font-face` descriptors (LLP 1019 D2): one
+                    // weight pins `wght`, a range draws each request on it,
+                    // and a width range does the same on `wdth`.
+                    let stretch = |tenths: u16| f32::from(tenths) / 10.0;
                     let info = fontique::FontInfo::from_parts(
                         source,
                         0,
-                        FontWidth::NORMAL,
+                        FontWidth::from_percentage(stretch(face.stretch_min)),
                         style,
                         FontWeight::new(f32::from(face.weight)),
                         parsed.axes(),
                         parsed.charmap_index(),
                     )
-                    .with_pinned_weight();
+                    .with_declared_ranges(
+                        (f32::from(face.weight), f32::from(face.weight_max)),
+                        (stretch(face.stretch_min), stretch(face.stretch_max)),
+                    );
                     staged.push((face.weight, face.italic, info));
                 }
                 if failed || staged.len() != family.faces.len as usize {

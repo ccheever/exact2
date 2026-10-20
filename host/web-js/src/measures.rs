@@ -38,6 +38,11 @@ pub fn css(kind: Kind, value: &str) -> String {
     if base(value) {
         return format!("var({})", crate::base_scale::property(value.trim()));
     }
+    // An expression over base names (stage 12 B2): each its property, the
+    // browser's `calc()` folding it.
+    if let Some(css) = crate::base_scale::expression(value) {
+        return css;
+    }
     match relative::parse(value) {
         Some((unit @ (Unit::TextStyle(_) | Unit::Ramp(_)), n)) => {
             let medium = relative::MEDIUM;
@@ -419,6 +424,13 @@ pub fn map(
                 None if attribute && kind == Kind::Length && base(plan.str(r.value)) => {
                     serde_json::to_string(&crate::base_scale::value(plan.str(r.value).trim()))
                         .unwrap()
+                }
+                // And an expression over base names, folded there (stage 12 B2).
+                None if attribute && kind == Kind::Length => {
+                    match crate::base_scale::folded(plan.str(r.value)) {
+                        Some(px) => serde_json::to_string(&px).unwrap(),
+                        None => serde_json::to_string(&css(kind, plan.str(r.value))).unwrap(),
+                    }
                 }
                 // A shadow's text is a string, whatever it holds.
                 None => serde_json::to_string(&css(kind, plan.str(r.value))).unwrap(),

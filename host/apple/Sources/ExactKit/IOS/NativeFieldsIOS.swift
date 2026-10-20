@@ -26,6 +26,19 @@ extension NodeView {
         if let field { applyField(field, set: props, clear: []) }
         layoutField()
     }
+    /// HTML's `enterkeyhint` as UIKit's return key, for an `input` and a
+    /// `textarea` alike; `unsaid` is the key with no hint.
+    static func returnKey(_ hint: String?, unsaid: UIReturnKeyType) -> UIReturnKeyType {
+        switch hint {
+        case "done": .done
+        case "go": .go
+        case "next": .next
+        case "search": .search
+        case "send": .send
+        case "enter", "previous": .default
+        default: unsaid
+        }
+    }
     /// The props an `input`'s field shows: `set` and `clear` are what changed.
     func applyField(_ f: UITextField, set: [String: String], clear: [String]) {
         #if os(iOS)
@@ -69,15 +82,7 @@ extension NodeView {
         // field unless the action focuses it again (D9.2), so Done says
         // what it does (LLP 1116.019 D5). The document keeps no hint, so
         // the web's keyboard stays its own.
-        switch props["enterKeyHint"] {
-        case "done": f.returnKeyType = .done
-        case "go": f.returnKeyType = .go
-        case "next": f.returnKeyType = .next
-        case "search": f.returnKeyType = .search
-        case "send": f.returnKeyType = .send
-        case "enter", "previous": f.returnKeyType = .default
-        default: f.returnKeyType = type == "search" ? .search : .done
-        }
+        f.returnKeyType = NodeView.returnKey(props["enterKeyHint"], unsaid: type == "search" ? .search : .done)
         f.isEnabled = !disabled
         if headerField != nil { presenter?.menus.promptInputChanged(self) } // a prompt's field stands in for it (PromptFieldIOS.swift)
         if isNativeTextControl { styleNativeField() }

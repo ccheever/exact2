@@ -145,13 +145,18 @@ fn tokens(folding: &exact_tamber::Folding) -> Vec<Token> {
 /// the header of `tamber.css` says (stage 6 G); the rest as written.
 fn outside(v: &exact_tamber::Value, vocab: &exact_tamber::Vocab) -> String {
     use exact_tamber::{Length, Value};
-    let px = |l: &Length| match l {
-        Length::Em(n) => Some(n * 16.0),
-        Length::Named(name) => vocab
+    let named = |name: &str| {
+        vocab
             .sizes
             .iter()
             .find(|(n, _)| n.eq_ignore_ascii_case(name))
-            .and_then(|(_, px)| px.parse::<f64>().ok()),
+            .and_then(|(_, px)| px.parse::<f64>().ok())
+    };
+    let px = |l: &Length| match l {
+        Length::Em(n) => Some(n * 16.0),
+        Length::Named(name) => named(name),
+        // Over base names (stage 12 B2): each base's px, as a bare one.
+        Length::Base(r) => r.fold(&named),
         _ => None,
     };
     let text = |n: f64| Length::Px(n).css();

@@ -545,6 +545,44 @@ impl Lowerer<'_> {
                 } else {
                     Origin::Own(written)
                 };
+                // A folded `:disabled` or `:checked` row (LLP 1122's queue
+                // item (2)): its base's attribute where an author wrote it,
+                // and each part folded over it, each the class's by its span.
+                let fold = (states.as_ref())
+                    .filter(|s| index >= s.base_len && index < s.pressed)
+                    .map(|s| &s.folds[index - s.base_len]);
+                let origin = match fold {
+                    Some(fold) => {
+                        let class_of = |span: &Span| {
+                            class_label.as_ref().filter(|_| class_spans.contains(span))
+                        };
+                        let base = fold.base.as_ref().map(|(span, name)| {
+                            let w = crate::Written {
+                                span: *span,
+                                name: name.clone(),
+                            };
+                            Box::new(match class_of(span) {
+                                Some(label) => Origin::Class(
+                                    label.clone(),
+                                    Some(w).filter(|_| !label.contains('/')),
+                                ),
+                                None => Origin::Own(Some(w)),
+                            })
+                        });
+                        let parts = (fold.parts.iter())
+                            .map(|(state, span)| Origin::State {
+                                of: Box::new(match class_of(span) {
+                                    Some(label) => Origin::Class(label.clone(), None),
+                                    None => Origin::Own(None),
+                                }),
+                                state,
+                                span: *span,
+                            })
+                            .collect();
+                        Origin::Folded { base, parts }
+                    }
+                    None => origin,
+                };
                 // `:active`'s, lowered to the press paint: where it is written.
                 let origin = match pressed {
                     true => Origin::State {

@@ -654,6 +654,29 @@ test('E10 compact authored manifest survives two bakes byte for byte', async () 
 });
 
 
+test('an app.json edited after its shells: the compiler says the copy is stale, and the bake the builds run consumes the edit (LLP 1139.004 D2)', async () => {
+  const {gameDefaults,gameShells}=await import('./app/shells.mjs');
+  const root=resolve(import.meta.dir,'..'), built=spawnSync('cargo',['build','-q','-p','contract','--bin','contract'],{cwd:root,encoding:'utf8'});
+  assert.equal(built.status,0,built.stderr);
+  const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'stale-shells-'))), app=resolve(parent,'my-game');
+  const build=()=>spawnSync(resolve(root,'target/debug/contract'),['build',resolve(app,'app.contract'),'-o',resolve(parent,'app.plan')],{encoding:'utf8'});
+  try {
+    createGame(app);
+    gameShells(app,gameDefaults(app).game,import.meta.dir);
+    const view=resolve(app,'app.contract');
+    writeFileSync(view,readFileSync(view,'utf8').replace('testId="play"','testId="play" data-pointer-lock="on"'));
+    const manifest=resolve(app,'app.json'), authored=existsSync(manifest)?JSON.parse(readFileSync(manifest,'utf8')):{};
+    writeFileSync(manifest,JSON.stringify({...authored,data:['pointer-lock']},null,2)+'\n');
+    const stale=build();
+    assert.notEqual(stale.status,0);
+    assert.match(stale.stderr,/`data-pointer-lock` is not declared[^]*\.shells\/app\.json is stale[^]*`bun exact\.mjs shells` regenerates it/);
+    gameShells(app,gameDefaults(app).game,import.meta.dir);
+    const fresh=build();
+    assert.equal(fresh.status,0,fresh.stderr);
+  } finally {rmSync(parent,{recursive:true,force:true});}
+}, 300000);
+
+
 test('D6 host shells discover arguments without an engine build dependency', () => {
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'d6-shells-'))), app=resolve(parent,'my-game');
   try {

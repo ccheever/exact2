@@ -313,10 +313,12 @@ const entryHtml = tool => `<!doctype html><html lang="en"${tool ? ` data-tool="$
  * `toolOrigin` are given at construction or once by `serve(...)`, when the
  * canvas port is bound (`openCanvas`); until then it mints nothing and
  * answers nothing. */
-export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin = null, now = Date.now, limiter = pairingLimiter, allows = pairingAllows, log = () => {} }) {
+export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin = null, now = Date.now, limiter = pairingLimiter, allows = pairingAllows, log = () => {}, mints: shared = null }) {
   if (typeof limiter !== 'function' || typeof allows !== 'function') throw new TypeError('canvasGateway takes A\'s `limiter` and `allows`');
-  // One bucket per client, for grant minting.
-  const mints = limiter({ ...MINT_RATE, clock: now });
+  // One bucket per client, for grant minting: another gateway's (`mints`,
+  // stage 10c R1b's relay canvas) when given, so a client's cap is one
+  // across every door.
+  const mints = shared ?? limiter({ ...MINT_RATE, clock: now });
   // Every canvas request is remote: never the local token's `local`.
   const may = (scope, need) => allows(scope, need, false);
   let loopOrigin, loopHost, loopPort, rewrite, served = false;
@@ -444,7 +446,7 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
    * here, and goes on to `/`. Static, and framed by the tool alone. */
   function entryPage(req, res) {
     res.writeHead(200, {
-      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff',
+      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff', 'cross-origin-resource-policy': 'same-origin',
       'content-security-policy': `default-src 'none'; script-src '${ENTRY_SCRIPT_HASH}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${toolOrigin ?? "'none'"}`,
     });
     res.end(req.method === 'HEAD' ? undefined : entryHtml(toolOrigin));
@@ -480,6 +482,15 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
     }
     const session = sessionOf(req);
     const need = needs(req.method, target.path);
+    // A page of another origin including this one's resources (a stylesheet,
+    // an image, a script), its cookie sent along because the two are
+    // same-site (another relay account's canvas, stage 10c R1b's round 2):
+    // refused, as Fetch metadata says it; only this origin's own requests
+    // and navigations are answered. A request with no Fetch metadata (an
+    // older browser, a driver) is handled as stage 10 handled it, the
+    // answer's CORP covering the browsers.
+    const site = req.headers['sec-fetch-site'];
+    if (site !== undefined && site !== 'same-origin' && site !== 'none' && req.headers['sec-fetch-mode'] !== 'navigate') { notFound(res); return true; }
     if (!session || !need) { notFound(res); return true; }
     if (!may(session.scope, need)) { json(res, 403, { message: `${req.method} ${target.path} needs ${need}`, scope: session.scope, needs: need }); return true; }
     if (req.method === 'POST' && req.headers.origin !== origin) { notFound(res); return true; }
@@ -534,6 +545,17 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
         out[key] = key === 'content-security-policy' || key === 'content-security-policy-report-only' ? frameAncestors(rewrite.text(v), loopPort, origin, toolOrigin) : rewrite.text(v);
       }
       out['cache-control'] = 'no-store';
+      // (and for a browser without Fetch metadata: no other origin may include it;
+      // this governs no-cors subresources, never the tool's frame, and the tool
+      // sends no COEP: should it ever, a framed canvas would need its own policy)
+      out['cross-origin-resource-policy'] = 'same-origin';
+      // Framed by the tool's origin and its own only, whatever the loop sent
+      // (an SVG, an image or any document the loop answers without the
+      // HTML's header is a navigation another same-site origin could frame).
+      const csp = out['content-security-policy'];
+      const ancestors = `frame-ancestors 'self'${toolOrigin ? ` ${toolOrigin}` : ''}`;
+      if (!csp) out['content-security-policy'] = ancestors;
+      else if (!/(^|[;,])\s*frame-ancestors\b/i.test(csp)) out['content-security-policy'] = `${csp}; ${ancestors}`;
       const type = String(out['content-type'] ?? '');
       const stream = /^text\/event-stream\b/i.test(type);
       const isJSON = /^application\/(?:[\w.+-]+\+)?json\b/i.test(type);
@@ -582,7 +604,7 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
     sessions.clear();
   }
 
-  return { mint, handle, serve, close, get origin() { return served ? origin : null; }, get live() { return [...live.values()].reduce((n, s) => n + s.size, 0); } };
+  return { mint, handle, serve, close, mints, get origin() { return served ? origin : null; }, get live() { return [...live.values()].reduce((n, s) => n + s.size, 0); } };
 }
 
 /** The canvas port on B's remote doors (`openRemote`), for `tamber`'s
@@ -602,11 +624,35 @@ export async function openCanvas(doors, tamber, { loop, host, port = 0, say = co
   return origin;
 }
 
+/** The canvas through a hosted relay (stage 10c R1b, theme2's 22:06): a
+ * gateway of its own, this same code, for the relay session's own pair
+ * (`https://<canvas name>` framed by `https://<tool name>`), made once the
+ * relay names the run's one session; `canvas` through the relay's door mints
+ * from it, and the pairing it shares ends a client on both. Closed with the
+ * doors, its grants and sessions with it. */
+export function openRelayCanvas(doors, tamber, { loop, say = console.log }) {
+  if (!doors?.onRelay || !tamber?.relayCanvas || !tamber.pairing) return;
+  let gateway = null;
+  const shut = doors.close;
+  doors.close = () => { gateway?.close(); return shut(); };
+  doors.onRelay(({ tool, canvas }) => {
+    // (the TLS door's mint limiter, shared: one cap a client, whichever door)
+    gateway = canvasGateway({ pairing: tamber.pairing, ...(tamber.canvas?.mints ? { mints: tamber.canvas.mints } : {}) });
+    gateway.serve({ loop, origin: `https://${canvas}`, toolOrigin: `https://${tool}` });
+    doors.relayCanvas((req, res, url, access) => gateway.handle(req, res, url, access));
+    tamber.relayCanvas(gateway);
+    say(`  canvas through the relay: https://${canvas}, framed by https://${tool} only`);
+  });
+}
+
 /** A dev loop's remote doors (`openRemote`) and, with the TLS listener, its
- * canvas port, proxying `loop` (the loop's own loopback origin). A canvas
- * port that cannot bind closes the doors, and the error is thrown. */
+ * canvas port, proxying `loop` (the loop's own loopback origin); through a
+ * relay, the relay's canvas too. A canvas port that cannot bind closes the
+ * doors, and the error is thrown. */
 export async function openRemoteCanvas(tamber, asked, loop, options) {
   const doors = await openRemote(tamber, asked, options);
+  // (the relay's first, before the TLS canvas's port is awaited: the relay may name its session meanwhile)
+  openRelayCanvas(doors, tamber, { loop, ...options });
   try { await openCanvas(doors, tamber, { loop, host: asked.remote?.host, ...options }); } catch (e) { await doors?.close(); throw e; }
   return doors;
 }

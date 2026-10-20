@@ -241,6 +241,19 @@ extension TextLinePaint {
             return true
         }
         guard shadows.contains(where: { $0 != nil }) || runs.contains(where: hidden) else { return false }
+        if !shadows.contains(where: { $0 != nil }) {
+            // Hidden runs alone: the line as CoreText draws it, clipped to
+            // the runs that show, so their underlines and line-throughs stay
+            // (`CTRunDraw` draws none) and hidden text has neither.
+            let shown = runs.filter { !hidden($0) }.map(extent)
+            guard !shown.isEmpty else { return true }
+            ctx.saveGState()
+            ctx.clip(to: shown)
+            ctx.textPosition = .zero
+            CTLineDraw(line, ctx)
+            ctx.restoreGState()
+            return true
+        }
         var i = 0
         while i < runs.count {
             var j = i + 1
