@@ -29,6 +29,8 @@ shape ChatRun
   label: string
   // A media run inside a link's text: the link's destination (MarkdownAnchor's `<a>` around the `<img>`); "" elsewhere.
   link: string
+  // Inside a GFM strikethrough (`<del>`): drawn with a line through.
+  strike: bool
   findParts: FindPart[]
 shape ChatCell
   id: string
@@ -159,7 +161,7 @@ fn noUrls(): AttachmentUrl[] = []
 // diff-review (Cite): an answer's text as the reference reads it (readAssistantText: each block's
 // displayed text, a line break between blocks), and where a block starts in it. A code block's
 // header reads its language when no file icon stands for it (MarkdownCodeBlockTitleContent), a line before the code.
-fn citeCodeLabel(b: ChatBlock, code: CodeHighlight[]): string = b.kind == "code" and code.filter((hl) => hl.code == b.text and hl.icon != "").length == 0 ? b.href : ""
+fn citeCodeLabel(b: ChatBlock, code: CodeHighlight[]): string = b.kind == "code" and code.filter((hl) => hl.code == b.text and hl.icon != "").length == 0 ? (b.href != "" ? b.href : "text") : ""
 fn citeBlockText(b: ChatBlock, code: CodeHighlight[]): string = b.kind == "code" ? (citeCodeLabel(b, code) != "" ? `${citeCodeLabel(b, code)}\n${b.text}` : b.text) : b.runs.map((r) => r.text).join("")
 fn citeStream(blocks: ChatBlock[], code: CodeHighlight[]): string = blocks.map((b) => citeBlockText(b, code)).join("\n")
 fn citeOffset(blocks: ChatBlock[], code: CodeHighlight[], blockId: string): number = blocks.map((b) => b.id).indexOf(blockId) <= 0 ? 0 : blocks.map((b) => citeBlockText(b, code)).slice(0, blocks.map((b) => b.id).indexOf(blockId)).join("\n").length + 1
@@ -555,24 +557,24 @@ component ChatRuns
   view
     for run in runs key=run.id
       if run.mono and (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
-        text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
-          FindParts(parts=run.findParts)
+        text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+          FindParts(parts=run.findParts, strike=run.strike)
       if run.mono and not ((run.kind == "link" or run.kind == "link-start") and webLink(run.href))
-        text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
-          FindParts(parts=run.findParts)
+        text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+          FindParts(parts=run.findParts, strike=run.strike)
       if not run.mono
         if (run.kind == "link" or run.kind == "link-start") and run.href != ""
           text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
-            FindParts(parts=run.findParts)
+            FindParts(parts=run.findParts, strike=run.strike)
         if (run.kind == "link" or run.kind == "link-start") and run.href == ""
           text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
-            FindParts(parts=run.findParts)
+            FindParts(parts=run.findParts, strike=run.strike)
         if run.kind != "link" and run.kind != "link-start"
           if ms < 0
-            text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
-              FindParts(parts=run.findParts)
+            text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none")
+              FindParts(parts=run.findParts, strike=run.strike)
           else
-            text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
+            text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none")
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
 
 // The cited text's highlight while its comment is open (AssistantCitationSource.tsx
@@ -654,26 +656,26 @@ component FlowRuns
                   TimelineIcon(name=(run.href.startsWith("t3-thread://v1/") ? "messages-square" : "globe"), size=14, color="light-dark(#1447e6, #50a2ff)")
             if not run.mono
               text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
-                FindParts(parts=run.findParts)
+                FindParts(parts=run.findParts, strike=run.strike)
             else
               text margin-top="0.153125rem" font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
-                FindParts(parts=run.findParts)
+                FindParts(parts=run.findParts, strike=run.strike)
         // A web or fragment link's later word or code span: its press and menu are the link's. Only a web link's is a Tab
         // stop (as it was); a fragment's is not, the `<a>` being one stop (its link node above).
         if run.kind == "link" and linkRun(run, chips) and pressLink(run.href)
           box press=open(run.href) contextmenu=linkMenu(run.href) tabindex=(webLink(run.href) ? 0 : -1) aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
             if not run.mono
               text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
-                FindParts(parts=run.findParts)
+                FindParts(parts=run.findParts, strike=run.strike)
             else
               text font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
-                FindParts(parts=run.findParts)
+                FindParts(parts=run.findParts, strike=run.strike)
         // Any other code span (one in a pull request link too); a mailto, irc or xmpp link's later one is hidden as its
         // words are, and shows the link's pointer (the `<a>`'s `cursor: pointer` covers all of it).
         if run.mono and not inlineFile(run, chips) and not (linkRun(run, chips) and (run.kind == "link-start" or pressLink(run.href)))
           box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) cursor=(run.kind == "link" and run.label != "" and not webLink(run.href) ? "pointer" : "auto") height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#fafafa, #ffffff08)") color="light-dark(#27272a, #f5f5f5)"
-              FindParts(parts=run.findParts)
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#fafafa, #ffffff08)") color="light-dark(#27272a, #f5f5f5)"
+              FindParts(parts=run.findParts, strike=run.strike)
         if inlineFile(run, chips)
           for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
             InlineFileChip(run=run, chip=chip, local=local)
@@ -699,7 +701,7 @@ component FlowRuns
         if run.kind == "media" and run.link != "" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length == 0
           link href=run.link press=open(run.link) contextmenu=linkMenu(run.link) aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0 title=""
             text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
-              FindParts(parts=run.findParts)
+              FindParts(parts=run.findParts, strike=run.strike)
         // A pull request link in a pull request's text (its chip names the card's target).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0)
           for chip in chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
@@ -709,10 +711,10 @@ component FlowRuns
         // `label`, and an `<a>` with no href shows none).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0) and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href)) and not (run.kind == "media" and (run.link != "" or chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0))
           if ms < 0
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
-              FindParts(parts=run.findParts)
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+              FindParts(parts=run.findParts, strike=run.strike)
           else
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
 
 // Whether a run starts its link: the run before it is not the same link's word or image.
@@ -757,10 +759,10 @@ component PrLinkRun
           TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
       if chip.detail == "commit"
         text white-space="pre" flex-shrink=0 font-family="ui-monospace" font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
-          FindParts(parts=run.findParts)
+          FindParts(parts=run.findParts, strike=run.strike)
       else
         text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
-          FindParts(parts=run.findParts)
+          FindParts(parts=run.findParts, strike=run.strike)
 
 // ContextChip's per-kind accent (oklch(0.62 C H)): a fill of the accent at
 // 11%, a border mixing it 34% into the border colour and text mixing it 22%
@@ -785,7 +787,7 @@ component ContextChipBox
         else
           TimelineIcon(name=chipIcon(run.kind), size=14, color=chipInk(run.kind))
         text min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(run.kind)
-          FindParts(parts=run.findParts)
+          FindParts(parts=run.findParts, strike=run.strike)
 
 // MarkdownFileLink: a workspace file as a mention chip (12pt medium, 17pt
 // tall, 6pt radius, teal-tinted border and fill) with its Pierre icon.
@@ -809,7 +811,7 @@ component FileChipFace
         FileTypeIcon(token=icon, size=14)
       text font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color="light-dark(#2c3e45, #cbe0e6)"
         if run.findParts.map((part) => part.text).join("") == label
-          FindParts(parts=run.findParts)
+          FindParts(parts=run.findParts, strike=run.strike)
         else
           text label
 
@@ -909,7 +911,7 @@ component CitationContextChip
       TimelineIcon(name="quote", size=14, color=chipInk("context-citation"))
       text min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk("context-citation")
         if run.findParts.map((part) => part.text).join("") == chip.label
-          FindParts(parts=run.findParts)
+          FindParts(parts=run.findParts, strike=run.strike)
         else
           text chip.label
     column id=popupId popover="auto" position-try-fallbacks="flip-block" position="absolute" position-area="top" margin-bottom="0.25rem" width="24rem" max-width="100vw" testId="citation-context-popover"
@@ -995,7 +997,7 @@ component ChipFace
       TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
     text min-width=0 max-width="18rem" line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
       if run.findParts.map((part) => part.text).join("") == chip.label
-        FindParts(parts=run.findParts)
+        FindParts(parts=run.findParts, strike=run.strike)
       else
         text chip.label
     if chip.size != ""
@@ -1062,22 +1064,23 @@ component CodeBlock
             for hl in code.filter((hl) => hl.code == block.text and hl.icon != "") key=hl.id
               FileTypeIcon(token=hl.icon, size=14)
           else
-            text block.href font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
+            // extractFenceLanguage: a fence with no language is "text".
+            text (block.href != "" ? block.href : "text") font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
         row gap="0.125rem" align-items="center"
-          if canRun
-            Tip(label="Run in terminal", side="top", align="center", offset=28)
-              button press=local("run-terminal", block.id, block.text) aria-label="Run in terminal" testId=`run-terminal-${block.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-                Icon(name="square-terminal", size=12, color="light-dark(#27272a, #f5f5f5)")
           Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
             button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               Icon(name="text-wrap", size=12, color="light-dark(#27272a, #f5f5f5)")
+          if canRun
+            Tip(label="Run in terminal", side="top", align="center", offset=28)
+              button press=local("run-terminal", block.id, block.text) aria-label="Run in terminal" testId=`run-terminal-${block.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+                Icon(name="play", size=12, color="light-dark(#27272a, #f5f5f5)")
           Tip(label="Copy code", side="top", align="center", offset=28)
             CopyCodeButton(block=block, local=local, copied=(copiedText == block.text ? copiedNonce : 0))
       if code.filter((hl) => hl.code == block.text).length == 0
         if wrap
           if ms < 0
             text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
-              FindParts(parts=block.findParts)
+              FindParts(parts=block.findParts, strike=false)
           else
             text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
               MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
@@ -1085,7 +1088,7 @@ component CodeBlock
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             if ms < 0
               text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
-                FindParts(parts=block.findParts)
+                FindParts(parts=block.findParts, strike=false)
             else
               text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
                 MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
@@ -1300,11 +1303,11 @@ component TableCell
   action cellSized(width: number, height: number)
     cellWidth = width
     if width > 0 and naturalWidth > 0
-      clipped(`${header ? "h:" : "b:"}${nodePrefix}`, naturalWidth > min(max(0, width - 1.5 * rem), 22.5 * rem) + 1)
+      clipped(`${header ? "h:" : "b:"}${nodePrefix}`, cellClipped(naturalWidth, width))
   action naturalSized(width: number, height: number)
     naturalWidth = width
     if cellWidth > 0 and width > 0
-      clipped(`${header ? "h:" : "b:"}${nodePrefix}`, width > min(max(0, cellWidth - 1.5 * rem), 22.5 * rem) + 1)
+      clipped(`${header ? "h:" : "b:"}${nodePrefix}`, cellClipped(width, cellWidth))
   view
     column resize=cellSized position="relative" flex-grow=column.grow flex-shrink=0 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(header ? "0.55rem" : "0.45rem") padding-bottom=(header ? "0.55rem" : "0.45rem") box-sizing="border-box" justify-content="center" role=(header ? "columnheader" : "cell")
       // Measure the same runs without a cap so a short table has no expansion control.
@@ -1334,6 +1337,11 @@ component TableCell
           text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.75rem" line-height=1.625 white-space="nowrap" opacity=0
             ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400), ms=-1, me=-1)
 
+// tableHasClippedCells, per cell: its unwrapped content (`natural`) is wider than the cell's content box
+// (`box`, what `resize` reports). The 24rem cap only limits what a cell asks of its column; spare room
+// still widens it, so a cell whose content passes 24rem in a roomy table is not clipped.
+fn cellClipped(natural: number, box: number): bool = natural > box + 1
+
 // Whether a cell draws run by run: a code span, a chip or an image is a box of its own.
 fn cellBoxes(runs: ChatRun[]): bool = runs.filter((part) => part.mono or part.kind == "file" or part.kind == "media" or chipAccent(part.kind) != "").length > 0
 
@@ -1358,8 +1366,8 @@ component CellRuns
           for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
             InlineFileChip(run=run, chip=chip, local=local)
         if run.mono and not inlineFile(run, chips)
-          text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
-            FindParts(parts=run.findParts)
+          text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+            FindParts(parts=run.findParts, strike=run.strike)
         if not run.mono and run.kind == "file"
           FileChip(run=run)
         if not run.mono and run.kind != "file" and chipAccent(run.kind) != ""
@@ -1368,8 +1376,8 @@ component CellRuns
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
             MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`)
         if not run.mono and run.kind != "file" and chipAccent(run.kind) == "" and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0)
-          text min-width=0 font-size="0.75rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
-            FindParts(parts=run.findParts)
+          text min-width=0 font-size="0.75rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=color
+            FindParts(parts=run.findParts, strike=run.strike)
 
 // A column's sizing cell (the widest cell's runs, unseen, asking for their width capped at 24rem): an image is the same
 // picture, so the column takes its width; no preview, menu or node id of its own.
@@ -1389,7 +1397,7 @@ component CellSizer
             FileChipFace(run=run, label=chip.label, icon=chip.icon)
         if run.mono and not inlineFile(run, chips)
           text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-width=1 border-style="solid"
-            FindParts(parts=run.findParts)
+            FindParts(parts=run.findParts, strike=run.strike)
         if not run.mono and run.kind == "file"
           FileChip(run=run)
         if not run.mono and run.kind != "file" and chipAccent(run.kind) != ""
@@ -1403,7 +1411,7 @@ component CellSizer
                 image entry.url aria-hidden=true flex-shrink=0 max-width="22.5rem" max-height="30rem" object-fit="contain"
         if not run.mono and run.kind != "file" and chipAccent(run.kind) == "" and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href and chip.size == "image" and chip.icon != "blocked").length > 0)
           text min-width=0 font-size="0.75rem" line-height=1.625 white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
-            FindParts(parts=run.findParts)
+            FindParts(parts=run.findParts, strike=run.strike)
 
 // The footer's icon-xs buttons: ghost-muted, or "secondary" while pressed.
 component TableIconButton

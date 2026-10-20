@@ -42,6 +42,6 @@ component DiffFindBar
       button press=op("previous", "") aria-label="Previous diff match" disabled=find.empty width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
         Icon(name="chevron-up", size=14, color="currentColor")
       button press=op("next", "") aria-label="Next diff match" disabled=find.empty width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
-        Icon(name="chevron-down", size=14, color="currentColor")
+        Icon(name="chevron", size=14, color="currentColor")
       button press=op("close", "") aria-label="Close diff find" width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
         Icon(name="x", size=14, color="currentColor")
