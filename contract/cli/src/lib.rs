@@ -474,10 +474,15 @@ pub fn fix_uses(path: &Path) -> Result<(Vec<WrittenUses>, Vec<CompileError>), Ve
         let mut wrote = false;
         let mut refused = Vec::new();
         for fix in fixes {
-            if !fix.unresolved.is_empty() || fix.lines.is_empty() {
+            // Never a file outside the app, whatever path reached it.
+            let inside = fix
+                .path
+                .canonicalize()
+                .is_ok_and(|p| p.starts_with(&app_root));
+            if !fix.unresolved.is_empty() || fix.lines.is_empty() || !inside {
                 refused.push(fix.error.clone());
             }
-            if fix.lines.is_empty() {
+            if fix.lines.is_empty() || !inside {
                 continue;
             }
             let before =

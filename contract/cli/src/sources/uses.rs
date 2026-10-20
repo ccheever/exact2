@@ -9,10 +9,11 @@
 //! said: a name two files declare (which one is meant), a generated name
 //! (`Card__ui` is `Card`, named), a file no specifier reaches.
 
-use super::Loader;
+use super::{digest, Loader, Origin, Refused, Sources};
 use crate::CompileError;
 use crate::RelatedLocation;
 use contract_syntax::scope::{Elsewhere, Kind, Missing};
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 /// One line a file needs: an existing `use` line rewritten with the names
@@ -448,4 +449,188 @@ mod tests {
             "// A note.\n// More.\nuse D from \"./d.contract\"\ncomponent App\n"
         );
     }
+}
+
+/// A loader holding the root at `root_key` alone, `src` its text.
+fn root_loader<'a>(app_root: &'a Path, root_key: &Path, src: &str) -> Loader<'a> {
+    Loader {
+        app_root,
+        sources: Sources {
+            paths: vec![root_key.to_path_buf()],
+            origins: vec![Origin::App],
+            digests: vec![digest(src)],
+            homes: Vec::new(),
+            texts: vec![src.into()],
+            imports: Vec::new(),
+            packages: Vec::new(),
+            consulted: Vec::new(),
+            motion: Vec::new(),
+        },
+        active: vec![root_key.to_path_buf()],
+        units: Vec::new(),
+        cache: HashMap::new(),
+        fixes: Vec::new(),
+        proposed: Vec::new(),
+        declared: Vec::new(),
+        motion: Vec::new(),
+        refused: Refused::default(),
+    }
+}
+
+/// The `use` lines each file of the program rooted at `path` lacks (LLP
+/// 1091 D1), for `contract fmt --uses`; the loader's other refusals as
+/// they are.
+///
+/// The root's neighbours no `use` reaches yet are read too, as candidates
+/// that declare what the root lacks (euxy FRICTION 1: a root split into
+/// seven files named none). A fix is kept only for a file the root reaches,
+/// through its `use` lines or the ones the fixes add, so an unrelated
+/// neighbour (another entry, a broken fixture) is never written; one whose
+/// own refusal stops the program is left out and the rest tried again.
+pub(crate) fn use_fixes(
+    path: &Path,
+    src: &str,
+    app_root: &Path,
+) -> Result<Vec<UseFix>, Vec<CompileError>> {
+    let root_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let mut left_out: HashSet<PathBuf> = HashSet::new();
+    loop {
+        let mut loader = root_loader(app_root, &root_key, src);
+        let resolve = |sources: &Sources, all: Vec<CompileError>| {
+            all.into_iter()
+                .map(|e| sources.resolve(e))
+                .collect::<Vec<_>>()
+        };
+        let loaded = loader.load_source(&root_key, src, 0);
+        if !loader.refused.errors.is_empty() {
+            return Err(std::mem::take(&mut loader.refused.errors));
+        }
+        if let Err(all) = loaded {
+            return Err(resolve(&loader.sources, all));
+        }
+        let reached = loader.units.len();
+        let beside = loader.load_beside(&root_key, &left_out);
+        match loader.scope() {
+            Ok(_) => return Ok(Vec::new()),
+            Err(all) => {
+                // A refusal in what only a neighbour brought: leave it out.
+                let from = |e: &CompileError| {
+                    let id = e.span.source_id as usize;
+                    beside.iter().find(|(_, ids)| ids.contains(&id))
+                };
+                let culprits: Vec<_> = all.iter().filter_map(from).collect();
+                if loader.fixes.is_empty() && !culprits.is_empty() {
+                    left_out.extend(culprits.into_iter().map(|(key, _)| key.clone()));
+                    continue;
+                }
+                if loader.fixes.is_empty() {
+                    return Err(resolve(&loader.sources, all));
+                }
+                let reach = loader.reached_with_fixes(reached);
+                let sources = &loader.sources;
+                let at = |fix: &UseFix| sources.paths.iter().position(|p| *p == fix.path);
+                return Ok(std::mem::take(&mut loader.fixes)
+                    .into_iter()
+                    .filter(|fix| at(fix).is_some_and(|i| reach.contains(&i)))
+                    .map(|mut fix| {
+                        // Only the app's own files are written: a package's,
+                        // or one a link leads outside the app to, is said.
+                        let own = at(&fix).is_some_and(|i| sources.origins[i] == Origin::App);
+                        if !own || !fix.path.starts_with(app_root) {
+                            fix.lines.clear();
+                        }
+                        fix.error = sources.resolve(fix.error);
+                        fix
+                    })
+                    .collect());
+            }
+        }
+    }
+}
+
+impl Loader<'_> {
+    /// Load each neighbour of the root that nothing reached and `left_out`
+    /// does not name, as a unit no `use` names; for each, the source ids its
+    /// load added. One that does not load is put back as it was.
+    fn load_beside(
+        &mut self,
+        root_key: &Path,
+        left_out: &HashSet<PathBuf>,
+    ) -> Vec<(PathBuf, std::ops::Range<usize>)> {
+        let mut beside = Vec::new();
+        for key in unreached(root_key, |key| self.cache.contains_key(key)) {
+            let Ok(text) = std::fs::read_to_string(&key) else {
+                continue;
+            };
+            if left_out.contains(&key) || self.cache.contains_key(&key) {
+                continue;
+            }
+            let (units, cache) = (self.units.len(), self.cache.clone());
+            let (refused, hidden) = (self.refused.errors.len(), self.refused.hidden.len());
+            self.sources.paths.push(key.clone());
+            self.sources.origins.push(Origin::App);
+            self.sources.digests.push(digest(&text));
+            self.sources.texts.push(text.as_str().into());
+            self.active.push(key.clone());
+            let loaded = self.load_source(&key, &text, units as u32);
+            self.active.pop();
+            if loaded.is_err() || self.refused.errors.len() > refused || self.refused.whole {
+                self.units.truncate(units);
+                self.refused.errors.truncate(refused);
+                self.refused.hidden.truncate(hidden);
+                self.refused.whole = false;
+                self.cache = cache;
+                let s = &mut self.sources;
+                s.paths.truncate(units);
+                s.origins.truncate(units);
+                s.digests.truncate(units);
+                s.homes.truncate(units);
+                s.texts.truncate(units);
+            } else {
+                self.cache.insert(key.clone(), units);
+                beside.push((key, units..self.units.len()));
+            }
+        }
+        beside
+    }
+
+    /// The units the root reaches through the `use` lines written and the
+    /// edges the fixes would add (`proposed`); the first `reached` units are
+    /// the root's own program.
+    fn reached_with_fixes(&self, reached: usize) -> HashSet<usize> {
+        let mut seen: HashSet<usize> = (0..reached).collect();
+        let mut todo: Vec<usize> = seen.iter().copied().collect();
+        while let Some(at) = todo.pop() {
+            let written = self.units[at].targets.iter().copied();
+            let added = self
+                .proposed
+                .iter()
+                .filter(|(from, _)| *from == at)
+                .map(|(_, to)| *to);
+            for next in written.chain(added).collect::<Vec<_>>() {
+                if seen.insert(next) {
+                    todo.push(next);
+                }
+            }
+        }
+        seen
+    }
+}
+
+/// The `.contract` files beside `root` (not its tests, nor `root`) that
+/// `reached` says no `use` reaches, sorted; a link to a file outside
+/// `root`'s directory is not one of them.
+pub(crate) fn unreached(root: &Path, reached: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
+    let dir = root.parent().unwrap_or(Path::new("."));
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok()?.path().canonicalize().ok())
+        .filter(|p| p.starts_with(dir) && p.is_file())
+        .filter(|p| p.extension().is_some_and(|e| e == "contract"))
+        .filter(|p| !p.to_string_lossy().ends_with(".test.contract"))
+        .filter(|p| p != root && !reached(p))
+        .collect();
+    out.sort();
+    out
 }

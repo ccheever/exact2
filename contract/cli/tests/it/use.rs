@@ -434,11 +434,15 @@ fn a_root_that_names_no_file_has_its_lines_written() {
         "ui.contract",
         "component Row\n  props\n    p: Pattern\n  view\n    text p.name\n",
     );
-    write(
-        "widget.contract",
-        "component Widget\n  view\n    text \"w\"\n",
-    );
+    // Another entry that lacks its own lines, and a link to a file outside
+    // the app that lacks them too: candidates at most, never written.
+    let widget = "component Widget\n  view\n    Row(p=Pattern(name=\"w\"))\n";
+    write("widget.contract", widget);
     write("broken.contract", "component\n");
+    let shared_dir = temp_dir("unnamed-shared");
+    let shared = "component Shared\n  view\n    Row(p=Pattern(name=\"s\"))\n";
+    std::fs::write(shared_dir.join("x.contract"), shared).unwrap();
+    std::os::unix::fs::symlink(shared_dir.join("x.contract"), dir.join("shared.contract")).unwrap();
     write("app.test.contract", "test \"a\"\n  clock settle\n");
     write(
         "app.contract",
@@ -462,5 +466,18 @@ fn a_root_that_names_no_file_has_its_lines_written() {
         .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
         .collect();
     assert_eq!(unreached, ["broken.contract", "widget.contract"]);
+    assert_eq!(read("widget.contract"), widget);
+    assert_eq!(read("broken.contract"), "component\n");
+    assert_eq!(
+        std::fs::read_to_string(shared_dir.join("x.contract")).unwrap(),
+        shared
+    );
+    assert!(
+        written
+            .iter()
+            .all(|(p, _)| p.starts_with(dir.canonicalize().unwrap())),
+        "{written:?}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&shared_dir);
 }
