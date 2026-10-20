@@ -214,7 +214,6 @@ shape LinkedPrRow
   unlinkLabel: string
   canWatch: bool
 shape LinkedPrs
-  speedMode: bool
   supported: bool
   rows: LinkedPrRow[]
   footer: string

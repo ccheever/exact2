@@ -157,7 +157,6 @@ shape PrListView
   checksIcon: string
   filterBadge: string
   providerIconOnly: bool
-  speedMode: bool
   checksPopover: PrChecksPopover
   stackPopover: PrStackPopover
   // The list footer and a failed read over the rows shown.
@@ -270,7 +269,7 @@ component PrList
           row width="100%" flex-wrap="wrap" align-items="center" gap="0.5rem" padding-bottom=1 box-sizing="border-box"
             row height="2.125rem" flex-grow=1 flex-shrink=1 flex-basis=(narrow ? "100%" : "0px") min-width=0 box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000d" align-items="center"
               PgIcon(name="search", size=16, color="light-dark(#27272a, #f5f5f5)")
-              input value=query input=search submit=search(query) placeholder="Search pull requests, or label:bug" class=FieldPlaceholder aria-label="Search pull requests" autocorrect="off" spellcheck="false" testId="pull-requests-search" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+              input value=query input=search submit=search(query) placeholder="Search pull requests, or label:bug" class=FieldPlaceholder aria-label="Search pull requests" autocorrect="off" spellcheck="false" testId="pull-requests-search" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" id="pull-requests-search" data-editable="yes"
             PrSortMenu(page=page, scheme=scheme, control=control)
             PrFiltersMenu(page=page, scheme=scheme, control=control)
             PrHostMenu(page=page, scheme=scheme, control=control)
@@ -285,7 +284,7 @@ component PrList
                     text `${group.count}` font-size="0.75rem" line-height="1rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#72727c80, #81818180)" flex-shrink=0
                     box flex=1 min-width="0.5rem" height=1 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
                   for row in group.rows key=row.key
-                    PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, linkMenuFor=linkMenuFor, diff=page.diffScheme, act=quick, sweeping=sweepRefs.includes(row.ref), sweepDown=sweepDown(row.ref, group.key), sweepMove=sweepMove, sweepUp=sweepUp, speedMode=page.speedMode, checks=page.checksPopover, stack=page.stackPopover)
+                    PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, linkMenuFor=linkMenuFor, diff=page.diffScheme, act=quick, sweeping=sweepRefs.includes(row.ref), sweepDown=sweepDown(row.ref, group.key), sweepMove=sweepMove, sweepUp=sweepUp, checks=page.checksPopover, stack=page.stackPopover)
               if page.errors.length > 0
                 column width="100%" gap="0.25rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box"
                   for note in page.errors key=note.key
@@ -691,7 +690,7 @@ component PrFilterSub
         box padding="0.25rem" padding-bottom="0.5rem" box-sizing="border-box" width="100%"
           row width="100%" height="1.875rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000d" align-items="center"
             PgIcon(name="search", size=14, color="light-dark(#71717b, #818181)")
-            input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey placeholder="Search authors" class=FieldPlaceholder aria-label="Search authors" autocorrect="off" spellcheck="false" testId="pr-author-search" flex=1 min-width=0 height="1rem" padding=0 border-width=0 background-color="#00000000" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+            input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey placeholder="Search authors" class=FieldPlaceholder aria-label="Search authors" autocorrect="off" spellcheck="false" testId="pr-author-search" flex=1 min-width=0 height="1rem" padding=0 border-width=0 background-color="#00000000" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" data-editable="yes"
         // PullRequestAuthorFilter's radio items carry no MenuRadioItemIndicator, so the chosen
         // row (Anyone while no author is chosen) is only tinted (data-checked:bg-foreground/[0.08]), never ticked.
         PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="Anyone", detail="", selected=(page.author == ""), tick=false, disabled=false, press=control("author", page.author), testId="pr-author-anyone")
@@ -773,6 +772,8 @@ component PrAvatar
 // `text-left` stays on the lines (an overflowing title kept its start on macOS,
 // issues/closed/20261009-apple-overflow-line-alignment.md).
 component PrRowButton
+  inject
+    prSpeedMode: bool // Shift alone (app.contract modifierKey)
   props
     row: PrRow
     sweeping: bool
@@ -786,7 +787,6 @@ component PrRowButton
     control: action
     linkMenuFor: action
     act: action
-    speedMode: bool
     checks: PrChecksPopover
     stack: PrStackPopover
   state over = false
@@ -839,7 +839,7 @@ component PrRowButton
             box flex=1 min-width=0
             text row.age font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)" flex-shrink=0
       // PullRequestSpeedActions: `display: visible || actionPending ? flex : none`.
-      if row.speed.length > 0 and (speedMode or row.speedPending)
+      if row.speed.length > 0 and (prSpeedMode or row.speedPending)
         PrQuickActions(actions=row.speed, number=row.number, pending=row.speedPending, act=act, sweepDown=sweepDown, sweepMove=sweepMove, sweepUp=sweepUp)
 
 // PullRequestListGhost: seven placeholder rows while the first answer is out.
