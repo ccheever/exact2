@@ -2,8 +2,11 @@
 // Worker over one KV namespace. A diary is stored once, under a random receipt
 // that is also the only way to delete it; Slack is told counts, never content.
 //
-//   POST   /diary        {version, exact2, text, attachments?} -> {id}; attachments are the app's
-//                         README.md or AGENTS.md, each {name, text, workarounds}, sent only with consent
+//   POST   /diary        {version, exact2, text, attachments?} -> {id, attachments: [names stored]};
+//                         attachments are the app's README.md or AGENTS.md, each {name, text,
+//                         workarounds}, sent only with consent; text may be empty beside one. The
+//                         client marks an attachment sent only when its name comes back, so deploy
+//                         this before a client that sends them relies on it.
 //   DELETE /diary/<id>   delete that diary
 //   GET    /diaries      every stored diary (Authorization: Bearer $ADMIN_TOKEN)
 //   GET    /needs        each capability's provided / by hand / missing count across them (same token)
@@ -69,9 +72,9 @@ export default {
       if (raw.length > LIMIT) return json({ error: 'too large' }, 413);
       let body;
       try { body = JSON.parse(raw); } catch { return json({ error: 'not JSON' }, 400); }
-      if (typeof body.text !== 'string' || !body.text.trim()) return json({ error: 'no text' }, 400);
       const attached = attachments(body.attachments);
       if (!attached) return json({ error: 'attachments are README.md or AGENTS.md, each {name, text, workarounds}' }, 400);
+      if (typeof body.text !== 'string' || !body.text.trim() && !attached.length) return json({ error: 'no text' }, 400);
       const id = crypto.randomUUID(), received = new Date().toISOString();
       await env.DIARIES.put(`diary:${id}`, JSON.stringify({ id, received, exact2: body.exact2 ?? null, version: body.version ?? null, text: body.text, ...(attached.length ? { attachments: attached } : {}) }));
       if (env.SLACK_WEBHOOK) {
@@ -83,7 +86,7 @@ export default {
           + (s.needs.length ? ` Needed: ${s.needs.map(([name, how]) => `${name} (${how})`).join(', ')}.` : '');
         context.waitUntil(fetch(env.SLACK_WEBHOOK, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) }));
       }
-      return json({ id });
+      return json({ id, attachments: attached.map(a => a.name) });
     }
     if (request.method === 'DELETE' && receipt) {
       if (await env.DIARIES.get(`diary:${receipt}`) === null) return json({ error: 'no such diary' }, 404);

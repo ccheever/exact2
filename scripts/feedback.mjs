@@ -130,11 +130,15 @@ export async function send(dir, { yes = false, readme = false, fetch: post = fet
   if (standing(dir) === 'never') return 'This project is set to never send feedback (`feedback ask` undoes that).';
   if (standing(dir) === 'local') return 'This project keeps its diary on this machine and never sends it (`feedback ask` undoes that).';
   const { diaries, commands, logLength, text } = pending(dir);
-  if (!diaries.length && !commands.length) return 'Nothing unsent.';
   let files = attachments(dir);
+  // A README alone is a record too, sent only with its own consent (a workaround with no diary).
+  const diary = diaries.length > 0 || commands.length > 0;
+  if (!diary && (!files.length || yes && !readme)) return 'Nothing unsent.';
   if (!yes) {
-    console.log(`${text}\n---\nThis goes to ${ENDPOINT}.`);
-    if (!(await confirm('Send it? [y/N] '))) return 'Not sent.';
+    if (diary) {
+      console.log(`${text}\n---\nThis goes to ${ENDPOINT}.`);
+      if (!(await confirm('Send it? [y/N] '))) return 'Not sent.';
+    }
     // A separate consent: the README is the app's own text, not the diary.
     if (files.length && !readme) {
       console.log(`\n${attachmentPreview(files)}\n---`);
@@ -142,17 +146,21 @@ export async function send(dir, { yes = false, readme = false, fetch: post = fet
     }
   }
   if (!readme) files = [];
+  if (!diary && !files.length) return 'Not sent.';
   const exact2 = commands.findLast(c => c.exact2)?.exact2 ?? null;
   const response = await post(`${ENDPOINT}/diary`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: 1, exact2, text, ...(files.length ? { attachments: files } : {}) }) });
   if (!response.ok) throw new Error(`the feedback endpoint answered ${response.status}; nothing was marked sent`);
-  const { id } = await response.json();
+  // Marked sent only as the collector confirms it stored them: an older one keeps the text alone.
+  const { id, attachments: stored = [] } = await response.json();
+  const kept = files.filter(f => stored.includes(f.name)), lost = files.filter(f => !stored.includes(f.name));
   const sentDir = resolve(dir, '.exact/diary/sent');
   mkdirSync(sentDir, { recursive: true });
   for (const f of diaries) renameSync(resolve(dir, '.exact/diary', f), resolve(sentDir, f));
   const before = readJson(resolve(dir, '.exact/sent.json'), {});
-  const attached = { ...before.attachments, ...Object.fromEntries(files.map(f => [f.name, digest(f.text)])) };
+  const attached = { ...before.attachments, ...Object.fromEntries(kept.map(f => [f.name, digest(f.text)])) };
   writeFileSync(resolve(dir, '.exact/sent.json'), JSON.stringify({ commands: logLength, receipts: [...(before.receipts ?? []), id], ...(Object.keys(attached).length ? { attachments: attached } : {}) }) + '\n');
-  return `Sent ${diaries.length} ${diaries.length === 1 ? 'diary' : 'diaries'}, ${commands.length} logged commands${files.length ? ` and ${files.map(f => f.name).join(' and ')}` : ''}. Receipt: ${id}\nTo delete it: bun exact.mjs feedback delete ${id}`;
+  return `Sent ${diaries.length} ${diaries.length === 1 ? 'diary' : 'diaries'}, ${commands.length} logged commands${kept.length ? ` and ${kept.map(f => f.name).join(' and ')}` : ''}. Receipt: ${id}\nTo delete it: bun exact.mjs feedback delete ${id}`
+    + (lost.length ? `\nThe collector did not store ${lost.map(f => f.name).join(' or ')} (it predates attachments); it stays unsent.` : '');
 }
 
 /** The detailed diary (EXACT_DIARY=detailed): what a study of authoring needs beyond docs/diary.md. */

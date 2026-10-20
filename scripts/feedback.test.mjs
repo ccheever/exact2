@@ -128,7 +128,8 @@ test('the README goes beside the diary only with consent, its workarounds previe
     assert.match(files[0].text, /^# <app>/);
     assert.match(attachmentPreview(files), /^# Attachment: README\.md[^]*workarounds:\n\n> If `bun exact\.mjs web` fails[^]*> - If `prove` refuses[^]*## README\.md/);
     assert.deepEqual(workarounds('Arrow keys steer.\n\nPress E to light.'), []);
-    const posts = [], fetch = async (url, init) => (posts.push(JSON.parse(init.body)), { ok: true, json: async () => ({ id: `receipt-${posts.length}` }) });
+    // The collector answers with the attachment names it stored (feedback-worker.js).
+    const posts = [], fetch = async (url, init) => { const body = JSON.parse(init.body); posts.push(body); return { ok: true, json: async () => ({ id: `receipt-${posts.length}`, attachments: (body.attachments ?? []).map(a => a.name) }) }; };
     // The diary's yes is not the README's: without --readme it stays home.
     await send(dir, { yes: true, fetch });
     assert.equal(posts[0].attachments, undefined);
@@ -136,16 +137,30 @@ test('the README goes beside the diary only with consent, its workarounds previe
     assert.match(await send(dir, { yes: true, readme: true, fetch }), /and README\.md\. Receipt: receipt-2/);
     assert.deepEqual(posts[1].attachments.map(a => [a.name, a.workarounds.length]), [['README.md', 2]]);
     assert.deepEqual(attachments(dir), [], 'sent once in this form');
+    // A README alone, with no diary or command to send, is still sendable with its consent.
+    writeFileSync(resolve(dir, 'README.md'), 'If the web build fails, delete target/ and rerun it.\n');
+    assert.equal(await send(dir, { yes: true, fetch }), 'Nothing unsent.', 'not without --readme');
+    assert.match(await send(dir, { yes: true, readme: true, fetch }), /0 diaries, 0 logged commands and README\.md\. Receipt: receipt-3/);
+    assert.equal(posts[2].text, '');
+    assert.equal(posts[2].attachments[0].workarounds.length, 1);
+    // A collector that keeps only the text (one older than attachments) answers 200 without the names: nothing is marked sent.
+    writeFileSync(resolve(dir, 'README.md'), 'Delete assets/ when a model is refused, then rerun.\n');
+    const old = async (url, init) => (posts.push(JSON.parse(init.body)), { ok: true, json: async () => ({ id: 'receipt-old' }) });
+    assert.match(await send(dir, { yes: true, readme: true, fetch: old }), /did not store README\.md[^]*stays unsent/);
+    assert.equal(attachments(dir).length, 1);
     // local and never send nothing, README or not.
     writeFileSync(resolve(dir, '.exact/diary/2026-10-19-c.md'), 'c');
     writeFileSync(resolve(dir, 'README.md'), 'If it fails, rerun it.\n');
     setStanding(dir, 'local');
     assert.match(await send(dir, { yes: true, readme: true, fetch }), /never sends it/);
-    assert.equal(posts.length, 2);
+    assert.equal(posts.length, 4);
     // The collector keeps them under the diary's own key, and refuses anything else.
     const kept = new Map(), env = { DIARIES: { put: async (k, v) => kept.set(k, v) } };
     const request = body => worker.fetch(new Request('https://x/diary', { method: 'POST', body: JSON.stringify(body) }), env, { waitUntil() {} });
-    assert.equal((await request({ text: 't', attachments: posts[1].attachments })).status, 200);
+    const answer = await request({ text: 't', attachments: posts[1].attachments });
+    assert.deepEqual([answer.status, (await answer.json()).attachments], [200, ['README.md']]);
+    assert.equal((await request({ text: '', attachments: posts[1].attachments })).status, 200, 'a README alone');
+    assert.equal((await request({ text: '' })).status, 400);
     assert.deepEqual(JSON.parse([...kept.values()][0]).attachments, posts[1].attachments);
     assert.equal((await request({ text: 't', attachments: [{ name: 'lib.rs', text: 'x', workarounds: [] }] })).status, 400);
     assert.equal(stored(undefined).length, 0);
