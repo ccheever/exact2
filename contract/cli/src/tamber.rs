@@ -426,7 +426,8 @@ fn fmt(path: &Path, src: &str, check: bool) -> ExitCode {
 }
 
 /// The design's IR, with its app's components' params (LLP 1121 D15) when
-/// it declares any: under `components` by full name, never among the
+/// it declares any, or uses an exported library component (its parts and
+/// variants, stage 12 D3): under `components` by full name, never among the
 /// tokens by their names below the IR.
 fn ir(
     src: &str,

@@ -58,7 +58,7 @@ fn components(s: &mut Serve) -> Vec<Value> {
 fn describe_lists_a_library_components_parts_and_variants_and_resolve_each_params_level() {
     let dir = library(
         "describe-library",
-        "tamber app\n\ntheme\n  lib.gap = 6px\n\nparams\n  Card.set = 10px\n",
+        "tamber app\n\ntheme\n  lib.gap = 6px\n\nparams\n  @acme/lib/index.contract#Card.set = 10px\n",
     );
     let mut s = Serve::start(&dir, &[]);
     let all = components(&mut s);
