@@ -56,6 +56,7 @@ pub fn css(kind: Kind, value: &str) -> String {
                 exact_web::css::num(n * unit.basis(medium, medium, 1.0) / medium)
             )
         }
+        Some((unit @ Unit::TextStyleAtMost(_), n)) => unit.capped_css(n),
         Some((Unit::Hairline, _)) => exact_web::css::HAIRLINE.to_string(),
         _ => value.trim().to_string(),
     }

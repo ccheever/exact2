@@ -28,6 +28,7 @@ component App
       column testId="empty" height=400
         EmptyState(symbol="symbol:calendar", title="Nothing yet", message="Log a glass.")
       Probe()
+      text "28" font-size="min(-exact-subheadline, 31px)" testId="day"
 
 component Probe
   resource fact = exactViewport() as shape Text
@@ -87,11 +88,22 @@ fn the_accessibility_sizes_are_ios_bodies_of_28_and_more() {
     assert!(symbol(&r), "EmptyState's symbol at the default size");
     r.set_root_font_size(23.0).unwrap();
     assert_eq!(shown(&r), "standard", "the largest standard size");
+    let day = |r: &Runner<NoData>| {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id("day")[0]).unwrap();
+        node.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size)
+    };
+    assert!(
+        day(&r) < 31.0,
+        "a capped style at the default size is its own: {}",
+        day(&r)
+    );
     for body in [28.0, 53.0] {
         r.set_root_font_size(body).unwrap();
         assert_eq!(shown(&r), "large", "{body}: an accessibility size");
         assert!(!symbol(&r), "{body}: no symbol, as UIKit's empty view");
     }
+    assert_eq!(day(&r), 31.0, "held to its cap at AX5");
     // A child's action reads its own fact too.
     let read = |r: &mut Runner<NoData>| {
         let k = r.kernel();

@@ -3535,7 +3535,11 @@ resets them. The styles are `-exact-large-title`, `-exact-title1`, `-exact-title
 `-exact-title3`, `-exact-headline`, `-exact-body`, `-exact-callout`,
 `-exact-subheadline`, `-exact-footnote`, `-exact-caption1`, `-exact-caption2`;
 `font-size="-exact-caption1"` alone sets the size and keeps an inherited weight
-and line height, the style filling only what nothing above says. A weight or
+and line height, the style filling only what nothing above says.
+`font-size="min(-exact-subheadline, 31px)"` grows with the text size up to its
+cap, as UIKit's `UIFontMetrics.scaledFont(for:maximumPointSize:)` holds one: for a
+row of equal cells that must stay one line at the accessibility sizes (a week's
+day numbers, which UIKit's calendar caps at 31 points), never to shrink text. A weight or
 line height written on the node wins either way, and `layout` names each one's
 source (`style`, `heading`, `inherited`, `authored`). `font` takes nothing else.
 Bold Text (iOS's setting, Android's font weight adjustment) weights the system

@@ -69,6 +69,7 @@ fn css_text_in(
                 num_into(out, n * unit.basis(medium, medium, 1.0) / medium);
                 out.push_str("rem");
             }
+            Unit::TextStyleAtMost(_) => out.push_str(&unit.capped_css(n)),
             // @ref LLP 1115.000 D10.3 — one device pixel: the page's sheet
             // keeps `--exact-hairline` at it, whatever the display's scale.
             Unit::Hairline => out.push_str(HAIRLINE),
