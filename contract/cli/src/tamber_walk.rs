@@ -329,21 +329,36 @@ impl Server {
         let mut slots = self.slots.borrow_mut();
         if !matches!(&*slots, Some((of, _)) if std::rc::Rc::ptr_eq(of, &app)) {
             let mut library = contract::tamber_params::library(&app, None);
-            // Indexed by each row's own value only: what those reach is the
-            // candidate fold's to say (check_slots closes over it), never the
-            // packages' defaults an app line may have replaced.
+            // Indexed by the names each row's own value says (a bare name, or
+            // each a `calc(…)` names): what those reach is the candidate
+            // fold's to say (check_slots closes over it), never the packages'
+            // defaults an app line may have replaced. (A function's name or a
+            // unit's word indexes nothing a write touches.)
             for node in library
                 .as_array_mut()
                 .into_iter()
                 .flatten()
                 .flat_map(|e| e["chain"].as_array_mut().into_iter().flatten())
             {
-                let direct: Vec<serde_json::Value> = node["rows"]
+                let mut direct: Vec<serde_json::Value> = Vec::new();
+                for value in node["rows"]
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .filter_map(|r| r.get(1).cloned())
-                    .collect();
+                    .filter_map(|r| r.get(1).and_then(|v| v.as_str()))
+                {
+                    for name in value
+                        .split(|c: char| {
+                            !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+                        })
+                        .filter(|w| w.starts_with(|c: char| c.is_ascii_alphabetic()))
+                    {
+                        let name = serde_json::Value::from(name.trim_end_matches('.'));
+                        if !direct.contains(&name) {
+                            direct.push(name);
+                        }
+                    }
+                }
                 node["tokens"] = serde_json::Value::Array(direct);
             }
             let any = library.as_array().is_some_and(|all| {

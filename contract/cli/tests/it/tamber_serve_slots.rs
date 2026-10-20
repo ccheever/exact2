@@ -256,6 +256,32 @@ fn a_package_default_the_app_replaced_selects_no_chain() {
 }
 
 #[test]
+fn a_write_to_a_token_a_rows_expression_names_is_checked() {
+    // The chain's width an expression over `lib.w` (reload1's 3cdc0401b9 folds it as the compiler does).
+    let dir = app("expr", DESIGN);
+    std::fs::write(
+        dir.join("node_modules/@acme/lib/index.contract"),
+        "component Card\n  slot\n  view\n    column opacity=\"lib.op\" width=\"calc(lib.w * 2)\"\n      children\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let files = || json!({"app.tamber": digest(&dir.join("app.tamber"))});
+    let (zero, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "set-token", "name": "lib.w", "value": "0px"}]}));
+    assert_eq!(refusals(&zero).len(), 1, "{zero}");
+    // The compiler refuses it too, once written. (in other words at 3cdc0401b9, "a value the check can't
+    // read" where the server says "gives it no room": asked of reload1)
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber app\n\ntheme\n  other = 2px\n  lib.w = 0px\n",
+    )
+    .unwrap();
+    assert_eq!(compiled(&dir).len(), 1);
+    let (fine, _) = s.ask(json!({"method": "transaction", "client": "t", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": "lib.w", "value": "12px"}]}));
+    assert!(fine["ok"].is_object(), "{fine}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_base_name_reached_only_through_the_apps_own_aliases_is_checked() {
     // The chain reads `lib.w`; the app's `lib.w` names its own `cards.pad`, which names `space.md`.
     // (every token whose fold moves is in the plan's changed names, so this holds with or without the
