@@ -209,6 +209,8 @@ pub struct Sim<G: Game> {
     // The last tick's pointer motion, for presentation between ticks only.
     last_motion: crate::Vec2,
     paranoid: Option<fn(&mut Self)>,
+    pub(crate) paranoid_mode: Paranoid,
+    pub(crate) paranoid_checked: u64,
     // A paranoid sample deferred while a shown asset was in flight: the next
     // tick takes it. Skipped samples are counted for the proof's report.
     paranoid_owed: bool,
@@ -237,6 +239,8 @@ impl<G: Game> Sim<G> {
     /// Override EXACT_GAME_PARANOID for this simulation.
     pub fn paranoid(mut self, mode: Paranoid) -> Self {
         self.paranoid = Self::reconstruction(mode);
+        self.paranoid_mode = mode;
+        self.paranoid_checked = 0;
         self
     }
 
@@ -395,6 +399,8 @@ impl<G: Game> Sim<G> {
             last_motion: crate::Vec2::ZERO,
             ready_hint: None,
             paranoid: Self::reconstruction(Paranoid::environment()),
+            paranoid_mode: Paranoid::environment(),
+            paranoid_checked: 0,
             paranoid_owed: false,
             paranoid_skipped: 0,
             present_owed: false,

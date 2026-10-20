@@ -1,6 +1,6 @@
 # Small game
 
-`bun proof.mjs` verifies gameplay, Contract text/accessibility and saves on the GPU-less Linux host. `bun proof.mjs web` adds pixels. First run `bun /path/to/exact2/game/prove.mjs .` to fill empty pins after every mode and host agrees; accept later intentional changes with `--repin`.
+`bun proof.mjs` verifies gameplay, Contract text/accessibility and saves on the GPU-less Linux host. `bun proof.mjs web` adds pixels. First run `bun /path/to/exact2/game/prove.mjs .` to fill empty pins after every mode and host agrees; accept later intentional changes with `--repin`. Use `prove --release` before shipping; `prove --repin --release` publishes that coverage for existing pins.
 
 `proof.mjs` opens with engine facts that hold for any game, then one block headed
 `// starter: replace these with your game's checks`. The facts: on every GPU host the
@@ -90,7 +90,7 @@ This game is the files you write: `logic/src/lib.rs`, `app.contract` and
 `pins.json`. Identity derives from the directory name and `Game::ID`; add an
 `app.json` only for keys you author (a title, `game.audio`, a bundle id). The
 bake generates everything else, ignored, under `.shells/`. Linux proofs use the
-incremental `gpu-dev` profile; web, Apple and deploy retain their production
+incremental `gpu-dev` profile, as do web proofs; Apple and deploy retain their production
 profiles. `EXACT_GAME_PROOF_PROFILE=release bun proof.mjs` checks Linux against
 release without changing the game.
 
