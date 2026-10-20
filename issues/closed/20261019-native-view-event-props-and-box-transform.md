@@ -1,6 +1,7 @@
 # Native-view props named like events bind to the box silently; transform on a box is deferred
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41 (event-named props refused on a module tag) and aefedf88d (a box transform of translate, rotate and scale lowers to those rows)
 **Systems:** contract lowering (native.rs, analyze handlers, svg.rs transform), docs/recipes/native-views.md
 **Severity:** P2
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

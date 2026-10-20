@@ -1,6 +1,7 @@
 # No App Clip target
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** built by 41f9dbfd8: host.ios.appClip embeds a signed clip bundle
 **Systems:** host/apple build (bundle.mjs, build.mjs), app.json schema, LLP 1126 D12
 **Severity:** P2
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

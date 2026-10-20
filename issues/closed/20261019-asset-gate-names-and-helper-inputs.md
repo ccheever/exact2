@@ -1,6 +1,7 @@
 # Asset gate: @2x names refused, one offender per build; unimported helper scripts are build inputs
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: @ admitted, every bad name reported at once, unimported scripts are no driver input
 **Systems:** update envelope asset names, bake receipt, js/bake sources, scripts/agent-launch.mjs inputs
 **Severity:** P3
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

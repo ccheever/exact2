@@ -1,6 +1,7 @@
 # Eager image rails starve the raster queue and later images stay blank
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by b00f7bd30: failed decodes hold no queue place, refusals are retried, and off-screen pictures make room for on-screen ones
 **Systems:** Apple host RasterLoader, host/raster policy
 **Severity:** P1
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

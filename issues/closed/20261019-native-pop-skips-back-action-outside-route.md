@@ -1,6 +1,7 @@
 # A native pop skips the app's Back action when the control is outside the route
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: the named Back control may live outside every route, on iOS and the web
 **Systems:** Apple host navigation (NavigationIOS, NavigationRules), runner router, docs
 **Severity:** P2
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

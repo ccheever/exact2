@@ -1,6 +1,7 @@
 # Widget images: app:/data resolves to a different folder than the app writes
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: the widget resolves app:/ images under the app's own layout in the group container
 **Systems:** widgets (ExactSnapshot rasters), Apple host storage roots (picker.rs, store.rs)
 **Severity:** P2
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

@@ -1,6 +1,7 @@
 # iOS tab bar covers route content under viewport-fit=cover and absolute footers
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: a route is covered under viewport-fit=cover too, and absolute children clear a parent's cover
 **Systems:** Apple host navigation covers (NavigationCoversIOS), env safe-area, docs/recipes/tabs.md
 **Severity:** P1
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

@@ -1,6 +1,7 @@
 # Zoom transition covers full-screen modals only, not stack pushes
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: a pushed route with a navigationSource zooms from it on iOS 18
 **Systems:** Apple host navigation (NavigationIOS, ModalIOS), docs
 **Severity:** P3
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

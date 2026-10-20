@@ -1,6 +1,7 @@
 # Agent driver: screenshots hide system alerts, and page-visibility facts ignore real backgrounding
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: screenshot display, a real background under the agent, and the touch runner names its app
 **Systems:** scripts/agent.mjs, host/apple/devices.mjs, ExactKit PageFacts, touch runner
 **Severity:** P3
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

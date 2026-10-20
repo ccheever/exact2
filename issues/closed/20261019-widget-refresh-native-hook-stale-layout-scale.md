@@ -1,6 +1,7 @@
 # Widget refresh: no native hook for storage changes, stale layout after an update, and --scale 1 only
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: context.wrote reloads widgets, a generation names its binary, and the stand-in renders at the asked scale
 **Systems:** widgets (WidgetContainer, Timeline), native modules (ExactModuleContext), scripts/agent-widget.mjs
 **Severity:** P2
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

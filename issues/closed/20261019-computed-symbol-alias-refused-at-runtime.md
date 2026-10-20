@@ -1,6 +1,7 @@
 # Computed symbol sources are refused at runtime: unknown symbol role
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: a runtime symbol source resolves by any spelling, and a tab takes a bundled raster glyph
 **Systems:** kernel (replaced.rs symbol lookup), contract lowering (symbols), Apple host tabs
 **Severity:** P2
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

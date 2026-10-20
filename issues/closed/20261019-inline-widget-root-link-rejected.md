@@ -1,6 +1,7 @@
 # Lock Screen inline widget: a root link renders "Open <app>"
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: the Swift inline admission reads the wire's button as the compiler reads a pressable
 **Systems:** widgets (ExactSnapshot), Apple host wire, contract snapshot compiler
 **Severity:** P2
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

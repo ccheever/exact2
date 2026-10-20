@@ -1,6 +1,7 @@
 # exact new: a folder named exact collides with the SDK's crates, and a failed scaffold removes the author's directory
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: SDK crate names are refused before writing, and a failed scaffold keeps the author's directory
 **Systems:** scripts/exact.mjs new (game/new.mjs)
 **Severity:** P2
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report

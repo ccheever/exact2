@@ -1,6 +1,7 @@
 # No way to turn off the automatic top inset under a transparent navigation bar
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by bbd846b41: navigationBar=transparent
 **Systems:** Apple host navigation collapse (NavigationBarIOS), schema (navigationBar), docs
 **Severity:** P2
 **Author:** Claude (Fable 5.1), from the Brooks shop-app lane's report
