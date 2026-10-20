@@ -54,7 +54,7 @@ async function fixture(body) {
     write('contract/src/main.rs', 'fn main() { println!("{}", r#"{\"packages\":[],\"sources\":[],\"consulted\":[]}"#); }');
     write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","ordinary/*"]\nexclude=["games"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);
-    write('game/bake/src/files.rs', 'pub fn bake_game_level<G>(_: impl AsRef<std::path::Path>) -> Result<(), String> { Ok(()) }\n');
+    write('game/bake/src/files.rs', 'pub fn bake_game_level<G>(_: impl AsRef<std::path::Path>) -> Result<(), String> { Ok(()) }\npub fn bake_game_tables<G>(_: impl AsRef<std::path::Path>) -> Result<(), String> { Ok(()) }\n');
     write('game/games/.gitignore', '*/.shells/\n');
     // Cargo permits an empty glob when its containing directory exists.
     pkg('game/ordinary/stub','ordinary-stub');
@@ -350,7 +350,9 @@ test('game bakes resolve one fresh Cargo graph for the actual target and environ
       const FIELDS: &'static [(&'static str, ())] = &[("seed", ()), ("paused", ()), ("label", ())];
       fn values(&self) -> Vec<Value> { vec![Value::Number(7.0), Value::Bool(false), Value::Text("say \\"hi\\"\\n雪".into())] }
     }
-    pub trait Game { const NAME: &'static str; type Args: Args; }
+    pub struct Actions;
+    impl Actions { pub fn keys(&self) -> Vec<(&'static str, &'static str)> { Vec::new() } }
+    pub trait Game { const NAME: &'static str; type Args: Args; fn actions() -> Actions { Actions } }
   `);
   write('game/deps/exact-game-render/src/lib.rs', '#[macro_export] macro_rules! module { ($game:ty) => { #[no_mangle] pub extern "C" fn answer() -> u32 { game_logic::ANSWER } }; }');
   write('game/games/foo/logic/src/lib.rs', `pub struct SmallGame; impl SmallGame { pub const NAME: &'static str = "inherent"; } pub const ANSWER: u32 = 42; impl exact_game::Game for SmallGame { const NAME: &'static str = "world"; type Args = (); }`);
@@ -643,7 +645,9 @@ test('native resource snapshot preserves ignored scoped packages, executable bit
   try {
     const staged=materializeSnapshot(snapshot,resolve(root,'target/run'),resolved);
     assert.equal(readFileSync(resolve(staged.app.dir,'server/node_modules/@scope/pkg/index.js'),'utf8'),'captured ignored dependency');
-    assert.equal(statSync(resolve(staged.app.dir,'server/helper')).mode&0o111,0o111);
+    // Executable as the process's umask lets a new file be (an agent's is
+    // often 077: the owner's bit alone), as git's own checkout makes it.
+    assert.equal(statSync(resolve(staged.app.dir,'server/helper')).mode&0o111,0o111&~process.umask());
     assert.equal(readlinkSync(resolve(staged.app.dir,'server/link')),'helper');
   } finally {disposeSnapshot(snapshot);}
 }),60000);
