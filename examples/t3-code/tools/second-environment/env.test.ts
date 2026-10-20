@@ -114,6 +114,10 @@ describe("a drive", () => {
   test("pairs the first environment in the open welcome field and each later one through Add a computer", () => {
     expect(pairOps("http://127.0.0.1:16510/pair#token=A", 0)[0]).toBe("type welcome-pairing-link http://127.0.0.1:16510/pair#token=A");
     expect(pairOps("http://127.0.0.1:16511/pair#token=B", 1).slice(0, 2)).toEqual(["tap welcome-add-computer", "type welcome-pairing-link http://127.0.0.1:16511/pair#token=B"]);
+  });
+  test("with This machine running, opens Add a computer before the first pairing too (the fold starts closed)", () => {
+    expect(pairOps("http://127.0.0.1:16510/pair#token=A", 0, true).slice(0, 2)).toEqual(["tap welcome-add-computer", "type welcome-pairing-link http://127.0.0.1:16510/pair#token=A"]);
+    expect(pairOps("http://127.0.0.1:16511/pair#token=B", 1, true).filter(op => op === "tap welcome-add-computer")).toHaveLength(1);
     expect(FINISH_WELCOME).toContain("tap welcome-skip-import");
   });
   test("prints no pairing token", () => {
