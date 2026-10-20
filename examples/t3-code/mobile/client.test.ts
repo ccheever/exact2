@@ -8,6 +8,8 @@ import { MobileDraftClient } from './mobile-draft-recovery';
 import { requestPresentation } from './shared/requests';
 import { letGoAware } from './shared/let-go';
 import { obj, str, type Obj } from './shared/domain';
+import { homeConnectionTitle } from './home-chrome';
+import { mobileHomeAction, mobileHomeActionsObserve, mobileHomeMenu } from './home-actions';
 
 const unusedStorage: Files = { fs: {
   async mkdir() { throw new Error('Unexpected storage call'); },
@@ -100,6 +102,49 @@ describe('mobile refresh ownership', () => {
     expect(f.calls.some(call => call.op === 'ack' && Number(call.through) >= 100)).toBe(true);
     expect(f.client.ready).toBe(true);
     expect(f.events).toEqual([]);
+  });
+});
+
+describe('mobile connection feedback', () => {
+  // Mobile 365aa87982: connectionError is transport only (remote-environment-projections.ts); a read-only
+  // connection says so when an action is attempted (useThreadListActions.ts), not in the Home header.
+  async function refreshed(scopes: string[], resolved: boolean, authenticated = true) {
+    const f = refreshFixture(), original = f.native.later;
+    f.native.later = async input => {
+      const request = obj(input), response = obj(await original(input));
+      if (request.path === '/api/auth/session') return { ...response, value: { authenticated, scopes } };
+      if (request.method !== 'server.getConfig') return response;
+      const config = obj(response.value);
+      return { ...response, value: { ...config, environment: { ...obj(config.environment), capabilities: { serverResolvedCommandContext: resolved } } } };
+    };
+    await f.client.refresh(f.native, unusedStorage);
+    return f;
+  }
+  const title = (client: T3Client) => homeConnectionTitle({ connectionError: client.error || null, connectingEnvironments: [], hasConnectingEnvironment: false,
+    hasPendingShellSnapshot: client.connection === 'connected' && !client.shellLoaded, hasLoadedShellSnapshot: client.shellLoaded, hasReadyEnvironment: client.ready }).label;
+  const read = ['orchestration:read', 'filesystem:read', 'diagnostics:read', 'terminal:read'];
+  test('a ready read-only connection has no Home status and still refuses thread actions', async () => {
+    for (const resolved of [true, false]) {
+      const f = await refreshed(read, resolved);
+      expect(f.client.ready).toBe(true);
+      expect(f.client.error).toBe('');
+      expect(title(f.client)).toBe('');
+      expect(mobileHomeMenu('env', 'thread', 0, f.client)).toEqual([]);
+      mobileHomeActionsObserve('home', true, false, f.client); f.calls.length = 0;
+      expect((await mobileHomeAction('home', 'env', 'thread', 'pin', '', 0, f.native, f.client)).message).toBe('This connection cannot change threads.');
+      expect(f.calls.filter(call => call.method === 'orchestration.dispatchCommand')).toEqual([]);
+    }
+  });
+  test('an old writable server and a refused session keep their Home status', async () => {
+    const writable = await refreshed(['orchestration:operate', ...read], true);
+    expect(title(writable.client)).toBe('');
+    expect(mobileHomeMenu('env', 'thread', 0, writable.client).length).toBeGreaterThan(0);
+    const old = await refreshed(['orchestration:operate', ...read], false);
+    expect(old.client.ready).toBe(true);
+    expect(title(old.client)).toBe('Update the T3 server to send messages from this client. Existing threads remain readable.');
+    const refused = await refreshed(read, true, false);
+    expect(refused.client.ready).toBe(false);
+    expect(title(refused.client)).toBe('Pair with the T3 server again.');
   });
 });
 
@@ -253,9 +298,11 @@ describe('pinned shared sources', () => {
         .replace('if (entry === group.terminal) return;', 'if (entry === group.terminal || keepFirstAssistant && entry === group.firstAssistant) return;')
         .replace('    result.set(group.anchor, { runId, createdAt: group.start ?? first.createdAt, hidden, label });',
           '    const firstHidden = group.entries.find(entry => hidden.has(entry.id))!;\n    result.set(keepFirstAssistant ? firstHidden.id : group.anchor,\n      { runId, createdAt: keepFirstAssistant ? firstHidden.createdAt : group.start ?? first.createdAt, hidden, label });');
-      if (name === 'client.ts') expected = "// Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.\n// Additive cleanup visibility from shared commit af0a96dddbd500aa50bc5bbe69ec59597e34efee.\n" + expected
+      if (name === 'client.ts') expected = "// Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.\n// Additive cleanup visibility from shared commit af0a96dddbd500aa50bc5bbe69ec59597e34efee.\n// Mobile 365aa87982: a read-only connection has no status; its actions refuse (useThreadListActions.ts).\n" + expected
         .replace("const formCommand = ['settings-core',", "const formCommand = ['select-thread', 'settings-core',")
-        .replace("  private finishPending(", "  protected finishPending(");
+        .replace("  private finishPending(", "  protected finishPending(")
+        .replace("      this.error = !this.scopes.includes('orchestration:operate') ? 'This connection is read-only.'\n        : obj(environment.capabilities).serverResolvedCommandContext !== true\n          ? 'Update the T3 server",
+          "      this.error = this.scopes.includes('orchestration:operate') && obj(environment.capabilities).serverResolvedCommandContext !== true\n        ? 'Update the T3 server");
       if (name === 'client-ops-composer.ts') expected = "// Mobile 365aa87982: send admission, retained options and independent model-pick ownership differ.\nimport { mobileNewTaskDirectText, mobileNewTaskMessageContext as withMessageContext, mobileNewTaskSendGuard } from '../mobile-new-task-context-send';\nimport { mobileModelSelectionUnavailable } from '../model-availability';\nimport { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';\n" + expected
         .replace("import { dispatchSelection, promptForSend, ultrathinkChoice }", "import { promptForSend, ultrathinkChoice }")
         .replace("if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');",
