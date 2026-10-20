@@ -508,11 +508,11 @@ export function lines(opts) {
       return r.ok && got === '44px' ? pass(...evidence) : fail(...evidence, r.out.split('\n').slice(-4).join(' / '));
     }],
     ['no-regressions', 'Release output unchanged for apps using none of this; conform clean', () => {
-      const conform = run(process.execPath, [join(ROOT, 'host/web-js/conform.mjs'), '--synthetic', '--strict', '--linux', '--build', '--jobs', '1', '--wasm-root', join(WORK, 'wasm'), '--out', join(WORK, 'conform')]);
+      const conform = run(process.execPath, [join(ROOT, 'host/web-js/conform.mjs'), '--synthetic', '--strict', '--linux', '--build', '--jobs', '1', '--wasm-root', join(WORK, 'wasm'), '--out', join(WORK, 'conform')], { timeout: 7_200_000 });
       // Its summary and each target that failed; with no summary (it stopped
       // short), its last lines.
       const said = conform.out.split('\n');
-      const summary = said.find(l => /failures across/.test(l)) ?? `no summary: ${conform.out.trim().split('\n').slice(-3).join(' / ').slice(0, 400)}`;
+      const summary = said.find(l => /failures across/.test(l)) ?? `no summary${conform.error ? ` (${conform.error.code ?? conform.error.message})` : ''}: ${conform.out.trim().split('\n').slice(-3).join(' / ').slice(0, 400)}`;
       const failed = said.filter(l => /^[\w-]+: [1-9]\d* failures?$/.test(l));
       const names = cargoTest(['-p', 'contract', '--test', 'it', 'tamber_base_scale'], 'an app\'s own space.* names (tamber_base_scale)');
       const evidence = [`conform --synthetic --strict --linux: ${summary}`, ...failed.map(l => `  ${l}`), names.said];
