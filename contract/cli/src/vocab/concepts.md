@@ -1160,3 +1160,42 @@ component App
 
 - Nothing moves the traffic lights or sets the row's height: the title bar is AppKit's.
 - More: docs/contract-grammar.md (lengths).
+
+## share: the share sheet, with a link, words, a file or a picture of an element
+names: share-sheet, sharesheet, UIActivityViewController, NSSharingServicePicker, navigator.share, Share.share, Sharing.shareAsync, shareAsync, share-card, share-image, share-png
+
+`share(title=, text=, url=, files=)` opens the system share sheet with the Web Share API's
+arguments. Each `text`, `url` and file is its own item: the sheet's header counts them ("1
+Link and 1 Image") and every target receives all of them. Pass what the button names: a
+Share Card button the picture alone, a Share Link button the `url`. A `files` entry `"#id"`
+is a PNG of that element as drawn now, named by `title` (else by the id), so `title` names
+the file a person receives; `title` is otherwise the subject Mail takes.
+
+```contract
+shape Page
+  canSharePictures: bool
+
+component App
+  state name = "untitled"
+  resource page = exactPage() as shape Page
+  action shareCard
+    share(title=`euxy-${name}`, files=["#card"])
+  action shareLink
+    share(url=`https://example.com/p/${name}`)
+  view
+    column padding=16 gap=12
+      column id="card" padding=16 border-radius=12 background-color="#111111"
+        text name color="#ffffff"
+      if page.canSharePictures
+        button press=shareCard testId="share-card"
+          text "Share Card"
+      button press=shareLink testId="share-link"
+        text "Share Link"
+```
+
+- The PNG above is `euxy-untitled.png`, the one item in the sheet, as a React Native port's
+  `Sharing.shareAsync(file)` shares it.
+- A picture is iOS's and the Mac's; the web refuses one by name, so offer it where
+  `exactPage().canSharePictures` holds. An `app:/` file needs the `fs.read` grant
+  (`contract vocab files-and-grants`).
+- More: docs/contract-grammar.md (host commands), LLP 1125 D12.

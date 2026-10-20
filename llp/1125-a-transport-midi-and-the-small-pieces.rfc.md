@@ -466,8 +466,11 @@ shares a PNG of it as it is drawn now.
 
 ```
 action shareCard
-  share(title=pattern.name, url=link, files=["#card"])
+  share(title=`euxy-${slug}`, files=["#card"])
 ```
+
+The picture is the share's one item, named by `title` (`euxy-untitled.png`); a `url`
+beside it would be a second ("1 Link and 1 Image"), so the link is its own button's share.
 
 - **On Apple and Android it is the host's own drawing**: the node's view
   rendered at the display's scale. Apple's presenter has one view per node (§1).
