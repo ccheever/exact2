@@ -2904,11 +2904,13 @@ a large title: it eases to the title's open or closed rest, whichever is nearer,
 so under one a wheel of 20 from the top moves nothing (with a search field in the
 bar it stays where it ends: not measured). Under `--touch platform` a drag whose ends
 are both on screen is a real one (`delivery: platform`): the content follows the
-finger once UIKit's pan begins, some 10 points in, and glides on after the lift;
-`clock settle` waits up to 4 s for it to stop (`reason: "scroll"` past that). A
-hold shorter than about a second still glides, since XCTest's finger sends
-nothing while it is still; `hold 1000` lifted with none where measured. A drag that ends past the
-screen is the agent's drag above, `delivery: recognized`.
+finger once UIKit's pan begins, some 10 points in. Without a hold it glides on
+after the lift, and `clock settle` waits up to 4 s for it to stop (`reason:
+"scroll"` past that). Held for `hold 100` or longer it stops with the finger,
+which the runner steps a point across the drag and back in the hold's last
+150 ms, as a finger does (measured along a list); `hold 50` still glides. A
+drag that ends past the screen is the agent's drag above, `delivery:
+recognized`.
 During a reorder `state.reorder` reads `{ item, from, to, before, phase,
 ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires

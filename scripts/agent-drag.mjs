@@ -97,8 +97,9 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   const inside = ([x, y]) => x >= 0 && y >= 0 && x <= vp.w && y <= vp.h;
   if (vp && !(inside(start) && inside(end))) {
     // A scroller dragged further than the viewport reaches scrolls the whole way (euxy FRICTION 14). On iOS it is the
-    // scroll view's own drag, which a viewport does not bound, under real touches too: XCTest's drag flings at its lift
-    // whatever it holds first (300 pt held 300 ms scrolled 540), so real strokes would not scroll what was asked.
+    // scroll view's own drag, which a viewport does not bound, under real touches too: a held real stroke scrolls less
+    // than its length (a 300-point one scrolled Reflow 214) and an unheld one flings, so real strokes would not scroll
+    // what was asked.
     // Elsewhere a finger's strokes (`strokes`).
     if (!(inside(start) && ['ScrollView', 'List'].includes(b.type) && !during.length && opts.to === undefined)) throw new Error(`drag: from (${start}) to (${end}) leaves the viewport (${vp.w} × ${vp.h})`);
     if (!['ios', 'host-ios'].includes(host)) return strokes(s, target, opts, start, vp);

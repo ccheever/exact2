@@ -28,8 +28,8 @@
 // A tap's `screen`, the same point in the screen's fixed, portrait space,
 // sends it through XCTest's own event synthesizer (`Synthesizer`), and a
 // drag's `screen` and `screenTo` send it there too, built as XCTest's own
-// drag is: a still press, then one move, which the synthesizer plays over
-// its time. Without them, or when that SPI is missing or refuses the touch,
+// drag is, a still press, then one move, and held as a finger holds it
+// (`Synthesizer.drag`). Without them, or when that SPI is missing or refuses the touch,
 // the public `XCUICoordinate` call makes it; one the synthesizer has not
 // finished in time fails, never played again.
 // SpringBoard archive operations (LLP 1126.001 WP14) use the same session.
@@ -102,7 +102,7 @@ final class ExactTouches: XCTestCase {
                 let fixed = { (key: String) in (req[key] as? [Double]).flatMap { $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil } }
                 let size = (req["display"] as? [Double]).flatMap { $0.count == 2 ? CGSize(width: $0[0], height: $0[1]) : nil }
                 if let from = fixed("screen"), let to = fixed("screenTo") {
-                    let outcome = Synthesizer.drag(from: from, to: to, press: press, velocity: velocity, hold: hold, display: size.flatMap(Displays.showing))
+                    let outcome = Synthesizer.drag(from: from, to: to, press: press, velocity: velocity, hold: hold, display: size.flatMap(Displays.showing), bounds: size)
                     if outcome == .unfinished { session.send(["error": "XCTest's event synthesizer did not finish the drag in time; nothing more was injected"]); continue }
                     if outcome == .injected { session.send(["done": true, "injected": ["start": start, "end": Date().timeIntervalSince1970 * 1000, "via": "synthesizer"]]); continue }
                 }
@@ -200,20 +200,43 @@ enum Synthesizer {
 
     /// A touch down at `from` (portrait screen points, as `tap`), held `press`
     /// seconds, moved straight to `to` at `velocity` points a second, held
-    /// `hold` seconds and lifted, on `display`, built as XCTest's own drag
-    /// is: a move that stays where it is at `press`, which keeps the press
-    /// still, and one move to `to`, which the synthesizer plays over its time.
-    static func drag(from: CGPoint, to: CGPoint, press: Double, velocity: Double, hold: Double, display: Int?) -> Outcome {
+    /// `hold` seconds and lifted, on `display`. As in XCTest's own drag, a
+    /// waypoint at `from` at `press` keeps the press still and one at `to`
+    /// ends the move; the synthesizer plays the path's last stretch until the
+    /// lift, whatever its waypoint's offset. The hold ends as a finger's does:
+    /// a waypoint at `to` keeps it still, then in its last 150 ms the finger
+    /// steps a point across the drag and back, a waypoint every 33 ms, played
+    /// as a move each frame, and UIKit's velocity along the drag is 0 by the
+    /// lift. Without the steps the content glides on (a 300-point drag held
+    /// 300 ms on a plain UIKit list, Xcode 27.1): with nothing between the
+    /// move's waypoint and the lift, the synthesizer stretched the move to the
+    /// lift (205 points), and with a still waypoint alone, UIKit had no sample
+    /// and kept the move's velocity (516 to 531). A hold under 83 ms has no
+    /// room for a step, and the move slows into it. The step goes to the side
+    /// that stays on the display, `bounds` either way round, taller than wide
+    /// as its fixed portrait space is.
+    static func drag(from: CGPoint, to: CGPoint, press: Double, velocity: Double, hold: Double, display: Int?, bounds: CGSize?) -> Outcome {
         let distance = Double(hypot(to.x - from.x, to.y - from.y)), travel = velocity > 0 ? distance / velocity : 0
-        let moves = (press > 0 ? [(from, press)] : []) + (distance > 0 ? [(to, press + travel)] : [])
-        return touch(from, moves: moves, lift: press + travel + hold, display: display, within: 5 + press + travel + hold)
+        let moved = press + travel, lift = moved + hold, step = 1.0 / 30, still = max(moved, lift - 0.15)
+        var moves = (press > 0 ? [(from, press)] : []) + (distance > 0 ? [(to, moved)] : [])
+        if distance > 0 {
+            var across = CGPoint(x: to.x - (to.y - from.y) / CGFloat(distance), y: to.y + (to.x - from.x) / CGFloat(distance))
+            let fixed = bounds.map { CGSize(width: min($0.width, $0.height), height: max($0.width, $0.height)) }
+            if let fixed, !CGRect(origin: .zero, size: fixed).contains(across) { across = CGPoint(x: 2 * to.x - across.x, y: 2 * to.y - across.y) }
+            if still > moved { moves.append((to, still)) }
+            // Steps while the last one's return to `to` comes half a step or more before the lift (1 ms of slack for rounding)
+            for t in stride(from: still + step, through: lift - 1.5 * step + 0.001, by: 2 * step) { moves += [(across, t), (to, t + step)] }
+        }
+        return touch(from, moves: moves, lift: lift, display: display, within: 5 + lift)
     }
 
     /// One touch: down at `at`, moved to each point at its offset in seconds,
     /// and lifted at `lift`. `injected` or `refused` by the completion,
     /// `unfinished` when none came `within` seconds (it may still land),
     /// `missing` when this Xcode has no such SPI. The completion comes once the
-    /// touch has played.
+    /// touch has played. Offsets go in whole milliseconds: at unrounded
+    /// sixtieths of a second the synthesizer played none of a drag's hold and
+    /// lifted 50 ms after its move (Xcode 27.1).
     private static func touch(_ at: CGPoint, moves: [(to: CGPoint, offset: Double)], lift: Double, display: Int?, within: Double) -> Outcome {
         let pathClass: AnyClass? = NSClassFromString("XCPointerEventPath"), recordClass: AnyClass? = NSClassFromString("XCSynthesizedEventRecord")
         guard let alloc = imp(pathClass, "alloc", Alloc.self, classMethod: true), let recordAlloc = imp(recordClass, "alloc", Alloc.self, classMethod: true),
@@ -228,8 +251,9 @@ enum Synthesizer {
         let syn = NSSelectorFromString("synthesizeEvent:completion:")
         guard let method = class_getInstanceMethod(object_getClass(device), syn) else { return .missing }
         let path = initPath.1(alloc.1(pathClass!, alloc.0), initPath.0, at, 0)
-        if let moveTo { for move in moves { moveTo.1(path, moveTo.0, move.to, move.offset) } }
-        up.1(path, up.0, lift)
+        let ms = { (seconds: Double) in (seconds * 1000).rounded() / 1000 }
+        if let moveTo { for move in moves { moveTo.1(path, moveTo.0, move.to, ms(move.offset)) } }
+        up.1(path, up.0, ms(lift))
         let blank = recordAlloc.1(recordClass!, recordAlloc.0), portrait = UIInterfaceOrientation.portrait.rawValue
         let record = if let display, let initOnDisplay { initOnDisplay.1(blank, initOnDisplay.0, "exact" as NSString, display, portrait) }
             else { initRecord.1(blank, initRecord.0, "exact" as NSString, portrait) }
