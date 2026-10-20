@@ -8,12 +8,13 @@
 //        machine, so no app's first build compiles them.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // Also for its PATH: the pinned binaryen (and Cargo) as every web build has
 // them, so a prebuild optimizes and keeps what an app's build would.
 import { WEB_STD, WEB_TOOLCHAIN, wasmRemapFlags } from '../../scripts/app.mjs';
+import { proofInputs } from '../../game/inputs.mjs';
 import { keptProducts } from '../../scripts/kept.mjs';
 import { BINARYEN_DOWNLOAD } from '../web/stages.mjs';
 
@@ -399,6 +400,78 @@ async function prebuild() {
   const names = (kept) => [...held].filter(([, k]) => k === kept).map(([name]) => name).join(', ');
   console.log(`web-js: kept for this machine (~/.cache/exact/web-modules): ${names(true) || 'nothing'}`);
   if (names(false)) console.warn(`web-js: built, not kept (uncommitted or changed while compiling): ${names(false)}`);
+}
+
+// A game's resident producer and its proof share completed development web
+// products locally. The snapshot supplies its own inputs; the live world is never read.
+export function warmGameInputs(app, env = process.env) {
+  if (!app.manifest.game || env.EXACT_GAME_PROOF_PROFILE !== 'gpu-dev'
+      || (env.EXACT_UPDATE_TRUST ?? 'development') !== 'development') return null;
+  const inputs = proofInputs(root, app.dir, resolve(app.target, 'proof-web-inputs.json'));
+  const flags = Object.entries(env).filter(([key]) => /^(RUST|CARGO_PROFILE_|CARGO_ENCODED_|CARGO_TARGET_.*_(RUSTFLAGS|LINKER)$|EXACT_GAME_PARANOID_COMPARE$)/.test(key)).sort();
+  const configuration = JSON.stringify([app.id, app.target, env.EXACT_GAME_PARANOID ?? '0', flags]);
+  return {...inputs, configuration, key:createHash('sha256').update(inputs.all + configuration).digest('hex')};
+}
+function warmFiles(directory) {
+  const files = [];
+  const walk = (dir, prefix = '') => {
+    for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a,b) => a.name.localeCompare(b.name))) {
+      const name = prefix + entry.name, path = resolve(dir, entry.name);
+      if (entry.isDirectory()) walk(path, name + '/');
+      else if (entry.isFile()) files.push([name, createHash('sha256').update(readFileSync(path)).digest('hex')]);
+      else throw new Error('warm web product contains a non-file');
+    }
+  };
+  walk(directory);
+  return files;
+}
+export function keepWarmGame(app, dist, before, env = process.env, gpu = null) {
+  if (!before) return false;
+  let stage;
+  try {
+    const after = warmGameInputs(app, env);
+    // A bake may create assets, but may not take credit for moving authored sources.
+    if (!after || before.authored !== after.authored || before.authoredState !== after.authoredState
+        || before.configuration !== after.configuration) return false;
+    const cache = resolve(app.target, 'proof-web'); mkdirSync(cache, {recursive:true});
+    stage = mkdtempSync(resolve(cache, 'build-'));
+    const copied = resolve(stage, 'dist');
+    cpSync(dist, copied, {recursive:true});
+    if (gpu) {
+      const [dir, name] = gpu.stem.includes('/') ? [resolve(copied, 'gpu'), gpu.stem.slice(4)] : [copied, gpu.stem];
+      const bind = spawnSync('wasm-bindgen', ['--target','web','--no-typescript','--out-dir',dir,'--out-name',name,gpu.wasm], {stdio:'inherit'});
+      if (bind.status !== 0) return false;
+    }
+    const current = warmGameInputs(app, env);
+    if (current?.key !== after.key || current.authoredState !== after.authoredState || current.assetState !== after.assetState) return false;
+    const receipt = {key:after.key, directory:stage, files:warmFiles(copied)};
+    const path = resolve(cache, `${after.key}.json`);
+    replace(path, temp => writeFileSync(temp, JSON.stringify(receipt)));
+    stage = null;
+    return copied;
+  } catch (error) { console.warn(`web: warm game product not kept (${error.message})`); return false; }
+  finally { if (stage) rmSync(stage, {recursive:true,force:true}); }
+}
+export function takeWarmGame(app, dist, env = process.env) {
+  const inputs = warmGameInputs(app, env);
+  if (!inputs) return false;
+  let stage;
+  try {
+    const cache = resolve(app.target, 'proof-web');
+    const receipt = JSON.parse(readFileSync(resolve(cache, `${inputs.key}.json`), 'utf8'));
+    if (receipt.key !== inputs.key || dirname(receipt.directory) !== cache) return false;
+    stage = mkdtempSync(resolve(app.target, 'proof-web-copy-'));
+    cpSync(resolve(receipt.directory, 'dist'), stage, {recursive:true});
+    if (JSON.stringify(warmFiles(stage)) !== JSON.stringify(receipt.files)) return false;
+    // Driver staleness paths are local to the captured source tree. Relocate only
+    // after the complete portable input identity and copied products agree.
+    // The caller refreshes the driver's path-based marker after this copy.
+    rmSync(dist, {recursive:true,force:true});
+    renameSync(stage, dist); stage = null;
+    console.log('BUILD warm web producer: matching input identity');
+    return true;
+  } catch { return false; }
+  finally { if (stage) rmSync(stage, {recursive:true,force:true}); }
 }
 
 if (import.meta.main) {

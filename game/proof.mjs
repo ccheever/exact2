@@ -1,7 +1,7 @@
 export const proofSDK = import.meta.dir + "/..";
 import {refusalMessage} from '../scripts/agent-keys.mjs';
-import {proofInputFiles, proofInputExcluded, executionInputFiles} from './inputs.mjs';
-export {proofInputFiles, proofInputExcluded} from './inputs.mjs';
+import {proofInputs, proofInputReader, proofInputFiles, proofInputExcluded, executionInputFiles} from './inputs.mjs';
+export {proofInputs, proofInputReader, proofInputFiles, proofInputExcluded} from './inputs.mjs';
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -14,6 +14,9 @@ import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, executableName, resolveApp } from '../scripts/app.mjs';
 import { prepareProofTree } from './app/shells.mjs';
 import { closeFilesystemReader, filesystemLock } from '../scripts/filesystem.mjs';
+import { publicFileCards } from '../host/web/serve.mjs';
+import { takeWarmGame } from '../host/web-js/module.mjs';
+import { webInputDigests } from '../scripts/agent-launch.mjs';
 import { decodePng } from '../scripts/png.mjs';
 
 /** Some runtime-created stacks omit the informative Error message. */
@@ -245,7 +248,7 @@ export const webUnavailable = log => /web carrier unavailable:[^\n]*: ENOENT;/.t
 export const nativeProofHost = hosts => hosts.includes('linux') ? 'linux' : hosts.includes('windows') ? 'windows' : null;
 
 // Compare observed pins, never the old expected values, before touching pins.json.
-export function agreePins(rows, previous, hosts, app) {
+export function agreePins(rows, previous, hosts, app, {release: checkRelease = true} = {}) {
   const modes = ['0', '1', 'fresh-game'];
   const native = nativeProofHost(hosts);
   if (!native) throw new Error('repin refused: linux or windows continuous / Save / FreshGame are required');
@@ -269,12 +272,21 @@ export function agreePins(rows, previous, hosts, app) {
     }
     reference ??= row;
   }
-  for (const host of [native, ...hosts.includes('web') ? ['web'] : []]) {
+  for (const host of checkRelease ? [native, ...hosts.includes('web') ? ['web'] : []] : []) {
     const release = rows.filter(row => row.host === host && row.mode === '0' && row.profile === 'release');
     if (release.length !== 1 || release[0].failures?.length || !equal(release[0].pins, reference.pins))
       throw new Error(`repin refused: ${host} release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged`);
   }
-  return {...reference.pins, hosts};
+  return {...reference.pins, hosts, modes, profiles:checkRelease ? ['gpu-dev', 'release'] : ['gpu-dev']};
+}
+// Missing coverage fields describe the full matrix used by older pin files.
+export function pinCoverageGaps(pins) {
+  const gaps = [];
+  if (!(pins.hosts ?? []).includes('web')) gaps.push('web not pinned');
+  if (!nativeProofHost(pins.hosts ?? [])) gaps.push('native host not pinned');
+  for (const mode of ['0', '1', 'fresh-game']) if (!(pins.modes ?? ['0', '1', 'fresh-game']).includes(mode)) gaps.push(`mode ${mode} not pinned`);
+  if (!(pins.profiles ?? ['gpu-dev', 'release']).includes('release')) gaps.push('release not pinned');
+  return gaps;
 }
 export function pinInputs(rows) {
   const inputs=rows[0]?.inputs;
@@ -492,109 +504,6 @@ export function facilityReport(replies) {
   return hints;
 }
 
-// Clean tracked bytes are identified by Git blobs. Dirty app inputs and
-// products reuse their digest only while their full stat tuple is unchanged.
-// Nanosecond timestamps and inode identity catch edits restored before the next scan.
-const statKey = path => { const s=statSync(path, {bigint:true}); return [s.dev,s.ino,s.size,s.mtimeNs,s.ctimeNs].join(':'); };
-export function proofInputs(root, app, cachePath) {
-  const git = args => spawnSync('git',args,{cwd:root,encoding:'utf8',maxBuffer:32*1024*1024});
-  const listed=git(['ls-files','-s','-z','--cached','--others','--exclude-standard']);
-  const status=git(['status','--porcelain=v1','-z','--untracked-files=no','--no-renames']);
-  const blobs=new Map(), paths=[];
-  for(const row of listed.stdout?.split('\0').filter(Boolean) ?? []) {
-    const match=/^\d+ ([a-f0-9]+) 0\t(.*)$/s.exec(row);
-    const path=match ? match[2] : row; paths.push(path);
-    if(match) blobs.set(path,match[1]);
-  }
-  const dirty=new Set((status.stdout??'').split('\0').filter(row=>row && row[1]!==' ').map(row=>row.slice(3)));
-  let cache={}; try {cache=JSON.parse(readFileSync(cachePath,'utf8'));} catch { /* First proof. */ }
-  const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[],authored:[]}, authoredState=[], assetState=[]; let reads=0;
-  const manifest = resolve(app, '.baked-assets.json');
-  const generated = new Set([prefix + 'assets/exact-tables.json', ...(existsSync(manifest)
-    ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : [])]);
-  const ignoredDirectories = new Set();
-  const authoredFiles = new Set(proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined, ignoredDirectories));
-  const files=executionInputFiles(root,app,undefined,ignoredDirectories,authoredFiles);
-  // File stats miss sources created, consumed and removed between scans. Walk
-  // shared and app source directories, including empty ones, to retain edits.
-  const directories = new Set();
-  const sourceDirectories = dir => {
-    if (!existsSync(dir) || directories.has(dir) || ignoredDirectories.has(resolve(dir))) return;
-    const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
-    if (proofInputExcluded(file + 'input.rs', basename(app), prefix, root)) return;
-    directories.add(dir);
-    for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-      if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name));
-  };
-  for(const file of files) {
-    const path=resolve(root,file), key=statKey(path); let digest=blobs.get(file);
-    if(!digest || status.status!==0 || dirty.has(file)) {
-      digest=cache[file]?.key===key ? cache[file].digest : null;
-      if(!digest) {const bytes=readFileSync(path); reads++; digest=createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');}
-      next[file]={key,digest};
-    }
-    rows.push([file,digest,key]);
-  }
-  for(const row of rows) {
-    const [file,digest,key]=row, input=[file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file,digest]; groups.all.push(input);
-    if (authoredFiles.has(file) && file !== prefix + '.baked-assets.json' && !generated.has(file)) {
-      // Source provenance survives moving the app relative to the SDK. Keep
-      // execution paths and the in-flight file/directory checks unchanged.
-      groups.authored.push([file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file, digest]);
-      authoredState.push([file,key]);
-    }
-    // Host bake depends on the declaration, not the game's implementation.
-    // Shared compiler crates remain conservative inputs of both graphs.
-    const own=file.startsWith(prefix) ? file.slice(prefix.length) : null;
-    const gpuOnly=own!==null ? /^(logic|gpu|render|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
-    const hostOnly=own!==null ? /\.contract$/.test(own) : /^host\//.test(file);
-    if(!hostOnly) groups.gpu.push(input);
-    if(!gpuOnly) groups.host.push(input);
-  }
-  if(cachePath) {mkdirSync(resolve(cachePath,'..'),{recursive:true});writeFileSync(cachePath,JSON.stringify(next));}
-  // Snapshot after writing our cache so its first creation is not a build edit.
-  sourceDirectories(resolve(root));
-  // The repository walk excludes other apps at their shared parent, and an
-  // external app may be outside root. Always scan this app's whole input tree.
-  sourceDirectories(resolve(app));
-  // A Git-ignored directory can contain tracked sources. New untracked entries
-  // there are ignored too; only its identity and the tracked files' full stats
-  // matter. Other directories retain timestamps to catch transient sources.
-  const ignoredMixed = new Set();
-  for (const cwd of new Set([resolve(root), resolve(app)])) {
-    const paths = [...directories].filter(dir => dir === cwd || dir.startsWith(cwd + '/'));
-    const ignored = spawnSync('git', ['check-ignore', '--no-index', '-z', '--stdin'], {
-      cwd, input:paths.map(dir => dir + '/').join('\0') + '\0', encoding:'utf8',
-    });
-    if (ignored.status === 0) for (const path of ignored.stdout.split('\0').filter(Boolean)) ignoredMixed.add(resolve(path));
-  }
-  for (const dir of directories) {
-    const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
-    // Generated manifest/asset entry changes still require a rerun.
-    const state = file === prefix || file.startsWith(prefix + 'assets/') ? assetState : authoredState;
-    const key = statKey(dir);
-    state.push([file, ignoredMixed.has(dir) ? key.split(':').slice(0, 2).join(':') : key]);
-  }
-  groups.authored.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads,assetRows:assetState};
-}
-// One reader per proof. Directory changes require a rerun, even for baked assets.
-export function proofInputReader(root, app, cachePath) {
-  let previous;
-  return () => {
-    const inputs = proofInputs(root, app, cachePath);
-    // Content identity alone misses an edit that is reverted while the build reads it.
-    if (previous && previous.authoredState !== inputs.authoredState)
-      throw new Error('authored proof inputs changed during build; rerun the proof');
-    if (previous && previous.assetState !== inputs.assetState) {
-      const before = new Map(previous.assetRows), after = new Map(inputs.assetRows);
-      const changed = [...new Set([...before.keys(), ...after.keys()])].filter(dir => before.get(dir) !== after.get(dir));
-      throw new Error(`app or asset directories changed during build: ${changed.join(', ')}; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)`);
-    }
-    previous = inputs;
-    return inputs;
-  };
-}
 export async function ensureLinuxReceipts({directory,app,surface,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
   if (surface) mkdirSync(dirname(surface),{recursive:true});
   const declaration = resolve(directory,'build-linux-surfaces.json'), assets = resolve(directory,'build-linux-assets');
@@ -1130,6 +1039,14 @@ async function runProof(meta, script) {
       },
     }) : await ensureBuildReceipt({receipt, inputs:() => inputHash(readInputs().all),
       artifact:() => { const digest = artifactDigest(host, dist, artifacts); if (host === 'linux' || host === 'windows') { validatedProduct('binary'); validatedProduct('module'); } return digest; }, build:async () => {
+      if (host === 'web' && takeWarmGame(appInfo, dist, {...process.env, EXACT_GAME_PROOF_PROFILE:profile})) {
+        const marker = resolve(dist, '.exact-build.json');
+        const built = JSON.parse(readFileSync(marker, 'utf8'));
+        built.inputs = webInputDigests(appInfo, false);
+        built.files = await publicFileCards(dist).finally(closeFilesystemReader);
+        writeFileSync(marker, JSON.stringify(built) + '\n');
+        return;
+      }
       say(`BUILD stale or missing receipt ${receipt}; rebuilding: bun ${fileURLToPath(meta.url)} ${host}${device ? ' --device' : ''} --build-only`);
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
@@ -1230,8 +1147,11 @@ async function runProof(meta, script) {
     }
     say(`PROOF ${status} ${name} ${destination}: ${failures.length} failures; ${reason}; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'PASS' && host === 'linux') say(`Capture the PNG: ${proofCommand(fileURLToPath(meta.url), 'web')}`);
-    if (status === 'UNVERIFIED' && !collecting)
-      say(`UNVERIFIED: no pins — run ${proofCommand(resolve(import.meta.dir, 'prove.mjs'), app)}`);
+    if (status === 'UNVERIFIED' && !collecting) say(`UNVERIFIED: ${verdict.reason}; run ${proofCommand(resolve(import.meta.dir, 'prove.mjs'), app)}`);
+    if (!collecting) {
+      const gaps = pinCoverageGaps(previousPins);
+      if (gaps.length) say(`UNVERIFIED: ${gaps.join('; ')}; run prove --release (with --repin to publish coverage)`);
+    }
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');
   }

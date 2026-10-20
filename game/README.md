@@ -82,8 +82,8 @@ successful Rust saves rebuild the primary module and restart the world; table-on
 edits preserve it. Shared app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
-The first web build uses the size-tuned `web` profile and `wasm-opt`. After a
-Rust edit, the dev loop builds only the affected GPU module under `gpu-dev`,
+The web dev loop builds the app host under the size-tuned `web` profile and its
+GPU module under `gpu-dev`. After a Rust edit, it builds only the affected GPU module,
 then runs wasm-bindgen and swaps it into the page without `wasm-opt`. The first
 such edit compiles that profile's dependencies; later edits reuse them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.
@@ -97,12 +97,16 @@ Once the game plays and its `proof.mjs` describes it, establish its proof baseli
 bun game/prove.mjs ./my-game
 ```
 
-This is a release step, not part of the edit loop: nothing before it waits on it, and
-cold it takes many minutes. The first baseline requires Linux and web agreement in all three simulation modes,
-plus native release and shipping-profile web runs. Later invocations verify one GPU-less Linux run by default.
-Both proof hosts build the game module under `gpu-dev`; `EXACT_GAME_PROOF_PROFILE=release`
-selects native release or the web shipping profile. Repinning refuses any pin disagreement
-between the fast and shipping profiles. Ordinary web builds and deploys keep the shipping profile.
+`prove` pins your game while you build it (about a minute with warm builds);
+`prove --release` checks the shipping matrix before you ship. A first baseline and
+`--repin` run Linux and web under `gpu-dev` in continuous, Save and FreshGame modes.
+`--release` adds native release and shipping-profile web runs in continuous mode.
+With existing pins, ordinary `prove` runs `test-rust` first, then one native
+`gpu-dev` continuous leg. It fails naming the tick if the simulation changed and
+never writes `pins.json`. The first baseline publishes; subsequent publication,
+including release coverage, requires `--repin` (`prove --repin --release` to ship).
+Tests are excluded from pin inputs, so editing a test does not invalidate a pin.
+Ordinary web builds and deploys keep the shipping profile.
 Use `bun my-game/proof.mjs web --screenshot-only` for pixels only; this reports
 `UNVERIFIED` because it skips gameplay checks. Its screenshot is
 `my-game/artifacts/web/game.png`. The starter includes movement, jumping, two
@@ -394,6 +398,13 @@ real-host proof's responsibility. Advancing a hostless test to another pinned ti
 adds coverage only when its options and inputs reproduce that proof's state.
 
 `pins.json` owns the game's expected tick hashes and continuation-save digests.
+`hosts`, `modes` and `profiles` record their coverage: modes `0`, `1` and
+`fresh-game` run under `gpu-dev`; the `release` profile covers continuous mode
+on the native host and web when requested. Missing `modes` or `profiles` means
+the full matrix that older files used; `hosts` still bounds their host coverage.
+A development baseline has its own publication verdict and reports `release not
+pinned`. `proof.mjs` names missing host, mode and release coverage separately from
+the simulation checks it ran. Deploy and push refuse pins without release coverage.
 The generated proof uses `pin(tick, snapshot)` and `pinSave(name, path)`;
 Rust tests use `sim.assert_pin(include_str!("../../pins.json"))`.
 
@@ -419,9 +430,9 @@ bun my-game/proof.mjs linux --paranoid
 bun game/prove.mjs ./my-game --repin --reason "describe the intended state change"
 ```
 
-Repinning runs Off, Save and FreshGame, requires matching execution inputs and host
-observations, and compares the fast profile with native release and, when requested,
-shipping web. A profile disagreement, failed proof or missing requested browser
+Repinning runs Off, Save and FreshGame and requires matching execution inputs and
+host observations. With `--release` it also compares the fast profile with native
+release and, when requested, shipping web. A profile disagreement, failed proof or missing requested browser
 leaves the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
 Summaries and every pin update record two digests: `inputs` identifies the exact
@@ -472,6 +483,11 @@ under `artifacts/build/`. A target lock covers proof build validation and copyin
 each Linux proof then executes private products under its source copy's
 `artifacts/build/`, checked against their input and product digests by the driver.
 Linux GPU receipt hits restore the surface declaration and generated runtime assets.
+The web leg can copy a completed resident producer build from the game's target
+cache when its portable execution-input identity, mode and build configuration
+match. It checks the copied product digests before driving the snapshot. A changed
+source, damaged product or different profile is a cache miss and builds normally;
+the proof never reads the live world's state. Release builds do not use this cache.
 Game-local `.ts` proof helpers are relocated like `.js` and `.mjs`; an unsupported
 `proofData` declaration is refused by name.
 Direct `proof.mjs` runs use `artifacts/<host>/`.

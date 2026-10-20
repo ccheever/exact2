@@ -34,7 +34,7 @@ test('R15 real fast and shipping game proofs refuse profile drift without changi
     expect(shippingPins.ticks).not.toEqual(fastPins.ticks);
     const pinFile=resolve(app,'pins.json'), before=JSON.stringify({...fastPins,game:'profile-drift'});
     writeFileSync(pinFile,before);
-    const repin=await run([resolve(import.meta.dir,'prove.mjs'),app,'--repin','--hosts','linux,web','--reason','negative control: Cargo OPT_LEVEL changes saved ProfileFlag only in shipping web'], 'repin');
+    const repin=await run([resolve(import.meta.dir,'prove.mjs'),app,'--repin','--release','--hosts','linux,web','--reason','negative control: Cargo OPT_LEVEL changes saved ProfileFlag only in shipping web'], 'repin');
     expect(repin.status).not.toBe(0);
     expect(repin.output).toContain('web release proof missing, failed, or disagrees with gpu-dev');
     expect(readFileSync(pinFile,'utf8')).toBe(before);

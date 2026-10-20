@@ -737,3 +737,30 @@ impl Game for Carriers {
     expect(JSON.parse(readFileSync(resolve(app,'assets',table),'utf8'))).toEqual({'tuning.json':'{"speed":5}'});
   } finally {rmSync(dir,{recursive:true,force:true});}
 }, 120000);
+
+test('a warm web generation is reused only for matching sources, mode, profile and intact products', async () => {
+  const {warmGameInputs, keepWarmGame, takeWarmGame} = await import('../host/web-js/module.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'warm-proof-'));
+  const app = {dir:resolve(root,'game'), target:resolve(root,'game/target'), id:'warm-game', manifest:{game:{}}};
+  const env = {...process.env, EXACT_GAME_PROOF_PROFILE:'gpu-dev', EXACT_GAME_PARANOID:'0'};
+  const dist = resolve(app.target,'dist'), out = resolve(app.target,'proof');
+  mkdirSync(resolve(app.dir,'logic/src'),{recursive:true}); mkdirSync(dist,{recursive:true});
+  const logic = resolve(app.dir,'logic/src/lib.rs'); writeFileSync(logic,'source one');
+  writeFileSync(resolve(dist,'gpu_bg.wasm'),'compiled source one');
+  try {
+    const before = warmGameInputs(app,env);
+    const kept = keepWarmGame(app,dist,before,env); expect(kept).toBeTruthy();
+    expect(takeWarmGame(app,out,env)).toBe(true);
+    expect(readFileSync(resolve(out,'gpu_bg.wasm'),'utf8')).toBe('compiled source one');
+    expect(takeWarmGame(app,out,{...env,EXACT_GAME_PARANOID:'1'})).toBe(false);
+    expect(takeWarmGame(app,out,{...env,EXACT_GAME_PROOF_PROFILE:'release'})).toBe(false);
+    expect(takeWarmGame(app,out,{...env,RUSTFLAGS:'-C opt-level=0'})).toBe(false);
+    writeFileSync(logic,'source two');
+    expect(takeWarmGame(app,out,env)).toBe(false);
+    expect(keepWarmGame(app,dist,before,env)).toBe(false);
+    writeFileSync(logic,'source one');
+    writeFileSync(resolve(kept,'gpu_bg.wasm'),'corrupt');
+    expect(takeWarmGame(app,out,env)).toBe(false);
+    expect(readFileSync(resolve(out,'gpu_bg.wasm'),'utf8')).toBe('compiled source one');
+  } finally { rmSync(root,{recursive:true,force:true}); }
+}, 30000);

@@ -442,7 +442,7 @@ const candidates = (hosts = ['linux','web']) => [...hosts.flatMap(host => ['0','
 
 test('Windows baselines require all native and web modes plus matching release evidence', () => {
   const hosts=['windows','web'], rows=candidates(hosts), old=rows[0].pins;
-  expect(agreePins(rows,old,hosts,'.')).toEqual({...old,hosts});
+  expect(agreePins(rows,old,hosts,'.')).toEqual({...old,hosts,modes:['0','1','fresh-game'],profiles:['gpu-dev','release']});
   expect(()=>agreePins(rows.slice(0,-1),old,hosts,'.')).toThrow('windows release');
   expect(()=>agreePins(rows.filter(row=>!(row.host==='windows'&&row.mode==='fresh-game')),old,hosts,'.')).toThrow('windows fresh-game missing');
   const bad=structuredClone(rows); bad[4].pins.saves.continuation='b'.repeat(64);
@@ -452,7 +452,7 @@ test('Windows baselines require all native and web modes plus matching release e
 });
 test('repin requires all modes and hosts to agree on every tick and save', () => {
   const rows=candidates(), old=structuredClone(rows[0].pins);
-  expect(agreePins(rows, old, ['linux','web'], '.')).toEqual({...old,hosts:['linux','web']});
+  expect(agreePins(rows, old, ['linux','web'], '.')).toEqual({...old,hosts:['linux','web'],modes:['0','1','fresh-game'],profiles:['gpu-dev','release']});
   for (const section of ['ticks','saves']) {
     const bad=structuredClone(rows), key=Object.keys(bad[4].pins[section])[0];
     bad[4].pins[section][key]=section==='ticks'?repeatedHash('1'):'b'.repeat(64);
@@ -661,7 +661,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     } else {
     const refused=await run(['--repin']);
     expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
-    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native,'web']);
+    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     const allowed=await run(['--repin','--hosts','linux','--reason','Saved glow is a Tween sampled by the renderer']);
     expect(allowed.code).toBe(0);
@@ -681,7 +681,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     }
     const firstRefused=await run([]);
     expect(firstRefused.code).toBe(1);
-    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native,'web']);
+    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(empty);
     const first=await run([],{R8B_PASS_WEB:'1'});
     expect(first.code).toBe(0);

@@ -1,3 +1,4 @@
+import { requireReleasePins } from '../game/inputs.mjs';
 // `exact push` — the dogfood publisher: an edit to an app's Contract, TypeScript or Rust
 // reaches its installed release binaries in seconds, as a signed update.
 //
@@ -173,6 +174,7 @@ function gitHead() {
 
 export async function pusher(opts) {
   const app = resolveApp(opts._[0]);
+  requireReleasePins(app);
   const channel = opts.channel ?? app.manifest.deploy?.channel ?? 'prod';
   const spec = opts.origin ?? channelOrigin(app.manifest, channel);
   if (!spec) refuse(`no origin for the channel ${channel}: pass --origin <dir>, or name deploy.channels.${channel} ("appdrop" needs no server)`);
@@ -188,6 +190,7 @@ export async function pusher(opts) {
   const baker = new RustBaker(app, env);
 
   async function push() {
+    requireReleasePins(app);
     const started = performance.now();
     const found = await streams(origin, app, channel, env);
     const native = found.find((s) => ['native', 'tiered'].includes(s.cohort.compat.inputs.rustMode));

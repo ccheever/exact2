@@ -1,3 +1,4 @@
+import { warmGameInputs, keepWarmGame } from '../web-js/module.mjs';
 #!/usr/bin/env bun
 // Build the web app (LLP 1071): the JS target, `host/web-js/build.mjs`, the
 // plan compiled to one ES module over a small runtime, into the same dist;
@@ -131,6 +132,7 @@ if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
 const proofProfile = game ? process.env.EXACT_GAME_PROOF_PROFILE : undefined;
 if (proofProfile && !['gpu-dev', 'release'].includes(proofProfile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
 const gpuProfile = proofProfile === 'gpu-dev' ? 'gpu-dev' : 'web';
+const warmInputs = !bakeOnly ? warmGameInputs(app, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile}) : null;
 const buildReceipt = contractLast(() => buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly, gpuProfile}));
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
@@ -502,6 +504,7 @@ writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
 // In place in one step where the system has one (serve.mjs `replaceBuild`).
 replaceBuild(stage, dist);
 stage = null;
+keepWarmGame(app, dist, warmInputs, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile});
 if (bakeOnly) { console.log(`${relative(process.cwd(), dist) || "."}: the bake (no wasm): app.plan ${kib(planBytes.length)}, exact.json, index.html; documents: ${documentNote}${authNote}; modules: ${moduleNote}`); process.exit(0); }
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));

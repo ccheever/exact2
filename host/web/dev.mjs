@@ -2,6 +2,7 @@
 // Resident wasm dev loop; the JS target uses host/web-js/dev.mjs.
 // LAN clients can read plans, errors and generations (LLP 1023 D8); the agent
 // carrier and installer stay loopback-only. Games serve HTTP during the first build.
+import { warmGameInputs, keepWarmGame } from '../web-js/module.mjs';
 import { buildingServer } from '../../game/dev.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 let tuning = null;
@@ -118,6 +119,7 @@ if (!await currentWebBuild()) {
 // The last complete cdylib links name their transitive source files, including
 // path dependencies outside this workspace. Unknown/shared inputs take the full build.
 let gpuInputs = new Set(), appInputs = new Set();
+let warmWeb = dist;
 const gpuSideRoot = resolve(app.target, 'dev-gpu', app.name);
 // A server epoch pairs function-scoped glue with its Wasm bytes.
 let gpuVersion = Date.now(), gpuBuildChild = null;
@@ -224,7 +226,6 @@ for (const [from, to] of assetTrees.filter(([,to]) => to !== 'shaders')) {
   const present = syncStaticTree(from, resolve(dist, to), to === 'shaders' ? (candidate) => { reflected = reflectShaders(candidate); } : null);
   if (present && to === 'shaders') for (const [name, digest] of reflected) shaderDigests.set(name, digest);
 }
-
 applyShaderTreeChange(app, resolve(dist,'shaders'), candidate => { for (const [name,digest] of reflectShaders(candidate)) shaderDigests.set(name,digest); });
 const clients = new Set();
 let seq = 0;
@@ -514,7 +515,6 @@ function captureGeneration(reuseCurrentAssets = false, tableUpdate = null) {
   announcePlan(envelope.plan.sha256, files.get('app.plan.map.json') ?? null);
   console.log(classification.map(line=>`  ${line}`).join('\n'));
 }
-
 let dev = null;
 let announced = false;
 let contractStamp, contractTreeStamp, compiledContract; const readinessContracts = new Set([source]);
@@ -848,7 +848,6 @@ function startModuleCompiler() {
   watchPackages();
   moduleWatch = { get error() { return watches.find(w => w.error)?.error ?? null; }, close() { for (const w of watches) w.close(); } };
   if (moduleWatch.error) { console.error(moduleWatch.error.message); push({error:moduleWatch.error.message}); }
-
   produce();
 }
 function readRustGeneration() {
@@ -973,7 +972,6 @@ const killCompiler = () => {
   rustSourceWatch?.close(); rustSourceWatch = null; rustOutputWatch?.close(); rustOutputWatch = null;
   clearInterval(rustHeartbeat); rustHeartbeat = null; rustActive = false;
   const rust = rustChild; rustChild = null; if (rust) { try { process.kill(-rust.pid, 'SIGKILL'); } catch {} }
-
   moduleWatch?.close(); moduleWatch = null; clearImmediate(moduleTimer); moduleRun++;
   const d = dev; dev = null; if (d) { try { process.kill(-d.pid, 'SIGKILL'); } catch {} }
   unasked();
@@ -1251,7 +1249,7 @@ function rebuildNow(files) {
       rebuildOn = rebuildPolicy(app.manifest);
       current = null; currentModule = null; currentRust = null; currentRustId = null; assetsNeedRebuild = false;
       for (const directory of gpuVersions.values()) rmSync(directory, {recursive:true,force:true});
-      gpuVersions.clear(); gpuSides.clear(); failedInputs.clear(); readGpuInputs();
+      gpuVersions.clear(); gpuSides.clear(); warmWeb = dist; failedInputs.clear(); readGpuInputs();
       if (tuning) await tuning.reload();
       watchCompilerInputs();
       program = programIdentity();
@@ -1290,6 +1288,7 @@ async function produceGpu(files) {
   }
 }
 async function produceGpuArtifact(files, { stem, kind, module }) {
+  const warmInputs = warmGameInputs(app, buildEnv);
   const start = Date.now();
   const profile = Bun.TOML.parse(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')).profile?.['gpu-dev'] ? 'gpu-dev' : 'web';
   if (profile === 'web') console.log('gpu: add [profile.gpu-dev] inheriting dev, opt-level=1, no LTO, and optimized dependencies for fast module rebuilds');
@@ -1312,6 +1311,7 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
     if (tuning && stem === 'gpu' && (await (await import('../../game/app/tables.mjs')).tableValidator(stage, true)).names.length) {
       changed.add(source); buildPending = true; early?.phase('host', 'build'); rmSync(stage, {recursive:true,force:true}); return true;
     }
+    warmWeb = keepWarmGame(app, warmWeb, warmInputs, buildEnv, {stem, wasm:resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')}) || dist;
     gpuVersion++; gpuVersions.set(gpuVersion, { stem, directory: stage }); gpuSides.set(stem, gpuVersion);
     // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
     // than silently pairing exports from one build with another build's wasm.
