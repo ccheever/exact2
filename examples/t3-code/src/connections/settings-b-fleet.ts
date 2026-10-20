@@ -82,6 +82,11 @@ export class EnvironmentFleet {
     return { available: native.available, watch: topic => native.watch(topic), later: request => native.later({ ...obj(request), fleet: key }) };
   }
 
+  /** Environment ids in the saved catalog's order (pairing order, the focused one included), then any other entry's. */
+  catalogIds(): string[] {
+    return [...this.saved.map(entry => str(entry.environmentId)), ...[...this.entries.values()].map(entry => entry.environmentId)].filter(Boolean);
+  }
+
   /** Saved environments this device keeps switched on, and the primary once its server is ready, other than the focused one. */
   wanted(focused: FocusedHost): Obj[] {
     const local = primary.connectable ? primaryEntry() : null;
