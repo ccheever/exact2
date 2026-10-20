@@ -388,7 +388,11 @@ document's names exactly; the integrator checks them against the core lane.
   root, insets, keyboard, a fold while editing), the four screens (facts, panes on the
   segments from `layout.env`'s `device-posture`, `horizontal-viewport-segments`,
   `vertical-viewport-segments`, `viewport-segments`; a selection, a scroll offset, a
-  pushed screen with its sheet and keyboard across a fold) and the two-session host.
+  pushed screen with its sheet and keyboard across a fold) and the two-session host. The
+  smoke opens every session with UIKit's bars as a person sees them (`--chrome platform`,
+  2026-10-19): under the agent's default chrome the authored tablist takes its own place
+  below the routes, as on the web, whereas the Duo shows UIKit's tab bar, a rail at the
+  inner panel's right edge upright and a bar at its bottom turned.
   When the open pose does not report the recorded 951×669 inner panel, the panel sizes
   and the segments are checked against what the device reports (see below); the panes
   are checked against the two rects `layout.env` reports, whichever axis the device

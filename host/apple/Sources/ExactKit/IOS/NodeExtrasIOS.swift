@@ -379,6 +379,13 @@ extension NodeView {
         return UIEdgeInsets(top: inset.top - content.top, left: inset.left - content.left,
                             bottom: inset.bottom - content.bottom, right: inset.right - content.right)
     }
+    /// Its scrollport in `sv`'s bounds: `sv` less those insets, empty where they overlap (CSS's `clientWidth` and
+    /// `clientHeight` never go below zero).
+    func scrollPort(_ sv: UIScrollView) -> CGRect {
+        let b = sv.bounds, p = scrollPortInsets(sv)
+        return CGRect(x: b.minX + min(p.left, b.width), y: b.minY + min(p.top, b.height),
+                      width: max(0, b.width - p.left - p.right), height: max(0, b.height - p.top - p.bottom))
+    }
     /// The least content height UIKit takes: the box, or for a scroller
     /// UIKit insets, the port between the insets the kernel lays its content
     /// out in (LLP 1116.000 D1.2), so a page shorter than that port does not
