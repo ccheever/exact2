@@ -676,7 +676,7 @@ component App
         .unwrap();
     let k = r.kernel();
     // The box of the title and detail, the value beside it in one parent, and that parent.
-    let parts = |t: &str| {
+    let parts = |k: &exact_kernel::Kernel, t: &str| {
         let all = under(k, at(k, t));
         let text = |s: &str| {
             all.iter()
@@ -706,7 +706,7 @@ component App
             parent(value.id).frame,
         )
     };
-    let (title, lines, value, row) = parts("short");
+    let (title, lines, value, row) = parts(k, "short");
     assert!(
         value.y < lines.y + lines.height,
         "beside: {lines:?} {value:?}"
@@ -717,7 +717,7 @@ component App
         "the value at the far edge"
     );
     assert!(title.width > 0.0);
-    let (title, lines, value, row) = parts("long");
+    let (title, lines, value, row) = parts(k, "long");
     assert!(
         title.width >= 8.0 * 8.0,
         "the title keeps its words: {title:?}"
@@ -729,6 +729,17 @@ component App
     assert!(
         value.width <= row.width,
         "it wraps in the row: {value:?} {row:?}"
+    );
+    // At an accessibility size (AX1, a 28-point body) a short pair stacks too.
+    r.set_root_font_size(28.0).unwrap();
+    let k = r.kernel_mut();
+    k.compute_layout(top, Offer::definite(400.0, 800.0))
+        .unwrap();
+    let k = r.kernel();
+    let (_, lines, value, _) = parts(k, "short");
+    assert!(
+        value.y >= lines.y + lines.height && value.x == 0.0,
+        "under it at AX1: {lines:?} {value:?}"
     );
 }
 

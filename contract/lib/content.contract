@@ -162,8 +162,9 @@ component EmptyState
 
 // A row's content: a title, a secondary line under it (`""` for none) and an
 // optional trailing value in tabular figures. Where the title and the value
-// do not fit on one line the value goes under them, and each wraps, as
-// UIKit's value cell stacks its text and secondary text at the
+// do not fit on one line, and at every accessibility size (the gap is
+// `-exact-accessibility-stack-gap`), the value goes under them, and each
+// wraps, as UIKit's value cell stacks its text and secondary text at the
 // accessibility sizes: a long value at the largest size squeezed the title
 // to nothing beside it and ran past the row. Straight in a grouped list's
 // `section` it is the row; in a `row`, or anywhere a list of records is
@@ -178,7 +179,7 @@ component RowText
     value: option<string>
   view
     row flex=1 min-width=0
-      row flex=1 min-width=0 flex-wrap="wrap" align-items="center" column-gap=12 row-gap=2 margin-top=10 margin-bottom=10
+      row flex=1 min-width=0 flex-wrap="wrap" align-items="center" column-gap="-exact-accessibility-stack-gap" row-gap=2 margin-top=10 margin-bottom=10
         column flex-grow=1 min-width=0 gap=2
           text title
           if detail != ""
