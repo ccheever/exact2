@@ -8,13 +8,16 @@ import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes
 // usePreviewBridge projectDesktopState / buildReportInput, ElectronBrowserHost's live set, PreviewView's
 // chrome state and handleSubmitUrl, the profile rules of RightPanelTabs and PreviewView, and the panel
 // projection through `panelView` (desktopTabLifetime's "a tab outlives a hidden panel and a thread switch":
-// the web view stays while the session does, and only a close drops it).
+// the web view stays while the session does, and only a close drops it). At 9c161462c9: previewRuntime.test.ts
+// `alternatePreviewRuntime` (1 of 2; its "no move outside the desktop app" row has no counterpart in this desktop app)
+// and PreviewView handleMoveTab through the More menu's move row.
 import { describe, expect, it } from 'bun:test';
 import {
   DEFAULT_BROWSER_PROFILE_ID, addBrowserSurface, browserHost, browserLocal, browserTabFavicon, browserTabTitle, browserView,
   revealServerSessions, effectiveNav, buildReportInput, closePreviewSession, installBrowserCleanup, listPreviewSessions, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState, browserPrepare,
-  reconcileBrowserSurfaces, syncNativeSessions, type NativeTab, type Rpc,
+  reconcileBrowserSurfaces, syncNativeSessions, alternatePreviewRuntime, type NativeTab, type Rpc,
 } from '../../src/browser/browser-surface';
+import { toasts } from '../../src/shell/toast';
 import { PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot } from '../../src/browser/browser-state';
 import { BrowserSettingsReadError, resolveBrowserDefaults } from '../../src/browser/browser-profiles';
 import { panelState, panelView, surfaceLocal, surfaceStore, panelKey, type PanelState } from '../../src/panel/panel-surfaces';
@@ -439,4 +442,63 @@ it('server reveals baseline persisted sessions and only reopen a preview for a f
   openBrowserIn(state, 'revealed', 'local:thread-1'); state.visible = false;
   store.applyServerSnapshot(threadRef, { ...snapshot, tabId: 'revealed', runtime: 'server', reveal: true, revealRequest: { id: 'again', force: true } });
   revealServerSessions(client, state, threadRef); expect(state.visible).toBe(true); expect(state.active).toBe('browser:revealed');
+});
+
+describe('alternatePreviewRuntime', () => {
+  it("moves a remote environment's tab between this computer and the environment", () => {
+    expect(alternatePreviewRuntime('remote', 'local', true, {})).toBe('server');
+    expect(alternatePreviewRuntime('remote', 'local', true, { runtime: 'server' })).toBe('desktop');
+    expect(alternatePreviewRuntime('local', 'local', true, {})).toBeNull();
+    expect(alternatePreviewRuntime('remote', 'local', false, {})).toBeNull();
+    expect(alternatePreviewRuntime('remote', 'local', true, null)).toBeNull();
+  });
+});
+
+describe('PreviewView handleMoveTab (the More menu\'s move row)', () => {
+  const lane = { config: { environment: { label: 'Lane Second', capabilities: { serverBrowser: true } } } };
+  const page: PreviewSessionSnapshot = { ...idle('tab-1'), navStatus: { _tag: 'Success', url: 'http://127.0.0.1:16687/', title: 'Lane Page' }, viewport: { _tag: 'freeform', width: 390, height: 844 }, profileId: 'work' };
+  const listed = (client: T3Client, tab: PreviewSessionSnapshot) => {
+    browserHost(client).store.reconcileServerSessions(threadRef, { sessions: [tab], serverEpoch: 'epoch-1', revision: 1 });
+    const state = emptyPanel(); openBrowserIn(state, tab.tabId, 'local:thread-1'); return state;
+  };
+
+  it("offers the environment's browser on a desktop tab and this computer on a server tab, only where the environment runs one", () => {
+    const desktop = fakeClient(() => ({}), lane).client, desktopState = listed(desktop, page);
+    expect(browserView(desktop, desktopState.surfaces[0]!)).toMatchObject({ moveTarget: 'server', moveLabel: "Open in Lane Second's browser" });
+    const server = fakeClient(() => ({}), lane).client, serverState = listed(server, { ...page, runtime: 'server' });
+    expect(browserView(server, serverState.surfaces[0]!)).toMatchObject({ moveTarget: 'desktop', moveLabel: 'Open on this computer' });
+    const unnamed = fakeClient(() => ({}), { config: { environment: { capabilities: { serverBrowser: true } } } }).client, unnamedState = listed(unnamed, page);
+    expect(browserView(unnamed, unnamedState.surfaces[0]!).moveLabel).toBe("Open in the environment's browser");
+    const plain = fakeClient(() => ({})).client, plainState = listed(plain, page);
+    expect(browserView(plain, plainState.surfaces[0]!)).toMatchObject({ moveTarget: '', moveLabel: '' });
+  });
+
+  it('opens the other runtime at the same URL, viewport and profile, shows it, then closes the old tab', async () => {
+    const moved: PreviewSessionSnapshot = { ...page, tabId: 'tab-2', runtime: 'server' };
+    const { client, calls } = fakeClient(method => method === 'preview.open' ? moved : {}, lane);
+    const state = listed(client, page);
+    await surfaceLocalIn(client, state, 'browser-move', 'tab-1');
+    expect(calls.map(call => [call.method, call.payload])).toEqual([
+      ['preview.open', { threadId: 'thread-1', runtime: 'server', url: 'http://127.0.0.1:16687/', viewport: page.viewport, profileId: 'work' }],
+      ['preview.close', { threadId: 'thread-1', tabId: 'tab-1' }],
+    ]);
+    expect(state.surfaces.map(surface => surface.id)).toEqual(['browser:tab-2']);
+    expect(state.active).toBe('browser:tab-2');
+    expect(Object.keys(browserHost(client).store.read(threadRef).sessions)).toEqual(['tab-2']);
+  });
+
+  it('a server tab moves to this computer with no runtime named', async () => {
+    const { client, calls } = fakeClient(method => method === 'preview.open' ? { ...page, tabId: 'tab-2' } : {}, lane);
+    await surfaceLocalIn(client, listed(client, { ...page, runtime: 'server' }), 'browser-move', 'tab-1');
+    expect(calls[0]).toEqual({ method: 'preview.open', payload: { threadId: 'thread-1', url: 'http://127.0.0.1:16687/', viewport: page.viewport, profileId: 'work' } });
+  });
+
+  it('a failed open keeps the tab and says why', async () => {
+    const { client, calls } = fakeClient(method => { if (method === 'preview.open') throw new ClientError('Browser unavailable.'); return {}; }, lane);
+    const state = listed(client, page);
+    await surfaceLocalIn(client, state, 'browser-move', 'tab-1');
+    expect(calls.map(call => call.method)).toEqual(['preview.open']);
+    expect(state.surfaces.map(surface => surface.id)).toEqual(['browser:tab-1']);
+    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Unable to move the browser tab', 'Browser unavailable.']]);
+  });
 });
