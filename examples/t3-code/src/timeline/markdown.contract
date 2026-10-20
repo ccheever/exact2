@@ -452,7 +452,7 @@ component BlockBody
           FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
       else
         column id=headingNode(scope, block) width="100%"
-          text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+          text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 overflow-wrap="anywhere" color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
             ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, ms=ms, me=me)
     if block.kind == "item"
       row width="100%" padding-left=(block.depth * 1.25 * rem) box-sizing="border-box"
@@ -466,7 +466,7 @@ component BlockBody
         if block.flow
           FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
         else
-          text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" color=prose
+          text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" overflow-wrap="anywhere" color=prose
             ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
     if block.kind == "rule"
       box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
@@ -489,12 +489,12 @@ component BlockBody
         box width="100%" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
           FlowRuns(runs=block.runs, color="light-dark(#71717b, #818181)", fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
       else
-        text width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="1.421875rem" color="light-dark(#71717b, #818181)"
+        text width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="1.421875rem" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
           ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
     if not ["heading", "item", "rule", "table-row", "table", "image", "quote"].includes(block.kind) and block.flow
       FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
     if not ["heading", "item", "rule", "table-row", "table", "image", "quote"].includes(block.kind) and not block.flow
-      text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" color=prose
+      text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" overflow-wrap="anywhere" color=prose
         ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
 
 // GFM's task checkbox in place of the list marker (`li.task-list-item`:
@@ -601,7 +601,8 @@ fn pressLink(href: string): bool = webLink(href) or href.startsWith("#") or href
 fn linkRun(run: ChatRun, chips: ChipView[]): bool = (run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length == 0
 
 // Prose with inline code, word by word on 22.75pt lines so every code span is a
-// bordered box whose text shares the line's baseline (`.chat-markdown code`).
+// bordered box whose text shares the line's baseline (`.chat-markdown code`). A word
+// wider than the line breaks anywhere, as `.chat-markdown`'s `overflow-wrap: anywhere`.
 component FlowRuns
   inject
     linkOpen: action
@@ -708,10 +709,10 @@ component FlowRuns
         // `label`, and an `<a>` with no href shows none).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0) and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href)) and not (run.kind == "media" and (run.link != "" or chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0))
           if ms < 0
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
               FindParts(parts=run.findParts)
           else
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
 
 // Whether a run starts its link: the run before it is not the same link's word or image.

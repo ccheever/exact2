@@ -120,6 +120,42 @@ describe('settled turns', () => {
     expect(result[4]).toMatchObject({ runId: 'r2' });
   });
 
+  test('an inline render or MCP app is the turn\'s output: it never folds', () => {
+    const html = item('h', 'dynamic_tool', 1, { toolName: 't3-code.html_render', output: { htmlRender: { attachmentId: 'a', title: 'Quarterly chart', height: 260 } } });
+    const app = item('m', 'dynamic_tool', 1, { toolName: 'charts.show', output: { t3McpApp: { attachmentId: 'b', server: 'charts', tool: 'show', resourceUri: 'ui://charts/show' } } });
+    for (const output of [html, app]) {
+      const result = rows(client([user('u', 0, 'render it'), output, answer('x', 2, 'Called html_render.')]));
+      expect(kinds(result)).toEqual(['user', 'inline-document', 'assistant']);
+    }
+    // Other work in the turn folds; the render stays out.
+    const mixed = rows(client([user('u', 0, 'render it'), command('a', 1, 'ls'), html, answer('x', 2, 'Done')]));
+    expect(kinds(mixed)).toEqual(['user', 'work', 'inline-document', 'assistant']);
+  });
+
+  test('a delegation\'s tool row gives way to its child\'s card, which keeps the turn unfolded while it runs', () => {
+    const delegate = item('d', 'dynamic_tool', 1, { toolName: 't3-code.delegate_task', input: { title: 'Long child' }, output: { taskId: 'node:child' } });
+    const child = (status: string) => item('s', 'subagent', 1, { status, subagentId: 'node:child', origin: 'app_owned', title: 'Long child', providerTurnId: 'pt1', childThreadId: 'thread:child' });
+    const running = rows(client([user('u', 0, 'delegate'), delegate, child('running'), answer('x', 2, 'Called delegate_task.')]));
+    expect(running.some(row => row.kind === 'work')).toBe(false);
+    expect(running.find(row => row.kind === 'subagents' || row.kind === 'subagent')).toBeDefined();
+    const finished = rows(client([user('u', 0, 'delegate'), delegate, child('completed'), answer('x', 2, 'Called delegate_task.')]));
+    expect(kinds(finished)).toEqual(['user', 'work', 'assistant']);
+    expect(finished[1]).toMatchObject({ title: 'Worked for 10s' });
+    // Until the returned task id names a child, the call stays an ordinary tool row.
+    const unmatched = rows(client([user('u', 0, 'delegate'), { ...delegate, output: { taskId: 'node:other' } }, child('running'), answer('x', 2, 'Called delegate_task.')]));
+    expect(unmatched[1]).toMatchObject({ kind: 'work', title: 'Worked for 10s' });
+  });
+
+  test('a failed run\'s unfinished tool call draws no row; its secret card and error do', () => {
+    const value = client([user('u', 0, 'ask'), item('t', 'dynamic_tool', 1, { toolName: 't3-code.request_secret', status: 'running' }),
+      item('s', 'secret_request', 1, { status: 'cancelled', label: 'GitHub token', requestId: 'r' }),
+      item('e', 'error', 2, { status: 'failed', parentItemId: null, message: 'Provider turn failed.', failure: { message: 'Provider turn failed.' } })],
+    { runs: [{ id: 'r1', status: 'failed', startedAt: at(0), completedAt: at(2) }] });
+    const result = rows(value);
+    expect(result.some(row => row.activities?.some(activity => activity.label.includes('secret')))).toBe(false);
+    expect(kinds(result)).toEqual(['user', 'secret', 'entry']);
+  });
+
   test('a completed answer with no text reads "(empty response)"', () => {
     expect(rows(client([user('u', 0, 'hi'), answer('a', 1, '')]))[1]).toMatchObject({ kind: 'assistant', body: '(empty response)' });
     expect(rows(client([user('u', 0, 'hi'), answer('a', 1, '', { streaming: true, status: 'running' })]))
