@@ -165,6 +165,7 @@ export function mobileAddProjectObserve(owner: string, routes: readonly AddProje
 }
 function screen(state: Controller, value: Draft): AddProjectScreen {
   const environment = selected(state, value), available = options(state, value), name = value.route.name;
+  const localURL = name === 'addProjectRepository' && value.source === 'url';
   const canCreate = !!environment && mobileSessionGrants(value.session, 'orchestration:operate');
   const canClone = canCreate && mobileSessionGrants(value.session, 'source-control:write');
   const canRead = !!environment && mobileSessionGrants(value.session, 'filesystem:read');
@@ -184,7 +185,7 @@ function screen(state: Controller, value: Draft): AddProjectScreen {
     input: value.input, placeholder: name === 'addProjectNew' ? 'Project name' : name === 'addProjectRepository'
       ? value.source === 'url' ? 'https://github.com/org/repo.git' : addProjectRemoteSourcePathHint(value.source) : '~/projects/my-app',
     primaryLabel, primaryDisabled: !environment || value.busy || value.uncertain || value.browsing || !value.input.trim()
-      || (name === 'addProjectLocal' || name === 'addProjectNew' ? !canCreate : name === 'addProjectDestination' ? !canClone || !value.remoteUrl : !canClone),
+      || (name === 'addProjectLocal' || name === 'addProjectNew' ? !canCreate : name === 'addProjectDestination' ? !canClone || !value.remoteUrl : !localURL && !canClone),
     pathPreview: environment?.newProjectsRoot == null ? '' : `${value.input.trim() ? `Creates ${getNewProjectPathPreview(environment.newProjectsRoot, value.input.trim())}` : `Goes in ${environment.newProjectsRoot}`}${showMachines ? ` on ${environment.label}` : ''}`,
     repositoryTitle: value.repositoryTitle, remoteUrl: value.remoteUrl, source: value.source, publish: value.publish,
     showPublish: github !== null, publishLabel: 'Create private repository on GitHub',
@@ -341,75 +342,85 @@ export async function mobileAddProjectAction(owner: string, id: string, kind: st
   if (value.busy || value.uncertain || value.browsing || value.navigation.kind === 'draft') return mobileAddProjectSnapshot();
   if (kind === 'connections') { navigate(state, value, { kind: 'connections' }); touch(state); return mobileAddProjectSnapshot(); }
   if (kind === 'submit' && ['addProjectNew', 'addProjectRepository'].includes(value.route.name) && !value.input.trim()) return mobileAddProjectSnapshot();
+  const localURL = kind === 'submit' && value.route.name === 'addProjectRepository' && value.source === 'url';
   const serial = ++value.actionSerial, environmentId = selected(state, value)?.environmentId;
   const check = () => { if (!current(state, value, owner) || serial !== value.actionSerial || selected(state, value)?.environmentId !== environmentId) throw new ClientError('The Add Project action changed.', 'superseded'); };
   value.readSerial++; value.preparing = false;
   value.busy = true; value.executing = true; value.error = '';
   try {
-    if (!nativeInput?.available) throw new ClientError('Open T3 Code on your iPhone or iPad to add projects.');
-    const native = ownedNative(nativeInput, check), endpoint = await endpointFor(state, value, native);
-    const environment = selected(state, value)!;
-    const dispatch = async (method: string, payload: Obj, creation = true) => {
-      check(); if (!settingsEndpointCurrent(endpoint)) throw new ClientError('The connection changed. Reopen Add Project.', 'stale');
-      let refused = false;
-      const remote: Native = { available: endpoint.remote.available, watch: topic => endpoint.remote.watch(topic), later: async request => {
-        const reply = await endpoint.remote.later(request); refused = obj(reply).ok === false && obj(obj(reply).error).uncertain !== true; return reply;
-      } };
-      try { const result = await settingsCall({ ...endpoint, remote }, { op: 'request', method, payload }); return result; }
-      catch (error) { if (!refused && creation) value.uncertain = true; throw error; }
-    };
-    if (['new', 'local', 'repository', 'existing'].includes(kind)) {
-      if (kind === 'new' && environment.newProjectsRoot === null) throw new ClientError('This environment cannot create projects from a name.');
-      const source = sourceFromParam(input);
-      await grant(endpoint, value, kind === 'repository' ? ['orchestration:operate', 'source-control:write'] : kind === 'local' ? ['orchestration:operate'] : []);
-      if (kind === 'repository' && source !== 'url') {
-        const discovery = await settingsCall(endpoint, { op: 'request', method: 'server.discoverSourceControl', payload: {} }); value.discovery = discovery;
-        if (!buildAddProjectRemoteSourceReadiness(discovery)[source].ready) throw new ClientError('This source control provider is not ready.');
-      }
-      navigate(state, value, { kind: kind === 'existing' ? 'source' : kind, environmentId: environment.environmentId, source });
-    } else if (kind === 'submit' && value.route.name === 'addProjectRepository') {
-      if (!value.input.trim()) return mobileAddProjectSnapshot();
-      await grant(endpoint, value, ['orchestration:operate', 'source-control:write']);
-      const provider = addProjectRemoteSourceProvider(value.source);
-      const repository = provider ? await settingsCall(endpoint, { op: 'request', method: 'sourceControl.lookupRepository', payload: { provider, repository: value.input.trim() } }) : null;
-      const remoteUrl = repository ? getDefaultCloneUrl({ provider: str(repository.provider) || provider!, url: str(repository.url), sshUrl: str(repository.sshUrl) }) : normalizePastedCloneUrl(value.input);
-      const title = repository ? str(repository.nameWithOwner) : remoteUrl;
-      navigate(state, value, { kind: 'destination', environmentId: environment.environmentId, source: value.source, remoteUrl, title, repositoryName: getCloneDirectoryName(title) });
-    } else if (kind === 'submit' && value.route.name === 'addProjectNew') {
-      const name = value.input.trim(); if (!name || environment.newProjectsRoot === null) return mobileAddProjectSnapshot();
-      await grant(endpoint, value, ['orchestration:operate']);
-      const created = await dispatch('projects.createNew', { name }), projectId = str(created.projectId), workspaceRoot = str(created.workspaceRoot);
-      if (!projectId || !workspaceRoot) { value.uncertain = true; throw new ClientError('The project may have been created. Refresh the project list before trying again.'); }
-      awaitProject(state, value, endpoint, projectId, name, false);
-      if (typeof created.commitError === 'string') alert(state, value, 'Created without a first commit', created.commitError);
-      const target = getNewProjectGitHubTarget(value.discovery);
-      if (value.publish && target) {
-        try {
-          await grant(endpoint, value, ['source-control:write']);
-          await dispatch('sourceControl.publishRepository', { cwd: workspaceRoot, provider: 'github', repository: getNewProjectGitHubRepository(target, workspaceRoot), visibility: 'private' }, false);
-        } catch (error) { if (letGo(error)) throw error; alert(state, value, 'Could not create the GitHub repository', message(error)); }
-      }
-    } else if (kind === 'submit' && ['addProjectLocal', 'addProjectDestination'].includes(value.route.name)) {
-      const resolved = resolveAddProjectPath({ rawPath: value.input, platform: environment.platform, currentProjectCwd: null });
-      if (!resolved.ok) throw new ClientError(resolved.error);
-      if (value.route.name === 'addProjectLocal') await createLocal(state, value, endpoint, resolved.path, dispatch);
-      else {
-        if (!value.remoteUrl) throw new ClientError('Choose a repository to clone.');
-        await grant(endpoint, value, ['orchestration:operate', 'source-control:write']);
-        if (environment.supportsCloneTracking) {
-          const [projectId] = await mobileClient.ids(endpoint.remote, 1), title = inferProjectTitleFromPath(resolved.path);
-          await dispatch('projectClone.start', { projectId: projectId!, title, createdAt: new Date(composerNow(mobileClient)).toISOString(), remoteUrl: value.remoteUrl, destinationPath: resolved.path });
-          awaitProject(state, value, endpoint, projectId!, title, true);
-        } else {
-          const cloned = await dispatch('sourceControl.cloneRepository', { remoteUrl: value.remoteUrl, destinationPath: resolved.path });
-          if (!str(cloned.cwd)) throw new ClientError('The clone did not return its workspace path.');
-          await createLocal(state, value, endpoint, str(cloned.cwd), dispatch);
+    if (localURL) {
+      const environment = selected(state, value);
+      if (!environment) throw new ClientError('This environment is no longer connected.');
+      check();
+      const remoteUrl = normalizePastedCloneUrl(value.input);
+      navigate(state, value, { kind: 'destination', environmentId: environment.environmentId, source: value.source,
+        remoteUrl, title: remoteUrl, repositoryName: getCloneDirectoryName(remoteUrl) });
+    } else {
+      if (!nativeInput?.available) throw new ClientError('Open T3 Code on your iPhone or iPad to add projects.');
+      const native = ownedNative(nativeInput, check), endpoint = await endpointFor(state, value, native);
+      const environment = selected(state, value)!;
+      const dispatch = async (method: string, payload: Obj, creation = true) => {
+        check(); if (!settingsEndpointCurrent(endpoint)) throw new ClientError('The connection changed. Reopen Add Project.', 'stale');
+        let refused = false;
+        const remote: Native = { available: endpoint.remote.available, watch: topic => endpoint.remote.watch(topic), later: async request => {
+          const reply = await endpoint.remote.later(request); refused = obj(reply).ok === false && obj(obj(reply).error).uncertain !== true; return reply;
+        } };
+        try { const result = await settingsCall({ ...endpoint, remote }, { op: 'request', method, payload }); return result; }
+        catch (error) { if (!refused && creation) value.uncertain = true; throw error; }
+      };
+      if (['new', 'local', 'repository', 'existing'].includes(kind)) {
+        if (kind === 'new' && environment.newProjectsRoot === null) throw new ClientError('This environment cannot create projects from a name.');
+        const source = sourceFromParam(input);
+        await grant(endpoint, value, kind === 'repository' ? ['orchestration:operate', 'source-control:write'] : kind === 'local' ? ['orchestration:operate'] : []);
+        if (kind === 'repository' && source !== 'url') {
+          const discovery = await settingsCall(endpoint, { op: 'request', method: 'server.discoverSourceControl', payload: {} }); value.discovery = discovery;
+          if (!buildAddProjectRemoteSourceReadiness(discovery)[source].ready) throw new ClientError('This source control provider is not ready.');
         }
+        navigate(state, value, { kind: kind === 'existing' ? 'source' : kind, environmentId: environment.environmentId, source });
+      } else if (kind === 'submit' && value.route.name === 'addProjectRepository') {
+        if (!value.input.trim()) return mobileAddProjectSnapshot();
+        await grant(endpoint, value, ['orchestration:operate', 'source-control:write']);
+        const provider = addProjectRemoteSourceProvider(value.source);
+        const repository = provider ? await settingsCall(endpoint, { op: 'request', method: 'sourceControl.lookupRepository', payload: { provider, repository: value.input.trim() } }) : null;
+        const remoteUrl = repository ? getDefaultCloneUrl({ provider: str(repository.provider) || provider!, url: str(repository.url), sshUrl: str(repository.sshUrl) }) : normalizePastedCloneUrl(value.input);
+        const title = repository ? str(repository.nameWithOwner) : remoteUrl;
+        navigate(state, value, { kind: 'destination', environmentId: environment.environmentId, source: value.source, remoteUrl, title, repositoryName: getCloneDirectoryName(title) });
+      } else if (kind === 'submit' && value.route.name === 'addProjectNew') {
+        const name = value.input.trim(); if (!name || environment.newProjectsRoot === null) return mobileAddProjectSnapshot();
+        await grant(endpoint, value, ['orchestration:operate']);
+        const created = await dispatch('projects.createNew', { name }), projectId = str(created.projectId), workspaceRoot = str(created.workspaceRoot);
+        if (!projectId || !workspaceRoot) { value.uncertain = true; throw new ClientError('The project may have been created. Refresh the project list before trying again.'); }
+        awaitProject(state, value, endpoint, projectId, name, false);
+        if (typeof created.commitError === 'string') alert(state, value, 'Created without a first commit', created.commitError);
+        const target = getNewProjectGitHubTarget(value.discovery);
+        if (value.publish && target) {
+          try {
+            await grant(endpoint, value, ['source-control:write']);
+            await dispatch('sourceControl.publishRepository', { cwd: workspaceRoot, provider: 'github', repository: getNewProjectGitHubRepository(target, workspaceRoot), visibility: 'private' }, false);
+          } catch (error) { if (letGo(error)) throw error; alert(state, value, 'Could not create the GitHub repository', message(error)); }
+        }
+      } else if (kind === 'submit' && ['addProjectLocal', 'addProjectDestination'].includes(value.route.name)) {
+        const resolved = resolveAddProjectPath({ rawPath: value.input, platform: environment.platform, currentProjectCwd: null });
+        if (!resolved.ok) throw new ClientError(resolved.error);
+        if (value.route.name === 'addProjectLocal') await createLocal(state, value, endpoint, resolved.path, dispatch);
+        else {
+          if (!value.remoteUrl) throw new ClientError('Choose a repository to clone.');
+          await grant(endpoint, value, ['orchestration:operate', 'source-control:write']);
+          if (environment.supportsCloneTracking) {
+            const [projectId] = await mobileClient.ids(endpoint.remote, 1), title = inferProjectTitleFromPath(resolved.path);
+            await dispatch('projectClone.start', { projectId: projectId!, title, createdAt: new Date(composerNow(mobileClient)).toISOString(), remoteUrl: value.remoteUrl, destinationPath: resolved.path });
+            awaitProject(state, value, endpoint, projectId!, title, true);
+          } else {
+            const cloned = await dispatch('sourceControl.cloneRepository', { remoteUrl: value.remoteUrl, destinationPath: resolved.path });
+            if (!str(cloned.cwd)) throw new ClientError('The clone did not return its workspace path.');
+            await createLocal(state, value, endpoint, str(cloned.cwd), dispatch);
+          }
+        }
+      } else throw new ClientError('This Add Project action is unavailable.');
+      if (value.arrival) {
+        try { await refreshShell(endpoint); }
+        catch (error) { if (letGo(error)) throw error; /* An acknowledged create waits for the existing shell stream or root deadline. */ }
       }
-    } else throw new ClientError('This Add Project action is unavailable.');
-    if (value.arrival) {
-      try { await refreshShell(endpoint); }
-      catch (error) { if (letGo(error)) throw error; /* An acknowledged create waits for the existing shell stream or root deadline. */ }
     }
   } catch (error) {
     if (letGo(error)) throw error;
