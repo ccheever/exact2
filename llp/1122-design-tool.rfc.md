@@ -34,8 +34,8 @@ loop's hot reload. Each change is a reviewable diff.
 It is a `tamber/1` client (LLP 1121 D13, D14) with no private channel, and an agent can do
 everything it does. It asks of the rest of exact2:
 - an **inspect mode** in every host's development build;
-- a **build channel** on the dev loop: four commands down (inspect, outline, hold a state,
-  pin a mode) and three reports up (status, a selection, unsupported);
+- a **build channel** on the dev loop: five commands down (inspect, outline, hold a state,
+  pin a mode, and navigate, from T7) and three reports up (status, a selection, unsupported);
 - **`set-row`**, a checked edit of one Contract row;
 - **source maps** that name attributes and file digests.
 
@@ -272,7 +272,8 @@ and behaviour stay with Contract source (D14).
     outlined off screen is scrolled into view by the host, not by the tool.
   - **One frame in v1.** Two frames of one dev URL would share storage (the canvas's
     `localhost` origin keeps its own, apart from a tab at the printed URL); several copies are
-    T7. An "open in a tab" button covers what an embed cannot do (LLP 1020 defers
+    T7, each at a loopback host of its own (`exact-copy-<n>.localhost`), so each copy is its
+    own origin with its own storage (T7 as built). An "open in a tab" button covers what an embed cannot do (LLP 1020 defers
     permission delegation and navigation control). Web content the app itself embeds is a
     leaf to inspect.
 - **Devices and simulators, as they are.** The developer runs the app on the iOS simulator,
@@ -289,9 +290,14 @@ and behaviour stay with Contract source (D14).
 - **Modes.** The tool pins a build's app mode, scheme, contrast or text size with a control
   message (D4), the same facts `prefer` pins. One copy shows one mode at a time; the app's own
   preview screens show several at once inside one copy (below); a grid of live copies, one
-  per mode, is T7. An app's own `setScheme` beats a requested scheme, so the tool shows each
-  build's **effective** scheme, contrast, mode and text size, from the build's status
-  report (D4).
+  per mode, is T7. On the canvas and on every native build, an app's own `setScheme` beats a
+  requested scheme, so the tool shows each build's **effective** scheme, contrast, mode and
+  text size, from the build's status report (D4).
+  - **A pinned grid copy (T7) is the exception.** There the person asked one copy to show one
+    mode, so the pin holds over the app's own `setScheme`, `setMode` on a pinned axis and
+    `setRootFontSize` until the copy is handed back. The tile says when the app asked
+    otherwise (the status's `app`), and on hand-back the app's latest choice applies. Handing
+    a pin back restores only the axes that pin set (theme2's rulings F2, 2026-10-19).
 - **Preview screens.** Ordinary routes, written by the developer (the tool offers a
   starter), that lay out a component or screen under several `color-scheme` and
   `-exact-mode` pins (LLP 1121 D5). A Light preview is `color-scheme="light"`; Dim and
@@ -299,7 +305,7 @@ and behaviour stay with Contract source (D14).
   one. A copy on a preview screen is the component workbench (D7).
 - **No captures in v1.** Nothing is screenshotted, stored or sent as an image.
 
-### D4 — The build channel: four commands down, three reports up
+### D4 — The build channel: five commands down, three reports up
 
 **Today the dev channel only goes one way.** It is server-sent events (`host/web/dev.js`'s
 `EventSource`; the JS page's `/__dev/page`), and a host acts only on a generation (a new
@@ -350,8 +356,14 @@ socket frames (LLP 1121 D13). So D4 adds both directions.
   command and batch on both streams.
 
 The tool drives no input into an app (no taps, no typing), takes no pictures and launches no
-sessions. `inspect` needs `read` scope and the other three commands need `write` (D12); all are
+sessions. `inspect` needs `read` scope and the other four commands need `write` (D12); all are
 journaled with their client.
+- **`navigate {location}`** (T7, the fifth command): route a build to a path, query and
+  fragment on its own origin, in place, as a link to it would (the app's navigation root or
+  router), with no reload. A location with a scheme or host is refused. A build that can't
+  answers `unsupported`, and the tool reloads that copy's frame at the location instead. A
+  status carries the build's `location`. It is navigation, not input: no tap or key is driven,
+  and it holds nothing on the build. The grid mirrors navigation by location, never by point.
 
 ### D5 — Inspect: tap the real screen
 
@@ -686,8 +698,9 @@ is undone in one step.
     Without the gateway, a remote client works on the design and sees selections, but has no
     canvas.
   - Control messages (D4): `inspect` needs `read`, since it only reports what is under the
-    pointer, so a `propose` client inspects read-only; `outline`, `hold` and `pin` need `write`,
-    since they change what the developer's screens show (LLP 1121 stage 10 A's scope table).
+    pointer, so a `propose` client inspects read-only; `outline`, `hold`, `pin` and `navigate`
+    (T7) need `write`, since they change what the developer's screens show (LLP 1121 stage 10
+    A's scope table).
 - **No relay in v1** (§9 Q6): remote use is pairing only. A hosted relay is LLP 1121 stage
   10c, later: a blind pass-through of the client's TLS to the developer's server, which changes
   nothing here (the same pairing, tokens, scopes and gateway).
@@ -700,7 +713,7 @@ is undone in one step.
   verified-local request (LLP 1121 D13). Paired clients have scoped, revocable tokens, only
   over an encrypted transport (D12).
 - **No driving.** The tool sends no taps, keystrokes or file answers into an app. Its only
-  control is D4's four commands (`inspect` needs `read`, the rest `write`; D12), which are
+  control is D4's five commands (`inspect` needs `read`, the rest `write`; D12), which are
   journaled with their client and cleared when that client goes. Inspect mode takes input only
   while it is on, with a banner and a local way out.
 - **Reports are bound to their build.** A `status` or `selected` POST must carry the nonce
@@ -737,7 +750,7 @@ is undone in one step.
 | `explain`, `uses`, token beside value | LLP 1121 D7, stage 2 | in progress |
 | params; state parts and `set-state`; importers; pairing | LLP 1121 stages 7, 8, 3a–3d, 10 | accepted, not built |
 | inspect mode in each host's development build, and the `selected` report | this RFC D5 → the hosts | proposed |
-| the build channel: registration with a nonce, four commands down, `status`, `selected` and `unsupported` reports up | this RFC D4 → the dev loops, the hosts, the Tamber server | proposed |
+| the build channel: registration with a nonce, five commands down (navigate from T7), `status`, `selected` and `unsupported` reports up | this RFC D4 → the dev loops, the hosts, the Tamber server | proposed |
 | devices launched connected to the dev URL, one `--wasm` loop for frame and devices | this RFC D3, D4 → `host/apple/build.mjs`, the dev loops | proposed |
 | the canvas gateway for paired clients | this RFC D12 → the Tamber server | built (LLP 1121 stage 10 C) |
 | `iframe` embedding stated as a second document, not a second session | this RFC D3 → LLP 1121 D14 | proposed |
@@ -832,6 +845,10 @@ lands with or after the Tamber stage it needs.
     - The questions this stage settles: how many web copies a machine runs well, whether
       each needs its own `--storage`, how navigation is mirrored across them (by location,
       never by point), and whether native copies (several simulators) are worth their cost.
+      **Settled (T7, 2026-10-19):** six copies by default (the largest that holds a sustained
+      60 fps scrub on the gate's Mac), four through the remote gateway; each copy its own
+      origin and storage; navigation mirrored by `navigate` (D4); native copies not in T7
+      (QUEUE).
     - Captures come back only if a later need (a review's before and after, a visual
       history) proves live copies insufficient.
 
@@ -902,7 +919,8 @@ lands with or after the Tamber stage it needs.
    a design or a canvas, and the tool's side is unchanged.
 7. **How the tool controls running apps.** **Ruled (Charlie, 2026-10-13): yes, for now.** The
    tool sends four commands (inspect, outline, hold, pin) and receives three reports
-   (status, a selection, unsupported), and it never drives an app (D4). Taps and typing
+   (status, a selection, unsupported), and it never drives an app (D4). T7 added a fifth,
+   `navigate`, navigation by location, not input. Taps and typing
    stay with agents, through the agent API.
 
 ## 10. As built
