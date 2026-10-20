@@ -394,6 +394,28 @@ final class CustomInvokerIOSTests: XCTestCase {
         XCTAssertFalse(source.pressed, "no holder is left")
     }
 
+    /// A press crossing out of a popover keeps the path `PointerRecognizer`
+    /// took before it sent `pointerdown`: a node there that handler disables
+    /// and restores cancels the agent's press, as it does a finger's.
+    func testAPointerdownCancellingACrossingPressCancelsTheAgentsToo() throws {
+        let session = ExactApp.shared.makeSession(label: "custom-invoker")
+        let p = page(session: session), agent = Agent(session: session)
+        let root = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[5])
+        row.handlers = ["pointerdown"]
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { id, phase, _ in
+            guard id == row.id, phase == .down else { return }
+            p.apply(wireBatch([["op": "props", "id": root.id, "set": ["disabled": "true"]]]))
+            p.apply(wireBatch([["op": "props", "id": root.id, "clear": ["disabled"]]]))
+        }
+        p.menus.action("showPopover", ["choices"])
+        let reply = tap(agent, 5)
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertTrue(reply["pressed"] is NSNull, "\(reply)")
+        XCTAssertEqual(presses, [])
+    }
+
     func testPopoverBubblingInvokesWithAndWithoutAnInvokerHandler() throws {
         let session = ExactApp.shared.makeSession(label: "custom-invoker")
         let p = page(session: session), agent = Agent(session: session)

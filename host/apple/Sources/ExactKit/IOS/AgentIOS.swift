@@ -802,7 +802,7 @@ extension Agent {
         // What the finger reaches, taken where it lands (`fingerReach`):
         // what the pointer events below do to the tree never sends the press
         // elsewhere, as a real contact keeps its target.
-        let reach = fingerReach(hit, at: p)
+        var reach = fingerReach(hit, at: p)
         // A finger's `pointerdown` as it lands and `pointerup` as it lifts,
         // before what the lift does (DOM's order), as `PointerRecognizer`
         // hears a real touch before the node does; a held contact's lift
@@ -816,6 +816,7 @@ extension Agent {
         let held = Agent.heldPrefix(req)
         MainActor.assumeIsolated { HeldState.input(at: hit) } // the finger lands where its hit was checked: a held node there lets go (HeldState.swift)
         fingerPointer(.down, fingers, at: p, held: held)
+        reach.rearm(presenter)
         fingerPointer(.up, fingers, at: p, held: held)
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }
         // Its middle reaches a control inside it: the tap landed beside it.
