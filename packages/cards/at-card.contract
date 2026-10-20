@@ -1,0 +1,80 @@
+use attieIcon, Name, Avatar from "./common.contract"
+
+// An Attie page's card (the clone's AtCard): its picture, title and
+// description, the account that made it, and "Visit site".
+component AtCard
+  params
+    accent: color = "cards.visit" control = "token" group = "Color" priority = 1 label = "Visit button"
+  props
+    id: string
+    href: string
+    title: string
+    description: string
+    thumb: string
+    atName: string
+    atHandle: string
+    atAvatar: string
+  parts
+    frame: paint shape
+    visit: paint shape space
+  view
+    link part="frame" href=href
+      testId=`atcard-${id}`
+      aria-label=(title != "" ? `Visit ${title} on Attie` : "Visit site on Attie")
+      margin-top="cards.link-top"
+      display="flex"
+      flex-direction="column"
+      border-radius="cards.link-corner"
+      overflow="hidden"
+      border-width=0.5
+      border-style="solid"
+      border-color="cards.link-frame"
+      background-color="cards.link-ground"
+      if thumb != ""
+        image thumb width="100%"
+          aspect-ratio=1.9048
+          object-fit="cover"
+          alt=""
+          background-color="cards.thumb-ground"
+      column padding="cards.link-pad" gap="cards.link-gap"
+        text title font-size="1.05625rem"
+          font-weight=700
+          line-height="1.375rem"
+          line-clamp=3
+          class=Name
+        if description != ""
+          text description font-size="0.81875rem"
+            line-height="1.0625rem"
+            line-clamp=(thumb != "" ? 3 : 4)
+            class=Name
+      box height=0.5 background-color="cards.link-frame"
+      column padding="cards.link-pad" gap="cards.link-pad" align-items="center"
+        row align-self="stretch" gap="cards.link-row-gap" align-items="center"
+          Avatar(src=atAvatar, size=32)
+          column flex=1 min-width=0 gap="cards.link-name-gap"
+            text atName font-size="0.81875rem"
+              font-weight=500
+              line-height="0.9375rem"
+              white-space="nowrap"
+              text-overflow="ellipsis"
+              overflow="hidden"
+              class=Name
+            text atHandle font-size="0.70625rem"
+              line-height="0.8125rem"
+              white-space="nowrap"
+              text-overflow="ellipsis"
+              overflow="hidden"
+              color="cards.meta"
+        row part="visit" testId=`atcard-visit-${id}` align-self="stretch"
+          justify-content="center"
+          align-items="center"
+          gap="cards.link-row-gap"
+          padding-top="cards.visit-pad-block"
+          padding-bottom="cards.visit-pad-block"
+          padding-left="cards.visit-pad-inline"
+          padding-right="cards.visit-pad-inline"
+          border-radius="cards.visit-corner"
+          background-color="param.accent"
+          svg viewBox="0 0 24 24" width=20 height=20 aria-hidden=true
+            path fill="cards.visit-ink" fill-rule="evenodd" d=attieIcon()
+          text "Visit site" font-size="0.81875rem" font-weight=700 color="cards.visit-ink"

@@ -1,0 +1,7 @@
+{
+  "name": "@exact/actions",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Library components for actions (LLP 1139): the Post button and a post's action row, restyled by their params and the package's tokens.",
+  "exports": { ".": "./index.contract" }
+}

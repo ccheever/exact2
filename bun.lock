@@ -5,6 +5,8 @@
     "": {
       "name": "exact2",
       "dependencies": {
+        "@exact/actions": "workspace:*",
+        "@exact/cards": "workspace:*",
         "@exact/geolocation": "workspace:*",
         "@exact/reading": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
@@ -17,6 +19,14 @@
         "snapback4": "0.4.33",
         "typescript": "7.0.2",
       },
+    },
+    "packages/actions": {
+      "name": "@exact/actions",
+      "version": "0.1.0",
+    },
+    "packages/cards": {
+      "name": "@exact/cards",
+      "version": "0.1.0",
     },
     "packages/geolocation": {
       "name": "@exact/geolocation",
@@ -36,6 +46,10 @@
     },
   },
   "packages": {
+    "@exact/actions": ["@exact/actions@workspace:packages/actions"],
+
+    "@exact/cards": ["@exact/cards@workspace:packages/cards"],
+
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
 
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
