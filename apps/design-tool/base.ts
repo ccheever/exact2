@@ -11,7 +11,7 @@ const COLUMNS: [string, string][] = [['ios', 'iOS'], ['mac', 'Mac'], ['neutral',
 export type BaseColumn = { name: string; label: string; value: string; from: string; stretch: boolean; ships: boolean };
 export type Source = { source: string; package: string; of: string; over: string; back: string; columns: BaseColumn[]; startFrom: string };
 
-/** A column's source in words: the metric it references, the measurement, the guideline, or a stretch with why. */
+/** A column's source in words: the metric it references, the measurement, the guideline, a stretch with why, or radius.full's pill. */
 function fromOf(s: any): string {
   switch (s?.kind) {
     case 'metric': return String(s.ref ?? '');
@@ -19,6 +19,7 @@ function fromOf(s: any): string {
     case 'guideline': return String(s.cite ?? '');
     case 'stretch': return `${s.ref ?? ''}${s.why ? `, ${s.why}` : ''}`;
     case 'terminal': return 'cells';
+    case 'full': return 'the pill';
     default: return '';
   }
 }
