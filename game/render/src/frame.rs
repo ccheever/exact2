@@ -2,7 +2,7 @@ use crate::{shadows::Cascades, FrameInput};
 use exact_gpu::wgpu;
 use glam::Vec3;
 
-pub(crate) const FLOATS: usize = 192;
+pub(crate) const FLOATS: usize = 216;
 
 /// Whether the sky pass draws; `map` is a visible environment map resident.
 pub(crate) fn has_sky(frame: &FrameInput<'_>, map: bool) -> bool {
@@ -64,7 +64,8 @@ pub(crate) fn uniform(
         data[40..43].copy_from_slice(&fill.color.to_array());
     }
     data[44..48].copy_from_slice(&lights);
-    if has_sky(frame, map) {
+    // The sky and the water's surface find each pixel's ray through it.
+    if has_sky(frame, map) || frame.water.is_some() {
         data[48..64].copy_from_slice(&(frame.proj * frame.view).inverse().to_cols_array());
     }
     data[64..68].copy_from_slice(&(-frame.view.row(2)).to_array());

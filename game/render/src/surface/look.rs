@@ -477,6 +477,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         if let Some(rung) = self.rung {
             let authored = sim.world().try_resource::<exact_game::Shadows>().is_some();
             rung.clamp(&mut input, authored);
+            renderer.set_water_effects(rung.water_effects());
         }
         if let Some(bounds) = bounds.filter(|_| view != View::Camera) {
             view.apply(&mut input, glam::Vec2::new(points.0, points.1), bounds);

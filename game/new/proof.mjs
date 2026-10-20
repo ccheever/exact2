@@ -86,7 +86,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const titleAx = await axNames(s);
   check('Play is initially focused and named', node(title, 'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
   check('state agrees with initial focus', (await s.state()).focus.logical === node(title, 'play')?.id);
-  check('title, controls and Play', !!node(title, 'play') && ['Small game', 'Move with WASD or arrow keys', 'Space jumps · E lights', 'On a touch screen, touch controls appear during play'].every(text => title.nodes.some(n => n.props?.text === text)));
+  check('title, controls and Play', !!node(title, 'play') && ['Small game', 'Move with WASD or arrow keys', 'Space jumps · E lights', 'Walk to the critter: it drops coins · 1 feeds it · 2 buys shoes', 'On a touch screen, touch controls appear during play'].every(text => title.nodes.some(n => n.props?.text === text)));
   check('world loads after Play', !node(title, 'world'));
   await s.tap('play');
   check('HUD is a polite live region', node(await s.tree(), 'hud-lit')?.props.accessibilityLive === 'polite');
@@ -137,6 +137,51 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const relitGame = await play(relit);
   check('a fresh process restores the lit beacon and its HUD', (await relitGame.get('beacon-1', 'Beacon')).lit && node(await relit.tree(), 'hud-lit')?.props.text === 'Lit 1');
   await relit.close();
+  // The critter: asleep until the player comes, then it follows, drops coins
+  // that drift to the player, eats from the shop and keeps away from the light.
+  const pet = await open({fresh:true});
+  await pet.tap('play');
+  const petWorld = pet.world('world');
+  check('the critter sleeps and its shop waits for it', !(await petWorld.get('critter', 'Critter')).awake && !node(await pet.tree(), 'shop'));
+  await petWorld.hold('KeyA', 600);
+  await petWorld.run(100);
+  check('the critter wakes when the player comes near', (await petWorld.get('critter', 'Critter')).awake);
+  await petWorld.run(2500);
+  let shop = await pet.tree();
+  check('its first coin drifts to the player and is counted', node(shop, 'hud-coins')?.props.text === 'Coins 1 · critter fed', node(shop, 'hud-coins')?.props);
+  check('feeding is locked until it is half hungry', node(shop, 'buy-1')?.props.accessibilityLabel === 'Feed, Not hungry' && node(shop, 'buy-1')?.props.disabled === true);
+  const [cx, , cz] = await petWorld.global_position('critter'), [px, , pz] = await petWorld.global_position('player');
+  check('it follows the player and stops short of it', Math.abs(Math.hypot(cx - px, cz - pz) - 1.2) < 0.2, {critter: [cx, cz], player: [px, pz]});
+  await petWorld.run(18500);
+  shop = await pet.tree();
+  check('half hungry after 20 s, with a coin every 2 s', node(shop, 'hud-coins')?.props.text === 'Coins 10 · critter hungry' && node(shop, 'buy-1')?.props.accessibilityLabel === 'Feed, 6 coins, key 1', node(shop, 'hud-coins')?.props);
+  await petWorld.tap('Digit1');
+  await petWorld.run(100);
+  shop = await pet.tree();
+  check('Digit1 feeds it once, for six coins', node(shop, 'hud-coins')?.props.text === 'Coins 4 · critter fed', node(shop, 'hud-coins')?.props);
+  // Pins after the kit has run, so the first baseline compares its state across
+  // hosts: the critter steered, a coin drifted, the shop sold. Ticks: 72 walking,
+  // 12 + 300 + 2220 waiting, 12 after the purchase.
+  await petWorld.save(resolve(out, 'critter.world'));
+  pinSave('critter-fed', resolve(out, 'critter.world'));
+  await petWorld.run(4000);
+  const fedOnState = await petWorld.snapshot();
+  pin(3096, fedOnState);
+  const fedOn = JSON.stringify(fedOnState);
+  await petWorld.hold('KeyD', 1100);
+  await petWorld.tap('KeyE');
+  await petWorld.run(3000);
+  const [bx, , bz] = await petWorld.global_position('beacon-1'), [kx, , kz] = await petWorld.global_position('critter');
+  const fromLight = Math.hypot(kx - bx, kz - bz);
+  check('it keeps 3 m from a lit beacon, beside the player', (await petWorld.get('beacon-1', 'Beacon')).lit && fromLight > 2.9 && fromLight < 3.5, {critter: [kx, kz], fromLight});
+  pin(3588, await petWorld.snapshot());
+  await pet.close();
+  // Its hunger, its next coin and the coins' serials travel in a save.
+  const petAgain = await open({fresh:true, world:resolve(out, 'critter.world')});
+  const petRestored = await play(petAgain);
+  await petRestored.run(4000);
+  check('a fresh process restores the awake critter and its coin schedule', JSON.stringify(await petRestored.snapshot()) === fedOn);
+  await petAgain.close();
   const pointerSession = await open({fresh:true});
   await pointerSession.tap('play');
   await pointerSession.tap('pause'); await pointerSession.tap('pause');
@@ -199,9 +244,16 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const upright = await tall.tree();
   check('portrait: the panel waits behind Menu', !node(upright, 'panel') && !!node(upright, 'panel-open'));
   check('portrait: no HUD node crosses the middle third of the world', (await measure()).crossing.length === 0, await measure());
+  // The critter wakes and, 20 s on, is hungry with ten coins: its shop is in the sheet.
+  const tallWorld = tall.world('world');
+  await tallWorld.hold('KeyA', 600);
+  await tallWorld.run(21100);
   await tall.tap('panel-open');
-  const sheet = await measure(['panel', 'touch-controls', 'panel-close']);
-  check('portrait: the open sheet is on screen and clear of the middle third', sheet.crossing.length === 0 && sheet.off.length === 0, sheet);
+  const sheet = await measure(['panel', 'buy-1', 'buy-2', 'touch-controls', 'panel-close']);
+  check('portrait: the open sheet, with the shop, is on screen and clear of the middle third', sheet.crossing.length === 0 && sheet.off.length === 0, sheet);
+  await tall.tap('buy-1');
+  await tallWorld.run(100);
+  check('portrait: a tap on the sheet\'s shop feeds the critter for six coins', node(await tall.tree(), 'hud-coins')?.props.text === 'Coins 4 · critter fed', node(await tall.tree(), 'hud-coins')?.props);
   await tall.tap('touch-controls');
   await tall.tap('panel-close');
   const strip = await tall.tree(), controls = await measure(['move', 'jump', 'light']);

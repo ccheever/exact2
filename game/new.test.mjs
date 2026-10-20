@@ -780,8 +780,8 @@ test('copies of the same game own distinct intermediate build directories', asyn
 test('a game whose type would shadow an engine export or a template item is refused', async () => {
   const {createGame,takenTypes}=await import('./new.mjs');
   const taken=takenTypes();
-  for (const type of ['World','Camera','Transform','Beacon','Options']) assert.ok(taken.has(type),type);
-  for (const name of ['world','camera','beacon']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
+  for (const type of ['World','Camera','Transform','Beacon','Options','Spawner','Collectable','Character']) assert.ok(taken.has(type),type);
+  for (const name of ['world','camera','beacon','spawner','collectable']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
   assert.ok(!taken.has('Garden'));
 });
 

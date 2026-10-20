@@ -383,3 +383,110 @@ fn the_module_reports_a_low_worlds_raster_at_half_scale() {
         (0.5, 1.0)
     );
 }
+
+#[derive(Default, exact_game::Args)]
+struct TankArgs {
+    /// 1 asks for `Quality::Low`, anything else `High`.
+    q: u32,
+    /// 1 inserts `Water` with its caustics and shafts, 2 without them.
+    water: u32,
+}
+/// A tank seen from under the surface: everything else the rungs differ in
+/// is the game's own (one sample, its `Shadows`, its full `render_scale`),
+/// so only the water's effects can tell the rungs apart.
+struct Tank;
+impl Game for Tank {
+    const ID: &'static str = "quality-water";
+    const SAMPLES: exact_game::SceneSamples = exact_game::SceneSamples::One;
+    type Args = TankArgs;
+    fn render_scale(_: &TankArgs) -> f32 {
+        1.0
+    }
+    fn quality(args: &TankArgs) -> Quality {
+        if args.q == 1 {
+            Quality::Low
+        } else {
+            Quality::High
+        }
+    }
+    fn setup(w: &mut World, args: &TankArgs) {
+        w.insert_resource(exact_game::Environment::underwater());
+        w.insert_resource(Shadows::default());
+        if args.water > 0 {
+            let mut water = exact_game::Water::at(4.);
+            if args.water == 2 {
+                (water.caustics, water.shafts) = (None, None);
+            }
+            w.insert_resource(water);
+        }
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(20., 20.),
+            Material::hex("#d8c8a0"),
+        ));
+        w.spawn((Transform::at(1., 1., 0.), Mesh::cube(1.)));
+        w.spawn((
+            Transform::at(2., 10., 1.).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight {
+                illuminance: 6000.,
+                ..DirectionalLight::default()
+            },
+        ));
+        w.spawn((
+            Transform::at(0., 2., 6.).looking_at(Vec3::new(0., 1.5, 0.), Vec3::Y),
+            Camera::default(),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &TankArgs) {}
+}
+
+/// LLP 1139.003 D3 with LLP 1139.002: under `Low` a world with `Water` draws
+/// without its caustics and shafts, at present time (the resource keeps
+/// them); under `High` it draws them. Without water the two rungs draw the
+/// same bytes, so the difference is the water's effects alone.
+#[test]
+fn low_draws_water_without_caustics_and_shafts() {
+    let Some(gpu) = gpu() else { return };
+    let draw = |q: u32, water: u32| {
+        let mut s = WorldSurface::<Tank>::default();
+        s.bind(
+            &[Value::Number(q.into()), Value::Number(water.into())],
+            None,
+        )
+        .unwrap();
+        let mut pixels = None;
+        for i in 0..=3 {
+            pixels = Some(
+                fixture::render(&gpu, &mut s, &frame(i as f64 * 250.))
+                    .unwrap()
+                    .0,
+            );
+            assert!(s.error().is_none(), "{:?}", s.error());
+        }
+        let world = state(&mut s);
+        let kept = s
+            .sim()
+            .unwrap()
+            .world()
+            .try_resource::<exact_game::Water>()
+            .is_some_and(|w| w.caustics.is_some());
+        (
+            pixels.unwrap().data,
+            world["quality"]["rung"].as_str().map(str::to_owned),
+            kept,
+        )
+    };
+    let dry_high = draw(0, 0).0;
+    let dry_low = draw(1, 0).0;
+    assert_eq!(dry_high, dry_low, "without water the rungs draw alike here");
+    let (wet_high, high_rung, _) = draw(0, 1);
+    let (wet_low, low_rung, kept) = draw(1, 1);
+    assert_eq!(
+        (high_rung.as_deref(), low_rung.as_deref()),
+        (Some("high"), Some("low"))
+    );
+    assert!(kept, "the saved Water keeps its caustics");
+    // Low draws the water as if it had neither effect; High draws both.
+    assert_eq!(wet_low, draw(1, 2).0, "Low draws no caustics and no shafts");
+    assert_ne!(wet_high, draw(0, 2).0, "High draws them");
+}

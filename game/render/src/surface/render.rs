@@ -257,6 +257,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         if let Some(rung) = self.rung {
             let authored = sim.world().try_resource::<exact_game::Shadows>().is_some();
             rung.clamp(&mut input, authored);
+            renderer.set_water_effects(rung.water_effects());
         }
         // Every pixel the renderer stores has alpha one: each clear of the
         // output stores one, opaque draws write one, and every blend composes

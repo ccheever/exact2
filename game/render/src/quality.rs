@@ -3,6 +3,7 @@
 //! each rung clamps of what the game left unsaid. Presentation only: nothing
 //! here reaches the world, its saves or its hash.
 
+use crate::WaterEffects;
 use exact_game::{Quality, SceneSamples, AUTO_RENDER_SCALE};
 use exact_gpu::GpuTier;
 
@@ -70,9 +71,18 @@ impl Rung {
                 }
             }
         }
-        // An inserted `AmbientOcclusion` is the game's, quality and all. LLP
-        // 1139.002 D4's `caustics` and `shafts` frame-uniform flags are cleared
-        // here under `Low` once that lane's flags exist.
+        // An inserted `AmbientOcclusion` is the game's, quality and all.
+    }
+
+    /// Which of a `Water` resource's effects the renderer draws: none under
+    /// `Low`, both elsewhere. A present-time choice (`Renderer::set_water_effects`):
+    /// the saved resource keeps the game's caustics and shafts.
+    pub fn water_effects(self) -> WaterEffects {
+        let on = self.level != GpuTier::Low;
+        WaterEffects {
+            caustics: on,
+            shafts: on,
+        }
     }
 
     fn json(self, samples: SceneSamples, scale: f32) -> String {

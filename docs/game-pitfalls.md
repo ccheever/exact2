@@ -71,6 +71,14 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
   during a fast flick. [Same-tick press](../game/recipes/same-tick-press.md) is the
   doc-test that shows both. (Rivals diary; Fishslop run 1, 2026-10-18.)
 
+- **Two taps before one tick are one tick's presses, handled in the tick's order.**
+  `sim.tap("Digit2"); sim.tap("Digit1"); sim.run(20.)` in a shop where item 2 needs
+  item 1 buys both: the tick sees both rising edges and its loop buys 1, which unlocks
+  2, then 2. Cause: `pressed` reports every rising edge since the last tick, and a tap
+  is down and up before the next one. Fix: in a test or drive, advance the clock
+  between presses meant as separate turns; in the game, decide whether a lock is read
+  before or after the tick's purchases. ([Shop recipe](../game/recipes/shop.md),
+  LLP 1139.001, 2026-10-19.)
 - **`clock settle` after a post into a paused world reports `NOT settled (world)`,
   `changing: ["paused","input queued"]`.** Cause: a paused world holds a posted message
   (the page's `postMessage` or the driver's `post`) for its first tick after the pause,
@@ -80,6 +88,12 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
 
 ## Tests, the proof and setup
 
+- **`clock settle` reports rest between a game's scheduled events.** A world whose
+  creatures have stopped answers quiescent though a `Spawner`'s next spawn, or hunger
+  computed from a saved tick, comes later. Cause: quiescence observes changes and
+  declared work, not a game's schedule (LLP 1128 I2). Fix: call `w.busy(reason)` each
+  tick such work is pending, as the starter's critter and the
+  [spawner recipe](../game/recipes/spawner.md) do. (Starter drive, LLP 1139.001.)
 - **A continued proof uses its saved source copy.** Keep the SDK unchanged until
   it finishes. Edit the original game freely during a new run; `--continue` refuses
   if its authored inputs differ from the snapshot, naming the file. Start a new
