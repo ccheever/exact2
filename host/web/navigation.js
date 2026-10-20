@@ -137,8 +137,7 @@ function historyURL(path) {
   return url.href;
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
-/** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
-// The route's own control, else one in no route at all (a header the routes share), as iOS resolves it (NavigationRules.backControl); another route's is that route's.
+/** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not: the route's own, else one in no route at all (a header the routes share), as iOS resolves it (NavigationRules.backControl); another route's is that route's. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
 // @ref LLP 1116.000 D4 — a pushed route's app bar draws Back, as iOS draws UIKit's system Back button
 // (NavigationBarIOS.swift `prepareRoutes`): a route above its stack's root (a tab's root has none), not
