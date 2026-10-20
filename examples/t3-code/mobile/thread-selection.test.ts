@@ -202,15 +202,88 @@ test('a fleet target uses its own phase, cache and switch refusal, not the focus
   const connected = f.facts('remote', 't');
   expect(connected.selectionReady).toBe(true);
   expect(new Set([absent, connecting, cached, connected].map(facts => facts.selectionKey)).size).toBe(4);
-  // offlineSelection refuses a switch while the client is busy; the end of that work is a new attempt.
+  // Busy work alone is not a new attempt: only the end of a switch refusal is (below).
   entry.phase = 'available';
   const idle = f.facts('remote', 't');
   f.client.busy = true;
-  const busy = f.facts('remote', 't');
-  expect(busy.selectionReady).toBe(true);
-  expect(busy.selectionKey).not.toBe(idle.selectionKey);
+  expect(f.facts('remote', 't')).toEqual(idle);
   f.client.busy = false;
+  expect(f.facts('remote', 't')).toEqual(idle);
+});
+
+const BUSY = 'Wait for the current send before switching threads.';
+
+test('an uncatalogued saved target refuses before busy is read, so busy never re-arms it', async () => {
+  const f = held();
+  fleet.saved = [{ environmentId: 'remote', origin: 'https://remote.invalid', enabled: true }];
+  expect(f.facts('remote', 't').selectionReady).toBe(true);
+  // A replaced saved identity leaves the catalog pending until it is invalidated.
+  fleet.saved = [{ environmentId: 'remote', origin: 'https://replaced.invalid', enabled: true }];
+  const idle = f.facts('remote', 't');
+  expect((await mobileThreadSelection(f.client, 'fleet:remote:t', f.native, f.storage)).message).toBe('This thread is unavailable offline.');
+  f.client.busy = true;
+  // The same early refusal, not the busy one, so a re-armed attempt would only repeat this alert.
+  expect((await mobileThreadSelection(f.client, 'fleet:remote:t', f.native, f.storage)).message).toBe('This thread is unavailable offline.');
+  expect(f.facts('remote', 't')).toEqual(idle);
+  f.client.busy = false;
+  expect(f.facts('remote', 't')).toEqual(idle);
+});
+
+test('only the end of a busy switch refusal re-arms a catalogued target, once', async () => {
+  const f = held();
+  fleet.saved = [{ environmentId: 'remote', origin: 'https://remote.invalid', enabled: true }];
+  const idle = f.facts('remote', 't');
+  const answer = (await mobileThreadSelection(f.client, 'fleet:remote:t', f.native, f.storage)).message;
+  expect(answer).not.toBe(BUSY);
+  // After a refusal busy cannot turn into success: toggling it is no new attempt.
+  f.client.busy = true;
   expect(f.facts('remote', 't').selectionKey).toBe(idle.selectionKey);
+  expect((await mobileThreadSelection(f.client, 'fleet:remote:t', f.native, f.storage)).message).toBe(BUSY);
+  // Recording the refusal is not itself a key change, so it alerts once.
+  expect(f.facts('remote', 't').selectionKey).toBe(idle.selectionKey);
+  f.client.busy = false;
+  const released = f.facts('remote', 't');
+  expect(released.selectionKey).not.toBe(idle.selectionKey);
+  expect((await mobileThreadSelection(f.client, 'fleet:remote:t', f.native, f.storage)).message).toBe(answer);
+  expect(f.facts('remote', 't')).toEqual(released);
+  f.client.busy = true;
+  expect(f.facts('remote', 't')).toEqual(released);
+});
+
+test('releasing an environment switch hold publishes a revision for the routes it held', async () => {
+  const f = held(), first = f.hold(() => true);
+  fleet.saved = [{ environmentId: 'remote', origin: 'https://remote.invalid', enabled: true }];
+  const switching = mobileThreadSelection(f.client, 'fleet:remote:t', f.native, f.storage).catch((error: unknown) => error);
+  expect(await Promise.race([first.issued.then(() => 'held'), switching.then(() => 'answered')])).toBe('held');
+  expect(f.facts('focused', 'b').selectionReady).toBe(false);
+  const revision = f.client.revision;
+  first.release();
+  await switching;
+  expect(f.facts('focused', 'b').selectionReady).toBe(true);
+  // A held route re-reads its facts only when data.revision (or the minute tick) changes.
+  expect(f.client.revision).toBeGreaterThan(revision);
+});
+
+test('a chosen, unopened thread whose retry another command interrupts during its first load opens again', async () => {
+  const f = held(), read = f.storage.fs.readFile;
+  let issued!: () => void, release!: () => void, first = true;
+  const seen = new Promise<void>(resolve => { issued = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
+  f.storage.fs.readFile = async path => { if (first) { first = false; issued(); await gate; } return read(path); };
+  // Chosen while offline (thread-selection offlineSelection) and adopted connected without its opening.
+  f.client.threadId = 'b';
+  const selecting = mobileThreadSelection(f.client, 'b', f.native, f.storage);
+  await seen;
+  expect((await f.client.command('unsettle', '', '', 0, f.native, f.storage)).message)
+    .toBe('Wait for synchronization and check your connection permissions.');
+  expect(f.client.busy).toBe(false);
+  release();
+  expect((await selecting).message).toBe('');
+  expect(f.client.threadSubscription).toBe('');
+  expect(f.calls.some(bounded('b'))).toBe(false);
+  expect(f.facts('focused', 'b')).toMatchObject({ selectionReady: true, selectionReopen: true });
+  expect((await mobileThreadSelection(f.client, 'b', f.native, f.storage)).message).toBe('');
+  expect(f.client.threadSubscription).toBe('b');
+  expect(f.facts('focused', 'b').selectionReopen).toBe(false);
 });
 
 test('every route waits while an environment switch is in flight, then the switch owns the result', async () => {

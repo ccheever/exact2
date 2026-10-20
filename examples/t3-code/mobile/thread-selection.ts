@@ -20,6 +20,8 @@ const identity = (environmentId: string) => {
     ? JSON.stringify([environmentId, trimOrigin(str(rows[0]!.origin))]) : '';
 };
 const stale = () => new ClientError('The selected thread changed.', 'superseded');
+const switchRefusal = 'Wait for the current send before switching threads.';
+const switchBlocked = (client: T3Client) => client.busy || !!client.pending || mobileOutboxDriveSnapshot(client, 0).busy;
 
 /** Offline rows use the real native saved-environment selector. Cached content
  * remains display-only; reconnect and synchronization keep their normal owners. */
@@ -50,8 +52,7 @@ async function offlineSelection(client: T3Client, environmentId: string, threadI
   };
   try {
     if (client.environmentId !== environmentId) {
-      if (client.busy || client.pending || mobileOutboxDriveSnapshot(client, 0).busy)
-        return { revision: client.revision, message: 'Wait for the current send before switching threads.' };
+      if (switchBlocked(client)) return { revision: client.revision, message: switchRefusal };
       await mobileCacheFleetSync(fleet, scoped, client); check();
       const cached = mobileCacheFleetDisplays(fleet, client).find(row => row.enabled && row.environmentId === environmentId);
       if (!cached?.shell.threads.some(row => row.id === threadId))
@@ -110,30 +111,38 @@ async function offlineSelection(client: T3Client, environmentId: string, threadI
  * target's background entry first, so every route waits instead of superseding it. */
 const switching = new WeakMap<T3Client, number>();
 /** Selections another command interrupted: their count, whether the interrupting
- * command may still be busy, and the target whose opening was cut short. */
-const interruptions = new WeakMap<T3Client, { count: number; waiting: boolean; target: string }>();
+ * command may still be busy, and the target whose opening was cut short. Then the
+ * target the switch refusal answered, its refusal count, and whether its newest
+ * answer was that refusal. */
+interface RouteRetry { count: number; waiting: boolean; reopen: string; refused: string; refusals: number; refusing: boolean }
+const retries = new WeakMap<T3Client, RouteRetry>();
+const retryOf = (client: T3Client): RouteRetry => retries.get(client)
+  ?? { count: 0, waiting: false, reopen: '', refused: '', refusals: 0, refusing: false };
+const routeTarget = (environmentId: string, threadId: string) => JSON.stringify([environmentId, threadId]);
 const unopened = (client: T3Client, environmentId: string, threadId: string) => client.connection === 'connected'
   && client.environmentId === environmentId && client.threadId === threadId && client.threadSubscription !== threadId
   && client.shell.threads.some(row => row.id === threadId);
 
 /** The route target's own selection facts (app.contract selectRouteThread). They
  * never read the previous thread's liveness or reply, and nothing a same-environment
- * selection changes is in the key, so a refusal alerts once and does not repeat. */
+ * selection changes is in the key, so a refusal alerts once and does not repeat.
+ * Busy work is in the key only after it refused this target's switch: its end is
+ * the one new attempt. Earlier refusals do not read busy, so they stay answered. */
 export function mobileThreadSelectionFacts(client: T3Client, environmentId: string, threadId: string, route: string) {
   const focused = environmentId === client.environmentId;
   const background = focused ? undefined : [...fleet.entries.values()].find(row => row.environmentId === environmentId);
   const phase = focused ? client.connection : background?.phase ?? '';
   const live = phase === 'connected', transient = phase === 'connecting' || phase === 'reconnecting';
   const cached = !!identity(environmentId) && mobileCacheCatalogCurrent(client, fleet.saved, environmentId);
-  // offlineSelection refuses a switch for these; their end is a new attempt.
-  const blocked = !focused && !live && (client.busy || !!client.pending || mobileOutboxDriveSnapshot(client, 0).busy);
-  const retry = interruptions.get(client) ?? { count: 0, waiting: false, target: '' };
-  const target = live ? !focused || (client.configLive && client.shellLive) : transient ? cached : true;
+  const retry = retryOf(client), routeId = routeTarget(environmentId, threadId);
+  // Unchanged while the refusal's blocker lasts, so recording the refusal is not a new attempt.
+  const refusal = retry.refused !== routeId ? 0 : retry.refusals - (retry.refusing && switchBlocked(client) ? 1 : 0);
+  const targetReady = live ? !focused || (client.configLive && client.shellLive) : transient ? cached : true;
   return { selectionRoute: route,
-    selectionReady: !!environmentId && !!threadId && target && !switching.has(client) && !(retry.waiting && client.busy),
-    selectionReopen: retry.target === JSON.stringify([environmentId, threadId]) && unopened(client, environmentId, threadId),
-    selectionKey: JSON.stringify([environmentId, focused, live, phase, cached, blocked,
-      focused ? client.generation : background?.generation ?? -1, retry.count]) };
+    selectionReady: !!environmentId && !!threadId && targetReady && !switching.has(client) && !(retry.waiting && client.busy),
+    selectionReopen: retry.reopen === routeId && unopened(client, environmentId, threadId),
+    selectionKey: JSON.stringify([environmentId, focused, live, phase, cached,
+      focused ? client.generation : background?.generation ?? -1, retry.count, refusal]) };
 }
 
 /** A route projection can still name the background connection after a completed
@@ -141,26 +150,37 @@ export function mobileThreadSelectionFacts(client: T3Client, environmentId: stri
 export async function mobileThreadSelection(client: T3Client, id: string, native: Native, storage: Files) {
   const serial = (selections.get(client) ?? 0) + 1; selections.set(client, serial);
   const target = parseFleetThreadId(id), environmentId = target?.environmentId ?? client.environmentId;
-  const threadId = target?.threadId ?? id, retry = interruptions.get(client);
+  const threadId = target?.threadId ?? id, routeId = routeTarget(environmentId, threadId), retry = retries.get(client);
   if (retry) retry.waiting = false;
   if (environmentId !== client.environmentId) switching.set(client, serial);
+  // Any native or storage access (the shared command's first load reads storage)
+  // shows the selection passed the shared command's opening short-circuit.
   let requests = 0;
   const counted: Native = { available: native.available, watch: topic => native.watch(topic),
     later: request => { requests++; return native.later(request); } };
+  const fs = storage.fs, files: Files = { fs: {
+    mkdir: path => { requests++; return fs.mkdir(path); },
+    readFile: path => { requests++; return fs.readFile(path); },
+    atomicWriteFile: (path, bytes) => { requests++; return fs.atomicWriteFile(path, bytes); } } };
   try {
-    const result = await select(client, id, environmentId, threadId, counted, storage, serial);
+    const result = await select(client, id, environmentId, threadId, counted, files, serial);
     // The shared command answers '' when a newer command superseded it, even after
     // it set threadId. Only the newest selection decides whether to try again.
-    if (selections.get(client) === serial && !result.message) {
-      const previous = interruptions.get(client) ?? { count: 0, waiting: false, target: '' };
-      if (client.environmentId !== environmentId || client.threadId !== threadId
-        || (requests > 0 || client.busy) && unopened(client, environmentId, threadId)) {
-        interruptions.set(client, { count: previous.count + 1, waiting: true, target: JSON.stringify([environmentId, threadId]) });
+    if (selections.get(client) === serial) {
+      const previous = retryOf(client), refused = result.message === switchRefusal;
+      const refusal = refused ? { refused: routeId, refusals: previous.refused === routeId ? previous.refusals + 1 : 1, refusing: true }
+        : previous.refused === routeId ? { refusing: false } : {};
+      if (!result.message && (client.environmentId !== environmentId || client.threadId !== threadId
+        || (requests > 0 || client.busy) && unopened(client, environmentId, threadId))) {
+        retries.set(client, { ...previous, ...refusal, count: previous.count + 1, waiting: true, reopen: routeId });
         client.revision++;
-      } else interruptions.set(client, { ...previous, target: '' });
+      } else retries.set(client, { ...previous, ...refusal, reopen: result.message ? previous.reopen : '' });
     }
     return result;
-  } finally { if (switching.get(client) === serial) switching.delete(client); }
+  } finally {
+    // A route the switch held re-reads its facts only on a new revision.
+    if (switching.get(client) === serial) { switching.delete(client); client.revision++; }
+  }
 }
 async function select(client: T3Client, id: string, environmentId: string, threadId: string, native: Native,
   storage: Files, serial: number) {
