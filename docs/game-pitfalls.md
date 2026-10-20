@@ -42,15 +42,14 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
   for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
   1046.012 F5, 2026-10-07.)
 
-- **`model.materials[i].name` is empty for a material Blender names.** Cause: the
-  `.model` was baked before the bake kept material names (LLP 1139.004 D3) and an
-  older bake output is still what loads (a copied `assets/`), or the glTF material
-  has no `name`. The engine reads an older model
-  with empty names rather than refusing it. Fix: bake again (any build, or
-  `sim_with_art!` in a test, bakes `art/` afresh). The bake's material record
-  changed then, so the next bake moves every model's bytes and a repin's `inputs`;
-  world saves and generated models' identities do not change. Select a material
-  by index: names may repeat.
+- **A model fails with ``baked before model records (record 1, no material names)``.**
+  Cause: a `.model` from a bake older than material names (LLP 1139.004 D3) still
+  loads, as from a copied `assets/`; the engine reads model record 2 and refuses
+  another by name. Fix: bake again (any build, or `sim_with_art!` in a test, bakes
+  `art/` afresh). The new record changes every baked model's bytes and so a repin's
+  `inputs`; world saves and generated models' identities do not change. An empty
+  `materials[i].name` then means the glTF material has no name. Select a material by
+  index: names may repeat.
 
 ## Input
 
@@ -75,9 +74,9 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
 - **`clock settle` after a post into a paused world reports `NOT settled (world)`,
   `changing: ["paused","input queued"]`.** Cause: a paused world holds a posted message
   (the page's `postMessage` or the driver's `post`) for its first tick after the pause,
-  and a held input counts as work. Fix: resume first (`tap pause` in the starter), or
-  advance with `clock +<ms>` while paused; the message is delivered once either way.
-  (LLP 1139.004's drive, 2026-10-19.)
+  and a held input counts as work. Fix: resume (`tap pause` in the starter); the first
+  tick after it reads the message once. `clock +<ms>` while paused returns with the
+  message still held and does not settle.
 
 ## Tests, the proof and setup
 

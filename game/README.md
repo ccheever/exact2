@@ -382,8 +382,9 @@ The driver posts the same message with `post [<surface>] <text>`, short for
 `type <surface> message <text>`: `post spawn-gulper` to the page's one world,
 `post world "spawn gulper"` to a named surface (a canvas's testId works too). It is
 the page's `postMessage` in every respect: saved until a tick reads it, held while
-no canvas of the surface is live (64 at most, the 65th refused by name), and refused
-past the world's 1,024 queued events. Use it to stage or script a scene the game
+no canvas of the surface is live (64 at most, the 65th refused by name). Past the
+world's 1,024 queued events the world drops it, logs that once and counts it in
+`state`'s `input.refusedPosts`; the op has already succeeded. Use it to stage or script a scene the game
 already listens for, as `Sim::post` does in a hostless test. As from the page, a
 `set entity Component.field value` message is a
 [development edit](engine/README.md#development-edits), which a pin refuses.
