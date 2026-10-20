@@ -318,7 +318,7 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     bakeSays = `${warning}\n{"version":1}\n`;
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /ios build is stale/, 'before the bake, the driver refuses as before');
     assert.equal(await drive(), 0);
-    assert.deepEqual([said.slice(0, 2), builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)', warning], [], 1]);
+    assert.deepEqual([said.slice(0, 2), builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild). Only the agent\'s drives run it: a launch outside them (`simctl launch`, the home screen) runs the installed plan, so `bun exact.mjs ios` before timing one', warning], [], 1]);
     assert.equal(said.length, 3);
     assert.match(said[2], /^compiler: 1 warning; \S+\/\.exact\/warnings-ios\.txt lists them all$/);
     bakeSays = '';
@@ -339,7 +339,7 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     reset();
     assert.equal(await drive(), 0);
     assert.deepEqual([said.length, builds.length, bakes.length], [1, 0, 1]);
-    assert.match(said[0], /^iOS: (app\.contract, app\.ts|app\.ts, app\.contract) changed; running the new plan on the existing build \(no native rebuild\)$/);
+    assert.match(said[0], /^iOS: (app\.contract, app\.ts|app\.ts, app\.contract) changed; running the new plan on the existing build \(no native rebuild\)\. Only the agent's drives run it: .*`bun exact\.mjs ios` before timing one$/);
     assert.ok(kept());
 
     // A newer real build retires it: fresh, the build's own plan runs; a later touch of the same sources does not bring it back.

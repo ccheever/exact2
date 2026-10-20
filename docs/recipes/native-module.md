@@ -70,5 +70,10 @@ export const answer: Answer = (source, args, store, storage, native) =>
   `isNew`, to hear changes.
 - **Exiting:** iOS has no quit. `exit(0)` skips the app's pending writes: keep it to a
   measurement hook, after `fflush(stdout)`.
+- **Timing a launch:** a hook times the installed build, never a plan an `agent ios` drive
+  swapped in, so `bun exact.mjs ios` each variant first. `SIMCTL_CHILD_EXACT_SMOKE=1 xcrun
+  simctl launch --console-pty <udid> <bundle id>` prints Exact's own phases to first draw
+  (exec→main, the scene, runner and layout, apply, painted), then exits; a data module's
+  first answer is the hook's to stamp.
 - **A Swift edit rebuilds** (`bun exact.mjs ios`); views from the same module are
   [native-views](native-views.md).
