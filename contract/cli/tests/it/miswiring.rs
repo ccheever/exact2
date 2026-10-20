@@ -475,7 +475,7 @@ fn a_replace_that_may_not_be_refused_or_reached_at_launch_is_not_named() {
 }
 
 /// The euxy port: a deep link into another tab, `go` then `select`, left the
-/// visit on the tab it left; the warning names the two forms that land it.
+/// visit on the tab it left; the warning names `open`, which lands it.
 #[test]
 fn a_select_after_a_push_is_named_with_the_forms_that_land_the_visit() {
     let app = |body: &str| {
@@ -487,7 +487,7 @@ fn a_select_after_a_push_is_named_with_the_forms_that_land_the_visit() {
     let m = &messages(&src)[0];
     assert!(
         m.contains("this `select` shows \"patterns\" as it was: `go` adds its visit to the selected tab's stack")
-            && m.contains("`go(select(nav, \"patterns\"), url)` (onto that tab's stack) or `open(nav, url)`"),
+            && m.contains("write `open(nav, url)`, which puts the route's declared chain in place of that tab's stack"),
         "{m}"
     );
     let src = app("    nav = select(push(nav, url), \"patterns\")\n");

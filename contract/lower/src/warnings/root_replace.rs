@@ -214,7 +214,7 @@ fn selects<'a>(e: &'a Expr, nav: &str, scope: &mut Bound<'a>, out: &mut Vec<Lowe
                     };
                     out.push(LowerError {
                         id: "lower-select-after-push",
-                        message: format!("this `select` shows {tab} as it was: `{verb}` adds its visit to the selected tab's stack, whatever tab declares the route, so the visit stays on the tab being left. To open a location on its own tab, write `go(select({nav}, {tab}), url)` (onto that tab's stack) or `open({nav}, url)` (its declared chain, in place of that tab's stack) (docs/recipes/tabs.md)"),
+                        message: format!("this `select` shows {tab} as it was: `{verb}` adds its visit to the selected tab's stack, whatever tab declares the route, so the visit stays on the tab being left. To open a location on its route's declared tab, write `open({nav}, url)`, which puts the route's declared chain in place of that tab's stack (docs/recipes/tabs.md)"),
                         span: *span,
                     });
                 }
