@@ -13,7 +13,7 @@
 
 pub(crate) mod packages;
 pub(crate) mod retained;
-mod scan;
+pub(crate) mod scan;
 mod scheme;
 pub(crate) use scheme::one_scheme_tokens;
 

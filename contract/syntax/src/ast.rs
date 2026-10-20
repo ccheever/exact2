@@ -707,6 +707,8 @@ pub struct Component {
     pub view: Vec<Node>,
     /// The `params` section and the component's identity (LLP 1121 D15).
     pub params: crate::params::Params,
+    /// Its parts and the nodes named as them (LLP 1139 D2).
+    pub anatomy: crate::anatomy::Anatomy,
     /// Where.
     pub span: Span,
 }

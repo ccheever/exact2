@@ -296,7 +296,7 @@ fn strings(e: &Expr, strict: bool, out: &mut Vec<(String, Span, bool)>) {
 }
 
 /// Visit `e` and every expression inside it.
-fn exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+pub(crate) fn exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     f(e);
     match e {
         Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {}

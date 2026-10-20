@@ -17,6 +17,9 @@ use std::path::Path;
 pub struct AppParams {
     /// Every param, as a token.
     pub tokens: Vec<ParamToken>,
+    /// Each component that names parts, by identity and name, with what the
+    /// Tamber IR says of its anatomy (LLP 1139 D5; the IR file only).
+    pub library: Vec<(String, String, contract_lower::anatomy::Described)>,
     /// Every component's identity.
     pub identities: Vec<String>,
     /// Each source's file, by source id, as a diagnostic names it: relative
@@ -65,6 +68,18 @@ pub fn params_of(app_contract: &Path) -> AppParams {
         Ok((file, sources)) => AppParams {
             tokens: params::tokens(&file),
             identities: params::identities(&file),
+            library: file
+                .components
+                .iter()
+                .filter(|c| !c.anatomy.parts.is_empty())
+                .map(|c| {
+                    (
+                        c.params.identity.clone().unwrap_or_else(|| c.name.clone()),
+                        c.name.clone(),
+                        contract_lower::anatomy::described(c),
+                    )
+                })
+                .collect(),
             packages: file.package_designs.clone(),
             inline: file.theme.is_some(),
             package_roots: crate::sources::packages::packages(&sources)
@@ -296,6 +311,24 @@ fn short(p: &ParamToken, identities: &[String], all: &[ParamToken]) -> Option<St
         .chain(all.iter().map(|q| &q.identity))
         .any(|o| *o != p.identity && component(o) == name);
     (!ambiguous).then(|| format!("{name}.{}", p.param.name))
+}
+
+/// The IR's `library` block (LLP 1139 D5): each component that names parts,
+/// its parts with their groups and slot, and its variant props.
+pub fn library(app: &AppParams) -> Value {
+    Value::Array(
+        app.library
+            .iter()
+            .map(|(identity, name, d)| {
+                json!({
+                    "identity": identity,
+                    "name": name,
+                    "parts": d.parts.iter().map(|(n, g, slot)| json!({"name": n, "groups": g, "slot": slot})).collect::<Vec<_>>(),
+                    "variants": d.variants.iter().map(|(p, o)| json!({"prop": p, "options": o})).collect::<Vec<_>>(),
+                })
+            })
+            .collect(),
+    )
 }
 
 /// The `components` block for `all`, each param's value per tuple folded

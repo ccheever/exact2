@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod anatomy;
 mod buttons;
 mod cells;
 mod class;
@@ -233,6 +234,13 @@ pub(crate) struct Lowerer<'a> {
     texts_used: std::collections::BTreeSet<String>,
     /// The surface the plan is for: a terminal entry's block link is not tinted.
     profile: Profile,
+    /// Each native button named as a part with the `control` group (LLP
+    /// 1139 D6), by its node's span: one lowering draws as a bare box is
+    /// refused where it is lowered, in its instance's context.
+    pub(crate) control_parts: Vec<anatomy::ControlPart>,
+    /// Each node named as a part, by its span, with the part's name: the
+    /// source map's (LLP 1139 D5).
+    pub(crate) part_names: Vec<(Span, String)>,
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
@@ -397,6 +405,8 @@ fn lower_with_sites(
         locale: None,
         texts_used: Default::default(),
         profile,
+        control_parts: Vec::new(),
+        part_names: Vec::new(),
     };
     // A refusal that stops lowering is said after those collected before it
     // (a refused token, then a statement no plan can hold), never in their
@@ -504,6 +514,8 @@ fn lower_body(
             });
         }
     }
+    // Each component's parts and the rows its classes bring them (LLP 1139 D2).
+    l.check_anatomy(file);
     let refused = l.declare_keyframes(file);
     l.errors.extend(refused);
     // Shapes first, in declaration order, so type ids are stable.
