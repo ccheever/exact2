@@ -25,6 +25,7 @@ pub const FIELDS: &[&str] = &[
     "pointer",
     "hover",
     "gpuTier",
+    "accessibilityTextSize",
 ];
 
 /// The host's layout viewport, before the first settlement.

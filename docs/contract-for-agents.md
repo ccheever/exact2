@@ -816,7 +816,7 @@ component Water
 | `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value (the value under the label where both do not fit) over a bar `fraction` (held to 0–1) of the width: the accent short of the goal, the system green at 1 or past it, `tint` (a colour role) when given; one `meter` to a reader |
 | `RingProgress` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | a ring filled `fraction` of the way round from the top, in the bar's colours over a grey track, the value large in its centre and the label under it, at the default body's sizes at every text size; 200 across, down to 120 in a narrower box; one `progressbar` to a reader |
 | `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
-| `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
+| `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol (none at the accessibility text sizes), the title as a heading, the message; the nodes indented under the use (your `button`) under them; a `scroll` where it is taller than its space (in a flex column, give the column `min-height=0`) |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures (under them where they do not fit on one line): a grouped list `row`'s content, or any list's |
 | `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under white ink (dark on the light hues: green, mint, teal, cyan, yellow, orange); read as its text |
 | `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-red"`), ink the host picks for contrast; a light hue (green, mint, teal, cyan, yellow, orange) is the platform's tinted style, the hue on the hue at low opacity; `none` is the neutral grey with the label's ink; the title stays the default body size at every text size |
@@ -2640,6 +2640,14 @@ class's from launch; `prefer pointer coarse` and
 `prefer hover none` substitute them. Chrome emulates a touch screen, so it takes
 `coarse` with `none` and `fine` with `hover`, and refuses `pointer none`; the
 Firefox and WebKit carriers refuse both.
+`exactViewport().accessibilityTextSize` is true while the person's text size is one
+of iOS's accessibility sizes (AX1 to AX5, UIKit's `isAccessibilityCategory`), where
+UIKit's own views drop decoration and stack what sat side by side; it is an Exact
+fact, not a CSS media feature, read wherever Exact draws with UIKit's metrics (iOS,
+iPadOS, tvOS, visionOS, watchOS), and false on the Mac, Android, Linux, Windows and
+the web.
+`EmptyState` drops its symbol then. Under the agent on iOS, `prefer root-font-size
+28` (Dynamic Type's AX1 body) or more sets it.
 `exactViewport().gpuTier` is `low`, `mid` or `high`: how much GPU work a frame can
 afford, chosen once before the GPU device is made from what the adapter reports
 (a phone GPU of the Adreno 600 class is `low`), else from the screen (a phone-sized

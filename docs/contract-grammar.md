@@ -291,7 +291,10 @@ source-call   = IDENT "(" [ arguments ] ")" ;
 ```
 
 There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
-a component. Only the root may own resources, mutations, and tasks. A task's
+a component. Only the root may own resources, mutations, and tasks, except that
+any component may read the device's facts, `exactViewport()` and `exactPage()`
+with no arguments (`EmptyState` reads `accessibilityTextSize`): they open no
+request, and every instance reads the root's one answer. A task's
 body has exactly one schedule. A gated task (`when cond`, LLP 1092) has its
 timer only while `cond` holds, armed from the commit that made it true; `key=`
 re-arms it from the commit that changed the key (compared as a `for` key),
@@ -2169,8 +2172,9 @@ Syntax is only the first layer. In particular:
   called `name(x)`, as it is declared) but not take a declared shape's constructor name.
 - Action reads see the starting snapshot. Writes land together. Locals are
   immutable and cannot shadow visible names or escape their block.
-- Resources/mutations/tasks are root-owned. A child may own ordinary state,
-  derives, and actions. An action writes only its own admitted slots.
+- Resources/mutations/tasks are root-owned, but a child may read the device's
+  facts (`exactViewport()`, `exactPage()`, no arguments). A child may own
+  ordinary state, derives, and actions. An action writes only its own admitted slots.
 - A `then` handler takes no parameters and must not send its own mutation.
 - A state's initializer reads only props, injects and the states above it; a
   resource, derive, mutation, action or later state it names is

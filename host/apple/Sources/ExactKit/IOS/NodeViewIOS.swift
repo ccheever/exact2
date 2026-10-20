@@ -1359,7 +1359,17 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let travel = size.width - sv.bounds.width
         let row = { (v: NodeView) in v.style["display"]?.string == "flex" || v.style["flex_direction"] != nil ? !(v.style["flex_direction"]?.string ?? "row").hasPrefix("column") : false }
         let carousel = travel > 0.5 && (travel > sv.bounds.width / 4 || row(self) || sv.subviews.contains { ($0 as? NodeView).map { $0.frame.width > sv.bounds.width + 0.5 && row($0) } ?? false })
-        sv.alwaysBounceVertical = sv.scrollsY && (size.height > sv.bounds.height + 0.5 || !carousel)
+        // One that fits inside an author's scroller that scrolls down leaves
+        // the drag to it, as a nested UIScrollView does (an `EmptyState` in a
+        // page's `scroll`). The presenter's viewport is no author's.
+        let fits = size.height <= sv.bounds.height + 0.5
+        // Pull to refresh needs its own drag.
+        var nested = false, up = fits && !handlers.contains("refresh") ? sv.superview : nil
+        while let v = up, !nested {
+            if let outer = v as? ScrollView, !(outer is Viewport) { nested = outer.scrollsY }
+            up = v.superview
+        }
+        sv.alwaysBounceVertical = sv.scrollsY && !nested && (!fits || !carousel)
     }
 
     package override func layoutSubviews() {

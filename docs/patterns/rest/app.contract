@@ -125,7 +125,7 @@ component App
                   button press=pull testId="retry"
                     text "Try Again"
             else if lib.items.length == 0
-              column flex=1
+              column flex=1 min-height=0
                 if listError != ""
                   row gap=8
                     text listError color="-exact-system-red" flex=1 min-width=0 testId="list-error"

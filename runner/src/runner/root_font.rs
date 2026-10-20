@@ -2,8 +2,10 @@
 //! platform — Dynamic Type on iOS, the browser's root size on the web, 16
 //! times the font scale on Android, 16 elsewhere — and the app may set its
 //! own over it, as `:root { font-size }` sets one over the browser's
-//! setting. It is layout, not a fact: no resource is asked again, and the
-//! commit only re-resolves `rem`/`em` and what inherits the root's size.
+//! setting. It is layout: the commit re-resolves `rem`/`em` and what
+//! inherits the root's size, and asks no resource again, except the
+//! viewport's when the host's size crosses the accessibility sizes
+//! (`exactViewport().accessibilityTextSize`).
 //! The display's scale is the other layout input a host reads from the
 //! platform (LLP 1115.000 D10.3): a hairline is one device pixel of it.
 use super::{DataSource, Runner, RunnerError};
@@ -16,6 +18,9 @@ use exact_plan::Value;
 pub(crate) struct RootFont {
     app: Option<AppSize>,
     host: f64,
+    /// The size the host last said, whatever the app's: what
+    /// `exactViewport().accessibilityTextSize` reads.
+    told: Option<f64>,
 }
 
 /// The app's size: px, which stands over the host's, or a percentage of
@@ -143,12 +148,30 @@ impl<D: DataSource> Runner<D> {
             ));
             return Err(RunnerError::Kernel(LayoutError::InvalidRootFontSize.into()));
         }
+        // A step across the accessibility sizes re-answers the viewport's
+        // readers in the same commit: the fact before this size is told.
+        let told = self.root_font.told;
+        let was = self.accessibility_text_size();
         let host = self.root_font.host;
         if self.root_font.app.is_some() {
             self.root_font.host = px;
         }
+        self.root_font.told = Some(px);
+        let which: Vec<usize> = if was == self.accessibility_text_size() {
+            Vec::new()
+        } else {
+            (0..self.plan.resources.len())
+                .filter(|i| {
+                    self.plan.str(self.plan.resources[*i].source) == crate::viewport::SOURCE
+                })
+                .collect()
+        };
         if let Some(AppSize::Px(_)) = self.root_font.app {
-            return Ok(None);
+            let result = self.recommit(which, "root font size");
+            if result.is_err() {
+                self.root_font.told = told;
+            }
+            return result;
         }
         let px = root;
         let previous = self.kernel.root_font_size();
@@ -157,16 +180,38 @@ impl<D: DataSource> Runner<D> {
             .set_root_font_size(px as f32)
             .map_err(RunnerError::Kernel)?
         {
-            return Ok(None);
+            // The layout's size already (one primed before boot): the fact
+            // may still have stepped.
+            let result = self.recommit(which, "root font size");
+            if result.is_err() {
+                self.root_font.told = told;
+            }
+            return result;
         }
-        let result = self.commit_again(Vec::new(), "root font size");
+        let result = self.commit_again(which, "root font size");
         if result.is_err() {
             // The kernel applies the size with the next commit; put back
             // the one the tree was laid out at.
             let _ = self.kernel.set_root_font_size(previous);
             self.root_font.host = host;
+            self.root_font.told = told;
         }
         result.map(Some)
+    }
+
+    /// Whether the person's text size is one of the accessibility sizes, as
+    /// UIKit's `isAccessibilityCategory` says (AX1 to AX5, a body of 28 or
+    /// more): only where the platform's own views change at them, in the
+    /// UIKit column (iOS, and tvOS, visionOS and watchOS, which share it); false
+    /// elsewhere, and on the web, which has no such fact. The host's size
+    /// as last told, or primed before boot.
+    pub(super) fn accessibility_text_size(&self) -> bool {
+        use exact_kernel::style::metrics::{column, Column};
+        let host = self
+            .root_font
+            .told
+            .unwrap_or_else(|| self.host_root_font_size());
+        column() == Column::Ios && host >= 28.0
     }
 
     /// Say whether Bold Text is on (LLP 1115.000 D12.3): the person's
