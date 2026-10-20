@@ -20,6 +20,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
+import { drive as drivePlan } from './scale-check.mjs';
+import { placements } from './library-gate.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 /** Every per-host line's required hosts (LLP 1139 §5). */
@@ -273,6 +275,88 @@ export function consumerPixels(opts) {
   return bad.length ? fail(...evidence) : pass(...evidence);
 }
 
+/** The slot line's hosts: every required host the plan can be pushed to
+ * (the web's JS target is the stage's conform, not a plan drive). */
+export const SLOT_HOSTS = ['web', 'linux', 'macos', 'ios', 'android', 'terminal'];
+const LIBRARY_GATE = join(ROOT, 'apps/library-gate');
+
+/** apps/library-gate's plan, compiled here. */
+function libraryPlan(dir) {
+  mkdirSync(dir, { recursive: true });
+  const plan = join(dir, 'library-gate.plan');
+  const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(LIBRARY_GATE, 'app.contract'), '-o', plan]);
+  return r.ok ? plan : null;
+}
+
+/** The ids of library-gate's slotted cells (each a marker): its PostCards'. */
+export const markerIds = () => placements(readFileSync(join(LIBRARY_GATE, 'app.contract'), 'utf8'), ['PostCard']).map(p => p.id);
+
+/** Differing pixels inside `rect` (layout points, scaled to the shots). */
+export function rectDiffers(a, b, rect, viewportW) {
+  const A = decodePng(a), B = decodePng(b);
+  if (A.width !== B.width || A.height !== B.height) return -1;
+  const k = A.width / viewportW;
+  let n = 0;
+  for (let y = Math.floor(rect.y * k); y < Math.ceil((rect.y + rect.h) * k); y++) {
+    for (let x = Math.floor(rect.x * k); x < Math.ceil((rect.x + rect.w) * k); x++) {
+      const i = (y * A.width + x) * 4;
+      if (A.data[i] !== B.data[i] || A.data[i + 1] !== B.data[i + 1] || A.data[i + 2] !== B.data[i + 2]) n++;
+    }
+  }
+  return n;
+}
+
+/** Why a drive failed: the first line past "the drive failed" that says. */
+export const whyOf = e => {
+  const lines = String(e?.message ?? e).split('\n');
+  return (lines.slice(1).find(l => /stale|error|unavailable|refused|not on the screen|no view|failed/i.test(l)) ?? lines[0]).trim().slice(0, 240);
+};
+
+/** A rect laid out, non-zero and inside the viewport. */
+const shown = (n, v) => n && n.w > 0 && n.h > 0 && n.x >= 0 && n.y >= 0 && n.x + n.w <= v.w + 0.5 && n.y + n.h <= v.h + 0.5;
+
+/** The slot rendered, on `host`: every marker shown with each glyph, its
+ * rect laid out inside the viewport, and the two shots apart inside it (the
+ * terminal: its cells in the two text shots). */
+export function slotOn(host, plan, dir, app = 'unsaid') {
+  const ids = markerIds();
+  if (host === 'terminal') {
+    const a = join(dir, 'terminal-a.txt'), b = join(dir, 'terminal-b.txt');
+    let layout;
+    try { layout = drivePlan('terminal', plan, null, ['tap marker-toggle', `screenshot ${a}`, 'tap marker-toggle', `screenshot ${b}`]); } catch (e) { return ids.map(id => ({ host, id, ok: false, why: whyOf(e) })); }
+    const [ta, tb] = [a, b].map(f => readFileSync(f, 'utf8').split('\n'));
+    return ids.map(id => {
+      const c = layout.nodes.find(n => n.testId === `marker-${id}`)?.cells;
+      if (!c || c.w <= 0 || c.h <= 0) return { host, id, ok: false, why: 'no cells laid out' };
+      const cut = t => Array.from({ length: c.h }, (_, r) => [...(t[c.y + r] ?? '')].slice(c.x, c.x + c.w).join(''));
+      const differ = cut(ta).join('\n') !== cut(tb).join('\n');
+      return { host, id, ok: differ, why: differ ? '' : 'its cells read the same with both glyphs', cells: c };
+    });
+  }
+  return ids.map(id => {
+    const a = join(dir, `${host}-${id}-a.png`), b = join(dir, `${host}-${id}-b.png`);
+    let layout;
+    try { layout = drivePlan(host, plan, b, [`tap marker-${id}`, `screenshot ${a}`, `tap marker-${id}`], app); } catch (e) { return { host, id, ok: false, why: whyOf(e) }; }
+    const n = layout.nodes.find(x => x.testId === `marker-${id}`);
+    if (!shown(n, layout.viewport)) return { host, id, ok: false, why: `not laid out inside the viewport (${JSON.stringify(n && { x: n.x, y: n.y, w: n.w, h: n.h })})` };
+    const d = rectDiffers(readFileSync(a), readFileSync(b), n, layout.viewport.w);
+    return { host, id, ok: d > 0, why: d > 0 ? '' : d < 0 ? 'the two shots differ in size' : 'its pixels are the same with both glyphs', px: d };
+  });
+}
+
+export function slotRendered(opts) {
+  const dir = join(ROOT, 'target', 'stage12-gate', 'slot');
+  const plan = libraryPlan(dir);
+  if (!plan) return fail('apps/library-gate did not compile');
+  const hosts = opts.hosts.length ? opts.hosts.filter(h => SLOT_HOSTS.includes(h)) : SLOT_HOSTS;
+  const rows = hosts.flatMap(h => slotOn(h, plan, dir, opts.app));
+  const missing = SLOT_HOSTS.filter(h => !hosts.includes(h));
+  const bad = rows.filter(r => !r.ok);
+  const evidence = hosts.map(h => `${h}: ${rows.filter(r => r.host === h && r.ok).length} of ${rows.filter(r => r.host === h).length} markers rendered with both glyphs`)
+    .concat(bad.map(r => `  ${r.host} ${r.id}: ${r.why}`), missing.map(h => `  ${h}: a required host not run`));
+  return bad.length || missing.length ? fail(...evidence) : pass(...evidence);
+}
+
 /** The gate's lines, in LLP 1139 §5's order. */
 export function lines(opts) {
   return [
@@ -285,8 +369,7 @@ export function lines(opts) {
       waits('the packages (stage 12 B1\'s package params) and apps/library-gate')],
     ['anatomy', 'C\'s compiler tests: every anatomy, slot, library-literal, library-platform and library-control refusal with its span', () =>
       waits('stage 12 C (anatomy, reload1)')],
-    ['slot-rendered', 'Every variant cell of apps/library-gate renders its slot\'s marker, both glyphs, on every required host', () =>
-      waits('stage 12 C (parts and the slot) and apps/library-gate')],
+    ['slot-rendered', 'Every variant cell of apps/library-gate renders its slot\'s marker, both glyphs, on every required host', () => slotRendered(opts)],
     ['slot-check-time', 'The slot check (check_slots) on the clone with both library packages takes under about 10 ms a check (the lead, 10:15Z; rt1 measures it)', () =>
       waits('stage 12 C (check_slots), the packages and the adoption, then rt1\'s measurement')],
     ['no-forks', 'lower-library-platform clean over both packages', () =>
@@ -297,7 +380,7 @@ export function lines(opts) {
 }
 
 export function parse(argv) {
-  const opts = { mode: 'gate', only: [], hosts: [], out: join(homedir(), 'x2theme/stage12-gate-run.txt'), copy: null, before: null, baseline: null };
+  const opts = { mode: 'gate', only: [], hosts: [], app: 'unsaid', out: join(homedir(), 'x2theme/stage12-gate-run.txt'), copy: null, before: null, baseline: null };
   const args = [...argv];
   if (args[0] === 'baseline') { opts.mode = 'baseline'; opts.out = null; args.shift(); }
   for (let i = 0; i < args.length; i += 2) {
@@ -307,8 +390,9 @@ export function parse(argv) {
     if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else opts[flag.slice(2)] = v;
   }
   if (opts.mode === 'baseline' && (!opts.copy || !opts.out)) return 'baseline needs --copy and --out';
-  const unknownHost = opts.hosts.find(h => !CLONE_HOSTS.includes(h));
-  if (unknownHost) return `--host ${unknownHost}: one of ${CLONE_HOSTS.join(', ')}`;
+  const allowed = opts.mode === 'baseline' ? CLONE_HOSTS : SLOT_HOSTS;
+  const unknownHost = opts.hosts.find(h => !allowed.includes(h));
+  if (unknownHost) return `--host ${unknownHost}: one of ${allowed.join(', ')}`;
   const ids = lines(opts).map(([id]) => id);
   const missing = opts.only.find(o => !ids.includes(o));
   if (missing) return `--only ${missing}: one of ${ids.join(', ')}`;

@@ -345,7 +345,7 @@ export function check(host, layout, image, expect, base = () => undefined) {
  * SHA-256): a host that runs another, as the Android reader would on its own
  * bake were the push not read, fails loudly. The reader runs an app's APK
  * (`app`), which the drive gives the plan to (pushed, in place of its bake). */
-function drive(host, plan, png, steps = [], app = null) {
+export function drive(host, plan, png, steps = [], app = null) {
   const launch = host === 'android' ? ['--reader', '--app', app, '--plan', plan] : ['--plan', plan];
   // The terminal host headless, its own verbs: `plan` (the running plan's
   // SHA-256), the steps, then `layout` (its reply carries each corner's

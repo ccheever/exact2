@@ -11,6 +11,8 @@ import { allowOf, beforeDrift, BASELINE_TAG, comparePixels, lines, parse, pixelD
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
   expect(parse(['baseline', '--copy', '/c', '--out', '/o', '--host', 'tvos'])).toMatch(/^--host tvos/);
+  expect(parse(['baseline', '--copy', '/c', '--out', '/o', '--host', 'terminal'])).toMatch(/^--host terminal/);
+  expect(parse(['--host', 'terminal']).hosts).toEqual(['terminal']);
   expect(parse(['--only', 'nope'])).toMatch(/^--only nope/);
   expect(parse(['--bogus', 'x'])).toBe('unknown argument --bogus');
   const b = parse(['baseline', '--copy', '/c', '--out', '/o', '--host', 'web']);
@@ -44,8 +46,9 @@ test('the pixel diff counts what differs outside the allowlist', () => {
   expect([pixelDiff(edgy, edgy2).differ, pixelDiff(edgy, edgy2, [], WEB_NOISE).differ, pixelDiff(edgy, edgy3, [], WEB_NOISE).differ]).toEqual([1, 0, 1]);
 });
 
-test('every line waits on its parts until they exist', async () => {
-  for (const [, , check] of lines({ baseline: null })) expect((await check()).status).toMatch(/^WAITS-ON /);
+test('a line whose parts are missing waits on them', async () => {
+  const waiting = ['consumer-pixels', 'restyle', 'anatomy', 'slot-check-time', 'no-forks', 'no-regressions'];
+  for (const [id, , check] of lines({ baseline: null, hosts: [] }).filter(([id]) => waiting.includes(id))) expect([id, (await check()).status]).toEqual([id, expect.stringMatching(/^WAITS-ON /)]);
 });
 
 test('the composer\'s caret strip comes from its field\'s layout', () => {
