@@ -99,7 +99,8 @@ export function relayTxt({ host, port, account, token }, record, value, { clear 
     // (stopped with the run: the connection gone, whatever it had sent)
     const stop = () => { clearTimeout(done); conn.destroy(); fail(new Error('stopped')); };
     if (signal?.aborted) stop(); else signal?.addEventListener('abort', stop, { once: true });
-    conn.once('close', () => signal?.removeEventListener('abort', stop));
+    // (closed with no answer, cut or refused unsaid: failed then, not at the deadline)
+    conn.once('close', () => { signal?.removeEventListener('abort', stop); clearTimeout(done); fail(new Error('the relay closed the connection without answering the TXT record')); });
     conn.once('secureConnect', () => {
       if (!conn.authorized) { clearTimeout(done); conn.destroy(); return fail(new Error(`the relay's certificate did not verify: ${conn.authorizationError ?? 'unknown'}`)); }
       conn.write(`EXACT-RELAY/1 ${account}\r\nauthorization: Bearer ${token}\r\n${clear ? 'txt-clear' : 'txt'}: ${record} ${value}\r\n\r\n`);

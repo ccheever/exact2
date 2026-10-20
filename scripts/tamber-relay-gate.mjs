@@ -18,6 +18,8 @@ import { relayTxt } from './tamber-relay.mjs';
 import { openRemote, selfSignedCertificate } from './tamber-remote.mjs';
 import { fakeAcme } from './tamber-acme-stub.mjs';
 import { tamberServer } from './tamber-server.mjs';
+import { openRelayCanvas } from './tamber-canvas.mjs';
+import { createServer as createHTTP } from 'node:http';
 
 const DOMAIN = 'relay.test';
 
@@ -59,7 +61,12 @@ export async function gate({ say = console.log } = {}) {
     cleanup.push(() => tap.close());
     const pub = tap.address().port;
     const acme = fakeAcme({ dns: txt });
-    const toRelay = opts => connectTLS({ ...opts, host: '127.0.0.1', port, ca: relayCert.cert });
+    // (the connectors' and TXT requests' connections through the capture too: the connector token is in it, enciphered)
+    const toRelay = opts => connectTLS({ ...opts, host: '127.0.0.1', port: pub, ca: relayCert.cert });
+    // The app's dev loop, for the canvas gateway (R1b) to proxy.
+    const loop = createHTTP((req, res) => res.end('<!doctype html><p>canvas</p>'));
+    await new Promise(ok => loop.listen(0, '127.0.0.1', ok));
+    cleanup.push(() => loop.close());
     /** One account's design server on the relay, its local token, and the requests that reached it. */
     const serve = async label => {
       let doors = null;
@@ -67,6 +74,7 @@ export async function gate({ say = console.log } = {}) {
       const w = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: l => logged.push(l), remote: () => doors?.list() ?? [] });
       doors = await openRemote(w, { relay: { host: DOMAIN, port, account: label, token: tokens[label], names: null, acme: acme.directory, hook: null, dir: join(work, label) } }, { connect: toRelay, say: () => {}, warn: () => {}, acme: { fetch: acme.fetch, wait: async () => {} } });
       cleanup.push(async () => { await doors.close(); await w.close(); });
+      openRelayCanvas(doors, w, { loop: `http://127.0.0.1:${loop.address().port}`, say: () => {} });
       await until(() => doors.relay() !== null);
       let token = null;
       await w.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
@@ -77,11 +85,13 @@ export async function gate({ say = console.log } = {}) {
         await w.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
         return JSON.parse(text);
       };
-      return { w, doors, logged, local, tool: new URL(doors.relay().origin).hostname };
+      let canvas = null;
+      doors.onRelay(n => { canvas = n.canvas; });
+      return { w, doors, logged, local, tool: new URL(doors.relay().origin).hostname, canvas };
     };
     /** A client's HTTPS request through the relay (by the capture) to `to`. */
-    const call = (to, path, body, headers = '') => new Promise((ok, fail) => {
-      const s = connectTLS({ host: '127.0.0.1', port: pub, servername: to, ca: acme.caPem }, () => s.write(`POST ${path} HTTP/1.1\r\nHost: ${to}\r\nContent-Type: application/json\r\n${headers}Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`));
+    const call = (to, path, body, headers = '', method = 'POST') => new Promise((ok, fail) => {
+      const s = connectTLS({ host: '127.0.0.1', port: pub, servername: to, ca: acme.caPem }, () => s.write(`${method} ${path} HTTP/1.1\r\nHost: ${to}\r\nContent-Type: application/json\r\n${headers}Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`));
       let out = ''; s.on('data', d => { out += d; }); s.on('end', () => ok(out)); s.on('close', () => ok(out)); s.on('error', e => (out ? ok(out) : fail(e)));
     });
     const status = out => Number(out.split(' ')[1]);
@@ -119,6 +129,7 @@ export async function gate({ say = console.log } = {}) {
     await call(a.tool, '/__tamber', JSON.stringify({ method: 'propose', files: {}, ops: [{ op: 'set-token', name: 'space.gate-secret', value: '17px' }], note: design }), `x-exact-tamber-token: ${t2}\r\n`);
     const captured = Buffer.concat(seen).toString('latin1');
     const leaks = [pt, t2, secondPair.code, design, tokens.acct, tokens.other].filter(x => x && captured.includes(x));
+    // (the connector tokens did cross it: every connector and TXT connection came through the capture, enciphered)
     verdict('a capture at the relay holds no token, pairing code or design text in clear', leaks.length === 0 && captured.length > 0, [`${captured.length} bytes captured both ways; found in clear: ${leaks.length ? leaks.map(l => l.slice(0, 6) + '…').join(', ') : 'none'}`]);
     // Line 5 (cross-account): one account's names reach only its own server; the other's TXT names are refused.
     const gotA = a.logged.length, gotB = b.logged.length;
@@ -129,9 +140,17 @@ export async function gate({ say = console.log } = {}) {
     await relayTxt({ host: DOMAIN, port, account: 'other', token: tokens.other }, '_acme-challenge.acct.relay.test', 'A'.repeat(43), { connect: toRelay }).catch(e => { txtRefused = e.message; });
     verdict('cross-account: one account\'s code fails at the other\'s name (each name reaches its own server only); a TXT record for the other\'s names is refused', status(crossed) === 403 && status(bPaired) === 200 && /not your account's name/.test(txtRefused),
       [`other's code at acct's name ${status(crossed)}, at its own ${status(bPaired)}; logs grew acct +${a.logged.length - gotA}, other +${b.logged.length - gotB}`, `TXT for _acme-challenge.acct.relay.test as other: ${txtRefused}`]);
-    // Line 6 (cross-account): a cookie scoped to the relay or to the other account's names grants nothing.
-    const cookied = await call(a.tool, '/__tamber', '{"method":"hello"}', `Cookie: __Host-exact-canvas=${t2}; tamber=${t2}\r\n`);
-    verdict('cross-account: a cookie (Domain=relay.test or the other account\'s) grants nothing at a tool; no auth reads a cookie', status(cookied) === 401 || status(cookied) === 404, [`hello with only cookies carrying a live token: ${status(cookied)}`, '(the canvas gateway\'s server-bound __Host- cookie: R1b\'s gate, ~/x2theme/s10c-r1b-chrome-run.txt)']);
+    // Line 6 (cross-account): a canvas's gateway cookie opens that account's canvas only. Sent to the other account's
+    // canvas (as a browser would one set with Domain=relay.test), or to any tool, it grants nothing.
+    const minted2 = json(await call(a.tool, '/__tamber', '{"method":"canvas"}', `x-exact-tamber-token: ${t2}\r\n`)).ok;
+    const entry = await call(a.canvas, new URL(minted2.url).pathname, JSON.stringify({ grant: minted2.grant }), `Origin: https://${a.canvas}\r\n`);
+    const cookie = /set-cookie: ([^;\r\n]+)/i.exec(entry)?.[1] ?? '';
+    const home = await call(a.canvas, '/', '', `Cookie: ${cookie}\r\n`, 'GET');
+    const away = await call(b.canvas, '/', '', `Cookie: ${cookie}\r\n`, 'GET');
+    const atTool = await call(b.tool, '/__tamber', '{"method":"hello"}', `Cookie: ${cookie}; tamber=${t2}\r\n`);
+    const atOwnTool = await call(a.tool, '/__tamber', '{"method":"hello"}', `Cookie: ${cookie}; tamber=${t2}\r\n`);
+    verdict('cross-account: one account\'s canvas cookie opens its own canvas only: at the other\'s canvas, or at any tool, it grants nothing', status(entry) === 204 && !!cookie && status(home) === 200 && status(away) === 404 && [401, 404].includes(status(atTool)) && [401, 404].includes(status(atOwnTool)),
+      [`entered acct's canvas ${status(entry)} (${cookie.split('=')[0]}=…); with that cookie: acct's canvas ${status(home)}, other's canvas ${status(away)}, other's tool ${status(atTool)}, acct's own tool ${status(atOwnTool)}`]);
     // Line 7 (cross-account): flooding one session's pairing leaves the other's at 0 refusals.
     const flood = [];
     for (let i = 0; i < 11; i++) flood.push(status(await call(a.tool, '/__tamber/pair', '{"code":"AAAAA-AAAAA"}')));

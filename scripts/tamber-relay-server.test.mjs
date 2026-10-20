@@ -11,7 +11,7 @@ import { connect as connectTCP, createServer as createTCP } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connect as connectTLS } from 'node:tls';
-import { helloName, loadAccounts, relayServer } from './tamber-relay-server.mjs';
+import { helloName, loadAccounts, masked, relayServer } from './tamber-relay-server.mjs';
 import { relayTxt } from './tamber-relay.mjs';
 import { openRemote, selfSignedCertificate } from './tamber-remote.mjs';
 import { fakeAcme } from './tamber-acme-stub.mjs';
@@ -295,10 +295,18 @@ test('accounts add prints a token once and keeps its hash; revoke is for good; -
   expect(readFileSync(join(dir, 'accounts.json'), 'utf8').includes(token)).toBe(false);
   expect(run('accounts', 'revoke', 'newbie').status).toBe(0);
   const again = run('accounts', 'add', 'newbie');
-  expect([again.status, again.stderr.trim()]).toEqual([1, 'newbie is taken, or was: a label is never given out again']);
+  expect([again.status, again.stderr.replace(/\x1b\[[0-9;]*m/g, '').trim()]).toEqual([1, 'newbie is taken, or was: a label is never given out again']);
+  // Taken off the revoked list by hand, the label is still refused (labels.seen), said plainly, nothing left behind.
+  const edited = JSON.parse(readFileSync(join(dir, 'accounts.json'), 'utf8'));
+  edited.revoked = [];
+  writeFileSync(join(dir, 'accounts.json'), JSON.stringify(edited));
+  const sneaked = run('accounts', 'add', 'newbie');
+  expect([sneaked.status, sneaked.stderr.replace(/\x1b\[[0-9;]*m/g, '').trim()]).toEqual([1, 'newbie is revoked: a label is never given out again']);
+  const { readdirSync } = await import('node:fs');
+  expect(readdirSync(dir).filter(f => f.endsWith('.tmp') || f.endsWith('.lock'))).toEqual([]);
   const help = spawnSync('bun', [join(import.meta.dir, 'tamber-relay-server.mjs'), '--help'], { encoding: 'utf8' }).stdout;
   for (const key of ['domain', 'listen', 'tls.cert', 'tls.key', 'accounts', 'dns.command', 'perIpPerSession', 'streamsPerSession', 'idlePerSession', 'sessionsPerAccount', 'txtPerAccount', 'greetingsPerIp', 'waitMs', 'graceMs', 'helloMs']) expect(help).toContain(key);
-  expect(CONFIG_HELP.length).toBe(12);
+  expect(CONFIG_HELP.length).toBe(13);
 });
 
 test('R4\'s lines on loopback (scripts/tamber-relay-gate.mjs): every one met', async () => {
@@ -367,14 +375,16 @@ test('round 1: a session\'s idle connections and its carried and waiting clients
   await until(() => held.conn.destroyed, 3000);
 });
 
-test('round 1: a run whose session lapsed (or whose relay restarted) asks for its names again and gets them back; another account can\'t take them', async () => {
+test('round 1: a run whose session lapsed (or whose relay restarted) asks for its names again and gets them back; another account, or another run, can\'t take them', async () => {
   const { relay, port } = await startRelay({ limits: { graceMs: 50 } });
   const a = await greet(port, hello('acct', TOKENS.acct, [`run: ${RUN}`]));
   const [, tool, canvas] = a.line.split(' ');
   a.conn.destroy();
   await until(() => relay.sessions.size === 0);
   expect((await greet(port, hello('other', TOKENS.other, [`run: ${RUN}`, `names: ${tool} ${canvas}`]))).line).toBe('REFUSED names not of your account');
-  expect((await greet(port, hello('acct', TOKENS.acct, [`run: ${'e'.repeat(32)}`, `names: ${tool} ${canvas}`]))).line).toBe(`READY ${tool} ${canvas}`);
+  // Another run of the same account can't claim them either (round 2): a run's names are of its own run id.
+  expect((await greet(port, hello('acct', TOKENS.acct, [`run: ${'e'.repeat(32)}`, `names: ${tool} ${canvas}`]))).line).toBe('REFUSED names not of your account');
+  expect((await greet(port, hello('acct', TOKENS.acct, [`run: ${RUN}`, `names: ${tool} ${canvas}`]))).line).toBe(`READY ${tool} ${canvas}`);
 });
 
 test('round 1: the accounts file replaced by a rename, again and again, is read each time', async () => {
@@ -390,4 +400,48 @@ test('round 1: the accounts file replaced by a rename, again and again, is read 
   file.revoked.push('other');
   replace(file);
   await until(() => relay.revoked.has('other'), 5000);
+});
+
+test('round 2: connections not yet a session\'s or authenticated are capped per address and in all; a cut account\'s TXT request in flight is stopped', async () => {
+  const { port, txt } = await startRelay({ limits: { pendingPerIp: 3 } });
+  const silent = () => new Promise(ok => { const s = connectTCP({ host: '127.0.0.1', port }, () => setTimeout(() => ok(s), 50)); s.gone = false; s.on('close', () => { s.gone = true; }); s.on('error', () => {}); closing.push(() => s.destroy()); });
+  const held = [await silent(), await silent(), await silent()];
+  const fourth = await silent();
+  await until(() => fourth.gone, 2000);
+  expect(held.map(s => s.gone)).toEqual([false, false, false]);
+  for (const s of held) s.destroy();
+  // A TXT request whose DNS work hangs: the account revoked, the work told to stop, the connection cut.
+  let stopped = false;
+  const { relayServer: make } = await import('./tamber-relay-server.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'exact-relay-txtcut-'));
+  closing.push(() => rmSync(dir, { recursive: true, force: true }));
+  const accounts = join(dir, 'accounts.json');
+  writeFileSync(accounts, JSON.stringify({ accounts: { acct: { token_sha256: hash(TOKENS.acct) } }, revoked: [] }));
+  const slow = make({ domain: DOMAIN, listen: '127.0.0.1:0', tls: relayCert, accounts, dns: { publish: (r, v, signal) => new Promise((_, fail) => signal.addEventListener('abort', () => { stopped = true; fail(new Error('stopped')); })), clear: async () => {} } }, { log: () => {} });
+  const slowPort = await slow.listen();
+  closing.push(() => slow.close());
+  const asked = relayTxt({ host: DOMAIN, port: slowPort, account: 'acct', token: TOKENS.acct }, '_acme-challenge.acct.relay.test', 'A'.repeat(43), { connect: toRelay(slowPort) }).then(() => 'ok', e => e.message);
+  await new Promise(ok => setTimeout(ok, 200));
+  writeFileSync(accounts, JSON.stringify({ accounts: {}, revoked: ['acct'] }));
+  expect(slow.reload()).toBe(true);
+  expect(await asked).not.toBe('ok');
+  expect(stopped).toBe(true);
+  expect(txt.size).toBe(0);
+});
+
+test('round 2: a log shows an address\'s network only: an IPv4\'s /24, an IPv6\'s /64 (compressed or not, mapped or not)', () => {
+  expect(masked('203.0.113.9')).toBe('203.0.113.x');
+  expect(masked('::ffff:203.0.113.9')).toBe('203.0.113.x');
+  expect(masked('2001:db8::1234')).toBe('2001:db8:0:0::/64');
+  expect(masked('2001:db8:aa:bb:cc:dd:ee:ff')).toBe('2001:db8:aa:bb::/64');
+  expect(masked('::1')).toBe('0:0:0:0::/64');
+  expect(masked('nonsense')).toBe('unknown');
+});
+
+test('round 2: the relay\'s certificate names its domain alone', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-relay-cert2-'));
+  closing.push(() => rmSync(dir, { recursive: true, force: true }));
+  const accounts = join(dir, 'accounts.json');
+  writeFileSync(accounts, JSON.stringify({ accounts: {}, revoked: [] }));
+  expect(() => relayServer({ domain: DOMAIN, tls: selfSignedCertificate([DOMAIN, 'also.example.com']), accounts })).toThrow(`tls.cert does not name ${DOMAIN} alone`);
 });

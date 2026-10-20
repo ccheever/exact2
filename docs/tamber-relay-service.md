@@ -13,7 +13,7 @@ bun scripts/tamber-relay-server.mjs --help                                      
 
 ## One port, the ClientHello's name deciding
 
-The relay reads the first TLS record of each connection: the ClientHello, at most 16 KiB. It walks that record's fields and extensions for the server name, and never reads a second record: the bytes after the first are only held to be handed on whole.
+The relay reads the first TLS record of each connection: the ClientHello, at most 16 KiB. It walks that record's fields and extensions for the server name, and never parses a second record: bytes that arrive with or after the first are buffered unread, only to be handed on whole. At most `limits.pendingPerIp` connections from one address, and `limits.pendingTotal` in all, may be waiting to become a session's or an authenticated connector's.
 
 - **The relay's own name** (`domain`). TLS ends here, on the relay's only certificate. This is the control endpoint. Connectors greet it, and ACME TXT records are asked for here.
 - **A live session's name.** That is `<id>-tool.<label>.<domain>` or `<id>-canvas.<label>.<domain>`, or a name under one of the account's own parents. One line, `CLIENT <name> <address>`, goes down an idle connection of that session, then the client's bytes as they came, both ways. The relay holds no key for these names and reads nothing past the first record.
@@ -38,7 +38,7 @@ relay:     READY <tool> <canvas>\n                then idle
 relay:     CLIENT <name> <address>\n              then the client's bytes, both ways
 ```
 
-- **Sessions.** Every connection of a run is in one session. The first time a run greets without `names`, it gets a fresh id (12 hex digits, never one in use) and its two names under `<label>.<domain>`. With `names`, both must be under one parent the account holds in the accounts file, or be the relay's own form for this label (`<id>-tool.<label>.<domain>` and its canvas twin). The connector asks for its names again on every connection once named, so a run whose session lapsed, or whose relay restarted, gets the same names back unless another session holds them. A session lives 60 s after its last connection. A session holds at most `limits.idlePerSession` idle connections (more are closed, said nothing), and its carried and waiting clients together at most `limits.streamsPerSession`.
+- **Sessions.** Every connection of a run is in one session. A run's id is 12 hex digits of SHA-256 of its label and run id, and its names are `<id>-tool.<label>.<domain>` and its canvas twin. With `names`, both must be under one parent the account holds in the accounts file, or be that run's own names. The connector asks for its names again on every connection once named, so a run whose session lapsed, or whose relay restarted, gets the same names back, and no other run, of its account or another, can claim them. A session lives 60 s after its last connection. A session holds at most `limits.idlePerSession` idle connections (more are closed, said nothing), and its carried and waiting clients together at most `limits.streamsPerSession`.
 - **TXT records.** A connection whose greeting carries `txt: <record> <value>` or `txt-clear: <record> <value>` is answered `TXT-OK` or `REFUSED <why>`, then closed. The record must be `_acme-challenge.<label>.<domain>`, the connector's own account's. Any other is refused, including another account's, the apex, or a name of the account's own parent (those go through the developer's own DNS, `--relay-dns-hook`). The value must be ACME-shaped. A clear takes down only its own value. Requests are limited per account, refused ones counted too.
 - **Refusals.** A wrong token, an unknown label and a revoked one all get the same words, `no such account`, and cost the same work (one hash, one constant-time compare). A refused or answered connection is destroyed a second after its last line, whether or not its peer closes. After `limits.greetingsPerIp` refusals in a minute, an address is answered nothing.
 
@@ -62,11 +62,12 @@ relay:     CLIENT <name> <address>\n              then the client's bytes, both 
 |---|---|
 | `domain` | the relay's own name. Sessions are `<id>-tool.<label>.<domain>` and `<id>-canvas.<label>.<domain>` |
 | `listen` | `host:port` for clients and connectors, one port (443 deployed) |
-| `tls.cert`, `tls.key` | PEM files for the relay's own name only. Checked at start: the certificate names `domain`, is valid now and matches the key; otherwise no start |
+| `tls.cert`, `tls.key` | PEM files for the relay's own name only. Checked at start: the certificate names `domain` and nothing else, is valid now and matches the key; otherwise no start |
 | `accounts` | the accounts file (above). `labels.seen` is kept beside it |
 | `dns.command` | puts an ACME TXT record up or takes one value down. It gets `EXACT_ACME_ACTION` (`publish` or `clear`), `EXACT_ACME_RECORD` and `EXACT_ACME_VALUE`, runs in its own process group, and has a deadline |
 | `limits.perIpPerSession` | client connections a minute from one address to one session (30) |
-| `limits.streamsPerSession` | clients carried at once for one session (64) |
+| `limits.streamsPerSession` | clients carried or waiting at once for one session (64) |
+| `limits.pendingPerIp`, `limits.pendingTotal` | connections not yet a session's or an authenticated connector's, from one address (32) and in all (4096) |
 | `limits.idlePerSession` | a session's idle connector connections at once (8) |
 | `limits.sessionsPerAccount` | sessions one account holds at once (4) |
 | `limits.txtPerAccount` | TXT requests a minute from one account (10) |
@@ -77,7 +78,7 @@ Paths are relative to the config file.
 
 ## R4's lines, on loopback
 
-`bun scripts/tamber-relay-gate.mjs` runs the relay, two accounts' design servers (the real connector, each wildcard by ACME through the relay's TXT records, against the ACME stand-in) and a client on loopback, and prints each line MET or FAILED with its evidence: a paired propose client reads and can't write; revocation cuts its long poll and its next request; plain HTTP is closed at the relay; a capture at the relay holds no token, code or design text; one account's names reach only its own server and its TXT records are refused to another; a cookie grants nothing; one session's pairing flood leaves another's untouched. The deployed R4 runs the same lines against the real host.
+`bun scripts/tamber-relay-gate.mjs` runs the relay, two accounts' design servers (the real connector, each wildcard by ACME through the relay's TXT records, against the ACME stand-in) and a client on loopback, and prints each line MET or FAILED with its evidence: a paired propose client reads and can't write; revocation cuts its long poll and its next request; plain HTTP is closed at the relay; a capture at the relay holds no token, code or design text; one account's names reach only its own server and its TXT records are refused to another; one account's canvas cookie opens its own canvas only (not the other's, not a tool); one session's pairing flood leaves another's untouched. The deployed R4 runs the same lines against the real host.
 
 ## What waits on hosting (the seams)
 
