@@ -134,14 +134,23 @@ macro_rules! material_record {
             fn read(&mut self, r: &mut dyn crate::Reader) -> Result<(), crate::DataError> {
                 // The record's rule, not a patch: no name read is no name.
                 self.name.clear();
+                let fields = [$(stringify!($field)),*];
+                let mut seen = [false; [$(stringify!($field)),*].len()];
                 r.begin_struct()?;
                 while let Some(field) = r.field()? {
+                    if let Some(i) = fields.iter().position(|f| *f == field) {
+                        seen[i] = true;
+                    }
                     match field.as_str() {
                         "name" => self.name.read(r).map_err(|e| e.at("name"))?,
                         $(stringify!($field) => Data::read(&mut self.$field, r)
                             .map_err(|e| e.at(stringify!($field)))?,)*
                         _ => r.skip().map_err(|e| e.at(&field))?,
                     }
+                }
+                // A complete record (a tuning table's) names every field but the name, as the derive requires.
+                if let Some(i) = seen.iter().position(|s| !s).filter(|_| r.complete()) {
+                    return Err(crate::DataError::new("missing field").at(fields[i]));
                 }
                 Ok(())
             }

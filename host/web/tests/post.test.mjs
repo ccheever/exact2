@@ -1,13 +1,15 @@
 // The driver's `post` on the web (LLP 1139.004 D1): the page's agent answers the wire's `type`
 // with a `message` through glue.js `postSurface`, the path the page's postMessage takes, into
-// the real gpu-glue.js over a stand-in GPU module, in Chrome.
+// the real gpu-glue.js (alone, and behind the GPU modules router) over a stand-in GPU module, in Chrome.
 import {test, expect} from 'bun:test';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {cdpBrowser} from '../../../scripts/agent-launch.mjs';
 import {glueDeclarations} from './glue-fixture.mjs';
 
-test('a post is held for its surface, the 65th refused by name, an iframe id refused, and the held ones delivered in order once the canvas exists', async () => {
+/** Chrome over a page that boots `boot` (module source run after `globalThis.exact` is set),
+ * with glue.js's `postSurface` and `agentReply` as the page's agent; `run` gets the post helper. */
+async function page(boot, run) {
   const web = resolve(import.meta.dir, '..');
   const adapter = glueDeclarations(readFileSync(resolve(web, 'glue.js'), 'utf8'), ['postSurface', 'agentReply']);
   const moduleSource = `
@@ -27,8 +29,8 @@ test('a post is held for its surface, the 65th refused by name, an iframe id ref
   const html = `<div id="host"><canvas data-surface></canvas></div><iframe id="frame"></iframe><script type="module">
     globalThis.inputs = [];
     const host = document.getElementById('host');
-    globalThis.exact = {views:new Map([[1, host], [2, document.getElementById('frame')]]), root:document.body, now:()=>0, devAssets:[], generation:0, postBound:64};
-    await import('/gpu-glue.js');
+    globalThis.exact = {views:new Map([[1, host], [2, document.getElementById('frame')]]), root:document.body, now:()=>0, devAssets:[], generation:0, postBound:64, compat:{inputs:{gpuModules:{}}}};
+    ${boot}
     const views = exact.views, retiredViews = new WeakSet(), POST_BOUND = 64, incarnation = 0, now = () => 0, wasm = {}, tagged = x => x, ask = () => ({}), log = line => console.log(line);
     ${adapter}
     globalThis.askAgent = agentReply; globalThis.ready = true;
@@ -51,20 +53,45 @@ test('a post is held for its surface, the 65th refused by name, an iframe id ref
     await call('Page.navigate', {url:`http://127.0.0.1:${server.port}/`});
     const deadline = Date.now() + 30000;
     while (!await evaluate('globalThis.ready === true')) { if (Date.now() > deadline) throw new Error('fixture did not boot: ' + lines.join('\n')); await Bun.sleep(50); }
-    const post = request => evaluate(`askAgent(${JSON.stringify({op:'type', ...request})})`);
+    await run({evaluate, post: request => evaluate(`askAgent(${JSON.stringify({op:'type', ...request})})`)});
+  } finally {
+    if (listener) cdp.listeners.splice(cdp.listeners.indexOf(listener), 1);
+    await suite.close(); server.stop(true);
+  }
+}
+const HELD = {posted:'world', delivery:'posted', held:true}, DELIVERED = {posted:'world', delivery:'posted'};
+const DROPPED = name => ({error:`post refused: postMessage: dropped: 64 posts already wait for surface "${name}"`});
+
+test('a post is held for its surface, the 65th refused by name, an iframe id refused, and the held ones delivered in order once the canvas exists', () =>
+  page(`await import('/gpu-glue.js');`, async ({evaluate, post}) => {
     expect((await post({message:'spawn'})).error).toMatch(/^post: no world is live; name its surface/);
-    for (let i = 0; i < 64; i++) expect(await post({message:`m${i}`, surface:'world'})).toEqual({posted:'world', delivery:'posted', held:true});
-    expect(await post({message:'m64', surface:'world'})).toEqual({error:'post refused: postMessage: dropped: 64 posts already wait for surface "world"'});
+    for (let i = 0; i < 64; i++) expect(await post({message:`m${i}`, surface:'world'})).toEqual(HELD);
+    expect(await post({message:'m64', surface:'world'})).toEqual(DROPPED('world'));
     expect(await post({message:'x', surface:'frame'})).toEqual({error:'post refused: postMessage: canvas name collides with an iframe id "frame"'});
     expect(await evaluate('inputs.length')).toBe(0);
     await evaluate('exact.gpu.surface(1, "world", []); exact.gpu.settled()');
     expect(await evaluate('inputs.map(e => e.t === "message" ? e.text : e.t)')).toEqual(Array.from({length:64}, (_, i) => `m${i}`));
     // With the canvas live: no surface is its one world, and its view id names it.
-    expect(await post({message:'unnamed'})).toEqual({posted:'world', delivery:'posted'});
-    expect(await post({message:'by-id', id:1})).toEqual({posted:'world', delivery:'posted'});
+    expect(await post({message:'unnamed'})).toEqual(DELIVERED);
+    expect(await post({message:'by-id', id:1})).toEqual(DELIVERED);
     expect(await evaluate('inputs.slice(64).map(e => e.text)')).toEqual(['unnamed', 'by-id']);
-  } finally {
-    if (listener) cdp.listeners.splice(cdp.listeners.indexOf(listener), 1);
-    await suite.close(); server.stop(true);
-  }
-}, 120000);
+  }), 120000);
+
+// An app that declares GPU modules gets gpu-modules.js as exact.gpu: the router holds a post
+// until its artifact loads (64 a name, as the artifact does), passes an artifact's refusal on,
+// and answers the surface lookups by name, by view and for the one world.
+test('through the GPU modules router: held before its artifact loads, bounded, refused through it, delivered by name, view and one world', () =>
+  page(`await import('/gpu-modules.js');`, async ({evaluate, post}) => {
+    expect((await post({message:'spawn'})).error).toMatch(/^post: no world is live/);
+    for (let i = 0; i < 64; i++) expect(await post({message:`m${i}`, surface:'world'})).toEqual(HELD);
+    expect(await post({message:'m64', surface:'world'})).toEqual(DROPPED('world'));
+    await evaluate('exact.gpu.surface(1, "world", [], false); exact.gpu.settled()');
+    expect(await evaluate('inputs.map(e => e.text)')).toEqual(Array.from({length:64}, (_, i) => `m${i}`));
+    expect(await post({message:'unnamed'})).toEqual(DELIVERED);
+    expect(await post({message:'by-id', id:1})).toEqual(DELIVERED);
+    expect(await post({message:'named', surface:'world'})).toEqual(DELIVERED);
+    expect(await evaluate('inputs.slice(64).map(e => e.text)')).toEqual(['unnamed', 'by-id', 'named']);
+    // The loaded artifact's own bound, for a surface with no canvas yet, comes back through the router.
+    for (let i = 0; i < 64; i++) expect(await post({message:`o${i}`, surface:'other'})).toEqual({...HELD, posted:'other'});
+    expect(await post({message:'o64', surface:'other'})).toEqual(DROPPED('other'));
+  }), 120000);

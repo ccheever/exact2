@@ -254,3 +254,37 @@ fn a_model_of_another_record_is_refused_by_name() {
         "{error}"
     );
 }
+
+/// A complete record (a tuning table's JSON) names every material field, as the
+/// derive's records must; only the name may be absent. A short record and
+/// trailing input are refused.
+#[test]
+fn a_complete_material_record_requires_every_field_but_its_name() {
+    use exact_game::asset::{MaterialData, Table};
+    use exact_game::{bin, json};
+    let table = Table::of::<MaterialData>("material.json");
+    let error = table.decode("{}").err().unwrap().to_string();
+    assert!(
+        error.contains("missing field") && error.contains("base_color"),
+        "{error}"
+    );
+    let full = json::to_string(&MaterialData::default()).unwrap();
+    assert!(!full.contains("\"name\""), "{full}");
+    table.decode(&full).unwrap();
+    let named = json::to_string(&MaterialData {
+        name: "Hull".into(),
+        ..Default::default()
+    })
+    .unwrap();
+    table.decode(&named).unwrap();
+    let short = full.replacen("\"metallic\":1.0,", "", 1);
+    assert_ne!(short, full);
+    let error = table.decode(&short).err().unwrap().to_string();
+    assert!(
+        error.contains("missing field") && error.contains("metallic"),
+        "{error}"
+    );
+    let mut trailing = bin::to_vec(&MaterialData::default());
+    trailing.push(0);
+    assert!(bin::from_slice::<MaterialData>(&trailing).is_err());
+}
