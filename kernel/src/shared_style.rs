@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use crate::generated::{Cold, ColdRows, Rare, RareRows, StyleMask, StyleProps};
 use crate::id::IdHasher;
@@ -271,11 +271,13 @@ impl SharedStyles {
 
 /// The rare and cold rows of held styles, each distinct group once, by a
 /// hash of every row in it encoded (so `-0` and `0` stay apart, as styles
-/// do). One under a hash another group already has stays the style's own.
+/// do). One under a hash another live group already has stays the style's
+/// own. Held weakly: a group no style holds is in no wide-colour mark (LLP
+/// 1121 stage 4), so its colours' ids may be reclaimed and must not be read.
 #[derive(Debug, Clone, Default)]
 struct Groups {
-    rare: HashMap<u64, Arc<RareRows>, BuildHasherDefault<IdHasher>>,
-    cold: HashMap<u64, Arc<ColdRows>, BuildHasherDefault<IdHasher>>,
+    rare: HashMap<u64, Weak<RareRows>, BuildHasherDefault<IdHasher>>,
+    cold: HashMap<u64, Weak<ColdRows>, BuildHasherDefault<IdHasher>>,
     /// Groups after the last sweep; the next comes at twice this.
     swept: usize,
 }
@@ -288,11 +290,11 @@ impl Groups {
             ours.clear();
             style.encode_overlaid(rows, StyleMask::EMPTY, style, ours);
             let hash = hash_bytes(ours.as_slice());
-            match self.rare.get(&hash) {
-                Some(held) if Arc::ptr_eq(held, own) => {}
+            match self.rare.get(&hash).and_then(Weak::upgrade) {
+                Some(held) if Arc::ptr_eq(&held, own) => {}
                 Some(held) => {
                     let probe = StyleProps {
-                        rare: Rare::share(Arc::clone(held)),
+                        rare: Rare::share(held),
                         ..StyleProps::default()
                     };
                     theirs.clear();
@@ -302,7 +304,7 @@ impl Groups {
                     }
                 }
                 None => {
-                    self.rare.insert(hash, Arc::clone(own));
+                    self.rare.insert(hash, Arc::downgrade(own));
                 }
             }
         }
@@ -311,11 +313,11 @@ impl Groups {
             ours.clear();
             style.encode_overlaid(rows, StyleMask::EMPTY, style, ours);
             let hash = hash_bytes(ours.as_slice());
-            match self.cold.get(&hash) {
-                Some(held) if Arc::ptr_eq(held, own) => {}
+            match self.cold.get(&hash).and_then(Weak::upgrade) {
+                Some(held) if Arc::ptr_eq(&held, own) => {}
                 Some(held) => {
                     let probe = StyleProps {
-                        cold: Cold::share(Arc::clone(held)),
+                        cold: Cold::share(held),
                         ..StyleProps::default()
                     };
                     theirs.clear();
@@ -325,7 +327,7 @@ impl Groups {
                     }
                 }
                 None => {
-                    self.cold.insert(hash, Arc::clone(own));
+                    self.cold.insert(hash, Arc::downgrade(own));
                 }
             }
         }
@@ -336,8 +338,8 @@ impl Groups {
 
     /// Forget the groups no style holds.
     fn sweep(&mut self) {
-        self.rare.retain(|_, rows| Arc::strong_count(rows) > 1);
-        self.cold.retain(|_, rows| Arc::strong_count(rows) > 1);
+        self.rare.retain(|_, rows| rows.strong_count() > 0);
+        self.cold.retain(|_, rows| rows.strong_count() > 0);
         self.swept = self.rare.len() + self.cold.len();
     }
 }
