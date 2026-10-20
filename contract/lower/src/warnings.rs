@@ -392,8 +392,7 @@ struct Bar<'a> {
     unplaced: Vec<(Span, String)>,
 }
 
-/// What iOS makes of a route whose `header` is not the bar (LLP 1115.000
-/// D5.2), in `lower-header-no-bar`'s words.
+/// A route's `header` that is not the bar, in `lower-header-no-bar`'s words (LLP 1115.000 D5.2).
 const NOT_THE_BAR: &str = "the header is drawn in the page as written, and the bar has no title: a pushed route's holds the system Back button alone, above the header, and a stack's first route has no bar.";
 
 /// The other repair `lower-header-no-bar` names: the route's own chrome.
@@ -405,13 +404,12 @@ const OR_NO_BAR: &str =
 /// bar takes one heading as its title, the first text after it as the
 /// subtitle (a filled box before it as the avatar), one search field, one
 /// tablist, the buttons that press or open a popover and the readouts
-/// (`role="status"`, LLP 1075.003 §9.15); the rest of the
-/// header is hidden with it. With no heading or with two, the bar takes
-/// nothing and the header is shown as written, so nothing is dropped; that
-/// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). An `if` first
-/// among the route's children is read branch by branch: a branch's first
-/// node is the route's first child while it is taken, and `after` the
-/// route's nodes past that `if`.
+/// (`role="status"`, LLP 1075.003 §9.15); the rest of the header is hidden
+/// with it. With no heading or with two, the bar takes nothing and the
+/// header is shown as written: `lower-header-no-bar`'s (LLP 1116.003 D2.2).
+/// An `if` first among the route's children is read branch by branch: a
+/// branch's first node is the route's first child while it is taken, and
+/// `after` the route's nodes past that `if`.
 fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<LowerError>) {
     if let Some(Node::When {
         then, otherwise, ..
@@ -506,6 +504,9 @@ fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
             Part::Box => bar.unplaced.push((span, "this box".into())),
             Part::Other => {
                 let what = match node {
+                    Node::Element { tag, .. } if tag == "button" => {
+                        "a `button` that presses nothing".into()
+                    }
                     Node::Element { tag, .. } => format!("this `{tag}`"),
                     _ => "this node".into(),
                 };
