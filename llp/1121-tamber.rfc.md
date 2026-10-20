@@ -5160,3 +5160,29 @@ Built to theme2's 15:32 approval, on B1 and B2.
     16; gaps 0, 8, 8, 16, 16 px across; the header 44; corners 0).
 - The other hosts run the same plan, now 21 checks with the `even` box: 21/21 each on web, Linux, macOS, iOS and the
   reader. conform: 5/5, and Linux 5/5.
+
+### Stage 11's gate: met (2026-10-20; the run is `~/x2theme/stage11-gate-run.txt`)
+
+The run on `558b0bcf8e` (E on main), every host fresh: web, iOS, the Mac, Linux, Android's reader and the terminal.
+Stage 11's parts, all on main: A1 package designs in the compiler (`d5b4507d63` and records), A2 part 1 (the server
+and `contract tamber` fold packages) and part 2 (package designs on the wire, `d98591ee32`, *1.14*); B1 the scale
+table (through `d7671b5263`) and B2 the hosts' columns (through `d750c4e996`); C2 conform and scale-check, the
+Android reader by a plan push, the terminal host, and (c) the terminal's spaces in whole cells laid out by the kernel
+(`8ddfce36be`); D's server (`ed6e1720fa` and before) and tool half (`e8cd42223a`..`7a9da404a4`); E the fixtures and
+the gate script.
+
+| Gate line | Result |
+|---|---|
+| Two packages restyle together from one app value | **Met**: `@exact/cards` and `@exact/notes` both move with the app's `space.md = 20px` on web, iOS, the Mac, Linux and the terminal; live on the web, `set-token space.md` moves both with no reload and `remove-token` returns them. |
+| With no app value, `space.*` and `radius.*` are each host's | **Met** on every host, both packages included; every scale row cites a metric reference, a measured id or a guideline, and none is a bare number. |
+| Package designs: set by full name; one name in two packages refused unless the app sets it; no dials, axes or base names in a package; a `when` only on the app's axes | **Met**, each by its test. |
+| The server and the tool | **Met**: base rows with their columns and the app's override; package tokens with `package` and `file`; `set-token` of a base or package name writes the app's line, never a package file; `add-token` of a base name points to `set-token`; the design tool's real-server test. |
+| No regressions | **Met**: the clone's own `space.header` keeps its meaning (on a signed-out copy); conform `--synthetic --strict --linux` 0 failures in 110 targets (two older Linux reds fixed first: metronome by LLP 1125 D12, decorations by the grammar's `unavailable`); release output over 504 comparisons: 446 identical, 45 only B1's schema digest, 2 the design tool's own source, 11 failing alike on both sides. |
+
+**Decided in stage 11 and recorded here:** no web column (the web reads the neutral one); an app may set a base name
+and a package may not; the terminal rounds padding, margin and gap to whole cells in the kernel
+(`Env::cell_spaces`, LLP 1101 §4); a package file is what D11, D15 and the resolver see, judged on real paths; one
+write op for overrides (`set-token`). **Left to QUEUE:** expressions over base names (stage 12 B2), the Stretch cell
+form, incremental retention after a name-moving edit, a Linux InlineGeometry reader.
+
+**Stage 11 is closed.** The `tamber/1.14` window is closed; the next wire change takes `tamber/1.15` (stage 12).
