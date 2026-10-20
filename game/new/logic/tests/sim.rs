@@ -269,13 +269,13 @@ fn owed_coins_wait_for_room_while_the_critter_wanders() {
     wake(&mut game);
     game.world().require_mut::<Transform>("player").position =
         exact_game::Vec3::new(19.0, 0.9, 19.0);
-    let facing = game.world().require::<Transform>("critter").rotation;
+    let before = *game.world().require::<Transform>("critter");
     // Seven intervals: five coins on the ground, two owed.
     game.run(14_000.0);
     let w = game.world();
-    assert_ne!(
-        w.require::<Transform>("critter").rotation,
-        facing,
+    let after = *w.require::<Transform>("critter");
+    assert!(
+        after.rotation != before.rotation && after.position.distance(before.position) > 3.0,
         "it wandered"
     );
     assert_eq!(w.count::<Collectable>(|_| true), 5);
@@ -293,6 +293,38 @@ fn owed_coins_wait_for_room_while_the_critter_wanders() {
     let mut fresh = start(Options::default());
     fresh.restore(&saved).unwrap();
     assert_eq!(fresh.world().count::<Collectable>(|_| true), 5);
+    assert_eq!(fresh.world().require::<Critter>("critter").owed, [6]);
+    let coin = fresh.world().named("coin-1").unwrap();
+    fresh.world_mut().despawn(coin);
+    fresh.run(10.0);
+    assert!(fresh.world().named("coin-6").is_some());
+}
+
+/// A critter that starves still owes the coins it earned: they drop as the
+/// player makes room, after a restore too.
+#[test]
+fn a_starved_critter_still_pays_its_debt() {
+    use exact_game::collect::Collectable;
+    let mut game = start(Options::default());
+    wake(&mut game);
+    game.world().require_mut::<Transform>("player").position =
+        exact_game::Vec3::new(19.0, 0.9, 19.0);
+    game.run(45_000.0);
+    assert!(game.get::<Critter>("critter").unwrap().starved);
+    assert_eq!(game.world().count::<Collectable>(|_| true), 5);
+    let owed = game.world().require::<Critter>("critter").owed.clone();
+    assert_eq!(owed.first(), Some(&5), "debt: {owed:?}");
+    let saved = game.save().unwrap();
+    let mut fresh = start(Options::default());
+    fresh.restore(&saved).unwrap();
+    assert_eq!(fresh.world().require::<Critter>("critter").owed, owed);
+    for serial in 0..2 {
+        let coin = fresh.world().named(&format!("coin-{serial}")).unwrap();
+        fresh.world_mut().despawn(coin);
+    }
+    fresh.run(10.0);
+    assert!(fresh.world().named("coin-5").is_some() && fresh.world().named("coin-6").is_some());
+    assert_eq!(fresh.world().require::<Critter>("critter").owed, owed[2..]);
 }
 
 /// Between two lit beacons the critter runs from the nearer, even when the

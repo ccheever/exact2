@@ -9,14 +9,17 @@ import { cargoEnvironment, lockedMetadata, pathFrom, patchLines } from '../scrip
 import { APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT } from '../scripts/linked-plan.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
- * (what `use exact_game::*` brings in) and the template's own. */
+ * (what `use exact_game::*` brings in), the template's own and those it imports. */
 export function takenTypes(directory = import.meta.dir) {
   const read = path => existsSync(path) ? readFileSync(path, 'utf8') : '';
   const lib = read(resolve(directory, 'engine/src/lib.rs'));
   const exported = [...lib.matchAll(/^pub use [^;]*;/gms)].flatMap(m => m[0].match(/\b[A-Z][A-Za-z0-9]*\b/g) ?? []);
   const items = text => [...text.matchAll(/^\s*pub (?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
-  const template = [...read(resolve(directory, 'new/logic/src/lib.rs')).matchAll(/^\s*(?:pub )?(?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
-  return new Set([...exported, ...items(read(resolve(directory, 'engine/src/scene.rs'))), ...template.filter(t => t !== 'SmallGame')]);
+  const starter = read(resolve(directory, 'new/logic/src/lib.rs'));
+  const template = [...starter.matchAll(/^\s*(?:pub )?(?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
+  // Types the template imports by name (`use exact_game::spawn::Spawner;`).
+  const imported = [...starter.matchAll(/^use [^;]*;/gms)].flatMap(m => m[0].match(/\b[A-Z][A-Za-z0-9]*\b/g) ?? []);
+  return new Set([...exported, ...items(read(resolve(directory, 'engine/src/scene.rs'))), ...template.filter(t => t !== 'SmallGame'), ...imported]);
 }
 /** The `--assets` starter: a model under `art/`, shown by the scene, and hostless
  * tests that bake it in memory (`sim_with_art!`), one of them saving and restoring

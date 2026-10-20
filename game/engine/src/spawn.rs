@@ -47,14 +47,21 @@ impl Spawner {
         if self.every == 0 || tick < self.next || self.serial == u32::MAX {
             return None;
         }
-        let owed = ((tick - self.next) / self.every).saturating_add(1);
-        if owed > u64::from(self.cap) {
-            // Skip the oldest, keeping the schedule on its grid.
-            let skipped = (owed - u64::from(self.cap)).saturating_mul(self.every);
-            self.next = self.next.saturating_add(skipped);
-            if self.cap == 0 {
-                return None;
-            }
+        // Intervals owed beyond the one due at `next`; `behind + 1` are owed.
+        let behind = (tick - self.next) / self.every;
+        if self.cap == 0 {
+            self.next = behind
+                .checked_add(1)
+                .and_then(|owed| owed.checked_mul(self.every))
+                .and_then(|skip| self.next.checked_add(skip))
+                .unwrap_or(u64::MAX);
+            return None;
+        }
+        let cap = u64::from(self.cap);
+        if behind >= cap {
+            // Skip the oldest, keeping the schedule on its grid. `next` stays at
+            // or before `tick`, so this cannot overflow.
+            self.next += (behind - (cap - 1)) * self.every;
         }
         let serial = self.serial;
         // A schedule that would pass the end of the clock is exhausted too.

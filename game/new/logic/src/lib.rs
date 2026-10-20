@@ -284,7 +284,11 @@ fn critter(w: &mut World) {
             };
         }
         if critter.starved || critter.hunger(tick) >= 1.0 {
+            // It earns nothing more, but the coins it already owes still drop.
             critter.starved = true;
+            if !critter.owed.is_empty() {
+                droppers.push((e, pose.position));
+            }
             continue;
         }
         // Its hunger and its next coin come on later ticks, which observation

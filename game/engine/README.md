@@ -350,7 +350,7 @@ A game whose saved shape changes under the same `Game::ID` versions it: insert a
 save-contract resource in setup and check it in `Game::restorable`, which sees the
 decoded world before it replaces anything and refuses with the reason it returns
 (`restore refused: \`small-game\` refuses this save: …`). The starter does this
-(`SaveContract`, version 2 since its critter and shop).
+(`SaveContract`; version 2 holds its critter and shop).
 
 `sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies, including
 declared `.sound` assets, which the primitive module also decodes; a save records

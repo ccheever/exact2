@@ -106,8 +106,9 @@ fn arrive_slows_inside_its_radius_and_stops_on_the_target() {
 type Wander = fn(&Transform, &mut Rng, &mut f32, f32, f32, f32) -> Steer;
 
 /// Ten seconds of wandering at 1.5 m/s turning up to 2 rad/s, from seed 5:
-/// the heading's net change, or Err when a tick turns faster than the rate.
-fn wander_oracle(wander: Wander) -> Result<f32, String> {
+/// the heading's largest net change, the final pose and the stream's next draw;
+/// Err when a tick turns faster than the rate, pitches, or does not move at speed.
+fn wander_oracle(wander: Wander) -> Result<(f32, Transform, u32), String> {
     let (mut pose, mut rng, mut turn) = (Transform::default(), Rng::new(5), 0.0);
     let mut heading = 0.0f32;
     let mut farthest = 0.0f32;
@@ -120,25 +121,39 @@ fn wander_oracle(wander: Wander) -> Result<f32, String> {
         if (s.facing * Vec3::NEG_Z).y.abs() > 1e-6 {
             return Err(format!("tick {tick} pitched"));
         }
+        if (s.velocity.length() - 1.5).abs() > 1e-4 {
+            return Err(format!("tick {tick} moved at {} m/s", s.velocity.length()));
+        }
         heading += turned * turn.signum();
         farthest = farthest.max(heading.abs());
         advance(&mut pose, s);
     }
-    Ok(farthest)
+    Ok((farthest, pose, rng.next_u32()))
 }
 
 #[test]
 fn wander_meanders_within_its_turn_rate_on_the_world_stream() {
-    let farthest = wander_oracle(steer::wander).unwrap();
+    let (farthest, pose, next) = wander_oracle(steer::wander).unwrap();
     assert!(farthest > 1.0, "the heading wandered {farthest} rad");
-    // The same stream gives the same walk, bit for bit.
-    assert_eq!(wander_oracle(steer::wander), Ok(farthest));
+    // Every tick moves at 1.5 m/s (checked above); the meander ends away from the start.
+    let travelled = pose.position.length();
+    assert!(travelled > 1.0, "{travelled} m from the start");
+    // The same stream gives the same walk, bit for bit: pose and stream alike.
+    assert_eq!(wander_oracle(steer::wander), Ok((farthest, pose, next)));
     // Broken: a wander that never turns.
     let straight: Wander = |from, _, _, speed, _, _| Steer {
         velocity: from.rotation * Vec3::NEG_Z * speed,
         facing: from.rotation,
     };
-    assert!(wander_oracle(straight).unwrap() < 1.0);
+    assert!(wander_oracle(straight).unwrap().0 < 1.0);
+    // Broken: one that turns without moving.
+    let spinning: Wander = |from, rng, turn, speed, rate, dt| Steer {
+        velocity: Vec3::ZERO,
+        ..steer::wander(from, rng, turn, speed, rate, dt)
+    };
+    assert!(wander_oracle(spinning)
+        .unwrap_err()
+        .contains("moved at 0 m/s"));
 }
 
 type Flee = fn(&Transform, Vec3, f32, f32, f32, f32) -> Option<Steer>;
@@ -443,6 +458,55 @@ fn spawner_oracle<G: Logged>() -> Result<(usize, usize), String> {
     Ok((fish.len(), coins.len()))
 }
 
+/// The serials and spawn ticks a run restored from the save at
+/// `EXACT_KIT_SPAWNER_SAVE` makes in 500 more ticks, written to
+/// `EXACT_KIT_SPAWNER_OUT`. Run by the test below in a process of its own;
+/// alone it does nothing.
+#[test]
+#[ignore = "the child half of two_spawners_continue_identically_in_a_fresh_process"]
+fn spawner_child_restores_from_a_file() {
+    let (Ok(save), Ok(out)) = (
+        std::env::var("EXACT_KIT_SPAWNER_SAVE"),
+        std::env::var("EXACT_KIT_SPAWNER_OUT"),
+    ) else {
+        return;
+    };
+    let mut fresh = Sim::<Kit>::new(()).unwrap();
+    fresh.restore(&std::fs::read(save).unwrap()).unwrap();
+    fresh.run(500.0 * 1000.0 / HZ as f64);
+    std::fs::write(out, format!("{:?}", Kit::log(fresh.world()))).unwrap();
+}
+
+/// LLP 1139.001 §4: two independent schedules saved mid-run continue in another
+/// process with the uninterrupted run's serials and spawn ticks.
+#[test]
+fn two_spawners_continue_identically_in_a_fresh_process() {
+    let ms = |ticks: u64| ticks as f64 * 1000.0 / HZ as f64;
+    let mut whole = Sim::<Kit>::new(()).unwrap();
+    whole.run(ms(500));
+    let dir = std::env::temp_dir().join(format!("exact-kit-spawner-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (save, out) = (dir.join("half.world"), dir.join("log.txt"));
+    std::fs::write(&save, whole.save().unwrap()).unwrap();
+    whole.run(ms(500));
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "spawner_child_restores_from_a_file", "--ignored"])
+        .env("EXACT_KIT_SPAWNER_SAVE", &save)
+        .env("EXACT_KIT_SPAWNER_OUT", &out)
+        .output()
+        .unwrap();
+    assert!(
+        child.status.success(),
+        "{}",
+        String::from_utf8_lossy(&child.stderr)
+    );
+    let continued = std::fs::read_to_string(&out).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    let (fish, coins, ticks) = Kit::log(whole.world());
+    assert_eq!((fish.len(), coins.len()), (142, 90));
+    assert_eq!(continued, format!("{:?}", (fish, coins, ticks)));
+}
+
 #[test]
 fn two_spawners_owe_t_over_every_and_keep_their_serials_across_a_restore() {
     assert_eq!(spawner_oracle::<Kit>(), Ok((142, 90)));
@@ -585,4 +649,13 @@ fn an_exhausted_spawner_owes_nothing_more_across_a_restore() {
     };
     assert_eq!(edge.due(u64::MAX), Some(0));
     assert_eq!(edge.due(u64::MAX), None);
+    // The longest backlog the clock allows still pays exactly `cap`.
+    for cap in [0, 1, 3] {
+        let mut s = Spawner {
+            next: 0,
+            ..Spawner::every(1).cap(cap)
+        };
+        let paid = std::iter::from_fn(|| s.due(u64::MAX)).count();
+        assert_eq!(paid, cap as usize, "cap {cap}");
+    }
 }
