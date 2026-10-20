@@ -337,6 +337,8 @@ macro_rules! two_spawners {
             coins: $ty,
             fish_log: Vec<u32>,
             coin_log: Vec<u32>,
+            /// The tick of each spawn, fish and coins in the order they came.
+            ticks: Vec<u64>,
         }
         struct $game;
         impl Game for $game {
@@ -359,22 +361,24 @@ macro_rules! two_spawners {
                 let mut d = w.resource_mut::<$res>();
                 while let Some(serial) = d.fish.due(tick) {
                     d.fish_log.push(serial);
+                    d.ticks.push(tick);
                 }
                 while let Some(serial) = d.coins.due(tick) {
                     d.coin_log.push(serial);
+                    d.ticks.push(tick);
                 }
             }
         }
         impl Logged for $game {
-            fn log(w: &World) -> (Vec<u32>, Vec<u32>) {
+            fn log(w: &World) -> (Vec<u32>, Vec<u32>, Vec<u64>) {
                 let d = w.resource::<$res>();
-                (d.fish_log.clone(), d.coin_log.clone())
+                (d.fish_log.clone(), d.coin_log.clone(), d.ticks.clone())
             }
         }
     };
 }
 trait Logged: Game<Args = ()> {
-    fn log(w: &World) -> (Vec<u32>, Vec<u32>);
+    fn log(w: &World) -> (Vec<u32>, Vec<u32>, Vec<u64>);
 }
 impl Forgetful {
     fn due(&mut self, tick: u64) -> Option<u32> {
@@ -404,12 +408,27 @@ fn spawner_oracle<G: Logged>() -> Result<(usize, usize), String> {
     whole.run(ms(500));
     // The last tick that ran is numbered one less than the count of ticks.
     let tick = whole.world().tick() - 1;
-    let (fish, coins) = G::log(whole.world());
+    let (fish, coins, ticks) = G::log(whole.world());
     if fish.len() as u64 != tick / 7 || coins.len() as u64 != tick / 11 {
         return Err(format!(
             "by tick {tick}: {} and {} spawns",
             fish.len(),
             coins.len()
+        ));
+    }
+    // Each on its grid, in order: every multiple of 7, then of 11, up to `tick`.
+    let grid: Vec<u64> = (1..=tick)
+        .flat_map(|t| {
+            [7, 11]
+                .into_iter()
+                .filter(move |e| t % e == 0)
+                .map(move |_| t)
+        })
+        .collect();
+    if ticks != grid {
+        return Err(format!(
+            "spawned at ticks {:?}…, not on the grid",
+            &ticks[..3]
         ));
     }
     if fish != (0..fish.len() as u32).collect::<Vec<_>>() {
@@ -418,7 +437,7 @@ fn spawner_oracle<G: Logged>() -> Result<(usize, usize), String> {
     let mut fresh = Sim::<G>::new(()).unwrap();
     fresh.restore(&saved).unwrap();
     fresh.run(ms(500));
-    if G::log(fresh.world()) != (fish.clone(), coins.clone()) {
+    if G::log(fresh.world()) != (fish.clone(), coins.clone(), ticks) {
         return Err("a restored run spawned other serials".into());
     }
     Ok((fish.len(), coins.len()))
@@ -477,6 +496,12 @@ fn near_xz_limit_keeps_the_nearest_in_entity_order() {
         [far, near, tie_low, tie_high]
     );
     assert_eq!(w.near_xz::<Fish>(origin, 5.0).limit(0).count(), 0);
+    // The nearest two of three, where the nearer has the higher index: still entity order.
+    let mut v = World::new(HZ, 0);
+    let o = v.spawn((Fish, Transform::default()));
+    let (p, q) = (v.spawn(at(1.5)), v.spawn(at(0.5)));
+    v.spawn(at(3.0));
+    assert_eq!(ids(v.near_xz::<Fish>(o, 5.0).limit(2).collect()), [p, q]);
     // A limited set is read when limit is called; an unlimited one as the loop
     // reaches each row, so a row moved away before its turn drops out.
     let read = |limit: Option<usize>| {

@@ -159,12 +159,21 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await petWorld.run(100);
   shop = await pet.tree();
   check('Digit1 feeds it once, for six coins', node(shop, 'hud-coins')?.props.text === 'Coins 4 · critter fed', node(shop, 'hud-coins')?.props);
+  await petWorld.save(resolve(out, 'critter.world'));
+  await petWorld.run(4000);
+  const fedOn = JSON.stringify(await petWorld.snapshot());
   await petWorld.hold('KeyD', 1100);
   await petWorld.tap('KeyE');
   await petWorld.run(3000);
   const [bx, , bz] = await petWorld.global_position('beacon-1'), [kx, , kz] = await petWorld.global_position('critter');
   check('it keeps 3 m from a lit beacon', (await petWorld.get('beacon-1', 'Beacon')).lit && Math.hypot(kx - bx, kz - bz) > 2.9, {critter: [kx, kz]});
   await pet.close();
+  // Its hunger, its next coin and the coins' serials travel in a save.
+  const petAgain = await open({fresh:true, world:resolve(out, 'critter.world')});
+  const petRestored = await play(petAgain);
+  await petRestored.run(4000);
+  check('a fresh process restores the awake critter and its coin schedule', JSON.stringify(await petRestored.snapshot()) === fedOn);
+  await petAgain.close();
   const pointerSession = await open({fresh:true});
   await pointerSession.tap('play');
   await pointerSession.tap('pause'); await pointerSession.tap('pause');
