@@ -824,7 +824,7 @@ test('a design server that is down says so to a remote client without this machi
   const dying = () => {
     const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null });
     child.kill = () => {};
-    setTimeout(() => { child.stderr.write(`contract tamber serve: another tamber server writes ${realpathSync(dir)} (it read ${realpathSync(outside)}/index.contract:2:1)\n`); child.exitCode = 1; child.emit('exit', 1); }, 20);
+    setTimeout(() => { child.stderr.write(`contract tamber serve: another tamber server writes ${realpathSync(dir)} (it read ${realpathSync(outside)}/index.contract:2:1; no ${realpathSync(outside)}/dist/theme.tamber)\n`); child.exitCode = 1; child.emit('exit', 1); }, 20);
     return child;
   };
   let doors = null;
@@ -848,7 +848,7 @@ test('a design server that is down says so to a remote client without this machi
     const poll = await send(true, port, { method: 'POST', path: '/__tamber/events', headers, body: '{"wait":false}' });
     // One from the start: the `down` event, its message without the paths too.
     const all = await send(true, port, { method: 'POST', path: '/__tamber/events', headers, body: '{"after":0,"wait":false}' });
-    expect(JSON.parse(all.text).events.find(e => e.event === 'down').message).toBe('contract tamber serve: another tamber server writes <app> (it read @acme/far/index.contract:2:1)');
+    expect(JSON.parse(all.text).events.find(e => e.event === 'down').message).toBe('contract tamber serve: another tamber server writes <app> (it read @acme/far/index.contract:2:1; no @acme/far/dist/theme.tamber)');
     const machine = new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir()), outside, realpathSync(outside)]);
     for (const m of machine) expect(all.text.includes(m)).toBe(false);
     for (const r of [subscribe, poll]) {
@@ -868,12 +868,12 @@ test('a design server that is down says so to a remote client without this machi
 // Round 2 (Astra 1 = Grok 1): a compile refusal names a linked package's file
 // by its path; to a remote client that package, outside the app and the home
 // directory, is named by its package's name.
-test('a linked package outside the app whose design is missing is named by its package to a remote client', async () => {
+test('a linked package outside the app whose design (under a missing dist/) is missing is named by its package to a remote client', async () => {
   const { homedir } = await import('node:os');
   const { realpathSync } = await import('node:fs');
   const { dir, outside } = await machineApp();
-  // Its manifest names a design that is not there: refused with that design's path.
-  writeFileSync(join(outside, 'package.json'), '{"name":"@acme/linked","version":"1.0.0","exports":{".":"./index.contract"},"tamber":"missing.tamber"}');
+  // Its manifest names a design under a `dist/` that was never built: refused with that design's path.
+  writeFileSync(join(outside, 'package.json'), '{"name":"@acme/linked","version":"1.0.0","exports":{".":"./index.contract"},"tamber":"dist/theme.tamber"}');
   const app = await pairedApp(dir);
   try {
     const writer = await app.pair('write');
@@ -887,7 +887,7 @@ test('a linked package outside the app whose design is missing is named by its p
       // (An answer that is no refusal holds the authored path, which goes as written.)
       if (!answer.error) continue;
       refused += 1;
-      if (request.method === 'uses') expect(r.text).toContain('@acme/linked/missing.tamber');
+      if (request.method === 'uses') expect(r.text).toContain('@acme/linked/dist/theme.tamber');
       for (const m of machine) expect([request.method, m, r.text.includes(m)]).toEqual([request.method, m, false]);
     }
     expect(refused).toBeGreaterThan(0);

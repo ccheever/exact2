@@ -8,6 +8,15 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, sep } from 'node:path';
 
 const real = p => { try { return realpathSync(p); } catch { return p; } };
+// A path's real form through its nearest existing ancestor, the missing rest
+// kept (`<package>/dist/theme.tamber` where there is no `dist/`): what a
+// refusal names may not be there.
+const realThrough = p => {
+  let at = p, rest = '';
+  while (!existsSync(at) && at !== dirname(at)) { rest = rest ? `${basename(at)}/${rest}` : basename(at); at = dirname(at); }
+  const base = real(at);
+  return rest ? `${base.endsWith(sep) ? base : base + sep}${rest.split('/').join(sep)}` : base;
+};
 const slashed = p => p.split(sep).join('/');
 const inside = (p, d) => p === d || p.startsWith(d.endsWith(sep) ? d : d + sep);
 
@@ -19,7 +28,7 @@ const inside = (p, d) => p === d || p.startsWith(d.endsWith(sep) ? d : d + sep);
  * already, and a string that is no path is kept. */
 export function pathName(file, appDir) {
   if (typeof file !== 'string' || !isAbsolute(file)) return file;
-  const fileReal = real(file);
+  const fileReal = realThrough(file);
   for (const [p, d] of [[file, appDir], [file, real(appDir)], [fileReal, real(appDir)]]) {
     if (inside(p, d) && p !== d) return slashed(relative(d, p));
   }
@@ -46,11 +55,11 @@ export function namedPaths(value, appDir) {
  * refusal's text) with this machine's directories taken out:
  * - every absolute path in it (a run from `/`, `~/` or a drive letter, up
  *   to white space, a quote, a backtick, `)`, or a `:` before a line
- *   number) that names a file or a directory there (it, or its directory,
- *   exists) is named by [`pathName`]: app-relative, its package's
- *   `<name>/<path inside>` (wherever the package is installed or linked,
- *   found from the file itself), or `<outside>/<name>`; a `:line:col` after
- *   it stays;
+ *   number), but a server's route (`/__…`), is named by [`pathName`], from
+ *   its nearest existing ancestor (a missing file under a package is still
+ *   the package's): app-relative, its package's `<name>/<path inside>`
+ *   (wherever the package is installed or linked), or `<outside>/<name>`;
+ *   a `:line:col` after it stays;
  * - then, for any other mention, the app's directory (as `<app>`) and the
  *   home directory (as `~`), as given and real, longest first, where a whole
  *   path stands. */
@@ -62,7 +71,8 @@ export function messageScrubber(appDir) {
     .sort((a, b) => b[0].length - a[0].length)
     .map(([d, to]) => [new RegExp(`(?<![\\w.~/-])${escape(d)}(?=$|/|[^\\w.~-])`, 'g'), to]);
   const token = /(?<![\w.~/-])(?:~\/|\/|[A-Za-z]:[\\/])[^\s"'`)]+?(?=:\d|[\s"'`)]|$)/g;
-  const there = p => { try { return existsSync(p) || existsSync(dirname(p)); } catch { return false; } };
+  // A server's own route is no file of this machine's (`/__tamber/subscribe`).
+  const route = p => p.startsWith('/__');
   return text => {
     if (typeof text !== 'string' || !/[/\\]/.test(text)) return text;
     const named = new Map();
@@ -70,7 +80,7 @@ export function messageScrubber(appDir) {
       // A sentence's full stop or comma after a path is no part of it.
       const [, path, tail] = /^(.*?)([.,;]*)$/.exec(raw);
       const full = path.startsWith('~/') ? `${homedir()}${path.slice(1)}` : path;
-      if (!there(full)) return raw;
+      if (route(full)) return raw;
       // The app's or the home directory itself is no file: the backstop's names.
       const r = real(full);
       if (r === real(appDir)) return `<app>${tail}`;

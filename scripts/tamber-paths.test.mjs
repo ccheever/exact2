@@ -47,9 +47,12 @@ test('a machine message names each path in it by the rule, keeps its line and co
     expect(scrub(`${app}/app.contract:3:7 [syntax] expected a view`)).toBe('app.contract:3:7 [syntax] expected a view');
     expect(scrub(`${app}/missing.tamber: No such file`)).toBe('missing.tamber: No such file');
     expect(scrub(`reads \`${join(root, 'loose.contract')}\` (gone)`)).toBe('reads `<outside>/loose.contract` (gone)');
-    // A path inside another, or a longer name, is not the app's; one that names nothing there is left.
-    expect(scrub(`${app}y/app.contract`)).toBe(`${app}y/app.contract`);
-    expect(scrub(`${home}istrator/notes`)).toBe(`${home}istrator/notes`);
+    // A longer name beside the app's is not the app's: named from what exists above it, never by its path.
+    expect(scrub(`${app}y/app.contract`)).toBe('<outside>/app.contract');
+    expect(scrub(`${home}istrator/notes`)).toBe('<outside>/notes');
+    // A missing file under a missing directory of the app is still the app's.
+    expect(scrub(`${app}/dist/theme.tamber: No such file`)).toBe('dist/theme.tamber: No such file');
+    // A server's route is no file.
     expect(scrub('POST /__tamber/subscribe')).toBe('POST /__tamber/subscribe');
     // Only a refusal's messages and a `down` event's; a commit's is authored.
     const reply = { ok: { commits: [{ message: `moved ${app}/app.contract` }] }, error: { message: `${app}/app.contract`, diagnostics: [{ message: `${app}/assets` }] } };
@@ -79,6 +82,8 @@ test('a machine message names a package by its package, however it is installed'
     const scrub = messageScrubber(app);
     expect(scrub(`${realpathSync(linked)}/index.contract:3:1 [syntax] expected a view`)).toBe('@acme/linked/index.contract:3:1 [syntax] expected a view');
     expect(scrub(`${realpathSync(linked)}/missing.tamber: No such file`)).toBe('@acme/linked/missing.tamber: No such file');
+    // A manifest's design under a directory that is not there (`dist/` never built).
+    expect(scrub(`the package \`@acme/linked\`'s design \`${realpathSync(linked)}/dist/theme.tamber\`: No such file`)).toBe('the package `@acme/linked`\'s design `@acme/linked/dist/theme.tamber`: No such file');
     expect(scrub(`${realpathSync(linked)}/node_modules/inner/index.contract: unreadable`)).toBe('inner/index.contract: unreadable');
     expect(scrub(`${root}/repo/node_modules/@acme/up/index.contract:1:1 refused`)).toBe('@acme/up/index.contract:1:1 refused');
     expect(scrub(`${realpathSync(store)}/index.contract: refused`)).toBe('@acme/bun/index.contract: refused');

@@ -571,7 +571,24 @@ pub fn shown(path: &std::path::Path, dir: &std::path::Path) -> String {
         return slashed(path);
     }
     let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
-    let real = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    // Real through its nearest existing ancestor, the missing rest kept (a
+    // package's `dist/theme.tamber` where there is no `dist/`).
+    let real = {
+        let mut at = path;
+        let mut rest = Vec::new();
+        while !at.exists() {
+            match (at.parent(), at.file_name()) {
+                (Some(up), Some(name)) => {
+                    rest.push(name.to_owned());
+                    at = up;
+                }
+                _ => break,
+            }
+        }
+        let mut real = at.canonicalize().unwrap_or_else(|_| at.to_path_buf());
+        real.extend(rest.iter().rev());
+        real
+    };
     for (p, d) in [
         (path, dir),
         (path, canonical.as_path()),

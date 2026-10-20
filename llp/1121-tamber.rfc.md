@@ -4679,11 +4679,13 @@ still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it)
   that misses a nested dependency, a `node_modules` installed above the app, and Bun's per-file links (whose files
   link into a store). So the scrubber no longer lists roots. In a machine message to a client that is not local,
   every absolute path (a run from `/`, `~/` or a drive letter, up to white space, a quote, a backtick, `)` or a `:`
-  before a line number) that names something there (it, or its directory, exists) is named by `pathName`: from the
-  file itself, app-relative, its package's `<name>/<path inside>`, or `<outside>/<name>`. A `:line:col` after it
+  before a line number) is named by `pathName`, but a server's route (`/__…`), exempted by name: app-relative, its
+  package's `<name>/<path inside>`, or `<outside>/<name>`. It resolves from the path's nearest existing ancestor
+  (realpath, then the nearest named `package.json`), so a missing file under a missing directory of a package is
+  still the package's. (Re-check 2: a guard that kept a token unless it or its parent existed let a manifest's
+  `dist/theme.tamber`, never built, through whole.) Rust's `shown` resolves the same way. A `:line:col` after it
   stays, and so does a sentence's full stop. The app's directory itself reads `<app>`, the home directory `~`, and
-  the app and home rule stays as a backstop for any other mention. A path that names nothing there (a route,
-  `/__tamber/subscribe`) is left.
+  the app and home rule stays as a backstop for any other mention.
 - **Motion sites through a linked package keep their site.** `motion_sites` named its files for the reply before
   `motion_instances` joined them against the elements' paths, so a linked package's duration or easing use lost its
   instance (`site: null`) and its outline. It keeps the loader's path through the join; the finished reply is named
@@ -4695,13 +4697,14 @@ still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it)
   poll's `proposals`, and export's `baseline` (`shown`, no `unwrap_or` to the absolute path).
 - **Tests:**
   - `tamber-paths.test.mjs`: each path in a message is named and keeps its `:line:col` (`app.contract:3:7`); a
-    longer name, `<home>istrator`, and a route are left. A package's file is `<name>/…` however it is installed: a
+    route is left, and a missing file under a missing directory is still named (`dist/theme.tamber`); a longer name
+    beside the app's or the home's is named from what exists above it (`<outside>/…`). A package's file is `<name>/…` however it is installed: a
     link outside the app, a dependency nested in its `node_modules`, a `node_modules` above the app, and a Bun-style
     per-file link into a store.
   - `tamber-remote.test.mjs`: a design server that is down, whose stderr names a package's file outside the app
-    and the home directory, reads `… writes <app> (it read @acme/far/index.contract:2:1)` to a remote client, in the
-    503s and the `down` event. `@acme/linked`, outside the app and the home directory, names a design that is not
-    there. The local client's `uses` refusal holds the path; a paired client's refusals (`uses`, `explain`) hold
+    and the home directory, reads `… writes <app> (it read @acme/far/index.contract:2:1; no @acme/far/dist/theme.tamber)` to a remote client, in the
+    503s and the `down` event. `@acme/linked`, outside the app and the home directory, names a design under a `dist/` that was
+    never built (`dist/theme.tamber`). The local client's `uses` refusal holds the path; a paired client's refusals (`uses`, `explain`) hold
     neither the outside directory nor the app's nor the home's, and `uses` says `@acme/linked/missing.tamber`. It
     fails without the package rewrite.
   - `tamber_serve_packages.rs` `a_package_linked_from_outside_keeps_its_motion_sites_and_its_defaults`: a linked
