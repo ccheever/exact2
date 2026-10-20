@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.14`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.15`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.14"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.15"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -115,6 +115,9 @@ on macOS and Linux.
   source map behind them (development only, never on the wire) keys each state part by its row and
   state: a binding's `states`, `[{state, origin, at?}]` (no `at` for a conditional class's part,
   either style's).
+- `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
+  values for a length over unset base names (stage 12 D1). Stage 12's other wire changes add under the
+  same version.
 
 ## Where it runs
 
@@ -499,6 +502,16 @@ tuple:
 - **A base name** (*1.14*) answers `{kind: "base", name, base, files}`, its base row. One the app
   sets also carries its line's fields as any token's (`token, value, whens, dials, names`), so a
   tool reads and edits its `when` lines.
+- **A length over unset base names** (*1.15*, stage 12 D1): an alias of one, or an expression
+  (`calc(space.md * 2)`, stage 12 B2), whose value is each host's, adds `columns` on `explain`'s
+  value and on each `when` line, as the first tuple that chooses that line folds it (a line no
+  tuple chooses, the default included, has none), and on each of `resolve`'s tuples:
+  `{ios, mac, neutral, material, terminal: {value}}`, each the expression folded for that column
+  by the kernel's own per-column evaluator, written as the base rows write a column's value
+  (`"32px"`; the terminal's `"2cell"`, `"1.5cell"` or `"0"`, in column-width cells before its
+  layout rounds a space to whole cells on the axis it spaces); a column it doesn't fold in is left
+  out. An app-set base name folds into its own value, so one whose fold reaches no unset base name
+  is one value and has none (`space.md = space.sm` still reaches `space.sm`, and has them).
 - **A token whose values name base names** (*1.14*), an overridden base name's own line included,
   adds `bases`: each base name any of its lines reaches, `when` lines no tuple selects included (an
   unset one named bare, a set one as the token it names), and those any line of each token it
