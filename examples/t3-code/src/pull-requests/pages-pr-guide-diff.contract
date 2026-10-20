@@ -108,4 +108,4 @@ component GuideDiffs
                     box position="absolute" left="0.125rem" top="0.125rem" width="1rem" height="1rem" border-radius="0.25rem" background-color="light-dark(#dbeafe, #1e3a5f)" display="flex" align-items="center" justify-content="center" aria-label=`Note ${note.marker}: ${note.title}` testId=`guide-note-marker-${note.key}`
                       text note.marker font-size="0.625rem" font-weight=600 color="light-dark(#1d4ed8, #93c5fd)"
             if not card.full and card.total > 0
-              text `Showing ${card.shown} of ${card.total} diff lines` padding="0.5rem" font-size="0.6875rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1aa)"
+              text `${card.removed ? "removed code, " : ""}showing ${card.shown} of ${card.total} diff lines` padding="0.5rem" font-size="0.6875rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1aa)"

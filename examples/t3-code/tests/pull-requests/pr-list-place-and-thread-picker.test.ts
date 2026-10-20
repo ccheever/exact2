@@ -253,6 +253,23 @@ describe('The checkout dialog\'s field focuses and selects its reference as it o
 // ── The provider menu after a failed list, and the Server filter ───────────
 
 describe('The Pull Requests filters name the hosts and servers the page knows', () => {
+  test('an empty server offers Add project without a list request and keeps the known provider options', async () => {
+    const lane = backgroundTransport();
+    const { client, page, listed } = focusedClient();
+    client.shell.projects = [];
+    await fleet.sync(lane.native, client as unknown as { origin: string; environmentId: string; connection: string });
+    const all = await page();
+    expect(numbers(all).slice(0, 2)).toEqual([144, 143]);
+    for (let pass = 0; pass < 2; pass++) {
+      prLocal(client, 'server', 'env'); listed.length = 0;
+      const empty = await page({ refresh: pass * 2 + 1 });
+      expect([empty.hasProjects, empty.empty, empty.emptyAction, empty.error]).toEqual([false, 'No projects in this workspace', 'add-project', '']);
+      expect(empty.hosts.map(host => host.label)).toEqual(['All', 'GitHub']);
+      expect(listed).toEqual([]);
+      prLocal(client, 'server', '');
+      expect(numbers(await page({ refresh: pass * 2 + 2 })).slice(0, 2)).toEqual([144, 143]);
+    }
+  });
   test('with the list failed, the provider menu still has All and each host the projects expect', async () => {
     const lane = backgroundTransport();
     const { client, page } = focusedClient();

@@ -43,7 +43,7 @@ shape GuideView
   title: string
   summaryId: string
   attention: string
-  attentionNote: string
+  attentionId: string
   stops: GuideRailStop[]
   questions: GuideQuestion[]
   notes: GuideNote[]
@@ -150,7 +150,8 @@ component GuideTour
                         ShellIcon(name="eye", size=16, color=pgtInk())
                       column flex=1 min-width=0 gap="0.25rem"
                         text guide.attention font-size="0.875rem" line-height="1.25rem" font-weight=500 color=pgtInk()
-                        text guide.attentionNote font-size="0.875rem" line-height="1.25rem" color=pgtMuted()
+                        for document in documents.filter((doc) => doc.id == guide.attentionId) key=document.id
+                          ChatMarkdown(document=document, local=local, code=code, env=env)
                   children
                   if not sideNotes and guide.notes.length > 0
                     GuideTourNotes(notes=guide.notes, documents=documents, code=code, env=env, local=local)
