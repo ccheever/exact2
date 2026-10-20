@@ -54,7 +54,13 @@ function scaleCheck(plan, expect, host, app) {
   const args = [join(ROOT, 'scripts/scale-check.mjs'), plan, expect, '--host', host, '--out', join(WORK, `shots-${host}`)];
   if (host === 'android') args.push('--app', app);
   const r = run(process.execPath, args);
-  const rows = r.out.split('\n').filter(l => /^(ok|FAIL) /.test(l));
+  // A failed drive's row carries the first line after it that says why.
+  const out = r.out.split('\n');
+  const rows = out.flatMap((l, i) => {
+    if (!/^(ok|FAIL) /.test(l)) return [];
+    const why = /the drive failed$/.test(l) && out.slice(i + 1, i + 20).find(w => /error|unavailable|panicked|not found|timed out/i.test(w));
+    return [why ? `${l}: ${why.trim().slice(0, 240)}` : l];
+  });
   return { ok: r.ok && rows.length > 0 && rows.every(l => l.startsWith('ok')), rows: rows.length ? rows : [r.out.trim().split('\n').slice(-3).join(' / ')] };
 }
 
@@ -183,6 +189,11 @@ function paddings(reply) {
  * which the dev loop may reload for). Each edit is answered before the layout
  * after it is read, or the run is said to have raced. */
 async function live() {
+  // The dev loop's design reader built first: a stale one sends a value edit
+  // through a build, and the loop is stopped before its own rebuild of it
+  // lands, so every run would.
+  const reader = run('cargo', ['build', '-q', '--profile', 'host-dev', '-p', 'exact-web-js']);
+  if (!reader.ok) return fail('the dev loop\'s design reader (exact-web-js, host-dev) did not build', reader.out.split('\n').slice(-5).join(' / '));
   const dir = join(WORK, `live-${process.pid}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
@@ -498,9 +509,13 @@ export function lines(opts) {
     }],
     ['no-regressions', 'Release output unchanged for apps using none of this; conform clean', () => {
       const conform = run(process.execPath, [join(ROOT, 'host/web-js/conform.mjs'), '--synthetic', '--strict', '--linux', '--build', '--jobs', '1', '--wasm-root', join(WORK, 'wasm'), '--out', join(WORK, 'conform')]);
-      const summary = conform.out.split('\n').find(l => /failures across/.test(l)) ?? conform.out.trim().split('\n').slice(-1)[0];
+      // Its summary and each target that failed; with no summary (it stopped
+      // short), its last lines.
+      const said = conform.out.split('\n');
+      const summary = said.find(l => /failures across/.test(l)) ?? `no summary: ${conform.out.trim().split('\n').slice(-3).join(' / ').slice(0, 400)}`;
+      const failed = said.filter(l => /^[\w-]+: [1-9]\d* failures?$/.test(l));
       const names = cargoTest(['-p', 'contract', '--test', 'it', 'tamber_base_scale'], 'an app\'s own space.* names (tamber_base_scale)');
-      const evidence = [`conform --synthetic --strict --linux: ${summary}`, names.said];
+      const evidence = [`conform --synthetic --strict --linux: ${summary}`, ...failed.map(l => `  ${l}`), names.said];
       if (!conform.ok || !names.ok) return fail(...evidence);
       // The release builds' byte identity is run on main for E, against the
       // commit before stage 11 (B2's 14/14 was against B1's).
