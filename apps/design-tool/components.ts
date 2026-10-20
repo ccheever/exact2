@@ -38,6 +38,24 @@ export const levelWords = (level: string, name: string, self = '') => {
   return name ? `${words} ${name}` : words;
 };
 
+/** Each package param's winning level (stage 12 B2-levels' `resolve` tuples), read after the design shows, a few at a
+ * time: one that fails or does not fit the design's read (`fits`) has no row, so no words; a reply with no level says
+ * so. The walk takes every `when` branch, so with an axis the dark scheme's only, a level is the dark side's (`at`). */
+export async function levelsOf(names: string[], ask: (name: string) => Promise<{ error: string; reply: any }>, still: () => boolean, fits: (ok: any) => boolean, at: string) {
+  const rows: { name: string; level: string; words: string; varies: boolean; at: string }[] = [];
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
+    while (next < names.length && still()) {
+      const name = names[next++], r = await ask(name), t = (r.reply?.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[];
+      if (r.error || !fits(r.reply.ok)) continue;
+      rows.push(t.length && typeof t[0].level === 'string'
+        ? { name, level: t[0].level, words: levelWords(t[0].level, String(t[0].name ?? ''), name), varies: t.some(x => x.level !== t[0].level || x.name !== t[0].name), at }
+        : { name, level: '', words: 'not known (this server says no level)', varies: false, at: '' });
+    }
+  }));
+  return rows;
+}
+
 /** One param's row: its control, by the dials panel's rules, on the value
  * the app has (its line, else the default); a number control starts at the
  * folded value when the written one is a token. `control=token` (the
@@ -99,12 +117,8 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
     packageToken: '',
     appSet: false,
     whens: p.set?.whens ?? 0,
-    // Its winning level for the first tuple, in words and raw; whether the app's line is a literal with no `when`
-    // branch (the one case its own value wins on both scheme sides); and whether the tuples differ (`resolve`'s).
-    level: '',
-    levelWords: '',
+    // Whether the app's line is a literal with no `when` branch: the one case its own value wins on both scheme sides.
     levelSelf: false,
-    levelVaries: false,
   };
 }
 
@@ -120,7 +134,7 @@ const iconText = (v: unknown) => {
  * component (its identity's file none of the app's own, `own`, describe's
  * `files`) says so: "Set for this app" writes the app's line, the package's
  * own files read only (LLP 1139 D5). */
-export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set(), levels: ReadonlyMap<string, { level: string; name: string; varies: boolean; at: string; self: boolean }> = new Map()): Design['components'] {
+export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set()): Design['components'] {
   return (list ?? []).filter(c => c.params?.length).map(c => {
     const groups = new Map<string, Row[]>();
     // (A listing with none of the app's Contract sources, an older server's, says nothing of packages.)
@@ -129,11 +143,10 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       const found = paramRow(p, tokens);
       if (!found) continue;
       const token = typeof p.default === 'string' ? tokenOf(p.default) ?? '' : '';
-      const reached = p.reaches?.token ?? '', won = levels.get(p.name);
+      const reached = p.reaches?.token ?? '';
       const row = { ...found, package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '', tokenBase: !!token && bases.has(token),
         packageToken: fromPackage && reached && packageOf.has(reached) ? reached : '', appSet: !!p.reaches?.app_set,
-        level: won?.level ?? '', levelWords: !won ? '' : won.level ? levelWords(won.level, won.name, p.name) : 'not known (this server says no level)',
-        levelSelf: !!p.set && !p.set.whens && /^(#[0-9a-f]{3,8}|-?[\d.]+[a-z%]*)$/i.test(p.set.value.trim()), levelVaries: !!won?.varies };
+        levelSelf: !!p.set && !p.set.whens && /^(#[0-9a-f]{3,8}|-?[\d.]+[a-z%]*)$/i.test(p.set.value.trim()) };
       const g = p.group ?? '';
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push(row);

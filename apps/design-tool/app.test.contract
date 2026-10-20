@@ -2145,14 +2145,15 @@ test "a package component's param's winning level in words, Back to the package 
   request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
   clock +1
   clock settle
-  // The level that wins in the first tuple, in words (the raw level its tooltip), no column named (the walk has no
-  // scheme side); other modes differing (fill's compact branch names the token), said.
-  expect text "param-Pill.fill-level" == "wins: set for this app (other modes differ)"
-  expect text "param-Pill.mark-level" == "wins: set for this app"
-  expect text "param-Pill.edge-level" == "wins: the app's token accent.soft"
-  expect text "param-Pill.tone-level" == "wins: the package's token accent.fill"
+  // The level that wins in the first tuple, read after the design, in words (the raw level its tooltip), on the dark
+  // side (dark-style is dark's only, and the walk takes every when branch); other modes differing (fill's compact
+  // branch names the token), said.
+  expect text "param-Pill.fill-level" == "wins in Dark: set for this app (other modes differ)"
+  expect text "param-Pill.mark-level" == "wins in Dark: set for this app"
+  expect text "param-Pill.edge-level" == "wins in Dark: the app's token accent.soft"
+  expect text "param-Pill.tone-level" == "wins in Dark: the package's token accent.fill"
   // Won through another param's app line: that param named. A reply that says no level: said so.
-  expect text "param-Pill.inset-level" == "wins: set for this app, on Pill.gap"
+  expect text "param-Pill.inset-level" == "wins in Dark: set for this app, on Pill.gap"
   expect text "param-Pill.ring-level" == "wins: not known (this server says no level)"
   // Each reset says what it removes before it writes: the app's line, and its when branches where it has them.
   expect text "param-Pill.fill-whens" == "Back to the default removes the app's line and its 2 when branches with it."
