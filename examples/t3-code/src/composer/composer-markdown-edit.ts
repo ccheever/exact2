@@ -129,11 +129,8 @@ export function composerMarkdownKey(source: string, selection: ComposerRange, ke
   }
   const current = parsed.blocks.find(block => block.start === line.start);
   if (current?.kind === 'list') {
-    if (key.name === 'Tab' && collapsed) {
-      if (!key.shift) return edit(line.start, line.start, CODE_BLOCK_INDENT, { start: selection.start + 2, end: selection.end + 2 });
-      const text = outdentLine(current.indent), removed = current.indent.length - text.length;
-      return removed ? edit(line.start, line.start + removed, '', { start: Math.max(line.start, selection.start - removed), end: Math.max(line.start, selection.end - removed) }) : HANDLED;
-    }
+    // listIndentForTab runs for Tab alone: ⇧Tab never outdents a list; it toggles plan mode (app.contract) or moves the focus back.
+    if (key.name === 'Tab' && !key.shift && collapsed) return edit(line.start, line.start, CODE_BLOCK_INDENT, { start: selection.start + 2, end: selection.end + 2 });
     if (key.name === 'Enter' && key.shift && selection.start >= current.contentStart) {
       if (!source.slice(current.contentStart, current.end).trim()) return edit(current.start, Math.max(selection.end, current.contentStart), '');
       const marker = current.list === 'task' ? '- [ ]' : current.list === 'ordered' ? nextOrderedMarkerText(current.marker) : current.marker;
