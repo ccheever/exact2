@@ -89,10 +89,11 @@ test('the before differs from the baseline\'s tag only in its lock', () => {
 
 test('a shot with bars above its viewport: the offset that lines up every marker', () => {
   // A 10x14 shot of a 10x10 viewport, 3 rows of bars on top: two markers
-  // whose pixels differ between the shots, 3 rows below their layout rects.
+  // a row tall whose pixels differ between the shots, 3 rows below their
+  // layout rects (only that offset lines up both).
   const img = (on) => { const data = new Uint8Array(10 * 14 * 4).fill(255); for (const [x, y] of on) data.set([0, 0, 0, 255], (y * 10 + x) * 4); return { width: 10, height: 14, data }; };
   const A = img([]), B = img([[1, 4], [6, 9]]);
-  const layout = { viewport: { w: 10, h: 10 }, nodes: [{ testId: 'marker-a', x: 0, y: 1, w: 2, h: 2 }, { testId: 'marker-b', x: 5, y: 6, w: 2, h: 2 }] };
+  const layout = { viewport: { w: 10, h: 10 }, nodes: [{ testId: 'marker-a', x: 0, y: 1, w: 2, h: 1 }, { testId: 'marker-b', x: 5, y: 6, w: 2, h: 1 }] };
   expect(barTop(A, B, layout, ['a', 'b'])).toBe(3);
   expect(barTop(A, B, { ...layout, viewport: { w: 10, h: 14 } }, ['a', 'b'])).toBe(0);
 });
