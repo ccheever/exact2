@@ -27,6 +27,7 @@ import { providerSetupEvent } from '../providers/provider-setup';
 import { fleetSetupHost } from '../providers/codex-fleet-host'; // a background computer's Codex setup streams
 import { fleetPortsEvent, fleetPortsPass } from '../sidebar/legacy-sidebar-ports'; // a background environment's discovered ports
 import { sessionHasLegacyPermissions, sessionPermissions } from './remote-scopes';
+import { accessFleetPass } from './auth-access';
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
@@ -179,6 +180,12 @@ export class EnvironmentFleet {
     if (!reply.ok) throw new Error(reply.error!.message);
     if (reply.generation !== entry.generation) throw new Error('The connection changed.');
     return obj(reply.value);
+  }
+
+  /** Connections opening or closing changes the access stream before any background news arrives. */
+  async watchPrimaryAccess(native: Native): Promise<void> {
+    const entry = [...this.entries.values()].find(candidate => candidate.primary && candidate.environmentId === primary.target?.environmentId);
+    if (entry?.phase === 'connected') await accessFleetPass(request => this.call(EnvironmentFleet.native(native, entry.key), entry, request), entry);
   }
 
   private async bootstrap(remote: Native, entry: FleetEntry): Promise<void> {
