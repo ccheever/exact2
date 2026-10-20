@@ -482,3 +482,23 @@ fn a_package_holding_its_own_test_app_names_its_files_by_its_name() {
     assert_eq!(ids, ["@x/pkg/index.contract#Card"]);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// An app's file linked into its tree from elsewhere (conform's corpus
+/// fixtures: `conformance/tabs.contract` a link to the corpus's) is the
+/// app's own, named where the link sits: no package, so no refusal.
+#[cfg(unix)]
+#[test]
+fn a_file_linked_into_the_app_is_the_apps_own_named_where_it_sits() {
+    let root = std::env::temp_dir().join(format!("exact2-tools-linked-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("corpus")).unwrap();
+    std::fs::create_dir_all(root.join("app")).unwrap();
+    std::fs::write(root.join("corpus/fixture.contract"), "component Card\n  params\n    radius: length = \"4px\"\n  view\n    column border-radius=\"param.radius\"\n      text \"c\"\n\ncomponent App\n  view\n    column\n      Card()\n").unwrap();
+    let path = root.join("app/tabs.contract");
+    std::os::unix::fs::symlink("../corpus/fixture.contract", &path).unwrap();
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let params = contract::tamber_params::params_of(&path);
+    let ids: Vec<&str> = params.tokens.iter().map(|p| p.identity.as_str()).collect();
+    assert_eq!(ids, ["tabs.contract#Card"]);
+    let _ = std::fs::remove_dir_all(&root);
+}

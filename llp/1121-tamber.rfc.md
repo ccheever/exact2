@@ -1268,7 +1268,8 @@ component PostButton
   app or package root, and its name: `post.contract#PostButton`, or
   `@scope/reading/article.contract#Article` for a package's. A package outside the app needs a
   name in its `package.json` (`contract-package-unnamed`, the path fix): its place from the app
-  would spell this machine's directories. A param's full name is that
+  would spell this machine's directories. A file linked into the app's tree from elsewhere (a symlink, as
+  conform's corpus fixtures are) is the app's own, named where the link sits (the path fix's follow-up). A param's full name is that
   identity and the param (`post.contract#PostButton.radius`). The short form
   `PostButton.radius` is accepted wherever it is unambiguous and refused where two
   components share the name (`tamber-param-ambiguous`); an import alias (`use X as Y`)

@@ -284,8 +284,9 @@ impl Loader<'_> {
 /// file in a package (the nearest directory above it, below the app's own
 /// and no higher than a linked package's root, whose `package.json` has a
 /// name: under `node_modules`, linked from elsewhere, or vendored) under
-/// the package's name, else the file relative to the app's directory.
-/// None for a file outside the app in no named package: its place from
+/// the package's name, else the file relative to the app's directory (one
+/// linked into the app's tree, where the link sits). None for a file
+/// outside the app in no named package: its place from
 /// the app would spell this machine's directories, so it is refused
 /// ([`UNNAMED`]).
 fn home(path: &Path, origin: &Origin, app_root: &Path) -> Option<String> {
@@ -330,6 +331,22 @@ fn home(path: &Path, origin: &Origin, app_root: &Path) -> Option<String> {
         Origin::Builtin => Some(path.to_string_lossy().into_owned()),
         _ => None,
     }
+}
+
+/// [`home`] for a file of the app's linked into its tree from elsewhere
+/// (conform's corpus fixtures: `conformance/tabs.contract`, a link to the
+/// corpus's), by `given`, the path it was named by: the app's own, named
+/// where the link sits. None for a package's file, or a link outside.
+fn linked_home(given: &Path, origin: &Origin, app_root: &Path) -> Option<String> {
+    if matches!(origin, Origin::Package { .. }) {
+        return None;
+    }
+    let app = app_root.canonicalize().ok()?;
+    let dir = given.parent()?.canonicalize().ok()?;
+    let at = dir.join(given.file_name()?);
+    at.strip_prefix(&app)
+        .ok()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
 }
 
 /// The refusal of a component file outside the app in no named package.
@@ -716,7 +733,9 @@ impl Loader<'_> {
         // Each component's identity, its file relative to its root and its
         // name (LLP 1121 D15): what its params are named by.
         let origin = &self.sources.origins[source_id as usize];
-        let Some(home) = home(path, origin, self.app_root) else {
+        let given = &self.sources.paths[source_id as usize];
+        let found = home(path, origin, self.app_root);
+        let Some(home) = found.or_else(|| linked_home(given, origin, self.app_root)) else {
             // `link` refuses it at the `use` first; this is the backstop.
             let span = Span {
                 source_id,
