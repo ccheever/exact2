@@ -5337,7 +5337,7 @@
       "#282828b3"
     ]
   ],
-  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, which on the Mac is the nearest authored `accent-color` and else `controlAccentColor`; `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (the separator, the system red and blue and the tint were measured on an iOS 27 simulator, 2026-10-11); then the neutral light and dark pair, no platform's palette: what the web resolves the role to under the neutral look (LLP 1115.000 D4) and what a host that paints its own controls shows (D17), once that host says so (`roles::set_column`). The last row, `symbol`, is what a symbol nobody tinted draws in, the initial `-exact-tint-color` (LLP 1115.000 D3.9): the tint on iOS, the secondary label colour on the Mac. In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
+  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, which on the Mac is the nearest authored `accent-color` and else `controlAccentColor`; `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (measured from UIKit on an iOS 27.0 simulator, in sRGB); the web draws it too, or in Safari WebKit's alias but for the backgrounds (host/web/look.mjs, LLP 1115.000 D4). Then the neutral light and dark pair, no platform's palette: what a host that paints its own controls shows (D17), and what the web's kernel resolves a role to that its page does not report, once a host says so (`roles::set_column`). The last row, `symbol`, is what a symbol nobody tinted draws in, the initial `-exact-tint-color` (LLP 1115.000 D3.9): the tint on iOS, the secondary label colour on the Mac. In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
   "colors": [
     [
       "Canvas",
@@ -5524,8 +5524,8 @@
       "-apple-system-opaque-separator",
       "opaqueSeparatorColor",
       "gridColor",
-      "#c6c6c8",
-      "#38383a",
+      "#e7e7e8",
+      "#2a2a2c",
       "#e0e0e0",
       "#383838"
     ],
@@ -5654,8 +5654,8 @@
       "-apple-system-orange",
       "systemOrangeColor",
       "systemOrangeColor",
-      "#ff9500",
-      "#ff9f0a",
+      "#ff8d28",
+      "#ff9230",
       "#a94e00",
       "#eb874a"
     ],
@@ -5665,7 +5665,7 @@
       "systemYellowColor",
       "systemYellowColor",
       "#ffcc00",
-      "#ffd60a",
+      "#ffd600",
       "#886602",
       "#c79e42"
     ],
@@ -5684,8 +5684,8 @@
       "",
       "systemMintColor",
       "systemMintColor",
-      "#00c7be",
-      "#63e6e2",
+      "#00c8b3",
+      "#00dac3",
       "#007e68",
       "#54b9a1"
     ],
@@ -5694,8 +5694,8 @@
       "-apple-system-teal",
       "systemTealColor",
       "systemTealColor",
-      "#30b0c7",
-      "#40c8e0",
+      "#00c3d0",
+      "#00d2e0",
       "#017b7f",
       "#52b7ba"
     ],
@@ -5704,8 +5704,8 @@
       "",
       "systemCyanColor",
       "systemCyanColor",
-      "#32ade6",
-      "#64d2ff",
+      "#00c0e8",
+      "#3cd3fe",
       "#007894",
       "#50b3d2"
     ],
@@ -5724,8 +5724,8 @@
       "-apple-system-indigo",
       "systemIndigoColor",
       "systemIndigoColor",
-      "#5856d6",
-      "#5e5ce6",
+      "#6155f5",
+      "#6d7cff",
       "#5555dc",
       "#8e9aff"
     ],
@@ -5734,8 +5734,8 @@
       "-apple-system-purple",
       "systemPurpleColor",
       "systemPurpleColor",
-      "#af52de",
-      "#bf5af2",
+      "#cb30e0",
+      "#db34f2",
       "#8840c6",
       "#be85f9"
     ],
@@ -5754,8 +5754,8 @@
       "-apple-system-brown",
       "systemBrownColor",
       "systemBrownColor",
-      "#a2845e",
-      "#ac8e68",
+      "#ac7f5e",
+      "#b78a66",
       "#896340",
       "#c09d7f"
     ],

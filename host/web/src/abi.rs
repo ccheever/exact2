@@ -1127,6 +1127,12 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().build_locations($plan))
         }
 
+        /// The page's report of the colours it draws Exact's colour roles in (colors.rs).
+        #[no_mangle]
+        pub extern "C" fn exact_report_colors(len: u32) {
+            EXACT_BRIDGE.with(|b| $crate::colors::report(&b.borrow().launch_input(0, len as usize)))
+        }
+
         /// Boot; returns the first batch's length.
         #[no_mangle]
         pub extern "C" fn exact_boot(width: f64, height: f64, launch_len: u32, preferences: u32) -> u32 {

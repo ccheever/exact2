@@ -789,11 +789,11 @@ export function c2(e, name, values, types, names) {
     if (!Canvas2d) {
       inflight.n++;
       Canvas2d = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import("./canvas2d.js"))
-        .then(m => m.engine({ data, clock, inflight, journal, advance, views: Views, viewId, wall: () => performance.now() - start }))
+        .then(m => m.engine({ data, clock, inflight, journal, advance, After, views: Views, viewId, wall: () => performance.now() - start }))
         .catch(err => say(`canvas2d: ${err.message}`)).finally(() => inflight.n--);
     }
-    // After the commit applied, as the runner publishes surface inputs.
-    queueMicrotask(() => Canvas2d.then(m => m?.args(c)));
+    // After the commit applied, as the runner publishes surface inputs, and before the canvas module's restyle (`After`).
+    Canvas2d.then(m => m?.args(c));
   });
 }
 /** When native code may load (LLP 1024 D7): after the browser's first paint entry, or two frames and 250 ms where it records none (glue.js `afterNativePaint`). */

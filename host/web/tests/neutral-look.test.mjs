@@ -3,15 +3,17 @@
 // keeps the same geometry, colours and author precedence in all three engines.
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { withLook } from '../look.mjs';
+import { withLook, appleColors } from '../look.mjs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
-const sheet = () => withLook(shell).match(/<style>([\s\S]*?)<\/style>/)[1];
+// The neutral look alone, its roles the neutral column's: the Apple colours a build lays over it, in every
+// browser, are apple-colors.test.mjs's
+const sheet = () => withLook(shell).match(/<style>([\s\S]*?)<\/style>/)[1].replace(appleColors(), '');
 
-test('a build composes the neutral sheet after the browser resets', () => {
-  expect(withLook(shell)).toBe(shell.replace('</style>', () => neutral + '</style>'));
+test('a build composes the neutral sheet, then Apple\'s colours, after the browser resets', () => {
+  expect(withLook(shell)).toBe(shell.replace('</style>', () => neutral + appleColors() + '</style>'));
 });
 
 test('route header geometry is the schema\'s neutral default', () => {
@@ -113,7 +115,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // The ratios: how each is spelled where the sheet writes it (the shell's sheet for a select's own line).
   const percent = (name) => `${Math.round(value.get(name) * 100)}%`, alpha = (name) => String(value.get(name)).replace(/^0\./, '.');
   const RATIO = {
-    'control-line-alpha': `--exact-line: color-mix(in srgb, var(--exact-label) ${percent('control-line-alpha')}, transparent)`,
+    'control-line-alpha': `--exact-line: color-mix(in srgb, rgb(from var(--exact-label) r g b / 1) ${percent('control-line-alpha')}, transparent)`,
     'mark-dot': `radial-gradient(circle closest-side, currentColor ${percent('mark-dot')},`,
     'mark-disabled-alpha': `:disabled { opacity: ${alpha('mark-disabled-alpha')}; }`,
     'button-tint-alpha': `{ background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); }`,

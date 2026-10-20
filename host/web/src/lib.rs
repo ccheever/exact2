@@ -41,6 +41,7 @@ pub mod abi;
 pub mod batch;
 #[cfg(test)]
 mod batch_tests;
+pub mod colors;
 pub mod css;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod dev;
