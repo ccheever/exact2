@@ -51,7 +51,7 @@ export const SCREENS = [
  * (theme2 12:06): the composer's text field caret, which blinks on the
  * platform's own clock, the field's leading 4 px over its first line. */
 export const ALLOW = {
-  composer: { target: 'compose-text', reason: 'the app\'s own text field\'s caret, blinking on the platform\'s clock (theme2 12:06)', rect: ({ x, y, h }, scale) => [x, y, 4, Math.min(h, 40)].map(v => Math.round(v * scale)) },
+  composer: { target: 'compose-text', reason: 'the app\'s own text field\'s caret, blinking on the platform\'s clock (theme2 12:06)', rect: ({ x, y, h }) => [x, y, 4, Math.min(h, 40)].map(Math.round) },
 };
 
 /** The allowlist rectangles a drive's output gives for `screen`. */
@@ -61,7 +61,8 @@ export function allowOf(screen, out) {
   const line = out.split('\n').findLast(l => l.startsWith('{') && l.includes(`"testId":"${a.target}"`));
   if (!line) return null;
   const node = JSON.parse(line).node;
-  return [{ rect: a.rect(node.space.viewport, node.space.capture?.scale ?? 1), reason: a.reason }];
+  // In points: the copy's agent shoots every host at one pixel a point.
+  return [{ rect: a.rect(node.space.viewport), reason: a.reason }];
 }
 
 /** What the fixture says in the app's log for a request it refuses: a shot
