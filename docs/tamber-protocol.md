@@ -119,7 +119,8 @@ on macOS and Linux.
   values for a length over unset base names (stage 12 D1); a shadow token's lengths as expressions over
   length tokens and base names, those over unset base names kept as written: in `resolve`'s shadows such a length is null among `lengths`, and
   `length_texts` (only then) gives every length's text, with the base names they read in `bases`
-  (stage 12 B3); a param's levels (stage 12 B2-levels):
+  (stage 12 B3); a shadow token's per-column values over unset base names (`columns`, D1's form but
+  for the terminal's; each shadow's `columns` with its `value` and `lengths`); a param's levels (stage 12 B2-levels):
   `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name` per
   side (`{light, dark}`: a correction within the window, which first gave one of each), and
   `describe`'s param rows' `reaches`; `describe`'s library components' `parts`, `variants` and
@@ -610,6 +611,14 @@ tuple:
   layout rounds a space to whole cells on the axis it spaces); a column it doesn't fold in is left
   out. An app-set base name folds into its own value, so one whose fold reaches no unset base name
   is one value and has none (`space.md = space.sm` still reaches `space.sm`, and has them).
+  A shadow token (*1.15*) with a length over unset base names gets the same `columns` in the
+  same places, minus the terminal's (the terminal draws no shadow: a stated exception to "left
+  out only where it doesn't fold"), each `value` the whole shadow's text as that column's host
+  reads it (the kernel's `fold_lengths`, `"0px 16px 16px #000000ff"`, a colour kept whole), and
+  each of `resolve`'s shadows that has `length_texts` adds `columns: {ios, mac, neutral,
+  material: {value, lengths}}`, that shadow's own text there and every one of its lengths as a
+  number in px, in `lengths`' order, never null; a shadow over no unset base name (px only, or over
+  a base the app sets) has no `columns` key, and no zero in them is negative.
 - **A token whose values name base names** (*1.14*), an overridden base name's own line included,
   adds `bases`: each base name any of its lines reaches, `when` lines no tuple selects included (an
   unset one named bare, a set one as the token it names), and those any line of each token it

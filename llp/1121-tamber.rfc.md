@@ -5698,3 +5698,23 @@ codec and the wire don't move: the theme row's value is the shadow's text, its l
 - **Tests:** web-js `a_shadow_over_base_names_writes_their_properties` (the platform colour, box and text, as the
   row's CSS); kernel `is_length_item`; `an_unkinded_shadow_of_functions_asks_for_its_kind` (functions over base
   names, and over numbers).
+
+**Follow-up: per-column shadow values** (`tamber/1.15`; QUEUE's B3 entry beside D1's, the lead's 20:40Z task;
+theme2's 20:50 ruling on `~/x2theme/x2p4-s12-shadowcols-plan.md`). A shadow token's value with a length over unset
+base names gets D1's `columns` in D1's places: `explain`'s value, each `when` line (as the first tuple choosing it
+folds it) and each of `resolve`'s tuples, `{ios, mac, neutral, material: {value}}`, each `value` the whole shadow's
+text as that column's host reads it, by the kernel's own `scale::fold_lengths` over the scale table's column (never
+a copy; a colour, a platform colour named `space.md` included, kept whole). Each of `resolve`'s shadows with
+`length_texts` gains `columns: {col: {value, lengths}}` (Q2): its own text there and every length's px as a number,
+in `lengths`' order, never null. No terminal column for a shadow (Q1): the terminal draws none, the doc's one stated
+exception to D1's "left out only where it doesn't fold". A px-only shadow, or one over a base the app sets (folded
+to px), has no `columns` key. rt1's D1 carry-overs hold: a zero is never negative (`calc(space.md * -0)` compiles to
+a px length of -0, which the per-shadow numbers write 0; the kernel's `calc()` folds no zero to -0), a default's
+columns come from the first tuple choosing it, read per column, and the key is absent, not empty. The code is
+`shadow_columns_of` and `one_shadow_columns` beside `columns_of` in contract/cli/src/tamber_base.rs; D1's length path
+is unchanged.
+- Tests (`contract/cli/tests/it/tamber_serve_shadow_columns.rs`, every expected px from the kernel's evaluator): a box
+  shadow over `space.md` and `calc(space.sm * 2)` (explain, its px-only `when`, resolve's token and per-shadow
+  columns); a `when` line's list with a px-only shadow among two over bases; a default the first tuple doesn't
+  choose; a text shadow; a platform colour named `space.md`; px-only and app-set shadows with no key; a length
+  keeping `terminal` while a shadow has none; no -0.

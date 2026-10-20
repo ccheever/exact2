@@ -179,6 +179,7 @@ mod tamber_serve_contract;
 mod tamber_serve_explain;
 mod tamber_serve_packages;
 mod tamber_serve_rows;
+mod tamber_serve_shadow_columns;
 mod tamber_serve_slots;
 mod tamber_set_param;
 mod tamber_shadows;
