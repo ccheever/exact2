@@ -40,10 +40,11 @@ export function bundleBinary() {
 }
 
 /**
- * The ops that pair environments in a fresh store: the welcome wizard's Connect step opens with
- * its pairing link field (the first pairing); "Add a computer" opens it again for the next.
+ * The ops that pair environments in a fresh store. "Add a computer" opens the pairing link field:
+ * the welcome wizard's Connect step starts with it open only when no local server runs (`local`
+ * false, the reference's expandPairingInitially), and a pairing closes it again for the next.
  */
-export const pairOps = (url, index) => [...(index > 0 ? ["tap welcome-add-computer"] : []), `type welcome-pairing-link ${url}`, "tap welcome-pair", "clock +4000 real", "clock data"];
+export const pairOps = (url, index, local = false) => [...(index > 0 || local ? ["tap welcome-add-computer"] : []), `type welcome-pairing-link ${url}`, "tap welcome-pair", "clock +4000 real", "clock data"];
 
 /** Through the wizard's Agents step, then "Do not import projects": the drive starts at the threads view. */
 export const FINISH_WELCOME = ["tap welcome-continue", "clock settle", "tap welcome-agents-continue", "clock settle", "tap welcome-skip-import", "clock data", "clock settle"];
@@ -69,7 +70,7 @@ export function drive(argv) {
   else { delete env.T3_LOCAL_HOME; delete env.T3_LOCAL_PORT; }
   const driverFlags = ["--size", flag(options, "--size") ?? "1280x840", "--storage", flag(options, "--storage") ?? "t3-fixtures", ...(options.includes("--json") ? ["--json"] : [])];
   // The tokens go to the driver's argv only: a drive prints each op's reply, never the op.
-  const pairing = pair.length || local ? [`clock +${local ? welcomeWait(join(paths.local, "t3home")) : 5000} real`, ...pair.flatMap((name, index) => pairOps(pairingUrl(paths, name, "Fixture drive"), index)),
+  const pairing = pair.length || local ? [`clock +${local ? welcomeWait(join(paths.local, "t3home")) : 5000} real`, ...pair.flatMap((name, index) => pairOps(pairingUrl(paths, name, "Fixture drive"), index, local)),
     ...(options.includes("--keep-welcome") ? [] : FINISH_WELCOME)] : [];
   const result = spawnSync(process.execPath, [join(checkout, "scripts/agent.mjs"), "macos", ...driverFlags, ...pairing, ...ops], { env, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", maxBuffer: 64 << 20 });
   process.stdout.write(redact(result.stdout ?? ""));
