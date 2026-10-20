@@ -52,7 +52,7 @@ pub(super) fn timers(em: &mut Em<'_>, body: &mut String) -> Result<(), String> {
 /// and whether the plan uses MIDI, for midi.js (LLP 1125 D6); whether the
 /// module imports it.
 pub(super) fn midi(em: &mut Em<'_>, body: &mut String) -> Result<bool, String> {
-    use exact_runner::midi::{FIELDS, PORT_FIELDS, SOURCE};
+    use exact_runner::midi::{FIELDS, PORT_FIELDS, SENT_FIELDS, SOURCE};
     let plan = em.plan;
     if !exact_runner::uses::keeps_midi(plan) {
         return Ok(false);
@@ -83,7 +83,10 @@ pub(super) fn midi(em: &mut Em<'_>, body: &mut String) -> Result<bool, String> {
                     .fields
                     .iter()
                     .map(|p| plan.str(plan.fields[p.0 as usize].name))
-                    .filter(|p| PORT_FIELDS.contains(p))
+                    .filter(|p| match fname {
+                        "sent" => SENT_FIELDS.contains(p),
+                        _ => PORT_FIELDS.contains(p),
+                    })
                     .map(name)
                     .collect();
                 ports.push(format!("{}:[{}]", name(fname), keys.join(",")));

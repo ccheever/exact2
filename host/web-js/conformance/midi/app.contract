@@ -8,7 +8,7 @@
 // `ended=`, `midimessage` heard by two elements with coalescing, an app's
 // own Start taken back at a stop without silencing the clock's Stop, and an
 // output pulled. The journal's `midi` and `sequence` lines, `state.midi` and
-// `exactMIDI()`'s answer compare on every target. (No slot shares a name
+// `exactMIDI()`'s answer, `sent` included, compare on every target. (No slot shares a name
 // with the metronome's.)
 
 shape Step
@@ -35,10 +35,16 @@ shape Port
   manufacturer: string
   state: string
 
+shape Message
+  output: string
+  data: number[]
+  timeStamp: number
+
 shape MIDI
   state: string
   inputs: Port[]
   outputs: Port[]
+  sent: Message[]
 
 fn note(beat: number, n: number): Step = Step(beat=beat, src="", gain=1, group="", note=n, velocity=100, channel=0, duration=0.5, haptic="")
 
@@ -94,6 +100,7 @@ component MidiConf
     column midimessage=midiHear midiinputs=["keys"] testId="root"
       text `${ports.state} ${ports.outputs.length} ${midiHeard} ${midiHeard2} ${midiLevel} ${midiBeat}` testId="status"
       text `ended at ${midiEndedAt}` testId="ended"
+      text `sent ${ports.sent.length}` testId="sent"
       button "ask" press=midiAsk testId="ask"
       button "send" press=midiSend testId="send"
       button "late" press=midiLate testId="late"

@@ -16,7 +16,7 @@
 import { journal, clock, Sounds, Mutations, Resources, R, data, commit, time } from './rt.js';
 import { plain } from './format.js';
 
-const HOLD = 50, QUEUED = 1024, RECORD = 1024, SHOWN = 64;
+const HOLD = 50, QUEUED = 1024, RECORD = 1024, SHOWN = 64, SENT = 128;
 const say = line => journal.push(`t=${clock.now} ${line}`);
 const num = n => !Number.isFinite(n) ? 'null' : n < 0 ? `-${plain(-n)}` : plain(n); // the runner's `num`
 const hex = d => d.map(b => b.toString(16).padStart(2, '0')).join(' ');
@@ -57,13 +57,17 @@ const noteKey = d => d.length === 3 && ((d[0] & 0xF0) === 0x80 || (d[0] & 0xF0) 
 const waits = (s, t) => s.by == null && s.at - HOLD > t, handed = (s, t) => s.by == null && s.at - HOLD <= t;
 const exempt = s => s.tick != null || noteOff(s.data) || s.data.length === 1 && s.data[0] === 0xFC;
 const offOfHanded = (s, t) => s.onAt != null && s.onAt - HOLD <= t;
+// Gone out by `t`, as `exactMIDI().sent` lists it (midi.rs `Sent::gone`).
+const gone = (s, t) => s.tick == null && s.by == null && s.at <= t;
+// When the next message `sent` lists goes after `t`, while a reader declares it (midi.rs `next_sent`).
+const nextSent = t => ReadsSent ? Queue.filter(s => s.tick == null && s.by == null && s.at > t).reduce((m, s) => Math.min(m, s.at), Infinity) : Infinity;
 const stateOf = (s, t) => s.by != null ? 'retracted' : s.at - HOLD > t ? 'waiting' : 'handed';
 
 let Ports = { access: 'prompt', inputs: [], outputs: [] }, Granted = false, Uses = false;
 let Queue = [], Next = 0, Received = [], Heard = 0, Ops = [], Open = [], OpenClock = [], Clock = null, Ticks = 0, Played = null, ClockFloor = -Infinity;
-let Preferred = { access: 'granted', inputs: [], outputs: [] }, Readers = {}, Glue = null, Output = null, Boot = true;
+let Preferred = { access: 'granted', inputs: [], outputs: [] }, Readers = {}, ReadsSent = false, Glue = null, Output = null, Boot = true;
 const Listening = () => Sounds.midi ?? []; // [element, handler] pairs from rt.js `onMIDI`, registered as the view is built
-const Answer = { name: 'midi', requests: 0, e: () => null, due: Infinity, next: Infinity, then: () => { Answer.due = Infinity; for (const r of Resources) if (r.source === 'exactMIDI') R(r); } };
+const Answer = { name: 'midi', requests: 0, e: () => null, due: Infinity, next: Infinity, then: () => { Answer.due = nextSent(clock.now); for (const r of Resources) if (r.source === 'exactMIDI') R(r); } };
 
 const portsEqual = (a, b) => a.access === b.access && ['inputs', 'outputs'].every(k => a[k].length === b[k].length
   && a[k].every((p, i) => ['id', 'name', 'manufacturer', 'connected'].every(f => p[f] === b[k][i][f])));
@@ -92,6 +96,8 @@ function push(m, t, note = '') {
   const id = ++Next;
   if (m.tick == null) say(`midi ${id} to ${m.output} ${hex(m.data)} at ${num(m.at)}${note}`); else Ticks++;
   Ops.push({ op: 'send', id, output: m.output, data: m.data, at: m.at });
+  // A reader of `sent` is answered again when the message goes.
+  if (ReadsSent && m.tick == null && m.at < Answer.due) { Answer.due = m.at; placeAnswer(); }
   Queue.push({ id, output: m.output, data: m.data, at: m.at, seq: m.seq, by: null, stepAt: m.stepAt, tick: m.tick ?? null, onAt: m.onAt ?? null });
   trim(t);
   return id;
@@ -354,7 +360,7 @@ function apply(commands) {
 }
 /** `readers`: resource name → [its fields, {a port list's field: its port fields}]; `uses`: the plan uses MIDI (`uses::uses_midi`). */
 export function midi(readers, uses) {
-  Readers = readers; Uses = uses;
+  Readers = readers; Uses = uses; ReadsSent = Object.values(readers).some(([fields]) => fields.includes('sent'));
   // The grants are the data module's, which may load after the first frame: then the readers are asked again.
   const granted = () => /^\s*device\.midi\s/m.test(data.grants ?? '');
   Granted = granted();
@@ -364,7 +370,10 @@ export function midi(readers, uses) {
   (data.reserved ??= {}).exactMIDI = (_, a, name) => {
     const [fields, ports] = Readers[name];
     const port = (p, keys) => keys.map(k => k === 'state' ? (p.connected ? 'connected' : 'disconnected') : p[k]);
-    return fields.map(f => f === 'state' ? Ports.access : Ports[f].map(p => port(p, ports[f])));
+    const message = (s, keys) => keys.map(k => k === 'output' ? s.output : k === 'data' ? [...s.data] : s.at);
+    return fields.map(f => f === 'state' ? Ports.access
+      : f === 'sent' ? Queue.filter(s => gone(s, clock.now)).slice(-SENT).map(s => message(s, ports[f]))
+      : Ports[f].map(p => port(p, ports[f])));
   };
   // `state.midi`, as the runner's (runner/src/agent/midi.rs).
   (globalThis.exact ??= {}).midi = {

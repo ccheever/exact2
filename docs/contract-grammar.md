@@ -409,8 +409,11 @@ web); without it `state` is `denied` and a request is refused by name.
 there is none: WebKit, tvOS, Linux and Windows), `inputs` and `outputs`, each
 a list of a port shape of `id` (stable across replug), `name`,
 `manufacturer` and `state` (`connected`, `disconnected`; a port seen stays
-listed) — any other field is refused at the bake (`bake-midi-field`). It
-changes by itself as ports come and go. `requestMIDIAccess()` takes no
+listed), and `sent`, the last 128 messages that went out, oldest first, each
+`output`, `data` and `timeStamp` (runner ms; no clock tick, nothing taken
+back) — any other field is refused at the bake (`bake-midi-field`). It
+changes by itself as ports come and go, and, when it declares `sent`, as each
+message goes. `requestMIDIAccess()` takes no
 arguments (`type-request-midi-access`). `sendMIDI(output, data, at=)` sends
 `data`, the bytes of one or more whole MIDI 1.0 messages (no running status,
 no SysEx; a literal one is checked, `type-send-midi`), to an output by `id`

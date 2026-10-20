@@ -647,3 +647,66 @@ fn a_parked_note_ends_in_the_segment_its_end_falls_in() {
         "{notes:?}"
     );
 }
+
+/// `exactMIDI().sent` (euxy's activity log): what went out by now, oldest
+/// first, as `output`, `data` and `timeStamp`, never a clock tick or a
+/// message taken back. Each message's time answers its reader again, with
+/// no app action; a plan that declares no `sent` is answered no more often.
+#[test]
+fn sent_lists_what_went_out_and_is_answered_as_each_goes() {
+    let source = SOURCE
+        .replace(
+            "shape MIDI\n  state: string\n",
+            "shape Message\n  output: string\n  data: number[]\n  timeStamp: number\n\nshape MIDI\n  state: string\n  sent: Message[]\n",
+        )
+        .replace("`${midi.state} ${midi.outputs.length}`", "`${midi.state} ${midi.sent.length}`");
+    let listed = |r: &Runner<Granted>| -> Vec<(Vec<f64>, f64)> {
+        let Some(Value::Record(f)) = r.resource("midi") else {
+            panic!()
+        };
+        let Value::List(items) = &f[1] else {
+            panic!("{:?}", f[1])
+        };
+        items
+            .iter()
+            .map(|m| match m {
+                Value::Record(m) => {
+                    assert_eq!(m[0], Value::str("synth"));
+                    let Value::List(d) = &m[1] else { panic!() };
+                    let d = d.iter().map(|b| match b {
+                        Value::Number(n) => *n,
+                        _ => panic!(),
+                    });
+                    let Value::Number(at) = m[2] else { panic!() };
+                    (d.collect(), at)
+                }
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    };
+    let mut r = granted(&source);
+    r.act("withClock", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    // Start and the first note-on went at 0; the note-off at 250 has not.
+    assert_eq!(
+        listed(&r),
+        [(vec![250.0], 0.0), (vec![144.0, 60.0, 100.0], 0.0)]
+    );
+    let landed = r.advance(260.0).unwrap();
+    assert_eq!(landed.len(), 1, "the note-off's time is one answer");
+    assert_eq!(listed(&r).last(), Some(&(vec![128.0, 60.0, 0.0], 250.0)));
+    // A stop takes back what waits: the next note-on never goes, and Stop
+    // goes after the last clock tick handed.
+    r.act("halt", vec![]).unwrap();
+    r.advance(2000.0).unwrap();
+    let went = listed(&r);
+    assert_eq!(went.len(), 4, "{went:?}");
+    assert!(went[3].0 == [252.0] && went[3].1 > 260.0, "{went:?}");
+    assert!(!went.iter().any(|(_, at)| *at == 500.0), "{went:?}");
+    // Without `sent`, nothing is answered as messages go.
+    let mut r = granted(SOURCE);
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    assert!(r.advance(260.0).unwrap().is_empty());
+}

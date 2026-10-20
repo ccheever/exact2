@@ -1768,7 +1768,8 @@ MIDI is Web MIDI's, and the runner keeps its queue as it keeps the voices (LLP
 (`export const grants` in `app.ts`, `grants()` in Rust) whose second word is a key of
 `strings/en.json`: `"purpose.midi": "…"`, the text the person is shown when asked. Read the ports with `resource midi = exactMIDI() as
 shape MIDI` (`state`: `prompt`, `granted`, `denied`, `unavailable`; `outputs` and
-`inputs`, each `{id, name, manufacturer, state}`), ask for them from a press with
+`inputs`, each `{id, name, manufacturer, state}`; `sent`, the last 128 messages that
+went out, each `{output, data, timeStamp}`, clock ticks left out: an activity log), ask for them from a press with
 `requestMIDIAccess()`, and let the person pick an output (a `select` of
 `midi.outputs` by `id`). Then a step's `note` plays on its track's `output` (a
 note-on, and a note-off `duration` beats later), `clockOut=output` on `play`

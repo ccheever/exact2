@@ -37,9 +37,14 @@ use std::collections::VecDeque;
 /// Reserved resource source, answered by the runner.
 pub const SOURCE: &str = "exactMIDI";
 /// Fields an app may declare, filled by name.
-pub const FIELDS: &[&str] = &["state", "inputs", "outputs"];
+pub const FIELDS: &[&str] = &["state", "inputs", "outputs", "sent"];
 /// A `MIDIPort`'s fields, filled by name.
 pub const PORT_FIELDS: &[&str] = &["id", "name", "manufacturer", "state"];
+/// A sent message's fields, filled by name: `MIDIOutput.send`'s output,
+/// data and timestamp (runner ms).
+pub const SENT_FIELDS: &[&str] = &["output", "data", "timeStamp"];
+/// The messages `exactMIDI().sent` lists: the last that went out.
+pub const SENT: usize = 128;
 /// How long before its time a host hands a message to its output, ms (D7).
 pub const HOLD: f64 = 50.0;
 /// Messages that may wait to be handed.
@@ -358,6 +363,31 @@ impl Sent {
         self.by.is_none() && self.at - HOLD <= t
     }
 
+    /// Gone out by `t`, as `exactMIDI().sent` lists it: due, never taken
+    /// back, and not a clock tick (ticks are counted, not listed).
+    fn gone(&self, t: f64) -> bool {
+        self.tick.is_none() && self.by.is_none() && self.at <= t
+    }
+
+    /// The record of `fields`, by name; `None` for a field it lacks.
+    fn value(&self, fields: &[&str]) -> Option<Value> {
+        let mut out = Vec::with_capacity(fields.len());
+        for f in fields {
+            out.push(match *f {
+                "output" => Value::str(&self.output),
+                "data" => Value::list(
+                    self.data
+                        .iter()
+                        .map(|b| Value::Number(f64::from(*b)))
+                        .collect(),
+                ),
+                "timeStamp" => Value::Number(self.at),
+                _ => return None,
+            });
+        }
+        Some(Value::record(out))
+    }
+
     /// Exempt from [`QUEUED`]: a note-off, Stop, a tick.
     fn exempt(&self) -> bool {
         self.tick.is_some() || note_off(&self.data) || self.data == [0xFC]
@@ -527,6 +557,8 @@ pub struct Midi {
     pub(crate) answer_due: f64,
     /// The resources reading `exactMIDI`.
     pub(crate) readers: Vec<usize>,
+    /// One of them declares `sent`: each message's time answers them again.
+    pub(crate) reads_sent: bool,
     /// The agent's environment (`prefer midi.*`): what a request answers.
     preferred: Ports,
 }
@@ -554,6 +586,7 @@ impl Midi {
             clock_floor: f64::NEG_INFINITY,
             answer_due: f64::INFINITY,
             readers,
+            reads_sent: false,
             preferred: Ports::none(Access::Granted),
         }
     }
@@ -623,19 +656,40 @@ impl Midi {
         }
     }
 
-    /// One `exactMIDI` field, for a reader's shape: a port list's records
-    /// carry `port_fields`.
-    pub fn field(&self, name: &str, port_fields: &[&str]) -> Option<Value> {
+    /// One `exactMIDI` field at `t`, for a reader's shape: a list's records
+    /// carry `item_fields`.
+    pub fn field(&self, name: &str, item_fields: &[&str], t: f64) -> Option<Value> {
         let list = |ports: &[Port]| -> Option<Value> {
-            let items: Option<Vec<Value>> = ports.iter().map(|p| p.value(port_fields)).collect();
+            let items: Option<Vec<Value>> = ports.iter().map(|p| p.value(item_fields)).collect();
             items.map(Value::list)
         };
         match name {
             "state" => Some(Value::str(self.ports.access.word())),
             "inputs" => list(&self.ports.inputs),
             "outputs" => list(&self.ports.outputs),
+            "sent" => {
+                let gone: Vec<&Sent> = self.queue.iter().filter(|s| s.gone(t)).collect();
+                let items: Option<Vec<Value>> = gone[gone.len().saturating_sub(SENT)..]
+                    .iter()
+                    .map(|s| s.value(item_fields))
+                    .collect();
+                items.map(Value::list)
+            }
             _ => None,
         }
+    }
+
+    /// When the next message `sent` lists goes after `t`, while a reader
+    /// declares it.
+    pub(crate) fn next_sent(&self, t: f64) -> f64 {
+        if !self.reads_sent {
+            return f64::INFINITY;
+        }
+        self.queue
+            .iter()
+            .filter(|s| s.tick.is_none() && s.by.is_none() && s.at > t)
+            .map(|s| s.at)
+            .fold(f64::INFINITY, f64::min)
     }
 
     /// What a host reported, merged over what was seen; `false` when
@@ -805,6 +859,10 @@ impl Midi {
             data: m.data.clone(),
             at: m.at,
         });
+        // A reader of `sent` is answered again when the message goes.
+        if self.reads_sent && m.tick.is_none() {
+            self.answer_due = self.answer_due.min(m.at);
+        }
         self.queue.push_back(Sent {
             id,
             output: m.output.to_string(),
