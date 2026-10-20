@@ -7,7 +7,8 @@
      - Colour is the role table's neutral column (kernel/tables/schema.json): greys with no hue, text that reads at
        4.5:1 on every ground. A line that marks a control's edge reads at 3:1 (`--exact-line`); a line that only
        divides is `-exact-separator`. The accent is the browser's own hue at a lightness that reads as text on the
-       page (an author's `accent-color` is drawn as written); ink on the accent is white or black, whichever reads.
+       page (an author's `accent-color` is drawn as written); ink on the accent is white or black, whichever reads; a
+       switch's thumb is white.
      - Shape: 8 px corners on a control, 12 px on a surface that floats or groups, 4 px on a mark.
      - Size: a control is 36 px tall at the body size under a fine pointer and 44 px under a coarse one; a
        checkbox, a radio and a switch are the line's height (20 px), 24 px under a coarse pointer.
@@ -161,13 +162,11 @@
   @media (pointer: coarse) { #exact-root input[data-exact-control][type="file"]::file-selector-button { min-height: 44px; } }
 
   /* The switch, drawn in every browser (one that styles its own would not match the rest): a 36 by 20 track, the
-     control's line off and the accent on, and a thumb in the ink that reads on each, at the inline start until on. */
-  #exact-root input[data-exact-switch] { appearance: none; display: inline-block; vertical-align: top; padding: 0 !important; border-radius: 1em; color: var(--exact-background); }
+     control's line off and the accent on, and a white thumb on either, as Apple's is, at the inline start until on. */
+  #exact-root input[data-exact-switch] { appearance: none; display: inline-block; vertical-align: top; padding: 0 !important; border-radius: 1em; color: #fff; }
   #exact-root input[data-exact-switch]::before { content: ""; display: block; width: 2.25em; height: 1.25em; border-radius: 1em; background: radial-gradient(circle closest-side, currentColor 76%, #0000 82%) 0 0 / 1.25em 1.25em no-repeat var(--exact-line); transition: background-position .15s, background-color .15s; }
   #exact-root input[data-exact-switch]:disabled::before { opacity: 1; }
   #exact-root input[data-exact-switch]:dir(rtl)::before { background-position: 1em 0; }
-  #exact-root input[data-exact-switch]:checked { color: #fff; }
-  @supports (color: lab(from red l a b)) { #exact-root input[data-exact-switch]:checked { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); } }
   #exact-root input[data-exact-switch]:checked::before { background-color: var(--exact-accent, AccentColor); background-position: 1em 0; }
   #exact-root input[data-exact-switch]:checked:dir(rtl)::before { background-position: 0 0; }
   @media (prefers-reduced-motion: reduce) { #exact-root input[data-exact-switch]::before { transition: none; } }
