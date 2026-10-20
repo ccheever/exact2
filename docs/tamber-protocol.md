@@ -255,8 +255,9 @@ statuses:
   its directory's origin, with a deadline and a size bound; an authorization must be for a name
   asked for, checked before its record goes anywhere; the certificate must be for this key and
   name the wildcard itself and no name more; an order has at most one authorization a name and one
-  deadline, and stops where it is when the connector ends (its records taken down still, nothing
-  kept). With `--relay-name <tool> <canvas>` (names of the
+  deadline, and stops where it is when the connector ends (the command or connection putting a
+  record up stopped, its records taken down still, nothing kept; closing waits for that). A
+  certificate that has ended serves no client. With `--relay-name <tool> <canvas>` (names of the
   developer's own domain, one parent), the record is put up by `--relay-dns-hook <command>`, run
   here with `EXACT_ACME_ACTION` (`publish`|`clear`), `EXACT_ACME_RECORD` and `EXACT_ACME_VALUE`,
   its output never logged (and never given the relay's token): their DNS credentials never pass
@@ -267,10 +268,14 @@ statuses:
   from its directory, and the two names pointed at the relay by A/AAAA records, never a CNAME (a CA
   reads a CNAME's target's CAA, which the relay writes). They are checked at start and before each
   renewal, for the wildcard and for each of the two names (the nearest CAA set up the tree, as a CA
-  reads it, every rule pinning this account and `validationmethods=dns-01`, or forbidding issuance;
-  a CNAME on the way up never pinned): until they are, the start-up line says
+  reads it, every rule pinning this account and `validationmethods=dns-01`, each tag once and in
+  lower case as Let's Encrypt reads them, at a CA known to honour those parameters (RFC 8657;
+  `letsencrypt.org`, until every public CA must, 2027-03-15), or forbidding issuance; a CNAME on
+  the way up never pinned; a kept certificate whose account URL isn't kept is not pinned either):
+  each answer is shown at once, and until they pin, the start-up line says
   plainly "not zero-trust", naming the name left open, and `pair-code`'s relay entry carries `caa: false` (*1.15*; `caa: true`
-  once it is), and with `--require-caa` no order runs at all until it is. The check reads the
+  once it is), and with `--require-caa` no order runs at all until it is, and a later check that
+  no longer pins closes the relay door. The check reads the
   system resolver without DNSSEC validation, and CAA binds the CAs that honour it, which every
   public CA must (RFC 8659, the Baseline Requirements). The relay's own domain keeps its residual:
   its operator controls its CAA. `--relay-cert`/`--relay-key` (PEM files) give

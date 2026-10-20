@@ -85,13 +85,17 @@ export const parentOf = name => name.slice(name.indexOf('.') + 1);
  * <why>` (only names under the connector's own account, R3's rule). The
  * relay's certificate verified by WebPKI before the token goes, as a
  * pooled connection's. */
-export function relayTxt({ host, port, account, token }, record, value, { clear = false, connect = connectTLS, ms = 30_000 } = {}) {
+export function relayTxt({ host, port, account, token }, record, value, { clear = false, connect = connectTLS, ms = 30_000, signal = null } = {}) {
   // (a record and a value of ACME's own shape: nothing a server gave can add a line)
   if (!RECORD.test(record) || !/^[A-Za-z0-9_-]{43}$/.test(value)) return Promise.reject(new Error('no ACME TXT record of that shape'));
   return new Promise((ok, fail) => {
     const conn = connect({ host, port, servername: host, minVersion: 'TLSv1.2', rejectUnauthorized: true });
     let buf = '';
     const done = setTimeout(() => { conn.destroy(); fail(new Error('the relay did not answer the TXT record in time')); }, ms);
+    // (stopped with the run: the connection gone, whatever it had sent)
+    const stop = () => { clearTimeout(done); conn.destroy(); fail(new Error('stopped')); };
+    if (signal?.aborted) stop(); else signal?.addEventListener('abort', stop, { once: true });
+    conn.once('close', () => signal?.removeEventListener('abort', stop));
     conn.once('secureConnect', () => {
       if (!conn.authorized) { clearTimeout(done); conn.destroy(); return fail(new Error(`the relay's certificate did not verify: ${conn.authorizationError ?? 'unknown'}`)); }
       conn.write(`EXACT-RELAY/1 ${account}\r\nauthorization: Bearer ${token}\r\n${clear ? 'txt-clear' : 'txt'}: ${record} ${value}\r\n\r\n`);
@@ -119,14 +123,18 @@ export function relayTxt({ host, port, account, token }, record, value, { clear 
  * `EXACT_ACME_ACTION` (`publish`|`clear`), `EXACT_ACME_RECORD` and
  * `EXACT_ACME_VALUE`; its output is never logged (it may name their DNS
  * account), only its exit. */
-export function dnsHook(command, record, value, { clear = false, ms = 300_000 } = {}) {
+export function dnsHook(command, record, value, { clear = false, ms = 300_000, signal = null } = {}) {
   if (!RECORD.test(record) || !/^[A-Za-z0-9_-]{43}$/.test(value)) return Promise.reject(new Error('no ACME TXT record of that shape'));
   return new Promise((ok, fail) => {
     // (never the relay's token in its environment; its own process group, so a timeout stops all it started)
     const { EXACT_RELAY_TOKEN: _token, ...env } = process.env;
     const child = spawn('sh', ['-c', command], { stdio: 'ignore', detached: true, env: { ...env, EXACT_ACME_ACTION: clear ? 'clear' : 'publish', EXACT_ACME_RECORD: record, EXACT_ACME_VALUE: value } });
-    const done = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } fail(new Error(`--relay-dns-hook took more than ${ms / 1000} s`)); }, ms);
-    child.on('exit', code => { clearTimeout(done); code === 0 ? ok() : fail(new Error(`--relay-dns-hook exited ${code} for ${clear ? 'clearing' : 'publishing'} ${record}`)); });
+    const kill = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } };
+    const done = setTimeout(() => { kill(); fail(new Error(`--relay-dns-hook took more than ${ms / 1000} s`)); }, ms);
+    // (stopped with the run: all it started)
+    const stop = () => { clearTimeout(done); kill(); fail(new Error('stopped')); };
+    if (signal?.aborted) stop(); else signal?.addEventListener('abort', stop, { once: true });
+    child.on('exit', code => { clearTimeout(done); signal?.removeEventListener('abort', stop); code === 0 ? ok() : fail(new Error(`--relay-dns-hook exited ${code} for ${clear ? 'clearing' : 'publishing'} ${record}`)); });
     child.on('error', e => { clearTimeout(done); fail(new Error(`--relay-dns-hook: ${e.code ?? e.message}`)); });
   });
 }

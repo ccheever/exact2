@@ -124,6 +124,15 @@ test('round 2: the account hook is told the account and the CA\'s CAA name; a st
   expect(acme.orders[0].status).toBe('pending');
 });
 
+test('round 3: a record whose putting up failed part-way is taken down all the same', async () => {
+  const dns = new Map(), down = [];
+  const acme = fakeAcme({ dns });
+  const got = acmeCertificate({ ...quick, directory: acme.directory, fetch: acme.fetch, names: ['*.acct.relay.test'], accountKey: keyPem(), key: keyPem(),
+    publish: async (r, v) => { dns.set(r, [v]); throw new Error('the command wrote it, then failed'); }, unpublish: async r => { down.push(r); dns.delete(r); } });
+  await expect(got).rejects.toThrow('the command wrote it, then failed');
+  expect(down).toEqual(['_acme-challenge.acct.relay.test']);
+});
+
 test('round 2: a lock is taken over only from a holder that is gone; a live one is waited for; a holder takes away only its own', async () => {
   const { spawn } = await import('node:child_process');
   const { existsSync, mkdirSync, writeFileSync } = await import('node:fs');

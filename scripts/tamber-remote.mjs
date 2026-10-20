@@ -15,7 +15,7 @@ import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { allowHostArgs } from './install-page.mjs';
 import { connectRelay, dnsHook, parentOf, relayArgs, relayTxt } from './tamber-relay.mjs';
-import { caaGoverns, relayCertificate } from './tamber-acme.mjs';
+import { CAA_HONOURING, caaGoverns, relayCertificate } from './tamber-acme.mjs';
 import { serveToolFiles, TOOL_DIST } from './tamber-tool-files.mjs';
 
 const DAY = 86_400_000;
@@ -29,6 +29,8 @@ function hold(cert, key) {
     fingerprint: x.fingerprint256,
     spki: createHash('sha256').update(x.publicKey.export({ type: 'spki', format: 'der' })).digest('base64'),
     covers: n => [n.tool, n.canvas].every(h => !!x.checkHost(h, { partialWildcards: false })),
+    /** When it ends: no client's TLS ends on it after. */
+    until: Date.parse(x.validTo),
   };
 }
 
@@ -347,6 +349,8 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
   // peer is the session's (its pairing limit, `relay:<name>`); the address the
   // relay reports is shown only.
   let relayed = null, connector = null, relayCanvas = () => {}, session = null;
+  // (an issuance under way when the doors close: its records taken down before close resolves)
+  let settled = () => Promise.resolve();
   const waiting = [];
   if (relay) {
     // The certificate the relayed TLS ends on: the developer's own, or one
@@ -402,6 +406,8 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       client: (sni, address, stream, settled) => {
         // The SNI decides the server: the tool's, or the canvas's once it has a gateway; nothing else.
         // (none until there is a certificate to end its TLS on)
+        // (and none on a certificate that has ended: a renewal that keeps failing serves nothing)
+        if (held && Date.now() >= held.until) { if (!expired) warn('tamber: the relay certificate has ended and could not be got again: no client is served until it is'); expired = true; return false; }
         const to = !names || !held ? null : sni === names.tool ? [door, http] : sni === names.canvas && canvasHandler ? [canvasDoor, canvasHttp] : null;
         if (!to) return false;
         const socket = new TLSSocket(stream, { isServer: true, secureContext: held.context });
@@ -424,7 +430,7 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     // Shown once the session is named and its certificate held: the origin,
     // the certificate's fingerprint, and its key's SPKI pin (*1.15*), which
     // stays the same across renewals with the account's one key.
-    let ready = false, caa = null;
+    let ready = false, caa = null, expired = false;
     const announce = () => {
       if (!ready || !held || connector.closed) return;
       const first = !relayed;
@@ -441,7 +447,7 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     const certify = () => {
       const wildcard = `*.${parentOf(names.tool)}`;
       const via = connect ? { connect } : {};
-      const publish = relay.hook ? (r, v) => dnsHook(relay.hook, r, v) : (r, v) => relayTxt(relay, r, v, via);
+      const publish = relay.hook ? (r, v, signal) => dnsHook(relay.hook, r, v, { signal }) : (r, v, signal) => relayTxt(relay, r, v, { ...via, signal });
       const unpublish = relay.hook ? (r, v) => dnsHook(relay.hook, r, v, { clear: true }) : (r, v) => relayTxt(relay, r, v, { clear: true, ...via });
       // With names of their own, the CAA records that keep the relay's operator from getting one by another
       // method (TLS-ALPN-01 or HTTP-01 at the relay's own port): `issue` for each host and `issuewild` for the
@@ -451,22 +457,35 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       const parent = parentOf(names.tool);
       const caaNames = [`*.${parent}`, names.tool, names.canvas];
       const resolvers = Object.fromEntries(['resolveCaa', 'resolveCname'].filter(k => acmeOptions[k]).map(k => [k, acmeOptions[k]]));
+      const honouring = acmeOptions.caaHonouring ? { honouring: acmeOptions.caaHonouring } : {};
+      // (each check's answer shown at once, beside the fingerprint, whether or not a certificate came with it; with
+      // --require-caa, one that no longer pins stops the door)
+      const answer = (pinned, why) => {
+        caa = pinned;
+        if (relayed) relayed = { ...relayed, caa: pinned };
+        if (!pinned && relay.requireCaa) { if (held && !connector.closed) { warn(`tamber: ${why}: the relay door is closed`); connector.close(); } throw new Error(why); }
+      };
       const checkCaa = async (uri, issuer) => {
-        if (!relay.hook || !uri) return;
+        if (!relay.hook) return;
+        if (!uri) {
+          warn(`tamber: not zero-trust: the ACME account's URL is not kept in ${relay.dir}, so the CAA records can't be checked: remove its cert.pem to get one again`);
+          return answer(false, '--require-caa: the ACME account\'s URL is not kept, so its CAA records can\'t be checked');
+        }
         if (caa === null) {
           const rule = `"${issuer ?? '<your CA\'s CAA name>'}; validationmethods=dns-01; accounturi=${uri}"`;
           say(`  for names of your own, set these CAA records on ${parent}, so only this account, by DNS-01, can get a certificate for them: 0 issue ${rule} and 0 issuewild ${rule}; and point ${names.tool} and ${names.canvas} at the relay by A/AAAA records, never a CNAME (a CA reads a CNAME's target's CAA, which the relay writes)`);
         }
-        const c = await caaGoverns(caaNames, uri, resolvers).catch(() => ({ pinned: false, unpinned: null }));
+        const c = await caaGoverns(caaNames, uri, { ...resolvers, ...honouring }).catch(() => ({ pinned: false, unpinned: null }));
         const why = c.unpinned?.cname ? ` (${c.unpinned.at} is a CNAME, to ${c.unpinned.cname.replace(/[^\x21-\x7e]/g, '?').slice(0, 100)})` : '';
         if (!c.pinned) warn(`tamber: not zero-trust: the relay could obtain a certificate for ${c.unpinned?.name ?? parent}${why} until the CAA records above govern it`);
-        caa = c.pinned;
-        if (!c.pinned && relay.requireCaa) throw new Error(`--require-caa: the CAA that governs ${c.unpinned?.name ?? parent}${why} does not pin this account and DNS-01`);
+        if (!c.pinned) answer(false, `--require-caa: the CAA that governs ${c.unpinned?.name ?? parent}${why} does not pin this account and DNS-01 at a CA known to honour that (${(acmeOptions.caaHonouring ?? CAA_HONOURING).join(', ')})`);
+        else answer(true);
       };
       const account = (uri, issuer) => checkCaa(uri, issuer);
       // (a certificate kept from before is checked too: no order runs to check it there)
-      const get = () => relayCertificate(relay.dir, [wildcard], { directory: relay.acme, publish, unpublish, warn, account, ...(acme ?? {}) }, { ...acmeOptions, signal: issuing.signal })
+      const got = () => relayCertificate(relay.dir, [wildcard], { directory: relay.acme, publish, unpublish, warn, account, ...(acme ?? {}) }, { ...acmeOptions, signal: issuing.signal })
         .then(async got => { if (!got.renewed) await checkCaa(got.accountUri, got.issuer); return got; });
+      const get = () => { const p = got(); const quiet = p.catch(() => {}); settled = () => quiet; return p; };
       // A certificate taken only while the connector runs, for these names; a process that renewed it
       // (another app on this account) changes it too: adopted by its fingerprint, not by who renewed it.
       const take = got => {
@@ -513,6 +532,6 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       }, timeoutMs);
       return bind(server, port, host, 'canvas port');
     },
-    close: () => { connector?.close(); return shut(); },
+    close: async () => { connector?.close(); await settled(); return shut(); },
   };
 }

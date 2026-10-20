@@ -11,7 +11,7 @@
 // RFC 8555, as much of it as one order needs.
 
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, X509Certificate } from 'node:crypto';
-import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, linkSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const DAY = 86_400_000;
@@ -155,8 +155,10 @@ export async function acmeCertificate({ directory, names, accountKey, key, publi
       const record = `_acme-challenge.${value.replace(/^\*\./, '')}`;
       const txt = b64u(createHash('sha256').update(`${challenge.token}.${thumbprint}`).digest());
       signal?.throwIfAborted();
-      await publish(record, txt);
+      // (taken down after even if putting it up fails part-way: a command that wrote it and then failed, an
+      // answer lost)
       published.push([record, txt]);
+      await publish(record, txt, signal);
       await post(challenge.url, {});
       await until(at, a => a.status === 'valid');
     }
@@ -200,33 +202,46 @@ function keep(path, text) {
   renameSync(tmp, path);
 }
 
-/** One process at a time gets an account's certificate: a lock file made
- * with O_EXCL, its holder's pid and a token of its own in it. A holder's
- * lock is taken over only once that process is gone, and only the lock it
- * held; a holder takes away only its own (never one a waiter made since).
- * A live holder is waited for, up to `patience` (an order's hooks and
- * polls), or until `signal`. */
+/** One process at a time gets an account's certificate: a lock file,
+ * made whole at once (a link to a file of its holder's pid and a token of
+ * its own, so it is never seen empty). A holder's lock is taken over only
+ * once that process is gone, and only under a second lock (`lock.reclaim`,
+ * made the same way, held for a moment), so two waiters never both take it
+ * over; a holder takes away only its own. A live holder is waited for, up
+ * to `patience` (an order's hooks and polls), or until `signal`. */
 async function locked(dir, f, { patience = 1_200_000, wait = ms => new Promise(ok => setTimeout(ok, ms)), signal = null } = {}) {
   const lock = join(dir, 'lock'), mine = `${process.pid} ${randomBytes(12).toString('hex')}`;
-  // (read, compared and unlinked: between the read and the unlink no other holder's lock can be made, as
-  // nothing else unlinks a lock it did not read)
-  const release = was => { try { if (readFileSync(lock, 'utf8') === was) unlinkSync(lock); } catch { /* gone */ } };
+  /** `path` made with `text` in it, at once, or false when there is one. */
+  const make = (path, text) => {
+    const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`;
+    writeFileSync(tmp, text, { flag: 'wx', mode: 0o600 });
+    try { linkSync(tmp, path); return true; } catch (e) { if (e.code === 'EEXIST') return false; throw e; } finally { unlinkSync(tmp); }
+  };
+  const read = path => { try { return readFileSync(path, 'utf8'); } catch { return null; } };
+  const gone = text => {
+    const holder = Number(String(text).split(' ')[0]);
+    if (!Number.isSafeInteger(holder) || holder <= 0) return true;
+    try { process.kill(holder, 0); return false; } catch (e) { return e.code !== 'EPERM'; }
+  };
+  const reclaim = join(dir, 'lock.reclaim');
   const end = Date.now() + patience;
   for (;;) {
-    try { writeFileSync(lock, mine, { flag: 'wx', mode: 0o600 }); break; } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      let held;
-      try { held = readFileSync(lock, 'utf8'); } catch { continue; }
-      const holder = Number(held.split(' ')[0]);
-      let alive = Number.isSafeInteger(holder) && holder > 0;
-      if (alive) try { process.kill(holder, 0); } catch (e) { alive = e.code === 'EPERM'; }
-      if (!alive) { release(held); continue; }
-      if (Date.now() > end) throw new Error(`another process (pid ${holder}) holds ${lock}`);
-      signal?.throwIfAborted();
-      await wait(500);
+    if (make(lock, mine)) break;
+    const held = read(lock);
+    if (held !== null && gone(held)) {
+      // (one reclaimer at a time; its own lock gone with it, if it died holding it)
+      const r = read(reclaim);
+      if (r !== null && gone(r)) { try { if (read(reclaim) === r) unlinkSync(reclaim); } catch { /* raced */ } }
+      if (make(reclaim, mine)) {
+        try { if (read(lock) === held) unlinkSync(lock); } catch { /* raced */ } finally { if (read(reclaim) === mine) unlinkSync(reclaim); }
+        continue;
+      }
     }
+    if (Date.now() > end) throw new Error(`another process (pid ${Number(String(held).split(' ')[0]) || '?'}) holds ${lock}`);
+    signal?.throwIfAborted();
+    await wait(500);
   }
-  try { return await f(); } finally { release(mine); }
+  try { return await f(); } finally { try { if (read(lock) === mine) unlinkSync(lock); } catch { /* gone */ } }
 }
 
 /** The account's certificate for `names`, from `dir` (`~/.exact/relay/<acct>`,
@@ -269,16 +284,22 @@ export async function relayCertificate(dir, names, acme, { now = Date.now(), get
   }, { ...(wait ? { wait } : {}), ...(patience ? { patience } : {}), signal });
 }
 
+/** The CAs known to honour CAA's `accounturi` and `validationmethods`
+ * (RFC 8657), which every public CA must only from 2027-03-15 (the
+ * Baseline Requirements, 4.2.2.1.2): a rule naming another pins nothing. */
+export const CAA_HONOURING = ['letsencrypt.org'];
+
 /** Whether the CAA records that govern `name` (the nearest set up the
  * tree, as a CA reads them, RFC 8659) let only this ACME account, by
  * DNS-01, get a certificate for it: every `issuewild` record (else every
  * `issue`, for a wildcard; `issue` for a host) names `accounturi=<uri>`
- * and `validationmethods=dns-01` alone, or forbids issuance (`;`). A name
+ * and `validationmethods=dns-01` alone (each tag once, in lower case),
+ * for a CA in `honouring`, or forbids issuance (`;`). A name
  * on the way up that is a CNAME is never pinned: a CA reads its target's
  * records there, which whoever holds the target writes (the relay, where
  * the name points at it so). Read through the system resolver, no DNSSEC
  * validation. `{pinned, at, cname?}`. */
-export async function caaPinned(name, accountUri, { resolveCaa, resolveCname } = {}) {
+export async function caaPinned(name, accountUri, { resolveCaa, resolveCname, honouring = CAA_HONOURING } = {}) {
   const dns = resolveCaa && resolveCname ? null : (await import('node:dns')).promises;
   const lookup = async (f, domain) => { try { return await f(domain); } catch (e) { if (['ENODATA', 'ENOTFOUND', 'ENOENT'].includes(e.code)) return []; throw e; } };
   const wild = name.startsWith('*.');
@@ -290,10 +311,15 @@ export async function caaPinned(name, accountUri, { resolveCaa, resolveCname } =
     if (records.length) {
       const tagged = tag => records.filter(r => r[tag] !== undefined).map(r => String(r[tag]));
       const rules = wild && tagged('issuewild').length ? tagged('issuewild') : tagged('issue');
+      // (read as Let's Encrypt's Boulder reads them: the parameters' tags in lower case as written, each once;
+      // an issuer that may not honour them, RFC 8657 §5.2, pins nothing)
       const pinned = rules.length > 0 && rules.every(v => {
         const [issuer, ...params] = v.split(';').map(p => p.trim());
         if (!issuer && params.every(p => !p)) return true; // (";": no CA may issue)
-        const kv = Object.fromEntries(params.filter(Boolean).map(p => { const i = p.indexOf('='); return [p.slice(0, i).trim().toLowerCase(), p.slice(i + 1).trim()]; }));
+        if (!honouring.includes(issuer.toLowerCase())) return false;
+        const pairs = params.filter(Boolean).map(p => { const i = p.indexOf('='); return i < 0 ? [p, null] : [p.slice(0, i).trim(), p.slice(i + 1).trim()]; });
+        if (new Set(pairs.map(([k]) => k)).size !== pairs.length) return false;
+        const kv = Object.fromEntries(pairs);
         return kv.accounturi === accountUri && kv.validationmethods === 'dns-01';
       });
       return { pinned, at: domain };

@@ -791,7 +791,7 @@ test('R2 (theme2 09:57): a CAA record pinning this account and DNS-01 makes it z
     const relay = await fakeRelay({ greet: `READY ${byo.tool} ${byo.canvas}\n` });
     const warned = [];
     const args = { host: 'relay.test', port: relay.control, account: 'acct', token: TOKEN, names: byo, acme: acme.directory, hook, requireCaa, dir: join(home, tag) };
-    const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relay.control), say: () => {}, warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa, resolveCname } });
+    const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relay.control), say: () => {}, warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa, resolveCname, caaHonouring: ['acme.test'] } });
     closing.push(() => doors.close());
     return { acme, doors, warned };
   };
@@ -817,6 +817,18 @@ test('R2 (theme2 09:57): a CAA record pinning this account and DNS-01 makes it z
   await until(() => refused.warned.some(l => l.includes('--require-caa')), 10_000);
   expect(refused.acme.orders.length).toBe(0);
   expect(refused.doors.relay()).toBeNull();
+  // Pinned at a CA not known to honour accounturi (RFC 8657 §5.2): not pinned.
+  const unknownCa = await run(async d => (d === 'example.com' ? [{ issue: rule.replace('acme.test', 'other-ca.test') }, { issuewild: rule.replace('acme.test', 'other-ca.test') }] : []), false, 'e');
+  await until(() => unknownCa.doors.relay() !== null, 10_000);
+  expect(unknownCa.doors.relay().caa).toBe(false);
+  // A kept certificate whose account URL is not kept (round 3): with --require-caa, refused, never served unchecked.
+  const { unlinkSync } = await import('node:fs');
+  unlinkSync(join(home, 'a', 'account-uri'));
+  const lost = await run(pinned, true, 'a');
+  await until(() => lost.warned.some(l => l.includes('--require-caa')), 10_000);
+  expect(lost.warned[0]).toContain('the ACME account\'s URL is not kept');
+  expect(lost.acme.orders.length).toBe(0);
+  expect(lost.doors.relay()).toBeNull();
 });
 
 test('R2 (theme2 09:57): the CAA that governs a name is the nearest set up the tree; every rule must pin, `;` forbids', async () => {
@@ -835,6 +847,11 @@ test('R2 (theme2 09:57): the CAA that governs a name is the nearest set up the t
   expect((await caaPinned('*.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issuewild: ok.replace('dns-01', 'tls-alpn-01') }] }) })).pinned).toBe(false);
   // No issuewild: the issue rules govern a wildcard; `;` forbids, which pins nothing open.
   expect((await caaPinned('*.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issue: ok }, { issue: ';' }] }) })).pinned).toBe(true);
+  // Read as Boulder reads them (round 3): a tag in another case, or said twice, pins nothing.
+  expect((await caaPinned('*.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issuewild: `letsencrypt.org; AccountURI=${uri}; ValidationMethods=dns-01` }] }) })).pinned).toBe(false);
+  expect((await caaPinned('*.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issuewild: `${ok}; accounturi=https://acme.test/acct/2` }] }) })).pinned).toBe(false);
+  // At a CA not known to honour the parameters: nothing pinned.
+  expect((await caaPinned('*.example.com', uri, { resolveCname: none, resolveCaa: zone({ 'example.com': [{ issuewild: ok.replace('letsencrypt.org', 'pki.goog') }] }) })).pinned).toBe(false);
   // A CNAME on the way up: never pinned, whatever its target says.
   expect(await caaPinned('*.a.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issuewild: ok }] }), resolveCname: async d => (d === 'a.example.com' ? ['x.relay.test'] : []) })).toEqual({ pinned: false, at: 'a.example.com', cname: 'x.relay.test' });
   // A wildcard's `issuewild` covers no host: the host is governed by `issue` alone.
@@ -905,8 +922,8 @@ test('R2 round 2: closed while its certificate is got, a run stops there: no rec
   const first = await open();
   await until(() => { try { return readFileSync(log, 'utf8').includes('publish'); } catch { return false; } }, 10_000);
   await first.close();
-  await until(() => readFileSync(log, 'utf8').includes('clear'), 10_000);
-  // (the publish under way finished; nothing more was asked of the server, nothing kept, the lock gone)
+  // (close resolved only once the record was taken down: the publish under way stopped, nothing more asked of the
+  // server, nothing kept, the lock gone)
   expect(readFileSync(log, 'utf8')).toBe('publish\nclear\n');
   expect(acme.orders[0].status).toBe('pending');
   const { existsSync } = await import('node:fs');
