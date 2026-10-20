@@ -91,9 +91,9 @@ export function imageChipContexts(client: T3Client, text: string): Record<string
   return out;
 }
 
-/** attachmentContextRecord for each image chip whose image is uploaded (the send uploads the shelf first). */
-export function imageContextRecords(client: T3Client, text: string): Obj[] {
-  return referencedImages(client, text).filter(image => str(image.uploadId)).map(image => ({ version: 1, kind: 'image', contextId: contextId('image', str(image.id)),
+/** buildMessageContext binds every uploaded shelf image, including those without an inline chip. */
+export function imageContextRecords(client: T3Client): Obj[] {
+  return client.snapshotDrafts.filter(image => str(image.uploadId)).map(image => ({ version: 1, kind: 'image', contextId: contextId('image', str(image.id)),
     label: contextLabel(str(image.name), 'image'), attachmentId: str(image.uploadId), name: str(image.name), mimeType: str(image.mimeType, 'image/png'), sizeBytes: Number(image.sizeBytes) || 0 }));
 }
 

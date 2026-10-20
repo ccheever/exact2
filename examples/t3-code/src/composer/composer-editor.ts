@@ -103,10 +103,10 @@ export function threadContextRecords(client: T3Client, text: string): Obj[] {
     return [{ version: 1, kind: 'thread', contextId: reference.id, label, environmentId: client.environmentId, threadId, title: label }];
   });
 }
-/** The message `context` for a send, or undefined when the prompt references none. */
+/** The message `context` for a send, including shelf images without inline references. */
 export function messageContext(client: T3Client, text: string): Obj | undefined {
-  const images = imageContextRecords(client, text);
-  const records = [...threadContextRecords(client, text), ...pullRequestRecords(client, text), ...composerFileRecords(client, text), ...images, ...terminalMessageRecords(client, text),
+  const images = imageContextRecords(client);
+  const records = [...threadContextRecords(client, text), ...pullRequestRecords(client, text), ...images, ...composerFileRecords(client, text), ...terminalMessageRecords(client, text),
     ...annotationMessageRecords(client, text, new Set(images.map(image => str(image.contextId).replace(/^image_/, ''))))];
   return records.length ? { version: 1, records } : undefined;
 }

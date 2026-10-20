@@ -57,7 +57,8 @@ describe('submission text (ChatView onSend, 9c161462c9)', () => {
       await command('send', '', ' \t\n ');
       const sent = native.committed.at(-1);
       expect(client.error).toBe('');
-      expect(sentMessage(sent)).toMatchObject({ text: ATTACHMENT_ONLY_PROMPT, attachments: [{ id: 'image-upload', type: 'image', name: 'screen.png' }] });
+      expect(sentMessage(sent)).toMatchObject({ text: ATTACHMENT_ONLY_PROMPT, attachments: [{ id: 'image-upload', type: 'image', name: 'screen.png' }],
+        context: { version: 1, records: [{ kind: 'image', contextId: 'image_image-local', attachmentId: 'image-upload', name: 'screen.png', sizeBytes: 64 }] } });
       expect(existing ? sent?.titleSeed : sent?.title).toBe('Image: screen.png');
       expect(client.local.snapshotDrafts[key]).toEqual([]);
       expect(client.draft).toBe('');
@@ -87,7 +88,8 @@ describe('submission text (ChatView onSend, 9c161462c9)', () => {
       expect(client.error).toBe('');
       expect(sent).toMatchObject({
         text: fileChipLink(file),
-        context: { version: 1, records: [{ kind: 'file', contextId: file.contextId, attachmentId: 'file-upload', sizeBytes: 5 }] },
+        context: { version: 1, records: [...(withImage ? [{ kind: 'image', contextId: 'image_image-local', attachmentId: 'image-upload', name: 'screen.png', sizeBytes: 64 }] : []),
+          { kind: 'file', contextId: file.contextId, attachmentId: 'file-upload', sizeBytes: 5 }] },
       });
       expect(sent.attachments).toEqual([...(withImage ? [expect.objectContaining({ id: 'image-upload', type: 'image' })] : []),
         { type: 'file', id: 'file-upload', name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 5 }]);

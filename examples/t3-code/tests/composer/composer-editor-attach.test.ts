@@ -116,10 +116,10 @@ describe('Attach files: image chips (imageAttachmentsGetChips)', () => {
     (client as unknown as { snapshotDrafts: Obj[] }).snapshotDrafts = [uploaded];
     const prompt = `see ${imageChipLink(image)} `;
     expect(imageChipContexts(client, prompt)).toEqual({ [`image/image_${image.id}`]: `image\t2 KB\t${image.id}` });
-    expect(imageContextRecords(client, prompt)).toEqual([{ version: 1, kind: 'image', contextId: `image_${image.id}`, label: 'photo.png', attachmentId: 'att-img', name: 'photo.png', mimeType: 'image/png', sizeBytes: 1042 }]);
+    expect(imageContextRecords(client)).toEqual([{ version: 1, kind: 'image', contextId: `image_${image.id}`, label: 'photo.png', attachmentId: 'att-img', name: 'photo.png', mimeType: 'image/png', sizeBytes: 1042 }]);
     // A chip whose image left the shelf draws unresolved and binds nothing.
     (client as unknown as { snapshotDrafts: Obj[] }).snapshotDrafts = [];
     expect(imageChipContexts(client, prompt)).toEqual({});
-    expect(imageContextRecords(client, prompt)).toEqual([]);
+    expect(imageContextRecords(client)).toEqual([]);
   });
 });
