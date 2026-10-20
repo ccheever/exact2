@@ -38,21 +38,24 @@ export const levelWords = (level: string, name: string, self = '') => {
   return name ? `${words} ${name}` : words;
 };
 
-/** Each package param's winning level (stage 12 B2-levels' `resolve` tuples), read after the design shows, a few at a
- * time: one that fails or does not fit the design's read (`fits`) has no row, so no words; a reply with no level says
- * so. One with no answer at all (its wait out) takes no more: the server answers in turn, so each would queue behind it.
- * The walk takes every `when` branch, so with an axis the dark scheme's only, a level is the dark side's (`at`). */
-export async function levelsOf(names: string[], ask: (name: string) => Promise<{ error: string; reply: any }>, still: () => boolean, fits: (ok: any) => boolean, at: string) {
-  const rows: { name: string; level: string; words: string; varies: boolean; at: string }[] = [];
+/** Each package param's winning level (stage 12 B2-levels' `resolve` tuples, each side's `{light, dark}`), read after
+ * the design shows, a few at a time: one that fails or does not fit the design's read (`fits`) has no row, so no words;
+ * a reply with no level says so. One with no answer at all (its wait out) takes no more: the server answers in turn,
+ * so each would queue behind it. Said for the first tuple: one level where both sides agree, else each side's. */
+export async function levelsOf(names: string[], ask: (name: string) => Promise<{ error: string; reply: any }>, still: () => boolean, fits: (ok: any) => boolean) {
+  const rows: { name: string; level: string; text: string }[] = [];
+  const side = (v: unknown, s: 'light' | 'dark') => String((v as Record<string, unknown> | null)?.[s] ?? '');
   let next = 0, stalled = false;
   await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
     while (next < names.length && still() && !stalled) {
       const name = names[next++], r = await ask(name), t = (r.reply?.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[];
       if (r.error && !r.reply?.error) stalled = true;
       if (r.error || !fits(r.reply.ok)) continue;
-      rows.push(t.length && typeof t[0].level === 'string'
-        ? { name, level: t[0].level, words: levelWords(t[0].level, String(t[0].name ?? ''), name), varies: t.some(x => x.level !== t[0].level || x.name !== t[0].name), at }
-        : { name, level: '', words: 'not known (this server says no level)', varies: false, at: '' });
+      const [l, d] = (['light', 'dark'] as const).map(s => ({ level: side(t[0]?.level, s), name: side(t[0]?.name, s) }));
+      if (!l.level || !d.level) { rows.push({ name, level: '', text: 'wins: not known (this server says no level)' }); continue; }
+      const one = l.level === d.level && l.name === d.name, key = (x: unknown) => JSON.stringify(x);
+      const varies = t.some(x => key(x.level) !== key(t[0].level) || key(x.name) !== key(t[0].name)) ? ' (other modes differ)' : '';
+      rows.push({ name, level: one ? l.level : `light: ${l.level}, dark: ${d.level}`, text: (one ? `wins: ${levelWords(l.level, l.name, name)}` : `wins in Light: ${levelWords(l.level, l.name, name)}; in Dark: ${levelWords(d.level, d.name, name)}`) + varies });
     }
   }));
   return rows;

@@ -400,16 +400,14 @@ shape ParamRow
   // then wins on both scheme sides).
   levelSelf: bool
 
-// A package param's winning level for the first tuple (stage 12 B2-levels),
-// read after the design: raw (the tooltip) and in words, whether the tuples
-// differ, and the scheme side it is ("Dark" where an axis is dark's only,
-// as the walk takes every when branch; "" where both sides are one).
+// A package param's winning level for the first tuple (stage 12 B2-levels,
+// each side's), read after the design: raw (the tooltip), and said: one
+// level where the sides agree, else each side's, and whether other tuples
+// differ.
 shape LevelRow
   name: string
   level: string
-  words: string
-  varies: bool
-  at: string
+  text: string
 
 shape Levels
   ok: bool
@@ -2318,7 +2316,7 @@ component ParamControl
           button press=onReset disabled=(locked) testId=`param-${r.short}-reset`
             text (r.package ? "Back to the default" : "Reset")
       for l in won key=l.name
-        text `wins${l.at != "" ? ` in ${l.at}` : ""}: ${l.words}${l.varies ? " (other modes differ)" : ""}` title=l.level color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-level`
+        text l.text title=l.level color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-level`
       if r.set
         text `${r.package ? "Back to the default" : "Reset"} removes the app's line${r.whens > 0 ? ` and its ${r.whens} when ${r.whens == 1 ? "branch" : "branches"} with it` : ""}.` color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-whens`
       if r.package and r.packageToken != "" and r.appSet

@@ -987,7 +987,7 @@ const sources: Sources = {
   },
   loadLevels: async ([answer]) => { // (components.ts `levelsOf`: after the design shows, so a slow resolve delays only its words)
     const snap = snapshots.get(answer), which = snap?.file ? { file: snap.file } : {}, fits = (ok: any) => !!snap && digestKey(ok?.files) === snap.digests && (ok?.tuples ?? []).every((t: { modes?: Record<string, string> }, i: number) => { const col = snap.columns.find(c => c.tuple === i); return !col || snap.axes.every((a, k) => t.modes?.[a.name] === col.values[k]); });
-    return { ok: true, answer, rows: !snap ? [] : await levelsOf(snap.levelParams, name => call('/__tamber', { method: 'resolve', token: name, ...which }, LEVEL_WAIT), () => answer === issued, fits, snap.axes.some(a => a.under === 'dark') ? 'Dark' : '') };
+    return { ok: true, answer, rows: !snap ? [] : await levelsOf(snap.levelParams, name => call('/__tamber', { method: 'resolve', token: name, ...which }, LEVEL_WAIT), () => answer === issued, fits) };
   },
   loadContrast: async ([a, b, answer]) => {
     if (!a || !b) return { ok: true, error: '', ratios: [] };
