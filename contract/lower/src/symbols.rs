@@ -97,10 +97,10 @@ pub(crate) fn image_source(e: &Expr, platform: &mut Vec<LowerError>) -> Vec<Lowe
     out
 }
 
-/// `lower-image-svg`: a literal image source naming an SVG file. Apple's host decodes
-/// rasters only (LLP 1011 §4), so the image is blank on iOS and macOS while it draws on the
-/// web and Linux, and nothing at run time says why. The drawing that works everywhere is an
-/// `svg` element with the file's paths, or an icon token for a one-colour glyph.
+/// `lower-image-svg`: a literal image source naming an SVG file. The web and Apple draw it
+/// as a picture (LLP 1011.001); Linux decodes rasters only, so there the image is blank and
+/// nothing at run time says why. The drawing that works everywhere is an `svg` element with
+/// the file's paths, or an icon token for a one-colour glyph. Retired when Linux draws it.
 pub(crate) fn svg_source(e: &Expr) -> Vec<LowerError> {
     let sources: Vec<(String, contract_syntax::Span)> = match e {
         Expr::Template(parts, span) if constant(parts).is_some() => {
@@ -124,7 +124,7 @@ pub(crate) fn svg_source(e: &Expr) -> Vec<LowerError> {
         .map(|(s, span)| LowerError {
             id: "lower-image-svg",
             message: format!(
-                "image `{s}` is an SVG, which draws on the web and Linux and is blank on iOS and macOS (Apple's host decodes rasters only, LLP 1011 §4); inline the file's paths as an `svg` element, or for a one-colour glyph make it an icon token (`icons` in app.tamber)"
+                "image `{s}` is an SVG, which draws on the web, iOS and macOS as a picture (LLP 1011.001) and is blank on Linux, whose host decodes rasters only; where Linux ships, inline the file's paths as an `svg` element, or for a one-colour glyph make it an icon token (`icons` in app.tamber)"
             ),
             span,
         })

@@ -106,7 +106,7 @@ mod spacing_tests;
 #[path = "storage_tests.rs"]
 mod storage_tests;
 #[path = "svg.rs"]
-mod svg;
+pub(crate) mod svg;
 #[path = "svg_lower.rs"]
 mod svg_lower;
 #[cfg(test)]

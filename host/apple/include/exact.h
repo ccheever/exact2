@@ -84,6 +84,16 @@ ExactRasterReady exact_raster_take_ready(uint64_t session, uint64_t request);
 void exact_raster_lease_release(uint64_t lease);
 ExactRasterStats exact_raster_stats(uint64_t session);
 
+/* An SVG file as an image (LLP 1011.001 D4). header: 1 when bytes begin an SVG,
+ * writing its natural size (CSS pixels) into size[0..2]; else 0. scene: the
+ * file resolved at width x height CSS pixels as the svg op's JSON, in a buffer
+ * of *out_len bytes to free with exact_svg_image_free; *flags bit 0 means the
+ * picture has text (drawn on the main thread, where the fonts are), bit 1 that
+ * the file was refused, the buffer then holding the reason. */
+uint32_t exact_svg_image_header(const uint8_t *bytes, size_t len, double *size);
+uint8_t *exact_svg_image_scene(const uint8_t *bytes, size_t len, double width, double height, size_t *out_len, uint32_t *flags);
+void exact_svg_image_free(uint8_t *ptr, size_t len);
+
 /* Width/height offers below zero mean "as the content wants". */
 #define EXACT_MAX_CONTENT (-1.0f)
 #define EXACT_MIN_CONTENT (-2.0f)

@@ -52,6 +52,10 @@ private final class RasterSource: RasterSourceOwner, @unchecked Sendable {
     /// (`RasterLoader.declineDelays`). One per decode, as two views can ask
     /// for two sizes and one can land while the other is declined.
     var declined: Set<RasterDecodeKey> = []
+    /// An SVG's device pixels per CSS pixel by decode, which the core's work
+    /// does not carry (LLP 1011.001 D3): the worker draws the scene at the
+    /// plan's size over this. Under the backend lock.
+    var svgScales: [RasterDecodeKey: Double] = [:]
     init(id: UInt64, name: String, resolver: AssetResolver) {
         self.id = id; key = RasterSourceKey(name: name, resolver: ObjectIdentifier(resolver)); self.resolver = resolver
     }
@@ -167,6 +171,10 @@ private final class RasterBackend: @unchecked Sendable {
     func invalidate(_ name: String) {
         lock.lock(); byName = byName.filter { $0.key.name != name }; lock.unlock()
     }
+    /// The scale an SVG's decode draws at, for the worker (`svgScales`).
+    func noteScale(_ source: RasterSource, _ key: RasterDecodeKey, _ scale: Double) {
+        lock.lock(); source.svgScales[key] = scale; lock.unlock()
+    }
     func metadata(_ source: RasterSource) -> (RasterMetadata?, String?) {
         lock.lock(); defer { lock.unlock() }; return (source.metadata, source.failure)
     }
@@ -216,8 +224,11 @@ private final class RasterBackend: @unchecked Sendable {
         do {
             // Decode scope drops encoded data, source and staging before complete.
             let image: RasterImage = try autoreleasepool {
-                let plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)), variant: work.variant)
+                // An SVG's plan is the work's own size (the box's, under `fill`), at the scale the request noted.
+                var plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)), variant: work.variant,
+                                                aspect: metadata.svg ? (Int(work.width), Int(work.height)) : nil)
                 guard plan.width == work.width, plan.height == work.height else { throw RasterFailure.reservation }
+                if metadata.svg { lock.lock(); plan.scale = source.svgScales[key] ?? 1; lock.unlock() }
                 if let name = input.catalog, exact_raster_is_cancelled(work.permit) == 0,
                    let image = RasterImage.catalog(name, metadata: metadata, plan: plan, charge: charge, sourceOwner: source) {
                     return image
@@ -412,6 +423,9 @@ final class RasterLoader {
         /// Off screen, its picture let go of or its decode not asked for
         /// (`park`): asked for again once its view is on screen.
         var parked = false
+        /// An SVG under `object-fit: fill`: the box's pixel size its plan
+        /// took, a different picture once either axis moves (LLP 1011.001 D1).
+        var aspect: [Int] = []
     }
     /// How long a view waits after each declined decode before asking again;
     /// past the last, the decline is its `error`, as a page's `<img>` errs
@@ -571,9 +585,31 @@ final class RasterLoader {
         // Laid out on screen, a parked view asks for its picture.
         if interest.parked { if Self.mayShow(view) { backend.wake() }; return }
         guard interest.offeredPixel > 0 else { return }
-        let pixel = requestedPixel(view, backend.metadata(interest.source).0)
+        let metadata = backend.metadata(interest.source).0
+        let pixel = requestedPixel(view, metadata)
         // Avoid re-decoding for every one-pixel live resize or small rounding.
-        if pixel > interest.offeredPixel * 5 / 4 || pixel * 5 / 4 < interest.offeredPixel { retry(view.id) }
+        if pixel > interest.offeredPixel * 5 / 4 || pixel * 5 / 4 < interest.offeredPixel { retry(view.id); return }
+        // An SVG filling its box is drawn at the box's ratio: either axis past the band is another picture.
+        if let aspect = metadata.flatMap({ Self.svgAspect(view, $0) }), interest.aspect.count == 2 {
+            let moved = zip([aspect.0, aspect.1], interest.aspect).contains { now, was in now > was * 5 / 4 || now * 5 / 4 < was }
+            if moved { retry(view.id) }
+        }
+    }
+    /// The view's device pixels per point.
+    private static func displayScale(_ view: NodeView) -> CGFloat {
+        #if os(macOS)
+        return view.window?.backingScaleFactor ?? 1
+        #else
+        return view.traitCollection.displayScale
+        #endif
+    }
+    /// For an SVG under `object-fit: fill` (CSS's initial value), the box's
+    /// pixel size, which is the concrete object size the picture is drawn at
+    /// (LLP 1011.001 D1); nil for a bitmap or another fit.
+    private static func svgAspect(_ view: NodeView, _ metadata: RasterMetadata) -> (Int, Int)? {
+        guard metadata.svg, (view.style["object_fit"]?.string ?? "fill") == "fill", view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+        let scale = displayScale(view)
+        return (max(1, Int((view.bounds.width * scale).rounded())), max(1, Int((view.bounds.height * scale).rounded())))
     }
     /// The decoded image's longest side: enough device pixels for the box
     /// at its object-fit (`cover` and `fill` scale the image until both axes
@@ -680,7 +716,7 @@ final class RasterLoader {
                 // reservations `available` does not count: once they land
                 // it may fit, at the size it asked for.
                 let plan = backend.metadata(item.source).0.flatMap {
-                    try? RasterDecodePlan(metadata: $0, maxPixel: item.requestedPixel, variant: item.variant)
+                    try? RasterDecodePlan(metadata: $0, maxPixel: item.requestedPixel, variant: item.variant, aspect: Self.svgAspect(view, $0))
                 }
                 if let plan, plan.peakBytes <= available() { continue }
                 // The pictures views hold leave it no room. Off screen it
@@ -707,20 +743,23 @@ final class RasterLoader {
             var pixel = item.requestedPixel > 0 ? min(offered, item.requestedPixel) : offered
             var available = available()
             let hdr = Self.wantsHDR(view, metadata)
-            var plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr)
+            let aspect = Self.svgAspect(view, metadata)
+            var plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr, aspect: aspect)
             if let need = plan?.peakBytes, need > available {
                 // The pictures views hold leave it no room at its size: off
                 // screen it waits for its turn on screen; on screen the
                 // pictures held off screen make room, and it is planned again.
                 guard Self.mayShow(view) else { park(viewID, &item, view); continue }
                 if release(need - available) > 0 {
-                    available = self.available(); plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr)
+                    available = self.available(); plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr, aspect: aspect)
                 }
             }
             while pixel > 1 && (plan == nil || plan!.peakBytes > available) {
-                pixel = max(1, pixel / 2); plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr)
+                pixel = max(1, pixel / 2); plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr, aspect: aspect)
             }
-            guard let plan else { item.failure = "decode plan too large"; settle(&item, view); interests[viewID] = item; continue }
+            guard var plan else { item.failure = "decode plan too large"; settle(&item, view); interests[viewID] = item; continue }
+            if metadata.svg { plan.scale = Double(Self.displayScale(view)) }
+            item.aspect = aspect.map { [$0.0, $0.1] } ?? []
             var demand = ExactRasterDemand()
             demand.view = UInt64(viewID); demand.view_generation = UInt64(item.generation)
             demand.source = item.source.id; demand.generation = item.source.id
@@ -739,6 +778,7 @@ final class RasterLoader {
             item.requestedPixel = pixel; item.offeredPixel = offered
             item.variant = plan.variant
             item.decode = RasterDecodeKey(width: plan.width, height: plan.height, variant: plan.variant)
+            if metadata.svg, let key = item.decode { backend.noteScale(item.source, key, plan.scale) }
             if item.request == 0 {
                 #if DEBUG
                 let refusal = submitted?.refusal ?? exact_raster_stats(id).last_refusal
@@ -856,12 +896,12 @@ final class RasterLoader {
     /// The plan for a picture at `pixel` (LLP 1100 D7): HDR if wanted and it
     /// fits, else its own variant, else for a deep picture 8 bits before any
     /// resolution is given up.
-    private static func fit(_ metadata: RasterMetadata, pixel: Int, available: Int, hdr: Bool) -> RasterDecodePlan? {
-        if hdr, let shown = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.hdr),
+    private static func fit(_ metadata: RasterMetadata, pixel: Int, available: Int, hdr: Bool, aspect: (Int, Int)? = nil) -> RasterDecodePlan? {
+        if hdr, let shown = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.hdr, aspect: aspect),
            shown.peakBytes <= available { return shown }
-        let full = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel)
+        let full = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, aspect: aspect)
         if let full, full.peakBytes <= available || !full.deep { return full }
-        return (try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.reduced8)) ?? full
+        return (try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.reduced8, aspect: aspect)) ?? full
     }
     private static func wantsHDR(_ view: NodeView, _ metadata: RasterMetadata) -> Bool {
         metadata.hdr && DisplayRange.showsHDR(view, limit: view.style["dynamic_range_limit"]?.string)

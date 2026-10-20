@@ -1063,8 +1063,8 @@ fn image(view: &str) -> String {
     format!("component App\n  state label = \"Add\"\n  view\n    column\n      {view}\n")
 }
 
-/// `lower-image-svg`: an SVG image source draws on the web and Linux and is blank on
-/// Apple (ImageIO decodes rasters only, LLP 1011 §4), and nothing at run time says why.
+/// `lower-image-svg`: an SVG image source draws on the web and Apple as a picture (LLP
+/// 1011.001) and is blank on Linux, whose host decodes rasters only; nothing at run time says why.
 #[test]
 fn an_svg_image_source_is_named_as_blank_on_apple() {
     let svg = "lower-image-svg".to_string();
