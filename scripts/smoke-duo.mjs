@@ -1,9 +1,10 @@
 // The iPhone Duo suite (LLP 1078 D9): `bun scripts/smoke.mjs duo`. Drives
 // `apps/duo-lab` and the `insets` and `keyboard-bar` corpus fixtures, with
-// UIKit's bars as a person sees them (`--chrome platform`), on the Duo simulator
-// fully open, partially folded and closed (the hinge at 180°, 130° and 0°), the
-// hinge set from inside the simulator by `scripts/duo/hinge_helper.c` (compiled
-// per run with the selected Xcode's simulator SDK). At every pose:
+// UIKit's bars and real touches (`--chrome platform`, `--touch platform`), on
+// the Duo simulator fully open, partially folded and closed (the hinge at 180°,
+// 130° and 0°), the hinge set from inside the simulator by
+// `scripts/duo/hinge_helper.c` (compiled per run with the selected Xcode's
+// simulator SDK). At every pose:
 // the cover-root and inset invariants `smoke ios` checks; the Fold screen's
 // two panes exactly on the division's segments (one pane flat or closed);
 // `devicePosture` folded only when partially folded; no control on the band between
@@ -156,15 +157,27 @@ async function suite({ open: openSession, check: record }, reset) {
     const p = resolve(out, `${String(++shots).padStart(2, '0')}-${at.replace(/[^A-Za-z0-9-]+/g, '_')}.png`);
     try { await s.screenshot(p); console.log(`  screenshot ${p}`); } catch (e) { console.log(`  no screenshot at ${at}: ${e.message}`); }
   };
-  /** A session as a person sees the app, with UIKit's bars (`--chrome platform`), whose state-changing operations take
-   * a failure's screenshot first (`shot`). The agent's default chrome lays the authored tablist out in its own place
-   * below the routes, as the web does, whereas the Duo shows UIKit's tab bar. */
+  /** A session as a person sees and touches the app: UIKit's bars (`--chrome platform`), and its taps real touches
+   * (`--touch platform`; its scrolls stay the agent's wheel, its typing the agent's `type`). Its state-changing
+   * operations take a failure's screenshot first (`shot`). The agent's default chrome lays the authored tablist out in
+   * its own place below the routes, as the web does, whereas the Duo shows UIKit's tab bar. */
   const open = async (options) => {
-    const s = await openSession({ chrome: 'platform', ...options });
+    const s = await openSession({ chrome: 'platform', touch: 'platform', ...options });
     keyboardGone = false; // a new launch has its keyboard again
     for (const op of ['tap', 'type', 'close']) {
       const run = s[op].bind(s);
-      s[op] = async (...args) => { await shot(s); return run(...args); };
+      s[op] = async (...args) => {
+        await shot(s);
+        const r = await run(...args);
+        // A tap other than a wheel is a finger's: a real one that misses throws, so this guards the option reaching the
+        // driver. One whose down came after its lift, the app busy, is named; what follows checks its effect. (`viewGone`
+        // is not: UIKit's tab bar gives it on every tab, whose button leaves the window under the finger as it switches.)
+        if (op === 'tap' && !args[1]?.wheel) {
+          check(r?.delivery === 'platform', `tap ${args[0]} was not a real touch: ${JSON.stringify(r)}`);
+          if (r?.downAfterLift) console.log(`  tap ${args[0]}: the window had its down only after the lift`);
+        }
+        return r;
+      };
     }
     return s;
   };
@@ -368,7 +381,8 @@ async function suite({ open: openSession, check: record }, reset) {
   for (const name of [probe ? 'insets' : null, leg('keyboard-bar') ? 'keyboard-bar' : null].filter(Boolean)) compile(name, resolve(ROOT, `contract/corpus/${name}.contract`));
   const lab = resolveApp('duo-lab');
   // The rotate leg's duo-lab starts its note sheet at 600 points, taller than the lower segment folded like a laptop,
-  // so the limit there is checked: a drag would set the height, but real touches do not reach the inner panel (QUEUE).
+  // so the limit there is checked: no drag can set it, since a released drag snaps the sheet to 200 or 400 points
+  // (duo-lab's `sheetStop`).
   if (leg('rotate')) {
     const source = readFileSync(resolve(lab.dir, 'app.contract'), 'utf8'), tall = source.replace('state sheetPx = 400', 'state sheetPx = 600');
     if (check(tall !== source, 'duo-lab no longer declares `state sheetPx = 400`, which the rotate leg raises to 600')) {
@@ -538,9 +552,10 @@ async function suite({ open: openSession, check: record }, reset) {
       await settle(s);
       // Fold: the facts, the panes on the segments, a selection kept across every pose.
       check(byTestId(await s.tree(), 'screen-fold') != null, 'duo-lab opens on the Fold screen');
+      const first = byTestId(await s.tree(), 'detail-title')?.props.text;
       await s.tap('item-2'); await settle(s);
       const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
-      check(typeof chosen === 'string' && chosen.length > 0, `item-2 selected a detail: ${chosen}`);
+      check(typeof chosen === 'string' && chosen.length > 0 && chosen !== first, `item-2 selected another detail: ${first} → ${chosen}`);
       await eachPose(s, 'fold', async ({ l }, tag, deg) => {
         await foldScreen(s, l, tag, deg, chosen);
         if (folded(deg)) await offBand(s, l, tag);
@@ -657,7 +672,8 @@ async function suite({ open: openSession, check: record }, reset) {
   else {
     let s = null;
     try {
-      s = await open({ host: 'host-ios', session: 'a' }); // a stale bundle is refused by name: reported, not a crash
+      // It taps nothing, so it takes no touch runner. A stale bundle is refused by name: reported, not a crash.
+      s = await open({ host: 'host-ios', session: 'a', touch: 'agent' });
       await settle(s);
       await eachPose(s, 'host', async ({ l }, tag, deg) => {
         // The pose waited for session a; b's hinge update can trail a's
@@ -743,9 +759,10 @@ async function suite({ open: openSession, check: record }, reset) {
         where = 'rotate';
         await pose(s, 180);
         applies(await s.layout());
+        const first = byTestId(await s.tree(), 'detail-title')?.props.text;
         await s.tap('item-2'); await settle(s);
         const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
-        check(typeof chosen === 'string' && chosen.length > 0, `${where}: item-2 selected a detail: ${chosen}`);
+        check(typeof chosen === 'string' && chosen.length > 0 && chosen !== first, `${where}: item-2 selected another detail: ${first} → ${chosen}`);
         for (const [tag, deg] of POSES) {
           where = `rotate-${tag}`;
           const posed = Date.now();

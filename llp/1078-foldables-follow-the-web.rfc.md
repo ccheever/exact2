@@ -392,7 +392,11 @@ document's names exactly; the integrator checks them against the core lane.
   smoke opens every session with UIKit's bars as a person sees them (`--chrome platform`,
   2026-10-19): under the agent's default chrome the authored tablist takes its own place
   below the routes, as on the web, whereas the Duo shows UIKit's tab bar, a rail at the
-  inner panel's right edge upright and a bar at its bottom turned.
+  inner panel's right edge upright and a bar at its bottom turned. Its taps are real
+  touches (`--touch platform`, 2026-10-20), its scrolls still the agent's wheel and its
+  typing the agent's `type`: the touch runner names the app's display, the inner panel
+  as the cover (#782), and the driver waits out SpringBoard's fold cloak before a tap
+  (`host/apple/cloak.mjs`). A tap that is not a real touch fails the smoke.
   When the open pose does not report the recorded 951×669 inner panel, the panel sizes
   and the segments are checked against what the device reports (see below); the panes
   are checked against the two rects `layout.env` reports, whichever axis the device
