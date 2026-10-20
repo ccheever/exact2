@@ -330,10 +330,10 @@ impl Server {
         if !matches!(&*slots, Some((of, _)) if std::rc::Rc::ptr_eq(of, &app)) {
             let mut library = contract::tamber_params::library(&app, None);
             // Indexed by the names each row's own value says (a bare name, or
-            // each a `calc(…)` names): what those reach is the candidate
-            // fold's to say (check_slots closes over it), never the packages'
-            // defaults an app line may have replaced. (A function's name or a
-            // unit's word indexes nothing a write touches.)
+            // each a `calc(…)` names: a name as the lexer reads one, never a
+            // function's before its `(` or a word in quotes): what those
+            // reach is the candidate fold's to say (check_slots closes over
+            // it), never the packages' defaults an app line may have replaced.
             for node in library
                 .as_array_mut()
                 .into_iter()
@@ -347,13 +347,8 @@ impl Server {
                     .flatten()
                     .filter_map(|r| r.get(1).and_then(|v| v.as_str()))
                 {
-                    for name in value
-                        .split(|c: char| {
-                            !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
-                        })
-                        .filter(|w| w.starts_with(|c: char| c.is_ascii_alphabetic()))
-                    {
-                        let name = serde_json::Value::from(name.trim_end_matches('.'));
+                    for name in row_names(value) {
+                        let name = serde_json::Value::from(name);
                         if !direct.contains(&name) {
                             direct.push(name);
                         }
@@ -601,5 +596,63 @@ mod tests {
             retention_key(&[fake]),
             "metadata spelling a row"
         );
+    }
+}
+
+/// The token names a row's value says: each run of identifiers joined by
+/// `.` (an identifier a letter or `_` first, then letters, digits, `_` and
+/// `-`, as the lexer reads one), but a function's name (its `(` next) and
+/// anything in quotes.
+fn row_names(value: &str) -> Vec<&str> {
+    let bytes = value.as_bytes();
+    let (mut out, mut i, mut quote) = (Vec::new(), 0, None);
+    while i < bytes.len() {
+        let c = bytes[i];
+        if let Some(q) = quote {
+            quote = (c != q).then_some(q);
+            i += 1;
+            continue;
+        }
+        if c == b'"' || c == b'\'' {
+            quote = Some(c);
+            i += 1;
+            continue;
+        }
+        let starts = (c.is_ascii_alphabetic() || c == b'_')
+            && (i == 0
+                || !(bytes[i - 1].is_ascii_alphanumeric()
+                    || matches!(bytes[i - 1], b'_' | b'-' | b'.')));
+        if !starts {
+            i += 1;
+            continue;
+        }
+        let from = i;
+        while i < bytes.len()
+            && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'_' | b'-' | b'.'))
+        {
+            i += 1;
+        }
+        let name = value[from..i].trim_end_matches(['.', '-']);
+        if bytes.get(i) != Some(&b'(') && !name.is_empty() {
+            out.push(name);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod row_names_tests {
+    #[test]
+    fn a_rows_names_are_its_references_only() {
+        assert_eq!(super::row_names("lib.w"), ["lib.w"]);
+        assert_eq!(
+            super::row_names("calc(_lib.w * 2 + cards.pad-x)"),
+            ["_lib.w", "cards.pad-x"]
+        );
+        assert_eq!(
+            super::row_names("calc(2px + max(a.b, 1px)) 'quoted.name' \"x.y\""),
+            ["a.b"]
+        );
+        assert_eq!(super::row_names("12px"), Vec::<&str>::new());
     }
 }
