@@ -234,8 +234,12 @@ theme
     when density=tight tone=loud: calc(space.sm * 2)
   shadowed = 1px
     when tone=loud: calc(space.lg * 2)
-    when density=roomy tone=loud: 2px
-    when density=tight tone=loud: 3px
+    when density=roomy tone=loud: calc(space.md * 3)
+    when density=tight tone=loud: calc(space.sm * 3)
+  covered = calc(space.xl * 2)
+    when density=roomy: 1px
+    when density=tight: 2px
+  neg = calc(space.md * -1)
   gap.m = max(space.sm, 12px)
   edge = 4px
     when density=tight: calc(space.xs + 2px)
@@ -298,12 +302,26 @@ theme
         "{third}"
     );
     let (round, _) = s.ask(json!({"method": "resolve", "token": "round"}));
-    assert!(
-        round["ok"]["tuples"][0]["columns"]["ios"]["value"]
-            .as_str()
-            .unwrap()
-            .ends_with("px"),
+    // (radius.full is 9999px on a drawing column, 0 cells on the terminal)
+    assert_eq!(
+        round["ok"]["tuples"][0]["columns"]["ios"]["value"], "9998px",
         "{round}"
+    );
+    assert_eq!(
+        round["ok"]["tuples"][0]["columns"]["terminal"]["value"], "-0.125cell",
+        "{round}"
+    );
+    // A negative keeps its sign.
+    let (neg, _) = s.ask(json!({"method": "resolve", "token": "neg"}));
+    assert_eq!(
+        neg["ok"]["tuples"][0]["columns"]["ios"]["value"],
+        text("ios", -px("space.md", "ios")),
+        "{neg}"
+    );
+    assert_eq!(
+        neg["ok"]["tuples"][0]["columns"]["terminal"]["value"],
+        text("terminal", -px("space.md", "terminal")),
+        "{neg}"
     );
     // explain: the default's own, when it reads one.
     let (pad2e, _) = s.ask(json!({"method": "explain", "token": "pad2"}));
@@ -326,10 +344,24 @@ theme
     );
     // A line no tuple chooses (both two-axis lines cover it): no columns.
     let (shadowed, _) = s.ask(json!({"method": "explain", "token": "shadowed"}));
+    // (the two lines that win read base names of their own: the shadowed one's would be space.lg's)
     assert!(
         shadowed["ok"]["whens"][0]["columns"].is_null(),
         "{shadowed}"
     );
+    assert_eq!(
+        shadowed["ok"]["whens"][1]["columns"]["ios"]["value"],
+        text("ios", px("space.md", "ios") * 3.0),
+        "{shadowed}"
+    );
+    assert_eq!(
+        shadowed["ok"]["whens"][2]["columns"]["ios"]["value"],
+        text("ios", px("space.sm", "ios") * 3.0),
+        "{shadowed}"
+    );
+    // A default no tuple chooses: none, though it reads a base name.
+    let (covered, _) = s.ask(json!({"method": "explain", "token": "covered"}));
+    assert!(covered["ok"]["columns"].is_null(), "{covered}");
     // explain: the default (4px) has none; the tight line's own.
     let (edge, _) = s.ask(json!({"method": "explain", "token": "edge"}));
     assert!(edge["ok"]["columns"].is_null(), "{edge}");

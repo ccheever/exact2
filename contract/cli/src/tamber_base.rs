@@ -37,16 +37,19 @@ fn columns_of(text: &str) -> Option<Value> {
         .iter()
         .filter_map(|(key, column)| {
             let n = scale::evaluate(text, *column)?;
-            // The evaluator's own f32, shortest (Rust's Display), a zero never negative.
-            let n = if n == 0.0 { 0.0 } else { n };
+            // The evaluator's own f32, shortest (Rust's Display), a zero
+            // never negative (after the terminal's division too).
+            let zero = |n: f32| if n == 0.0 { 0.0 } else { n };
             // (the terminal's in cells before its layout rounds them: the
             // evaluator reads a cell, `1ch`, as its column's px, so a
             // column-width cell here, as `Env::cell_spaces` then rounds on
             // the axis it spaces)
             let v = match *key {
-                "terminal" if n == 0.0 => "0".to_string(),
-                "terminal" => format!("{}cell", n / exact_kernel::style::cells::COLUMN),
-                _ => format!("{n}px"),
+                "terminal" => match zero(n / exact_kernel::style::cells::COLUMN) {
+                    0.0 => "0".to_string(),
+                    c => format!("{c}cell"),
+                },
+                _ => format!("{}px", zero(n)),
             };
             Some((key.to_string(), json!({ "value": v })))
         })
