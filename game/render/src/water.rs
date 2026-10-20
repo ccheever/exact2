@@ -9,8 +9,8 @@ use crate::buffers::Targets;
 use crate::FrameInput;
 use exact_gpu::wgpu;
 
-/// The frame uniform's water words (`frame.wgsl`'s `water` to `water_scroll`).
-pub(crate) const WORDS: std::ops::Range<usize> = 192..212;
+/// The frame uniform's water words (`frame.wgsl`'s `water` to `water_drift`).
+pub(crate) const WORDS: std::ops::Range<usize> = 192..216;
 const SURFACE: u32 = 1;
 const CAUSTICS: u32 = 2;
 const SHAFTS: u32 = 4;
@@ -20,6 +20,8 @@ const SECOND: f64 = 0.61;
 /// wave speed, and their directions; the second layer is 1.27 times finer.
 const DRIFT: f64 = 0.25;
 const LAYERS: [([f64; 2], f64); 2] = [([0.6, 0.8], 1.), ([-0.87, 0.49], 1.27)];
+/// Cells of the shafts' pattern per wavelength (shafts.wgsl `shaft_source`).
+const SHAFT_FREQUENCY: f64 = 3.;
 
 /// Which of the water's effects the renderer may draw: both by default.
 /// Clearing one turns it off at present time and leaves the saved `Water`
@@ -55,8 +57,10 @@ pub(crate) fn shafts(frame: &FrameInput<'_>, effects: WaterEffects) -> bool {
 /// written once the cull has ordered the frame.
 pub(crate) const SPLIT: usize = 195;
 
-/// Fill the water words for `frame` but [`SPLIT`]. Every phase is computed here in f64 from the
-/// displayed time and wrapped, so a long session loses no precision.
+/// Fill the water words for `frame` but [`SPLIT`]. Every phase and offset is
+/// computed here in f64 from the displayed time and wrapped at its pattern's
+/// period, so a long session loses no precision. An effect `effects` clears
+/// loses only its flag: the other words stay, so nothing else moves.
 pub(crate) fn write(data: &mut [f32], frame: &FrameInput<'_>, effects: WaterEffects) {
     let Some(water) = frame.water else {
         return;
@@ -67,26 +71,33 @@ pub(crate) fn write(data: &mut [f32], frame: &FrameInput<'_>, effects: WaterEffe
     let speed = f64::from(waves.speed);
     let wrap = |x: f64, period: f64| (x.rem_euclid(period)) as f32;
     let tau = std::f64::consts::TAU;
-    let caustics = water.caustics.filter(|_| effects.caustics);
     let mut flags = SURFACE;
-    if caustics.is_some() {
+    if water.caustics.is_some() && effects.caustics {
         flags |= CAUSTICS;
     }
     if shafts(frame, effects) {
         flags |= SHAFTS;
     }
+    let caustics = water.caustics.unwrap_or(exact_game::Caustics {
+        strength: 0.,
+        scale: 1.,
+    });
     let shafts = water.shafts.unwrap_or(exact_game::Shafts {
         intensity: 0.,
         length: 0.,
     });
     // Deep-water waves travel at a speed proportional to √wavelength.
     let phase = |length: f64, speed: f64| wrap(tau * speed * t / length, tau);
-    let scale = f64::from(caustics.map_or(1., |c| c.scale).max(0.01));
-    // Offsets in cells, wrapped at the pattern's four-cell tile.
-    let [a, b] = LAYERS.map(|(direction, fineness)| {
-        let cells = DRIFT * speed * t * fineness / scale;
-        [wrap(direction[0] * cells, 4.), wrap(direction[1] * cells, 4.)]
-    });
+    let drift = |cell: f64, period: f64| {
+        LAYERS.map(|(direction, fineness)| {
+            let cells = DRIFT * speed * t * fineness / cell;
+            [direction[0], direction[1]].map(|d| wrap(d * cells, period))
+        })
+    };
+    // The caustic net's layers in cells, wrapped at its four-cell tile; the
+    // shafts' in wavelengths, at their pattern's 32 (shafts.wgsl).
+    let [a, b] = drift(f64::from(caustics.scale.max(0.01)), 4.);
+    let [c, d] = drift(wavelength / SHAFT_FREQUENCY, 32.);
     let words = [
         water.height,
         flags as f32,
@@ -99,8 +110,8 @@ pub(crate) fn write(data: &mut [f32], frame: &FrameInput<'_>, effects: WaterEffe
         wavelength as f32,
         phase(wavelength, speed),
         phase(wavelength * SECOND, speed * SECOND.sqrt()),
-        caustics.map_or(0., |c| c.strength.clamp(0., 1.)),
-        scale as f32,
+        caustics.strength.clamp(0., 1.),
+        caustics.scale.max(0.01),
         shafts.intensity.max(0.),
         shafts.length.max(0.),
         0.,
@@ -108,6 +119,10 @@ pub(crate) fn write(data: &mut [f32], frame: &FrameInput<'_>, effects: WaterEffe
         a[1],
         b[0],
         b[1],
+        c[0],
+        c[1],
+        d[0],
+        d[1],
     ];
     data[WORDS].copy_from_slice(&words);
 }

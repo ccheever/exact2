@@ -64,15 +64,8 @@ fn tank(w: &mut World) {
             Material::rgb(0.45, 0.38, 0.24),
         ),
     );
-    // The surface faces down at the camera and, translucent, casts no shadow.
-    w.spawn_named(
-        "surface",
-        (
-            Transform::at(0., 8., -12.).looking_at(Vec3::new(0., 8., -13.), Vec3::NEG_Y),
-            Mesh::plane(20., 36.),
-            Material::rgb(0.6, 0.9, 0.95).alpha(0.25),
-        ),
-    );
+    // The surface: its caustics on the sand, its shafts in the water.
+    w.insert_resource(Water::at(GLASS_MAX.y));
     for (i, z) in [-4., -12., -24.].into_iter().enumerate() {
         w.spawn_named(
             format!("rock-{i}"),
@@ -113,7 +106,7 @@ fn fit_boom(w: &World) {
 struct TankArgs {
     /// Multiplies the recipe's exposure: 1 is the recipe.
     exposure: f32,
-    /// Close the tank with an opaque lid in place of the translucent surface.
+    /// Close the tank with an opaque lid over the water.
     opaque_surface: bool,
 }
 struct Tank;
@@ -124,8 +117,14 @@ impl Game for Tank {
         tank(w);
         w.resource_mut::<Environment>().exposure *= args.exposure;
         if args.opaque_surface {
-            *w.require_mut::<Mesh>("surface") = Mesh::cuboid(Vec3::new(20., 0.2, 36.));
-            w.require_mut::<Material>("surface").color[3] = 1.;
+            w.spawn_named(
+                "lid",
+                (
+                    Transform::at(0., GLASS_MAX.y + 0.2, -12.),
+                    Mesh::cuboid(Vec3::new(20., 0.2, 36.)),
+                    Material::rgb(0.6, 0.9, 0.95),
+                ),
+            );
         }
     }
     fn tick(w: &mut World, _: &Input, _: &TankArgs) {

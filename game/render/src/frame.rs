@@ -2,7 +2,7 @@ use crate::{shadows::Cascades, FrameInput};
 use exact_gpu::wgpu;
 use glam::Vec3;
 
-pub(crate) const FLOATS: usize = 212;
+pub(crate) const FLOATS: usize = 216;
 
 /// Whether the sky pass draws; `map` is a visible environment map resident.
 pub(crate) fn has_sky(frame: &FrameInput<'_>, map: bool) -> bool {

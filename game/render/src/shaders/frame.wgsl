@@ -46,6 +46,8 @@ struct Frame {
     water_light: vec4<f32>,
     // The two caustic layers' offsets, in cells.
     water_scroll: vec4<f32>,
+    // The two shaft pattern layers' offsets, in cells.
+    water_drift: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> frame: Frame;
 fn environment(y: f32) -> vec3<f32> {

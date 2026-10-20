@@ -161,7 +161,7 @@ impl Water {
         Self {
             height,
             color: [0.02, 0.12, 0.15],
-            clarity: 0.8,
+            clarity: 1.,
             waves: Waves::default(),
             caustics: Some(Caustics::default()),
             shafts: Some(Shafts::default()),
@@ -207,7 +207,7 @@ pub struct Caustics {
 impl Default for Caustics {
     fn default() -> Self {
         Self {
-            strength: 0.6,
+            strength: 0.45,
             scale: 1.5,
         }
     }
@@ -226,7 +226,7 @@ pub struct Shafts {
 impl Default for Shafts {
     fn default() -> Self {
         Self {
-            intensity: 1.,
+            intensity: 0.7,
             length: 0.6,
         }
     }

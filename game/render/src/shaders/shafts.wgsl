@@ -31,15 +31,16 @@ fn shaft_scene(pixel: vec2<f32>, far: f32) -> vec3<f32> {
     let split = frame.water.w;
     return shaft_point(ndc, max(raw - split, 0.0) / (1.0 - split));
 }
+// Value noise on a lattice that repeats every 32 cells, so its drift wraps.
 fn shaft_noise(p: vec2<f32>) -> f32 {
     let i = floor(p);
     let f = p - i;
     let u = f * f * (3.0 - 2.0 * f);
-    let c = vec2<u32>(vec2<i32>(i) + 65536);
-    let a = caustic_hash(c).x;
-    let b = caustic_hash(c + vec2(1u, 0u)).x;
-    let d = caustic_hash(c + vec2(0u, 1u)).x;
-    let e = caustic_hash(c + vec2(1u, 1u)).x;
+    let c = vec2<i32>(i);
+    let a = caustic_hash(vec2<u32>(((c % 32) + 32) % 32)).x;
+    let b = caustic_hash(vec2<u32>((((c + vec2(1, 0)) % 32) + 32) % 32)).x;
+    let d = caustic_hash(vec2<u32>((((c + vec2(0, 1)) % 32) + 32) % 32)).x;
+    let e = caustic_hash(vec2<u32>((((c + vec2(1, 1)) % 32) + 32) % 32)).x;
     return mix(mix(a, b, u.x), mix(d, e, u.x), u.y);
 }
 // The light the surface lets through at a screen position: 0 where the ray
@@ -54,9 +55,10 @@ fn shaft_source(pixel: vec2<f32>) -> f32 {
     if all(pixel >= vec2(0.0)) && all(pixel < size) {
         if distance(shaft_scene(pixel, 1.0e4), eye) < t * 0.99 - 0.02 { return 0.0; }
     }
-    let hit = (eye + d * t).xz / max(frame.water_light.x, 0.01);
-    let n = 0.6 * shaft_noise(hit * 2.3 + frame.water_scroll.xy)
-        + 0.4 * shaft_noise(hit * 4.1 + frame.water_scroll.zw);
+    // Three cells a wavelength, and a finer layer 1.27 times smaller (water.rs).
+    let hit = (eye + d * t).xz / max(frame.water_waves.x, 0.01) * 3.0;
+    let n = 0.6 * shaft_noise(hit + frame.water_drift.xy)
+        + 0.4 * shaft_noise(hit * 1.27 + frame.water_drift.zw);
     return smoothstep(0.35, 0.65, n);
 }
 @fragment fn fs(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
@@ -73,7 +75,11 @@ fn shaft_source(pixel: vec2<f32>) -> f32 {
     let ndc = shaft_ndc(pixel);
     let screen = (towards.xy - ndc * towards.w) * vec2(1.0, -1.0) * frame.logical_size.xy;
     if scattered <= 0.0 || sun.w <= 0.0 || dot(screen, screen) < 1.0e-12 { return vec4(0.0); }
-    let step = normalize(screen) * frame.water_light.z * frame.logical_size.y / f32(SHAFT_SAMPLES);
+    // Up to `length` of the frame's height; no further than the sun's own
+    // point when it is ahead, where every streak meets.
+    var span = frame.water_light.z * frame.logical_size.y;
+    if towards.w > 0.0 { span = min(span, length(screen) * 0.5 / towards.w); }
+    let step = normalize(screen) * span / f32(SHAFT_SAMPLES);
     var light = 0.0;
     var weight = 1.0;
     var total = 0.0;
