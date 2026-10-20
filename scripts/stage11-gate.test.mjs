@@ -1,8 +1,11 @@
 // scripts/stage11-gate.mjs: the scale table's sources, read as the kernel's
-// build reads them, a cargo run that ran something, and the command line.
+// build reads them, a cargo run that ran something, the command line, and
+// the release identity's judge.
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { citations, lines, parse, ranOk } from './stage11-gate.mjs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { citations, lines, parse, ranOk, releaseIdentity } from './stage11-gate.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const schema = JSON.parse(readFileSync(`${ROOT}kernel/tables/schema.json`, 'utf8'));
@@ -40,4 +43,21 @@ test('the gate\'s lines, and its command line', () => {
   expect(parse(['--bogus', 'x'])).toBe('unknown argument --bogus');
   expect(parse(['--host', 'tv'])).toContain('--host tv: one of');
   expect(parse(['--only', 'nothing'])).toContain('--only nothing: one of');
+});
+
+test('release identity: a plan moves only as named', () => {
+  const file = rows => { const f = join(mkdtempSync(join(tmpdir(), 'rel11-')), 'r.json'); writeFileSync(f, JSON.stringify(rows)); return f; };
+  const b1 = ['LLP 1121 stage 11 B1: the base scale table'], d = ['LLP 1121 stage 11 D: base names on the wire'];
+  const digest = { sizes: [10, 10], changed: 8, range: [17, 24] };
+  expect(releaseIdentity(null).status).toBe('WAITS');
+  const named = [{ run: 'a..b', commits: b1, source: 'apps/hello/app.contract', status: 'DIFFERS', bytes: digest },
+    { run: 'c..d', commits: ['Design tool, stage 11 D'], source: 'apps/design-tool/app.contract', status: 'DIFFERS', bytes: { sizes: [1, 2] } },
+    { run: 'c..d', commits: d, source: 'apps/shelf/app.contract', status: 'identical' }];
+  expect(releaseIdentity(file(named)).status).toBe('PASS');
+  // The digest's bytes in a run that is not B1's, a byte past the header, a
+  // size moved, another app, or a build failing on one side: each fails.
+  for (const row of [{ ...named[0], commits: d }, { ...named[0], bytes: { ...digest, range: [17, 25] } }, { ...named[0], bytes: { ...digest, sizes: [10, 11] } },
+    { ...named[1], source: 'apps/shelf/app.contract' }, { run: 'a..b', commits: b1, source: 'apps/hello/app.contract', status: 'build failed' }]) {
+    expect(releaseIdentity(file([row])).status).toBe('FAIL');
+  }
 });

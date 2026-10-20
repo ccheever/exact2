@@ -6,7 +6,7 @@
 // package designs' refusals the contract tests', the server's rows its own
 // replies.
 //
-//   bun scripts/stage11-gate.mjs [--host <h> …] [--app <android app>] [--only <line> …] [--out <file>] [--clone <copy>]
+//   bun scripts/stage11-gate.mjs [--host <h> …] [--app <android app>] [--only <line> …] [--out <file>] [--clone <copy>] [--release <json>]
 //
 // Hosts default to all six: web, linux, macos, ios, the Android reader (--app,
 // an app with no data: unsaid; the base values only) and the terminal. The
@@ -318,6 +318,23 @@ export function citations(schema, measured) {
   return bad;
 }
 
+/** `--release`'s comparison (each run of stage 11 commits, each source):
+ * PASS when every plan is identical or moved only as named. */
+export function releaseIdentity(file) {
+  if (!file || !existsSync(file)) return { status: 'WAITS', on: 'the release identity run (--release <its JSON>)', evidence: [] };
+  const rows = JSON.parse(readFileSync(file, 'utf8'));
+  const digest = r => r.bytes?.sizes?.[0] === r.bytes?.sizes?.[1] && r.bytes?.range && r.bytes.range[0] >= 17 && r.bytes.range[1] <= 24 && r.commits.some(c => /stage 11 B1/.test(c));
+  const own = r => r.source === 'apps/design-tool/app.contract' && r.commits.some(c => /[Dd]esign tool|tool half/.test(c));
+  const count = st => rows.filter(r => r.status === st).length;
+  const moved = rows.filter(r => r.status === 'DIFFERS');
+  const unnamed = moved.filter(r => !digest(r) && !own(r));
+  const failed = rows.filter(r => r.status === 'build failed');
+  const runs = new Set(rows.map(r => r.run)).size;
+  const evidence = [`release identity: ${rows.length} comparisons over ${runs} runs of stage 11 commits; ${count('identical')} identical, ${moved.filter(digest).length} B1's schema digest only (header bytes 17-24), ${moved.filter(own).length} the design tool's own source, ${count('both failed')} failing alike (apps/expose's ./local)`,
+    ...unnamed.map(r => `  MOVED ${r.source} over ${r.run} (${r.commits[0]})`), ...failed.map(r => `  BUILD FAILED ${r.source} over ${r.run}`)];
+  return { status: unnamed.length || failed.length ? 'FAIL' : 'PASS', evidence };
+}
+
 /** The gate's lines, in the brief's order. */
 export function lines(opts) {
   const pick = h => (opts.hosts.length ? opts.hosts.filter(x => h.includes(x)) : h);
@@ -518,20 +535,25 @@ export function lines(opts) {
       const failed = said.filter(l => /^[\w-]+: [1-9]\d* failures?$/.test(l));
       const names = cargoTest(['-p', 'contract', '--test', 'it', 'tamber_base_scale'], 'an app\'s own space.* names (tamber_base_scale)');
       const evidence = [`conform --synthetic --strict --linux: ${summary}`, ...failed.map(l => `  ${l}`), names.said];
-      if (!conform.ok || !names.ok) return fail(...evidence);
-      // The release builds' byte identity is run on main for E, against the
-      // commit before stage 11 (B2's 14/14 was against B1's).
-      return waits('E\'s release identity run on main (every app\'s release output against the commit before stage 11)', ...evidence);
+      // Release identity, as stage 9's: every app's plan built at the parent
+      // and the end of each run of stage 11 commits on main (--release, that
+      // run's JSON). A plan may move only as named: B1's schema digest (the
+      // plan header's bytes 17-24, the size unchanged), or an app built on
+      // stage 11 whose own source the run changed (the design tool).
+      const release = releaseIdentity(opts.release);
+      evidence.push(...release.evidence);
+      if (!conform.ok || !names.ok || release.status !== 'PASS') return release.status === 'WAITS' && conform.ok && names.ok ? waits(release.on, ...evidence) : fail(...evidence);
+      return pass(...evidence);
     }],
   ];
 }
 
 /** The command line: hosts, the Android app, the lines to run, the file. */
 export function parse(argv) {
-  const opts = { hosts: [], app: 'unsaid', only: [], out: join(homedir(), 'x2theme/stage11-gate-run.txt'), clone: join(homedir(), '.tuft/projects/dt2-gate2') };
+  const opts = { hosts: [], app: 'unsaid', only: [], out: join(homedir(), 'x2theme/stage11-gate-run.txt'), clone: join(homedir(), '.tuft/projects/dt2-gate2'), release: null };
   for (let i = 0; i < argv.length; i++) {
     const [flag, v] = [argv[i], argv[i + 1]];
-    if (!['--host', '--app', '--only', '--out', '--clone'].includes(flag)) return `unknown argument ${flag}`;
+    if (!['--host', '--app', '--only', '--out', '--clone', '--release'].includes(flag)) return `unknown argument ${flag}`;
     if (v === undefined || v.startsWith('--')) return `${flag} needs a value`;
     if (flag === '--host') opts.hosts.push(v); else if (flag === '--only') opts.only.push(v); else opts[flag.slice(2)] = v;
     i++;
@@ -546,7 +568,7 @@ export function parse(argv) {
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage11-gate.mjs [--host <h> …] [--app <android app>] [--only <line> …] [--out <file>] [--clone <copy>]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage11-gate.mjs [--host <h> …] [--app <android app>] [--only <line> …] [--out <file>] [--clone <copy>] [--release <json>]`); process.exit(2); }
   mkdirSync(WORK, { recursive: true });
   const head = run('git', ['rev-parse', '--short=10', 'HEAD']).out.trim();
   const selection = [opts.hosts.length ? `hosts ${opts.hosts.join(' ')}` : 'every host', opts.only.length ? `lines ${opts.only.join(' ')}` : 'every line'].join(', ');
