@@ -10,7 +10,8 @@ import { FINISH_WELCOME, pairOps, redact } from "./env.mjs";
 import { forget as forgetStandin } from "../acp-standin/install.mjs";
 import { makeHub, HUB_ACCOUNTS } from "./usage-hub.mjs";
 import { answer, PULL_REQUEST } from "./gh-standin.mjs";
-import { ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait } from "./lib.mjs";
+import { respond } from "./github-api-standin.mjs";
+import { githubCertificates, ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait } from "./lib.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "t3-fixture-env-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -166,6 +167,41 @@ describe("the gh stand-in (seed --pull-request)", () => {
     const list = (...args: string[]) => json(["pr", "list", ...args, "--json", "number"]).map((row: { number: number }) => row.number);
     expect([list("--repo", "github.com/t3-fixture/shared-notes", "--state", "open"), list("--repo", "github.com/t3-fixture/agent-edits", "--state", "open"), list("--repo", "github.com/t3-fixture/shared-notes", "--state", "merged")]).toEqual([[7], [], []]);
     for (const refused of [["pr", "merge", "7"], ["api", "graphql", "-f", "query=query { search }"]]) expect(answer(refused).code).toBe(1);
+  });
+});
+
+describe("the GitHub API stand-in (seed --pull-request)", () => {
+  const graphql = (query: string, variables: Record<string, unknown>) => {
+    const answered = respond("POST", "/graphql", JSON.stringify({ query, variables }));
+    expect(answered.status).toBe(200);
+    return JSON.parse(answered.body);
+  };
+  test("answers the server's batched head lookup, alias by alias, from each alias's variables", () => {
+    const data = graphql("query PullRequestsByHead($_0_owner:String!){_0_repository:repository(owner:$_0_owner){pullRequests{nodes{number}}}_1_repository:repository(owner:$_1_owner){pullRequests{nodes{number}}}}",
+      { _0_owner: "t3-fixture", _0_name: "shared-notes", _0_head: "feature/notes", _1_owner: "t3-fixture", _1_name: "shared-notes", _1_head: "main" }).data;
+    expect(data._0_repository.pullRequests.nodes).toEqual([expect.objectContaining({ number: 7, state: "OPEN", headRefOid: "0".repeat(40) })]);
+    expect(data._1_repository.pullRequests.nodes).toEqual([]);
+  });
+  test("answers the summary and the lookup by number; anything else is an error, a REST path 404", () => {
+    expect(graphql("query PullRequestSummary($owner:String!){}", { owner: "t3-fixture", name: "shared-notes", number: 7, stacks: false }).data.repository.pullRequest)
+      .toMatchObject({ state: "OPEN", isDraft: false, mergeable: "MERGEABLE", additions: 12 });
+    expect(graphql("query PullRequestByNumber($owner:String!){}", { owner: "other", name: "repo", number: 7 }).data.repository).toBeNull();
+    expect(graphql("query PullRequestCore($owner:String!){}", {}).errors[0].message).toContain("PullRequestCore");
+    expect(JSON.parse(respond("GET", "/user", "").body)).toMatchObject({ login: PULL_REQUEST.author });
+    expect(respond("GET", "/repos/t3-fixture/shared-notes/pulls/7/files", "").status).toBe(404);
+  });
+  test("its certificate is made once, and again when it would expire within a day", () => {
+    const dir = join(root, "github-certs");
+    expect(githubCertificates(dir)).toBe(true);
+    expect(run("/usr/bin/openssl", ["verify", "-CAfile", join(dir, "ca.crt"), join(dir, "api.crt")]).stdout).toContain("OK");
+    expect(run("/usr/bin/openssl", ["x509", "-noout", "-ext", "subjectAltName", "-in", join(dir, "api.crt")], { allowFail: true }).stdout + run("/usr/bin/openssl", ["x509", "-noout", "-text", "-in", join(dir, "api.crt")]).stdout).toContain("DNS:api.github.com");
+    expect(githubCertificates(dir)).toBe(false);
+    run("/usr/bin/openssl", ["x509", "-req", "-in", "api.csr", "-CA", "ca.crt", "-CAkey", "ca.key", "-out", "api.crt", "-days", "1", "-extfile", "api.cnf", "-extensions", "ext"], { cwd: dir });
+    expect(githubCertificates(dir)).toBe(true);
+  });
+  test("a --pull-request server trusts the stand-in's CA and sends its HTTPS to the stand-in's proxy", () => {
+    const built = serverEnv(paths, "second", { T3_FIXTURE_GITHUB_PORT: "16592" }, { githubApi: true });
+    expect(built).toMatchObject({ HTTPS_PROXY: "http://127.0.0.1:16592", NO_PROXY: "127.0.0.1,localhost", NODE_EXTRA_CA_CERTS: join(root, "github-api", "ca.crt") });
   });
 });
 
