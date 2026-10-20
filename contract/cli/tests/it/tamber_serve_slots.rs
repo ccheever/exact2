@@ -188,3 +188,26 @@ fn a_scrub_whose_package_design_moved_since_it_opened_is_a_conflict_at_its_verif
     assert_eq!(verify["error"]["conflict"], true, "{verify}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_propose_and_a_removed_override_are_checked_too() {
+    let dir = app(
+        "removed",
+        "tamber app\n\ntheme\n  other = 2px\n  radius.sm = 8px\n",
+    );
+    // The chain's width a bare base name: the app's 8px, the base's own in each column once removed.
+    std::fs::write(
+        dir.join("node_modules/@acme/lib/index.contract"),
+        "component Card\n  slot\n  view\n    column opacity=\"lib.op\" width=\"radius.sm\"\n      children\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let files = || json!({"app.tamber": digest(&dir.join("app.tamber"))});
+    // A propose is checked as a transaction is.
+    let (proposed, _) = s.ask(json!({"method": "propose", "files": files(), "ops": [{"op": "set-token", "name": "lib.op", "value": "0"}]}));
+    assert_eq!(refusals(&proposed).len(), 1, "{proposed}");
+    // Removing the app's radius.sm gives the chain the base's: 0 cells on the terminal.
+    let (removed, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "remove-token", "name": "radius.sm"}]}));
+    assert_eq!(refusals(&removed).len(), 1, "{removed}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
