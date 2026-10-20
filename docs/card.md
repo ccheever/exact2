@@ -184,7 +184,7 @@ a test, and verify: By `testId` or exact text, each test from empty storage. `cl
     clock data
     reload
     expect text "n" == "1"
-composing a screen: One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, filtering live. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
+composing a screen: One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, filtering live. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place, its `button` indented under it.
   use SummaryCard from "exact:content"
   column gap=16 padding=16
     SummaryCard(label="Streak", value="12", detail="days in a row", progress=none, symbol=none)
