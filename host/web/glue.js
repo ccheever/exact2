@@ -1234,10 +1234,10 @@ async function clock(request) {
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
     let batch;
-    for (let steps = 0; ; steps++) {
-      const waited = flowDue != null && flowDue <= to && await waitForInflight(deadline), held = waited && steps < 4096;
-      ({ batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to, held ? 1 : 0)))));
-      if (batch.error || !held) break; // a stop at `to` may leave a timer due there
+    for (let steps = 0, stops = 0; ; ) { // while a view declares a layout transition, each due time is a batch of its own, which presence plays from that time (as the native hosts lay out there), in stops apart from the 4096
+      const layout = flowDue != null && flowDue < to && stops < 36000 && presence.live?.tracking(), at = layout ? Math.max(flowDue, agentClock) : to, waited = flowDue != null && flowDue <= at && await waitForInflight(deadline), held = waited && steps < 4096;
+      ({ batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(at, held ? 1 : 0)))));
+      if (batch.error || !held && at >= to) break; if (layout && !(flowDue != null && flowDue <= at)) stops++; else steps++; // a stop at `to` may leave a timer due there
     }
     globalThis.exact.gpu?.schedule?.();
     if (flowLoading) await flowLoading;

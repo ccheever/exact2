@@ -207,7 +207,8 @@ component App
   has the platform's Back button and edge swipe with nothing written; a control whose `id`
   is the root's `navigationBack` runs your action and titles the button. Draw neither
   (docs/contract-for-agents.md, the table of what each host draws).
-- The Back button's title: iOS's default is the bare chevron. For "‹ Settings", put a
+- The Back button's title: exact2 leaves UIKit's default back button, which on iOS 26 and
+  later is a bare chevron. For "‹ Settings", put a
   `button id="back" press=back` with `text "Settings"` (no `‹`: iOS draws it) in the pushed
   route's `header`, with `navigationBack="back"` on the root.
 

@@ -640,15 +640,27 @@ fn an_input_a_live_clock_overtook_is_presented_at_the_inputs_time() {
     assert_eq!(host.engine.now(), 2.0);
 }
 
+/// A box a timer moves while another timer and a frame task run: one
+/// `clock +N` crosses all of them.
 const CAPSULE: &str = r##"component A
   state small = false
   state go = false
+  state beats = 0
+  state frames = 0
   action start
     go = true
   action shrink
     small = true
+  action beat
+    beats = beats + 1
+  action frame
+    frames = frames + 1
   task later when go
     after(100, shrink)
+  task beating when go
+    every(200, beat)
+  task framing when go
+    every(frame, frame)
   view
     column width="100%" height="100%" position="relative"
       button testId="go" press=start
@@ -669,15 +681,16 @@ fn capsule_x(host: &Host<NoData>) -> (f64, f32) {
     (shown, k.node_by_key(key).unwrap().frame.x)
 }
 
-/// `clock +N` as the agent runs it (`Agent.advanceRunner`, `clock_stepped`).
-fn agent_jump(host: &mut Host<NoData>, to: f64) {
-    for _ in 0..4096 {
-        if !host.runner.timer_due_ms().is_some_and(|d| d <= to) {
-            break;
-        }
+/// `clock +N` as the agent runs it (`Agent.advanceRunner`, `clock_stepped`):
+/// the request stops it took.
+fn agent_jump(host: &mut Host<NoData>, to: f64) -> usize {
+    let mut stops = 0;
+    while stops < 4096 && host.runner.timer_due_ms().is_some_and(|d| d <= to) {
         host.advance_until_request(to);
+        stops += 1;
     }
     host.advance(to);
+    stops
 }
 
 #[test]
@@ -696,8 +709,8 @@ fn a_box_a_timer_moves_inside_an_agents_jump_starts_moving_at_the_timer() {
     host.dispatch_at(go, Event::Press, 0.0);
     assert_eq!(capsule_x(&host), (196.0, 196.0));
     // Right-anchored: it shrinks from 180 to 48 wide at 100 ms and its left
-    // edge goes from 196 to 274, half way at 300 ms.
-    agent_jump(&mut host, 300.0);
+    // edge goes from 196 to 274, half way at 300 ms, whatever else fired.
+    assert_eq!(agent_jump(&mut host, 300.0), 1, "no request stopped it");
     let (shown, laid) = capsule_x(&host);
     assert_eq!(laid, 274.0);
     assert!(
@@ -706,4 +719,8 @@ fn a_box_a_timer_moves_inside_an_agents_jump_starts_moving_at_the_timer() {
     );
     agent_jump(&mut host, 1000.0);
     assert_eq!(capsule_x(&host), (274.0, 274.0));
+    // A frame task's every frame for two minutes is one call, not a
+    // request stop each (the agent's 4,096 would end at 68 s).
+    assert_eq!(agent_jump(&mut host, 121_000.0), 1);
+    assert_eq!(host.runner.now_ms(), 121_000.0);
 }

@@ -173,19 +173,41 @@ impl<D: DataSource> Host<D> {
         batch.destroy(leaving.view);
     }
 
-    /// Where an agent's jump to `to` stops next. The engine hears each
-    /// commit of a jump at its timer's due time (LLP 1002 D3), but the kernel
-    /// holds only the jump's last tree, laid out at its end: a box a timer
-    /// moved inside the jump would start its layout transition there, so the
-    /// first read after `clock +N` showed it where it was. While a node
-    /// declares a layout transition, the jump stops at each due time and lays
-    /// out there, as N real frames would.
-    pub(super) fn layout_step(&self, to: f64) -> f64 {
+    /// An agent's jump to `to`, stopping after a timer that sends
+    /// ([`exact_runner::Runner::advance_until_request`]). The engine hears
+    /// each commit of a jump at its timer's due time (LLP 1002 D3), but the
+    /// kernel holds only the jump's last tree, laid out at its end: a box a
+    /// timer moved inside the jump would start its layout transition there,
+    /// and the first read after `clock +N` showed it where it was. While a
+    /// node declares a layout transition, the jump lays out at each due time,
+    /// as real frames would, in one batch; only a request stops it short of
+    /// `to`, so these stops spend none of the agent's request stops.
+    pub(super) fn advance_in_layout_steps(&mut self, to: f64) -> String {
         if self.engine.starts_on_frame() || self.presence.layout.is_empty() {
-            return to;
+            let a = self.runner.advance_until_request(to);
+            return self.advanced(a);
         }
-        let due = self.runner.timer_due_ms().unwrap_or(to);
-        due.max(self.runner.now_ms()).min(to)
+        let (mut batch, mut error) = (Batch::new(), None);
+        for _ in 0..LAYOUT_STOPS {
+            let step = layout_step(&self.runner, to);
+            let a = self.runner.advance_until_request(step);
+            self.now_ms = a.now_ms.max(self.now_ms);
+            self.runner.canvas_frame();
+            // A timer still due by `step` is one a request stopped short.
+            let stopped = a.error.is_some()
+                || step >= to
+                || self.runner.timer_due_ms().is_some_and(|due| due <= step);
+            let failed = error.or(a.error.map(|e| format!("{e:?}")));
+            (batch, error) = self.commit_tree(&a.receipts, failed, batch);
+            if let Some(e) = self.arrange_after_commit(&mut batch) {
+                error.get_or_insert(e);
+            }
+            self.group_after_commit(&mut batch);
+            if stopped || self.presence.layout.is_empty() {
+                break;
+            }
+        }
+        self.commit_finish(batch, error)
     }
 
     /// Before a commit's layout: each node the commit gave the row starts
@@ -446,4 +468,14 @@ impl<D: DataSource> Host<D> {
             batch.present(view, property.name(), values[0], values[1]);
         }
     }
+}
+
+/// The most layout stops one agent call makes: a frame task's every frame
+/// across ten minutes. The agent's loop calls again past it.
+const LAYOUT_STOPS: usize = 60 * 60 * 10;
+
+/// The next due time of `runner`'s timers, from its clock, at most `to`.
+fn layout_step<D: DataSource>(runner: &exact_runner::Runner<D>, to: f64) -> f64 {
+    let due = runner.timer_due_ms().unwrap_or(to);
+    due.max(runner.now_ms()).min(to)
 }

@@ -4,9 +4,9 @@ A list that pushes a detail, a Cancel/Save sheet and an alert (`pattern list-det
 A second screen is a route (`if` over state gets no Back, links or split).
 
 A route's `header` is its bar when first in the route with one heading (the title: large at
-`aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route's system
-Back is UIKit's bare chevron; a `button id="back"` (the root's `navigationBack`) with
-`text "Notes"` titles it "‹ Notes".
+`aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route has
+UIKit's default Back, a bare chevron from iOS 26; a `button id="back"` (the root's
+`navigationBack`) with `text "Notes"` titles it "‹ Notes".
 
 <!-- check: app -->
 ```contract
@@ -135,10 +135,10 @@ test "add, open, delete after asking"
   expect state lib == []
 ```
 
-- An alert's `aria-label` is its title. Escape/Back chooses Cancel; only written
+- An alert's `aria-label` is its title. Escape/Back chooses Cancel; only
   `closedby="any"` dismisses outside. Another modal is a sheet, closed on ok
   ([after-a-write](after-a-write.md)).
-- Routes stay mounted: use unique `testId`s. `clock settle` after a push, sheet or alert;
+- Routes stay mounted: unique `testId`s. `clock settle` after a push, sheet or alert;
   `clock data` before reading a save.
 - From 900 px, pushed rows split list and detail, `follow` replacing it;
   `navigationSplit="none"` keeps it pushed.
