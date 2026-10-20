@@ -55,5 +55,44 @@ final class PageFactsMacTests: XCTestCase {
         XCTAssertFalse(heard.isEmpty, "the restore is told to the page")
         XCTAssertEqual(PageFacts.hidden, !only.occlusionState.contains(.visible), "restored, it reads as its occlusion says")
     }
+
+    /// LLP 1069.010 D8: the one window of an app that keeps running is
+    /// ordered out by its close, its page kept. The page reads `hidden` and
+    /// hears it, and hears the reopen that shows it again. A window ordered
+    /// out otherwise, or not yet shown, counts for nothing, so a page boots
+    /// visible; a window closed for good is forgotten.
+    func testAWindowItsCloseHidIsHiddenAndBothChangesAreHeard() {
+        _ = NSApplication.shared
+        let unshown = window(900)
+        defer { unshown.close() }
+        XCTAssertFalse(PageFacts.hidden || unshown.isVisible, "a window not yet shown leaves the app visible")
+        let only = window(100)
+        defer { only.close() }
+        only.orderFront(nil)
+        wait { only.isVisible }
+        let onScreen = !only.occlusionState.contains(.visible)
+        XCTAssertEqual(PageFacts.hidden, onScreen)
+        var heard: [Bool] = []
+        let tokens = PageFacts.observe { heard.append(PageFacts.hidden) }
+        defer { PageFacts.forget(tokens) }
+
+        XCTAssertTrue(ExactDocuments.hidesOnClose(only, only: true, keepsRunning: true))
+        XCTAssertFalse(only.isVisible || only.isMiniaturized, "ordered out: neither on screen nor in the Dock")
+        XCTAssertTrue(PageFacts.hidden, "with its only window hidden by its close nothing of the app is seen")
+        XCTAssertEqual(heard.last, true, "the hide is told to the page at once: \(heard)")
+
+        heard = []
+        only.makeKeyAndOrderFront(nil) // the reopen's `front()`
+        wait { !heard.isEmpty && heard.last == !only.occlusionState.contains(.visible) }
+        XCTAssertFalse(heard.isEmpty, "the reopen is told to the page")
+        XCTAssertEqual(PageFacts.hidden, !only.occlusionState.contains(.visible), "shown again, it reads as its occlusion says")
+
+        // The same window hidden again, then closed for good while hidden: it counts for nothing.
+        _ = ExactDocuments.hidesOnClose(only, only: true, keepsRunning: true)
+        XCTAssertTrue(PageFacts.hidden)
+        PageFacts.closed(only)
+        only.close()
+        XCTAssertFalse(PageFacts.hidden, "a window closed for good, like one never shown, leaves the app visible")
+    }
 }
 #endif
