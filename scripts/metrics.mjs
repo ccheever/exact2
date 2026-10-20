@@ -41,6 +41,7 @@ import { buildFileCards, buildTreeFile, jsTargetBuild, publicFileCards, readStat
 import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { developmentBuildEnv, resolveApp, withAppFixture } from './app.mjs';
 import { Cdp, open } from './agent.mjs';
+import { chromium } from './agent-launch.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -375,10 +376,10 @@ await step('boot', () => {
     res.end(body);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const { executable: chrome, unavailable } = chromium({ needs: ['gpu', 'perf'] });
   let child, fresh;
   try {
-    if (!existsSync(chrome)) throw new Error('no Chrome at $CHROME');
+    if (unavailable) throw new Error(unavailable);
     fresh = mkdtempSync(resolve(tmpdir(), 'exact-metrics-'));
     child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${fresh}`,
       '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run',
@@ -499,7 +500,7 @@ await step('boot', () => {
 // first frame of the new plan in the DOM.
 {
   const t = Date.now();
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const { executable: chrome, unavailable } = chromium({ needs: ['gpu', 'perf'] });
   const port = 20000 + Math.floor(Math.random() * 20000);
   const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app.name, '--port', String(port)], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   let compilerPid = null, diagnostic = '', devExited = false;
@@ -524,7 +525,7 @@ await step('boot', () => {
   let page = null;
   try {
     const ready = await until(/^(?:plan ready|module generation ready|Rust generation \w+ ready)/, 120000, 0); // a cold build of the dev bin can take a while; warm is ~1 s
-    if (ready && existsSync(chrome)) {
+    if (ready && !unavailable) {
       page = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
         '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run',
         '--no-default-browser-check', 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
@@ -608,7 +609,7 @@ await step('boot', () => {
         : '20 distinct Contract edits; save-to-visible-DOM p50/p95, next frame opportunity reported separately; includes module producer for TypeScript apps';
     } else {
       out.reload_ms = NaN;
-      out.reload_note = ready ? 'no Chrome at $CHROME' : 'dev driver did not come up: ' + (diagnostic || lines.slice(-2).join(' | '));
+      out.reload_note = ready ? unavailable : 'dev driver did not come up: ' + (diagnostic || lines.slice(-2).join(' | '));
     }
   } catch (error) { out.reload_ms = NaN; out.reload_note = String(error); } finally {
     writeFileSync(source, original);

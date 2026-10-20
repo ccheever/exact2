@@ -829,6 +829,17 @@ No spacing or radius scale ships in the base yet: the platform's metrics are alr
 rows. A base scale, with platform values rather than a brand's 4 px grid, is wanted later
 (Charlie, 2026-10-13) and is stage 11.
 
+*Amended 2026-10-19 (stage 11 B; theme2):* the base scale ships as nine base names (`space.xs`
+to `space.xl`, `radius.sm` to `radius.full`), each a length in each host's column of the
+kernel's table. A design value or a `when` arm may name one bare (`card.pad: length = space.md`,
+an alias), and what it means depends on the app's design:
+- **the base name is unset:** the alias is a per-host reference, kept as written and never
+  folded, so each host reads its own column; an expression over it (`calc(space.md + 4px)`) is
+  refused until QUEUE's entry lands;
+- **the app's design sets it:** it is the app's own token, and every reader folds through it as
+  through any token reference, so the app's value wins everywhere, an edit of it re-folds the
+  alias, and a ranged param naming it keeps its px.
+
 **Packages.** A package (`packages/reading`) may ship `<package>.tamber` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
 may set any of them by full name. Two definitions of one name from different files are a
@@ -1492,8 +1503,9 @@ Android's reader and the terminal.
     cannot write or send commands; revocation cuts off its socket and, separately, its canvas
     through the gateway; an unencrypted remote connection is refused.
     **10b. External clients** (D14): a Figma Variables bridge, a Paper or Pencil client, as
-    clients of stage 10. **Gate:** a changed accent in Figma Variables is proposed as a dial
-    change and a changed folded value as a pinned override.
+    clients of stage 10. Wire: its additions land after stage 10 closed (2026-10-19), so they
+    are the first of `tamber/1.14`, the window stage 11 shares. **Gate:** a changed accent in
+    Figma Variables is proposed as a dial change and a changed folded value as a pinned override.
     **10c. A hosted relay** (Charlie, 2026-10-19: "We will prob need one yes"; design to
     follow, its own plan): remote pairing for a team that shares no machine or LAN. What
     stage 10 already fixes, and the relay must keep (theme2's check, 2026-10-19):
@@ -4539,3 +4551,612 @@ C1's gateway on B's remote doors, in both dev loops, under `tamber/1.13`.
 - **After review round 1 (Astra, Grok):** Grok RIGHT, no findings; Astra's one should-fix (proxied pages keep `'self'` in `frame-ancestors`) answered by the lead: `'self'` stays, since code on the canvas origin already is that origin and can do anything a frame of its own page could, and apps frame their own routes. The gateway's `frame-ancestors` is now exactly `'self'` and the tool's remote origin: any other source a page names (a foreign origin, the local tool's) is dropped, so no other origin frames a canvas page (tested with a page naming `https://evil.test`).
 - **On main with the plain-LAN fix (81f2d32e8f):** the rule that a paired credential is taken only from this machine or through one of B's doors is one helper, `viaDoor(access)` in scripts/tamber-request.mjs, which the wire's check and the canvas gateway both call; dispatch's own `plain` flag is gone (the wire refuses such a request before dispatch).
 - **After the re-check (Astra):** the tool origin is written into the entry page as an escaped attribute value, and `serve()` refuses a `toolOrigin` that isn't a plain https origin (a host name or address and a port), so neither the attribute nor the CSP header can be misread.
+
+### Stage 10's gate: met (2026-10-19; the run is `~/x2theme/stage10-gate-run.txt`)
+
+exact2 main at `29ec5ae613`, the clone at `baf8b6b` (a signed-out copy), a second Chrome profile as the remote
+client trusting only the listener's certificate. Stage 10's commits: B `e85fb5c4d1`, `8f44ea2b8c` (and
+pair-code's doors, `250ce13108`..`417d8c48f7`); A1 `98d26391ca`, A2 `1dbf03d789`; the plain-HTTP fix
+`ae9e86e1ca`; C1 `f7ffce5644`..`78a7202c2b`; C2 `ec5c69fb0f`..`c92dace86a`; D (LLP 1122 T6)
+`cd6300a22a`..`2ca911ea7f`. Wire: `tamber/1.13`.
+
+| Gate line | Result |
+|---|---|
+| A second browser pairs over TLS, the fingerprint checked before anything is sent; a used code is refused and five misses burn the live codes | **Met** (1), both by the server and by the tool's own pair panel (1, D). |
+| A paired `propose` client reads, inspects read-only and proposes; writes and commands are refused with its scope named; a `write` client writes and the event names it | **Met** (2); the tool greys what writes for a `propose` client and says why (2, D). |
+| Revoke closes the client's subscription and held long poll at once and refuses its next request; separately, its canvas through the gateway, on both ports | **Met** (3), (3, C); the running tool says Revoked, its canvas goes, and it sends no more (3, D). |
+| No wire auth reads a cookie; a cookie page code sets with the gateway's name grants nothing on either port | **Met** (4), (4, C). |
+| The canvas on its own origin: entered through the gateway by the `#g=` fragment, which leaves the frame's address before any request and is in no URL or history entry; framed script can't read the tool origin's DOM, storage or token | **Met** (3, C), (5, C) ×3, and the tool frames it so and drops the grant once entered (5, D). |
+| An unencrypted remote connection is refused, pairing included; the trusted tunnel takes paired tokens and pairing, never the local token; no non-loopback peer reaches the loopback-bound listener | **Met** (6) ×3. |
+| Local clients unchanged; a release build has no Tamber endpoint; the server and tool suites green | **Met** (7) ×3: pairing 15, pairing-server 14, remote 27, canvas 31, tamber-server 30, dev-builds 3, design-tool 18. |
+
+**Found by the gate's dry run and fixed in stage 10:** with `--lan`, a plain-HTTP LAN peer could pair. A paired
+credential is now honoured only from this machine or through one of B's doors (`ae9e86e1ca`; one helper since C2).
+**First final run:** 21 of 22; (5, D) read the frame's first `src` after the entry word had already dropped the
+grant, a timing fault in the gate's check, not the tool. The check records each `src` as the tool sets it, and
+the re-run met every line.
+**Rulings written into LLP 1122 D12 with this close:** the canvas is on its own origin; `inspect` needs `read`;
+the loopback rewrite is functional, not a security boundary; the hosted relay is stage 10c.
+
+**Stage 10 is closed.** The `tamber/1.13` window is closed; the next wire change takes `tamber/1.14` (stage 11).
+
+### Stage 11, commit B1: the base scale table (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s11b-plan.md`, theme2's 09:56 approval and its conditions) and theme2's 10:57
+ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
+
+- **Nine base names** (ruling 5): `space.xs`, `space.sm`, `space.md`, `space.lg`, `space.xl`, `radius.sm`, `radius.md`,
+  `radius.lg` and `radius.full`. A view reads one with no design defining it. An app may set any of them in its design
+  (ruling 4), and its value wins app-wide, as any token's does. No other name is reserved, so the clone's `space.header`
+  keeps its meaning.
+- **The table:** `scale` in `kernel/tables/schema.json`, a row per name: `[name, ios, mac, neutral, material,
+  terminal]`, px (points), never scaled by Dynamic Type (ruling 6).
+
+  | name | iOS | Mac | neutral | Material | terminal |
+  |---|---|---|---|---|---|
+  | space.xs | 5 M | 6 M | 4 neutral | 4 G | 0 |
+  | space.sm | 8 =grouped-row-gap | 8 = | 8 = | 8 = | 1 cell |
+  | space.md | 16 =grouped-row-inset | 10 = | 16 = | 16 = | 1 cell |
+  | space.lg | 20 M | 20 M | 24 neutral | 24 G | 2 cells |
+  | space.xl | 35 M | 30 =grouped-label-inset (stretch) | 32 neutral | 32 G | 2 cells |
+  | radius.sm | 5.6 M | 5 M | 4 =mark-radius | 4 G | 0 |
+  | radius.md | 17 M | 6 M | 8 =control-radius | 8 G | 0 |
+  | radius.lg | 26 =grouped-card-radius | 10 = | 12 =surface-radius | 12 G | 0 |
+  | radius.full | full | full | full | full | 0 |
+
+  **No web column** (theme2, 2026-10-19): every web build (the wasm host and the JS target) throws the neutral switch,
+  so the browser reads the neutral column (LLP 1115.000 D17 as corrected). `Column::Web` is read only by a process that
+  says no column, and as Material's fallback; for the scale it reads the neutral cell (`style::scale::cell`, held by a
+  test for every name). The draft's `@ios` cell form is withdrawn with it.
+
+  Material's G cells are Material 3's spacing and shape scales. The neutral look's own steps (4, 24, 32) are its
+  definition (LLP 1115.000 D17), not Material's, though they coincide. Each look's steps are in order.
+- **The cell forms** (theme2 (a)). A cell is never a bare number, and the build (`kernel/build/scale.rs`) refuses
+  anything else: arithmetic, a missing source, a dangling metric or one with no px in that column, a reference to another
+  column (`@…`), and `full` outside radius.full or in the terminal.
+  - `=<metric>`: that metrics row's value in the same column, read when the kernel builds, so the cell cannot drift.
+    Used only where the metric names the same role (theme2 (b)): an inset is space.md, a row gap space.sm, a control's
+    corner radius.md, a card's or surface's corner radius.lg, a mark's corner radius.sm. The one exception is a role
+    stretch theme2 ruled, recorded with its reason (the Mac's space.xl, below).
+  - `{px, measured: id}` and `{px, guideline: id}`: `id` is an entry of `docs/scale-measured.md` with what was measured
+    and how (or the citation), the number, and the reason for the choice.
+  - `full` (radius.full): one oversized length, `style::scale::RADIUS_FULL` (9999), named once in the kernel crate.
+    Every host clamps it into a pill by CSS's corner-overlap rule (stage 11 C), never `50%` (theme2's C ruling).
+  - The terminal: `{cells: n}` for a spacing (`n ch`), `0` for a radius (it draws none).
+- **Measured** (`bun scripts/measure-scale.mjs mac | ios --udid <sim>`, `scripts/measure-scale/{ios,mac}.swift`; raw
+  output in `~/x2theme/s11b/`):
+  - iOS 27.0 simulator: UIKit's own values where its API states them; otherwise the inked corner at 3×, read as the
+    equivalent circular radius along the 45° diagonal. Check: the inset-grouped card measures 26.07 against the table's
+    26.
+  - macOS 27.0: AppKit's API on alignment rects; corners from the window server's composite of the tool's own window
+    (AppKit 27 bezels reach no in-process capture), at 1× on this display (±0.7 pt, recorded as whole points).
+  - Choices theme2 ruled (10:57):
+    - iOS space.xs is a small button's top inset, 5 (UIKit states no 4).
+    - iOS space.lg is a large button's leading inset, 20 (an iPhone's margin is 16, space.md's).
+    - iOS radius.sm is `cornerStyle .small` at 44 points, 5.6, a fixed length recorded with that height. UIKit's
+      `.small` scales with height; iOS 27 has no mark.
+    - iOS radius.md is the medium button's measured corner, 17: iOS 27's controls are capsules, and 17 is a length,
+      not `full`.
+  - **space.xl is the gap between grouped sections without a header, on every look.** iOS's 35 was measured without a
+    header (`.insetGrouped`, no headers), and theme2 then ruled xl headerless on every look. The Mac's headerless gap
+    between a SwiftUI `.grouped` Form's sections measures 10, below its space.lg (20). So the Mac's space.xl is a ruled
+    role stretch: 30, `=grouped-label-inset` (a grouped section label's inset, the Mac's largest grouped spacing in the
+    table), with its reason in `docs/scale-measured.md`. A gap measured with a header (56) was withdrawn, since a header
+    mixes a text height into a spacing.
+- **The fallback** (theme2 (c)): `theme::measure` reads a base name no entry defines as the scale's length in the
+  process's column, bound theme or none.
+  - A name the design defines is the design's, even in a row that can't take it, so the base never stands in silently.
+  - The read is recorded as a token's, so an edit that defines the name later sets the row again.
+  - The column is the host's (`metrics::set_column`). This commit adds `Column::Terminal`: the `web` column's value
+    in every metric (the terminal read it before) and the terminal's own in the scale. The hosts set their
+    columns in B2.
+- **theme2's conditions, and where each is held:**
+  - **The compiler knows the nine names** (`contract/lower/src/scale.rs`, `theme::measure_values`). A view reading one
+    compiles with no design. Its values are the px columns', which a row checks as a token's. It varies by column, never
+    by an app axis, so an inherited row reading it is no `tamber-inherited-axis`.
+  - **An app definition must be a length.** `tamber-base-kind` refuses a base name set to a colour, a number or any
+    other kind. A length that varies by an app axis is the app's.
+  - **One table, which describe, resolve and explain read** (`exact_kernel::style::scale`, public, every cell with its
+    source). The wire's half is split out of this commit: the design server's `describe`, `resolve` and `explain` of
+    the base names move to rt1's stage 10 D under `tamber/1.14`, reading this table, never a copy. B1 touches no wire,
+    and `tamber/1.13` is unchanged.
+  - **Retention keeps nothing for an unread base name.** The plan's theme carries no entry for a base name the design
+    leaves unset, since the kernel holds every column. One the design sets is kept only when read, as any token is.
+  - **The monotonic test** (`style::scale` tests): within each look xs ≤ sm ≤ md ≤ lg ≤ xl and radius sm ≤ md ≤ lg,
+    with radius.full left out.
+- **SCHEMA_DIGEST** moves once, in the stage's window: `0xd348_8e13_baf4_12bd` (main, after 7ce6cb98db) → `0xc76c_20d0_6202_3b03` (on the branch's base before that rebase, `0xad42_cc2d_c5b5_26f3` → `0x45a9_8459_9339_c7bf`)
+  (`kernel/src/wire/codec.rs`; the `scale` table, the metrics' terminal column and theme2's unit flag, `style length`.
+  Rounds 1 and 2 pinned `0x374f_477d_d305_5b7e` before the flag, round 3 `0x1360_51a6_5170_bf6a` before the `calc()` guard, as `codec.rs` is hashed). Nothing else pins it.
+- **QUEUE:** "A Dynamic Type opt-in for the base scale" (ruling 6, the lead's assignment to this commit).
+- **Tests:**
+  - `kernel/src/style/scale.rs`:
+    - the nine names;
+    - every cell equals its source, re-read from the metrics table;
+    - `Column::Web` reads the neutral cell for every name;
+    - each look in order;
+    - every measured and guideline id has its entry with the number;
+    - the fallback: unbound, a design's own value winning, a defined name a row can't take not falling back, the read
+      recorded.
+  - Every build refusal was checked by hand on a mutated schema.
+  - `contract/cli/tests/it/tamber_base_scale.rs`:
+    - a bare app compiles with no plan entry, and the runner reads the kernel's values;
+    - an app's own `space.md` wins and an unread `space.lg` is not kept;
+    - a colour or number definition is refused, and an axis-varying length accepted;
+    - an inherited row is no axis refusal, a number row is `tamber-kind`, and a name that is no base fails.
+- **radius.full** (theme2): an app that sets `radius.full` sets a length, as for every base name. `full` is the base's
+  own value, the clamped oversized length; an app that wants a pill leaves radius.full unset rather than overriding it.
+- **B2:** the hosts' columns: the JS target's CSS variables (until then a JS-target page does not resolve a base name),
+  Linux and Android wiring, and the terminal host's `set_column(Terminal)`, each with its unit tests.
+- **After review round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT):**
+  - **Base names in design values** (Astra 1, BLOCKING; theme2's (a)). A design value or `when` arm may name a base name
+    the design leaves unset bare: `card.pad: length = space.md` is an alias.
+    - The vocabulary passes the nine names to Tamber (`Vocab::bases`). For a base name the design does not set, Tamber
+      reads a bare one as a named length, kept as written and never folded, the way a role reference survives.
+    - The kernel reads a length token whose value is a bare base name as the base in its column, the design's own
+      definition first (`theme::measure`). Both reads are recorded, so an edit of either sets the row again. A base name
+      set to itself reads the scale.
+    - A base name the design sets is its token, folded as any token reference is. Its value wins through the alias, an
+      edit of it re-folds the alias for the design server's batch, and a ranged param naming it keeps its px. theme2
+      accepted this (2026-10-19): "never folded" applies to an unset base name only. D11 is amended with both cases:
+      unset, a per-host reference never folded; set, the app's token, folded as any reference.
+    - An expression over a base name the design leaves unset (`calc(space.md + 4px)`, a shadow's length) is refused,
+      `tamber-base-expression`, telling the author to name it bare. QUEUE has the later work. Over one the design sets,
+      it is that token's expression.
+    - Tests:
+      - `contract/cli/tests/base_alias.rs`, its own process: the plan's `card.pad` is `space.md` as written; it reads
+        the neutral, Mac and iOS columns' lengths, and its `when tone=wide: space.lg` arm too; an app's `space.md`
+        folds through and re-folds on an edit.
+      - `tamber_base_scale.rs`: the expression refusals.
+      - `style::scale`: the kernel's alias reads.
+  - **An icon named as a base name is refused** (Astra 2). `tamber-base-kind` covers icon declarations as well as tokens
+    (at lowering then; round 2 moves it into the shared checker), with a refusal test. A dial's name is an identifier, so none can be one.
+  - **The build checks each source against its entry** (Astra 3): a `measured` or `guideline` id with no entry in
+    `docs/scale-measured.md` stops the build, and the page is a rerun dependency. The rerun is said in
+    `build/scale.rs`, not `build.rs`, which the schema digest hashes, so the digest does not move.
+  - **Each documented value is bound to its step** (Astra 4). Every entry has a `Binds:` line (`space.xs = 4`), and both
+    the build and the provenance test require the cell's exact `name = value` there. A shared entry's other numbers no
+    longer stand in: Material radius.md 8 → 4 now fails the build.
+- **After review round 2:**
+  - **The runner's length binding reads an alias** (fix 1). `Tamber::length` reads its token through `theme::measure`
+    at the binding's tuple, so `card.pad = space.md` resolves through the kernel's scale in the process's column, as a
+    style row's does. `base_alias.rs` binds `Token<Length>` reads of `card.pad` and `space.xl` in each column, after a
+    mode change and after an edit to `space.lg`.
+  - **The DTCG export of an alias to an unset base** (fix 2). It wrote 1px; now it writes the neutral column's px from
+    the kernel's table (the web's look; radius.full its 9999), the name kept in `lossy`. The export's conversions say
+    so. `contract_lower::theme::vocab` lists the base names' lengths in `sizes`, which `tamber gen`'s CSS reads too, so
+    neither writes a bare `space.md` outside Exact. Test: `tamber_base_scale.rs`.
+  - **`tamber-base-kind` is the shared checker's** (fix 3). `check_design` refuses a base name declared as an icon or
+    as any token but a length, by `Vocab::bases`, so a write's plan refuses it before it lands, as the build does; the
+    lowering's copy is gone. Test: `tamber_serve.rs` (`propose` and `transaction` refused, file unchanged, a length
+    accepted).
+  - **A scale cell names a metric that holds a length** (fix 4). A `style` row's bare number may be a weight or a flex
+    factor, which the table didn't mark. Round 2 asked the name's ending; theme2 ruled for a per-row unit flag
+    instead (below).
+- **theme2's unit flag** (ruling after round 2, in place of fix 4's name endings):
+  - **The marker.** A `style` metric written on a length property says so in the schema: its kind is `style length`.
+    It applies to a gap, an inset, a corner, a width or height, a padding, a margin or an offset: 59 of the 83 `style`
+    rows. Its number is px; its other cells are `unset`, `auto`, a percentage, an `em`, `rem`, `px`, `vw` or `vh`
+    length, or a `calc()`. The generated `Metric` carries it as `length`, true for a `length` row too, and its kind
+    stays `Style`, so every reader of a style row reads it as before.
+  - **The build holds the marker to the row both ways** (`codec.rs`, `style_length_marker`):
+    - a `style` row whose name says a length property (every name but a colour's, a line style's, a position's, a
+      font's, a weight's, a switch size's, an alignment's, an appearance's, a box model's or a flex factor's, as the
+      row test reads names) is refused without the marker;
+    - a marked row is refused where its name says no length, or where a cell holds no length.
+  - **A scale cell may name only a `length` or `style length` metric** (`build/scale.rs`); the name endings are gone
+    from it.
+  - **The kernel's row test reads the marker** (`style::metrics`): `every_value_is_one_a_row_takes` takes a row's being
+    a length from the marker, and only which property it is written on from its name. A new test,
+    `the_length_marker_is_the_names_length_rows`, holds the marked set to the set the names gave before the flag,
+    exactly (59 rows), so nothing the kernel reads moves.
+  - **Checked by hand on a mutated schema, each refused with its message:**
+    - `grouped-row-gap` unmarked;
+    - `grouped-header-weight` marked;
+    - a marked row with a keyword cell;
+    - `=grouped-header-weight` in a scale cell.
+  - **The digest moves within B1** (above): `0x374f_477d_d305_5b7e` → `0x45a9_8459_9339_c7bf`.
+- **After review round 3 (Astra RIGHT, Grok RIGHT WITH CHANGES):**
+  - **A binding reads the terminal's cells** (Grok, should-fix). Under `Column::Terminal` the scale's spacings are
+    cells (`1ch`, `2ch`), which `Tamber::length`'s points read as no length. It now reads a cell as its px
+    (`style::cells::parse`). `base_alias.rs` checks the terminal column: space.sm 8, space.lg 16, radius.md 0, and
+    `card.pad` 8, then 16 under `tone=wide`.
+  - **A host's length read is read aside** (Grok, nit). `Tamber::length` wraps its `theme::measure` in
+    `theme::recorded`, as `color` does, so its read joins no style parse's names.
+  - **Every misdeclared base name is said at once** (Grok, nit). Beside an icon's refusal, `check_design` appends
+    `misnamed` too. Where the checker refused another token, it still has every token's kind, written or inferred
+    (`check::check`'s refusal carries them), so `space.lg = #ffffff` is said beside it too (the re-check's nit). Test: `tamber_base_scale.rs`
+    `every_misdeclared_base_name_is_said_beside_other_refusals`.
+  - **A marked row's `calc()` is a length** (the re-check, Astra). The marker's guard parsed any `calc(…)`. It now
+    reads CSS's typed grammar: numbers and lengths (`px`, `em`, `rem`, `vw`, `vh`, a percentage), `+` and `-` between
+    two of one type and spaced, `*` by a number, `/` by a number, and parentheses; the result must be a length
+    (`codec.rs`, `calc_length`). Checked by hand on a mutated cell:
+    - refused: `calc(1deg)`, `calc(garbage)`, `calc(2 * 3)`, `calc(100%-16px)` and `calc(100% - 16)`;
+    - accepted: `calc((100% - 16px) / 2 + 1em * 2)`.
+### Stage 10b, E2+E3 follow-up: re-import judged whole (theme2's option B, 2026-10-19)
+
+E23's round 5 found super-linear paths in the importers. They are fixed in two steps.
+
+- **First, the exact part.** Outputs are byte-identical:
+  - the DTCG importer walks each path's alias chain once per tuple;
+  - re-import's transaction is tried on the text it has accepted, instead of the whole prefix again;
+  - context and design lookups go by name;
+  - one check replaces apply-then-check.
+- **Then option B.** A proposal is applied as the whole edit it is, so it is judged whole:
+  - **Each token is planned.** Its lines are planned without a check.
+  - **Then rounds.** Every pending token's lines are applied together (`edit::stepped_all`: many
+    `set-token` and `set-dial` operations with one parse). That gives the same text and the same refusal as stepping
+    them one at a time: each operation's lines are parsed alone, and anything else falls back to stepping. The
+    result is checked once, and each token's values are read from that folding.
+  - **Re-asking.** The pins a token needs are added for the next round. A round that adds a pin or drops a token
+    asks every token again, so a token is settled only on a round that changes nothing. There is no count of
+    rounds: each change is a pin (three a token; a fourth refuses it), a refusal, or lines that leave, so the rounds
+    end. A token settled beside a change that is later dropped is asked again without it (`export_dials` test).
+  - **Dial candidates are judged alone.** A token that may be a dial's change (D14) is judged on its own. Its
+    literal lines are only a fallback, and `export_dials::dials` decides which applies afterwards.
+  - **The transaction.** The dials' changes come first, then the tokens, judged the same way. A refusal reads "the
+    design would refuse it with the rest of the proposal (…)", where it used to read "…with the tokens before it".
+- **A refused set** is resolved deterministically, in the export's order of names (`export_batch::judged`):
+  - each diagnostic on a member's token or dial line refuses that member, with its own diagnostic as its reason;
+  - when a diagnostic is on any other line (an unchanged token refused for what a change made of a token it reads),
+    the set is halved, the first half before the second, each half on what was taken before it.
+
+  `judged` checks its base, then once more when nothing is refused.
+- **Where the report differs from per-token checking.** These are the two interaction cases (tests:
+  `export_batch::tests`):
+  - **A token refused alone but taken with the others now lands with them.** For example, `a` naming `b` as a
+    colour while `b` changes from a length to a colour. It used to be reported.
+  - **A token taken alone but refused with the others is now reported with its own reason.** For example, `a` naming
+    `b` while `b` becomes a length. The refusal is on `a`'s line, so `a` is refused and `b` lands. It used to be taken,
+    then refused in the transaction.
+  - A dial's change and another token's literal, both reading the dial, land together (`export_dials` test).
+  - The theme-fixture and Bluesky designs, with values flipped at four densities, report identically before and
+    after.
+- **Measured** (release, every value changed):
+
+  | Design | Before | Now |
+  |---|---|---|
+  | 400 colour tokens, each with a `when` | 51.6 s | 0.03 s |
+  | 800 colour tokens | 5–7.6 s (exact part) | 0.07 s |
+  | 3,000 colour tokens | about 90 s (extrapolated) | 0.27 s |
+  | 2,000 tokens over 64 contexts | not measured | 2.1 s |
+  | 800 refused tokens (refusal-heavy) | not measured | 0.03 s |
+  | 3,000 refused tokens (refusal-heavy) | not measured | 0.11 s |
+
+  - The DTCG export (which re-import runs on the design) found groups by scanning every name for every token in
+    every context. It now reads each name's dotted prefixes once: 0.7 s for 3,000 tokens over 64 contexts, which
+    took 4.5 s for 2,000 before.
+  - `judged` alone: 3,000 members all refused on their own lines take 30 ms. Refusals on other tokens' lines are
+    found by halving, about two checks for each refused member at each halving.
+- **The rest of rt1's entry** (iosfix, x2/import-rest; theme2's 19:07 ruling; the lead's 18:35Z task):
+  - **The budget, calibrated to the isolate.** An import runs in a child of about 1 GiB (`tamber-isolate.mjs`), and a
+    budget that outruns it turns the budget's refusal into an RSS kill. Measured (release, designs over 64 contexts,
+    one `when` per token): a fresh DTCG import holds about 12 bytes of RSS for each unit, a re-import about 30 (it
+    exports the design to compare, each context's tree now charged as it is built). So `budget.rs` has a limit per
+    path, each refusing before the isolate's kill (at 90% of 1 GiB): `IMPORT` = 3 × 2²⁴ (about 600 MB, 59% of 1
+    GiB) and `REIMPORT` = 3 × 2²³ (about 750 MB, 74%); before, one `LIMIT` of 2²⁶ let a re-import reach about 2.9
+    GB. The server's check of a client's baseline against the design's own export (`contract tamber` `plan`) builds
+    that export inside the re-import's budget too (`export::own_digest`), so a design too large for one re-import is
+    refused there with the budget's message, not exported whole first or told to pull.
+  - **Supported size:** about 650 tokens over 64 contexts re-import, and about 880 import fresh; 3,000 tokens over
+    about 14 contexts re-import (real Figma files: thousands of variables, usually 8 modes or fewer). 3,000 × 64 is
+    refused with the budget's message (re-import: 0.36 s, 470 MB). This is less than the 3,000 × 64 first asked for;
+    making that import is the QUEUE entry "share a context's tree" (the DTCG Resolver Module's sets and modifiers).
+  - Near the limits: 500 tokens × 64 re-import in 0.5 s (76% of `REIMPORT`); 700 import fresh in 0.28 s (79% of
+    `IMPORT`).
+  - **The CSS importers**, each linear and bounded, their output on 162 stylesheets (the fixtures and real Tailwind
+    and shadcn sheets found on the machine) byte-identical before and after:
+    - nested rules (`import/mod.rs` `body`): the stylesheet's marks (`{`, `}`, `;` outside strings and parentheses)
+      are read once and each `{`'s match found once, and each rule reads its own range of them (each level re-read
+      them before, and a custom property's unmatched braces were each matched by a scan to the end). A stray `)` no
+      longer lowers the parenthesis depth below zero, so every rule reads its marks as the whole text does (malformed
+      CSS only; the 162 sheets are unchanged). A rule nested past 64 is not read, and is reported (one value, with its
+      prelude's line), as is a block whose context the blocks would copy past 8 MiB in all, counting the copy in each
+      of its declarations' labels and reports; it was a stack overflow at about 100,000 levels. The context is
+      borrowed down the rules and copied only into a block kept. A custom property's name past 256 bytes, its value
+      past 4 KiB, or a prelude past 4 KiB is reported likewise (one value, its line), so no one string is copied into
+      every token, report or message that reads it (no real stylesheet's is near them);
+    - nested selectors (`engine::nested`): a selector past 1 KiB makes the chain none, checked before it is built, and
+      a list past 1,024 likewise; `& &` at each of 40 levels ran past two minutes;
+    - colour aliases (`engine.rs`): each block's chain followed once and remembered, cycles found once (Tarjan's),
+      and a failure carried down its chain a step at a time; a chain past 256 links is reported ("an alias chain
+      longer than 256", as the DTCG importer's), each block's walk stopping there, so blocks that share a long
+      chain cost at most 256 steps each. 20,000 aliases in 80 chains took 28 s in debug, now 1.3 s;
+    - shadcn's other kinds: each variable's last declaration and its declarations read once, a reference chain past
+      256 none (no name's kind standing in); the other-kind tokens grouped by variable once; each token's sources
+      (shadcn and Tailwind) and the themes found by name;
+    - the kinds' fold check (`kinds::unfolded`, shared): tokens and the design's found by name through indexes, the
+      probe's lines counted as it is written (it recounted the whole text per token), a diagnostic's token found by
+      binary search;
+    - Tailwind (`written_out`, `other_kinds`): each key written out once at each depth, with its chain's 16-deep
+      refusal as before; one value past 64 KiB is refused ("its `var()`s write out past 64 KiB"), and all of them past
+      16 MiB; the theme's keys held by name (a reset of one name looks it up; a namespace's clears a range of names,
+      passing over the names it keeps, in the order they are held), owners and redefinitions looked up by index, and what reads a redefined `inline` key found once through
+      its readers. 5,000 type keys took 38 s in debug, now 0.3 s; 20,000 keys and a 2,000-key `inline` chain 0.4 s.
+  - **`marks`**: each token found by one index (its name, then in any ASCII case, the first so named, as before), and
+    a dial's moved tokens by a name map. 3,000 set tokens and a dial take 0.14 s in debug (it was not slow there).
+  - Tests: `tests/it/scale_css.rs` (each path on a large valid input in time, and the shapes that multiply cut off) and
+    `scale.rs` `the_budget_takes_a_design_near_its_limit_and_refuses_one_past_it`.
+
+
+    factor, which the table doesn't mark, so a `style` reference must end in `-gap`, `-inset`, `-radius`, `-width` or
+    `-height`, the endings the kernel's row test maps to length properties. `=grouped-header-weight` stops the build,
+    checked by hand.
+
+
+
+### Stage 11, commit B2: the hosts' columns (draft for theme2)
+
+Built on B1, under the plan's §3 columns. Each host resolves the base names in its own column of the kernel's table and
+draws nothing new: stage 11 C draws and conforms on top.
+
+- **The web's JS target**, which keeps no kernel at run time (`host/web-js/src/base_scale.rs`):
+  - Its one look is the neutral one. Every build path says so with the role table's switch, which is the metrics'
+    column too, so its column is `metrics::column()` at build time.
+  - A static row naming a base name is that column's length: the kernel reads the literal while the sheet is
+    projected (B1's fallback).
+  - The sheet declares each base name the plan may read as a length, and its design does not define, once on `:root`,
+    as `--exact-<name>` (`--exact-space-md:16px`). The values come from the kernel's table, never copied numbers, and
+    a plan reading none declares nothing (round 1 below says which reads count).
+  - A bound row whose value may name a base name maps it to that property's `var()` (`measures::map`). An SVG
+    attribute row, which reads no property, maps it to the length.
+  - An alias to a base name the design leaves unset (B1 round 1, `card.pad: length = space.md`) is the base's property
+    wherever the token's CSS is written, except in an SVG attribute (round 1 below) (`measures::css`: `var(--exact-space-md)`), and the sheet declares that
+    property although only the alias names it. Once the design sets the base name the alias folds (theme2), so the
+    page shows the app's value and declares no base property.
+  - A design that defines a base name makes it its own token, which the token path writes, and no base property is
+    declared for it. theme2 accepted `--exact-<name>` on two conditions, each tested:
+    - the app's override wins: its own value is what the page shows, inline in a release build;
+    - it follows a live edit: in a development build the row reads the design's property (`--x-space-md`), which an
+      edit's batch (`modes::design`) sets to the new value.
+  - The web has no iOS or Mac look class to declare a second column under; one would add its rules in the same place.
+    `emit.rs` stays at its cap: its one change joins the base sheet to the theme's.
+- **The wasm web** reads the kernel's column, which its boot already sets to the neutral look's (`host.rs`). A test
+  boots the bridge and finds a base name's neutral length in the batch, one that differs from the web's first look's
+  (`@ios`) there (space.xs: 4 against 5).
+- **The terminal:** the host says `metrics::set_column(Terminal)` at boot (`host.rs`).
+  - Its metrics read as before (the web's first look's), its base spacings as cells (`n ch`, on the grid) and its base
+    radii as 0.
+  - The terminal check (`contract/cli/src/terminal.rs`) admits a base name as a terminal length, since it is cells in
+    that column.
+  - A design that redefines a base name in px is not seen by that check, as it does not see any other token's value: a
+    known limit, as for every token on the terminal.
+- **Linux and Android's reader**, through their own switches (`exact_linux::app::show_neutral_look`, the role table's;
+  `show_material_look`, the metrics'): every base name reads that column's cell. Material's cells are Material 3's
+  (`m3-spacing`, `m3-shape`). Their values coincide with the neutral look's own steps, which a test tells apart by
+  source.
+- **Tests:**
+  - `host/web-js/src/base_scale_tests.rs`:
+    - a static row is the column's length, and the sheet declares only the named bases, once, from the table;
+    - a bound row's values map to their properties;
+    - with no base named, nothing is declared; a design's own `space.md` is its token, and the others stay base.
+    - an app's own `space.md` wins and follows a live edit (40 px to 48 px on the same property), and no base property
+      is declared for it.
+  - `host/web/tests/base_scale.rs`: a web boot reads the neutral column, told apart from iOS's cell (space.xs 4
+    against 5; `Column::Web` reads the neutral cell since B1's round, so the boot's switch is what it holds).
+  - `base_scale_tests.rs`: an unset-base alias's CSS is the base property and the sheet declares it, in release and
+    development; an app-set base name folds the alias to the app's value with no base property.
+  - `host/terminal/src/host_scale_tests.rs`: the terminal's column; space.lg is two cells (16 px inline, 16 px on top)
+    and radius.md and radius.full are 0.
+  - `contract/cli/src/terminal.rs`: base names pass the terminal check.
+  - `host/linux/tests/base_scale.rs`: the desktop's neutral column and the reader's Material one, every base name, and
+    a booted row.
+- **After review round 1 (Astra: three blocking, one should-fix; Grok: one should-fix, Astra's first):**
+  - **An alias in an SVG attribute** (Astra 1, Grok). An attribute reads no CSS property, so a bound attribute row's
+    map writes an unset-base alias as the base's length in the build's column (`base_scale::value`), not its `var()`.
+    A static attribute already folds through the kernel. Test: `base_scale_tests.rs`, release and development, bound
+    (`$tla`'s `card.pad` is 16px) and static (`height` 16).
+  - **A live switch to a base the sheet lacks** (Astra 2). `card.pad: space.md` to `space.lg` was a value-only edit,
+    batched as `var(--exact-space-lg)`, which no rule declared. The dev design's `structure` (`modes::design`) now
+    carries the declared base names too, so the dev loop (`sameShape` in `dev.mjs`) builds instead, and the build
+    declares the new one. A plan declaring none keeps the plan's structure as it was. Test:
+    `host/web-js/base-scale-live.test.mjs`, in Chrome: the edit's structure moves, the rebuilt sheet declares
+    `--exact-space-lg:24px`, and the page's row is 24px.
+  - **The plan's length reads, never its string pool** (Astra 3; theme2's (B), no plan format change). The declared
+    set (`base_scale::named`) is:
+    - each base name a length row's value may be, through `?:`, `match` and `let`, read from its bytecode
+      (`returns`, an abstract walk of the VM's stack);
+    - each base name a length token aliases;
+    - all nine when a length row's value may be any string, as lowering keeps every length token then
+      (`computed_measure`): a string-typed read, a string call, or a concatenation whose every part could be inside a
+      base name (`"space." + size`). A read is typed by the plan: a state's, a derive's or a resource's type, a
+      record's field, an each item by its list's subject and a match's bound value by its option's (through the
+      region frames the node sits in); a param stays untyped. A read typed as a number or bool is no base, nor is a
+      concatenation with a part no base name holds (`w.toString() + "px"`).
+    - only rows whose codec reads a length (`base_scale::reads_length`, asked of the codec with `1px`), for the
+      declared set and the maps alike. The kernel's `admits` takes a length token on every row that is no colour's or
+      number's, keyword rows too (`color-scheme`, `font-style`, `dynamic-range-limit`), but there the codec refuses the
+      length a base name reads, so the base name is refused either way. This departs from `admits` only for such
+      values.
+
+    The maps hold the same set, so a computed name finds its property. A text or a label that says `space.md` declares
+    nothing. theme2 (B): declaring all nine where a name may be computed is safe, missing one is not. Tests in
+    `base_scale_tests.rs`: `"space." + size` and a string state declare all nine and map each; plain text, a label, a
+    condition over literals, a number state and a `+ "px"` length declare none; a literal row declares exactly its
+    own, and one condition's leaf exactly its own; an alias declares its base (the earlier test). Release output
+    compared with d7eaafb72a's exact-web-js (before B2) for 14 apps: all 14 are byte-identical in app.js, app.css,
+    paint.js, names.js and pages.json (hello, caltrain, design-tool, messages, realworld, theme-fixture,
+    color-gallery, tamber-host, svg-gallery, interaction-gallery, motion-gallery, markdown, typetour, spark). Further
+    tests: a number list's item declares none and a string list's all nine, and a keyword row (`font-style`) bound
+    to a string state declares none.
+  - **A real live edit on a page** (Astra 4). `base-scale-live.test.mjs` builds an app for development with
+    `space.md = 40px` and `card.pad: length = space.md`, shows it in Chrome, and compiles the edit to `48px` as the dev
+    loop does (`exact-web-js design`). It checks that the structure and shape hold and that both tokens change, sends
+    the batch through the page's `exact.design`, and finds the direct row and the alias's row both moved from 40px to
+    48px, on the same page.
+- **After review round 2 (Astra: four blocking, one should-fix; Grok: two should-fix, overlapping):**
+  - **All nine or none** (theme2's yes, 2026-10-19; replaces round 1's per-name set). The sheet declares every base
+    name the design does not define once the plan may read any base name as a length, and none when it can't
+    (`base_scale::named`). It may read one through a length token that aliases one, a length row whose value may be
+    one (its bytecode's constants, trimmed as the page's lookup trims), or a length row whose value may be any
+    string: a string read, a string call, or a concatenation not proven base-free. The maps hold the same set. A
+    switch between two base names then never names a property the sheet lacks, so the design's `structure` moves only
+    between none and nine. This dissolves Astra 2 and 4 and Grok 1 and 2 as filed:
+    - **Whitespace** (Astra 2, Grok 1). A concatenation is base-free only where one of its parts, trimmed, is
+      non-empty and inside no base name. `"space." + size + " "`, `" " + gap` and `gap + " "` declare the nine.
+    - **Scrubs** (Astra 4, Grok 2). `design-serve`'s patch reply now carries the structure:
+      `modes::structure_of`, the held plan's own (patching appends to its pool) with the base names the patched
+      values may read. `dev.mjs`'s `scrubPatch` keeps it, and `scrubShow` refuses a frame whose structure differs, as
+      `sameShape` rebuilds a file edit. A frame that brings the plan its first base name is refused; one between two
+      base names is shown.
+  - **A keyword row's map is its own** (Astra 1). Where the plan declares the scale, a row the kernel lets name a
+    length token but whose codec reads no length (`color-scheme`) gets a `$tk…` map without base names, so a length
+    row's `$tl…` map, which holds them, is never the keyword row's cached one. Where the plan declares none the maps
+    are alike and keep their names, so a release that uses no base name is unchanged.
+  - **A bound SVG attribute and an alias** (Astra 3). A bound attribute's map holds an alias as its length (an
+    attribute reads no property), so every token of one value such a row may name, a length or number its row takes
+    (an alias as its length, a plain constant as its CSS), is written inline (`measures::inline_tokens`). A
+    development build's edit of one builds, and a scrub refuses it, never a batch that leaves the attribute behind.
+    (The constant's case is older than B2; the lead had it widened here.) A token that varies is no attribute map's,
+    as before. Round 1's literal length
+    in the attribute and its test stay.
+  - **Built values in region frames** (Astra 5). The walk keeps a constructed option's or list's element (`Some(x)`,
+    `[12, 16]`), which a `match` or `for` frame then holds, and a bound row returning an option counts its element.
+  - **One reading an emit** (`base_scale::keep`, through `modes::every_for` as `emit.rs` is at its cap). An emit
+    walks the plan once, not once a bound row.
+  - **Tests:**
+    - `base_scale_tests.rs` `the_scale_is_declared_whole_when_the_plan_may_read_a_base_name`:
+      - a literal row, and a condition's leaf, declare the nine;
+      - five computed and whitespace-wrapped names declare the nine, and the map holds each;
+      - plain text, a label, a px condition, a number state, `w.toString() + "px"` and a keyword row bound to a string
+        declare none, with no map entry;
+      - `for n in [12, 16]`, `match some(w)` and a number list state declare none; their string forms declare the
+        nine.
+    - `a_keyword_rows_map_is_not_a_length_rows`: `color-scheme` bound first, then padding; `$tl` holds `space.md` and
+      `$tk` doesn't.
+    - `a_token_a_bound_svg_attribute_may_name_is_written_inline`: `card.pad` and the constant `tile` are both inline.
+    - `a_switch_between_base_names_keeps_the_structure`: space.md and space.lg have the same structure; 12px's is
+      another.
+    - `base-scale-live.test.mjs`, in Chrome:
+      - a scrub patch from 12px to `space.md` moves the structure, and one from `space.md` to `space.lg` doesn't;
+      - the switch compiles with the same structure and shape, goes as a batch, and the page's row moves from 16px to
+        24px with no reload;
+      - the 40px to 48px test stands.
+    - Release output against d7eaafb72a's exact-web-js: all 14 apps byte-identical.
+- **After round 2's re-review (Grok RIGHT; Astra RIGHT WITH CHANGES):**
+  - **Trimmed as JavaScript trims** (Astra, blocking). Rust's `trim` keeps U+FEFF (and strips U+0085), while the
+    page's lookup is JavaScript's `trim`, which strips U+FEFF. So `"\u{feff}" + gap` was classed base-free although the
+    page reads `space.md`. `base_scale::js_trim` trims JavaScript's set (its WhiteSpace: tab, vertical tab, form feed,
+    U+FEFF and the space separators; its LineTerminator: LF, CR, U+2028, U+2029), for an alias's value, a returned
+    constant and a concatenation's part alike. The test's leading and trailing U+FEFF and its U+3000 on both sides
+    declare the nine, and fail under Rust's `trim`, checked by hand.
+  - **`none` has no payload** (Astra, should-fix). The walk's `none` is an option whose payload is nothing, which a
+    join takes as the other side's, so `match (wide ? some(12) : none)` binding `padding=n` declares none, and its
+    string form declares the nine (tests in `the_scale_is_declared_whole_when_the_plan_may_read_a_base_name`).
+  - **QUEUE:** "A Stretch cell form in the base scale table" (theme2's optional item), to land with the next commit
+    that moves the schema digest.
+  - Release output against the commit before B2 (`d7671b5263`'s exact-web-js): all 14 apps byte-identical.
+- **After review round 3 (Grok RIGHT; Astra RIGHT WITH CHANGES):**
+  - **A bound grid track reads a base name** (Astra, blocking). A bound `grid-template-columns` or `-rows` naming
+    `space.md`, directly or through an unset-base alias, maps to `var(--exact-space-md)`. grid.js's track check
+    admitted only a design token's `var(--x-…)` and refused it as `unset`, in a release build too. It now admits
+    exactly the scale's nine `--exact-<base>` properties, no other `--exact-` one. The search for the same `--x-`-only
+    assumption found no other validator:
+    - rt.js writes a bound value through the browser, which takes any `var()`;
+    - the corner map's check refuses only a list;
+    - backdrop.js reads no length token;
+    - modes.js, modes.rs, check.js, inspect-dev.js and input-glue.js read a token's property for the live table, the
+      checker or the inspector, and never refuse a value.
+  - **Tests:**
+    - `grid.test.mjs`: the nine and a token's property are tracks; `--exact-accent`, an unknown step and a list
+      aren't. grid.js is loaded from its text, so no module mock leaks into the other files run in that process.
+    - `base_scale_tests.rs` `the_grid_track_check_names_the_scale`: grid.js's nine are the kernel's table.
+    - `base-scale-live.test.mjs`, in Chrome, in a release build and a development one: a bound track naming
+      `space.md` computes to 16px, and one naming the alias `card.pad` (space.lg) to 24px. It fails without the fix,
+      checked by hand.
+    - Release output against the commit before B2: all 14 apps byte-identical.
+
+### Stage 11, commit C2: the scale conformed and held to each host's column (draft for theme2)
+
+Built to theme2's 15:32 approval, on B1 and B2.
+
+- **The conform target `host/web-js/conformance/scale/`** (`// linux: layout`):
+  - corners by `radius.sm` to `radius.full`, inline and through a `style`;
+  - `radius.full` on a 120×32 box and a 40×96 box: the cross-host pill check, which holds every host's
+    corner-overlap clamp of the one oversized length;
+  - padding by `space.xs` to `space.xl`, and a row for each gap, `space.xs` to `space.xl`;
+  - the design's own `space.md = 12px` (ruling 4) and `space.header = 44px`, a name the scale does not reserve
+    (ruling 5), as a box's height;
+  - a bound corner that moves between `radius.md` and `radius.full` (`scale.steps`);
+  - the probe's colours as tokens fixed in either scheme.
+- **conform result.** The wasm page and the JS page agree on all 5 compares: boot, the two scripted taps,
+  conform's own extra tap, and `clock +60000`. Linux's boxes agree on all 5 too. Linux compares boxes only, so its
+  corners are held by scale-check below.
+- **Each host against its own column:** `scripts/scale-check.mjs` takes lengths by name as expectations
+  (`scale/expect.json`).
+  - A base name is read from `kernel/tables/schema.json`'s `scale` in the host's column (a metric's reference read
+    in that column). The design's own token comes from `contract tamber ir`, which finds the design as a build does.
+    Nothing is copied.
+  - It checks paddings, gaps, the header's height and corners, and the bound corner again after one and two taps,
+    each from a fresh launch.
+  - On 2026-10-19 all 20 checks passed on each host. Paddings and gaps were within 0.5 pt, corners within 0.2 pt:
+
+    | Host | Paddings and gaps xs/sm/md/lg/xl | Corners sm/md/lg | Pills | Bound, after one tap |
+    |---|---|---|---|---|
+    | web (wasm) | 4/8/12/24/32 | 4/8/12 | 16 and 20 | 8, 20 |
+    | Linux | 4/8/12/24/32 | 4.1/8.1/12.2 | 16.1 and 20 | 8.1, 20 |
+    | macOS 27 | 6/8/12/20/30 | 5.1/6.1/10.2 | 16 and 20.1 | 6.1, 20 |
+    | iOS 27 simulator | 5/8/12/20/35 | 5.6/17/26 | 16 and 20 | 17, 20 |
+    | the Android reader (x2-android emulator) | 4/8/12/24/32 | 4/8/12 | 16 and 20 | 8, 20 |
+
+    md is the design's 12 on every host, and the header is 44.
+  - The neutral and Material columns have the same px for every name. The Material column is held by the Android
+    reader's run (theme2's ruling: the scale's own boxes, not E's fixture):
+    - the reader is tested by a plan push, not by an app build: scale-check gives the reader the compiled plan,
+      pushed in place of the one an app's APK bakes (`--app unsaid`, an app that asks nothing of its data), so the
+      reader runs exactly what the other hosts run (theme2's 16:55 ruling);
+    - before measuring, every host must name the compiled plan in its `perf` (the SHA-256 of the plan's bytes), so a
+      stale or wrong plan, such as the reader's own bake if the push were not read, fails loudly;
+    - the reader's screenshot is the whole screen, so the page's top is found in it, to the fraction of a pixel,
+      from the topmost box's fill;
+    - a page offset or narrowed across the screen (side bars, a cutout, on either side) is refused rather than
+      misread: the topmost box's left and right edges are held to where the page's pixels per point put them.
+- **The terminal** (theme2's 17:39 ruling): `exact-terminal` gains two headless verbs, the terminal carrier's own
+  (not the agent protocol):
+  - `layout`: one JSON line with the viewport, the cell (8×16 px), and each node's kernel frame in px, its cells as the
+    painter rounds them, its `testId` and its corners' radii, sized against the box as a host sizes them (a
+    percentage across and down, a pair where the two differ);
+  - `plan`: the runner's digest of the running plan.
+
+  `scale-check --host terminal` drives it on the compiled plan:
+  - it reads the table's terminal cells by the reply's cell width (a `ch` is 8 px);
+  - it checks paddings, gaps and the header in px, and every corner at 0 from the reply (radius.full included);
+  - it checks the bound corner after taps, from a fresh run;
+  - it writes every box's cells, and each padded box's padding in cells (top/right/bottom/left), into its output
+    for E's gate;
+  - a step's text stays one argument (`type <id> <text…>`).
+
+  On 2026-10-19 it first passed 20 of 21. The one failure was the assertion theme2 asked for: a box padded `space.sm`
+  whose child fills it painted 1 row above and 0 below, since `1ch` down is half a row and the painter rounded each
+  edge's position.
+- **The terminal's spaces in whole cells** (theme2's 19:09 ruling, option (2), superseding the painter half of 18:35):
+  the column stays in `ch`, and the kernel lays a terminal's spaces out in whole cells. Under the terminal's space rule
+  (`Env::cell_spaces`, set only by the terminal host beside `cell_borders`; LLP 1101 §4's row), a padding, margin or
+  gap that resolves to points (a `calc()` that resolves to points, or has no percentage, included; a multi-column
+  box's `column-gap` too) is rounded before layout to whole cells
+  on its axis, rows down and columns across, to the nearest with a tie toward zero (`cells::space`). A percentage,
+  or a `calc()` with one, is not rounded: the rule's limit.
+  - The numbers: down, space.xs, sm and md (0, 8 and 8 px) are 0 rows and space.lg and xl (16 px) 1 row; the clone's
+    14, 12 and 10 px are 1 row each; across, a `ch` is a column (12 px, a column and a half, is one).
+  - px and cells agree by construction, so the painter, scroll, `scrollIntoView`, follow-end, the collections' windows
+    and the inline transcript need no change. The readers of a space outside layout follow the rule too: a
+    virtualized list's keyed jump aligns a row by its root's margins, now read from the kernel as laid out
+    (`Kernel::laid_margins`), and its `scroll-padding` and `scroll-margin` in whole cells when the rule is on
+    (`runner/src/runner/collection.rs`); a host's cover inset adds to the rounded padding. Turning a cell rule (spaces or borders) on or off after a layout restyles every box. A painter-only rounding was built first (x2/s11c2-painter-14f0953eea,
+    not landed); Astra's round 1 found it drifted from px cumulatively (item k of a gap-sm list at px 24k, painted on
+    row k).
+  - The visible change, accepted: a box padded `space.sm` shrinks to its content (the `even` box is its child's two
+    rows, 0 rows of padding each side), and a gap-sm list has no blank row between items.
+  - scale-check: the terminal's paddings and gaps are expected in whole cells on each axis, in px and in cells (a
+    reply without whole cells for a padded box or a gap's children fails), and the `even` box paints equal rows above
+    and below. Every other host is unchanged (the rule is off): conform scale 5/5, Linux 5/5.
+  - Tests: `kernel/src/style/cells.rs` (`space`, and the engine's style with and without the rule),
+    `host_scale_tests.rs` `spaces_are_whole_cells_so_rows_follow_the_layout` (item k of a gap-sm list on row k,
+    where its px frame is; revealing item 30 in a ten-row scroller shows items 21 to 30), `collections.rs`
+    `a_keyed_jump_aligns_rows_by_their_margins_in_whole_cells`, `kernel/tests/it/env.rs`
+    `the_terminal_space_rule_rounds_resolved_spaces_and_relays_when_it_turns`, `layout_and_plan_answer_as_json`
+    (`1ch` of padding: a column across, none down) and `scale-check.test.mjs`.
+  - The run: terminal 21/21 (even 0/1/0/1 cells top/right/bottom/left; sm padding 8, 0 px; md, the design's own 12
+    px, 8, 16; lg and xl 16,
+    16; gaps 0, 8, 8, 16, 16 px across; the header 44; corners 0).
+- The other hosts run the same plan, now 21 checks with the `even` box: 21/21 each on web, Linux, macOS, iOS and the
+  reader. conform: 5/5, and Linux 5/5.

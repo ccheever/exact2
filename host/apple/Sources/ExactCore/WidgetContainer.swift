@@ -2,8 +2,14 @@
 import Foundation
 #if EXACT_WIDGET_RELOAD
 import WidgetKit
+#if EXACT_INSPECT
+import os
+#endif
 @_cdecl("exact_widget_reload")
 public func exactWidgetReload(_ bytes: UnsafePointer<UInt8>?, _ length: Int) {
+    #if EXACT_INSPECT
+    Logger(subsystem: "dev.exact.widgets", category: "reload").notice("reload requested pid=\(ProcessInfo.processInfo.processIdentifier)")
+    #endif
     if let bytes, let kinds = try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: length)) as? [String] {
         for kind in kinds { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
     } else { WidgetCenter.shared.reloadAllTimelines() }

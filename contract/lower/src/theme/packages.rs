@@ -24,7 +24,7 @@ const BAND: u32 = 1 << 20;
 
 /// The base scale's names (stage 11 B, the lead's ruling 2), which a package
 /// token may name as it names a role.
-const BASE: [&str; 9] = [
+pub(crate) const BASE: [&str; 9] = [
     "space.xs",
     "space.sm",
     "space.md",
@@ -42,6 +42,19 @@ thread_local! {
     /// pass that maps a banded line merges first (lowering, the lint, motion,
     /// the warnings' fold), so a line maps by the bands its own merge made.
     static SOURCES: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Package `band`'s `line` as the merged design numbers it.
+pub(crate) fn banded(band: usize, line: u32) -> u32 {
+    LINE + band as u32 * BAND + line
+}
+
+/// A merged design's line in a package's band: the package's index and
+/// the line in its file.
+pub(crate) fn band(line: u32) -> Option<(usize, u32)> {
+    (LINE..crate::params::LINE)
+        .contains(&line)
+        .then(|| (((line - LINE) / BAND) as usize, (line - LINE) % BAND))
 }
 
 /// A merged design's line, where it was written: a package token's line

@@ -55,8 +55,8 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
     // boot document: it settles as it boots.
     let paints_boot = route_at(plan, location).is_some_and(|r| r.paint == PaintPolicy::Boot);
     let mut boot: Option<Boot> = None;
-    let page = {
-        let mut on_boot = |runner: &exact_runner::Runner<crate::Anonymous<D>>| {
+    let mut page = {
+        let mut on_boot = |runner: &mut exact_runner::Runner<crate::Anonymous<D>>| {
             if runner.pending().is_empty() {
                 return;
             }
@@ -99,7 +99,7 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
             deadline,
             true,
             crate::render_time(),
-            paints_boot.then_some(&mut on_boot as &mut dyn FnMut(&_)),
+            paints_boot.then_some(&mut on_boot as &mut dyn FnMut(&mut _)),
         )?
     };
     let tree = match page.runner.document_tree() {

@@ -64,6 +64,16 @@ impl Parser {
                                 let (name, span) = p.ident()?;
                                 p.expect_punct(":")?;
                                 let ty = p.type_expr()?;
+                                // `disabled: bool = false`: the euxy port's default.
+                                if p.at_punct("=") {
+                                    return p.err(
+                                        "syntax-expected-newline",
+                                        match w.as_str() {
+                                            "props" => format!("a prop has no default: pass `{name}=<value>` at every use, or declare `{name}: option<{ty}>`, pass `{name}=none` where it is unset, and read it as `match {name} {{ case some(v) => v, case none => <default> }}`"),
+                                            _ => format!("an inject has no default: a component above `provide`s `{name}`"),
+                                        },
+                                    );
+                                }
                                 p.newline()?;
                                 Ok(Param {
                                     name,

@@ -115,7 +115,7 @@ impl Kernel {
     pub fn fit_content_height(&mut self, key: NodeKey) -> Option<f32> {
         use taffy::style::{Dimension, LengthPercentage, LengthPercentageAuto};
         let (frame, _) = self.laid_out_frame(key)?;
-        self.measure_symbols();
+        self.measure_symbols(false);
         let slot = key.index;
         // A block's root stands in its block (LLP 1115.002 D8.2): the block's
         // width is what it is measured in, with no parent and no height, so
@@ -267,27 +267,42 @@ impl Kernel {
 
     /// The margins the last layout resolved around `key`'s border box (left,
     /// top, right, bottom), and whether that box's width is the author's (a
-    /// `width` or `min-width` other than `auto`, 1) or its content's (0).
+    /// `width` other than `auto`, 1) or its content's (0), and its resolved
+    /// minimum border-box width.
     /// What a Live Activity placement's region takes around a root the bake
     /// positions absolutely (LLP 1126.001 WP10): CSS 2.1 §10.3.7 gave the
     /// root its shrink-to-fit width in that layout, and the driver draws the
     /// same layout. A read, as [`Kernel::laid_out_frame`] is: it lays nothing
     /// out, and nothing on the ordinary layout path calls it. `None` as for
     /// `laid_out_frame`.
-    pub fn placement_box(&self, key: NodeKey) -> Option<[f32; 5]> {
+    pub fn placement_box(&self, key: NodeKey) -> Option<[f32; 6]> {
         self.laid_out_frame(key)?;
         let slot = self.arena.resolve(key)?;
         let tree_ref = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
         let laid = tree_ref.layout(self.arena.taffy(slot)?);
         let style = self.arena.style(slot);
-        let authored =
-            style.width != crate::Dimension::Auto || style.min_width != crate::Dimension::Auto;
+        let authored = style.width != crate::Dimension::Auto;
+        let basis = self
+            .arena
+            .parent(slot)
+            .and_then(|p| self.arena.taffy(p))
+            .map_or(0.0, |p| {
+                let parent = tree_ref.layout(p);
+                parent.size.width - parent.border.left - parent.border.right
+            });
+        let mut minimum = style.min_width.at_basis(self.arena.env(), basis).max(0.0);
+        if style.box_sizing == crate::generated::BoxSizing::ContentBox {
+            let (left, _, right, _) = self.resolved_padding(key).unwrap_or_default();
+            let [_, br, _, bl] = style.border_widths_in(self.arena.env());
+            minimum += left + right + bl + br;
+        }
         let box_ = [
             laid.margin.left,
             laid.margin.top,
             laid.margin.right,
             laid.margin.bottom,
             if authored { 1.0 } else { 0.0 },
+            minimum,
         ];
         box_.iter().all(|v| v.is_finite()).then_some(box_)
     }
@@ -374,6 +389,26 @@ impl Kernel {
     pub fn resolved_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
         let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.padding;
         Some((left, top, right, bottom))
+    }
+
+    /// A node's margins as its layout reads them under the kernel's
+    /// environment, top/right/bottom/left in points: whole cells under a
+    /// terminal's space rule (LLP 1121 stage 11 (c)), a percentage none.
+    pub fn laid_margins(&self, id: crate::ViewId) -> Option<[f32; 4]> {
+        use crate::style::cells::{COLUMN, ROW};
+        let node = self.node(id)?;
+        let (env, s) = (self.arena.env(), node.style);
+        let [t, r, b, l] = [
+            (s.margin_top, ROW),
+            (s.margin_right, COLUMN),
+            (s.margin_bottom, ROW),
+            (s.margin_left, COLUMN),
+        ]
+        .map(|(d, cell)| match d.spaced(env, cell) {
+            d if d.has_percent() => 0.0,
+            d => d.at_basis(env, 0.0),
+        });
+        Some([t, r, b, l])
     }
 
     /// The padding the engine laid the box out with: `resolved_padding` and

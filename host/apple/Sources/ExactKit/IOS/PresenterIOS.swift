@@ -383,7 +383,7 @@ package final class Presenter {
         flats.reset()
         owners.reset {
             modals.reset()
-            navigation.reset()
+            navigation.reset(); navigation.rebooting()
         }
         session?.canvases.reset()
         for id in Array(leaving.keys) { _ = endExit(id) }

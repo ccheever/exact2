@@ -1556,10 +1556,15 @@ outside parentheses as CSS expands the shorthand
 (`exact_kernel::style::sides`); a literal `/` radius is refused by name. A
 computed value is bound whole to the four rows, and no host splits it: an
 overriding longhand, an `env()` substituted later and each row's grammar
-would make a run-time split differ from the browser's. So a computed value
-the compiler sees build a list (`` padding=`${pad}px 0` ``, a concatenation,
-a `fn` returning one) is refused (`lower-css-shorthand`), naming the
-longhands, each of which may be computed. A computed single value
+would make a run-time split differ from the browser's. A template is split
+at compile time at its own text's white space, as a literal is, when each
+interpolation is part of one value that also holds text, outside parentheses
+(`` padding=`${pad}px 0` ``: the top and bottom `${pad}px`, the sides `0`), and
+a literal one is one token; an interpolation holding white space reaches its
+row as a list, as a computed single value holding one does. Another computed
+value the compiler sees build a list (a concatenation, a `fn` returning one)
+is refused (`lower-css-shorthand`), naming the longhands, each of which may
+be computed. A computed single value
 (`padding=pad`) is every side's. A list that reaches a row anyway (state
 holding `"10px 5px"`) is refused by the row with a journal line on every
 host; the web's JS target refuses a list on a corner (two lengths, or a

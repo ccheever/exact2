@@ -116,12 +116,25 @@ impl Kernel {
         let _ = self.replace_env(next);
     }
 
+    /// Lay spaces out as a terminal does: a padding, margin or gap in points
+    /// is whole cells on its axis (LLP 1101 §4, LLP 1121 stage 11 (c)). The
+    /// terminal host sets it beside [`Self::set_cell_borders`]; it is this
+    /// kernel's alone.
+    pub fn set_cell_spaces(&mut self, on: bool) {
+        let next = self.arena.env().with_cell_spaces(on);
+        let _ = self.replace_env(next);
+    }
+
     pub(super) fn replace_env(&mut self, env: Env) -> Result<bool, KernelError> {
         if *self.arena.env() == env {
             return Ok(false);
         }
         let control_changed = self.arena.env().control_text_styles != env.control_text_styles
             || self.arena.env().button_fonts != env.button_fonts;
+        // A terminal's cell rules change every box's lengths, plain px
+        // included: every node restyles.
+        let cells_changed = self.arena.env().cell_spaces != env.cell_spaces
+            || self.arena.env().cell_borders != env.cell_borders;
         let before: Vec<_> = if control_changed {
             self.arena
                 .iter_live()
@@ -146,7 +159,8 @@ impl Kernel {
             .iter_live()
             // A covered box too: its top cover can hold an inset (cover.rs).
             .filter(|s| {
-                uses_env(self.arena.style(*s))
+                cells_changed
+                    || uses_env(self.arena.style(*s))
                     || self.arena.cover(*s).is_some()
                     || self.arena.neutral_alert(*s)
             })

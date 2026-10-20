@@ -9,7 +9,7 @@ use exact_plan::{Plan, Value};
 use exact_runner::{DataError, DataSource, Runner};
 use std::path::{Path, PathBuf};
 
-struct NoData;
+pub(super) struct NoData;
 
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -17,7 +17,7 @@ impl DataSource for NoData {
     }
 }
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
+pub(super) fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("exact2-tamber-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -45,7 +45,7 @@ fn colour(plan: Plan, id: &str, row: StyleId) -> ColorValue {
     }
 }
 
-fn parsed(text: &str) -> ColorValue {
+pub(super) fn parsed(text: &str) -> ColorValue {
     ColorValue::parse_light_dark(text)
         .or_else(|| exact_kernel::Color::parse(text).map(ColorValue::Fixed))
         .unwrap_or_else(|| panic!("{text}"))
@@ -411,7 +411,7 @@ fn a_when_at_the_default_modes_cannot_replace_a_profile_colour() {
     assert_eq!(e.span.line, 8, "{e:?}");
 }
 
-const MODES: &str = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  page = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #161e27)\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n";
+pub(super) const MODES: &str = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  page = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #161e27)\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n";
 
 #[test]
 fn a_pin_selects_its_slice_and_a_boundary_sets_inherited_text_again() {
@@ -442,7 +442,7 @@ fn a_pin_selects_its_slice_and_a_boundary_sets_inherited_text_again() {
     );
 }
 
-fn booted(plan: Plan) -> Runner<NoData> {
+pub(super) fn booted(plan: Plan) -> Runner<NoData> {
     let plan = contract::bake(plan, NoData).unwrap();
     Runner::boot(
         plan,
@@ -454,7 +454,7 @@ fn booted(plan: Plan) -> Runner<NoData> {
     .unwrap()
 }
 
-fn row(r: &Runner<NoData>, id: &str, style: StyleId) -> ColorValue {
+pub(super) fn row(r: &Runner<NoData>, id: &str, style: StyleId) -> ColorValue {
     let key = r.kernel().find_by_test_id(id)[0];
     match r.kernel().node_by_key(key).unwrap().computed(style) {
         RowValue::ColorValue(c) => c,
@@ -630,7 +630,7 @@ fn a_changed_inherited_colour_is_set_again_at_a_boundary_below() {
 
 const TWO_AXES: &str = "tamber t\n\naxes\n  dark-style = black | dim\n  density = cozy | compact\n\ntheme\n  ink = #111111\n    when dark-style=dim: #222222\n    when density=compact: #333333\n    when dark-style=dim density=compact: #444444\n";
 
-fn press(r: &mut Runner<NoData>, id: &str) {
+pub(super) fn press(r: &mut Runner<NoData>, id: &str) {
     let view = {
         let k = r.kernel();
         k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id

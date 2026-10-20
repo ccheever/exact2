@@ -6,6 +6,15 @@
 import Foundation
 
 extension ExactSession {
+    /// The location the agent's `type <root> <text>` delivers: a path as
+    /// written, and a URL with a scheme as the system's would arrive
+    /// (`openURL`), so a drive opens a deep link without iOS's "Open in …?"
+    /// confirmation that `simctl openurl` raises.
+    func typedLocation(_ text: String) -> String {
+        guard !text.hasPrefix("/"), let url = URL(string: text), url.scheme != nil else { return text }
+        return incomingLocation(url)
+    }
+
     func incomingLocation(_ url: URL) -> String {
         let href = url.absoluteString
         return protocolHandlers.lazy.compactMap { handler in

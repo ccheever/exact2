@@ -1,8 +1,7 @@
 // LLP 1039 D7: a compiled app reads the browser's display-mode, including
 // transitions, through the same media reporter as the wasm target.
 import { test, expect } from 'bun:test';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +24,7 @@ test('display mode agrees with Chrome and media changes reanswer the resource an
       if (path === '/navigation.js') return new Response(Bun.file(resolve(ROOT, 'host/web/navigation.js')));
       return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
     } });
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.addInitScript(() => {
       const real = matchMedia.bind(window), lists = [];
@@ -82,15 +81,19 @@ test('display mode agrees with Chrome and media changes reanswer the resource an
       const button = document.createElement('button');
       button.id = 'enter-fullscreen'; button.textContent = 'Enter fullscreen';
       button.onclick = () => document.documentElement.requestFullscreen();
+      window.fullscreenChanged = new Promise(done => document.addEventListener('fullscreenchange', done, { once: true }));
       document.body.append(button);
     });
     await page.locator('#enter-fullscreen').click();
+    // `document.fullscreenElement` is set before the display-mode media changes are sent, and `fullscreenchange` comes after them
+    // (the headless shell changes display-mode to fullscreen; Chrome's full build on macOS keeps browser).
+    await page.evaluate(() => window.fullscreenChanged);
     expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(true);
     // Chrome on macOS may keep display-mode: browser for DOM fullscreen.
     // This fact follows its media query, not document.fullscreenElement.
     const current = () => page.evaluate(() => ['browser', 'fullscreen', 'standalone', 'minimal-ui', 'window-controls-overlay', 'picture-in-picture', 'tabbed'].find(v => matchMedia(`(display-mode: ${v})`).matches));
     await agrees(await current());
-    await page.evaluate(() => document.exitFullscreen());
+    await page.evaluate(() => new Promise(done => { document.addEventListener('fullscreenchange', done, { once: true }); document.exitFullscreen(); }));
     await agrees(await current());
     // Exercise change delivery even on a browser whose real window mode
     // stays browser, and modes that require an installed web application.

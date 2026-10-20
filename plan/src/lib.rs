@@ -41,6 +41,22 @@ pub const ACTIVITY_PLACEMENTS: [&str; 8] = [
     "expanded.center",
     "expanded.bottom",
 ];
+/// `haptic(kind)`'s kinds, a sequence step's too (LLP 1077 D14): the
+/// presses `-exact-press-haptic` takes (`PressHaptic` in the kernel's schema),
+/// `impact` (`impact-medium`'s), and the outcomes, which an action plays and a
+/// press does not, since at touch-down nothing has succeeded yet.
+pub const HAPTIC_KINDS: [&str; 10] = [
+    "selection",
+    "impact",
+    "impact-light",
+    "impact-medium",
+    "impact-heavy",
+    "impact-soft",
+    "impact-rigid",
+    "success",
+    "warning",
+    "error",
+];
 
 pub mod shared;
 pub mod strings;

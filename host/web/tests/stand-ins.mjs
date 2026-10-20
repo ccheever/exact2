@@ -16,6 +16,8 @@ export function standIns(real) {
       taken.set(from, set);
       for (const name of names.split(',').map(n => n.trim().split(/\s+as\s+/)[0]).filter(Boolean)) set.add(name);
     }
+    // A module imported for its side effects alone (rt.js's `import "./said.js"`): an empty stand-in.
+    for (const [, from] of readFileSync(resolve(WEB_JS, file), 'utf8').matchAll(/import\s*['"]\.\/([\w-]+\.js)['"]/g)) if (!real.includes(from) && !taken.has(from)) taken.set(from, new Set());
   }
   return new Map([...taken].map(([file, names]) => [file, [...names].map(n => `export const ${n} = () => {};`).join('\n')]));
 }

@@ -911,6 +911,13 @@ export function viewBox(el) {
   return stretch ? new DOMRect(left, t.y, right - left, t.height) : t;
 }
 
+// How far a scroller's offset travels on each axis from one end to the other (LLP 1012 `rx`/`ry`), whether or not the
+// person can scroll it that way: `overflow: hidden` keeps a programmatic range.
+export function scrollRange(el) {
+  const r2 = (x) => Math.round(x * 100) / 100;
+  return { rx: r2(Math.max(0, el.scrollWidth - el.clientWidth)), ry: r2(Math.max(0, el.scrollHeight - el.clientHeight)) };
+}
+
 // The agent reports attached views in viewport coordinates, including folded text.
 export function layoutBoxes(views, gpu) {
   const r2 = (x) => Math.round(x * 100) / 100;
@@ -923,7 +930,7 @@ export function layoutBoxes(views, gpu) {
       const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       n.hit = hit === el;
     }
-    if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); }
+    if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); Object.assign(n, scrollRange(el)); }
     nodes.push(n);
   }
   return nodes;
@@ -959,5 +966,5 @@ export function selectAll(el) {
   if (was === null || now === null) requestAnimationFrame(() => requestAnimationFrame(heard));
   return event;
 }
-export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, selectAll };
+export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

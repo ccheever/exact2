@@ -199,10 +199,6 @@ public struct SnapshotView: View {
         }
         .frame(width: snapshot.size.width, height: snapshot.size.height, alignment: .topLeading)
         .padding(margins)
-        // D8: account content by default. A `privacySensitive` modifier makes
-        // its subtree ignore placeholder redaction (stage 0), so the
-        // placeholder carries none.
-        .privacySensitive(!environment.placeholder)
         .widgetURL(SnapshotDriver.url(snapshot, environment: environment))
         .containerBackground(for: .widget) { ContainerBackground(root: roots.first) }
     }

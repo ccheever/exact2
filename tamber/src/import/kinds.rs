@@ -8,6 +8,7 @@
 
 use super::Mapped;
 use crate::Vocab;
+use std::collections::{HashMap, HashSet};
 
 /// The kind `add-token` writes for an importer's kind (a ring is a box
 /// shadow, `inset` in its value).
@@ -183,16 +184,30 @@ pub(super) fn unfolded(
     }
     // A token the design has with no kind written, whose value this changes:
     // `set-token` keeps the line's kind unsaid, so the new value says it.
+    let mut design_named: HashMap<&str, Vec<&crate::syntax::Token>> = HashMap::new();
+    for d in &design.tokens {
+        design_named
+            .entry(d.name.value.as_str())
+            .or_default()
+            .push(d);
+    }
     let untyped: Vec<usize> = (0..tokens.len())
         .filter(|&i| {
             tokens[i].kind.is_some()
-                && design.tokens.iter().any(|d| {
-                    d.name.value == tokens[i].name
-                        && d.kind.is_none()
-                        && super::squash(&d.value.value) != super::squash(&tokens[i].value)
+                && design_named.get(tokens[i].name.as_str()).is_some_and(|ds| {
+                    ds.iter().any(|d| {
+                        d.kind.is_none()
+                            && super::squash(&d.value.value) != super::squash(&tokens[i].value)
+                    })
                 })
         })
         .collect();
+    let untyped_set: HashSet<usize> = untyped.iter().copied().collect();
+    // Each colour token by name, the first so named.
+    let mut colour_at: HashMap<&str, usize> = HashMap::new();
+    for (j, t) in tokens.iter().enumerate().filter(|(_, t)| t.kind.is_none()) {
+        colour_at.entry(t.name.as_str()).or_insert(j);
+    }
     let named = |i: usize| {
         let t = &tokens[i];
         std::iter::once(t.value.as_str())
@@ -201,21 +216,20 @@ pub(super) fn unfolded(
             .collect::<Vec<_>>()
     };
     // The colours they name, through the colours those name.
-    let mut colours: Vec<usize> = Vec::new();
+    let mut colours: HashSet<usize> = HashSet::new();
     let mut seen: Vec<usize> = (0..tokens.len())
         .filter(|&i| tokens[i].kind.is_some())
         .collect();
     while let Some(i) = seen.pop() {
         for w in named(i) {
-            if let Some(j) = tokens.iter().position(|t| t.kind.is_none() && t.name == w) {
-                if !colours.contains(&j) {
-                    colours.push(j);
+            if let Some(&j) = colour_at.get(w) {
+                if colours.insert(j) {
                     seen.push(j);
                 }
             }
         }
     }
-    let mut out: Vec<usize> = Vec::new();
+    let mut out: HashSet<usize> = HashSet::new();
     loop {
         let included: Vec<usize> = (0..tokens.len())
             .filter(|&i| {
@@ -246,29 +260,47 @@ pub(super) fn unfolded(
             text.push('\n');
         }
         text.push_str("theme\n");
+        // Each token's first and last line, counted as the text grows.
         let mut lines: Vec<(u32, u32, usize)> = Vec::new();
+        let mut count = text.lines().count() as u32;
+        let push = |text: &mut String, count: &mut u32, line: String| {
+            *count += line.lines().count() as u32;
+            text.push_str(&line);
+        };
         for &i in &included {
             let t = &tokens[i];
-            let start = text.lines().count() as u32 + 1;
-            match t.kind.filter(|_| !untyped.contains(&i)) {
-                Some(k) => text.push_str(&format!("  {}: {k} = {}\n", t.name, t.value)),
-                None => text.push_str(&format!("  {} = {}\n", t.name, t.value)),
+            let start = count + 1;
+            match t.kind.filter(|_| !untyped_set.contains(&i)) {
+                Some(k) => push(
+                    &mut text,
+                    &mut count,
+                    format!("  {}: {k} = {}\n", t.name, t.value),
+                ),
+                None => push(
+                    &mut text,
+                    &mut count,
+                    format!("  {} = {}\n", t.name, t.value),
+                ),
             }
             for (conds, v) in &t.whens {
                 let c: Vec<String> = conds.iter().map(|(a, v)| format!("{a}={v}")).collect();
-                text.push_str(&format!("    when {}: {v}\n", c.join(" ")));
+                push(
+                    &mut text,
+                    &mut count,
+                    format!("    when {}: {v}\n", c.join(" ")),
+                );
             }
-            lines.push((start, text.lines().count() as u32, i));
+            lines.push((start, count, i));
         }
         let all = match crate::check(&text, vocab) {
             Ok(f) => {
+                let mut kind_of: HashMap<&str, &'static str> = HashMap::new();
+                for c in &f.tokens {
+                    kind_of.entry(c.name.as_str()).or_insert(c.kind.name());
+                }
                 for &i in &untyped {
                     let (t, kind) = (&tokens[i], tokens[i].kind.unwrap_or_default());
-                    let inferred = f
-                        .tokens
-                        .iter()
-                        .find(|c| c.name == t.name)
-                        .map(|c| c.kind.name());
+                    let inferred = kind_of.get(t.name.as_str()).copied();
                     if let Some(other) = inferred.filter(|k| *k != kind) {
                         why[i] = Some(format!("the design's `{}` takes its kind from its value, and `{}` would make it a {other}, not a {kind}", t.name, t.value));
                     }
@@ -279,7 +311,12 @@ pub(super) fn unfolded(
         };
         let mut refused = false;
         for d in &all {
-            match lines.iter().find(|(a, b, _)| (*a..=*b).contains(&d.line)) {
+            // The token whose lines hold it (they run in order, end to end).
+            let at = lines.partition_point(|(_, b, _)| *b < d.line);
+            match lines
+                .get(at)
+                .filter(|(a, b, _)| (*a..=*b).contains(&d.line))
+            {
                 Some(&(_, _, i)) if tokens[i].kind.is_some() => {
                     if why[i].is_none() {
                         why[i] = Some(d.message.clone());
@@ -289,7 +326,7 @@ pub(super) fn unfolded(
                 // A colour they name that does not fold beside them is left
                 // out, and what names it says so.
                 Some(&(_, _, i)) if !out.contains(&i) => {
-                    out.push(i);
+                    out.insert(i);
                     refused = true;
                 }
                 _ => {}

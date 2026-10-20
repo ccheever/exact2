@@ -567,6 +567,7 @@ impl<D: DataSource> Host<D> {
         host.native_prepare_candidate().map_err(HostError::Layout)?;
         let order = host.preorder();
         host.close_top_layer(&order);
+        host.cover_root_tablist();
         let handlers = host.runner.handlers();
         for id in &order {
             host.create(*id, handlers.get(id).map_or(&[], Vec::as_slice), &mut batch);
@@ -1092,7 +1093,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// A placement root's resolved margins and whether its width is the author's
-    /// (`Kernel::placement_box`), as JSON `[left, top, right, bottom, authored]`;
+    /// (`Kernel::placement_box`), as JSON `[left, top, right, bottom, authored, minimum]`;
     /// an error names the view.
     pub fn placement_box(&mut self, view: ViewId) -> String {
         let kernel = self.runner.kernel();

@@ -631,6 +631,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-js-value"
+version = "0.1.0"
+dependencies = [
+ "exact-num",
+ "exact-plan",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-kernel"
 version = "0.1.0"
 dependencies = [
@@ -685,6 +694,7 @@ version = "0.1.0"
 dependencies = [
  "exact-canvas",
  "exact-grants",
+ "exact-js-value",
  "exact-kernel",
  "exact-motion",
  "exact-num",

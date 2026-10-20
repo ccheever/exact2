@@ -99,3 +99,15 @@ extension ExactSession {
         }, cancelled: retry)
     }
 }
+
+/// What a node reports its first draw with (`ExactSession.drawReceipt`):
+/// the generation and update it was made in, shared by the nodes made in
+/// them, as a closure each was a heap block per node.
+final class DrawReceipt {
+    private weak var session: ExactSession?
+    let generation: Int, token: UInt64
+    init(_ session: ExactSession, generation: Int, token: UInt64) {
+        self.session = session; self.generation = generation; self.token = token
+    }
+    func drawn() { session?.firstDrawn(generation: generation, token: token) }
+}

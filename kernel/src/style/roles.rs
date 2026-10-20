@@ -26,6 +26,10 @@ pub fn role(text: &str) -> Option<u8> {
     {
         return role(name).filter(|&id| role_of(id).is_some_and(web_accent));
     }
+    // The ink on the accent as the web writes it (`reference_css`).
+    if lower.split_whitespace().collect::<String>() == "var(--exact-accent-text,accentcolortext)" {
+        return role("AccentColorText");
+    }
     let var = lower.strip_prefix("var(--exact-");
     let exact = match var {
         Some(rest) => Some(&rest[..rest.find([',', ')'])?]),
@@ -751,6 +755,11 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
                 if named {
                     out.push(')');
                 }
+            } else if mode == ColorText::Css && r.name == "AccentColorText" {
+                // The ink on the accent is the web's filled button's: black or
+                // white by the accent's lightness (`neutral.css`), where the
+                // browser's keyword is white on any accent.
+                out.push_str("var(--exact-accent-text, AccentColorText)");
             } else if is_css_system(r) {
                 out.push_str(r.name);
             } else {
@@ -1228,6 +1237,19 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_ink_on_the_accent_reads_back_as_itself() {
+        let ink = role("AccentColorText").unwrap();
+        let mut css = String::new();
+        reference_css(&mut css, ColorValue::Role(ink), ColorText::Css);
+        assert_eq!(css, "var(--exact-accent-text, AccentColorText)");
+        assert_eq!(
+            role(&css),
+            Some(ink),
+            "the web's spelling is the role again"
+        );
     }
 
     #[test]

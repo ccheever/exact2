@@ -118,7 +118,7 @@ test('the wasm agent loads its input helpers once and keeps settled reads synchr
       return new Promise(resolve => { finish = resolve; });
     },
   });
-  vm.runInContext(`let guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, agentInputLoading;
+  vm.runInContext(`let guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, agentInputLoading;
 ${declaration('agentInputReady')}
 ${declaration('agent')}
 this.agent = agent; this.ready = agentInputReady;`, context);

@@ -9,6 +9,9 @@
 //! reuses the host's element and CSS rules (`exact_web::host::template`),
 //! and `exact-web` already depends on `contract`.
 
+mod base_scale;
+#[cfg(test)]
+mod base_scale_tests;
 #[cfg(test)]
 mod budget_tests;
 mod code;
@@ -97,8 +100,9 @@ fn scrub_design(input: &std::path::Path, text: &str) -> ExitCode {
 /// `key`, the shape and digest of the design the dev loop runs, is not the
 /// one it holds),
 /// each patched row's value set per full app tuple on that plan, answered
-/// `{id, digest, tokens}`: the patched design's digest and the rows of the
-/// tokens it patched, as `design` gives them.
+/// `{id, digest, structure, tokens}`: the patched design's digest, its
+/// structure (`modes::structure`, which the dev loop's scrub refuses a
+/// change of) and the rows of the tokens it patched, as `design` gives them.
 /// `{id, fallback}` when it cannot patch the frame (the plan it compiled is
 /// not `key`'s, or a row would gain or lose its slices), `{id, error}` when
 /// the app does not compile. Nothing is written.
@@ -147,12 +151,13 @@ fn design_serve(input: &std::path::Path) -> ExitCode {
                 let names: Vec<String> = values.iter().map(|(n, _)| n.clone()).collect();
                 patched(plan, &values).map_or_else(
                     || serde_json::json!({"id": id, "fallback": true}),
-                    |plan| {
+                    |next| {
                         // The runner's theme-table cache knows a plan by its
                         // buffers, which a patched copy may reuse: started over.
-                        let _ = exact_runner::bridge::role_overrides(&plan);
-                        let tokens = exact_runner::design::tokens(&plan);
-                        serde_json::json!({"id": id, "digest": exact_runner::design::digest(&tokens), "tokens": modes::rows(&plan, declared, Some(&names))})
+                        let _ = exact_runner::bridge::role_overrides(&next);
+                        let tokens = exact_runner::design::tokens(&next);
+                        let structure = modes::structure_of(plan, &next);
+                        serde_json::json!({"id": id, "digest": exact_runner::design::digest(&tokens), "structure": structure, "tokens": modes::rows(&next, declared, Some(&names))})
                     },
                 )
             }

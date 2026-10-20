@@ -172,6 +172,8 @@ artifact of the app and is not managed here (D6).
 **Desktop window consumer (2026-09-07):** `host.macos.window` optionally declares
 `width`, `height`, `minWidth`, and `minHeight` in points, baked into the existing
 Info.plist as `ExactWindow`. Fieldnotes uses 1100×760 with a 760×560 minimum.
+`keepRunning` (2026-10-20) is baked there too: the app outlives its one window
+(LLP 1069.010 D8); a window may declare it with no size.
 The standalone adapter reads its title from the baked display name and restores
 a configured app's frame under its bundle identity. Bare development executables
 read the existing adjacent Info.plist. Agent/smoke runs skip restoration and use

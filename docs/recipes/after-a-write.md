@@ -26,7 +26,7 @@ component TagList
     if match added { case some(r) => r.ok, case none => false }
       draft = ""
   view
-    list appearance="auto" listStyle="inset-grouped" height="100%" testId="app"
+    list appearance="auto" listStyle="inset-grouped" height="100%"
       section
         row gap=8 align-items="center"
           column flex=1 min-width=0 gap=4
@@ -78,12 +78,12 @@ test "a refused add keeps its text and says why; the next one clears it"
   expect tree missing "add-error"
 ```
 
-Do not also set an unqueued mutation's slot to `none` when sending it: assignments
-commit after sends and may drop the reply. Hide old errors with `pending(added)`.
-`none` means no reply; `failed(added)` marks request failure. A request failure
-runs no `then`; an `{ ok: false, error }` reply does.
+`afterAdd` clears the draft only when its reply has `ok: true`; a request failure runs no
+`then`. The pending guard stops a second Enter replacing the first reply. A `then`
+that closes a form checks the route first ([navigation-stack](navigation-stack.md)).
 
-`afterAdd` clears the draft only when its reply has `ok: true`. The pending guard
-prevents a second Enter from replacing the first reply. A continuation that closes
-a form should also check the current route before setting `nav = back(nav)`
-([navigation-stack](navigation-stack.md)).
+The module has no clock or randomness: a write that dates or rolls is sent
+`time.epochAtZero + performanceNow()` and `time.seed` (`exactTime()`), the seed mixed
+with what the write changes. A row seeded at install sorts by its given stamp until a write
+restamps it. The agent's clock stands still at 2026-01-01 until `clock +N`: step it
+between a test's writes, or they tie.

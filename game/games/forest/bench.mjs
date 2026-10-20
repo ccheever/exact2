@@ -15,9 +15,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir, loadavg } from 'node:os';
 import { join, resolve, extname } from 'node:path';
 import { cdp, sleep, stop, track } from '../../bench/exact.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
 
 const dist = resolve(import.meta.dir, 'dist');
-const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME = chromium({ needs: ['gpu', 'perf'] }).executable;
 const seconds = Number(process.env.BENCH_SECONDS ?? 6);
 const headless = process.env.BENCH_HEADLESS !== '0';
 const types = {'.html':'text/html', '.js':'text/javascript', '.json':'application/json', '.wasm':'application/wasm'};

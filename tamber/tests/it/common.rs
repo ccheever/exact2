@@ -50,5 +50,6 @@ pub fn vocab() -> Vocab {
         roles,
         named_lengths,
         sizes,
+        bases: Vec::new(),
     }
 }

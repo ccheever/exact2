@@ -7,8 +7,7 @@
 // update (review C3). rt.js runs beside stand-ins for the modules it imports,
 // with the real shape.js.
 import { test, expect, describe, beforeAll, afterAll } from 'bun:test';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -630,7 +629,7 @@ describe('browser TypeScript send failures', () => {
       }`, { headers: { 'Content-Type': 'text/javascript' } });
       return new Response(Bun.file(resolve(dir, path.slice(1))));
     } });
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
   });
   afterAll(async () => { await browser?.close(); server?.stop(true); });
   for (const failure of ['null', 'undefined', 'UnknownSource']) for (const queued of [false, true]) {
