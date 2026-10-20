@@ -6,6 +6,7 @@ import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { sourceControlPage } from '../../src/settings/source-control-view';
 import { restCommand } from '../../src/settings/settings-rest-commands';
 import { storage } from '../support/client-fixture';
+import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 
 const capabilities = { serverResolvedCommandContext: true, projectSettingsOverrides: true };
 function setup(scopes = ['orchestration:read', 'settings:write']) {
@@ -60,6 +61,13 @@ describe('source control discovery and credentials belong to the scoped environm
     expect([...view.repositories, ...view.text].every(row => row.disabled)).toBe(true);
     await expect(write()).rejects.toThrow('settings:write');
     expect(calls.map(call => call.method)).toEqual(['server.discoverSourceControl']);
+  });
+  test('across several environments the Version Control heading names the scanned one, the primary', async () => {
+    const { page } = setup();
+    primaryAt('http://127.0.0.1:16411', 'remote-env', 'Remote');
+    try {
+      expect([(await page('')).vcsTitle, (await page()).vcsTitle]).toEqual(['Version Control · Remote', 'Version Control']);
+    } finally { resetPrimary(); }
   });
   test('a connected background scope remains available while the focused connection is offline', async () => {
     const { client, calls, page } = setup();

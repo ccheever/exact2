@@ -361,10 +361,14 @@ if (es) {
   let applying = null;
   // The tab's own id, kept across its reloads (sessionStorage); a duplicated
   // tab, which copies that storage, takes another when this one answers.
+  // A copy the design tool frames (LLP 1122 T7: same-origin frames share the
+  // tab's storage) keeps its own under the frame's name, `exact-copy-<n>`,
+  // which the page only reads; any other name is the app's, left alone.
+  const framed = globalThis.parent != null && globalThis.parent !== globalThis, copy = framed && /^exact-copy-\d{1,2}$/.test(globalThis.name ?? ""), buildKey = copy ? `exact.dev.build:${globalThis.name}` : "exact.dev.build";
   const buildId = (async () => {
     const fresh = () => `web-${crypto.getRandomValues(new Uint32Array(2)).join("")}`;
     let id;
-    try { id = sessionStorage.getItem("exact.dev.build"); } catch { return fresh(); }
+    try { id = sessionStorage.getItem(buildKey); } catch { return fresh(); }
     const tabs = typeof BroadcastChannel === "function" ? new BroadcastChannel("exact.dev.build") : null;
     if (id && tabs) {
       const mine = id;
@@ -375,7 +379,7 @@ if (es) {
     // Answered for any id this tab holds, one it just made included: a tab
     // duplicated from it copies that too.
     if (tabs) { const own = id; tabs.onmessage = (e) => { if (e.data === `who:${own}`) tabs.postMessage(`taken:${own}`); }; }
-    try { sessionStorage.setItem("exact.dev.build", id); } catch { /* storage refused */ }
+    try { sessionStorage.setItem(buildKey, id); } catch { /* storage refused */ }
     return id;
   })();
   // A report gives up after 10 s; a registration waits as long as it takes
@@ -427,57 +431,152 @@ if (es) {
     const rootStyle = getComputedStyle(document.documentElement), cs = rootStyle.colorScheme;
     const scheme = /dark/.test(cs) && !/light/.test(cs) ? "dark" : /light/.test(cs) && !/dark/.test(cs) ? "light" : globalThis.exact.systemScheme ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     const contrast = matchMedia("(prefers-contrast: more)").matches ? "more" : matchMedia("(prefers-contrast: less)").matches ? "less" : "no-preference";
-    return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision };
+    return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision, location: here(), app: appAsked() ?? undefined };
+  };
+  // In a copy the design tool pins (LLP 1122 T7, theme2's F2 ruling), the
+  // pin holds over the app's own setScheme, setMode and setRootFontSize for
+  // the facts it pins (elsewhere the app's own wins, D3): the runner keeps
+  // what the app asks of a held fact, applies none of it, and applies its
+  // latest when the pin is handed back (`exact_hold_facts`). What the app
+  // asked against the pin is said beside the status (`app`).
+  let asked = {};
+  function appAsked() {
+    const p = channel.held?.pin;
+    if (!copy || !p) return null;
+    const out = {};
+    if (p.scheme && asked.scheme != null && asked.scheme !== p.scheme) out.scheme = String(asked.scheme).slice(0, 32);
+    if (p.rootFontSize && asked.rootFontSize != null && asked.rootFontSize !== p.rootFontSize) out.rootFontSize = String(asked.rootFontSize).slice(0, 64);
+    // (Within the status's bounds: each axis and value at most 64 characters, the whole at most 1 KiB.)
+    const mode = Object.fromEntries(Object.entries(asked.mode ?? {}).filter(([a, v]) => p.mode?.[a] !== undefined && p.mode[a] !== v && a.length <= 64 && String(v).length <= 64));
+    if (Object.keys(mode).length && new TextEncoder().encode(JSON.stringify(mode)).length <= 800) out.mode = mode;
+    return Object.keys(out).length ? out : null;
+  }
+  // (A question applies no batch, so asking is never a commit that asks again.)
+  const holdFacts = async (text) => {
+    const x = globalThis.exact;
+    if (!copy) return;
+    await x.ready;
+    if (typeof x.wasm?.exact_hold_facts !== "function") return;
+    const n = x.wasm.exact_hold_facts(x.writeIn(text)), out = JSON.parse(x.readOut(n));
+    // (Applied quietly: a refused one's batch is no commit for `committed` to ask after; a taken one says its status.)
+    if (text !== "?") { quiet = true; try { x.send(n); } finally { quiet = false; } if (!out?.error) committed(); }
+    if (out?.asked) asked = out.asked;
+    return out;
   };
   const status = async () => { clearTimeout(statusLater); statusLater = null; const body = await facts(); channel.told = JSON.stringify(body); report(body); };
   // The facts change under the page too, and by the app's own `setScheme`,
   // `setMode` and `setRootFontSize`: after its commits, once a turn, a status
   // when they moved.
   for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)"]) matchMedia(query).addEventListener?.("change", () => { if (channel.nonce) status(); });
-  let due = false;
+  let due = false, quiet = false;
   const committed = () => {
     // A scrub frame's own commit is said once the drag rests, with these facts.
-    if (due || !channel.nonce || scrubSend) return;
+    if (due || !channel.nonce || scrubSend || quiet) return;
     due = true;
     setTimeout(() => {
       designing = designing.then(async () => {
         due = false;
+        if (copy && channel.releasing) channel.releasing = !!(await holdFacts("-"))?.error;
+        if (copy && channel.held) await holdFacts("?");
         const body = await facts();
         if (JSON.stringify(body) !== channel.told) { channel.told = JSON.stringify(body); report(body); }
       }).catch((error) => console.error("exact dev:", String(error)));
     }, 0);
   };
   globalThis.exact.ready?.then?.(() => { globalThis.exact.committed = committed; });
+  // Where the page is (*1.14*), said when it moves: the router writes the
+  // history, the browser traverses it, and a fragment moves alone. (A
+  // location over the server's bound says none.)
+  function here() { const at = location.pathname + location.search + location.hash; return at.length <= 2048 && /^\/(?![/\\])[\x21-\x5b\x5d-\x7e]*$/.test(at) ? at : null; }
+  const pages = globalThis.history;
+  if (pages) for (const name of ["pushState", "replaceState"]) { const write = pages[name]; pages[name] = function (...args) { const out = write.apply(this, args); committed(); return out; }; }
+  globalThis.addEventListener?.("popstate", committed);
+  globalThis.addEventListener?.("hashchange", committed);
+  // `navigate` (LLP 1122 T7, *1.14*): the location routed in place as a link
+  // to it is (input-glue.js): the navigation root's `navigate` handler, else
+  // the router's own `go`, no reload; a fragment that differs then set on
+  // the entry the router wrote. One that is no route says so, by the
+  // frame's `seq`.
+  const navigate = async (frame) => {
+    const x = globalThis.exact;
+    await x.ready;
+    // A frame of a stream since replaced (a reconnect, another server) is old
+    // news: nothing done and nothing said, so its refusal never answers the
+    // new stream's navigation of the same seq.
+    const mine = () => frame.stream === channel.nonce;
+    if (!mine()) return;
+    const refuse = (detail) => { if (mine()) report({ kind: "unsupported", what: "navigate", detail: String(detail).slice(0, 1024), revision: frame.seq }); };
+    const said = (at) => JSON.stringify(at.length > 200 ? `${at.slice(0, 200)}…` : at);
+    try {
+      const url = new URL(frame.location, location.origin);
+      // (A path that resolves to `//…` is scheme-relative to the history API: no location of this page.)
+      if (url.origin !== location.origin || url.pathname.startsWith("//")) return refuse("the location is no path on this page's origin");
+      // There once the router's entry is the route (an agent's launch keys
+      // ride on its address, history.state.url has none) or the address is
+      // it. (The server sends a location spelled as the router writes it.)
+      const to = url.pathname + url.search, there = () => pages?.state?.url === to || location.pathname + location.search === to, before = pages?.state?.url;
+      if (!there()) {
+        if (typeof x.wasm?.exact_route_match !== "function" || x.wasm.exact_route_match(x.writeIn(to)) !== 1) return refuse(`${said(to)} is no route of this app`);
+        const nav = document.getElementById("exact-root")?.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
+        const batch = heard ? x.navigate(to) : x.go?.(to);
+        if (!batch?.ops?.some((op) => op.op === "router")) return refuse(batch?.error ?? `the app's router took no step to ${said(to)}`);
+      }
+      // (The router writes the history after its commit, at once unless a
+      // traversal is under way: the fragment once it is there, on the entry
+      // it wrote, its address otherwise kept. One the app's handler sent
+      // elsewhere keeps the app's place, no fragment, and no wait.)
+      for (let i = 0; i < 100 && !there() && pages?.state?.url === before; i++) await new Promise((ok) => setTimeout(ok, 10));
+      if (mine() && there() && url.hash !== location.hash) pages?.replaceState(pages.state, "", location.origin + location.pathname + location.search + url.hash);
+    } catch (error) { return refuse(String(error)); }
+    committed();
+  };
   const pin = async (frame) => {
     const root = document.documentElement.style, p = frame.pin;
     // What it was before the first pin, handed back by `none`; each pin
     // replaces the whole set.
     channel.before ??= { fontSize: root.fontSize, hostFont: root.getPropertyValue("--exact-host-font-size"), mode: await modes() };
     const x = globalThis.exact, pins = (m) => Object.entries(m).map(([a, v]) => `${a}=${v}`).join(",");
+    // (A copy's held facts first: the app's own root size gives way before the pinned one is set.)
+    // (Facts held before and not now take the app's latest choice; a hold refused for its modes holds the rest.)
+    const flags = p ? `${p.scheme ? "s" : ""}${p.rootFontSize ? "r" : ""}` : "";
+    // (A copy's pin refused for its modes keeps the axes held before, and sets none.)
+    let refusedModes = false;
+    if (p) { const held = await holdFacts(`${flags}:${pins(p.mode ?? {})}`); if (held?.error) { refusedModes = true; report({ kind: "unsupported", what: "pin.hold", detail: String(held.error).slice(0, 1024), revision: frame.revision }); await holdFacts(`${flags}:${pins(channel.held?.pin?.mode ?? {})}`); } }
     // The scheme is the system's, beneath the app's `setScheme` (the root's
     // own style): a rule over the page's `light dark`, and the system scheme
     // the runner's `prefers-color-scheme` reads (navigation.js
     // `preferences`), told as the browser's change is.
     const sheet = document.getElementById("exact-dev-pin") ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: "exact-dev-pin" }));
-    sheet.textContent = p?.scheme ? `:root{color-scheme:${p.scheme}}` : "";
+    sheet.textContent = p?.scheme ? `:root{color-scheme:${p.scheme}${copy ? "!important" : ""}}` : "";
     if ((x.systemScheme ?? null) !== (p?.scheme ?? null)) { x.systemScheme = p?.scheme ?? null; dispatchEvent(new Event("resize")); }
     // The root font size as `prefer` sets it (navigation.js): the size an
     // app's percentage is of, too.
-    root.fontSize = p?.rootFontSize ? `${p.rootFontSize}px` : channel.before.fontSize;
+    // (In a copy, over the app's own: its `!important` rule gives way to the root's own.)
+    root.removeProperty("font-size");
+    if (copy && p?.rootFontSize) root.setProperty("font-size", `${p.rootFontSize}px`, "important");
+    else root.fontSize = p?.rootFontSize ? `${p.rootFontSize}px` : channel.before.fontSize;
     if (p?.rootFontSize) root.setProperty("--exact-host-font-size", root.fontSize);
     else if (channel.before.hostFont) root.setProperty("--exact-host-font-size", channel.before.hostFont);
     else root.removeProperty("--exact-host-font-size");
     await wasmCall("exact_set_root_font_size", hostSize());
-    const mode = pins({ ...(channel.before.mode ?? {}), ...(p?.mode ?? {}) });
+    // (Handed back, only the axes the last pin set go back: the app's own on any other stands.)
+    // (In a copy only the pinned axes are set, and an axis the last pin set and this one doesn't goes back; elsewhere a pin is the whole set over the first's snapshot.)
+    const last = channel.held?.pin?.mode ?? {}, back = Object.fromEntries(Object.entries(channel.before.mode ?? {}).filter(([a]) => a in last && !(a in (p?.mode ?? {})) && !(copy && asked.mode?.[a] !== undefined)));
+    const mode = refusedModes ? "" : pins(p ? (copy ? { ...back, ...(p.mode ?? {}) } : { ...(channel.before.mode ?? {}), ...(p.mode ?? {}) }) : back);
     if (mode) {
       // A mode refused leaves the modes before the first pin, not the last pin's.
       const out = await wasmCall("exact_set_mode", x.writeIn(mode));
-      if (out?.error) { report({ kind: "unsupported", what: "pin.mode", detail: out.error, revision: frame.revision }); const back = pins(channel.before.mode ?? {}); if (back) await wasmCall("exact_set_mode", x.writeIn(back)); }
+      // (In a copy a refused mode leaves the modes as they are.)
+      if (out?.error) { report({ kind: "unsupported", what: "pin.mode", detail: out.error, revision: frame.revision }); const back = pins(channel.before.mode ?? {}); if (back && !copy) await wasmCall("exact_set_mode", x.writeIn(back)); }
     }
     // A page cannot override the browser's `prefers-contrast`.
     if (p?.contrast) report({ kind: "unsupported", what: "pin.contrast", detail: "a web page cannot pin the browser's contrast", revision: frame.revision });
-    if (!p) channel.before = null;
-    channel.held = p ? frame : null;
+    // (Handed back, a copy's held facts are the app's latest own choices.)
+    // A hand-back the runner refuses is asked again after each commit until it is taken.
+    if (!p) { channel.before = null; const out = await holdFacts("-"); channel.releasing = !!out?.error; if (out?.error) report({ kind: "unsupported", what: "pin.hold", detail: String(out.error).slice(0, 1024), revision: frame.revision }); }
+    else channel.releasing = false;
+    // (A copy's pin refused for its modes holds the axes held before: what it holds, as hand-back reads it.)
+    channel.held = p ? (copy && refusedModes ? { ...frame, pin: { ...p, mode: channel.held?.pin?.mode } } : frame) : null;
     channel.revision = frame.revision;
     status();
   };
@@ -834,6 +933,7 @@ if (es) {
       if (frame.kind === "inspect") return inspect(frame);
       if (frame.kind === "outline") return outlineSites(frame);
       if (frame.kind === "hold") return hold(frame);
+      if (frame.kind === "navigate") return navigate(frame);
       report({ kind: "unsupported", what: frame.kind });
     }).catch((error) => console.error("exact dev:", String(error)));
   };
@@ -868,7 +968,8 @@ if (es) {
       channel.holdLatest = message;
       bindHold(message);
     }
-    if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold") { command(message); return; }
+    if (message.kind === "navigate") message.stream = channel.nonce;
+    if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold" || message.kind === "navigate") { command(message); return; }
     if (message.hello && message.nonce && message.nonce !== channel.nonce) {
       const nonce = channel.nonce = message.nonce;
       // A new stream may be a new server's: a hold of the one before ends nothing, and says nothing, now.
@@ -877,7 +978,11 @@ if (es) {
       // Reports wait for this; a refused registration sends none.
       channel.registered = (async () => {
         await globalThis.exact.ready;
-        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin", "inspect", "hold"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
+        const id = await buildId, answer = await post(nonce, { kind: "register", id, host: "web", capabilities: ["pin", "inspect", "hold", "navigate"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
+        // A framed copy tells the page framing it which build it is (LLP
+        // 1122 T7): the design tool maps the frame to its tile by this
+        // message's source. The id grants nothing without the stream's nonce.
+        if (answer.ok && framed) globalThis.parent.postMessage({ type: "exact-build", id }, "*");
         return answer.ok;
       })().catch(() => false);
       status();

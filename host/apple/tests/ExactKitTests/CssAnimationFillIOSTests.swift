@@ -8,10 +8,11 @@ import XCTest
 /// fill kept its last frame, so a later change of the property (an opacity
 /// transition to 0) never showed (Signal Clone's reaction picker).
 final class CssAnimationFillIOSTests: XCTestCase {
-    private func spec(fill: Double, held: Double) -> [String: Any] {
+    private func dictionary(fill: Double, held: Double) -> [String: Any] {
         ["id": "fade#0#opacity", "k": "opacity", "s": 0.0, "dl": 0.0, "d": 0.2, "n": 1.0,
          "t": [0.0, 1.0], "v": [0.0, 1.0], "c": [], "fill": fill, "h": held]
     }
+    private func spec(fill: Double, held: Double) -> CssAnimation { CssAnimation(dictionary(fill: fill, held: held))! }
 
     func testAnEndedAnimationWithoutAForwardsFillHasNoEffect() {
         let layer = CALayer()
@@ -30,14 +31,15 @@ final class CssAnimationFillIOSTests: XCTestCase {
     func testTheModelValueShowsOnceAnEntranceHasEnded() {
         let layer = CALayer()
         layer.opacity = 0
-        var installed: [String: String] = [:]
+        var installed: [String: Int] = [:]
         CssAnimations.apply([spec(fill: 0, held: 0.1)], to: layer, clock: 100, installed: &installed)
         XCTAssertNotNil(layer.animation(forKey: "fade#0#opacity"), "running at 100 ms")
         CssAnimations.apply([spec(fill: 0, held: 0.5)], to: layer, clock: 500, installed: &installed)
         XCTAssertNil(layer.animation(forKey: "fade#0#opacity"), "ended at 500 ms: removed, the model value (0) shows")
         // The agent's clock alone (no `h`): to the end exactly, and back.
-        var plain = spec(fill: 0, held: 0); plain.removeValue(forKey: "h")
-        var clocked: [String: String] = [:]
+        var unheld = dictionary(fill: 0, held: 0); unheld.removeValue(forKey: "h")
+        let plain = CssAnimation(unheld)!
+        var clocked: [String: Int] = [:]
         CssAnimations.apply([plain], to: layer, clock: 200, installed: &clocked)
         XCTAssertNil(layer.animation(forKey: "fade#0#opacity"), "at its end, 200 ms: no effect")
         CssAnimations.apply([plain], to: layer, clock: 100, installed: &clocked)

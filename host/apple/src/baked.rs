@@ -1,11 +1,13 @@
-//! The plan and compatibility document the link carries beside the archive.
+//! The plan, compatibility document and module bytecode the link carries
+//! beside the archive.
 //!
-//! A TypeScript app's Apple build bakes its plan outside Cargo and links it,
-//! with its `compat.json`, into the executable's `__TEXT` segment
-//! (`ld -sectcreate`, `host/apple/build.mjs`), so an edit to the Contract
-//! alone links again and compiles no Rust. Both stay in the signed executable,
-//! as they were in the archive; reading them is a pointer into the mapped
-//! image (`getsectiondata(3)`), well under a microsecond.
+//! A TypeScript app's Apple build bakes outside Cargo and links the plan, its
+//! `compat.json` and the module's Hermes bytecode into the executable's
+//! `__TEXT` segment (`ld -sectcreate`, `host/apple/build.mjs`), so an edit to
+//! the Contract or the TypeScript alone links again and compiles no Rust. All
+//! three stay in the signed executable, as they were in the archive; reading
+//! one is a pointer into the mapped image (`getsectiondata(3)`), well under a
+//! microsecond.
 
 /// The linked plan. Panics when the link carried none: an archive whose
 /// entry reads its plan here is linked by `build.mjs`, which always adds it.
@@ -23,6 +25,13 @@ pub fn compat() -> &'static str {
         );
         std::str::from_utf8(bytes).expect("the linked compat.json is UTF-8")
     })
+}
+
+/// The linked module bytecode, 16-byte aligned (`-sectalign`), as Hermes
+/// reads it in place; panics as [`plan`] does.
+pub fn bytecode() -> &'static [u8] {
+    section(c"__exact_hbc")
+        .expect("no __TEXT,__exact_hbc: host/apple/build.mjs links this archive's module")
 }
 
 /// The bytes of `__TEXT,<name>` in the image this code is linked into (the

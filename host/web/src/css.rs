@@ -62,7 +62,8 @@ fn css_text_in(
             }
             // @ref LLP 1115 D3 — a text style is the ramp's size at CSS's
             // `medium`, in `rem`, so it follows the browser's root size.
-            Unit::TextStyle(_) => {
+            // @ref LLP 1137 — a length ramp likewise.
+            Unit::TextStyle(_) | Unit::Ramp(_) => {
                 let medium = exact_kernel::style::relative::MEDIUM;
                 num_into(out, n * unit.basis(medium, medium, 1.0) / medium);
                 out.push_str("rem");
@@ -353,6 +354,12 @@ fn css_text_in(
                 if auto {
                     out.truncate(start);
                     out.push_str("AccentColor");
+                }
+                // The ink on the accent is worked out from the accent (neutral.css):
+                // as the accent itself it is the browser's keyword, no cycle.
+                if &out[start..] == "var(--exact-accent-text, AccentColorText)" {
+                    out.truncate(start);
+                    out.push_str("AccentColorText");
                 }
                 out.push(';');
                 // An authored accent, apart from the page's own in

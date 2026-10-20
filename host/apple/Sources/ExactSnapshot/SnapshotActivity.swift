@@ -59,6 +59,7 @@ public final class ActivityRender {
         public let root: HeadlessSession.Node
         public let margins: (left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat)
         public let authoredWidth: Bool
+        public let minimumWidth: CGFloat
         public let viewport: CGSize
         /// The placement's margin box: what its region holds.
         public var size: CGSize { CGSize(width: root.frame.width + margins.left + margins.right, height: root.frame.height + margins.top + margins.bottom) }
@@ -66,9 +67,6 @@ public final class ActivityRender {
     public let session: HeadlessSession
     private let lock = NSLock()
     private var laid: [String: Laid] = [:]
-    /// The layout a reported size was measured from, by the size: what the
-    /// view of that size draws.
-    private var shown: [String: Laid] = [:]
     private var layouts = 0
     private var nanoseconds: UInt64 = 0
     /// How many layouts this state has run, and their time: the render's
@@ -102,7 +100,6 @@ public final class ActivityRender {
         return snapshot.nodes[container.children[placement.rawValue]]
     }
 
-    private static func key(_ placement: ActivityPlacement, _ size: CGSize) -> String { "\(placement.rawValue)|\(size.width)|\(size.height)" }
 
     /// The placement laid out in a viewport `width` wide (the region's;
     /// `snapshot_viewport` reads it) and `height` tall, the system's
@@ -123,13 +120,16 @@ public final class ActivityRender {
                 throw HeadlessSession.Failure(description: "activity plan has no \(placement.name) placement")
             }
             let box = session.placementBox(root.id)
-            return Laid(snapshot: snapshot, root: root, margins: box?.margins ?? (0, 0, 0, 0), authoredWidth: box?.authoredWidth ?? false, viewport: viewport)
+            return Laid(snapshot: snapshot, root: root, margins: box?.margins ?? (0, 0, 0, 0), authoredWidth: box?.authoredWidth ?? false, minimumWidth: box?.minimumWidth ?? 0, viewport: viewport)
         }
         var result = try pass(CGSize(width: width, height: max(1, height ?? 1)))
         if height == nil, result.size.height > 0, abs(result.size.height - result.viewport.height) > 0.5 {
             result = try pass(CGSize(width: width, height: result.size.height))
         }
         laid[key] = result
+        // GeometryReader receives this resolved viewport, including a content-sized
+        // proposal's height. Drawing it is the same pass, not another kernel layout.
+        laid["\(placement.rawValue)|\(result.viewport.width)|\(result.viewport.height)"] = result
         return result
     }
 
@@ -143,38 +143,40 @@ public final class ActivityRender {
     /// content's height, margins included. A zero proposal is the minimum,
     /// which is nothing; an unspecified or infinite width is the ideal: the
     /// content's own.
+    public struct Measurement {
+        public let size: CGSize
+        public let laid: Laid?
+    }
+
     public func size(_ placement: ActivityPlacement, proposal: ProposedViewSize) -> CGSize {
-        if proposal.width == 0 || proposal.height == 0 { return .zero }
+        measure(placement, proposal: proposal).size
+    }
+
+    public func measure(_ placement: ActivityPlacement, proposal: ProposedViewSize) -> Measurement {
+        if proposal.width == 0 || proposal.height == 0 { return Measurement(size: .zero, laid: nil) }
         var width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? Self.widest
         let height = proposal.height.flatMap { $0.isFinite ? $0 : nil }
-        guard var laid = try? layout(placement, width: width, height: height) else { return CGSize(width: width, height: 0) }
+        guard var laid = try? layout(placement, width: width, height: height) else { return Measurement(size: CGSize(width: width, height: 0), laid: nil) }
         var reported = CGSize(width: width, height: laid.size.height)
         if !placement.fillsWidth {
             // A region that wrapped a paragraph is as wide as the paragraph's
             // widest ink line, as SwiftUI's `Text` reports its own: the
             // region is laid out again that wide, until the width settles.
             for _ in 0..<8 {
-                guard laid.size.width >= width - 0.5, Self.wraps(under: laid.root, in: laid.snapshot) else { break }
-                let ink = (Self.widestLine(under: laid.root, in: laid.snapshot) + laid.margins.left + laid.margins.right).rounded(.up)
+                guard !laid.authoredWidth, laid.minimumWidth < width, laid.size.width >= width - 0.5, Self.wraps(under: laid.root, in: laid.snapshot) else { break }
+                let ink = max(laid.minimumWidth + laid.margins.left + laid.margins.right, (Self.widestLine(under: laid.root, in: laid.snapshot) + laid.margins.left + laid.margins.right).rounded(.up))
                 guard ink > 0, ink < width - 0.5, let narrower = try? layout(placement, width: ink, height: height) else { break }
                 width = ink; laid = narrower
             }
             let used = laid.size.width
-            reported.width = used > width + 0.5 && !laid.authoredWidth ? width : used
+            reported.width = laid.authoredWidth ? used : max(laid.minimumWidth + laid.margins.left + laid.margins.right, min(width, used))
             reported.height = laid.size.height
         }
-        lock.lock(); shown[Self.key(placement, reported)] = laid; lock.unlock()
-        return reported
+        return Measurement(size: reported, laid: laid)
     }
 
-    /// The layout the view of a reported `size` draws: the one that size
-    /// was measured from, else the placement laid out in a viewport of
-    /// that size (a view never measured, as a test's).
-    public func laidOut(_ placement: ActivityPlacement, size: CGSize) -> Laid? {
-        lock.lock()
-        let kept = shown[Self.key(placement, size)]
-        lock.unlock()
-        return kept ?? (try? layout(placement, width: size.width, height: size.height))
+    public func laidOut(_ placement: ActivityPlacement, proposal: ProposedViewSize) -> Laid? {
+        measure(placement, proposal: proposal).laid
     }
 
     /// Whether a paragraph under `node` broke into lines.
@@ -283,7 +285,7 @@ public struct ActivityPlacementView: View {
         let margins = margins
         PlacementLayout(render: render, placement: placement) {
             GeometryReader { proxy in
-                if let laid = render.laidOut(placement, size: proxy.size) {
+                if proxy.size.width > 0, proxy.size.height > 0, let laid = try? render.layout(placement, width: proxy.size.width, height: proxy.size.height) {
                     let background = placement.hasMargins ? SnapshotActivity.background(of: laid, dark: scheme == .dark) : ActivityBackground(tint: nil, gradients: nil)
                     let bleed = CGRect(x: -margins.leading, y: -margins.top, width: proxy.size.width + margins.leading + margins.trailing, height: proxy.size.height + margins.top + margins.bottom)
                     let frame = CGRect(x: laid.root.frame.minX, y: laid.root.frame.minY, width: laid.root.frame.width, height: laid.root.frame.height)
@@ -291,7 +293,7 @@ public struct ActivityPlacementView: View {
                         if let paint = background.gradients { paint.gradients(in: CGRect(origin: .zero, size: bleed.size)) } else { Color.clear }
                         SnapshotNodeView(node: laid.root, tree: laid.snapshot, environment: environment, isRoot: placement.hasMargins)
                     }
-                    .modifier(AccountContent(on: !environment.placeholder))
+                    .clipShape(RegionClip(size: CGSize(width: laid.authoredWidth ? laid.size.width : max(laid.minimumWidth + laid.margins.left + laid.margins.right, min(proxy.size.width, laid.size.width)), height: laid.size.height), margins: margins))
                     .widgetURL(SnapshotActivity.url(laid, environment: environment))
                     .modifier(Tinted(color: background.tint))
                 }
@@ -301,14 +303,13 @@ public struct ActivityPlacementView: View {
     }
 }
 
-/// D8: the content is account content, redacted on a locked phone, but for
-/// a node that says `data-privacy="public"`. The placeholder carries no
-/// modifier at all: a `privacySensitive` modifier, either way, makes its
-/// subtree ignore placeholder redaction (stage 0).
-private struct AccountContent: ViewModifier {
-    let on: Bool
-    func body(content: Content) -> some View {
-        if on { content.privacySensitive(true) } else { content }
+private struct RegionClip: Shape {
+    let size: CGSize
+    let margins: EdgeInsets
+    func path(in rect: CGRect) -> Path {
+        Path(CGRect(x: -margins.leading, y: -margins.top,
+                    width: size.width + margins.leading + margins.trailing,
+                    height: size.height + margins.top + margins.bottom))
     }
 }
 
@@ -326,17 +327,19 @@ private struct Tinted: ViewModifier {
 }
 
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
-private struct PlacementLayout: Layout {
+struct PlacementLayout: Layout {
     let render: ActivityRender
     let placement: ActivityPlacement
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        render.size(placement, proposal: proposal)
+        render.measure(placement, proposal: proposal).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let measured = render.measure(placement, proposal: proposal)
         for subview in subviews {
-            subview.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+            let viewport = measured.laid?.viewport ?? .zero
+            subview.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(viewport))
         }
     }
 }

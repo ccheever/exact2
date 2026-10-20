@@ -82,6 +82,11 @@ impl DocTree {
         &self.nodes
     }
 
+    /// Every node, mutably, for the props the runner adds after the fold.
+    pub(crate) fn nodes_mut(&mut self) -> &mut [DocNode] {
+        &mut self.nodes
+    }
+
     /// The node `id`.
     pub fn node(&self, id: ViewId) -> Option<&DocNode> {
         self.index.get(&id).map(|i| &self.nodes[*i as usize])

@@ -64,10 +64,17 @@ extension NativeViews {
         // The scene's, as the session tells Contract (Session.swift `preferenceBits`).
         let dark = session?.view?.window?.windowScene?.traitCollection.userInterfaceStyle == .dark
         #endif
-        return ["visibilityState": PageFacts.hidden ? "hidden" : "visible", "onLine": PageFacts.onLine,
+        return ["visibilityState": PageFacts.hidden ? "hidden" : "visible", "onLine": Self.appOnLine(moduleAsks: moduleAsksOnLine),
                 "prefersColorScheme": dark ? "dark" : "light", "prefersContrast": DisplayPreferences.contrast,
                 "prefersReducedMotion": DisplayPreferences.reducedMotion, "prefersReducedTransparency": DisplayPreferences.reducedTransparency]
     }
+
+    /// `onLine` as the app hatch is told it. A module that asks the host
+    /// for it (`app.onLine` calls the host table's `on_line`) is told it as
+    /// last read, so nothing starts the path monitor until something reads
+    /// it; an older module reads it only from these facts, so it is read,
+    /// which starts the monitor, and its changes are told.
+    static func appOnLine(moduleAsks: Bool) -> Bool { moduleAsks ? PageFacts.lastOnLine : PageFacts.onLine }
 
     /// The first root node's `data-*` words (§2.5): how Contract tells the
     /// app hatch what it should know.

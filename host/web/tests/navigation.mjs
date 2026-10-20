@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { cpSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Cdp, open } from '../../../scripts/agent.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
 import { serveStatic, serveBuildTree, readWebRequest } from '../serve.mjs';
 import { publishRoot } from '../../../scripts/deploy.mjs';
 import { DirectoryOrigin, appDocumentPath } from '../../../scripts/origin.mjs';
@@ -96,7 +97,9 @@ const server = createServer((req, res) => {
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}`;
-const child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${dir}/chrome`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+const browser = chromium();
+if (browser.unavailable) throw new Error(`Chrome is required: ${browser.unavailable}`);
+const child = spawn(browser.executable, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${dir}/chrome`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
 const cdp = new Cdp(child.stdio[3], child.stdio[4]);
 const exited = new Promise(r => child.on('exit', () => { cdp.fail('Chrome closed'); r(); }));
 const rows = [], failures = [], consoleLines = [], consoleErrors = [], skipped = [];

@@ -42,7 +42,7 @@ final class IframePostMessageTests: XCTestCase {
         window.orderFrontRegardless()
         defer { window.close() }
         #else
-        session.drawReceipt()()
+        session.drawReceipt().drawn()
         #endif
         let activationDeadline = Date(timeIntervalSinceNow: 30)
         while !session.dataActivated && Date() < activationDeadline {

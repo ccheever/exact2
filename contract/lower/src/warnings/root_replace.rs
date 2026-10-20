@@ -40,6 +40,8 @@
 //!
 //! Tabs and every other form are the benefit of the doubt, and a hidden or
 //! disabled button is left alone as plainly unused.
+//!
+//! The file's other warning is the router's too: [`select_after_push`].
 
 use crate::LowerError;
 use contract_syntax::{Attr, BinOp, Component, Expr, Node, Span, Stmt, TemplatePart};
@@ -47,7 +49,14 @@ use contract_types::Checked;
 use exact_route::Table;
 use std::collections::BTreeSet;
 
-pub(super) fn root_replace(checked: &Checked<'_>) -> Vec<LowerError> {
+/// The router's warnings: [`root_replace`]'s, then [`select_after_push`]'s.
+pub(super) fn router(checked: &Checked<'_>) -> Vec<LowerError> {
+    let mut out = root_replace(checked);
+    out.extend(select_after_push(checked));
+    out
+}
+
+fn root_replace(checked: &Checked<'_>) -> Vec<LowerError> {
     let (Some(decl), Some(table)) = (&checked.file.routes, &checked.types.shapes.routes) else {
         return Vec::new();
     };
@@ -100,6 +109,153 @@ pub(super) fn root_replace(checked: &Checked<'_>) -> Vec<LowerError> {
         }
     }
     out
+}
+
+/// `lower-select-after-push`: `select` of a router a `go` or `push` of the
+/// same action made, directly or through a `let`. Both add the visit to the
+/// selected tab's stack, whatever tab declares its route (LLP 1038 §3), so
+/// the tab selected next shows its own stack and the visit waits on the tab
+/// left: a deep link into another tab that opens nothing (the euxy port).
+/// It warns only where the router is surely pushed: a choice only when
+/// every arm is, a name only while no nearer binder hides the `let`.
+fn select_after_push(checked: &Checked<'_>) -> Vec<LowerError> {
+    let Some(decl) = &checked.file.routes else {
+        return Vec::new();
+    };
+    // A `fn` of the app's by one of these names is called in the router's place.
+    let fns = &checked.types.shapes.fns;
+    if ["go", "push", "select"]
+        .iter()
+        .any(|f| fns.contains_key(*f))
+    {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for action in &checked.expanded.root.actions {
+        let mut scope: Bound = action
+            .params
+            .iter()
+            .map(|p| (p.name.as_str(), None))
+            .collect();
+        pushed_block(&action.body, &decl.slot, &mut scope, &mut out);
+    }
+    out
+}
+
+/// The names in scope, nearest last, each with the verb, `go` or `push`,
+/// that made the router it holds, if one surely did.
+type Bound<'a> = Vec<(&'a str, Option<&'a str>)>;
+
+/// A block's statements, its `let`s and `case some(…)` binders scoped to it.
+fn pushed_block<'a>(body: &'a [Stmt], nav: &str, scope: &mut Bound<'a>, out: &mut Vec<LowerError>) {
+    let depth = scope.len();
+    for s in body {
+        match s {
+            Stmt::Let { name, expr, .. } => {
+                selects(expr, nav, scope, out);
+                let verb = pushes(expr, scope);
+                scope.push((name, verb));
+            }
+            Stmt::Assign { expr, .. } => selects(expr, nav, scope, out),
+            Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
+                for a in args {
+                    selects(a, nav, scope, out);
+                }
+            }
+            Stmt::Refresh { .. } => {}
+            Stmt::Call { body, .. } => pushed_block(body, nav, scope, out),
+            Stmt::If {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => {
+                selects(cond, nav, scope, out);
+                pushed_block(then, nav, scope, out);
+                pushed_block(otherwise, nav, scope, out);
+            }
+            Stmt::Match {
+                subject,
+                some,
+                none,
+                ..
+            } => {
+                selects(subject, nav, scope, out);
+                scope.push((&some.0, None));
+                pushed_block(&some.1, nav, scope, out);
+                scope.pop();
+                pushed_block(none, nav, scope, out);
+            }
+        }
+    }
+    scope.truncate(depth);
+}
+
+/// The verb, `go` or `push`, that surely made a router value: a choice's
+/// only when every arm's is.
+fn pushes<'a>(e: &'a Expr, scope: &Bound<'a>) -> Option<&'a str> {
+    match e {
+        Expr::Call(f, _, _) if f == "go" || f == "push" => Some(f),
+        Expr::Ident(n, _) => scope.iter().rev().find(|(p, _)| p == n)?.1,
+        Expr::Ternary(_, a, b, _) => pushes(b, scope).and(pushes(a, scope)),
+        _ => None,
+    }
+}
+
+/// Each `select` in `e` of a router a `go` or `push` made.
+fn selects<'a>(e: &'a Expr, nav: &str, scope: &mut Bound<'a>, out: &mut Vec<LowerError>) {
+    match e {
+        Expr::Call(f, args, span) if f == "select" => {
+            if let [router, tab] = args.as_slice() {
+                if let Some(verb) = pushes(router, scope) {
+                    let tab = match tab {
+                        Expr::Str(t, _) => format!("\"{t}\""),
+                        _ => "tab".into(),
+                    };
+                    out.push(LowerError {
+                        id: "lower-select-after-push",
+                        message: format!("this `select` shows {tab} as it was: `{verb}` adds its visit to the selected tab's stack, whatever tab declares the route, so the visit stays on the tab being left. To open a location on its own tab, write `go(select({nav}, {tab}), url)` (onto that tab's stack) or `open({nav}, url)` (its declared chain, in place of that tab's stack) (docs/recipes/tabs.md)"),
+                        span: *span,
+                    });
+                }
+            }
+        }
+        // A binder hides an outer name of its own for its body.
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            ..
+        } => {
+            selects(subject, nav, scope, out);
+            scope.push((var, None));
+            selects(some, nav, scope, out);
+            scope.pop();
+            return selects(none, nav, scope, out);
+        }
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            selects(value, nav, scope, out);
+            let verb = pushes(value, scope);
+            scope.push((name, verb));
+            selects(body, nav, scope, out);
+            scope.pop();
+            return;
+        }
+        Expr::Arrow { params, body, .. } => {
+            let depth = scope.len();
+            scope.extend(params.iter().map(|p| (p.as_str(), None)));
+            selects(body, nav, scope, out);
+            scope.truncate(depth);
+            return;
+        }
+        _ => {}
+    }
+    for x in parts(e) {
+        selects(x, nav, scope, out);
+    }
 }
 
 /// What the app's declarations say.

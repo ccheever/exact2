@@ -1825,3 +1825,256 @@ test "a paired tool frames no page of this machine, whatever the server's hello 
   expect tree missing "canvas-open"
   expect tree missing "pairing"
   request POST "/__stub/restart" {} as ada
+
+test "stage 11: the base scale's rows are read-only, with each platform the app ships and its source; a package's tokens name their package; set for this app, and back to the base"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/scale" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  expect text "token-group-Base scale (Exact)" == "Base scale (Exact)"
+  expect text "token-source-space.md" == "Exact's base, per platform"
+  // The columns this app's targets draw (iOS, the Mac, the web's neutral), then the rest one expand away.
+  expect text "token-base-space.md-ios" == "iOS 16px · grouped-row-inset"
+  expect text "token-base-space.md-mac" == "Mac 10px · grouped-row-inset"
+  expect text "token-base-space.md-neutral" == "neutral 16px · grouped-row-inset"
+  expect tree missing "token-base-space.md-material"
+  tap "token-base-more-space.md"
+  expect text "token-base-space.md-material" == "Android 16px · M3 spacing"
+  expect text "token-base-space.md-terminal" == "terminal 1cell · cells"
+  expect text "token-base-radius.md-mac" == "Mac 6px (a stretch) · control-radius, the Mac draws no larger control"
+  expect text "token-group-reading package" == "reading package"
+  expect text "token-source-reading.measure" == "From the reading package"
+  expect text "token-over-radius.md" == "Set for this app, over Exact's base (iOS 8px)."
+  expect tree missing "set-for-app-radius.md"
+  // A package's value opens read-only in the branch editor.
+  tap "cell-reading.measure-0-light"
+  clock data
+  expect text "branch-readonly" == "The reading package's, read only: Set for this app (in the grid) to change it here."
+  expect disabled "branch-value"
+  tap "set-for-app-space.md"
+  clock data
+  expect state editKind == "set-token"
+  expect state editTarget == "space.md"
+  expect state editValue == "16px"
+  expect text "set-for-app-note" == "space.md for this app starts from iOS's 16px, and the app's value is every platform's."
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  // Set for this app, the base name is the app's: said over the base, no second Set, its way back offered.
+  clock +1
+  clock data
+  expect tree missing "set-for-app-space.md"
+  expect text "token-over-space.md" == "Set for this app, over Exact's base (iOS 16px)."
+  // Its cell edits the app's line, not read-only.
+  tap "cell-space.md-0-light"
+  clock data
+  expect tree missing "branch-readonly"
+  expect text "branch-value" == "16px"
+  expect enabled "branch-value"
+  tap "back-radius.md"
+  clock data
+  expect state editKind == "remove-token"
+  expect state editTarget == "radius.md"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (2)"
+  // Back to the base: Exact's again, set for this app offered once more.
+  clock +1
+  clock data
+  expect tree has "set-for-app-radius.md"
+  expect tree missing "token-over-radius.md"
+  // A package's token set for this app: the app's line over the package's, and back to the package.
+  tap "set-for-app-reading.measure"
+  clock data
+  expect state editKind == "set-token"
+  expect state editValue == "640px"
+  tap "apply"
+  clock data
+  clock +1
+  clock data
+  expect text "token-over-reading.measure" == "Set for this app, over the reading package's value."
+  expect tree missing "set-for-app-reading.measure"
+  tap "back-reading.measure"
+  clock data
+  expect state editKind == "remove-token"
+  tap "apply"
+  clock data
+  clock +1
+  clock data
+  expect tree has "set-for-app-reading.measure"
+  request POST "/__stub/restart" {} as ada
+
+test "T7: a grid of live copies, each pinned to its mode on the build its own frame said, whichever registers first; a copy moved leads the others, one that can't navigate is reloaded there; Mirror off moves none; a smaller grid and one copy hand the pins back"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/copies" {"delays": {"exact-copy-1": 4000}, "noNavigate": ["exact-copy-3"], "refuseLater": ["exact-copy-5"]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "canvas-view" "grid"
+  clock data
+  expect text "grid-shared" == "Each copy is its own origin, with its own storage: each starts with its own data. Mirrored navigation replays no actions."
+  expect tree missing "canvas-frame"
+  // Copy 1's build registers last (4 s after the others), and still takes its own pin, no other's.
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-label-exact-copy-1" == "Light"
+  expect text "grid-label-exact-copy-2" == "Black"
+  expect text "grid-label-exact-copy-3" == "Dim"
+  expect text "grid-label-exact-copy-4" == "Light · 22px"
+  expect text "grid-label-exact-copy-6" == "Dim · 22px"
+  expect tree missing "grid-tile-exact-copy-7"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  expect text "grid-note-exact-copy-6" == "dark · dark-style=dim · 22px · /"
+  expect text "grid-note-exact-copy-1" == "light · 16px · /"
+  expect text "grid-note-exact-copy-4" == "light · 22px · /"
+  expect text "build-pin-copy-1" == "pinned: light"
+  expect text "build-pin-copy-3" == "pinned: dark, dark-style=dim"
+  // Copy 2's app asked for Dim; its pin held (theme2's F2 ruling), and the tile says so.
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "copy-2", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0, "location": "/", "app": {"mode": {"dark-style": "dim"}}}}} as ada
+  clock +1000 real
+  clock data
+  expect text "grid-app-exact-copy-2" == "The app set dark-style=dim; pinned to dark, dark-style=black."
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "copy-2", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0, "location": "/"}}} as ada
+  // The person moves copy 2: the others follow; copy 3's build can't navigate, so its frame reloads there, and says so.
+  request POST "/__stub/move" {"build": "copy-2", "location": "/post/3"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-1" == "light · 16px · /post/3"
+  expect text "grid-note-exact-copy-6" == "dark · dark-style=dim · 22px · /post/3"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3 · reloaded there: its build can't navigate"
+  // Copy 5's page took the command and then refused it: reloaded there too.
+  expect text "grid-note-exact-copy-5" == "dark · dark-style=black · 22px · /post/3 · reloaded there: its build can't navigate"
+  // Mirror off: a copy moved leads no other.
+  tap "grid-mirror"
+  request POST "/__stub/move" {"build": "copy-1", "location": "/post/9"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-1" == "light · 16px · /post/9"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /post/3"
+  // Fewer copies: the two left out are handed back.
+  type "grid-cap" "4"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect tree missing "grid-tile-exact-copy-5"
+  expect tree missing "build-pin-copy-5"
+  expect text "build-pin-copy-4" == "pinned: light, 22px"
+  // One copy again: every pin the grid made handed back.
+  type "canvas-view" "one"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect tree missing "grid-section"
+  expect tree missing "build-pin-copy-1"
+  expect tree missing "build-pin-copy-4"
+  request POST "/__stub/restart" {} as ada
+
+test "T7: the selected view's states side by side, each copy holding one on the selection's site in the selection's plan and mode, kept while its pins move the selected build; the grid lets the holds go, and so does One copy"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/copies" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "canvas-view" "states"
+  clock +1000 real
+  clock data
+  expect text "grid-note" == "Select a view (Inspect, then click it in a copy) to see its states side by side."
+  expect tree missing "grid-tile-exact-copy-1"
+  // A view selected in a copy registered meanwhile (the grid's frames register as the grid opens).
+  type "canvas-view" "grid"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "copy-5", "node": 4, "site": 3, "instance": [], "type": "Card", "planDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "tuple": {"dark-style": "dim"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": []} as ada
+  clock +1
+  clock data
+  type "canvas-view" "states"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note" == "Card #4, in dark · dark-style=black · 22px."
+  expect text "grid-label-exact-copy-1" == "At rest"
+  expect text "grid-label-exact-copy-2" == "Pressed"
+  expect text "grid-label-exact-copy-4" == "Focused"
+  expect tree missing "grid-tile-exact-copy-5"
+  expect text "grid-note-exact-copy-1" == "dark · dark-style=black · 22px · /"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 22px · / · holding pressed"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=black · 22px · / · holding hovered"
+  expect text "grid-note-exact-copy-4" == "dark · dark-style=black · 22px · / · holding focused"
+  // Its build says it holds it.
+  request POST "/__stub/event" {"event": "held", "build": "copy-2", "state": "active"} as ada
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 22px · / · held pressed"
+  // The copy the view was selected in, no longer shown, is handed back.
+  expect tree missing "build-pin-copy-5"
+  // The grid again: its copies hold no state.
+  type "canvas-view" "grid"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /"
+  // One copy: the pins handed back.
+  type "canvas-view" "one"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect tree missing "build-pin-copy-2"
+  request POST "/__stub/restart" {} as ada

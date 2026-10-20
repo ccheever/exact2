@@ -13,6 +13,41 @@ import UIKit
 package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     /// The kernel's id; a parked view takes a new row's and a new incarnation (`NodePool`, LLP 1068 §4.9).
     package var id: UInt32
+    // The flags, together after `id`: each `Bool` between wider fields
+    // took a word of its own, and every view pays its stored properties
+    // (a 768-byte block, from 1,024).
+    var paintLifted = false
+    var paintGhost = false
+    /// The box is `draw(_:)`'s to paint: Core Animation cannot say it (`applyBoxLayer`).
+    var boxDrawn = false
+    /// The key is set and paints the whole paragraph (not a band of it).
+    private(set) var textRasterWhole = false
+    var textRasterReady = false
+    var textRasterFailed = false
+    var textLayoutValid = false
+    /// What the host's own writers hid (a covered route, a tab a native control
+    /// stands in for, a placement); a `display: none` box is hidden besides, as
+    /// CSS removes it with its subtree, or its texts paint at its 0×0 frame's
+    /// origin (recipes F19). Reading says whether it is hidden, for either reason.
+    private var hostHidden = false
+    var groupedOwner = false
+    package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    /// A surface control's focus from its touch (SurfaceInput), which the
+    /// author did not ask for: it does not keep a later autofocus off
+    /// (Accessibility). Tab and `focus(id)` clear it (`chooseFocus`).
+    package var focusedBySurfaceTouch = false
+    /// A native swipe row's scroll container (`swipeContent`, LLP 1008 §9)
+    /// waits for its UIScrollView. UIKit's swipe cell, not the scroll, takes
+    /// the row's touches (`SwipeActionsHost`), and a closed row's content
+    /// sits at the scroll's start, as it does at rest on the web: the
+    /// children live in the node itself, clipped as the scroll would clip
+    /// them. The scroll view comes when something needs it (`needScroll`):
+    /// the swipe host refusing the row (the scroll is then the swipe), an
+    /// authored scroll position or `scroll` handler, the agent's wheel, a
+    /// reveal. A list builds each row without a scroll view, its
+    /// recognizers, and its registration with the window.
+    var swipeOwner = false { didSet { if oldValue && !swipeOwner { syncScroll() } } }
+    private(set) var scrollNeeded = false
     var incarnation = NodePool.issue()
     /// Bumped where a touch's press contact here is cancelled for good
     /// (moved, out of the window, disabled, made inert): a captured agent
@@ -20,62 +55,31 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var pressEpoch: UInt64 = 0
     // Twice the kernel rank; transients never overwrite the authored answer.
     var rank: Int64 = 0
-    var paintLifted = false
-    var paintGhost = false
-    var paintGhosts = 0
     weak var paintParent: PaintView?
-    weak var ghostParent: NodeView?
-    let firstDraw: () -> Void
+    let firstDraw: DrawReceipt?
     package let kind: String
     var inlineText: [InlineText] = []
     /// The rarely set fields (`NodeExtrasIOS.swift`); nil until one is set.
     var extras: NodeExtras?
     /// A box's gradient and shadows (`NodePaintExtras`); nil until one is set.
     var paintExtras: NodePaintExtras?
+    /// A transform, an image, paint ghosts, a scroll's extent (`NodeAside`); nil until one is set.
+    var aside: NodeAside?
     package override class var layerClass: AnyClass { NodeLayer.self }
-    /// The box is `draw(_:)`'s to paint: Core Animation cannot say it (`applyBoxLayer`).
-    var boxDrawn = false
     /// A uniform border under the children, where they can reach it.
     var boxBorder: CALayer?
-    /// A paragraph's specs, a third of what a view would otherwise hold
-    /// inline (`TextSpecs`); nil for a node that never had text.
-    private var specs: TextSpecs?
+    /// A paragraph's specs and raster, apart from the view (`TextSpecs`);
+    /// nil for a node that never had text.
+    var specs: TextSpecs?
     var textRasterKey: TextRasterKey? {
         get { specs?.rasterKey }
         set {
-            if newValue != nil || specs != nil { (specs ?? makeSpecs()).rasterKey = newValue }
+            if newValue != nil || specs != nil { textMore.rasterKey = newValue }
             textRasterWhole = newValue.map { $0.clip == nil } ?? false
         }
     }
-    /// The key is set and paints the whole paragraph (not a band of it).
-    private(set) var textRasterWhole = false
-    var textRaster: CGImage?
-    var textRasterLayer: CALayer?
-    var textRasterFrame = CGRect.zero
-    /// The words and style `textRaster` paints, which the paragraph's may
-    /// have left behind since (`invalidateText` keeps the old pixels up).
-    var textRasterSpec: Spec? {
-        get { specs?.rasterSpec }
-        set { if newValue != nil || specs != nil { (specs ?? makeSpecs()).rasterSpec = newValue } }
-    }
-    var textRasterScale: CGFloat = 1
-    var textRasterReady = false
-    var textRasterFailed = false
-    var cachedTextSpec: Spec? {
-        get { specs?.cached }
-        set { if newValue != nil || specs != nil { (specs ?? makeSpecs()).cached = newValue } }
-    }
-    private func makeSpecs() -> TextSpecs { let made = TextSpecs(); specs = made; return made }
-    var textLayoutValid = false
-    var flowShapes: [TextFlowShape] = []
-    var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     package var style: NodeStyle = [:]
-    /// What the host's own writers hid (a covered route, a tab a native control
-    /// stands in for, a placement); a `display: none` box is hidden besides, as
-    /// CSS removes it with its subtree, or its texts paint at its 0×0 frame's
-    /// origin (recipes F19). Reading says whether it is hidden, for either reason.
-    private var hostHidden = false
     /// Whether the host hid this view, whatever CSS's `display` says: what a
     /// projection or a placement saves and restores, since `isHidden` also
     /// reads `display: none` (review B1: restoring that wrote CSS's bit into
@@ -273,15 +277,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         guard gesture.state == .ended, !disabled else { return } // then after this touch's own press
         DispatchQueue.main.async { [weak self, token = incarnation] in if let self, self.incarnation == token, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
     }
-    var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box (chess diary #4)
-    package var scale: CGFloat = 1
-    package var rotate: CGFloat = 0
     weak package var presenter: Presenter?
     /// The actual scroll port; a native list supplies its collection view.
     /// `scroll` remains the plain scroller that holds authored children.
     package var scrollView: UIScrollView? { extras?.nativeScrollView ?? scroll }
     package var scrollsVertically: Bool { ["scroll", "auto"].contains(style["overflow_y"]?.string ?? "") }
-    var groupedOwner = false
     package var ownsScrollDelegate: Bool {
         guard let sv = scrollView else { return false }
         return sv.delegate === (extras?.nativeScrollView == nil ? self : extras?.nativeScrollDelegate)
@@ -293,9 +293,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if scroll !== oldValue && extras?.nativeScrollView == nil { presenter?.keyboardToolbars.backendChanged() }
         }
     }
-    /// A scroll container's content extent (the `content` op), before the
-    /// axes that do not scroll are held to the box.
-    var content = CGSize.zero
     package var placementHidden: Bool {
         get { extras?.placementHidden ?? false }
         set {
@@ -311,20 +308,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var hidesAccessibility: Bool {
         placementHidden || props["inert"] == "true" || props["accessibilityElementsHidden"] == "true"
     }
-    /// An image node's picture, once loaded (decoded off the main thread),
-    /// the source it came from, and which load is current: a completion
-    /// from an older load, or for a view that was destroyed, is dropped.
-    var image: UIImage?
-    var raster: NativeRasterLease? { didSet { if raster == nil, let l = imageLayer { l.removeFromSuperlayer(); imageLayer = nil } } }
-    /// An image's pixels as a sublayer's contents (`applyImageLayer`).
-    var imageLayer: CALayer?
-    var imageSource: String?
-    var loadGeneration = 0
-    package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
-    /// A surface control's focus from its touch (SurfaceInput), which the
-    /// author did not ask for: it does not keep a later autofocus off
-    /// (Accessibility). Tab and `focus(id)` clear it (`chooseFocus`).
-    package var focusedBySurfaceTouch = false
     /// Marked before `becomeFirstResponder` runs: its `focus` handler can
     /// mount an autofocus field, whose pass must see the mark.
     @discardableResult
@@ -666,7 +649,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     init(id: UInt32, kind: String, presenter: Presenter) {
         self.id = id
-        firstDraw = presenter.session?.drawReceipt() ?? {}
+        firstDraw = presenter.session?.drawReceipt()
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
@@ -1347,18 +1330,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         settleVibrancy()
     }
 
-    /// A native swipe row's scroll container (`swipeContent`, LLP 1008 §9)
-    /// waits for its UIScrollView. UIKit's swipe cell, not the scroll, takes
-    /// the row's touches (`SwipeActionsHost`), and a closed row's content
-    /// sits at the scroll's start, as it does at rest on the web: the
-    /// children live in the node itself, clipped as the scroll would clip
-    /// them. The scroll view comes when something needs it (`needScroll`):
-    /// the swipe host refusing the row (the scroll is then the swipe), an
-    /// authored scroll position or `scroll` handler, the agent's wheel, a
-    /// reveal. A list builds each row without a scroll view, its
-    /// recognizers, and its registration with the window.
-    var swipeOwner = false { didSet { if oldValue && !swipeOwner { syncScroll() } } }
-    private(set) var scrollNeeded = false
     var scrollWaits: Bool { swipeOwner && !scrollNeeded && !handlers.contains("scroll") && !handlers.contains("scrollend") }
     /// The node's overflow scrolls, and its scroll view is still waiting.
     var scrollDormant: Bool {
@@ -1432,7 +1403,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // The first pixel is on its way: the GPU module may load now (LLP
         // 1009 D4), on the next turn (LLP 1014's readback fixture found a
         // batch's own attempt too early).
-        if presenter?.views[id] === self { firstDraw() }
+        if presenter?.views[id] === self { firstDraw?.drawn() }
         let path = roundedPath(in: bounds)
         let uniform = number("border_width")
         // A box Core Animation can say is the layer's (`applyBoxLayer`);

@@ -6,13 +6,13 @@
 // progress, as the glue does while a drag is held: delays, iterations,
 // directions and keyframe easing included.
 import { test, expect } from 'bun:test';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp, open } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { open } from '../../../scripts/agent.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { timelineEasing } from '../motion-glue.js';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
@@ -41,7 +41,7 @@ const hostCommitBody = `
   ${commitSource}
   return (${checkedGlueCall})(applyBatch);
 `;
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 test('glue fixtures name missing declarations and module bindings', () => {
@@ -234,13 +234,9 @@ check('in Chrome, followers match timeline progress and stop when a consumer res
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(file));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-timeline-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const suite = await cdpBrowser(), { cdp } = suite;
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     const evaluate = async (expression) => {
       const reply = await cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, sessionId);
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
@@ -283,9 +279,8 @@ check('in Chrome, followers match timeline progress and stop when a consumer res
       expect(result.frames, `${target} ${change}: only a changed moving resolution enters per-frame seeking`).toBe(['renamed-axis', 'axis', 'range'].includes(change) ? 1 : 0);
     }
   } finally {
-    child.kill();
+    await suite.close();
     server.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }, 60000);
 

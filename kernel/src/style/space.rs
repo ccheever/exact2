@@ -191,6 +191,8 @@ pub(crate) fn f32_row(
         (StyleId::TranslateZ, StyleValue::Text(t)) => {
             translate_z(t).map_or_else(|| wrong("up to three lengths in px"), Ok)
         }
+        // `translate: -50%` has no z.
+        (StyleId::TranslateZ, StyleValue::Percent(p)) if p.is_finite() => Ok(0.0),
         (StyleId::Perspective, StyleValue::Text(t)) => {
             perspective(t).map_or_else(|| wrong("`none` or a nonnegative length"), Ok)
         }

@@ -179,6 +179,16 @@ final class LaunchURLMacTests: XCTestCase {
         XCTAssertTrue(state.contains("/open?u=exacttest%3A%2F%2Fauth%2Fsecond%23two"), state)
     }
 
+    /// The agent's `type <root> <url>` (euxy FRICTION 13): a URL with a
+    /// scheme arrives as the system's `openURL` would deliver it, a path as written.
+    func testATypedURLArrivesAsTheSystemWouldDeliverIt() throws {
+        let session = ExactApp.shared.makeSession()
+        session.protocolHandlers = handlers
+        defer { session.destroy() }
+        XCTAssertEqual(session.typedLocation("exacttest://auth/x#frag"), "/open?u=exacttest%3A%2F%2Fauth%2Fx%23frag")
+        XCTAssertEqual(session.typedLocation("/saved?q=1"), "/saved?q=1")
+    }
+
     func testAdapterBatchDeliversEveryProtocolLinkInOrder() throws {
         let session = ExactApp.shared.makeSession()
         session.protocolHandlers = handlers

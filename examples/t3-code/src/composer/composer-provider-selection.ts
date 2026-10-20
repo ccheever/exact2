@@ -30,6 +30,21 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
   pi: 'default', opencode: 'openai/gpt-5', antigravity: ANTIGRAVITY_DEFAULT_MODEL,
 };
 
+/** getAntigravitySendBlockReason (ChatView.logic.ts): the one provider state, besides no provider at all, that blocks a send. */
+export function antigravitySendBlockReason(provider: Obj | undefined, model: string): string {
+  if (str(provider?.driver) !== 'antigravity') return '';
+  const auth = str(obj(provider!.auth).status), models = arr(provider!.models), slug = model.trim();
+  if (provider!.installed !== true) return 'Install Antigravity in provider settings before sending.';
+  if (auth === 'unauthenticated') return 'Sign in to Antigravity in provider settings before sending.';
+  if (!slug) return 'Choose an Antigravity model before sending.';
+  if (auth === 'unknown') return '';
+  if (!models.length) return 'Refresh Antigravity models in provider settings before sending.';
+  if (provider!.status === 'ready' && slug !== ANTIGRAVITY_DEFAULT_MODEL && !models.some(entry => entry.slug === slug || (entry.aliases as unknown[] | undefined)?.includes(slug))) {
+    return 'That Antigravity model is no longer available. Choose another model.';
+  }
+  return '';
+}
+
 export type ProviderEntry = {
   instanceId: string; driverKind: string; continuationGroupKey: string; enabled: boolean; installed: boolean;
   status: string; isDefault: boolean; isAvailable: boolean; snapshot: Obj; models: Obj[];

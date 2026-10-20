@@ -92,8 +92,8 @@ test('an IPv6 host is in the certificate', () => {
 });
 
 test('the flags: host:port and a tunnel port, refused when malformed', () => {
-  expect(remoteArgs([])).toEqual({ remote: null, tunnel: null, plugin: false, hosts: [] });
-  expect(remoteArgs(['--remote', '0.0.0.0:7443', '--trust-tunnel', '7444', '--allow-plugin-origin', '--allow-host', 'Tamber.Example.com'])).toEqual({ remote: { host: '0.0.0.0', port: 7443 }, tunnel: 7444, plugin: true, hosts: ['tamber.example.com'] });
+  expect(remoteArgs([])).toEqual({ remote: null, tunnel: null, plugin: false, hosts: [], relay: null });
+  expect(remoteArgs(['--remote', '0.0.0.0:7443', '--trust-tunnel', '7444', '--allow-plugin-origin', '--allow-host', 'Tamber.Example.com'])).toEqual({ remote: { host: '0.0.0.0', port: 7443 }, tunnel: 7444, plugin: true, hosts: ['tamber.example.com'], relay: null });
   expect(() => remoteArgs(['--trust-tunnel', '70000'])).toThrow(/port/);
   expect(() => remoteArgs(['--remote', 'https://x:1'])).toThrow(/host:port/);
   expect(() => remoteArgs(['--remote', 'x:70000'])).toThrow(/port/);

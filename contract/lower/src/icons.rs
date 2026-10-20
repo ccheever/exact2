@@ -127,6 +127,12 @@ pub fn draws(icon: &tamber::Icon, root: &Path) -> Vec<(String, Option<&'static s
         .collect()
 }
 
+/// The targets the app at `root` ships, by name, in order (what `draws` is
+/// keyed by).
+pub fn shipped_targets(root: &Path) -> Vec<String> {
+    targets(Some(root)).into_iter().map(|t| t.name).collect()
+}
+
 /// A target the app ships, and each thing in the app that makes it shipped,
 /// so a refusal can say what to remove.
 #[derive(Debug, Clone, PartialEq)]
@@ -230,6 +236,32 @@ pub(crate) fn declare(
                             .unwrap_or_default()
                     ),
                 ),
+                // No SVG for a host that draws only one (LLP 1121 D10 refuses it: the app ships
+                // that host). The euxy port, Apple-only with no SVGs, needed the form that builds.
+                (None, _) if !apple(target) => {
+                    let file = icon.name.trim_start_matches("icon.").replace('.', "-");
+                    // A bare SF Symbol blank on the web alone is one line of a build (the CLI's `web_only`).
+                    let blank: Vec<&str> = targets.iter().map(|t| t.name.as_str()).filter(|t| !apple(t)).map(|t| if t == "web" { "the web" } else { t }).collect();
+                    // An SF Symbol that is a role's Apple name is that role, which every host draws.
+                    let sf = icon.sf.as_deref().map(|sf| match crate::symbols::role_by_apple_name(sf) {
+                        Some(role) => format!(". With no SVG for it, declare no icon and write `symbol:{role}`, the role Apple draws as `{sf}`, which every host draws"),
+                        None => format!(
+                            ". With no SVG for it, declare no icon and write `symbol:sf/{sf}` where it is used: Apple draws it, and {} it blank, {}",
+                            if blank.len() == 1 { format!("{} draws", blank[0]) } else { format!("{} draw", blank.join(" and ")) },
+                            if blank == ["the web"] { "which the build says in one warning" } else { "with a warning at each use" },
+                        ),
+                    }).unwrap_or_default();
+                    refuse(
+                        "tamber-icon-missing",
+                        format!(
+                            "{} has no source for {target}, which draws an icon only from an `svg` source: add `svg \"icons/{file}.svg\"`, with `assets/icons/{file}.svg` drawn as {TEMPLATE} (a Material Symbols SVG is){sf}{}",
+                            icon.name,
+                            without(target)
+                                .map(|step| format!(". Not shipping {target}? {step} removes it"))
+                                .unwrap_or_default()
+                        ),
+                    )
+                }
                 _ => refuse(
                     "tamber-icon-missing",
                     format!("{} has no source for {target}", icon.name),

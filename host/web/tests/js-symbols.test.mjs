@@ -6,8 +6,7 @@ import { test, expect } from 'bun:test';
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 
 // symbols.js beside stand-ins for the runtime and the picker glue it loads.
@@ -130,7 +129,7 @@ test('symbol axes follow the current projected title and root font without anoth
   let browser, stage = 'launch';
   const report = (kind, value) => console.log('symbol diagnostic', JSON.stringify({ stage, kind, value }));
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true, timeout: 10000 });
+    browser = await suiteBrowser('chromium', { timeout: 10000 });
     stage = 'page'; report('stage', stage);
     const page = await browser.newPage({ viewport: { width: 1280, height: 700 } });
     page.setDefaultTimeout(5000);
@@ -221,7 +220,7 @@ test('a symbol under a bound colour follows whether it has a value', async () =>
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true, timeout: 10000 });
+    browser = await suiteBrowser('chromium', { timeout: 10000 });
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
@@ -283,7 +282,7 @@ test('a symbol under a mode boundary follows its implied row and its binding', a
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true, timeout: 10000 });
+    browser = await suiteBrowser('chromium', { timeout: 10000 });
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));

@@ -7,6 +7,7 @@
 // draft, choices and branch refs. The editor never enables or runs a task by itself; Enabled
 // is the user's own switch. Labels and the scope rule are scheduled-tasks.ts ports.
 import { fleet } from '../connections/settings-b-fleet';
+import { catalogOrder } from '../connections/local-primary';
 import { deliveriesPage, closeDeliveries, EMPTY_DELIVERIES } from './scheduled-deliveries';
 import { webhookAddress, webhookDraft, webhookSchedule } from './scheduled-webhook';
 import { arr, obj, str, num, type Obj } from '../client/domain';
@@ -184,8 +185,10 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     if (!environments.length) throw new Error('Connect an environment to manage scheduled tasks.');
     const scope = taskScope(client, environments, machine, projectKey, checkout, projectKey ? '' : projectId);
     if (scope.kind === 'unavailable') throw new Error(scope.message);
-    const inScope = environments.filter(environment => scope.environmentIds.includes(environment.environmentId));
-    const fallback = (inScope.find(environment => environment.focused && environment.connected) ?? inScope.find(environment => environment.connected) ?? inScope[0])?.environmentId ?? '';
+    // The scope's environments in the catalog's order; a new task starts on its representative (SettingsScopeContext's
+    // `environment`: the primary when it is connected), else the first connected one (ScheduledTasksSettings defaultEnvironment).
+    const inScope = catalogOrder(environments.filter(environment => scope.environmentIds.includes(environment.environmentId)), fleet.catalogIds());
+    const fallback = (inScope.find(environment => environment.connected) ?? inScope[0])?.environmentId ?? '';
     const target = (editor === 'task' || editor === 'task-deliveries') && editingId ? editTarget(editingId, fallback) : null;
     const scopeMachines = scopeEnvironments(client);
     const sections = inScope.map(environment => {

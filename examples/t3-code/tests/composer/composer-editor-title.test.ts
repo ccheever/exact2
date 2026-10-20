@@ -14,6 +14,10 @@ describe('new-thread title seed (ChatView onSend)', () => {
     expect(launchTitle('[notes.md](t3-context://v1/file/file_x)', 'photo.png', 'notes.md')).toBe('Image: photo.png');
     expect(launchTitle('[notes.md](t3-context://v1/file/file_x)', '', 'notes.md')).toBe('File: notes.md');
     expect(launchTitle('  ')).toBe('New thread');
+    // Then a terminal context, a review comment ("Review: …") and a preview annotation, in that order.
+    expect(launchTitle('[Terminal 1 lines 2-4](t3-context://v1/terminal/terminal_a) [App.tsx:3](t3-context://v1/review-comment/review-comment_b)')).toBe('Terminal 1 lines 2-4');
+    expect(launchTitle('[Tighten](t3-context://v1/preview-annotation/preview-annotation_c) [App.tsx:3](t3-context://v1/review-comment/review-comment_b)')).toBe('Review: App.tsx:3');
+    expect(launchTitle('[Tighten](t3-context://v1/preview-annotation/preview-annotation_c)')).toBe('Tighten');
   });
   test('truncate keeps 50 characters', () => {
     expect(launchTitle('x'.repeat(60))).toBe(`${'x'.repeat(50)}...`);

@@ -654,6 +654,12 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
             "syntax-expected-newline",
             "expected end of line, found `=`; `==` compares, and only a statement assigns",
         ),
+        // The euxy port's `after(0, …)`: 0 would be due in the commit that armed it.
+        (
+            app("  task t mount\n    after(0, tick)\n  action tick\n    draft = \"x\"\n", "text draft"),
+            "lower-timer-interval",
+            "`after` needs a whole number of milliseconds, at least 1; given 0: write `after(1, …)`, the soonest, which runs a commit after the one that armed it, as the web's `setTimeout(f, 0)` runs after the current task",
+        ),
         (
             app("", "button press={add}"),
             "syntax-expected-expression",
@@ -678,6 +684,29 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         let e = contract::compile(&src).unwrap_err();
         assert_eq!((e.id.as_str(), e.message.as_str()), (id, message), "{src}");
     }
+}
+
+/// A prop written with a default (the euxy port's) is told props have none,
+/// and the `option` form the refusal names compiles.
+#[test]
+fn a_prop_default_is_refused_naming_the_option_form() {
+    let app = |props: &str, read: &str, pass: &str| {
+        format!("component A\n  view\n    Toggle({pass})\ncomponent Toggle\n  props\n    {props}\n  view\n    button \"x\" disabled={read}\n")
+    };
+    let e =
+        contract::compile(&app("disabled: bool = false", "disabled", "disabled=true")).unwrap_err();
+    assert_eq!(
+        (e.id.as_str(), e.message.as_str()),
+        ("syntax-expected-newline", "a prop has no default: pass `disabled=<value>` at every use, or declare `disabled: option<bool>`, pass `disabled=none` where it is unset, and read it as `match disabled { case some(v) => v, case none => <default> }`"),
+    );
+    contract::compile(&app(
+        "disabled: option<bool>",
+        "(match disabled { case some(v) => v, case none => false })",
+        "disabled=none",
+    ))
+    .unwrap();
+    // The other form it names, `disabled=<value>` with a value, compiles too.
+    contract::compile(&app("disabled: bool", "disabled", "disabled=true")).unwrap();
 }
 
 /// `style=`'s declarations come back as attributes that compile: a quote, a

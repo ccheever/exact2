@@ -1,4 +1,4 @@
-import CryptoKit
+import CommonCrypto
 import Foundation
 
 /// A source-interest lifetime, not a Runtime callback. Cancelling detaches the
@@ -43,6 +43,13 @@ final class RasterInput: @unchecked Sendable {
     private static let launchSource = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSource") as? String
     private static let launchDigest = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSHA256") as? String
     deinit { if temporary { try? FileManager.default.removeItem(at: url) } }
+    /// CommonCrypto's, not CryptoKit's: launching an app that touches no
+    /// other CryptoKit then dirties none of its pages (40 KB in euxy on iOS).
+    private static func sha256(_ data: Data) -> String {
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        _ = data.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(data.count), &hash) }
+        return hash.map { String(format: "%02x", $0) }.joined()
+    }
     static func open(_ name: String, resolver: AssetResolver, cancellation: RasterCancellation = RasterCancellation()) throws -> RasterInput {
         guard !cancellation.isCancelled else { throw URLError(.cancelled) }
         // The app's own file (LLP 1069.002 D7): a picked photo's preview.
@@ -101,7 +108,7 @@ final class RasterInput: @unchecked Sendable {
         if catalog != nil {
             let whole = encodedBytes <= RasterMetadata.headerLimit ? try file.read(upToCount: encodedBytes + 1) ?? Data() : Data()
             if whole.count == encodedBytes,
-               SHA256.hash(data: whole).map({ String(format: "%02x", $0) }).joined() == Self.launchDigest,
+               Self.sha256(whole) == Self.launchDigest,
                let plain = RasterMetadata.plainPNG(prefix: whole, encodedBytes: encodedBytes) { return plain }
             catalog = nil
             try file.seek(toOffset: 0)

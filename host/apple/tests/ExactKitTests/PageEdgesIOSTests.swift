@@ -60,7 +60,7 @@ final class PageEdgesIOSTests: XCTestCase {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
         let (session, view) = try fixture()
         let p = session.presenter, safe = view.safeAreaInsets
-        XCTAssertGreaterThan(safe.top, 0, "the test host's window has a status bar")
+        XCTAssertGreaterThan(safe.top + safe.bottom, 0, "the test host's window has a status bar or a home indicator")
         XCTAssertEqual(p.viewport.frame, view.bounds, "the viewport takes the whole view")
         XCTAssertEqual(p.viewportSize, view.bounds.inset(by: safe).size, "the kernel lays the page out in its area, as before")
         XCTAssertEqual(p.pageMargins.top, safe.top)
@@ -100,6 +100,9 @@ final class PageEdgesIOSTests: XCTestCase {
     func testARouteWithNoBarRunsItsScrollerUnderTheStatusBar() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
         let (session, view) = try fixture("BARLESS_ROUTE")
+        guard view.safeAreaInsets.top > 0 else {
+            throw XCTSkip("no status bar above the route for its scroller to run under: the iPhone Duo's stands in a side column")
+        }
         let list = try node(session, "list"), route = try node(session, "route"), top = try node(session, "list-top")
         until("the route's scroller is UIKit's to inset") { list.scrollView?.adjustedContentInset.top ?? 0 > 0 }
         let sv = try XCTUnwrap(list.scrollView), safe = view.safeAreaInsets
@@ -114,7 +117,8 @@ final class PageEdgesIOSTests: XCTestCase {
         ExactGroupedLists.install()
         let (session, view) = try fixture("PAGE_EDGES_GROUPED")
         let list = try node(session, "list"), safe = view.safeAreaInsets
-        until("UIKit draws the list") { list.scrollView is UICollectionView && list.pageBand.top > 0 }
+        // The bands at the top and the foot, or only the foot's on the iPhone Duo, whose status bar stands in a side column
+        until("UIKit draws the list") { list.scrollView is UICollectionView && list.pageBand.top + list.pageBand.bottom > 0 }
         let cv = try XCTUnwrap(list.scrollView as? UICollectionView)
         XCTAssertEqual(list.pageBand, UIEdgeInsets(top: safe.top, left: 0, bottom: safe.bottom, right: 0))
         XCTAssertEqual(cv.convert(cv.bounds, to: nil).minY, 0, accuracy: 0.5, "its collection view starts at the screen's top")
@@ -123,8 +127,10 @@ final class PageEdgesIOSTests: XCTestCase {
         cv.layoutIfNeeded()
         let first = try XCTUnwrap(cv.visibleCells.min { $0.frame.minY < $1.frame.minY })
         XCTAssertGreaterThanOrEqual(first.convert(first.bounds, to: nil).minY, safe.top - 0.5, "its first card starts below the status bar")
-        let hit = try XCTUnwrap(view.window?.hitTest(CGPoint(x: view.bounds.midX, y: safe.top / 2), with: nil))
-        XCTAssertTrue(hit.isDescendant(of: cv), "a finger under the status bar reaches the list, not \(type(of: hit))")
+        if safe.top > 0 {
+            let hit = try XCTUnwrap(view.window?.hitTest(CGPoint(x: view.bounds.midX, y: safe.top / 2), with: nil))
+            XCTAssertTrue(hit.isDescendant(of: cv), "a finger under the status bar reaches the list, not \(type(of: hit))")
+        }
     }
 
     /// LLP 1131: a route's list under its control bars, drawn through them and the route's cover.
@@ -157,7 +163,10 @@ final class PageEdgesIOSTests: XCTestCase {
 
     func testScrollTopIsKeptWhenTheBandGoes() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
-        let (session, _) = try fixture()
+        let (session, view) = try fixture()
+        guard view.safeAreaInsets.top > 0 else {
+            throw XCTSkip("no status bar above the page for its band to leave: the iPhone Duo's stands in a side column")
+        }
         let p = session.presenter, list = try node(session, "list"), sv = try XCTUnwrap(list.scroll)
         sv.contentOffset.y = 100 - list.scrollTopInset(sv)
         p.press(try node(session, "head").id)

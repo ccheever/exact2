@@ -1,5 +1,6 @@
 import Foundation
 import CExact
+import ExactCore
 #if os(macOS)
 import AppKit
 #else
@@ -339,27 +340,32 @@ final class RasterWorkers: @unchecked Sendable {
     }
     private func run(_ index: Int) {
         var metadataFirst = false
+        // Whether this worker decoded or inspected since it last went idle.
+        var worked = false
         while true {
             autoreleasepool {
                 // The second worker only reads metadata while one decodes.
                 if index > 0 && single {
-                    if !metadataTurn() { Thread.sleep(forTimeInterval: 0.005) }
+                    if metadataTurn() { worked = true } else { Thread.sleep(forTimeInterval: 0.005) }
                     return
                 }
                 // Each decode earns a metadata turn, even under continuous
                 // ready-metadata traffic from another session.
-                if metadataFirst { metadataFirst = false; if metadataTurn() { return } }
+                if metadataFirst { metadataFirst = false; if metadataTurn() { worked = true; return } }
                 let work = exact_raster_next_decode(0, 0)
-                if work.permit != 0 { metadataFirst = true; deliver(work); return }
+                if work.permit != 0 { metadataFirst = true; worked = true; deliver(work); return }
                 // Read before looking: a source acquired while this worker
                 // looks wakes the gate after it, and the wait returns at once.
                 let since = exact_raster_wake_sequence()
-                if metadataTurn() { return }
+                if metadataTurn() { worked = true; return }
+                // Going idle: the pages ImageIO's frames reached (up to 64 KB
+                // in euxy's launch) are dead until the next decode.
+                if worked { worked = false; releaseStackBelowCaller() }
                 // Work wakes the gate: a decode admitted or freed, a source
                 // acquired, a session resumed. The timeout is a backstop, long
                 // enough not to be a poll, so an idle app's workers sleep.
                 let waited = exact_raster_next_decode(1000, since)
-                if waited.permit != 0 { metadataFirst = true; deliver(waited) }
+                if waited.permit != 0 { metadataFirst = true; worked = true; deliver(waited) }
             }
         }
     }

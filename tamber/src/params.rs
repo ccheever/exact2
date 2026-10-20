@@ -37,18 +37,30 @@ pub const LINE: u32 = 1 << 29;
 
 /// The app's params and every component it has (its identity, with params
 /// or none): a short name is ambiguous where two components share a name.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Params {
     /// Every param.
     pub list: Vec<Param>,
     /// Every component's identity (`post.contract#PostButton`).
     pub components: Vec<String>,
+    /// Tokens folded beside the design's own: its packages' (LLP 1121 D11),
+    /// numbered as the compiler numbers them. One the design defines is the
+    /// design's, whole.
+    pub joined: Vec<Token>,
+}
+
+impl Params {
+    /// No params and nothing joined: the design folds alone.
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty() && self.joined.is_empty()
+    }
 }
 
 /// No params: an app without them.
 pub static NONE: Params = Params {
     list: Vec::new(),
     components: Vec::new(),
+    joined: Vec::new(),
 };
 
 /// Why a name names no single param.
@@ -107,6 +119,13 @@ pub fn named<'a>(params: &'a Params, name: &str) -> Result<&'a Param, Unnamed> {
 /// design out this way.
 pub fn laid(design: &Design, params: &Params) -> Design {
     let mut out = design.clone();
+    out.tokens.extend(
+        params
+            .joined
+            .iter()
+            .filter(|j| !design.tokens.iter().any(|t| t.name.value == j.name.value))
+            .cloned(),
+    );
     for (i, p) in params.list.iter().enumerate() {
         let at = |value: &str| At {
             value: value.to_string(),
@@ -166,6 +185,7 @@ mod tests {
                 param("a.contract#Bar.gap", "2px"),
             ],
             components: vec!["a.contract#Row".into(), "c.contract#Bar".into()],
+            joined: Vec::new(),
         };
         assert_eq!(named(&params, "Card.inset"), Err(Unnamed::Ambiguous));
         assert_eq!(

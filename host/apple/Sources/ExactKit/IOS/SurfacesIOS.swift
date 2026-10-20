@@ -85,7 +85,7 @@ enum ViewPresentation {
     static func root(of view: UIView) -> UIView? {
         if let layer = PopoverLayer.containing(view), layer.sheet != nil { return layer }
         return controllers(for: view).first {
-            $0.parent == nil || $0.parent is UINavigationController || $0.parent is UITabBarController
+            $0.parent == nil || $0.parent is UINavigationController || $0.parent is HeldStack || $0.parent is UITabBarController
         }?.viewIfLoaded ?? view.window
     }
 }

@@ -2,7 +2,7 @@
 //! `playSounds(hits)` and `stopSounds(group=)` (LLP 1096 D2; the rate and
 //! pan, LLP 1125 D10). Each is checked here, before the
 //! generic loop, whose `infer` would refuse a named argument as a canvas
-//! binding (`type-named-argument`).
+//! binding (`type-named-argument`). `haptic(kind)` too (LLP 1077 D14).
 
 use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span, UnOp};
@@ -12,7 +12,9 @@ const PLAY: &str = "`playSound(\"assets/kit/hat.wav\", at=performanceNow() + 100
 const HITS: &str = "`playSounds(hits)` takes a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number` and `group: string` (`shape Hit` with those four), then optionally `playbackRate: number` and then `pan: number`";
 const STOP: &str = "`stopSounds()` ends every voice still sounding or waiting; `stopSounds(group=\"hat\")` ends that group's";
 
-/// The three commands' arguments.
+const HAPTIC: &str = "`haptic(kind)` plays \"selection\", \"impact-light\", \"impact-medium\", \"impact-heavy\", \"impact-soft\" or \"impact-rigid\", or an outcome, \"success\", \"warning\" or \"error\"; a press plays one of the first six at touch-down, with no round trip, by `-exact-press-haptic`";
+
+/// The four commands' arguments.
 pub(super) fn args(
     name: &str,
     args: &[Expr],
@@ -23,8 +25,66 @@ pub(super) fn args(
     match name {
         "playSound" => play(args, scope, shapes, span),
         "playSounds" => hits(args, scope, shapes, span),
+        "haptic" => haptic(args, scope, shapes, span),
         _ => stop(args, scope, shapes),
     }
+}
+
+/// `haptic(kind)`: one string, each literal it can be, through `?:`,
+/// `match` and `let`, a kind.
+fn haptic(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(), TypeError> {
+    let [kind] = args else {
+        return err("type-haptic", HAPTIC, span);
+    };
+    if !infer(kind, scope, shapes)?.is_string() {
+        return err("type-haptic", HAPTIC, kind.span());
+    }
+    let mut written = Vec::new();
+    literals(kind, &mut written);
+    for (text, at) in written {
+        if exact_plan::HAPTIC_KINDS.contains(&text) {
+            continue;
+        }
+        let near = near_haptic(text)
+            .map(|k| format!("; did you mean \"{k}\"?"))
+            .unwrap_or_default();
+        return err(
+            "type-haptic",
+            format!("\"{text}\" is not a haptic kind{near} {HAPTIC}"),
+            at,
+        );
+    }
+    Ok(())
+}
+
+/// The string literals a value can be, through `?:`, `match` and `let`.
+fn literals<'e>(e: &'e Expr, out: &mut Vec<(&'e str, Span)>) {
+    match e {
+        Expr::Str(s, at) => out.push((s, *at)),
+        Expr::Ternary(_, a, b, _) => {
+            literals(a, out);
+            literals(b, out);
+        }
+        Expr::Match { some, none, .. } => {
+            literals(some, out);
+            literals(none, out);
+        }
+        Expr::Let { body, .. } => literals(body, out),
+        _ => {}
+    }
+}
+
+/// The kind a misspelt one meant: an impact's strength alone (`"heavy"`,
+/// Expo's `Heavy`), a notification's outcome (`"notification-success"`), or
+/// one spelling edit away.
+fn near_haptic(text: &str) -> Option<&'static str> {
+    let lower = text.trim().to_ascii_lowercase();
+    let impact = format!("impact-{lower}");
+    let outcome = lower.strip_prefix("notification-").unwrap_or(&lower);
+    exact_plan::HAPTIC_KINDS
+        .into_iter()
+        .find(|k| *k == impact || *k == outcome)
+        .or_else(|| contract_syntax::suggestion(text, exact_plan::HAPTIC_KINDS))
 }
 
 fn play(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(), TypeError> {

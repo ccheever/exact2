@@ -41,14 +41,17 @@ describe('This machine › Network access and Tailscale HTTPS rows', () => {
   it('says Loading… before the first read, and nothing without access:write', () => {
     expect(networkProjection(input({ canManage: false })).visible).toBe(false);
     const loading = networkProjection(input({ state: null, endpoints: [] }));
-    expect([loading.visible, loading.fallback, loading.switchReady, loading.clientsVisible]).toEqual([true, 'Loading…', false, false]);
+    expect([loading.visible, loading.fallback, loading.switchReady, loading.clientsVisible]).toEqual([true, 'Loading…', false, true]);
   });
 
-  it('is limited to this machine while local-only, and never lists endpoints or clients then', () => {
+  it('is limited to this machine while local-only: no endpoints, but Authorized clients stays (canReadAccess || canWriteAccess)', () => {
     const view = networkProjection(input({ state: { ...networkOn, mode: 'local-only', endpointUrl: null, advertisedHost: null }, endpoints: [loopback] }));
-    expect([view.networkOn, view.fallback, view.summaryUrl, view.endpoints, view.clientsVisible]).toEqual([false, 'Limited to this machine.', '', [], false]);
+    expect([view.networkOn, view.fallback, view.summaryUrl, view.endpoints, view.clientsVisible]).toEqual([false, 'Limited to this machine.', '', [], true]);
     expect(view.tailscaleDescription).toBe('Start Tailscale to set up HTTPS access through MagicDNS.');
     expect(view.tailscale).toBe(false);
+    const own = networkProjection(input({ state: { ...networkOn, mode: 'local-only', endpointUrl: null, advertisedHost: null }, endpoints: [loopback],
+      access: { loaded: true, error: '', pairingLinks: [], clientSessions: [session('desktop', { current: true })] } }));
+    expect([own.clientsVisible, own.summary, own.clients.length, own.othersDisabled]).toEqual([true, '1 client', 1, true]);
   });
 
   it('is reachable at the default endpoint with +N for the others, and the rail marks the default', () => {

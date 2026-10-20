@@ -71,7 +71,7 @@ export function designSession(dir) {
     // XY per path: X the index against HEAD, Y the working tree against the
     // index. No renames, so each record is one path.
     const status = new Map();
-    const listed = spawnSync('git', ['status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=all', '--', ...repoPaths], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
+    const listed = spawnSync('git', ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=all', '--', ...repoPaths], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
     if (listed.error || listed.status !== 0) return failed;
     for (const record of listed.stdout.split('\0').filter(Boolean)) status.set(record.slice(3), record.slice(0, 2));
     // HEAD's text of each clean path, by one cat-file, NUL-separated (a path

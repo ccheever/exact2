@@ -94,8 +94,7 @@ pub static LISTS: ListLinks = ListLinks {
 };
 
 /// A list engine's state where the plan has no way to reach it: admission
-/// refused the plan, so this is the runner's defect, named rather than
-/// trapped on.
+/// refused the plan, so this is the runner's defect, named rather than trapped on.
 fn unlinked() -> InstanceError {
     InstanceError::Collection(
         "a list engine is in use but this artifact doesn't link lists (LLP 1047 D6)".into(),
@@ -252,8 +251,7 @@ pub enum InstanceStep {
 #[derive(Debug, Default)]
 pub struct Ids {
     next: ViewId,
-    /// Every instance node's view and site, destroyed ones included until
-    /// [`Ids::retain`] drops them.
+    /// Every instance node's view and site, destroyed ones kept till [`Ids::retain`] drops them.
     sites: exact_kernel::id::IdMap<ViewId, NodesId>,
     /// Each plan site's work across its instances' lifetimes, by node
     /// index; empty while nothing is measured (LLP 1079 D1).
@@ -461,6 +459,8 @@ pub struct Update<'a> {
     pub scroll_padding: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
     /// Resolved CSS target outsets, top/right/bottom/left.
     pub scroll_margin: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
+    /// Row margins as the kernel lays them out, under a terminal's rule.
+    pub cell_margins: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
     /// The app modes around the nodes being visited (LLP 1121 D5).
     pub theme: theme::Around,
 }
@@ -498,6 +498,7 @@ impl<'a> Update<'a> {
             frame_buffers: Vec::new(),
             scroll_padding: None,
             scroll_margin: None,
+            cell_margins: None,
             theme,
         }
     }

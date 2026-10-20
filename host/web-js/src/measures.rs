@@ -33,17 +33,28 @@ pub fn css(kind: Kind, value: &str) -> String {
         Kind::Length => {}
         _ => return value.trim().to_string(),
     }
+    // An alias to a base name the design leaves unset (LLP 1121 stage 11 B):
+    // the base's property, which the sheet declares (`base_scale`).
+    if base(value) {
+        return format!("var({})", crate::base_scale::property(value.trim()));
+    }
     match relative::parse(value) {
-        Some((Unit::TextStyle(id), n)) => {
+        Some((unit @ (Unit::TextStyle(_) | Unit::Ramp(_)), n)) => {
             let medium = relative::MEDIUM;
             format!(
                 "{}rem",
-                exact_web::css::num(n * Unit::TextStyle(id).basis(medium, medium, 1.0) / medium)
+                exact_web::css::num(n * unit.basis(medium, medium, 1.0) / medium)
             )
         }
         Some((Unit::Hairline, _)) => exact_web::css::HAIRLINE.to_string(),
         _ => value.trim().to_string(),
     }
+}
+
+/// Whether a length token's `value` is a bare base name (an alias the plan
+/// keeps unfolded: the design leaves the base unset).
+fn base(value: &str) -> bool {
+    exact_kernel::style::scale::is_base(value.trim())
 }
 
 /// Row `id`'s part of type token `value`, or family token `value`'s stack,
@@ -112,8 +123,28 @@ pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
                 None => continue,
             };
             // A static row's: the sentinel projection writes it. A bound
-            // value maps through the row's map instead ([`map`]).
+            // value maps through the row's map instead ([`map`]), which
+            // holds each token of one value it may name as its CSS (an
+            // attribute reads no property): a constant, an alias to a base
+            // name as its length. Each is written inline too, so an edit of
+            // it builds (B2 round 2, Astra 3, widened by the lead).
             let Some(literal) = crate::style::literal(plan, plan.code(b.expr)) else {
+                let id = StyleId::from_bit(u32::from(b.id));
+                if writer.contains("SVG") {
+                    for r in plan.theme.iter().filter(|r| {
+                        r.slices.len == 0
+                            && kind(r).is_some_and(|k| {
+                                matches!(k, Kind::Length | Kind::Number)
+                                    && id
+                                        .is_some_and(|id| exact_kernel::style::theme::admits(k, id))
+                            })
+                    }) {
+                        let name = plan.str(r.name);
+                        if !out.iter().any(|(n, _)| n == name) {
+                            out.push((name.to_string(), writer.clone()));
+                        }
+                    }
+                }
                 continue;
             };
             let Some(text) = literal.as_str().map(str::trim) else {
@@ -283,11 +314,23 @@ pub fn sentinel(kind: Kind, k: u32, i: usize) -> Vec<String> {
 
 /// The name of row `id`'s bound map ([`map`]): one per mix of the kinds it
 /// takes, and an attribute row's of its own.
-pub fn map_name(id: StyleId, attribute: bool, container: bool) -> String {
+pub fn map_name(id: StyleId, attribute: bool, container: bool, bases: bool) -> String {
     use exact_kernel::style::theme::admits;
     format!(
         "$t{}{}{}{}{}{}{}",
-        if admits(Kind::Length, id) { "l" } else { "" },
+        // A keyword row the kernel lets name a length token holds no base
+        // names (`base_scale::reads_length`): where the plan declares them
+        // (`bases`) its map is its own (round 2, Astra 1), or a length row's
+        // could reuse one without them; else the maps are alike, and named
+        // as before.
+        match (
+            admits(Kind::Length, id),
+            crate::base_scale::reads_length(id)
+        ) {
+            (true, false) if bases => "k",
+            (true, _) => "l",
+            _ => "",
+        },
         if admits(Kind::Number, id) { "n" } else { "" },
         if admits(Kind::BoxShadow, id) { "b" } else { "" },
         if admits(Kind::TextShadow, id) {
@@ -370,12 +413,28 @@ pub fn map(
             let value = match props.iter().find(|(n, _)| n == name && !attribute) {
                 Some((_, prop)) => serde_json::to_string(&format!("var({prop})")).unwrap(),
                 None if kind == Kind::Number => css(kind, plan.str(r.value)),
+                // An alias to a base name in an SVG attribute, which reads no
+                // property: the base's length in this build's column (B2
+                // round 1, Astra 1).
+                None if attribute && kind == Kind::Length && base(plan.str(r.value)) => {
+                    serde_json::to_string(&crate::base_scale::value(plan.str(r.value).trim()))
+                        .unwrap()
+                }
                 // A shadow's text is a string, whatever it holds.
                 None => serde_json::to_string(&css(kind, plan.str(r.value))).unwrap(),
             };
             Some(format!("{}:{value}", serde_json::to_string(name).unwrap()))
         })
         .collect();
+    // The base scale's names the plan names (LLP 1121 stage 11 B2), in a row
+    // that takes a length: their properties (`base_scale`).
+    let mut pairs = pairs;
+    // (A row whose codec reads no length, a keyword row the kernel's
+    // `admits` still takes a length token on, gets none: the codec refuses
+    // a base name's length there anyway, `base_scale::reads_length`.)
+    if crate::base_scale::reads_length(id) {
+        pairs.extend(crate::base_scale::pairs(plan, attribute));
+    }
     // A text shadow is a colour channel a mode boundary writes again: a row
     // that read a token says so, as the colour map's does (`$th`, modes.js).
     let read = if id == StyleId::TextShadow && crate::modes::active(plan) {

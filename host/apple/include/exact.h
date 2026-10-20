@@ -681,7 +681,7 @@ uint32_t exact_measure_work(ExactRuntime rt);
 uint32_t exact_canvas_draw(ExactRuntime rt);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* A placement root's resolved margins and its width's authorship (LLP 1126.001 WP10): exact_out
- * holds JSON [margin left, top, right, bottom, authored width 0|1] with no batch around it, or
+ * holds JSON [margin left, top, right, bottom, authored width 0|1, minimum border-box width] with no batch around it, or
  * {"error": …}; returns its length. */
 uint32_t exact_placement_box(ExactRuntime rt, uint32_t view);
 /* Opaque row key in the input buffer; UINT32_MAX means absent. */
@@ -770,9 +770,10 @@ uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
 uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
 /* A navigation root's tabs by the kernel's rule (LLP 1115.001 D11), JSON in the
  * output buffer, not a batch: {"tablist":view,"tabs":[view...],"panels":[view...],
- * "unsaid":bool}, the tabs that name a panel and those panels in tab order, and
- * whether the app left the bar's placement unsaid (the web's rule for its sidebar,
- * LLP 1116.004 D1.1); null for one stack. */
+ * "unsaid":bool,"covered":bool}, the tabs that name a panel and those panels in tab
+ * order, whether the app left the bar's placement unsaid (the web's rule for its
+ * sidebar, LLP 1116.004 D1.1), and whether the tablist is covered whole; null for
+ * one stack. */
 uint32_t exact_root_tabs(ExactRuntime rt, uint32_t view);
 /* Whether the stack whose root route is `view` shows that route as a list beside
  * its detail, by the runner's rule (LLP 1115.002 D4), JSON in the output buffer,

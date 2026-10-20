@@ -32,7 +32,10 @@ struct Schema {
     #[serde(rename = "textStyles")]
     text_styles: Vec<TextStyleRow>,
     lengths: Vec<String>,
+    #[serde(rename = "lengthRamps")]
+    length_ramps: Vec<(String, Vec<f32>)>,
     metrics: Vec<MetricRow>,
+    scale: Vec<Vec<serde_json::Value>>,
     controls: Vec<[String; 9]>,
 }
 #[derive(Deserialize)]
@@ -124,6 +127,7 @@ include!("build/codec.rs");
 include!("build/validate.rs");
 include!("build/rare.rs");
 include!("build/cold.rs");
+include!("build/scale.rs");
 fn digest(canonical: &str, codecs: &[(&str, String)]) -> u64 {
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_DOMAIN);
@@ -233,7 +237,14 @@ fn generate(schema: &Schema, digest: u64) -> String {
     write_color_roles(w, &schema.colors, |h| u32::from_be_bytes(hex_rgba(h)));
     write_text_styles(w, &schema.text_style_bodies, &schema.text_styles);
     write_lengths(w, &schema.lengths);
+    write_length_ramps(
+        w,
+        &schema.text_style_bodies,
+        &schema.length_ramps,
+        &schema.lengths,
+    );
     write_metrics(w, &schema.metrics, &exact_names(schema));
+    write_scale(w, &schema.scale, &schema.metrics);
     write_controls(w, &schema.controls);
     writeln!(
         w,
@@ -1443,6 +1454,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build/codec.rs");
     println!("cargo:rerun-if-changed=build/names.rs");
     println!("cargo:rerun-if-changed=build/validate.rs");
+    println!("cargo:rerun-if-changed=build/scale.rs");
     println!("cargo:rerun-if-changed={SCHEMA_PATH}");
     println!("cargo:rerun-if-changed=build.rs");
     for path in CODEC_PATHS {
