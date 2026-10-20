@@ -250,6 +250,10 @@ component PrdBody
   action textLocal(op: string, id: string, value: string)
     if op == "pr-link-open"
       act("link-open", value)
+    else if op == "surface-file"
+      act("file-open", `${surface}\n${id}`)
+    else if op == "surface-files-link-menu"
+      act("file-menu", `${surface}\n${id}`)
     else
       local(op, id, value)
   // A host with no patch has no Code tab, and whoever stood on it is back on the Summary.
