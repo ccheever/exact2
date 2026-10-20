@@ -25,7 +25,7 @@ export type LinkedRow = {
   sourceLabel: string; unlinkLabel: string; canWatch: boolean; context: string;
   speed: ReturnType<typeof quickRow>['speed']; speedPending: boolean;
 };
-export type PrsView = { supported: boolean; rows: LinkedRow[]; footer: string; canWatch: boolean; speedMode: boolean };
+export type PrsView = { supported: boolean; rows: LinkedRow[]; footer: string; canWatch: boolean };
 
 const SOURCE_LABELS: Record<string, string> = { manual: 'Linked by you', created: 'Created from this thread', agent: 'Linked by the agent', stack: 'Found in the stack', 'stack-dismissed': 'Dismissed' };
 const STATE_LABELS: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
@@ -132,9 +132,9 @@ export function prsView(client: T3Client, now: number): PrsView {
   const openCount = visible.filter(link => !snapshotOf(link) || snapshotOf(link)!.state === 'open').length;
   let lastSynced = '';
   for (const link of visible) { const at = str(snapshotOf(link)?.syncedAt); if (at && at > lastSynced) lastSynced = at; }
-  return { supported, rows, canWatch, speedMode: false, footer: `${openCount} open · ${visible.length} linked${lastSynced ? ` · synced ${relativeLabel(lastSynced, now)}` : ''}` };
+  return { supported, rows, canWatch, footer: `${openCount} open · ${visible.length} linked${lastSynced ? ` · synced ${relativeLabel(lastSynced, now)}` : ''}` };
 }
-export const emptyPrs = (): PrsView => ({ supported: false, rows: [], footer: '', canWatch: false, speedMode: false });
+export const emptyPrs = (): PrsView => ({ supported: false, rows: [], footer: '', canWatch: false });
 
 function linkOf(client: T3Client, key: string): Obj {
   const link = visiblePullRequests(thread(client)?.pullRequests).find(entry => keyOf(entry) === key);

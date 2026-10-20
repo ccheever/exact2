@@ -341,6 +341,12 @@ component T3Window
     hoverShown: bool
     hoverTipAt: action
     composerFocused: bool
+    // The held modifiers (app.contract modifierKey): Shift's speed mode on pull request rows, ⌘'s thread-jump hints.
+    modifierKey: action
+    modifierEditableFocus: action
+    modifiersPasted: action
+    speedModeHeld: bool
+    threadJumpHints: bool
     // Whether the composer may rest while the reader scrolls the transcript (app.contract canRest).
     canRest: bool
     settingsEnvironmentId: string
@@ -384,6 +390,8 @@ component T3Window
     citeScrolled
     // The dialogs the focus has entered since they opened: each is `aria-modal` only from then (dialog-trap.contract).
     dialogSeated
+    prSpeedMode = speedModeHeld
+    threadJumpHints
   // Dialogs snapshot the actual focus before their first focusin. A pointer-opened Mac button does not take focus.
   // The frames outlive popup subtrees; a nested confirm returns into its parent, and a replacement inherits its return.
   state dialogFocusId = ""
@@ -422,7 +430,20 @@ component T3Window
         dialogOpened(owner)
   state dialogFrames: DialogFocusFrame[] = []
   state dialogSeated: string[] = []
+  // The window's root hears every key below the focus, as the reference's window listeners do: it takes a click on
+  // blank ground's focus, as Chromium's body does. A thread that opens gives the composer the focus (app.contract).
+  // Whether the focus is at a field (isEditableFocused): every text `input`, `textarea` and `select` has an `id` and
+  // is `data-editable`. A focus entering one empties the Pull Requests route's state (shortcutModifierState onFocus).
+  state focusEditable = false
+  action modifierDown(k: string, e: KeyboardEvent)
+    modifierKey(true, e, focusEditable)
+  action modifierUp(k: string, e: KeyboardEvent)
+    modifierKey(false, e, focusEditable)
   action windowFocused(e: FocusEvent)
+    let editable = querySelectorAll("[data-editable~=\"yes\"]").includes(e.target)
+    focusEditable = editable
+    if editable
+      modifierEditableFocus()
     chipFocusChanged(e.target)
     dialogFocusId = e.target
     dialogFocusOwner = ""
@@ -432,12 +453,18 @@ component T3Window
   // A menu within a live dialog retains that parent; a previously closed dialog is not its owner.
   action dialogMenuEntered(popup: string, invoker: string, e: FocusEvent)
     stopPropagation()
+    let editable = querySelectorAll("[data-editable~=\"yes\"]").includes(e.target)
+    focusEditable = editable
+    if editable
+      modifierEditableFocus()
     chipFocusChanged(e.target)
     dialogFocusId = e.target
     dialogFocusOwner = (frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) ? "" : dialogFocusOwner
     dialogFocusPopup = popup
     dialogFocusInvoker = invoker
   action windowBlurred(e: FocusEvent)
+    if e.relatedTarget == none
+      focusEditable = false
     if e.relatedTarget == none and querySelectorAll("[data-dialog-focus~=\"open\"]").length == 0
       chipFocusChanged("")
       dialogFocusId = ""
@@ -450,6 +477,10 @@ component T3Window
       dialogFrames = dialogFrames.filter(item => not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).concat([dialogFrame(owner, returns)])
   action dialogEntered(owner: string, e: FocusEvent)
     stopPropagation()
+    let editable = querySelectorAll("[data-editable~=\"yes\"]").includes(e.target)
+    focusEditable = editable
+    if editable
+      modifierEditableFocus()
     chipFocusChanged(e.target)
     if dialogFrames.filter(item => item.owner == owner).length == 0
       let previous = dialogLineage(dialogFrames, dialogFocusOwner)
@@ -887,7 +918,7 @@ component T3Window
       dragDx = 0
       dragDy = 0
   view
-    main navigationKey="t3-code" navigationBack="" navigate=promptLinkNavigate testId="t3-code" -exact-menu-remove="show-tab-bar show-all-tabs" focusin=windowFocused focusout=windowBlurred pointerdown=outsidePressDown pointerup=outsidePressUp viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
+    main navigationKey="t3-code" navigationBack="" navigate=promptLinkNavigate testId="t3-code" -exact-menu-remove="show-tab-bar show-all-tabs" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
       // Save file's target (app.contract saveNow): the Save panel's chosen name or dismissal lands here.
       input id="save-file" testId="save-file" display="none" change=saveChosen cancel=saveDismissed autocorrect="off"
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
