@@ -3,7 +3,7 @@
 // editability, and the sites to outline.
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel } from './tamber-builds.mjs';
@@ -701,3 +701,33 @@ test('a library node\'s selection names its exported component and part, apart f
   expect(fill.source.library).toBeUndefined();
   expect(fill.rows[0].library).toBeUndefined();
 });
+
+test('end to end: a compiled library app\'s own source map names a package component\'s part and identity, and the join publishes them; the app\'s fill has none (LLP 1139 D5, *1.15*)', async () => {
+  // A private library package `@acme/lib` with a design, its `Card` declaring parts and a slot; an app filling it.
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-library-'));
+  try {
+    const lib = joinPath(dir, 'node_modules/@acme/lib');
+    mkdirSync(lib, { recursive: true });
+    writeFileSync(joinPath(lib, 'package.json'), JSON.stringify({ name: '@acme/lib', version: '1.0.0', private: true, exports: { '.': './index.contract' } }));
+    writeFileSync(joinPath(lib, 'index.contract'), 'component Card\n  slot\n  parts\n    surface: paint shape space\n  view\n    column part="surface" padding="lib.pad"\n      children\n');
+    writeFileSync(joinPath(lib, 'lib.tamber'), 'tamber lib\n\ntheme\n  lib.pad = 4px\n');
+    writeFileSync(joinPath(dir, 'app.tamber'), 'tamber app\n');
+    writeFileSync(joinPath(dir, 'app.contract'), 'use Card from "@acme/lib"\n\ncomponent App\n  view\n    Card()\n      text "fill" color="#000000"\n');
+    // Built as a dev loop builds it, with its map (`contract build --map`).
+    const { spawnSync } = await import('node:child_process');
+    const root = new URL('..', import.meta.url).pathname;
+    const bin = joinPath(process.env.CARGO_TARGET_DIR ?? joinPath(root, 'target'), 'debug', 'contract');
+    const built = spawnSync(bin, ['build', joinPath(dir, 'app.contract'), '-o', joinPath(dir, 'app.plan'), '--map'], { encoding: 'utf8' });
+    expect(built.status, built.stderr).toBe(0);
+    const map = JSON.parse(readFileSync(joinPath(dir, 'app.plan.map.json'), 'utf8'));
+    // The column (the part) and the fill's text, by the map's own nodes.
+    const surface = map.nodes.findIndex(n => n.part === 'surface');
+    const fill = map.nodes.findIndex(n => n.file.endsWith('app.contract') && n.line === 6);
+    expect([surface >= 0, fill >= 0]).toEqual([true, true]);
+    const on = site => join({ id: 'web-1' }, { node: 1, site, instance: [], tuple: {}, rows: [{ name: site === surface ? 'padding' : 'color', value: 4, source: 'authored' }] }, map);
+    const card = on(surface);
+    expect(card.source.library).toEqual({ identity: map.nodes[surface].library, part: 'surface' });
+    expect(card.source.library.identity).toMatch(/^@acme\/lib\/index\.contract#Card$/);
+    expect(on(fill).source.library).toBeUndefined();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 600_000);
