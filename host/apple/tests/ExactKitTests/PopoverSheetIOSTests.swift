@@ -901,6 +901,38 @@ final class PopoverSheetIOSTests: XCTestCase {
         XCTAssertEqual(p.statusBarChoice().style, .darkContent)
     }
 
+    /// A live flight's layer on a dialog's sheet, and the slot it holds open
+    /// in the dialog, are the flight's, not strays `layout agree` reports; a
+    /// layer no flight owns still is one.
+    func testAgreementAccountsForALiveFlightsLayerAndSlot() throws {
+        guard hasScene else { throw missing("scene", "the flight flies in a presented sheet") }
+        let session = ExactApp.shared.makeSession(label: "flight-agreement"), p = try page(session: session)
+        let route = try presentRoute(p), sheet = try show(in: p)
+        p.menus.action("showPopover", ["choices", "opener"])
+        let content = try XCTUnwrap(p.views[6]), formText = try XCTUnwrap(p.views[10])
+        var op = BatchOp(op: .flight, nodeID: formText.id)
+        op.payload["from"] = NSNumber(value: content.id)
+        p.beginFlight(op)
+        let flight = try XCTUnwrap(p.flights[formText.id])
+        p.presentFlight(formText.id, 0.5); p.flightsBatchApplied()
+        XCTAssertTrue(flight.container?.superview === sheet.view)
+        XCTAssertTrue(flight.slot?.superview === p.views[2], "the slot is held open in the dialog")
+        let unowned = FlightLayer(frame: route.view.bounds)
+        route.view.addSubview(unowned)
+        defer { unowned.removeFromSuperview() }
+        // Not complete: the walk goes into the live nodes, the dialog's included.
+        var kernel = KernelFrames([])
+        kernel.complete = false
+        let report = AgreementReport(tolerance: 1)
+        p.inspectAgreement(roots: p.surfaces(includingRetiring: true).map { ($0.view, $0.label) },
+                           kernel: kernel, inFlight: false, report: report) { $0.convert($0.bounds, to: p.viewport) }
+        XCTAssertTrue(report.walked.contains("dialog #2"))
+        let layers = report.found.filter { $0["class"] as? String == String(describing: FlightLayer.self) }
+        XCTAssertEqual(layers.count, 1, "only the layer no flight owns: \(report.found)")
+        XCTAssertTrue(report.found.filter { $0["class"] as? String == "UIView" && $0["under"] as? Int == 2 }.isEmpty, "\(report.found)")
+        p.landFlight(flight)
+    }
+
     func testSheetSurfaceParticipatesInMotionAndAgreement() throws {
         guard hasScene else { throw missing("scene", "inspection must include a dialog's controller view") }
         let session = ExactApp.shared.makeSession(label: "surface-inspection"), p = try page(session: session)

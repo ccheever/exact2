@@ -120,6 +120,9 @@ extension Presenter {
             if Self.platformKinds.contains(o.kind) || o.props["hatch"] != nil { return ("platform", id) }
         }
         if menus.inspectionOwns(sub) { return ("menu", owner?.id) }
+        // A live flight's layer on the presentation it flies in, and the
+        // empty slot it holds open where its view lays out (FlightsIOS.swift).
+        if flights.values.contains(where: { $0.container === sub || $0.slot === sub }) { return ("flight", nil) }
         // A grouped list's background past the viewport's edge, beside it (LLP 1116.004 D2).
         if owner == nil, groupedLists?.inspectionOwns(sub) == true { return ("grouped-list", nil) }
         if sub === viewport { return ("viewport", nil) }
