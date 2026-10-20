@@ -379,3 +379,58 @@ fn the_slot_check_alone_is_under_ten_milliseconds_on_a_clone_sized_design() {
     assert!(all < std::time::Duration::from_millis(10), "{all:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The lead's 10:15Z ask (stage 12 gate, iosfix's file): check_slots on the
+/// clone's design with the real `@exact/cards` and `@exact/actions` (their
+/// chains, as apps/library-gate uses every exported component). Needs the
+/// workspace's packages installed (`bun install`), so run by hand:
+/// `cargo test -p contract --test it real_packages -- --ignored --nocapture`.
+#[test]
+#[ignore = "needs bun install's node_modules/@exact; run by hand for the gate's figure"]
+fn the_slot_check_alone_on_the_clone_with_the_real_packages() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let clone = include_str!("../../../../tamber/tests/fmt/bluesky-clone.tamber");
+    let app = contract::tamber_params::params_of(&root.join("apps/library-gate/app.contract"));
+    let ir = contract::tamber_params::library(&app, None);
+    let chains = contract_lower::anatomy::slot::SlotChains::from_ir(&ir);
+    // (the library components with a slot chain, and every token their rows reach)
+    let with_chain = ir
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["library"] == true && c["chain"].as_array().is_some_and(|c| !c.is_empty()))
+        .count();
+    let mut names: Vec<String> = ir
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|c| c["chain"].as_array().cloned().unwrap_or_default())
+        .flat_map(|n| n["tokens"].as_array().cloned().unwrap_or_default())
+        .filter_map(|t| t.as_str().map(str::to_string))
+        .collect();
+    names.sort();
+    names.dedup();
+    assert!(
+        with_chain > 0,
+        "no library chains: is node_modules/@exact installed?"
+    );
+    let (folding, _) =
+        contract::tamber_params::fold_with(clone, &app, &contract_lower::tamber_vocab()).unwrap();
+    let median = |touched: &[&str]| {
+        let _ = contract_lower::anatomy::slot::check_slots(&folding, None, &chains, touched);
+        let mut runs: Vec<std::time::Duration> = (0..5)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                let _ =
+                    contract_lower::anatomy::slot::check_slots(&folding, None, &chains, touched);
+                t.elapsed()
+            })
+            .collect();
+        runs.sort();
+        runs[2]
+    };
+    let one = median(&[names.first().map(String::as_str).unwrap_or("space.md")]);
+    let all = median(&[]);
+    eprintln!("check_slots, the clone's design ({} tokens) with @exact/cards and @exact/actions ({} chains, {} names): one touched name {one:?}, every chain {all:?} (median of 5, warm)", folding.tokens.len(), with_chain, names.len());
+    assert!(all < std::time::Duration::from_millis(10), "{all:?}");
+}
