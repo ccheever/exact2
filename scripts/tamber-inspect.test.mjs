@@ -123,11 +123,17 @@ test('a folded `:disabled` or `:checked` row is read as its base, its parts besi
     // A role's spelling, any case, offers its token beside the base's own edit; a part naming the param edits that part alone.
     const role = sel(4, { name: 'background_color', value: '#888888', source: 'dynamic', token: { names: ['secondary-label'], text: 'disabled ? ... : secondary-label', modes: '', implied: false } });
     expect(role.editable).toMatchObject({ rung: 'template', row: 'background-color', text: '-Exact-Secondary-Label', token: 'secondary-label' });
-    // ... a bare one too, as the kernel reads it (`canvastext` for `CanvasText`).
     const canvas = joinPath(dir, 'canvas.contract'), canvasText = ['component Card', '  view', '    box background-color="canvastext" disabled=off', '      :disabled', '        background-color="#999999"', ''].join('\n');
     writeFileSync(canvas, canvasText);
     const cmap = { digest: 'p3', sources: [{ file: canvas, sha256: sha(canvasText), home: 'canvas.contract' }], nodes: [{ file: canvas, line: 3, col: 5, end_col: 8, component: 'Card', chain: [], bindings: [{ row: 'background_color', origin: 'own', at: { file: canvas, line: 3, col: 9, end_col: 25 }, attr: 'background-color', states: [{ state: 'disabled', origin: 'own', at: { file: canvas, line: 5, col: 9, end_col: 25 } }] }] }] };
-    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#000', source: 'dynamic', token: { names: ['CanvasText'], text: 'CanvasText', modes: '', implied: false } }] }, cmap, { app: dir, params }).rows[0].editable).toMatchObject({ rung: 'template', text: 'canvastext', token: 'CanvasText' });
+    // A bare name matches exactly: a custom token's case is its own (`Brand.Fill` is not `brand.fill`); a system
+    // colour spelled in another case loses only the token beside its own edit.
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#000', source: 'dynamic', token: { names: ['CanvasText'], text: 'CanvasText', modes: '', implied: false } }] }, cmap, { app: dir, params }).rows[0].editable).toMatchObject({ rung: 'template', text: 'canvastext' });
+    expect(join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#000', source: 'dynamic', token: { names: ['CanvasText'], text: 'CanvasText', modes: '', implied: false } }] }, cmap, { app: dir, params }).rows[0].editable.token).toBe(undefined);
+    writeFileSync(canvas, canvasText.replace('canvastext', 'brand.fill'));
+    const bmap = { ...cmap, sources: [{ ...cmap.sources[0], sha256: sha(canvasText.replace('canvastext', 'brand.fill')) }] };
+    const brand = join({ id: 'web-1' }, { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#000', source: 'dynamic', token: { names: ['Brand.Fill', 'brand.fill'], text: 'disabled ? Brand.Fill : brand.fill', modes: '', implied: false } }] }, bmap, { app: dir, params }).rows[0];
+    expect([brand.editable.rung, brand.editable.token]).toEqual(['template', 'brand.fill']);
     expect(role.states[0].editable).toMatchObject({ rung: 'template', row: 'background-color', state: 'disabled', text: 'param.fill', at: { line: 19 } });
     expect(role.states[0].editable.param).toBe(undefined);
     // A text colour's part is the `color` its author wrote.

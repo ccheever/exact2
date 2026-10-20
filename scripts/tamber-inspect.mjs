@@ -499,8 +499,9 @@ function writtenToken(row, w, params, part = false) {
     const param = full && [...params.values()].find(p => p.param === full);
     return param ? { token: { names: [param.param], text: param.param, modes } } : { ...none, unread: true };
   }
-  // (A role's spelling in any case, `-exact-` or bare, as the kernel parses it: `canvastext` for `CanvasText`.)
-  const low = text.toLowerCase().replace(/^-exact-/, ''), token = names.find(n => n === text || n.toLowerCase() === low);
+  // (A role's `-exact-` spelling in any case, as the kernel parses it; any other name exactly: a custom token's case
+  // is its own, so `Brand.Fill` is never `brand.fill`.)
+  const low = text.toLowerCase(), token = names.find(n => n === text || (low.startsWith('-exact-') && low.slice(7) === n));
   return token ? { token: { names: [token], text: token, modes } } : none;
 }
 

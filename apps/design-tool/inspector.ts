@@ -105,10 +105,11 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     heldNote: !shown.held ? '' : !reported && s.asking ? 'Its page is asked for the held look\'s rows.'
       : !reported || !e.held.rows?.length || e.held.provenance === 'incomplete' ? 'Provenance incomplete: this host reports no rows (or not their tokens) for the held look, so it is read-only here.' : '',
     // A folded `:disabled` or `:checked` row's parts, each beneath its row (queue item (2)): at its place, the value
-    // it writes as written, its own edit; two of one state (a class's and the node's) told apart by their places.
+    // it writes as written, its own edit; two of one state (a class's and the node's) told apart by their places (file,
+    // line and column: two on one line).
     rows: (e.rows ?? []).flatMap((r: any) => [row(r), ...(r.states ?? []).map((p: any, _: number, all: any[]) => {
       const x = row({ name: r.name, value: String(p.editable?.text ?? ''), state: p.state, source: p.source, editable: p.editable });
-      return all.filter((q: any) => q.state === p.state).length > 1 ? { ...x, name: `${x.name} · ${String(p.source?.file ?? '')}:${p.source?.line}` } : x;
+      return all.filter((q: any) => q.state === p.state).length > 1 ? { ...x, name: `${x.name} · ${String(p.source?.file ?? '')}:${p.source?.line}:${p.source?.col}` } : x;
     })]),
   };
 }
