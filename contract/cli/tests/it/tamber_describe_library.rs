@@ -112,10 +112,13 @@ fn describe_lists_a_library_components_parts_and_variants_and_resolve_each_param
             .as_array()
             .unwrap_or_else(|| panic!("{param}: {r}"));
         assert!(!tuples.is_empty());
+        // Each side's (B2-levels per side): no axis here is under `scheme=dark`, so both alike.
         for t in tuples {
-            assert_eq!(t["level"], level, "{param}: {t}");
-            if let Some(name) = name {
-                assert_eq!(t["name"], name, "{param}: {t}");
+            for side in ["light", "dark"] {
+                assert_eq!(t["level"][side], level, "{param} {side}: {t}");
+                if let Some(name) = name {
+                    assert_eq!(t["name"][side], name, "{param} {side}: {t}");
+                }
             }
         }
     }
