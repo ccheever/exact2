@@ -31,7 +31,7 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
 | `--scale 3` | Screenshots at the device's pixels (default 1 a point). |
 | `screenshot <file> window` | The whole screen, bars included; a plain one is the window's too while an alert, sheet or menu is up. `screenshot <f> over 600 every 50 window` films it. |
 | `tap <id> down` `screenshot <png>` `tap up` | `<id>` shown pressed, then pressed once; `tap hold <ms>` moves the clock; a real touch under `--touch platform`. |
-| `clock settle` | Ends a transition; waits up to 1.5 s for the app's `UIView.animate`, 4 s for a glide (longer: `settled: false`). |
+| `clock settle` | Ends a transition and runs an `after(1, …)` task; waits up to 1.5 s for the app's `UIView.animate`, 4 s for a glide (longer: `settled: false`). |
 | `--timing platform`, `--touch platform` | UIKit's own transition timing (default: frozen); every tap and drag a real touch. |
 | `--sim <udid\|name>` (`EXACT_SIM`) | Which simulator (default: the app's). |
 

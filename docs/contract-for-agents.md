@@ -2921,9 +2921,11 @@ ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `cl
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
 `clock settle` also runs the clock to where the last running finite, unpaused
-transition or animation ends, firing the timers due on the way, so a test on a timer's grid moves with it.
+transition or animation ends, firing the timers due on the way, so a test on a timer's grid moves with it,
+and on past a task due a commit later (`after(1, …)`, which an input or an answer armed) until none is.
 `clock data` lands it without moving the clock: the data module's activation and
-every request in flight, each answer's `then` with it, no timer fired. A CLI drive's
+every request in flight, each answer's `then` with it, no timer fired (its reply names a task
+due a commit later, which a tap next would come before: `clock settle` runs it). A CLI drive's
 first operation runs at boot and may come before that has landed (an authored test
 lands it before its first step), so a drive that reads or taps data starts with `clock data`
 (a `tree`, `layout` or `screenshot` taken before the clock first moves, with a request

@@ -721,6 +721,14 @@ export async function stateOp(s, args) {
   return args.length === 1 && has(reply, 'slots') && holds(reply) ? lookup(reply) : reply;
 }
 
+/** The tasks due within 1 ms of `now`, `[name, at]`, soonest first: an `after(1, …)` an input or an answer armed, the web's
+ * `setTimeout(f, 0)`, which runs a commit after the one that armed it. A frozen clock reaches it only when it moves, so
+ * `clock settle` runs it as part of settling and `clock data`, which fires no timer, names it (euxy FRICTION 7). */
+export async function nextCommitTasks(session, now) {
+  const tasks = Object.entries((await session.state())?.tasks ?? {});
+  return tasks.filter(([, at]) => Number.isFinite(at) && at > now && at <= now + 1).sort((a, b) => a[1] - b[1]);
+}
+
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
   if (error.transport || error.malformed) return error; // App state cannot explain malformed input or a failed transport.
