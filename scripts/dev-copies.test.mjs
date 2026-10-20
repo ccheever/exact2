@@ -41,7 +41,7 @@ component App
     main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow width="100%" height="100%" position="relative"
       for t in nav.tabs key = t.name
         for e in t.stack key = e.id
-          column navigationKey=\`\${e.id}\` position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page"
+          column navigationKey=\`\${e.id}\` position="absolute" inset=0 display="flex" flex-direction="column" background-color="surface.page" testId="page"
             if e.name == "home"
               text "Home" role="heading" aria-level=1 testId="home"
               link href="/post/3" testId="link"
@@ -182,13 +182,20 @@ async function copies(wasm) {
     for (const id of wasm ? ['dim'] : ['dim', 'dark', 'big']) await host1.click(`[data-testid="${id}"]`);
     const held = await until(status1, st => st?.app?.mode?.['dark-style'] === 'dim' && (wasm || (st.app.scheme === 'dark' && st.app.rootFontSize === '24')), 'copy 1 says what the app asked');
     expect([held.mode['dark-style'], held.scheme, wasm || held.rootFontSize]).toEqual(['black', pinned.scheme, wasm || 18]);
-    expect(await host1.evaluate(() => document.documentElement.getAttribute('data-x-modes') ?? 'none')).not.toContain('dim');
+    // What paints, not only what the status says: the page's background in Black, the root size the pin's.
+    const paint = () => host1.evaluate(() => ({ bg: [...document.querySelectorAll('[data-testid="page"], [data-testid="page"] *')].map(e => getComputedStyle(e).backgroundColor).find(c => c !== 'rgba(0, 0, 0, 0)') ?? 'none', root: parseFloat(getComputedStyle(document.documentElement).fontSize) }));
+    const blackPaint = await paint();
+    if (!wasm) expect(blackPaint.root).toBe(18);
     // A pin that holds less: the mode it drops is the app's latest choice at once; the scheme stays held.
     await call({ method: 'pin', client: 'copies', build: c1, pin: { scheme: pinned.scheme } });
     await until(status1, st => st?.mode?.['dark-style'] === 'dim' && st?.scheme === pinned.scheme, 'copy 1, its mode released, takes the app\'s dim');
+    // (The wasm copy is dark, so its background moves; the JS copy is light, so its page's own modes say it.)
+    if (wasm) await until(paint, pt => pt.bg !== blackPaint.bg, 'copy 1 paints the app\'s dim, not Black');
+    else await until(() => host1.evaluate(() => document.documentElement.getAttribute('data-x-modes')), m => /dark-style=dim/.test(m ?? ''), 'copy 1\'s page is in the app\'s dim');
     await call({ method: 'pin', client: 'copies', build: c1, pin: null });
     const back = await until(status1, st => st?.mode?.['dark-style'] === 'dim' && (wasm || (st.scheme === 'dark' && st.rootFontSize === 24)), 'copy 1 handed back takes the app\'s latest');
     expect(back.app ?? null).toBe(null);
+    if (!wasm) expect((await paint()).root).toBe(24);
     presence.abort();
   } finally {
     await browser.close();

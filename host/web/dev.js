@@ -446,8 +446,9 @@ if (es) {
     const out = {};
     if (p.scheme && asked.scheme != null && asked.scheme !== p.scheme) out.scheme = String(asked.scheme).slice(0, 32);
     if (p.rootFontSize && asked.rootFontSize != null && asked.rootFontSize !== p.rootFontSize) out.rootFontSize = String(asked.rootFontSize).slice(0, 64);
-    const mode = Object.fromEntries(Object.entries(asked.mode ?? {}).filter(([a, v]) => p.mode?.[a] !== undefined && p.mode[a] !== v));
-    if (Object.keys(mode).length) out.mode = mode;
+    // (Within the status's bounds: each axis and value at most 64 characters, the whole at most 1 KiB.)
+    const mode = Object.fromEntries(Object.entries(asked.mode ?? {}).filter(([a, v]) => p.mode?.[a] !== undefined && p.mode[a] !== v && a.length <= 64 && String(v).length <= 64));
+    if (Object.keys(mode).length && new TextEncoder().encode(JSON.stringify(mode)).length <= 900) out.mode = mode;
     return Object.keys(out).length ? out : null;
   }
   // (A question applies no batch, so asking is never a commit that asks again.)
@@ -474,6 +475,7 @@ if (es) {
     setTimeout(() => {
       designing = designing.then(async () => {
         due = false;
+        if (copy && channel.releasing) channel.releasing = !!(await holdFacts("-"))?.error;
         if (copy && channel.held) await holdFacts("?");
         const body = await facts();
         if (JSON.stringify(body) !== channel.told) { channel.told = JSON.stringify(body); report(body); }
@@ -536,7 +538,9 @@ if (es) {
     // (A copy's held facts first: the app's own root size gives way before the pinned one is set.)
     // (Facts held before and not now take the app's latest choice; a hold refused for its modes holds the rest.)
     const flags = p ? `${p.scheme ? "s" : ""}${p.rootFontSize ? "r" : ""}` : "";
-    if (p) { const held = await holdFacts(`${flags}:${pins(p.mode ?? {})}`); if (held?.error) { report({ kind: "unsupported", what: "pin.hold", detail: String(held.error).slice(0, 1024), revision: frame.revision }); await holdFacts(`${flags}:`); } }
+    // (A copy's pin refused for its modes keeps the axes held before, and sets none.)
+    let refusedModes = false;
+    if (p) { const held = await holdFacts(`${flags}:${pins(p.mode ?? {})}`); if (held?.error) { refusedModes = true; report({ kind: "unsupported", what: "pin.hold", detail: String(held.error).slice(0, 1024), revision: frame.revision }); await holdFacts(`${flags}:${pins(channel.held?.pin?.mode ?? {})}`); } }
     // The scheme is the system's, beneath the app's `setScheme` (the root's
     // own style): a rule over the page's `light dark`, and the system scheme
     // the runner's `prefers-color-scheme` reads (navigation.js
@@ -557,16 +561,18 @@ if (es) {
     // (Handed back, only the axes the last pin set go back: the app's own on any other stands.)
     // (In a copy only the pinned axes are set, and an axis the last pin set and this one doesn't goes back; elsewhere a pin is the whole set over the first's snapshot.)
     const last = channel.held?.pin?.mode ?? {}, back = Object.fromEntries(Object.entries(channel.before.mode ?? {}).filter(([a]) => a in last && !(a in (p?.mode ?? {})) && !(copy && asked.mode?.[a] !== undefined)));
-    const mode = pins(p ? (copy ? { ...back, ...(p.mode ?? {}) } : { ...(channel.before.mode ?? {}), ...(p.mode ?? {}) }) : back);
+    const mode = refusedModes ? "" : pins(p ? (copy ? { ...back, ...(p.mode ?? {}) } : { ...(channel.before.mode ?? {}), ...(p.mode ?? {}) }) : back);
     if (mode) {
       // A mode refused leaves the modes before the first pin, not the last pin's.
       const out = await wasmCall("exact_set_mode", x.writeIn(mode));
-      if (out?.error) { report({ kind: "unsupported", what: "pin.mode", detail: out.error, revision: frame.revision }); const back = pins(channel.before.mode ?? {}); if (back) await wasmCall("exact_set_mode", x.writeIn(back)); }
+      // (In a copy a refused mode leaves the modes as they are.)
+      if (out?.error) { report({ kind: "unsupported", what: "pin.mode", detail: out.error, revision: frame.revision }); const back = pins(channel.before.mode ?? {}); if (back && !copy) await wasmCall("exact_set_mode", x.writeIn(back)); }
     }
     // A page cannot override the browser's `prefers-contrast`.
     if (p?.contrast) report({ kind: "unsupported", what: "pin.contrast", detail: "a web page cannot pin the browser's contrast", revision: frame.revision });
     // (Handed back, a copy's held facts are the app's latest own choices.)
-    if (!p) { channel.before = null; await holdFacts("-"); }
+    // A hand-back the runner refuses is asked again after each commit until it is taken.
+    if (!p) { channel.before = null; const out = await holdFacts("-"); channel.releasing = !!out?.error; if (out?.error) report({ kind: "unsupported", what: "pin.hold", detail: String(out.error).slice(0, 1024), revision: frame.revision }); }
     channel.held = p ? frame : null;
     channel.revision = frame.revision;
     status();

@@ -68,7 +68,15 @@ impl<D: DataSource> Host<D> {
                         &pins,
                         flags.contains('r'),
                     ))) {
-                        Ok(_) => (vec![], None),
+                        // (A takeover or a release commits: its rows reach the page.)
+                        Ok(Some(receipt)) => (
+                            vec![Timed {
+                                at_ms: self.now_ms,
+                                receipt,
+                            }],
+                            None,
+                        ),
+                        Ok(None) => (vec![], None),
                         Err(e) => (vec![], Some(format!("hold: {e:?}"))),
                     },
                 }
