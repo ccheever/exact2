@@ -238,9 +238,13 @@ impl Read<'_> {
             };
             path.push((x, Some(r.clone())));
             // Past `LINKS` references the walk stops: every block's walk
-            // costs at most that. Nothing on it is remembered, as each
-            // variable's own chain may be shorter.
+            // costs at most that. Only `var` is remembered as past them (each
+            // later variable on the walk may have a shorter chain of its
+            // own); a walk that reaches it later is past them too, at once.
             if path.len() > LINKS {
+                self.memo
+                    .borrow_mut()
+                    .insert((at.clone(), var.to_string()), (None, usize::MAX));
                 return (None, usize::MAX);
             }
             x = r;
