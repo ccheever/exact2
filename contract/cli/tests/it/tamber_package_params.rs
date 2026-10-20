@@ -483,3 +483,79 @@ fn an_ambiguous_short_name_sets_no_package_param() {
     assert!(ids.iter().any(|i| i == "tamber-unknown-token"), "{ids:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Round 3 (Astra): a package design's icon param reads its SVG as the
+/// app's do: one there is a source of the app (a watcher rebuilds on it),
+/// one not there yet is looked for, so making it rebuilds; with no app
+/// design file too.
+#[test]
+fn a_package_icon_params_svg_is_a_source() {
+    let dir = reading("pkg-params-svg");
+    let _ = std::fs::remove_file(dir.join("app.tamber"));
+    let design = dir.join("node_modules/@acme/reading/reading.tamber");
+    let text = std::fs::read_to_string(&design).unwrap();
+    std::fs::write(&design, format!("{text}    glyph: icon = icon(svg \"pin.svg\")\n    other: icon = icon(svg \"later.svg\")\n")).unwrap();
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    std::fs::write(
+        dir.join("assets/pin.svg"),
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"/>",
+    )
+    .unwrap();
+    let graph = contract::source_graph(&dir.join("app.contract"));
+    assert!(
+        graph
+            .sources
+            .iter()
+            .any(|s| s.path.ends_with("assets/pin.svg")),
+        "{:?}",
+        graph.sources
+    );
+    assert!(
+        graph
+            .consulted
+            .iter()
+            .any(|p| p.ends_with("assets/later.svg")),
+        "{:?}",
+        graph.consulted
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 3 (Grok 1): the app's design whole keys what the server keeps of
+/// retention. An app override of a package's token moves what a param's
+/// default reaches without moving a token's name: priming on the old chain
+/// and moving the override, an override of the old token varying over an
+/// axis is classed as a fresh server classes it. And once the app sets a
+/// package's param to a token of its own, that token is kept.
+#[test]
+fn the_apps_design_whole_keys_what_its_params_keep() {
+    let dir = reading("pkg-params-value-root");
+    let file = dir.join("app.tamber");
+    let design = dir.join("node_modules/@acme/reading/reading.tamber");
+    std::fs::write(&design, "tamber reading\n\ntheme\n  reading.gap: length = space.md\n  reading.old = #111111\n  reading.new = #222222\n  reading.pin = reading.old\n\ncomponent Map\n  params\n    pin: color = reading.pin\n").unwrap();
+    std::fs::write(&file, "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink2 = #222222\n  reading.pin = reading.old\n").unwrap();
+    let vary = |name: &str| {
+        json!({"method": "propose", "ops": [
+            {"op": "add-token", "name": name, "value": "#333333"},
+            {"op": "set-token", "name": name, "when": [{"axis": "mode", "value": "b"}], "value": "#444444"}
+        ]})
+    };
+    let mut s = Serve::start(&dir, &[]);
+    let (before, _) = s.ask(vary("reading.old"));
+    assert_eq!(before["ok"]["class"], "rebuild", "{before}");
+    let (moved, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [{"op": "set-token", "name": "reading.pin", "value": "reading.new"}]}));
+    assert!(moved.get("ok").is_some(), "{moved}");
+    let (set, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [{"op": "set-param", "name": "Map.pin", "value": "ink2"}]}));
+    assert!(set.get("ok").is_some(), "{set}");
+    let ink2 = json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink2", "when": [{"axis": "mode", "value": "b"}], "value": "#444444"}]});
+    let primed = [s.ask(vary("reading.old")).0, s.ask(ink2.clone()).0];
+    drop(s);
+    let mut fresh = Serve::start(&dir, &[]);
+    let expected = [fresh.ask(vary("reading.old")).0, fresh.ask(ink2).0];
+    for (p, e) in primed.iter().zip(&expected) {
+        assert!(e.get("ok").is_some(), "{e}");
+        assert_eq!(p["ok"]["class"], e["ok"]["class"], "{p} {e}");
+    }
+    assert_eq!(expected[1]["ok"]["class"], "rebuild", "{}", expected[1]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

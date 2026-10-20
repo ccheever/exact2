@@ -373,18 +373,11 @@ impl Server {
     fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
         let root = self.dir.join("app.contract");
         let mut key = self.sources_key();
-        if let Some(design) = snap
-            .iter()
-            .find(|(f, _, _)| *f == self.design)
-            .and_then(|(_, t, _)| exact_tamber::parse(t).ok())
-        {
-            for t in &design.tokens {
-                key.push_str(&t.name.value);
-                key.push('\n');
-            }
-            // A native component's params, kept by their declaration, and
-            // what their defaults read.
-            key.push_str(&format!("{:?}\n", design.components));
+        // The app's design, whole (stage 12 B1 round 3): its tokens, its
+        // components' params and what their defaults read, and its `params`
+        // block (an app value of a package's param roots what it names).
+        if let Some((_, text, _)) = snap.iter().find(|(f, _, _)| *f == self.design) {
+            key.push_str(&format!("design {}\n", digest(text.as_bytes())));
         }
         // A package design too, whole (stage 12 B1 rounds 1 and 2): its
         // components' params are roots of retention and its tokens what

@@ -5272,9 +5272,10 @@ Stage 12 §B's first commit, under no wire change (the server's existing fields 
     components, not its tokens, which a param's default reads through. The key now holds each package design's
     digest (`Server::synthetic`). Test: `a_package_tokens_edit_moves_what_its_params_keep` primes on
     `Map.pin → reading.pin → reading.old` (an override of `reading.old` over an axis is `rebuild`), moves
-    `reading.pin` to `reading.new`, and holds both overrides' classes to a fresh server's. On round 1's code the
-    sequence already matched a fresh server (the server's walk notices the package design's file move and builds
-    again), so the test guards the rule rather than reproducing a fault.
+    `reading.pin` to `reading.new`, and holds both overrides' classes to a fresh server's. With round 1's key the
+    primed server kept the old retention and classed `reading.old`'s override `rebuild` where a fresh server says
+    `live`; the package's digest is what makes them match (corrected in round 3: an earlier check ran before the
+    test primed on `reading.old`).
   - **A written whole alias is judged as written** (Astra 2 = Grok 1, 2). A profile colour folds as `transparent`,
     naming none, and an icon param lies on `icons`, so `pin: color = ink` (the app's `color(--brand …)`) and
     `glyph: icon = icon.app` (the app's icon) passed. The default as written is now held to the package's rule as
@@ -5286,3 +5287,18 @@ Stage 12 §B's first commit, under no wire change (the server's existing fields 
     now), so an ambiguous short name sets none, and the default's refusal is said beside `tamber-param-ambiguous`.
     Test: two packages' `Map`, the app's `Map.pin = ink`, and reading's default `ink`: `tamber-unknown-token` is
     among the build's refusals.
+- **After review round 3 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **A package param's SVG is a source of the app** (Astra). The dependency scan (`source_graph`) folded only
+    Contract params, so `glyph: icon = icon(svg "pin.svg")` in a package's design read `assets/pin.svg` without its
+    being a source: no watcher rebuilt on it, and one made later was not looked for. The scan now takes each package
+    design's params too, and so runs when the app has no design file. Test: `a_package_icon_params_svg_is_a_source`,
+    with no `app.tamber`: `pin.svg`, there, is a source; `later.svg`, not there yet, is looked for (`consulted`).
+  - **The app's design whole keys the server's retention** (Grok 1). The key held the app design's token names and
+    components, not their values or its `params` block, so an app override of a package token moving what a param's
+    default reaches (`reading.pin = reading.old` to `reading.new`) left the old retention. It now holds the app
+    design's digest (`Server::synthetic`), as it holds each package design's. Each edit of the design builds the
+    retention again, a compile, where a value edit used to reuse it. A commit needs no reset: its text moves the key.
+    Test: `the_apps_design_whole_keys_what_its_params_keep`: prime on `reading.old`, move the app's override, then
+    set `Map.pin = ink2`. The overrides of `reading.old` and `ink2` over an axis are classed as a fresh server
+    classes them (`ink2`'s `rebuild`). With the names-and-components key it fails, checked by hand.
+  - **§10's round-2 note corrected** (Grok 2): the package's digest is what makes round 2's classes match.
