@@ -604,7 +604,9 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   two lines; the `params` block is made at the end when there is none, indented as its lines are,
   and goes when its last line does. A `when` line needs the param's own line first. After any
   write to an app with params, every param folds with the design and is inside its range, each
-  value written (a `when`'s too) at its own line (`tamber-param-range`, `tamber-range-unit`), so an
+  value written (a `when`'s too) at its own line (`tamber-param-range`, `tamber-range-unit`; a
+  length over a base name the design leaves unset, bare or in an expression, in every column of
+  the scale, the refusal naming the first column outside), so an
   unset that unmasks a default out of range is refused. The inverse is the preimage, so undoing
   the first `set-param` restores absence. A param's value is `live` where the plan folds it, as a
   token's is, `rebuild` for a duration or easing param (a motion param is written into its rows at

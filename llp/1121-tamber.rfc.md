@@ -834,11 +834,32 @@ to `space.xl`, `radius.sm` to `radius.full`), each a length in each host's colum
 kernel's table. A design value or a `when` arm may name one bare (`card.pad: length = space.md`,
 an alias), and what it means depends on the app's design:
 - **the base name is unset:** the alias is a per-host reference, kept as written and never
-  folded, so each host reads its own column; an expression over it (`calc(space.md + 4px)`) is
-  refused until QUEUE's entry lands;
+  folded, so each host reads its own column; an expression over it is kept too (below);
 - **the app's design sets it:** it is the app's own token, and every reader folds through it as
   through any token reference, so the app's value wins everywhere, an edit of it re-folds the
   alias, and a ranged param naming it keeps its px.
+
+*Amended 2026-10-20 (stage 12 B2; theme2's 00:42 ruling):* an expression over an unset base
+name (`calc(space.md * 2)`, `min(space.lg, 20px)`; lengths only, with px and numbers beside it)
+is kept as written, its token references inlined and its constant parts folded, so one
+expression has one text (`calc(space.md + 2px + 2px)` is `calc(space.md + 4px)`). The scale
+table carries no arithmetic, and the schema, its digest and the wire don't move: the theme
+row's value is the expression.
+- **Each host evaluates it in its own column at run time.** The kernel substitutes each
+  base's length (the design's own definition first, as an alias reads it; the reads recorded)
+  and folds the `calc()`, `min()`, `max()` or `clamp()` with its own calc code, so Apple,
+  Linux, Android and the runner's bindings read px. The JS target writes
+  `calc(var(--exact-space-md) * 2)`, and an SVG attribute the build's column's px. The
+  terminal evaluates it in its column (cells as px), and its spaces then round as every space
+  does there (LLP 1101 §4).
+- **The compiler checks the expression in every column** and names the column it fails in
+  (`card.pad` is the length `-2px` on mac (`calc(space.md - 12px)`), which `padding` does not
+  take), a param's range included. A bare unset base name in a ranged param is checked the
+  same way, per column, where it was refused before.
+- **What is refused:** `rem`, `em` or `%` beside a base name (as in any `calc()`), a base name
+  times or over a length (a base name's or px), a length added to a number, and shadow lengths
+  over a base name (`tamber-base-expression`, QUEUE). A base name the app's design sets folds
+  through as before.
 
 **Packages.** A package (`packages/reading`) may ship `<package>.tamber` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
@@ -1274,7 +1295,10 @@ component PostButton
   appear) and `priority=` (1 surfaced first, 3 behind "more", default 2) apply to all. App
   dials (D4) take the same metadata.
 - **What a range checks.** A ranged length takes px literals only, so it can be checked at
-  build; a `rem`, `em` or text-style value there is refused (`tamber-range-unit`). The default,
+  build; a `rem`, `em` or text-style value there is refused (`tamber-range-unit`). A base
+  name the design leaves unset, bare or in an expression (D11, stage 12 B2), is checked in
+  every column of the scale instead, the refusal naming the first column outside the range
+  (`tamber-param-range`; theme2's 01:13 ruling). The default,
   folded for every tuple, must be inside the range (`radius.md` is 12 px in the example).
   An override that is a literal is checked against it; one that names a token is checked
   after folding. A scrub in the tool that replaces a token default with a literal is a pinned

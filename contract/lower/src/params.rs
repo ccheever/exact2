@@ -351,6 +351,52 @@ pub fn folded(
                 continue;
             };
             for v in &token.values {
+                // Over base names the design leaves unset, or one bare (stage
+                // 12 B2): each column's px, the first outside said.
+                let based = match (p.kind.as_str(), v) {
+                    ("length", Value::Length(l @ (Length::Base(_) | Length::Named(_)))) => {
+                        crate::scale::ranged(&l.css())
+                    }
+                    _ => None,
+                };
+                // One a column doesn't fold: said here too, since the design
+                // server checks params without lowering the theme (round 3,
+                // Astra), and as what it is, not as a unit.
+                if let ("length", Value::Length(l)) = (p.kind.as_str(), v) {
+                    if let Some(column) = crate::scale::unfolded(&l.css()) {
+                        errors.push(refuse(
+                            "tamber-param-range",
+                            format!(
+                                "param `{}` is `{}`, which doesn't fold to a length on {column}: {}",
+                                t.full,
+                                v.css(),
+                                crate::scale::UNFOLDED
+                            ),
+                        ));
+                        break;
+                    }
+                }
+                if let Some(columns) = based {
+                    let out = columns
+                        .into_iter()
+                        // In the kernel's precision: `0.1 × 16` is 1.6 there.
+                        .find(|(_, n)| *n < low as f32 || *n > high as f32);
+                    if let Some((column, n)) = out {
+                        errors.push(refuse(
+                            "tamber-param-range",
+                            format!(
+                                "param `{}` is `{}`, {} on {column}, outside its range {}..{}",
+                                t.full,
+                                v.css(),
+                                crate::scale::px(n),
+                                low,
+                                high
+                            ),
+                        ));
+                        break;
+                    }
+                    continue;
+                }
                 let n = match (p.kind.as_str(), v) {
                     ("length", Value::Length(Length::Px(n))) => *n,
                     ("length", other) => {

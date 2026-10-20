@@ -3552,7 +3552,8 @@ a callback), or that a child reads otherwise than as a row's value, is refused
 (`tamber-param-scope`). A param no
 row of its component reads (a state part's row counts: `:active`'s
 `background-color = "param.pressed"`), directly or through another param, is refused
-(`tamber-param-unused`); a ranged length is px (`tamber-range-unit`) and its
+(`tamber-param-unused`); a ranged length is px (`tamber-range-unit`), or a base
+name or an expression over one, checked in every platform's column, and its
 default must be inside the range in every mode; `control` follows the kind
 (`color`, `slider`, `stepper`, `token`, `select` with `options="a|b"`, `none`),
 and `priority` is 1 to 3. A design token may not be named `param.…`.
@@ -3589,6 +3590,12 @@ alike (`@acme/reading` and `@other/reading`) when both ship a design. A
 refusal points at its line in the package's file. `contract tamber
 check|eval|ir|gen` and the design server fold the app's design with its
 packages' tokens, as the build does.
+A length token may name a base name bare (`card.pad: length = space.md`) or in
+a `calc()`, `min()`, `max()` or `clamp()` with px and numbers
+(`calc(space.md * 2 + 4px)`): each host reads it in its own column, and the
+compiler checks every column, naming the one a row refuses (a padding that is
+negative on mac). A base name times a length, `rem`, `em` or `%` beside one,
+and a shadow over one are refused.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into

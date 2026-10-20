@@ -30,6 +30,7 @@ mod lex;
 mod measure;
 mod motion;
 pub mod params;
+mod residual;
 mod session;
 mod shadow;
 mod syntax;
@@ -43,6 +44,7 @@ pub use fold::{Folded, Half, Host};
 pub use icon::Icon;
 pub use ir::FORMAT;
 pub use measure::{Kind, Length, Value};
+pub use residual::{Atom, Residual};
 pub use session::{plan, Class, Planned, Refused, Retention, Synthetic};
 pub use shadow::{Shadow, Shadows};
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
@@ -118,9 +120,11 @@ pub struct Vocab {
     /// The base names the host resolves per platform (Exact's base scale,
     /// `space.md`; LLP 1121 stage 11 B), matched exactly. One the design
     /// leaves unset: a value naming it bare is a named length, kept as
-    /// written and never folded, so each host reads its own; an expression
-    /// over it is refused (`tamber-base-expression`). One the design sets is
-    /// its token, as any.
+    /// written and never folded, so each host reads its own; a length's
+    /// `calc()`, `min()`, `max()` or `clamp()` over it is kept too, folded
+    /// as far as it goes ([`Residual`], stage 12 B2); any other value over
+    /// it (a shadow's) is refused (`tamber-base-expression`). One the design
+    /// sets is its token, as any.
     pub bases: Vec<String>,
 }
 
