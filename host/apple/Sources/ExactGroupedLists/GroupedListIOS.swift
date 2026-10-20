@@ -549,8 +549,6 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         return model.appearance == .plain ? ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root)
             : ThemeRoles.color("grouped-background", in: root)
     }
-    /// The ground UIKit paints: clear where the author wrote one (`writesGround`), else the theme's; nil leaves UIKit's.
-    private func listGround() -> UIColor? { writesGround ? .clear : themeGround }
     #if os(iOS)
     /// The ground where none is written: the theme's, else UIKit's for the list's appearance.
     private var platformGround: UIColor { themeGround ?? (model.appearance == .plain ? .systemBackground : .systemGroupedBackground) }
@@ -561,7 +559,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         UICollectionViewCompositionalLayout { [weak self] index, environment in
             guard let self else { return nil }
             var c = UICollectionLayoutListConfiguration(appearance: model.appearance)
-            if let ground = listGround() { c.backgroundColor = ground }
+            // Clear where the author wrote one (`writesGround`), else the theme's; nil leaves UIKit's.
+            if let ground = writesGround ? .clear : themeGround { c.backgroundColor = ground }
             let s = section(at: index)
             c.headerMode = s?.header == nil ? .none : .supplementary
             c.footerMode = s?.footer == nil ? .none : .supplementary
@@ -843,10 +842,11 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let sides = [owner.cgColor("background_color", dark: false), owner.cgColor("background_color", dark: true)]
         if sides != skirtKey || view.backgroundColor == nil {
             skirtKey = sides
-            // A background written with no colour (`initial`) is none, as the list's box is.
             view.backgroundColor = UIColor { [weak self, weak owner] traits in
-                owner?.cgColor("background_color", dark: traits.userInterfaceStyle == .dark).map(UIColor.init(cgColor:))
-                    ?? (self?.writesGround == false ? self?.platformGround : nil) ?? .clear
+                if let colour = owner?.cgColor("background_color", dark: traits.userInterfaceStyle == .dark) { return UIColor(cgColor: colour) }
+                // A background written with no colour (`initial`) is none, as the list's box is.
+                guard let self, !writesGround else { return .clear }
+                return platformGround
             }
         }
         // Only past the list's box, where the list itself paints: a translucent colour is not laid over itself.
