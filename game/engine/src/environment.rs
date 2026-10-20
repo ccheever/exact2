@@ -190,6 +190,26 @@ impl SceneSamples {
 /// quality of an inserted `AmbientOcclusion` (`Low` under `Low`). `High`
 /// clamps nothing. Nothing in the world reads it: the world hash is the same
 /// on every rung.
+///
+/// A player's setting is an argument the game reads here:
+///
+/// ```
+/// use exact_game::*;
+/// #[derive(Default, Args)]
+/// struct Settings { #[live] battery_saver: bool }
+/// struct Tank;
+/// impl Game for Tank {
+///     const ID: &'static str = "tank";
+///     type Args = Settings;
+///     fn quality(args: &Settings) -> Quality {
+///         if args.battery_saver { Quality::Low } else { Quality::Auto }
+///     }
+///     fn setup(_: &mut World, _: &Settings) {}
+///     fn tick(_: &mut World, _: &Input, _: &Settings) {}
+/// }
+/// assert_eq!(Tank::quality(&Settings { battery_saver: true }), Quality::Low);
+/// assert_eq!(Tank::quality(&Settings::default()), Quality::Auto);
+/// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Quality {
     /// The device's GPU tier chooses the rung (`exactViewport().gpuTier`:
