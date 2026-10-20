@@ -2843,8 +2843,13 @@ without `--touch platform` a drag scrolls the scroll or list it starts on with t
 finger, no fling; any other drag there is refused, naming the flag.
 Under `--touch platform` a tap replies `viewGone: true` when its view left the
 window before the finger lifted, so that view had no lift (UIKit rebuilds a
-grouped row's detail button in the first seconds after the list appears).
-Read the state, and tap again if nothing changed.
+grouped row's detail button in the first seconds after the list appears), and
+`downAfterLift: true` when the window had the down only after the finger lifted
+(the app busy, or the system slow to deliver it; a UIKit switch in a list cell
+takes a down and a lift that arrive together as no tap). Read the state, and tap
+again if nothing changed; `touch.dispatched` less `touch.ended` says how late
+the down was, and an app that blocks its main thread that long loses a
+person's tap too.
 
 #### Drags on iOS
 
