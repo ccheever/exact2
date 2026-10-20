@@ -124,11 +124,12 @@ impl Lowerer<'_> {
         let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
         let lengths = svg::coerce_lengths(tag, in_svg, expanded);
         let expanded = lengths.as_deref().unwrap_or(expanded);
-        self.check_svg(tag, parent_tag, expanded, *span)?;
+        self.check_svg_content(tag, parent_tag, *span)?;
         let box_transform = tag != "svg" && !(svg::is_element(tag) || (tag == "text" && in_svg));
         let refused_transform =
             |a: &Attr| box_transform && a.name == "transform" && !native::leftover(tag, a);
-        // Keep the refusal's phase without hiding the box's independent rows.
+        // Structural refusals precede attributes; rejected rows must not
+        // affect the remaining checks, including containing-block validation.
         for a in expanded.iter().filter(|a| refused_transform(a)) {
             self.errors.push(native::name_the_fix(
                 n,
@@ -139,6 +140,21 @@ impl Lowerer<'_> {
                 },
             ));
         }
+        let kept = expanded.iter().any(refused_transform).then(|| {
+            expanded
+                .iter()
+                .filter(|a| !refused_transform(a))
+                .cloned()
+                .collect::<Vec<_>>()
+        });
+        let class_len = class_len
+            - expanded
+                .iter()
+                .take(class_len)
+                .filter(|a| refused_transform(a))
+                .count();
+        let expanded = kept.as_deref().unwrap_or(expanded);
+        self.check_svg(tag, parent_tag, expanded)?;
         shorthands::check_text_box(tag, parent_tag, expanded)?;
         // @ref LLP 1034 §8 — an inline run paints in its paragraph's
         // scheme: no host gives a run an appearance of its own.
@@ -500,7 +516,6 @@ impl Lowerer<'_> {
             if native::leftover(tag, a)
                 || refused.contains(&a.name.as_str())
                 || dataset::word(&a.name).is_some()
-                || refused_transform(a)
             {
                 continue;
             }

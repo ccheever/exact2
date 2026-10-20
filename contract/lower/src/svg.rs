@@ -509,13 +509,11 @@ impl Lowerer<'_> {
         errors
     }
 
-    /// The content model, where SVG attributes go, and the `animation` names
-    /// a node names, checked before its attributes lower.
-    pub(crate) fn check_svg(
+    /// Refuse an invalid SVG structure before checking its attributes.
+    pub(crate) fn check_svg_content(
         &self,
         tag: &str,
         parent_tag: Option<&str>,
-        attrs: &[Attr],
         span: Span,
     ) -> Result<(), LowerError> {
         let in_svg = in_svg(self.svg_depth > 0, parent_tag);
@@ -547,6 +545,18 @@ impl Lowerer<'_> {
                 span,
             );
         }
+        Ok(())
+    }
+
+    /// Where SVG attributes go and the `animation` names a node names.
+    pub(crate) fn check_svg(
+        &self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[Attr],
+    ) -> Result<(), LowerError> {
+        let in_svg = in_svg(self.svg_depth > 0, parent_tag);
+        let element = is_element(tag) || (matches!(tag, "svg" | "text") && in_svg);
         for a in attrs {
             // A module tag's own prop named like an SVG attribute (`fx`)
             // is the module's (LLP 1024 D1).

@@ -953,6 +953,67 @@ fn box_transforms_report_independent_attribute_refusals() {
             }
         }
     }
+    for transform in [
+        "transform=\"scale(0.8)\"",
+        "transform=(small ? \"scale(0.8)\" : \"scale(1)\")",
+    ] {
+        let transform_only = &[("lower-attr-tag", "transform")][..];
+        let with_width = &[
+            ("lower-attr-tag", "transform"),
+            ("lower-attr-value", "width"),
+        ][..];
+        let with_blend = &[
+            ("lower-attr-tag", "transform"),
+            ("lower-attr-tag", "mix-blend-mode"),
+        ][..];
+        for (body, expected) in [
+            (
+                format!("column {transform} position=\"static\""),
+                transform_only,
+            ),
+            (
+                format!("column position=\"static\" {transform}"),
+                transform_only,
+            ),
+            (
+                format!("column {transform} position=\"static\" width=\"wat\""),
+                with_width,
+            ),
+            (
+                format!("column width=\"wat\" position=\"static\" {transform}"),
+                with_width,
+            ),
+            (
+                format!("column {transform} mix-blend-mode=\"multiply\""),
+                with_blend,
+            ),
+            (
+                format!("column mix-blend-mode=\"multiply\" {transform}"),
+                with_blend,
+            ),
+        ] {
+            let source = format!("component App\n  state small = true\n  view\n    {body}\n");
+            let found = errors(&source);
+            let actual: Vec<_> = found
+                .iter()
+                .map(|e| (e.id.as_str(), e.span.line, e.span.col))
+                .collect();
+            let expected: Vec<_> = expected
+                .iter()
+                .map(|(id, name)| (*id, 4, 5 + body.find(name).unwrap() as u32))
+                .collect();
+            if actual != expected {
+                failures.push(format!("{source}\n{found:?}"));
+            }
+        }
+        let source = format!(
+            "component App\n  state small = true\n  view\n    svg\n      column {transform}\n"
+        );
+        let found = errors(&source);
+        if found.len() != 1 || found[0].id != "lower-svg-content" {
+            failures.push(format!("{source}\n{found:?}"));
+        }
+    }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
