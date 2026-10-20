@@ -1,7 +1,7 @@
 import {test, expect} from 'bun:test';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync, chmodSync} from 'node:fs';
+import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, realpathSync, renameSync, chmodSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {agreePins, pinRecorder, copyProofProducts, withProofBuild, buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
@@ -792,3 +792,33 @@ test('a snapshot retains only its own source game display name', async () => {
     rmSync(root,{recursive:true,force:true});
   }
 });
+
+test('replacing a warm web receipt removes its old products only after publishing the replacement', async () => {
+  const {warmGameInputs, keepWarmGame, takeWarmGame} = await import('../host/web-js/module.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'warm-replacement-'));
+  const app = {dir:root, target:resolve(root,'target'), id:'warm-game', manifest:{game:{}}};
+  const env = {...process.env, EXACT_GAME_PROOF_PROFILE:'gpu-dev', EXACT_GAME_PARANOID:'0'};
+  const dist = resolve(app.target,'dist'), out = resolve(app.target,'proof');
+  mkdirSync(resolve(root,'logic/src'),{recursive:true}); mkdirSync(dist,{recursive:true});
+  const source = resolve(root,'logic/src/lib.rs'); writeFileSync(source,'source');
+  try {
+    const inputs = warmGameInputs(app,env);
+    let previous;
+    for (let generation = 0; generation < 8; generation++) {
+      writeFileSync(resolve(dist,'gpu_bg.wasm'),`product ${generation}`);
+      const kept = keepWarmGame(app,dist,inputs,env);
+      expect(kept).toBeTruthy();
+      if (previous) expect(existsSync(previous)).toBe(false);
+      expect(takeWarmGame(app,out,env)).toBe(true);
+      expect(readFileSync(resolve(out,'gpu_bg.wasm'),'utf8')).toBe(`product ${generation}`);
+      expect(readdirSync(resolve(app.target,'proof-web')).filter(name => name.startsWith('build-'))).toHaveLength(1);
+      previous = kept;
+    }
+    writeFileSync(source,'changed during bake');
+    expect(keepWarmGame(app,dist,inputs,env)).toBe(false);
+    expect(existsSync(previous)).toBe(true);
+    writeFileSync(source,'source');
+    expect(takeWarmGame(app,out,env)).toBe(true);
+    expect(readFileSync(resolve(out,'gpu_bg.wasm'),'utf8')).toBe('product 7');
+  } finally { rmSync(root,{recursive:true,force:true}); }
+}, 30000);

@@ -488,6 +488,9 @@ cache when its portable execution-input identity, mode and build configuration
 match. It checks the copied product digests before driving the snapshot. A changed
 source, damaged product or different profile is a cache miss and builds normally;
 the proof never reads the live world's state. Release builds do not use this cache.
+Web GPU modules compile their paranoid mode into `Sim`; a continuous-mode
+module cannot serve a Save or FreshGame proof. Those modes build separately
+unless a completed receipt for that same mode matches.
 Game-local `.ts` proof helpers are relocated like `.js` and `.mjs`; an unsupported
 `proofData` declaration is refused by name.
 Direct `proof.mjs` runs use `artifacts/<host>/`.

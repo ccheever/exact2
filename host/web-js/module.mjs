@@ -441,8 +441,12 @@ export function keepWarmGame(app, dist, before, env = process.env) {
     if (current?.key !== after.key || current.authoredState !== after.authoredState || current.assetState !== after.assetState) return false;
     const receipt = {key:after.key, directory:stage, files:warmFiles(copied)};
     const path = resolve(cache, `${after.key}.json`);
+    let previous;
+    try { previous = JSON.parse(readFileSync(path, 'utf8')); } catch {}
     replace(path, temp => writeFileSync(temp, JSON.stringify(receipt)));
     stage = null;
+    if (typeof previous?.directory === 'string' && previous.directory !== receipt.directory && dirname(previous.directory) === cache)
+      rmSync(previous.directory, {recursive:true,force:true});
     const entries = readdirSync(cache).filter(name => /^[a-f0-9]{64}\.json$/.test(name)).sort((a,b) => statSync(resolve(cache,b)).mtimeMs - statSync(resolve(cache,a)).mtimeMs);
     for (const name of entries.slice(6)) {
       const old = JSON.parse(readFileSync(resolve(cache,name),'utf8'));
