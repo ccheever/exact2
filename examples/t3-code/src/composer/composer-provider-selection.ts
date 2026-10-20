@@ -7,7 +7,8 @@
 // providerSetupInstanceId), modelSelection.ts (getAppModelOptionsForInstance,
 // resolveAppModelSelection, resolveAppModelSelectionForInstance), providerModels.ts
 // (getDefaultServerModel), composerDraftStore.ts (deriveEffectiveComposerModelState)
-// and packages/contracts/src/model.ts (DEFAULT_MODEL_BY_PROVIDER).
+// lib/chatThreadActions.ts (resolveNewThreadModelSelectionOverride) and
+// packages/contracts/src/model.ts (DEFAULT_MODEL_BY_PROVIDER).
 //
 // One rule for the placeholder, the control row, the model trigger and the send:
 // an instance the thread or draft asked for stays selected while it is enabled and
@@ -217,11 +218,18 @@ export type SelectionSource = {
 export const hasProviderSetup = (provider: Obj): boolean => provider.driver === 'antigravity' || obj(provider.setup).canAuthenticate === true || obj(provider.setup).canInstall === true;
 
 /** The project's default selection (the project override, the project, then the server's default). */
-function projectDefaultSelection(client: SelectionSource): Obj {
-  const settings = obj(client.config.settings), projectId = client.projectId ?? '';
+function projectDefaultSelection(client: SelectionSource, projectId = client.projectId ?? ''): Obj {
+  const settings = obj(client.config.settings);
   const project = client.shell?.projects.find(entry => entry.id === projectId);
   const override = obj(obj(obj(settings.projectSettingsOverrides)[projectId]).defaultModelSelection);
   return str(override.instanceId) ? override : str(obj(project?.defaultModelSelection).instanceId) ? obj(project?.defaultModelSelection) : obj(settings.defaultModelSelection);
+}
+
+/** useNewThreadHandler carries the source choice when the destination has no default, even if its provider probe failed. */
+export function carryNewThreadModelSelection(client: SelectionSource & { modelOptions: Obj[] }, projectId: string) {
+  if ((!client.threadId && projectId === client.projectId) || str(projectDefaultSelection(client, projectId).instanceId)
+    || !client.providerId || !client.modelId) return null;
+  return { providerId: client.providerId, modelId: client.modelId, modelOptions: client.modelOptions.map(option => ({ ...option })) };
 }
 
 /**
