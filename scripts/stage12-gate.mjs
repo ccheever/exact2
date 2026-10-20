@@ -4,7 +4,7 @@
 // with its evidence. A line whose parts aren't built yet says WAITS-ON; none
 // is passed over.
 //
-//   bun scripts/stage12-gate.mjs [--only <line> …] [--out <file>] [--copy <clone copy>] [--before <its tag's worktree>] [--baseline <dir>] [--host <h> …] [--app <android reader app>]
+//   bun scripts/stage12-gate.mjs [--only <line> …] [--out <file>] [--copy <clone copy>] [--before <its tag's worktree>] [--baseline <dir>] [--host <h> …] [--app <android reader app>] [--release <release identity JSON>]
 //   bun scripts/stage12-gate.mjs baseline --copy <clone copy> --out <dir> [--host <h> …]
 //
 // `baseline` takes the consumer's "before" (LLP 1139 §5: baselines taken
@@ -571,6 +571,41 @@ export async function restyle(opts) {
   return bad.length || missing.length || writes.some(w => !w.restored) ? fail(...evidence) : pass(...evidence);
 }
 
+/** `--release`'s comparison (~/x2ios/rel12/release-groups.py, as stage
+ * 11's: every app's plan and the press and motion corpus built at the
+ * parent and the end of each run of stage 12 E commits on main): PASS when
+ * every plan is identical, but apps/library-gate's own (the gate app those
+ * commits make and change). */
+export function releaseIdentity(file) {
+  if (!file || !existsSync(file)) return { status: 'WAITS', on: 'the release identity run (--release <its JSON>)', evidence: [] };
+  const rows = JSON.parse(readFileSync(file, 'utf8'));
+  const own = r => r.source === 'apps/library-gate/app.contract';
+  const count = st => rows.filter(r => r.status === st).length;
+  const moved = rows.filter(r => r.status !== 'identical' && r.status !== 'both failed');
+  const unnamed = moved.filter(r => !own(r));
+  const runs = new Set(rows.map(r => r.run)).size;
+  const evidence = [`release identity: ${rows.length} comparisons over ${runs} runs of stage 12 E commits; ${count('identical')} identical, ${moved.filter(own).length} apps/library-gate's own, ${count('both failed')} failing alike`,
+    ...unnamed.map(r => `  ${r.status === 'DIFFERS' ? 'MOVED' : 'BUILD FAILED'} ${r.source} over ${r.run} (${r.commits[0]})`)];
+  return { status: unnamed.length ? 'FAIL' : 'PASS', evidence };
+}
+
+/** No regressions: conform (--synthetic --strict --linux) clean, the apps
+ * on @exact/reading built unchanged (release identity covers them, as every
+ * app), and release identity over stage 12 E's commits. */
+export function noRegressions(opts) {
+  const work = join(ROOT, 'target', 'stage12-gate');
+  const conform = run(process.execPath, [join(ROOT, 'host/web-js/conform.mjs'), '--synthetic', '--strict', '--linux', '--build', '--jobs', '1', '--wasm-root', join(work, 'wasm'), '--out', join(work, 'conform')], { timeout: 7_200_000 });
+  const said = conform.out.split('\n');
+  const summary = said.find(l => /failures across/.test(l)) ?? `no summary${conform.error ? ` (${conform.error.code ?? conform.error.message})` : ''}: ${conform.out.trim().split('\n').slice(-3).join(' / ').slice(0, 400)}`;
+  const failed = said.filter(l => /^[\w-]+: [1-9]\d* failures?$/.test(l));
+  const readers = run('git', ['grep', '-l', '@exact/reading', '--', 'apps/*/app.contract']).out.trim().split('\n').filter(Boolean);
+  const evidence = [`conform --synthetic --strict --linux: ${summary}`, ...failed.map(l => `  ${l}`), `@exact/reading's users: ${readers.join(', ') || 'none'} (in release identity)`];
+  const release = releaseIdentity(opts.release);
+  evidence.push(...release.evidence);
+  if (!conform.ok || release.status !== 'PASS') return release.status === 'WAITS' && conform.ok ? waits(release.on, ...evidence) : fail(...evidence);
+  return pass(...evidence);
+}
+
 /** The gate's lines, in LLP 1139 §5's order. */
 export function lines(opts) {
   return [
@@ -599,18 +634,17 @@ export function lines(opts) {
       const said = `apps/library-gate built: ${r.ok ? 'yes' : 'NO'}; lower-library-platform: ${forks.length ? forks.length : 'none'}`;
       return r.ok && !forks.length ? pass(said) : fail(said, ...forks.slice(0, 5));
     }],
-    ['no-regressions', 'Release output unchanged for apps using no library component; conform clean; @exact/reading\'s users unchanged', () =>
-      waits('the packages and the adoption (the comparison runs over stage 12 E\'s commits)')],
+    ['no-regressions', 'Release output unchanged for apps using no library component; conform clean; @exact/reading\'s users unchanged', () => noRegressions(opts)],
   ];
 }
 
 export function parse(argv) {
-  const opts = { mode: 'gate', only: [], hosts: [], app: 'unsaid', out: join(homedir(), 'x2theme/stage12-gate-run.txt'), copy: null, before: null, baseline: null };
+  const opts = { mode: 'gate', only: [], hosts: [], app: 'unsaid', out: join(homedir(), 'x2theme/stage12-gate-run.txt'), copy: null, before: null, baseline: null, release: null };
   const args = [...argv];
   if (args[0] === 'baseline') { opts.mode = 'baseline'; opts.out = null; args.shift(); }
   for (let i = 0; i < args.length; i += 2) {
     const [flag, v] = [args[i], args[i + 1]];
-    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--app'].includes(flag)) return `unknown argument ${flag}`;
+    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--app', '--release'].includes(flag)) return `unknown argument ${flag}`;
     if (v === undefined || v.startsWith('--')) return `${flag} needs a value`;
     if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else opts[flag.slice(2)] = v;
   }
@@ -626,7 +660,7 @@ export function parse(argv) {
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--only <line> …] [--out <file>] [--copy <dir>] [--baseline <dir>] | baseline --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--only <line> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
   if (opts.mode === 'baseline') {
     const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS);
     const bad = r.shots.filter(s => !s.ok);

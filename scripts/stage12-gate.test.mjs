@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, barTop, beforeDrift, BASELINE_TAG, comparePixels, expected, lines, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, barTop, beforeDrift, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -47,7 +47,7 @@ test('the pixel diff counts what differs outside the allowlist', () => {
 });
 
 test('a line whose parts are missing waits on them', async () => {
-  const waiting = ['consumer-pixels', 'slot-check-time', 'no-regressions'];
+  const waiting = ['consumer-pixels', 'slot-check-time'];
   for (const [id, , check] of lines({ baseline: null, hosts: [] }).filter(([id]) => waiting.includes(id))) expect([id, (await check()).status]).toEqual([id, expect.stringMatching(/^WAITS-ON /)]);
 });
 
@@ -115,4 +115,16 @@ test('the restyle line expects the value, or its change from the base drive, in 
     expect(c.reads.length).toBeGreaterThan(0);
   }
   expect(new Set(RESTYLE.flatMap(c => c.reads.map(r => r.who)))).toEqual(new Set(['PostCard', 'ActionRow', 'AtCard', 'PostButton']));
+});
+
+test('release identity: every plan identical but library-gate\'s own', () => {
+  const dir = mkdtempSync(join(tmpdir(), 's12e-rel-'));
+  const row = (source, status) => ({ run: 'a..b', commits: ['Stage 12 E: x'], source, status });
+  const file = rows => { const f = join(dir, `${Math.random()}.json`); writeFileSync(f, JSON.stringify(rows)); return f; };
+  expect(releaseIdentity(null).status).toBe('WAITS');
+  expect(releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/library-gate/app.contract', 'build failed'), row('apps/x/app.contract', 'both failed')])).status).toBe('PASS');
+  const moved = releaseIdentity(file([row('apps/a/app.contract', 'DIFFERS')]));
+  expect(moved.status).toBe('FAIL');
+  expect(moved.evidence[1]).toContain('MOVED apps/a/app.contract');
+  expect(releaseIdentity(file([row('apps/a/app.contract', 'build failed')])).status).toBe('FAIL');
 });
