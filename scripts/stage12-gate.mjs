@@ -305,6 +305,7 @@ export function consumerPixels(opts) {
   const p = shots.after.provenance;
   const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
+    'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
     `the adoption uses ${ADOPTED.length} of ${ADOPTED.length} library components (${ADOPTED.map(i => i.split('#')[1]).join(', ')}); before uses none`,
     `conform on the clone (its tools/check.sh: its build's diagnostics and its data tests): ${check.ok && checkSaid === 'ok' ? 'clean' : `NOT clean: ${check.out.trim().split('\n').slice(-3).join(' / ').slice(0, 300)}`}`];
   return bad.length || !r.length || !check.ok || checkSaid !== 'ok' ? fail(...evidence) : pass(...evidence);
