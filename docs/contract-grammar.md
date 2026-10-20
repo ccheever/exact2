@@ -208,7 +208,8 @@ and mapped through its `package.json` `exports` (a string, or the `contract` or
 outside the app needs a `name` in its `package.json` (`contract-package-unnamed`):
 its components' identities are named by it (LLP 1121 D15). A root file linked
 into the app's tree from elsewhere (a symlink, as conform's corpus fixtures are)
-is the app's own, named where the link sits; a file a `use` reaches is its
+that is in no named package is the app's own, named where the link sits (one in
+a named package keeps the package's name); a file a `use` reaches is its
 target's.
 `contract sources <file>` prints every file a compile reads, as JSON. A file's
 names are its own declarations and the names its `use` lines list, each

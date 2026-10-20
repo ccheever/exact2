@@ -504,9 +504,15 @@ fn a_file_linked_into_the_app_is_the_apps_own_named_where_it_sits() {
     // file name, from the app's directory.
     let graph = contract::source_graph(&path);
     assert!(graph.errors.is_empty(), "{:?}", graph.errors);
+    let target = root.join("corpus/fixture.contract").canonicalize().unwrap();
+    assert_eq!(
+        graph.sources[0].path, target,
+        "the graph's paths stay canonical"
+    );
     for args in [
         &["build", "tabs.contract", "-o", "tabs.plan"][..],
         &["sources", "tabs.contract"],
+        &["fmt", "--uses", "tabs.contract"],
     ] {
         let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
             .args(args)
