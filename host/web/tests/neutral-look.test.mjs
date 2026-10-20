@@ -76,7 +76,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
     'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'],
     'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding'], 'menu-row-gap': ['--exact-button-space-width'],
-    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-max-height': ['max-height'], 'sheet-margin': ['width', 'max-height'], 'sheet-top': ['inset'],
+    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-height': ['height'], 'sheet-margin': ['width', 'height'], 'sheet-top': ['inset'],
     'list-row-inset': ['padding-left', 'padding-right'],
     'raised-shadow-y': ['--exact-raised'], 'raised-shadow-blur': ['--exact-raised'], 'modal-shadow-y': ['--exact-modal'], 'modal-shadow-blur': ['--exact-modal'],
   };
@@ -241,7 +241,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
         bar: [color('bar'), color('bar', 'backgroundColor'), css('bar', 'backdropFilter') ?? css('bar', 'webkitBackdropFilter'), css('bar', 'borderBottomWidth'), color('bar-button', 'borderTopColor')[3]],
         tabs: [color('tabs', 'backgroundColor'), css('tabs', 'borderTopWidth'), css('tabs', 'boxShadow')],
         list: [color('list', 'backgroundColor'), css('card', 'borderTopLeftRadius'), color('list-said', 'backgroundColor')],
-        sheet: [color('sheet', 'backgroundColor'), css('sheet', 'position'), box('sheet')[2]],
+        sheet: [color('sheet', 'backgroundColor'), css('sheet', 'position'), box('sheet')[2], box('sheet')[3]],
       }));
       expect([at('page'), got.page]).toEqual([at('page'), [INK[scheme], GROUND[scheme]]]);
       // The unsaid button: an outline in the label's ink, whatever the page's `color`; 36 px.
@@ -275,8 +275,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('tabs'), got.tabs]).toEqual([at('tabs'), [GROUND[scheme], '1px', 'none']]);
       // A grouped list: the neutral ground over the sheet's literal, 12 px cards; a ground the author wrote stays.
       expect([at('list'), got.list]).toEqual([at('list'), [scheme === 'light' ? [245, 245, 245, 1] : GROUND[scheme], '12px', [1, 2, 3, 1]]]);
-      // A sheet in a wide window is a card.
-      expect([at('sheet'), got.sheet]).toEqual([at('sheet'), [GROUND[scheme], 'fixed', 560]]);
+      // A sheet in a wide window is a card, 560 wide and a sheet's height whatever it holds: 45rem, less the window's
+      // 64 px margin in this 700 px window.
+      expect([at('sheet'), got.sheet]).toEqual([at('sheet'), [GROUND[scheme], 'fixed', 560, 636]]);
 
       // The unsaid hover: a wash over a pressable nobody styled, and a link in running text underlines.
       await page.hover('#pressable');
