@@ -141,3 +141,18 @@ describe('a field is a data-editable node', () => {
     expect(unmarked).toEqual([]);
   });
 });
+
+describe('Shift alone shows a row\'s quick actions (PullRequestSpeedActions)', () => {
+  const speed = [{ key: 'close', action: 'close' }];
+  for (const [file, name] of [['src/pull-requests/pages-prs.contract', 'PrRowButton'], ['src/panel/panel.contract', 'LinkedPrRowView']] as const) {
+    test(`${name}: shown while prSpeedMode or a quick action is pending`, () => {
+      const component = contractComponent(file, name), state = component.state();
+      const drawn = (prSpeedMode: boolean, speedPending = false, actions = speed) =>
+        component.drawn('PrQuickActions(', state, { row: { speed: actions, speedPending, number: 7 }, prSpeedMode });
+      expect(drawn(true)).toBe(true);
+      expect(drawn(false)).toBe(false);
+      expect(drawn(false, true)).toBe(true);
+      expect(drawn(true, false, [])).toBe(false);
+    });
+  }
+});

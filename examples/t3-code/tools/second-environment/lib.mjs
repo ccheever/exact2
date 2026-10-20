@@ -11,6 +11,7 @@ import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, write
 import { connect as netConnect } from "node:net";
 import { join, resolve } from "node:path";
 import { connect, ensureProject, LANE_SCOPES } from "../github-lane/lib.mjs";
+import { PULL_REQUEST } from "./gh-standin.mjs";
 import { AGENT, install as installStandin, refresh as refreshStandin, status as standinStatus } from "../acp-standin/install.mjs";
 
 export const checkout = resolve(import.meta.dir, "../../../..");
@@ -86,8 +87,9 @@ exec /usr/sbin/scutil "$@"
  * variables themselves; loopback stays direct.
  */
 export const offlinePort = (env = process.env) => checkPort(Number(env.T3_FIXTURE_OFFLINE_PORT ?? 16599), env);
-export function offlineEnv(env = process.env) {
-  const proxy = `http://127.0.0.1:${offlinePort(env)}`;
+export const offlineEnv = (env = process.env) => proxyEnv(offlinePort(env));
+function proxyEnv(port) {
+  const proxy = `http://127.0.0.1:${port}`;
   return { NODE_USE_ENV_PROXY: "1", HTTPS_PROXY: proxy, HTTP_PROXY: proxy, https_proxy: proxy, http_proxy: proxy, ALL_PROXY: proxy, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost" };
 }
 /** Refuses to start when something listens on the offline port: the proxy must refuse every connection. */
@@ -113,16 +115,21 @@ export function setupEnvironment(paths, name, { label = ENVIRONMENTS[name]?.labe
   return dir;
 }
 
-/** The environment of a lane server, built from nothing: none of this shell's tokens, config or home reach it. */
-export function serverEnv(paths, name, base = process.env) {
+/**
+ * The environment of a lane server, built from nothing: none of this shell's tokens, config or home reach it.
+ * With `githubApi` its proxy is the GitHub API stand-in's (`startGithubApi`), which answers api.github.com
+ * and refuses the rest, and it trusts the stand-in's certificate.
+ */
+export function serverEnv(paths, name, base = process.env, { githubApi = false } = {}) {
   const dir = envDir(paths, name);
+  const proxy = githubApi ? { ...offlineEnv(base), ...proxyEnv(githubPort(base)), NODE_EXTRA_CA_CERTS: join(githubDir(paths), "ca.crt") } : offlineEnv(base);
   return {
     PATH: [join(dir, "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":"),
     HOME: join(dir, "home"), SHELL: "/bin/zsh", USER: base.USER ?? "", LOGNAME: base.LOGNAME ?? base.USER ?? "",
     LANG: base.LANG ?? "en_US.UTF-8", TMPDIR: join(dir, "tmp"),
     CODEX_HOME: join(dir, "codex"), CLAUDE_CONFIG_DIR: join(dir, "claude"),
     XDG_CONFIG_HOME: join(dir, "xdg/config"), XDG_DATA_HOME: join(dir, "xdg/data"), XDG_CACHE_HOME: join(dir, "xdg/cache"), XDG_STATE_HOME: join(dir, "xdg/state"),
-    T3CODE_HOME: join(dir, "t3home"), T3CODE_TELEMETRY_ENABLED: "false", ...offlineEnv(base),
+    T3CODE_HOME: join(dir, "t3home"), T3CODE_TELEMETRY_ENABLED: "false", ...proxy,
     GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GH_CONFIG_DIR: join(dir, "xdg/config/gh"), GH_PROMPT_DISABLED: "1",
   };
 }
@@ -170,8 +177,11 @@ export async function waitReady(port, ms = 60_000) {
   throw new Error(`no server answered on ${port} within ${ms / 1000} s`);
 }
 
-/** Starts the lane server for `name` (offline, detached); returns { pid, port, environmentId, label }. */
-export async function startServer(paths, name, { port = ENVIRONMENTS[name]?.port, label } = {}) {
+/**
+ * Starts the lane server for `name` (offline, detached); returns { pid, port, environmentId, label, githubApi }.
+ * `githubApi` routes its HTTPS through the GitHub API stand-in, which must run.
+ */
+export async function startServer(paths, name, { port = ENVIRONMENTS[name]?.port, label, githubApi = false } = {}) {
   checkPort(port);
   const running = recorded(paths, name);
   if (running) return running;
@@ -180,12 +190,12 @@ export async function startServer(paths, name, { port = ENVIRONMENTS[name]?.port
   const log = openSync(join(dir, "server.log"), "a");
   const t3 = serverExecutable(paths);
   const child = spawn(t3, ["serve", "--base-dir", join(dir, "t3home"), "--port", String(port), "--host", "127.0.0.1", join(dir, "repos")],
-    { env: serverEnv(paths, name), cwd: join(dir, "repos"), stdio: ["ignore", log, log], detached: true });
+    { env: serverEnv(paths, name, process.env, { githubApi }), cwd: join(dir, "repos"), stdio: ["ignore", log, log], detached: true });
   child.unref();
   writeFileSync(pidFile(paths, name), JSON.stringify({ pid: child.pid, port, startedAt: new Date().toISOString() }));
   try {
     const environment = await waitReady(port);
-    const entry = { pid: child.pid, port, startedAt: new Date().toISOString(), environmentId: environment.environmentId, label: environment.label };
+    const entry = { pid: child.pid, port, startedAt: new Date().toISOString(), environmentId: environment.environmentId, label: environment.label, githubApi };
     writeFileSync(pidFile(paths, name), JSON.stringify(entry));
     // Kept after a stop: `forget` needs the origin and id a normal launch saved its token under.
     writeFileSync(join(dir, "environment.json"), JSON.stringify({ origin: `http://127.0.0.1:${port}`, environmentId: entry.environmentId, label: entry.label }));
@@ -354,9 +364,17 @@ async function seedPullRequestThread(paths, name, conn, projectId, live, { timeo
     modelSelection: { instanceId: "codex", model: "gpt-5.4" }, runtimeMode: "full-access", interactionMode: "default", branch: PR_THREAD.branch, worktreePath: null,
   });
   const started = Date.now();
+  let linked = false;
   for (;;) {
     const thread = ((await shellSnapshot(conn)).threads ?? []).find((entry) => entry.id === threadId);
-    if (thread?.branchPullRequest) return [`${PR_THREAD.title} (#${thread.branchPullRequest.number ?? "?"})`];
+    // Linked as a person links it (the panel's Link pull request), so the Linked pull requests surface lists it too.
+    if (thread?.branchPullRequest && !(thread.pullRequests ?? []).length && !linked) {
+      linked = true;
+      const { owner, name: repo, number } = PULL_REQUEST;
+      await conn.request("orchestration.dispatchCommand", { type: "thread.pull-request.link", commandId: crypto.randomUUID(), threadId,
+        host: "github.com", repository: `${owner}/${repo}`, number, url: `https://github.com/${owner}/${repo}/pull/${number}`, source: "manual" });
+    }
+    if (thread?.branchPullRequest && (thread.pullRequests ?? []).length) return [`${PR_THREAD.title} (#${thread.branchPullRequest.number ?? "?"})`];
     if (Date.now() - started > timeoutMs) throw new Error(`${PR_THREAD.title}: no linked pull request after ${timeoutMs / 1000} s (see ${join(envDir(paths, name), "gh-calls.log")})`);
     await Bun.sleep(250);
   }
@@ -364,8 +382,14 @@ async function seedPullRequestThread(paths, name, conn, projectId, live, { timeo
 
 /** Projects and threads for `name`, through the running server's API. Idempotent by title. */
 export async function seed(paths, name, seeds = SEEDS[name] ?? [{ repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: [`Shared notes on ${name}`] }], { turns = false, limits = false, pullRequest = false } = {}) {
-  const running = recorded(paths, name);
+  let running = recorded(paths, name);
   if (!running) throw new Error(`${name}: no fixture server running`);
+  // The server reads pull requests from GitHub's API over HTTPS: it starts again behind the API stand-in.
+  if (pullRequest && !running.githubApi) {
+    await startGithubApi(paths);
+    await stopServer(paths, name);
+    running = await startServer(paths, name, { port: running.port, githubApi: true });
+  }
   // Project scripts, the stand-in's provider pin and usage accounts are settings and provider writes.
   const conn = await connect(`http://127.0.0.1:${running.port}`, pairingToken(paths, name, "Fixture seed"), `${LANE_SCOPES} settings:write providers:manage`);
   try {
@@ -420,6 +444,53 @@ export function installGhStandin(paths, name) {
   writeFileSync(file, `#!/bin/sh\n# Generated by examples/t3-code/tools/second-environment: the gh stand-in.\nT3_FIXTURE_GH_LOG='${join(dir, "gh-calls.log")}' exec '${process.execPath}' '${join(import.meta.dir, "gh-standin.mjs")}' "$@"\n`);
   chmodSync(file, 0o755);
   return file;
+}
+/**
+ * The GitHub API stand-in (`github-api-standin.mjs`): a proxy on `T3_FIXTURE_GITHUB_PORT` (default 16592)
+ * that tunnels api.github.com to its HTTPS server on the next port, with a certificate from a CA made
+ * here for it (`<root>/github-api`). A `--pull-request` server trusts that CA and nothing else changes.
+ */
+export const githubPort = (env = process.env) => checkPort(Number(env.T3_FIXTURE_GITHUB_PORT ?? 16592), env);
+const githubDir = (paths) => join(paths.root, "github-api");
+const githubPidFile = (paths) => join(githubDir(paths), "standin.pid");
+function githubCertificates(dir) {
+  if (existsSync(join(dir, "api.crt"))) return;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "ca.cnf"), "[req]\ndistinguished_name=dn\nx509_extensions=ca\n[dn]\n[ca]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\n");
+  writeFileSync(join(dir, "api.cnf"), "[req]\ndistinguished_name=dn\n[dn]\n[ext]\nsubjectAltName=DNS:api.github.com\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n");
+  const openssl = (args) => run("/usr/bin/openssl", args, { cwd: dir });
+  openssl(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "ca.key", "-out", "ca.crt", "-days", "365", "-subj", "/CN=T3 lane fixture CA", "-config", "ca.cnf"]);
+  openssl(["req", "-newkey", "rsa:2048", "-nodes", "-keyout", "api.key", "-out", "api.csr", "-subj", "/CN=api.github.com", "-config", "api.cnf"]);
+  openssl(["x509", "-req", "-in", "api.csr", "-CA", "ca.crt", "-CAkey", "ca.key", "-CAcreateserial", "-out", "api.crt", "-days", "365", "-extfile", "api.cnf", "-extensions", "ext"]);
+}
+/** Starts the GitHub API stand-in (detached, its pid recorded) unless it runs; returns { pid, port }. */
+export async function startGithubApi(paths) {
+  const dir = githubDir(paths), file = githubPidFile(paths);
+  const running = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+  if (running && alive(running.pid)) return running;
+  githubCertificates(dir);
+  const port = githubPort(), apiPort = checkPort(port + 1);
+  const log = openSync(join(dir, "standin.log"), "a");
+  const child = spawn(process.execPath, [join(import.meta.dir, "github-api-standin.mjs"), String(port), String(apiPort), dir, join(dir, "api-calls.log")], { stdio: ["ignore", log, log], detached: true });
+  child.unref();
+  const entry = { pid: child.pid, port };
+  writeFileSync(file, JSON.stringify(entry));
+  for (let i = 0; i < 50; i++) {
+    const open = await new Promise((done) => { const socket = netConnect({ host: "127.0.0.1", port }, () => { socket.destroy(); done(true); }); socket.on("error", () => done(false)); });
+    if (open) return entry;
+    await Bun.sleep(100);
+  }
+  await stopGithubApi(paths);
+  throw new Error(`the GitHub API stand-in did not listen on ${port} (see ${join(dir, "standin.log")})`);
+}
+export async function stopGithubApi(paths) {
+  const file = githubPidFile(paths);
+  const running = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+  rmSync(file, { force: true });
+  if (!running || !alive(running.pid)) return null;
+  process.kill(running.pid, "SIGTERM");
+  for (let i = 0; i < 50 && alive(running.pid); i++) await Bun.sleep(100);
+  return running;
 }
 /** The thread whose branch has the stand-in's pull request, in `shared-notes` (seed --pull-request). */
 export const PR_THREAD = { repo: "shared-notes", title: "Notes branch thread", branch: "feature/notes" };
