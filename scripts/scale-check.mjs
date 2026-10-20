@@ -356,10 +356,12 @@ export function drive(host, plan, png, steps = [], app = null) {
   const ran = (run.stdout ?? '').split('\n').map(l => /"plan":"([0-9a-f]{64})"/.exec(l)?.[1]).find(Boolean);
   const want = createHash('sha256').update(readFileSync(plan)).digest('hex');
   if (run.status === 0 && ran !== want) throw new Error(`${host} runs ${ran ? `another plan (${ran.slice(0, 12)}…)` : 'a plan it does not name'}, not ${want.slice(0, 12)}…: not measured`);
-  // The last layout: the one after the steps.
-  const line = (run.stdout ?? '').split('\n').findLast(l => l.startsWith('{') && l.includes('"nodes"'));
+  // The last layout: the one after the steps; any a step asked for before
+  // it, in order, as `earlier`.
+  const layouts = (run.stdout ?? '').split('\n').filter(l => l.startsWith('{') && l.includes('"nodes"'));
+  const line = layouts.at(-1);
   if (run.error || run.status !== 0 || !line) throw new Error(`the drive failed${run.error ? ` (${run.error.message})` : run.signal ? ` (${run.signal})` : ''}\n${run.stdout ?? ''}${run.stderr ?? ''}`);
-  return JSON.parse(line);
+  return Object.assign(JSON.parse(line), { earlier: layouts.slice(0, -1).map(l => JSON.parse(l)) });
 }
 
 /** An agent step as the terminal's verbs take it: a verb's text tail (`type

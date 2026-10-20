@@ -25,6 +25,9 @@ component App
   view
     scroll testId="root" flex=1 background-color="gate.ground"
       column gap=12 padding-bottom=40
+        // A mark at the page's top, its own colour, where the gate finds the
+        // viewport in a shot that holds a host's bars too (Android's reader).
+        box testId="gate-top" width=40 height=12 background-color="gate.mark"
         PostCard(id="pc-base", press=press, inThread=false, lineAbove=false, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="")
           box testId="marker-pc-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph

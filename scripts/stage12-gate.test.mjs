@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, barTop, beforeDrift, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, beforeDrift, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -87,15 +87,18 @@ test('the before differs from the baseline\'s tag only in its lock', () => {
   expect(beforeDrift(dir)).toEqual(['app.contract']);
 });
 
-test('a shot with bars above its viewport: the offset that lines up every marker', () => {
-  // A 10x14 shot of a 10x10 viewport, 3 rows of bars on top: two markers
-  // a row tall whose pixels differ between the shots, 3 rows below their
-  // layout rects (only that offset lines up both).
-  const img = (on) => { const data = new Uint8Array(10 * 14 * 4).fill(255); for (const [x, y] of on) data.set([0, 0, 0, 255], (y * 10 + x) * 4); return { width: 10, height: 14, data }; };
-  const A = img([]), B = img([[1, 4], [6, 9]]);
-  const layout = { viewport: { w: 10, h: 10 }, nodes: [{ testId: 'marker-a', x: 0, y: 1, w: 2, h: 1 }, { testId: 'marker-b', x: 5, y: 6, w: 2, h: 1 }] };
-  expect(barTop(A, B, layout, ['a', 'b'])).toBe(3);
-  expect(barTop(A, B, { ...layout, viewport: { w: 10, h: 14 } }, ['a', 'b'])).toBe(0);
+test('a shot with bars above its viewport: the top mark, not the markers, says where the viewport starts', () => {
+  // A 10x14 shot of a 10x10 viewport, 3 rows of bars on top; the mark is
+  // laid out at (2, 1), 4x3, so it shows from row 4.
+  const img = (mark) => {
+    const data = new Uint8Array(10 * 14 * 4).fill(255);
+    if (mark) for (let y = 4; y < 7; y++) for (let x = 2; x < 6; x++) data.set([255, 0, 255, 255], (y * 10 + x) * 4);
+    return { width: 10, height: 14, data };
+  };
+  const layout = { viewport: { w: 10, h: 10 }, nodes: [{ testId: 'gate-top', x: 2, y: 1, w: 4, h: 3 }] };
+  expect(viewportTop(img(true), layout)).toBe(3);
+  expect(viewportTop(img(true), { ...layout, viewport: { w: 10, h: 14 } })).toBe(0);
+  expect(() => viewportTop(img(false), layout)).toThrow(/top mark/);
 });
 
 test('the restyle line expects the value, or its change from the base drive, in whole cells on the terminal', () => {
@@ -117,14 +120,20 @@ test('the restyle line expects the value, or its change from the base drive, in 
   expect(new Set(RESTYLE.flatMap(c => c.reads.map(r => r.who)))).toEqual(new Set(['PostCard', 'ActionRow', 'AtCard', 'PostButton']));
 });
 
-test('release identity: every plan identical but library-gate\'s own', () => {
+test('release identity: every source compared and identical in every run, but library-gate\'s own and the named alike failures', () => {
   const dir = mkdtempSync(join(tmpdir(), 's12e-rel-'));
-  const row = (source, status) => ({ run: 'a..b', commits: ['Stage 12 E: x'], source, status });
+  const row = (source, status, run = 'a..b') => ({ run, commits: ['Stage 12 E: x'], source, status });
   const file = rows => { const f = join(dir, `${Math.random()}.json`); writeFileSync(f, JSON.stringify(rows)); return f; };
-  expect(releaseIdentity(null).status).toBe('WAITS');
-  expect(releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/library-gate/app.contract', 'build failed'), row('apps/x/app.contract', 'both failed')])).status).toBe('PASS');
-  const moved = releaseIdentity(file([row('apps/a/app.contract', 'DIFFERS')]));
+  const sources = ['apps/a/app.contract', 'apps/expose/app.contract'];
+  expect(releaseIdentity(null, sources).status).toBe('WAITS');
+  expect(releaseIdentity(file([]), sources).status).toBe('FAIL');
+  expect(releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed'), row('apps/library-gate/app.contract', 'build failed')]), sources).status).toBe('PASS');
+  const moved = releaseIdentity(file([row('apps/a/app.contract', 'DIFFERS'), row('apps/expose/app.contract', 'both failed')]), sources);
   expect(moved.status).toBe('FAIL');
   expect(moved.evidence[1]).toContain('MOVED apps/a/app.contract');
-  expect(releaseIdentity(file([row('apps/a/app.contract', 'build failed')])).status).toBe('FAIL');
+  // Failing alike counts only for the named; a run that leaves a source out fails.
+  expect(releaseIdentity(file([row('apps/a/app.contract', 'both failed'), row('apps/expose/app.contract', 'both failed')]), sources).status).toBe('FAIL');
+  const short = releaseIdentity(file([row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed'), row('apps/a/app.contract', 'identical', 'c..d')]), sources);
+  expect(short.status).toBe('FAIL');
+  expect(short.evidence.at(-1)).toContain('NOT COMPARED apps/expose/app.contract over c..d');
 });

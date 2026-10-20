@@ -20,7 +20,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
-import { baseLength, cellsOf, drive as drivePlan, overridesOf } from './scale-check.mjs';
+import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from './scale-check.mjs';
+import { webDist } from './app.mjs';
+import { jsTargetBuild } from '../host/web/serve.mjs';
 import { placements } from './library-gate.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -155,7 +157,7 @@ function provenance(copy) {
   return {
     gate: git(ROOT, 'rev-parse', 'HEAD'), sdk, exact2: sdk ? git(sdk, 'rev-parse', 'HEAD') : null, sdkDirty: sdk ? git(sdk, 'status', '--porcelain', '--untracked-files=no') !== '' : null,
     copy: git(copy, 'rev-parse', 'HEAD'), copyDirty: git(copy, 'status', '--porcelain') !== '',
-    os: `darwin ${release()}`, macos: run('sw_vers', ['-productVersion']).out.trim(), xcode, simulator: device, statusBar: STATUS_BAR.join(' '), epoch: EPOCH, size: SIZE, schemes: SCHEMES,
+    os: `darwin ${release()}`, macos: run('sw_vers', ['-productVersion']).out.trim(), xcode, simulator: device, statusBar: STATUS_BAR.join(' '), epoch: EPOCH, size: { web: SIZE, linux: SIZE, ios: 'the simulator\'s screen', macos: 'its own window' }, schemes: SCHEMES,
     taken: new Date().toISOString(),
   };
 }
@@ -241,6 +243,23 @@ export function beforeDrift(before) {
   return run('git', ['diff', '--name-only', BASELINE_TAG, 'HEAD'], { cwd: before }).out.split('\n').filter(f => f && f !== 'Cargo.lock');
 }
 
+/** A copy's tracked changes not committed (staged or not): a build reads
+ * the working tree, so a side must be its commit. */
+export const uncommitted = copy => run('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: copy }).out.split('\n').filter(Boolean);
+
+/** The library components a copy's app uses (its Tamber IR's `library`,
+ * compiled by its own SDK), by identity. */
+function usesOf(copy, dir, env) {
+  mkdirSync(dir, { recursive: true });
+  const ir = join(dir, 'tamber.json');
+  const r = run(process.execPath, [join(copy, 'exact.mjs'), 'contract', 'tamber', 'ir', '.', '-o', ir], { cwd: copy, env });
+  if (!r.ok || !existsSync(ir)) return null;
+  return (JSON.parse(readFileSync(ir, 'utf8')).library ?? []).map(c => c.identity);
+}
+
+/** What the adoption must use: the four components from the two packages. */
+export const ADOPTED = ['@exact/cards/post-card.contract#PostCard', '@exact/cards/at-card.contract#AtCard', '@exact/actions/action-row.contract#ActionRow', '@exact/actions/post-button.contract#PostButton'];
+
 /** One side's builds, on every host, into a target of its own; iOS onto the
  * simulator, which both sides share (one app id), so a side is shot right
  * after its own build. */
@@ -259,6 +278,21 @@ function buildSide(copy, side) {
 export function consumerPixels(opts) {
   const drift = beforeDrift(opts.before);
   if (drift.length) return fail(`--before differs from ${BASELINE_TAG} beyond its lock: ${drift.join(', ')}`);
+  for (const [side, copy] of [['--before', opts.before], ['--copy', opts.copy]]) {
+    const dirty = uncommitted(copy);
+    if (dirty.length) return fail(`${side} has changes not committed: ${dirty.join(', ').slice(0, 300)}`);
+  }
+  // The adoption is the packages': after uses all four library
+  // components, before none.
+  const uses = Object.fromEntries([['before', opts.before], ['after', opts.copy]].map(([side, copy]) => [side, usesOf(copy, join(ROOT, 'target', 'stage12-gate', `${side}-ir`), { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', `stage12-gate-${side}`) })]));
+  if (!uses.before || !uses.after) return fail(`a copy's design did not read (contract tamber ir): ${['before', 'after'].filter(s => !uses[s]).join(', ')}`);
+  const missing = ADOPTED.filter(id => !uses.after.includes(id));
+  if (missing.length) return fail(`--copy does not use ${missing.join(', ')}: not the adoption`);
+  if (uses.before.length) return fail(`--before already uses library components (${uses.before.join(', ')}): not the baseline`);
+  // Conform on the clone: its own check (every diagnostic of its build,
+  // and its data module's tests), on the adoption.
+  const check = run('sh', [join(opts.copy, 'tools/check.sh')], { cwd: opts.copy, env: { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', 'stage12-gate-after') } });
+  const checkSaid = check.out.trim().split('\n').at(-1) ?? '';
   const shots = {};
   for (const [side, copy] of [['before', opts.before], ['after', opts.copy]]) {
     const said = buildSide(copy, side);
@@ -271,13 +305,39 @@ export function consumerPixels(opts) {
   const p = shots.after.provenance;
   const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
-    'conform on the clone: not run here (the clone is outside the repository; QUEUE)'];
-  return bad.length ? fail(...evidence) : pass(...evidence);
+    `the adoption uses ${ADOPTED.length} of ${ADOPTED.length} library components (${ADOPTED.map(i => i.split('#')[1]).join(', ')}); before uses none`,
+    `conform on the clone (its tools/check.sh: its build's diagnostics and its data tests): ${check.ok && checkSaid === 'ok' ? 'clean' : `NOT clean: ${check.out.trim().split('\n').slice(-3).join(' / ').slice(0, 300)}`}`];
+  return bad.length || !r.length || !check.ok || checkSaid !== 'ok' ? fail(...evidence) : pass(...evidence);
 }
 
-/** The slot line's hosts: every required host the plan can be pushed to
- * (the web's JS target is the stage's conform, not a plan drive). */
-export const SLOT_HOSTS = ['web', 'linux', 'macos', 'ios', 'android', 'terminal'];
+/** The library lines' required hosts (LLP 1139 §5): the web's JS target
+ * and its wasm target, iOS, macOS, Linux, Android's reader and the
+ * terminal. A required host missing from a run fails the line. */
+export const SLOT_HOSTS = ['web-js', 'web-wasm', 'linux', 'macos', 'ios', 'android', 'terminal'];
+/** Checked where a runner is available, else recorded as skipped. */
+export const OPTIONAL_HOSTS = ['windows', 'tvos'];
+const skipped = OPTIONAL_HOSTS.map(h => `  ${h}: skipped (no runner on this machine)`);
+
+/** The web's wasm build of the agent's app (`bun host/web/build.mjs
+ * <app> --wasm`, into this dist: EXACT_WASM_DIST, or the gate's own). */
+const wasmDist = () => resolve(process.env.EXACT_WASM_DIST ?? join(ROOT, 'target', 'stage12-gate', 'web-wasm-dist'));
+
+/** scale-check's drive on `host`, the web's two targets told apart: each
+ * from a dist built for it, refused when the dist is the other's. */
+export function drivePlan(host, plan, png, steps = [], app = null) {
+  if (host === 'web-js') {
+    if (!jsTargetBuild(webDist())) throw new Error(`the web dist ${webDist()} is not a JS-target build (bun host/web/build.mjs <app>)`);
+    return scaleDrive('web', plan, png, steps, app);
+  }
+  if (host === 'web-wasm') {
+    const dist = wasmDist();
+    if (!existsSync(join(dist, '.exact-build.json')) || jsTargetBuild(dist)) throw new Error(`${dist} is not a wasm build (EXACT_WEB_DIST=${dist} bun host/web/build.mjs <app> --wasm)`);
+    const was = process.env.EXACT_WEB_DIST;
+    process.env.EXACT_WEB_DIST = dist;
+    try { return scaleDrive('web', plan, png, steps, app); } finally { if (was === undefined) delete process.env.EXACT_WEB_DIST; else process.env.EXACT_WEB_DIST = was; }
+  }
+  return scaleDrive(host, plan, png, steps, app);
+}
 const LIBRARY_GATE = join(ROOT, 'apps/library-gate');
 
 /** apps/library-gate's plan, compiled from a copy without its app.json (a
@@ -289,8 +349,16 @@ function libraryPlan(dir) {
   for (const f of ['app.contract', 'app.tamber']) writeFileSync(join(app, f), readFileSync(join(LIBRARY_GATE, f)));
   const plan = join(dir, 'library-gate.plan');
   const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(app, 'app.contract'), '-o', plan]);
-  return r.ok ? plan : null;
+  return compiled(r, plan);
 }
+
+/** The last compile's errors, which a line that needed the plan says. */
+let compileSaid = '';
+const compiled = (r, plan) => {
+  if (r.ok) return plan;
+  compileSaid = r.out.split('\n').filter(l => / error |^error|\[[a-z-]+\]/.test(l) && !/warning/.test(l)).slice(0, 3).join(' / ').slice(0, 400) || r.out.trim().split('\n').slice(-3).join(' / ').slice(0, 400);
+  return null;
+};
 
 /** The ids of library-gate's slotted cells (each a marker): its PostCards'. */
 export const markerIds = () => placements(readFileSync(join(LIBRARY_GATE, 'app.contract'), 'utf8'), ['PostCard']).map(p => p.id);
@@ -321,36 +389,45 @@ export const whyOf = e => {
 const shown = (n, v) => n && n.w > 0 && n.h > 0 && n.x >= 0 && n.y >= 0 && n.x + n.w <= v.w + 0.5 && n.y + n.h <= v.h + 0.5;
 
 /** Where the viewport starts in a shot that holds a host's bars too (the
- * Android reader's status bar, which the layout's insets don't name): of
- * the rows the shot has beyond the viewport, the offset at which the most
- * shown markers differ between the two shots (every marker toggles at once,
- * so only the true offset lines them all up); 0 for a shot of the viewport. */
-export function barTop(A, B, layout, ids) {
-  const k = A.width / layout.viewport.w;
-  const slack = Math.round(A.height - layout.viewport.h * k);
-  if (slack <= 1) return 0;
-  const rects = ids.map(id => layout.nodes.find(n => n.testId === `marker-${id}`)).filter(n => shown(n, layout.viewport));
-  let best = 0, most = -1;
-  for (let top = 0; top <= slack; top++) {
-    const hit = rects.filter(r => rectDiffers(A, B, r, layout.viewport.w, top) > 0).length;
-    if (hit > most) { most = hit; best = top; }
-  }
-  return best;
+ * Android reader's status bar, which the layout's insets don't name), in
+ * the shot's pixels: library-gate's top mark (`gate-top`, its own colour),
+ * found as scale-check finds a page's top, from neither marker's pixels;
+ * 0 for a shot of the viewport. Throws when a taller shot shows no mark. */
+export function viewportTop(img, layout) {
+  const k = img.width / layout.viewport.w;
+  if (img.height <= layout.viewport.h * k + 2) return 0;
+  const top = pageTop(img, layout, { background: '#ffffff', boxes: [{ testId: 'gate-top', fill: '#ff00ff' }] }, k);
+  if (!(top > 0)) throw new Error('the shot is taller than the viewport and its top mark (gate-top) was not found');
+  return top;
 }
 
+/** The marker's rect in a layout, and why it doesn't count. */
+const markerIn = (layout, id) => {
+  const n = layout.nodes.find(x => x.testId === `marker-${id}`);
+  return { n, why: shown(n, layout.viewport) ? '' : `not laid out inside the viewport (${JSON.stringify(n && { x: n.x, y: n.y, w: n.w, h: n.h })})` };
+};
+const sameRect = (a, b) => ['x', 'y', 'w', 'h'].every(k => Math.abs(a[k] - b[k]) <= 0.5);
+
 /** The slot rendered, on `host`: every marker shown with each glyph, its
- * rect laid out inside the viewport, and the two shots apart inside it (the
- * terminal: its cells in the two text shots). */
+ * rect laid out inside the viewport and the same in both renders (each
+ * render's own layout), and the two shots apart inside it (the terminal:
+ * its cells in the two text shots). */
 export function slotOn(host, plan, dir, app = 'unsaid') {
   const ids = markerIds();
+  if (!ids.length) return [{ host, id: '(none)', ok: false, why: 'apps/library-gate places no slotted cell' }];
   if (host === 'terminal') {
     const a = join(dir, 'terminal-a.txt'), b = join(dir, 'terminal-b.txt');
     let layout;
-    try { layout = drivePlan('terminal', plan, null, ['tap marker-toggle', `screenshot ${a}`, 'tap marker-toggle', `screenshot ${b}`]); } catch (e) { return ids.map(id => ({ host, id, ok: false, why: whyOf(e) })); }
+    try { layout = drivePlan('terminal', plan, null, ['tap marker-toggle', 'layout', `screenshot ${a}`, 'tap marker-toggle', `screenshot ${b}`]); } catch (e) { return ids.map(id => ({ host, id, ok: false, why: whyOf(e) })); }
+    const first = layout.earlier?.[0];
+    if (!first) return ids.map(id => ({ host, id, ok: false, why: 'the first render\'s layout was not read' }));
     const [ta, tb] = [a, b].map(f => readFileSync(f, 'utf8').split('\n'));
     return ids.map(id => {
-      const c = layout.nodes.find(n => n.testId === `marker-${id}`)?.cells;
+      const [A, B] = [markerIn(first, id), markerIn(layout, id)];
+      if (A.why || B.why) return { host, id, ok: false, why: A.why || B.why };
+      const [ca, c] = [A.n.cells, B.n.cells];
       if (!c || c.w <= 0 || c.h <= 0) return { host, id, ok: false, why: 'no cells laid out' };
+      if (!ca || !sameRect(ca, c)) return { host, id, ok: false, why: `its cells moved between the renders (${JSON.stringify(ca)} then ${JSON.stringify(c)})` };
       const cut = t => Array.from({ length: c.h }, (_, r) => [...(t[c.y + r] ?? '')].slice(c.x, c.x + c.w).join(''));
       const differ = cut(ta).join('\n') !== cut(tb).join('\n');
       return { host, id, ok: differ, why: differ ? '' : 'its cells read the same with both glyphs', cells: c };
@@ -359,26 +436,33 @@ export function slotOn(host, plan, dir, app = 'unsaid') {
   return ids.map(id => {
     const a = join(dir, `${host}-${id}-a.png`), b = join(dir, `${host}-${id}-b.png`);
     let layout;
-    try { layout = drivePlan(host, plan, b, [`tap marker-${id}`, `screenshot ${a}`, `tap marker-${id}`], app); } catch (e) { return { host, id, ok: false, why: whyOf(e) }; }
-    const n = layout.nodes.find(x => x.testId === `marker-${id}`);
-    if (!shown(n, layout.viewport)) return { host, id, ok: false, why: `not laid out inside the viewport (${JSON.stringify(n && { x: n.x, y: n.y, w: n.w, h: n.h })})` };
-    const [A, B] = [a, b].map(f => decodePng(readFileSync(f)));
-    const d = rectDiffers(A, B, n, layout.viewport.w, barTop(A, B, layout, ids));
-    return { host, id, ok: d > 0, why: d > 0 ? '' : d < 0 ? 'the two shots differ in size' : 'its pixels are the same with both glyphs', px: d };
+    try { layout = drivePlan(host, plan, b, [`tap marker-${id}`, 'layout', `screenshot ${a}`, `tap marker-${id}`], app); } catch (e) { return { host, id, ok: false, why: whyOf(e) }; }
+    const first = layout.earlier?.[0];
+    if (!first) return { host, id, ok: false, why: 'the first render\'s layout was not read' };
+    const [A, B] = [markerIn(first, id), markerIn(layout, id)];
+    if (A.why || B.why) return { host, id, ok: false, why: A.why || B.why };
+    if (!sameRect(A.n, B.n)) return { host, id, ok: false, why: 'its rect moved between the renders' };
+    try {
+      const [IA, IB] = [a, b].map(f => decodePng(readFileSync(f)));
+      const [topA, topB] = [viewportTop(IA, first), viewportTop(IB, layout)];
+      if (Math.abs(topA - topB) > 0.5) return { host, id, ok: false, why: `the viewport starts at ${topA} and ${topB} in the two shots` };
+      const d = rectDiffers(IA, IB, B.n, layout.viewport.w, Math.round(topB));
+      return { host, id, ok: d > 0, why: d > 0 ? '' : d < 0 ? 'the two shots differ in size' : 'its pixels are the same with both glyphs', px: d };
+    } catch (e) { return { host, id, ok: false, why: String(e?.message ?? e).slice(0, 240) }; }
   });
 }
 
 export function slotRendered(opts) {
   const dir = join(ROOT, 'target', 'stage12-gate', 'slot');
   const plan = libraryPlan(dir);
-  if (!plan) return fail('apps/library-gate did not compile');
+  if (!plan) return fail('apps/library-gate did not compile', compileSaid);
   const hosts = opts.hosts.length ? opts.hosts.filter(h => SLOT_HOSTS.includes(h)) : SLOT_HOSTS;
   const rows = hosts.flatMap(h => slotOn(h, plan, dir, opts.app));
   const missing = SLOT_HOSTS.filter(h => !hosts.includes(h));
   const bad = rows.filter(r => !r.ok);
   const evidence = hosts.map(h => `${h}: ${rows.filter(r => r.host === h && r.ok).length} of ${rows.filter(r => r.host === h).length} markers rendered with both glyphs`)
-    .concat(bad.map(r => `  ${r.host} ${r.id}: ${r.why}`), missing.map(h => `  ${h}: a required host not run`));
-  return bad.length || missing.length ? fail(...evidence) : pass(...evidence);
+    .concat(bad.map(r => `  ${r.host} ${r.id}: ${r.why}`), missing.map(h => `  ${h}: a required host not run`), skipped);
+  return bad.length || missing.length || !rows.length ? fail(...evidence) : pass(...evidence);
 }
 
 /** The restyle line's cases (LLP 1139 §5, "One app value restyles the
@@ -421,12 +505,22 @@ const box = (L, id) => {
 const right = (L, id) => { const n = box(L, id); return n.x + n.w; };
 
 /** A design server for `dir` (`contract tamber serve --stdio`, as the dev
- * loops run it), asked one request at a time. */
-function designServer(dir) {
-  const child = spawn('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'serve', '--stdio', dir], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
+ * loops run it), asked one request at a time. A request it doesn't answer
+ * in `deadline` ms, an answer it can't tie to a request, or the server's
+ * exit or failure ends every request still waiting, and every later one,
+ * with an error. */
+function designServer(dir, deadline = 300_000) {
+  // Its own process group, so closing it ends cargo's child too, which
+  // holds the design's lock.
+  const child = spawn('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'serve', '--stdio', dir], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
   const waiting = new Map();
-  let buf = '', next = 0, err = '';
-  child.stderr.on('data', d => { err += d; });
+  let buf = '', next = 0, err = '', closed = null;
+  const end = why => {
+    closed ??= why;
+    for (const done of waiting.values()) done({ error: { message: closed } });
+    waiting.clear();
+  };
+  child.stderr.on('data', d => { err = (err + d).slice(-2000); });
   child.stdout.on('data', d => {
     buf += d;
     for (let i; (i = buf.indexOf('\n')) >= 0;) {
@@ -434,14 +528,29 @@ function designServer(dir) {
       buf = buf.slice(i + 1);
       let reply;
       try { reply = JSON.parse(line); } catch { continue; }
-      waiting.get(reply.id)?.(reply);
+      // A line with no id is an event (a write's `changed`), no answer.
+      if (!reply || typeof reply !== 'object' || !('id' in reply)) continue;
+      const done = waiting.get(reply.id);
+      if (!done) { end(`the server answered no request: ${line.slice(0, 300)}`); return; }
       waiting.delete(reply.id);
+      done(reply);
     }
   });
-  child.on('exit', () => { for (const done of waiting.values()) done({ error: { message: `the server exited: ${err.trim().slice(-300)}` } }); waiting.clear(); });
+  child.on('error', e => end(`the server did not start: ${e.message}`));
+  child.stdin.on('error', e => end(`the server's input failed: ${e.message}`));
+  child.on('exit', code => end(`the server exited (${code}): ${err.trim().slice(-300)}`));
   return {
-    ask: request => new Promise(done => { const id = ++next; waiting.set(id, done); child.stdin.write(`${JSON.stringify({ ...request, id })}\n`); }),
-    close: () => child.kill(),
+    ask: request => new Promise(done => {
+      if (closed) return done({ error: { message: closed } });
+      const id = ++next;
+      const timer = setTimeout(() => { if (waiting.delete(id)) done({ error: { message: `no answer in ${deadline / 1000} s` } }); }, deadline);
+      waiting.set(id, reply => { clearTimeout(timer); done(reply); });
+      child.stdin.write(`${JSON.stringify({ ...request, id })}\n`);
+    }),
+    close: () => {
+      closed ??= 'closed';
+      try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill(); }
+    },
   };
 }
 
@@ -454,7 +563,7 @@ function restylePlan(dir, design = null) {
   writeFileSync(join(app, 'app.tamber'), design ?? readFileSync(join(LIBRARY_GATE, 'app.tamber')));
   const plan = join(dir, 'library-gate.plan');
   const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(app, 'app.contract'), '-o', plan]);
-  return r.ok ? plan : null;
+  return compiled(r, plan);
 }
 
 /** Each case through the design server on a copy of library-gate: `propose`
@@ -515,7 +624,7 @@ export async function restyle(opts) {
     plans[`${w.name} removed`] = restylePlan(join(dir, `${at}-removed`), w.after);
   }
   const broken = Object.entries(plans).filter(([, p]) => !p).map(([k]) => k);
-  if (broken.length) return fail(`library-gate did not compile: ${broken.join(', ')}`);
+  if (broken.length) return fail(`library-gate did not compile: ${broken.join(', ')}`, compileSaid);
   const schema = JSON.parse(readFileSync(join(ROOT, 'kernel/tables/schema.json'), 'utf8'));
   const irFile = join(dir, 'base', 'tamber.json');
   if (!run('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'ir', join(dir, 'base', 'app'), '-o', irFile]).ok) return fail('library-gate\'s design did not read (contract tamber ir)');
@@ -549,6 +658,8 @@ export async function restyle(opts) {
           const want0 = read.is ? expected(read, v0, v0, b, cell) : b, want1 = expected(read, v1, v0, b, cell);
           Object.assign(row, { before: b, set: s, removed: r, want: [want0, want1] });
           if (v0 === undefined) row.why.push(`no value of ${c.name} for ${host}`);
+          const unread = Object.entries({ before: b, set: s, removed: r, expected: want0, 'expected set': want1 }).filter(([, x]) => !Number.isFinite(x)).map(([k]) => k);
+          if (unread.length) throw new Error(`not a number: ${unread.join(', ')}`);
           if (Math.abs(b - want0) > 0.5) row.why.push(`before ${b}, expected ${want0}`);
           if (Math.abs(s - want1) > 0.5) row.why.push(`set ${s}, expected ${want1}`);
           if (Math.abs(r - b) > 0.5) row.why.push(`removed ${r}, not back to ${b}`);
@@ -567,26 +678,41 @@ export async function restyle(opts) {
     ...rows.filter(r => r.case).map(r => `${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.case}: ${r.who} ${r.what}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)} (expected ${n(r.want?.[0])}, ${n(r.want?.[1])})${r.why ? `: ${r.why}` : ''}`),
     ...rows.filter(r => !r.case).map(r => `FAIL ${r.host}: ${r.why}`),
     ...missing.map(h => `  ${h}: a required host not run`),
+    ...skipped,
   ];
-  return bad.length || missing.length || writes.some(w => !w.restored) ? fail(...evidence) : pass(...evidence);
+  return bad.length || missing.length || !rows.length || writes.some(w => !w.restored) ? fail(...evidence) : pass(...evidence);
 }
+
+/** Sources that fail to build at both ends of every run, named: apps/expose
+ * reads `./local`, which a checkout lacks (stage 11's gate, the same). */
+export const FAIL_ALIKE = ['apps/expose/app.contract'];
 
 /** `--release`'s comparison (~/x2ios/rel12/release-groups.py, as stage
  * 11's: every app's plan and the press and motion corpus built at the
  * parent and the end of each run of stage 12 E commits on main): PASS when
- * every plan is identical, but apps/library-gate's own (the gate app those
- * commits make and change). */
-export function releaseIdentity(file) {
+ * every run compares every app now in apps/ and the corpus, each built at
+ * both ends and byte-identical, but apps/library-gate's own (the gate app
+ * those commits make and change) and FAIL_ALIKE's. */
+export function releaseIdentity(file, sources = releaseSources()) {
   if (!file || !existsSync(file)) return { status: 'WAITS', on: 'the release identity run (--release <its JSON>)', evidence: [] };
   const rows = JSON.parse(readFileSync(file, 'utf8'));
+  if (!Array.isArray(rows) || !rows.length) return { status: 'FAIL', evidence: ['release identity: no comparisons'] };
   const own = r => r.source === 'apps/library-gate/app.contract';
+  const alike = r => r.status === 'both failed' && FAIL_ALIKE.includes(r.source);
   const count = st => rows.filter(r => r.status === st).length;
-  const moved = rows.filter(r => r.status !== 'identical' && r.status !== 'both failed');
-  const unnamed = moved.filter(r => !own(r));
-  const runs = new Set(rows.map(r => r.run)).size;
-  const evidence = [`release identity: ${rows.length} comparisons over ${runs} runs of stage 12 E commits; ${count('identical')} identical, ${moved.filter(own).length} apps/library-gate's own, ${count('both failed')} failing alike`,
-    ...unnamed.map(r => `  ${r.status === 'DIFFERS' ? 'MOVED' : 'BUILD FAILED'} ${r.source} over ${r.run} (${r.commits[0]})`)];
-  return { status: unnamed.length ? 'FAIL' : 'PASS', evidence };
+  const unnamed = rows.filter(r => r.status !== 'identical' && !own(r) && !alike(r));
+  const runs = [...new Set(rows.map(r => r.run))];
+  const short = runs.flatMap(run => sources.filter(src => !rows.some(r => r.run === run && r.source === src)).map(src => `  NOT COMPARED ${src} over ${run}`));
+  const evidence = [`release identity: ${rows.length} comparisons over ${runs.length} runs of stage 12 E commits; ${count('identical')} identical, ${rows.filter(own).length} apps/library-gate's own, ${rows.filter(alike).length} failing alike (${FAIL_ALIKE.join(', ')})`,
+    ...unnamed.map(r => `  ${r.status === 'DIFFERS' ? 'MOVED' : r.status === 'both failed' ? 'FAILED AT BOTH ENDS' : 'BUILD FAILED'} ${r.source} over ${r.run} (${r.commits?.[0]})`), ...short];
+  return { status: unnamed.length || short.length ? 'FAIL' : 'PASS', evidence };
+}
+
+/** What release identity must compare: every app now in apps/ (library-gate
+ * aside: its own) and the corpus release-groups.py builds. */
+export function releaseSources() {
+  const apps = run('git', ['ls-files', 'apps/*/app.contract']).out.trim().split('\n').filter(f => f.split('/').length === 3 && f !== 'apps/library-gate/app.contract');
+  return [...apps, 'host/web-js/conformance/press.contract', 'host/web-js/conformance/press-paint.contract', 'contract/corpus/motion-feel.contract'];
 }
 
 /** No regressions: conform (--synthetic --strict --linux) clean, the apps
@@ -629,10 +755,11 @@ export function lines(opts) {
     ['no-forks', 'lower-library-platform clean over both packages', () => {
       // apps/library-gate uses every export, so its build reads both packages
       // whole; lower-library-platform is an error, so a clean build is clean.
+      mkdirSync(join(ROOT, 'target', 'stage12-gate'), { recursive: true });
       const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(LIBRARY_GATE, 'app.contract'), '-o', join(ROOT, 'target', 'stage12-gate', 'no-forks.plan')]);
       const forks = r.out.split('\n').filter(l => l.includes('lower-library-platform'));
       const said = `apps/library-gate built: ${r.ok ? 'yes' : 'NO'}; lower-library-platform: ${forks.length ? forks.length : 'none'}`;
-      return r.ok && !forks.length ? pass(said) : fail(said, ...forks.slice(0, 5));
+      return r.ok && !forks.length ? pass(said) : fail(said, ...forks.slice(0, 5), ...(r.ok ? [] : [r.out.split('\n').filter(l => /error|\[/.test(l)).slice(0, 3).join(' / ').slice(0, 400)]));
     }],
     ['no-regressions', 'Release output unchanged for apps using no library component; conform clean; @exact/reading\'s users unchanged', () => noRegressions(opts)],
   ];
@@ -671,7 +798,8 @@ if (import.meta.main) {
   const head = run('git', ['rev-parse', '--short', 'HEAD']).out.trim();
   const text = [`# Stage 12 gate run (LLP 1139 §5), ${new Date().toISOString()}, ${head}; ${opts.only.length ? `lines ${opts.only.join(', ')}` : 'every line'}`, ''];
   for (const [id, title, check] of lines(opts)) {
-    const r = !opts.only.length || opts.only.includes(id) ? await check() : notRun('not selected');
+    let r;
+    try { r = !opts.only.length || opts.only.includes(id) ? await check() : notRun('not selected'); } catch (e) { r = fail(`the line stopped: ${String(e?.stack ?? e).split('\n').slice(0, 3).join(' / ').slice(0, 400)}`); }
     text.push(`${r.status.padEnd(r.status.startsWith('WAITS') ? 0 : 5)}  ${id}: ${title}`, ...r.evidence.map(e => `    ${e}`), '');
     console.log(`${r.status}  ${id}`);
   }
