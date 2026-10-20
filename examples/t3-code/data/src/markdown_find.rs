@@ -360,7 +360,7 @@ mod find_tests {
         assert_eq!(runs.len(), 3);
         for run in &runs[..2] {
             let Value::Record(run) = run else { panic!() };
-            let Value::List(parts) = &run[10] else {
+            let Value::List(parts) = &run[11] else {
                 panic!()
             };
             let Value::Record(part) = &parts[0] else {
@@ -449,7 +449,7 @@ mod find_tests {
             panic!("runs")
         };
         assert!(runs.iter().all(|run| matches!(run, Value::Record(fields)
-            if fields.len() == 11 && matches!(fields[10], Value::List(_)))));
+            if fields.len() == 12 && matches!(fields[11], Value::List(_)))));
         assert!(runs.iter().any(|run| matches!(run, Value::Record(fields)
             if fields[5].as_str() == Some(href) && fields[1].as_str() == Some("Thread"))));
     }
@@ -522,7 +522,7 @@ mod find_tests {
     }
     fn run_identity(value: &Value) -> Vec<(String, String, String, String)> {
         match value {
-            Value::Record(fields) if fields.len() == 10 || fields.len() == 11 => vec![(
+            Value::Record(fields) if fields.len() == 11 || fields.len() == 12 => vec![(
                 fields[0].as_str().unwrap_or("").into(),
                 fields[1].as_str().unwrap_or("").into(),
                 fields[5].as_str().unwrap_or("").into(),

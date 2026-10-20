@@ -21,9 +21,11 @@ fn findPaint(mark: number): string = mark >= 2 ? "light-dark(#f59e0b, #f59e0b)" 
 component FindParts
   props
     parts: FindPart[]
+    // A struck run's line (`<del>`): each nested span draws its own text decoration.
+    strike: bool
   view
     for part in parts key=part.id
-      text part.text background-color=findPaint(part.find) id=(part.find == 3 ? "thread-find-active" : "") color=(part.find >= 2 ? "#171717" : "inherit")
+      text part.text background-color=findPaint(part.find) id=(part.find == 3 ? "thread-find-active" : "") color=(part.find >= 2 ? "#171717" : "inherit") text-decoration-line=(strike ? "line-through" : "none")
 fn findPartAt(parts: FindPart[], id: string): number = parts.slice(0, max(0, parts.map((part) => part.id).indexOf(id))).map((part) => part.text).join("").length
 component FindToken
   props
@@ -51,11 +53,11 @@ component ThreadFindBar
       input type="search" value=find.query input=edit key=key id="thread-find-query" aria-label="Find in thread" placeholder="Find in thread" maxlength=200 spellcheck=false autocomplete="off" autofocus=true flex=1 min-width=0 border-width=0 background-color="#00000000" font-size=13 autocorrect="off"
       text find.count aria-live="polite" font-size=11 font-variant-numeric="tabular-nums" color=(find.empty ? "light-dark(#dc2626, #f87171)" : "light-dark(#71717a, #a1a1aa)")
       if find.error != ""
-        button press=local("find-retry", "", "") aria-label="Retry thread search" width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
-          Icon(name="refresh-cw", size=14, color="currentColor")
+        button press=local("find-retry", "", "") height=24 padding-left=8 padding-right=8 border-width=0 background-color="#00000000" title=""
+          text "Retry" font-size=12 font-weight=500
       button press=local("find-previous", "", "") disabled=(find.empty or find.pending or not find.complete or find.query.trim() == "") aria-label="Previous match" width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
         Icon(name="chevron-up", size=14, color="currentColor")
       button press=local("find-next", "", "") disabled=(find.empty or find.pending or not find.complete or find.query.trim() == "") aria-label="Next match" width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
-        Icon(name="chevron-down", size=14, color="currentColor")
+        Icon(name="chevron", size=14, color="currentColor")
       button press=local("find-close", "", "") aria-label="Close find" width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
         Icon(name="x", size=14, color="currentColor")

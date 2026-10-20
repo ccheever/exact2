@@ -33,7 +33,8 @@ export const ICON = [
   own('bolt'), ['check', 'circle-check'], ['settle', 'check'], 'clock', ['refresh', 'refresh-cw'], 'settings',
   ['pull-requests', 'git-pull-request-arrow'], ['usage', 'chart-no-axes-column'], own('branch'), own('layers'),
   'terminal', own('plan'), own('compacted'), 'brain', own('star'), own('star-filled', 'star'), 'file-diff',
-  own('file-modified'), own('provider'),
+  own('file-modified'), own('provider'), ['maximize', 'maximize-2'], ['minimize', 'minimize-2'], 'minus', 'plus',
+  'play',
 ];
 /** Icon's glyphs drawn filled, and its one stroke width other than 2. */
 export const ICON_FILLED = ['star-filled', 'bolt'];

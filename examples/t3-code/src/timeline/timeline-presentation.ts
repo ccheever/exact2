@@ -350,6 +350,8 @@ const entryCode = (entries: WorkEntry[], client: T3Client): InspectorCode[] => e
   if (entry.questionAnswer) return [questionHistory(entry.id, entry.questionAnswer)];
   if (entry.itemType === 'command_execution' && turnItemIsOpen(client, entry.id)) return [{ id: entry.id, code: '', icon: 'shell',
     tokens: shellCommand(str(entry.item.input)).map((token, index) => ({ id: String(index), ...token })) }];
+  // An open thought's trace is ChatMarkdown, whose fences are highlighted as a message's are.
+  if (entry.itemType === 'reasoning' && turnItemIsOpen(client, entry.id)) return messageCodeBlocks(str(entry.detail)).map(block => ({ ...block, id: `${entry.id}:${block.id}` }));
   return [];
 });
 
