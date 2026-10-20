@@ -1344,8 +1344,8 @@ hits running out. `state.transport.follow` shows the input, the ticks heard,
 the window, the estimate, the ticks since Start and where Stop held it.
 
 **MIDI** (`exactMIDI()`, `requestMIDIAccess()`, `sendMIDI`, a step's note and
-`clockOut=`, `midimessage`; LLP 1125 D6–D8) needs the grant `device.midi` on
-every host. The runner keeps one queue for every message, a sequence's notes and
+`clockOut=`, `midimessage`; LLP 1125 D6–D8) needs the grant `device.midi purpose.midi`
+on every host, `purpose.midi` a key of `strings/en.json` (the purpose the person is shown). The runner keeps one queue for every message, a sequence's notes and
 clock ticks included, and a host hands each to its output 50 ms before it is due
 and holds it until then: CoreMIDI could take it early and flush, but
 `MIDIFlushOutput` empties the whole destination and Chromium has no

@@ -218,13 +218,13 @@ pub fn device_grants(spec: &str) -> Result<Vec<DeviceGrant<'_>>, Vec<String>> {
         };
         if line.contains(['"', '\'']) {
             errors.push(format!(
-                "`{line}`: the purpose is a strings key (LLP 1060), not a literal"
+                "`{line}`: the purpose is a strings key (LLP 1060), not a literal: `device.{name} purpose.{name}`, with `\"purpose.{name}\": \"…\"` in strings/en.json"
             ));
             continue;
         }
         let (Some(purpose), None) = (words.next(), words.next()) else {
             errors.push(format!(
-                "`{line}`: a device grant names one strings key, as in `device.{name} purpose.{name}`, whose text is the purpose"
+                "`{line}`: a device grant names one strings key, as in `device.{name} purpose.{name}`, whose text in strings/en.json (`\"purpose.{name}\": \"…\"`) is the purpose the person is shown"
             ));
             continue;
         };

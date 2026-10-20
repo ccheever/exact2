@@ -1759,8 +1759,9 @@ of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled|ed
 `state sounds` lists the last 64 voices, `state transport` the transport.
 
 MIDI is Web MIDI's, and the runner keeps its queue as it keeps the voices (LLP
-1125 D6–D8). Grant `device.midi purpose.midi` (the data source's `grants()`, the
-text in `strings/en.json`). Read the ports with `resource midi = exactMIDI() as
+1125 D6–D8). Grant `device.midi purpose.midi`, a line of the data module's grants
+(`export const grants` in `app.ts`, `grants()` in Rust) whose second word is a key of
+`strings/en.json`: `"purpose.midi": "…"`, the text the person is shown when asked. Read the ports with `resource midi = exactMIDI() as
 shape MIDI` (`state`: `prompt`, `granted`, `denied`, `unavailable`; `outputs` and
 `inputs`, each `{id, name, manufacturer, state}`), ask for them from a press with
 `requestMIDIAccess()`, and let the person pick an output (a `select` of

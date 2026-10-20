@@ -4,9 +4,9 @@ A list that pushes a detail, a Cancel/Save sheet and an alert (`pattern list-det
 A second screen is a route (`if` over state gets no Back, links or split).
 
 A route's `header` is its bar when first in the route with one heading (the title: large at
-`aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route without
-one gets the system Back (`contract vocab header`): UIKit's bare chevron, or
-its `button id="back"` text.
+`aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route's system
+Back is UIKit's bare chevron; a `button id="back"` (the root's `navigationBack`) with
+`text "Notes"` titles it "‹ Notes".
 
 <!-- check: app -->
 ```contract
@@ -138,10 +138,9 @@ test "add, open, delete after asking"
 - An alert's `aria-label` is its title. Escape/Back chooses Cancel; only written
   `closedby="any"` dismisses outside. Another modal is a sheet, closed on ok
   ([after-a-write](after-a-write.md)).
-- Routes stay mounted: use unique `testId`s. `clock settle` follows a push, sheet or alert;
-  `clock data` precedes reading a save.
-- At 900 px up, pushed rows split list and detail; `follow` replaces it and
+- Routes stay mounted: use unique `testId`s. `clock settle` after a push, sheet or alert;
+  `clock data` before reading a save.
+- From 900 px, pushed rows split list and detail, `follow` replacing it;
   `navigationSplit="none"` keeps it pushed.
-- A run (a workout, a quiz) has one exit, which ends it or asks; no Back leaves it running.
-- An unmatched location keeps its URL and offers home (or uses `notfound`); a missing detail
-  says so.
+- A run (a workout, a quiz) has one exit that ends it or asks; no Back leaves it running.
+- An unmatched location keeps its URL and offers home (`notfound`); a missing detail says so.

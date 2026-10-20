@@ -40,7 +40,12 @@ component App
   does not mute it); the default `ambient` mixes with other apps' audio.
 - **`app.id` and `app.name`** are set before the first build (`exact new --name --bundle-id`
   writes them, [porting-and-release](porting-and-release.md)); `app.ts`'s `appId` matches.
-- **Other keys:** `icons` (or `host.ios.icon`, an Icon Composer `.icon`), `data` (the `data-*`
+- **`host.ios.launchImage`** `{ "src": "assets/splash.png", "width": 276 }`: a PNG the launch
+  screen centres on `background_color`, `width` points wide.
+- **`host.ios.icon`** `"assets/App.icon"`: an Icon Composer `.icon`, in place of `icons`.
+- **`protocol_handlers`** `[{ "protocol": "euxy", "url": "/p/%s" }]`: a custom URL scheme.
+  `euxy://p/abc` reaches the navigation root whole at `%s`: `/p/euxy%3A%2F%2Fp%2Fabc`.
+- **Other keys:** `icons`, `data` (the `data-*`
   words a hatch reads), `tamber` (the design's file, else `app.tamber`), `strings` (string
   tables), `typescript.sources` (directories outside the app that `app.ts` imports),
   `commands` (the app's own `bun exact.mjs <verb>`).
