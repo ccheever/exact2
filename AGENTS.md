@@ -45,7 +45,8 @@ statistics. Apply it to numeric text, keeping the platform font. See the
 
 ## Writing
 
-For all prose: comments, commit messages, guides, LLPs, issues and PR text.
+For all prose, always: comments, commit messages, guides, LLPs, issues and PR text. This
+section binds (`rules/RULES.md`, "Agents").
 
 - Write with clarity of mind. A reader should understand it on first reading and find
   nothing ambiguous.
@@ -58,6 +59,8 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   Judiciously omit or remove comments or parts of comments that do not clearly explain
   anything that is not already communicated by the code, though take care not to delete
   comments with meaningful marginal value.
+- Before opening a PR or pushing to main, do an editing pass: reread the prose you added
+  or changed as a reader new to the work would, and hold each line to the points above.
 
 ## Working here
 
