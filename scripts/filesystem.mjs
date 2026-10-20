@@ -47,7 +47,8 @@ function executable() {
   // on that app build directory lock. Once per Bun process, Cargo checks
   // sources, lockfile and toolchain.
   // An mtime-only shortcut can silently reuse an obsolete helper dependency.
-  const env = withHostDeployment({ ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' });
+  // The host's deployment target always, whether a build script's (an app's macOS minimum) or not: its own target directory.
+  const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1', ...(process.platform === 'darwin' ? { MACOSX_DEPLOYMENT_TARGET: HOST_MACOS } : {}) };
   for (const name of ['CARGO_BUILD_TARGET', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTFLAGS', 'RUSTDOCFLAGS']) delete env[name];
   for (const name of ['RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_RUSTC_WRAPPER', 'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER']) {
     if (env[name] && basename(env[name]) === 'clippy-driver') delete env[name];

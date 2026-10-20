@@ -698,7 +698,7 @@ async function main(args, lockHeld = false) {
     EXACT_WIDGET_GALLERY: gallery ? '1' : '0',
     SDKROOT: sdk,
     // An iOS build's Mac side is its build scripts and proc macros: the host's target, as every cargo call's.
-    MACOSX_DEPLOYMENT_TARGET: ios ? HOST_MACOS : targets.macos,
+    MACOSX_DEPLOYMENT_TARGET: ios ? process.env.MACOSX_DEPLOYMENT_TARGET || HOST_MACOS : targets.macos,
     ...(ios ? {
       ...(tv ? { TVOS_DEPLOYMENT_TARGET: targets.ios } : { IPHONEOS_DEPLOYMENT_TARGET: targets.ios }),
       // The bake's host dependencies compile Objective-C++ too. cc-rs
