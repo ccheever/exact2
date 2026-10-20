@@ -165,9 +165,9 @@ impl<'a> Designs<'a> {
 
     /// A line's value in `tuple`'s light or `dark` side: its `when` line's
     /// that holds most (the first of those, as the checker's `select`),
-    /// else its own. A `when` naming an axis `under scheme=dark` holds on
-    /// the dark side alone (the checker's `under_value`: the light side of
-    /// that pair is the line's own value).
+    /// else its own. A `when` naming an axis `under scheme=dark` is the
+    /// dark side's alone (the checker's `under_value`): the light side
+    /// takes the most specific holding `when` naming none.
     fn value_in<'t>(&self, t: &'t exact_tamber::Token, tuple: usize, dark: bool) -> &'t str {
         let axes = self.axes();
         let mut rest = tuple;

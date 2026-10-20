@@ -5577,8 +5577,9 @@ Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels add
 - **Follow-up: a level per side** (theme2's 19:30 ruling, option (a), from dtool2's T1 reviewers' counterexample). A
   tuple's value carries a light and a dark side, but its level was one: with every `when` on an axis `under
   scheme=dark`, the pair arm made the owning line win both sides, though Light follows the line's own value. Each
-  tuple's `level` and `name` are now `{light, dark}`, each side walked on its own: a `when` under `scheme=dark` holds on
-  the dark side alone, the light side taking the line's own value, as the fold does (the pair arm above is gone).
+  tuple's `level` and `name` are now `{light, dark}`, each side walked on its own as the fold picks it: dark the most specific holding `when` of all, light the
+  most specific holding `when` naming no axis under `scheme=dark`, either the line's own value when none holds (the
+  pair arm above is gone).
   `levels.base` is the base every tuple reaches on both sides. It changes the type of a field added in this open 1.15
   window, which no released client reads: a correction within the window, said on the 1.15 line. rt1's D3 and
   dtool2's T1 read the per-side shape.
@@ -5587,6 +5588,11 @@ Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels add
     `app-param` in both tuples; red with the light side taking dark's `when`s); `a_light_dark_pair_is_walked_per_side`
     (was `…stops_on_its_line`: the dim tuple's dark side now `package` `reading.pin`); the other tests assert both
     sides alike where no axis is under `scheme=dark`.
+  - After round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT): `mixed_axis_whens_are_walked_per_side` (Astra 1, Grok 1):
+    `when` lines mixing an axis under `scheme=dark` with a normal one on an app `params` line, and a two-axis normal
+    `when` outranking one under dark on a package token, each side's level, name and value asserted (red with
+    `.all(under)` for `.any(under)`); the docs say the light side takes the most specific `when` naming no axis under
+    dark, not the line's own value alone (Astra 2).
 
 ### Stage 12, commit B3: shadows over base names, per host column (draft for theme2)
 

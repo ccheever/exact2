@@ -576,8 +576,9 @@ tuple:
   then a package's token. It takes each line's value in the tuple and goes at most 8 hops. It stops
   at a line whose value is no reference (a literal such as `transparent` or `-1`, or an
   expression), at a base name or at a role, and that place wins. Each side of a tuple is walked on
-  its own: a `when` naming an axis `under scheme=dark` holds on the dark side alone, the light side
-  taking the line's own value (as the fold does). An icon param answers the same.
+  its own, as the fold picks that side's value: the dark side takes the most specific holding `when`
+  of all, the light side the most specific holding `when` that names no axis `under scheme=dark`, and
+  either the line's own value when none holds. An icon param answers the same.
   - Each of `resolve`'s tuples adds `level` and `name`, each `{light, dark}` as its value's sides
     (the same on both where the scheme decides nothing). A level is one of `app-param`, `app-token`,
     `package`, `base`, `role` or `default` (the param's own default, a literal or an expression: a tool's word for it is

@@ -596,3 +596,99 @@ fn a_params_line_with_dark_only_whens_wins_dark_and_follows_its_reference_light(
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Each tuple's `(modes, light, dark)`: each side's level, name and value.
+fn per_side(r: &Value) -> Vec<(Value, [String; 3], [String; 3])> {
+    let side = |t: &Value, k: &str| -> [String; 3] {
+        let at = |v: &Value| v.as_str().unwrap_or("").to_string();
+        [at(&t["level"][k]), at(&t["name"][k]), at(&t[k])]
+    };
+    r["tuples"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| (t["modes"].clone(), side(t, "light"), side(t, "dark")))
+        .collect()
+}
+
+/// Round 1 of the per-side follow-up (Astra 1, Grok 1): `when` lines that
+/// mix an axis `under scheme=dark` with a normal one, and a normal-only
+/// `when` that outranks one under dark. Light takes the most specific
+/// holding `when` naming no axis under dark, else the line's own value;
+/// dark takes the most specific holding `when` of all. On an app's
+/// `params` line and on a package token, values asserted beside levels.
+#[test]
+fn mixed_axis_whens_are_walked_per_side() {
+    let dir = reading("levels-mixed", "tamber t\n\naxes\n  mode = a | b\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = light-dark(#111111, #222222)\n\nparams\n  Map.pin = reading.chain\n    when mode=b: ink\n    when mode=b dark-style=dim: #000000\n");
+    let mut s = Serve::start(&dir, &[]);
+    let r = ask(&mut s, "resolve", &format!("{MAP}.pin"));
+    let pin = format!("{MAP}.pin");
+    let row = |level: &str, name: &str, value: &str| {
+        [level.to_string(), name.to_string(), value.to_string()]
+    };
+    let package = row("package", "reading.pin", "#333333ff");
+    assert_eq!(
+        per_side(&r),
+        [
+            (
+                json!({"mode": "a", "dark-style": "black"}),
+                package.clone(),
+                package.clone()
+            ),
+            (
+                json!({"mode": "a", "dark-style": "dim"}),
+                package.clone(),
+                package.clone()
+            ),
+            (
+                json!({"mode": "b", "dark-style": "black"}),
+                row("app-token", "ink", "#111111ff"),
+                row("app-token", "ink", "#222222ff")
+            ),
+            (
+                json!({"mode": "b", "dark-style": "dim"}),
+                row("app-token", "ink", "#111111ff"),
+                row("app-param", &pin, "#000000ff")
+            ),
+        ],
+        "{r}"
+    );
+    drop(s);
+    // A package token: a two-axis normal `when` outranks one under dark.
+    std::fs::write(dir.join("app.tamber"), "tamber t\n\naxes\n  mode = a | b\n  size = s | l\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = #111111\n").unwrap();
+    let pkg = dir.join("node_modules/@acme/reading/reading.tamber");
+    let text = std::fs::read_to_string(&pkg).unwrap().replace(
+        "  reading.pin = #333333\n",
+        "  reading.pin = #333333\n  reading.tone = #101010\n    when mode=b size=l: reading.deep\n    when dark-style=dim: #111111\n  reading.deep = #303030\n",
+    ) + "    tone: color = reading.tone\n";
+    std::fs::write(&pkg, text).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let r = ask(&mut s, "resolve", &format!("{MAP}.tone"));
+    let tone = |v: &str| row("package", "reading.tone", v);
+    let deep = row("package", "reading.deep", "#303030ff");
+    let got = per_side(&r);
+    let at = |mode: &str, size: &str, dark: &str| {
+        got.iter()
+            .find(|(m, ..)| *m == json!({"mode": mode, "size": size, "dark-style": dark}))
+            .map(|(_, l, d)| (l.clone(), d.clone()))
+            .unwrap_or_else(|| panic!("{mode} {size} {dark}: {r}"))
+    };
+    assert_eq!(
+        at("a", "s", "dim"),
+        (tone("#101010ff"), tone("#111111ff")),
+        "{r}"
+    );
+    assert_eq!(
+        at("a", "s", "black"),
+        (tone("#101010ff"), tone("#101010ff")),
+        "{r}"
+    );
+    assert_eq!(
+        at("b", "l", "dim"),
+        (deep.clone(), deep.clone()),
+        "the two-axis when outranks: {r}"
+    );
+    assert_eq!(at("b", "l", "black"), (deep.clone(), deep), "{r}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
