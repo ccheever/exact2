@@ -52,6 +52,9 @@ test('the composer\'s caret strip comes from its field\'s layout', () => {
   const out = ['screenshot x', JSON.stringify({ node: { testId: 'compose-text', space: { viewport: { x: 70, y: 75, w: 334, h: 128 }, capture: { scale: 1 } } } })].join('\n');
   expect(allowOf('composer', out)).toEqual([{ rect: [70, 75, 4, 40], reason: expect.stringContaining('caret') }]);
   expect(allowOf('composer', 'no layout')).toBe(null);
+  // With the system keyboard up, its rectangle too, from the layout's inset.
+  const kb = JSON.stringify({ viewport: { w: 402, h: 546 }, env: { 'keyboard-inset-height': 328 }, node: { testId: 'compose-text', space: { viewport: { x: 70, y: 124, w: 320, h: 120 } } } });
+  expect(allowOf('composer', kb).map(r => r.rect)).toEqual([[70, 124, 4, 40], [0, 546, 402, 328]]);
   expect(allowOf('discover', '')).toEqual([]);
   expect(screenOps('composer', 'light', '/s.png').at(-1)).toBe('layout compose-text');
 });

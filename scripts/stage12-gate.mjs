@@ -60,9 +60,15 @@ export function allowOf(screen, out) {
   if (!a) return [];
   const line = out.split('\n').findLast(l => l.startsWith('{') && l.includes(`"testId":"${a.target}"`));
   if (!line) return null;
-  const node = JSON.parse(line).node;
+  const reply = JSON.parse(line), node = reply.node;
   // In points: the copy's agent shoots every host at one pixel a point.
-  return [{ rect: a.rect(node.space.viewport), reason: a.reason }];
+  const caret = { rect: a.rect(node.space.viewport), reason: a.reason };
+  // The system keyboard, where one is up (iOS): the platform's material,
+  // drawn by the OS, a few levels apart between runs, in no library box.
+  const kb = reply.env?.['keyboard-inset-height'] ?? 0;
+  const view = reply.viewport;
+  // The layout's viewport ends where the keyboard begins (iOS: 546 of 874).
+  return kb > 0 && view ? [caret, { rect: [0, Math.round(view.h), Math.round(view.w), Math.round(kb)], reason: 'the system keyboard: the OS draws its material, a few levels apart between runs, over no library component' }] : [caret];
 }
 
 /** What the fixture says in the app's log for a request it refuses: a shot
