@@ -4,7 +4,7 @@
 // with its evidence. A line whose parts aren't built yet says WAITS-ON; none
 // is passed over.
 //
-//   bun scripts/stage12-gate.mjs [--only <line> …] [--out <file>] [--copy <clone copy>] [--baseline <dir>]
+//   bun scripts/stage12-gate.mjs [--only <line> …] [--out <file>] [--copy <clone copy>] [--before <its tag's worktree>] [--baseline <dir>]
 //   bun scripts/stage12-gate.mjs baseline --copy <clone copy> --out <dir> [--host <h> …]
 //
 // `baseline` takes the consumer's "before" (LLP 1139 §5: baselines taken
@@ -101,19 +101,19 @@ export function screenOps(screen, scheme, png) {
 // signal are the machine's otherwise, in every shot).
 export const STATUS_BAR = ['--time', '9:41', '--dataNetwork', 'wifi', '--wifiMode', 'active', '--wifiBars', '3', '--cellularMode', 'notSupported', '--batteryState', 'charged', '--batteryLevel', '100'];
 
-function drive(copy, host, dir) {
+function drive(copy, host, dir, env = process.env) {
   const rows = [];
   const sim = host === 'ios' ? process.env.EXACT_SIM : null;
   if (sim) run('xcrun', ['simctl', 'status_bar', sim, 'override', ...STATUS_BAR]);
   try {
-    rows.push(...driveScreens(copy, host, dir));
+    rows.push(...driveScreens(copy, host, dir, env));
   } finally {
     if (sim) run('xcrun', ['simctl', 'status_bar', sim, 'clear']);
   }
   return rows;
 }
 
-function driveScreens(copy, host, dir) {
+function driveScreens(copy, host, dir, env) {
   const rows = [];
   for (const scheme of SCHEMES) {
     for (const [screen] of SCREENS) {
@@ -121,7 +121,7 @@ function driveScreens(copy, host, dir) {
       const args = [join(copy, 'exact.mjs'), 'agent', host, '--json', '--storage', 'stage12-gate', '--reset-storage', '--epoch', EPOCH,
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
-      const r = run(process.execPath, args, { cwd: copy });
+      const r = run(process.execPath, args, { cwd: copy, env });
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
@@ -159,9 +159,9 @@ function planBytes(copy, dir) {
   return r.ok && existsSync(plan) ? { plan, sha: sha(readFileSync(plan)), bytes: readFileSync(plan).length } : { plan: null, said: r.out.trim().split('\n').slice(-3).join(' / ') };
 }
 
-export function baseline(copy, out, hosts = CLONE_HOSTS) {
+export function baseline(copy, out, hosts = CLONE_HOSTS, env = process.env) {
   mkdirSync(out, { recursive: true });
-  const rows = hosts.flatMap(h => drive(copy, h, out));
+  const rows = hosts.flatMap(h => drive(copy, h, out, env));
   const record = { provenance: provenance(copy), plan: planBytes(copy, out), shots: rows };
   writeFileSync(join(out, 'baseline.json'), `${JSON.stringify(record, null, 1)}\n`);
   return record;
@@ -224,12 +224,56 @@ function edgeAt(img, x, y, edge) {
   });
 }
 
+/** The tag the baseline was taken at, in the copy. */
+export const BASELINE_TAG = 's12e-baseline';
+
+/** The files `before` differs from the baseline's tag by: only the lock a
+ * newer SDK needs (`exact.mjs lock`) may differ. */
+export function beforeDrift(before) {
+  return run('git', ['diff', '--name-only', BASELINE_TAG, 'HEAD'], { cwd: before }).out.split('\n').filter(f => f && f !== 'Cargo.lock');
+}
+
+/** One side's builds, on every host, into a target of its own; iOS onto the
+ * simulator, which both sides share (one app id), so a side is shot right
+ * after its own build. */
+function buildSide(copy, side) {
+  const env = { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', `stage12-gate-${side}`), CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? '4' };
+  for (const verb of [['web-build'], ['linux'], ['mac'], ['ios', ...(process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : [])]]) {
+    const r = run(process.execPath, [join(copy, 'exact.mjs'), ...verb], { cwd: copy, env });
+    if (!r.ok) return `${side}: ${verb[0]} failed: ${r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300)}`;
+  }
+  return null;
+}
+
+/** Before (the baseline's tag, its lock refreshed for this SDK) against
+ * after (the adoption), each built and shot on this SDK, so only the
+ * adoption differs (theme2 13:40). */
+export function consumerPixels(opts) {
+  const drift = beforeDrift(opts.before);
+  if (drift.length) return fail(`--before differs from ${BASELINE_TAG} beyond its lock: ${drift.join(', ')}`);
+  const shots = {};
+  for (const [side, copy] of [['before', opts.before], ['after', opts.copy]]) {
+    const said = buildSide(copy, side);
+    if (said) return fail(said);
+    const env = { ...process.env, CARGO_TARGET_DIR: join(ROOT, 'target', `stage12-gate-${side}`) };
+    shots[side] = baseline(copy, join(ROOT, 'target', 'stage12-gate', side), CLONE_HOSTS, env);
+  }
+  const r = comparePixels(shots.before, shots.after);
+  const bad = r.filter(x => !x.ok);
+  const p = shots.after.provenance;
+  const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
+    ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
+    'conform on the clone: not run here (the clone is outside the repository; QUEUE)'];
+  return bad.length ? fail(...evidence) : pass(...evidence);
+}
+
 /** The gate's lines, in LLP 1139 §5's order. */
 export function lines(opts) {
   return [
     ['consumer-pixels', 'The clone\'s post card, AtCard, action row and Post button come from the two packages with no visual change (conform clean; zero differing pixels outside the allowlist, web, iOS, macOS, Linux, light and dark)', () => {
       if (!opts.baseline || !existsSync(join(opts.baseline, 'baseline.json'))) return waits('the baseline (`baseline --copy … --out …`, taken before the change)');
-      return waits('the clone copy\'s adoption of @exact/cards and @exact/actions (after the packages: B1, then C)');
+      if (!opts.copy || !opts.before) return waits('the clone copy\'s adoption (--copy) and its before (--before, the baseline\'s tag)');
+      return consumerPixels(opts);
     }],
     ['restyle', 'Setting space.md, cards.pad or a param moves every library component reading it; removing the line returns it (per host, measured on apps/library-gate)', () =>
       waits('the packages (stage 12 B1\'s package params) and apps/library-gate')],
@@ -247,12 +291,12 @@ export function lines(opts) {
 }
 
 export function parse(argv) {
-  const opts = { mode: 'gate', only: [], hosts: [], out: join(homedir(), 'x2theme/stage12-gate-run.txt'), copy: null, baseline: null };
+  const opts = { mode: 'gate', only: [], hosts: [], out: join(homedir(), 'x2theme/stage12-gate-run.txt'), copy: null, before: null, baseline: null };
   const args = [...argv];
   if (args[0] === 'baseline') { opts.mode = 'baseline'; opts.out = null; args.shift(); }
   for (let i = 0; i < args.length; i += 2) {
     const [flag, v] = [args[i], args[i + 1]];
-    if (!['--only', '--out', '--copy', '--baseline', '--host'].includes(flag)) return `unknown argument ${flag}`;
+    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host'].includes(flag)) return `unknown argument ${flag}`;
     if (v === undefined || v.startsWith('--')) return `${flag} needs a value`;
     if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else opts[flag.slice(2)] = v;
   }

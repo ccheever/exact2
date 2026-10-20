@@ -5,7 +5,8 @@ import { encodePng } from './png.mjs';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { allowOf, comparePixels, lines, parse, pixelDiff, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { spawnSync } from 'node:child_process';
+import { allowOf, beforeDrift, BASELINE_TAG, comparePixels, lines, parse, pixelDiff, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -66,4 +67,16 @@ test('before and after compare shot for shot, strict, with both allowlists', () 
   const r = comparePixels(before, after);
   expect(r.map(x => [x.shot, x.ok, x.differ])).toEqual([['web light discover', false, 1], ['web light composer', true, 0]]);
   expect(comparePixels(before, { shots: [after.shots[1]] })[0]).toMatchObject({ ok: false, said: 'no after shot' });
+});
+
+test('the before differs from the baseline\'s tag only in its lock', () => {
+  const dir = mkdtempSync(join(tmpdir(), 's12e-git-'));
+  const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+  git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  writeFileSync(join(dir, 'Cargo.lock'), 'a'); writeFileSync(join(dir, 'app.contract'), 'a');
+  git('add', '-A'); git('commit', '-qm', 'base'); git('tag', BASELINE_TAG);
+  writeFileSync(join(dir, 'Cargo.lock'), 'b'); git('commit', '-qam', 'lock');
+  expect(beforeDrift(dir)).toEqual([]);
+  writeFileSync(join(dir, 'app.contract'), 'b'); git('commit', '-qam', 'more');
+  expect(beforeDrift(dir)).toEqual(['app.contract']);
 });
