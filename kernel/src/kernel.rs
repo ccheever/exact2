@@ -399,7 +399,7 @@ impl Kernel {
         if self.layout.is_none() {
             self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
-        self.measure_symbols();
+        self.measure_symbols(true);
     }
 
     /// The published epoch: bumps on every commit that changed something.

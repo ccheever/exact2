@@ -602,7 +602,7 @@ export async function ensureLinuxReceipts({directory,app,surface,gpuInputs,hostI
   const keys = surface && resolve(dirname(surface),'keys.json'), keysCache = resolve(directory,'build-linux-keys.json');
   let cachedAssets = !app;
   // No cache is an ordinary miss; a cached file that would overwrite an authored one is a refusal.
-  if (app && existsSync(resolve(assets,'files.json'))) { restoreBakedAssets(assets, app); cachedAssets = true; }
+  if (app && existsSync(resolve(assets,'files.json'))) cachedAssets = restoreBakedAssets(assets, app);
   const artifact = () => {
     const product = gpuArtifact();
     if (!surface) return product;
@@ -648,6 +648,11 @@ function cacheBakedAssets(app, cache) {
 function restoreBakedAssets(cache, app) {
   const files = JSON.parse(readFileSync(resolve(cache,'files.json')));
   const manifest = resolve(app,'.baked-assets.json');
+  // Art was baked before the input scan. An older manifest must not remove ownership
+  // of a new model, restore a removed one, or replace its current bytes.
+  const cachedManifest = resolve(cache,'.baked-assets.json');
+  if (existsSync(cachedManifest) !== existsSync(manifest)
+      || existsSync(manifest) && !readFileSync(manifest).equals(readFileSync(cachedManifest))) return false;
   const generated = existsSync(manifest) ? JSON.parse(readFileSync(manifest)) : {};
   const writes = [];
   for (const name of files) {
@@ -664,6 +669,7 @@ function restoreBakedAssets(cache, app) {
     writes.push([destination,bytes]);
   }
   for (const [destination,bytes] of writes) { mkdirSync(dirname(destination),{recursive:true}); writeFileSync(destination,bytes); }
+  return true;
 }
 export async function withProofBuild(target, build) {
   for (;;) {

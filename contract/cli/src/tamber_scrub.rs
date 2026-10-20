@@ -74,6 +74,13 @@ impl Server {
             );
         }
         crate::tamber_ops::param_names(&mut ops, &base.snap, &base.params)?;
+        // A package's or base token's first set is the app's override, as a write's is (*1.14*, D11).
+        let design = base
+            .snap
+            .iter()
+            .find(|(f, _, _)| *f == self.design)
+            .map_or(String::new(), |(_, t, _)| t.clone());
+        crate::tamber_packages::ops(&mut ops, &base.params, None, &self.design, &design, false)?;
         let texts: Vec<(String, String)> = base
             .snap
             .iter()
@@ -127,8 +134,16 @@ impl Server {
     ) -> Result<(), Value> {
         // A role that varied before this write is the file's own,
         // already refused by the build; only what the write makes vary.
+        // Folded beside its packages' tokens (LLP 1121 D11), which an app token may name.
+        let joined = exact_tamber::params::Params {
+            joined: contract::tamber_params::joined(&self.app_params()),
+            ..exact_tamber::params::Params::default()
+        };
         let varies = |text: &str| -> Vec<(String, u32, u32)> {
-            exact_tamber::check(text, &self.vocab).map_or(Vec::new(), |f| {
+            let folded = exact_tamber::parse(text).and_then(|d| {
+                exact_tamber::check_design(exact_tamber::params::laid(&d, &joined), &self.vocab)
+            });
+            folded.map_or(Vec::new(), |f| {
                 f.tokens
                     .iter()
                     .zip(&f.design.tokens)
@@ -161,6 +176,18 @@ impl Server {
         // Any write: an unset, a token's or an axis's edit can take a
         // param out of its range or its `when` out of the design too.
         let app = self.app_params();
+        // The app's design as planned, folded as the build folds it with its
+        // packages' designs (LLP 1121 D11): an edit that leaves a package
+        // token naming what isn't its own (an override removed) is refused.
+        if !app.packages.is_empty() {
+            for (path, text, _) in planned.files.iter().filter(|(p, _, _)| *p == self.design) {
+                if let Err(all) = contract::tamber_params::fold_with(text, &app, &self.vocab) {
+                    return Err(
+                        json!({"message": "refused", "diagnostics": all.iter().map(|d| super::located(path, d, &app)).collect::<Vec<_>>()}),
+                    );
+                }
+            }
+        }
         if !app.tokens.is_empty() {
             let set: Vec<(String, String)> = planned
                 .files

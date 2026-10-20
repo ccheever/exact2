@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.13`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.14`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.13"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.14"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -91,6 +91,24 @@ on macOS and Linux.
   local one (`local`), and a request above its client's scope is 403 naming both (`scope`,
   `needs`). Stage 10's later wire changes add under the same version: A2's pairing, clients and
   revoke; `pair-code`'s `remote`, the remote doors open (B).
+- `tamber/1.14` (LLP 1121 stage 10b, after stage 10 closed) adds `import`'s `baseline`, a
+  re-import's `dials` and `pins`, `export`'s `digest`, and an import read in a process of its own
+  (413/503 past its cost). Stage 11's wire changes add under the same version, and so do LLP 1122
+  T7's: the `navigate` method and command, and a `status`'s `location`; and stage 10c's relay
+  (`pair-code`'s relay entry, a relayed session's own pairing bucket). Stage 11 A2's, for an app
+  whose sources link packages with designs (LLP 1121 D11; nothing changes for one without):
+  `hello` and `describe` list `packages`, `[{package, file, digest}]`, each package design
+  read-only (its `file` is `<package>/<file>`, its `digest` its text's), an op naming one refused;
+  a package token's `describe` rows say `package` and `file` (the file its value comes from: the
+  package's, or the app's design when the app sets it), and `resolve` and `explain` add
+  `package`, `file` and `identity` (`<package>/<file>#<token>`), with `explain`'s `package_value`
+  (`{value, whens, file}`, the package's own line) when the app sets the token. `set-token` of a
+  name the app's design doesn't define but a package or the base scale does writes the app's
+  override line (no `when` until the app sets the token; the reply's `changed` names the app's
+  file); `add-token` refuses a package's or the base scale's name, and a new name in a package's
+  namespace, as `rename-token` refuses renaming onto one. A package design changed on disk is a
+  `changed` event naming it in `edited`, with `packages`; a held proposal is planned again on
+  accept, on the packages as they are then.
 
 ## Where it runs
 
@@ -129,8 +147,9 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
 
 - **The development gate runs first.** It answers 421 with an empty body to an unknown host, or to
   a browser POST whose `Origin` isn't the server's own (`scripts/install-page.mjs`).
-- **A body** is one JSON object, at most 1 MiB less 64 bytes (room for the id the wire adds). A
-  larger one gets 413, or the connection is cut while it is being read.
+- **A body** is one JSON object, at most 1 MiB less 4,672 bytes (room for the id the wire adds and
+  the digests an `import` carries to the server). A larger one gets 413, or the connection is cut
+  while it is being read.
 - **A field of the wrong type** is an error. An optional field given as `null` reads as absent.
 
 **Replies.** A reply is `{"ok": …}` with 200, or `{"error": {"message": …, …}}` with one of these
@@ -196,13 +215,39 @@ statuses:
   `Host` is its own scheme's default, never the other's. Any `forwarded` or `x-forwarded-*` header
   keeps a request off the main loopback port's sandboxed path, as the dev gate's local test has it.
 - **A sandboxed page** (stage 10b: a Figma plugin's UI is an iframe whose origin is `null`) may call
-  the wire only with `--allow-plugin-origin`, on the tunnel door and on the main loopback port
-  (from this machine, naming a loopback host), never the TLS door. There, `Origin: null` on
+  the wire only with `--allow-plugin-origin`, on the tunnel door, on a relay's door (its
+  certificate a real one: stage 10c) and on the main loopback port (from this machine, naming a
+  loopback host), never the TLS door, whose certificate no page can pin. There, `Origin: null` on
   `/__tamber`, `/__tamber/subscribe`, `/__tamber/events` and `/__tamber/pair` gets CORS
   (`Access-Control-Allow-Origin: null`; a preflight `OPTIONS` answered 204, `POST` with
   `content-type` and `x-exact-tamber-token`); every such request is a remote one, so only a
   paired token works, never the local one. No other path gives a sandboxed page CORS: the token
   route keeps the dev gate's rule, so such a page cannot read it.
+- **A hosted relay** (*1.14*; stage 10c R1, LLP 1121 §5 10c): `--relay <host[:port]> --relay-account
+  <label>` with `--relay-cert`/`--relay-key` (PEM files for the relay's names) dials out to a relay
+  that hands each client's TCP stream down unopened; the client's TLS ends in this server, on that
+  certificate, so the relay reads only the ClientHello's name and never a token, a design or a
+  canvas. The account's token is `EXACT_RELAY_TOKEN` or `~/.exact/relay/<label>/token` (refused
+  unless only its owner may read it), never logged, never in a URL. A relay whose own certificate
+  fails WebPKI is never sent it, and no flag turns that check off. The session's names are the
+  relay's (`<id>-tool.<label>.<relay>`), or the developer's own with `--relay-name <tool>
+  <canvas>`. A relayed request is routed as the TLS listener's, at the tool's name (port 443):
+  `{remote: true, tunnel: false, peer: "relay:<tool name>", reported}`, `reported` the client's
+  address as the relay says it, shown in logs only. Names under a relay's domain aren't secret
+  (certificate transparency publishes them), and until that domain is a public suffix another
+  account's names there are same-site to yours: nothing here relies on site isolation. The
+  canvas through the relay is R1's follow-up; until then its name is closed unanswered. The
+  relay's word for a client's name is checked against the client's own ClientHello before any
+  request is read; a relay's refusal on any connection, at any time, stops the connector and cuts
+  every stream it carries (a revoked account; the relay closes the streams it pipes too). At most
+  64 relayed streams are carried at once; only a client whose TLS settled lets the next connection
+  be dialled at once, anything else (a client not taken, one dropped unsettled, a connection that
+  fails) costs a doubling wait; the idle connections are dialled again as carried ones close; each
+  connection has 10 s to verify the relay and be greeted, and as long from a line's first byte;
+  dials are budgeted (20 a second, a burst of 40) whatever the relay does. The relay's names are
+  served only when the certificate covers them, and no word of the relay's that carries the token
+  becomes a name, an address or a log line.
+  The connector's own protocol (`EXACT-RELAY/1`) is outside `tamber/1`: scripts/tamber-relay.mjs.
 
 ### Pairing (*1.13*)
 
@@ -210,7 +255,7 @@ statuses:
   remote?}`. `remote` lists the remote doors open (stage 10 B), for the tool to show beside the
   code: `{origin, fingerprint}` for the TLS listener, whose certificate's SHA-256 the other machine
   checks before it pairs (the lead's ruling 2), and `{origin, tunnel: true}` for a trusted tunnel's
-  local end. It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
+  local end, and `{origin, fingerprint, relay: true}` for a relay's session (*1.14*). It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
   read|propose|write [--name <name>]` mints one from this machine and prints them. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,
   `L` and `O` forgiven), valid two minutes, used once. At most 8 are live: a ninth replaces the
   oldest.
@@ -218,7 +263,8 @@ statuses:
   remote request makes without one (the design tool's static files aside). It answers `{token, client, scope, expires}` once. A wrong code is 403,
   saying nothing of which codes exist. A wrong attempt can't be told from a guess at any one code,
   so it counts against every live code, and a code with five is burned. A peer gets a burst of
-  five attempts, refilled at five a minute; past them, 429 with `retry-after`, whatever the code,
+  five attempts, refilled at five a minute (a relay's session, one peer for every client it hands
+  down, ten a minute in a bucket of its own: *1.14*); past them, 429 with `retry-after`, whatever the code,
   before the request's body is read.
   A code that is not a string of at most 32 characters is 400. Each burn and the first limit hit
   of each burst are logged (with the peer, never a code) and told as a `pairing` event.
@@ -259,11 +305,11 @@ client's scope is 403 with `{message, scope, needs}` in `error`, the change stre
 |---|---|
 | `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
 | `propose` | `propose` (held or not), `import`, `revert`, and `drop` of the client's own held proposal |
-| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `scrub`, `scrub-release`, `scrub-cancel` |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
 | the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
 
 The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
-`preview`, `outline` and `hold` are `write` because they change what the developer's screens show.
+`preview`, `outline`, `hold` and `navigate` are `write` because they change what the developer's screens show.
 `inspect` reads: below `write`, `refresh: true` answers `{selections}`, the selection each build
 last reported (as its `selection` event gave it), asking no build again, since a build's answer
 outlines on the developer's screens; turning inspect mode on or off takes the builds' input, and
@@ -360,6 +406,25 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   has its `fallback` `{light, dark}` (*1.1*).
 - `warnings`: `[{file, line, col, id, message}]`, the design's `tamber-contrast` warnings, a pair
   below 4.5:1 at its lowest tuple and scheme. They never refuse the design (*1.1*).
+- `base` (*1.14*, LLP 1121 stage 11): the base scale, every base name in the kernel's table's
+  order (`space.xs` to `space.xl`, `radius.sm` to `radius.full`), each a **base row**
+  `{name, kind, columns, override}`:
+  - `kind` is `length` (`space.*`) or `radius` (`radius.*`);
+  - `columns` is all five scale columns, `ios`, `mac`, `neutral`, `material` and `terminal`, each
+    `{value, source}`: `value` a CSS length (`16px`), `full` (radius.full, the pill) or the
+    terminal's `<n>cell` (`0` for none); `source` where it comes from, `{kind: "metric", ref}` (a
+    metrics row), `{kind: "measured", id}` or `{kind: "guideline", cite}` (an entry in
+    docs/scale-measured.md), `{kind: "full"}` or `{kind: "terminal"}` (`stretch`, a metric borrowed
+    for another role, is reserved: emitted once the table carries it). Every cell is the kernel's
+    table's (`style::scale`), never a copy;
+  - `override` is the line of the design file the request names (the app's, by default) that sets
+    the name, `{file, line, col, text}`, or null. When it is set, the name is the app's token: its
+    folded value is what `resolve` answers.
+- `targets` (*1.14*): `[{target, column}]`, the targets the app ships (the set an icon's `draws` is
+  keyed by), each with the scale column it reads (`ios`, `tvos`, `visionos`, `watchos`: `ios`;
+  `macos`, `mac`: `mac`; `web`, `linux`, `windows`: `neutral`; `android`: `material`; `terminal`:
+  `terminal`), from the kernel, so
+  a client keeps no map of its own; `column` is null for a target the kernel names none for.
 
 **`resolve`** `{token, file?}` gives the token's value **as the build stores it**, per app-mode
 tuple:
@@ -392,6 +457,9 @@ tuple:
 - **A shadow** (*1.8*) is `{modes, value, kind: "box-shadow" | "text-shadow", shadows}`: each shadow
   `{inset, lengths, color}`, its lengths in px (offset x, offset y, then blur and spread when
   written) and its colour's folded CSS (null for a text shadow's `currentcolor`).
+- **A base name** (*1.14*) the app leaves unset answers `{name, base, files}`, its base row (see
+  `describe`) and no tuples: its value is each column's, not a fold. One the app sets answers its
+  token's tuples as usual, with `base` beside them.
 
 **`explain`** `{token, file?}` answers `{token, value, whens, dials, names, files}`:
 - `value` and each `whens[].value` are source text, as written;
@@ -408,6 +476,16 @@ tuple:
 - **A param** (*1.12*) adds `param: {component, identity, kind, file, line, col, default, set}`:
   where its line is, its default as written, and `set`, the design's line that sets the app's
   value (`{file, line, value}`), or null.
+- **A base name** (*1.14*) answers `{kind: "base", name, base, files}`, its base row. One the app
+  sets also carries its line's fields as any token's (`token, value, whens, dials, names`), so a
+  tool reads and edits its `when` lines.
+- **A token whose values name base names** (*1.14*), an overridden base name's own line included,
+  adds `bases`: each base name any of its lines reaches, `when` lines no tuple selects included (an
+  unset one named bare, a set one as the token it names), and those any line of each token it
+  names reaches, through any chain, every branch, not per tuple; never a word in a string. As
+  strings, each once, in no promised order (parallel to `names`, which is as wide; a client looks
+  each up in `describe`'s `base`). A base name read from a file that is not the design's, or
+  a design that is refused, is refused as any token is.
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its
@@ -814,7 +892,7 @@ list is unchanged: it keeps its own.
 
 ### `import` (*1.1*, LLP 1122 T1a)
 
-`{kind, source, name?, prefix?, client}`, or `{kind, sources: [{name, text}], prefix?, client}`.
+`{kind, source, name?, prefix?, baseline?, client}`, or `{kind, sources: [{name, text}], prefix?, baseline?, client}`.
 - **The source.** `source` is the file's text. `name` is its file name; a Figma export's
   `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files, and only for
   `dtcg`: a stylesheet's importer reads one sheet, and several are refused (400, *1.1*).
@@ -830,7 +908,7 @@ list is unchanged: it keeps its own.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
   resolving its package needs a Bun install.
 - **The import is held as a proposal** whose `review` is `{importer, counted, unmapped, offers,
-  tokens}`:
+  tokens, dials?, pins?}` (the last two a re-import's, below):
   - `counted` is `{source, mapped, reported}`;
   - `unmapped` is `[{block, name, value, why, token}]`;
   - `offers` is `[{role, token, items, note}]`;
@@ -841,12 +919,42 @@ list is unchanged: it keeps its own.
   [{file, line, col, id, message}]}` as a checker's refusal is. With several files a
   diagnostic is `{id, message}`, its message naming the file (*1.1*).
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
+- **An import is read in a process of its own** (*1.14*, stage 10b), one at a time, never in the
+  design's server: a source that takes more than about 1 GiB or 10 s to read, or whose review is
+  over 2 MiB, answers 413 or 503, "the source is too costly to read". With four imports already
+  waiting, two of this client's outstanding, or after 30 s waiting, an import answers 503 ("imports
+  are busy"). A proposal (its diff and review) over 4 MiB is not held: 413. With no design file, an
+  import answers 409. Within that, the DTCG importer's and re-import's work is bounded too
+  (references, groups and aliases that multiply are refused).
+- **A re-import's dials and pins** (*1.14*, LLP 1121 §5 stage 10b): re-importing a Tamber export, a
+  changed value whose line is one colour dial alone (`accent.fill = accent`), changed to one literal
+  in every context where that dial line wins, proposes `set-dial` for that dial instead of a literal
+  over the line. The review lists it in `dials`, `[{dial, value, from, impact}]`: `from` the tokens
+  the file changed, `impact` every token value the change moves alone against the design, `[{token,
+  tuple, before, after}]` (values as the plan carries them, so `#ff0000ff` beside the dial's
+  `#ff0000`), so accepting it is seen to reach past the one variable. A changed value whose line
+  followed dials or tokens by an expression is a literal over it, listed in `pins`, `[{token, when,
+  follows}]`, with what it no longer follows (D14's mark). Inverting an expression is not attempted.
+  Each list is absent when empty, and each entry names its operations (`items`), as an offer does; a
+  recomputed proposal (files moved since, or some items) is marked again on the design as it is, its
+  dials' `impact` and its `pins` read afresh, each dial keeping its `from`. Tokens that would set
+  one dial to different values, or a dial the design refuses, are proposed as literals instead, each
+  a pin marked with the dial. Colour values agree when they are the same colour (`#F00`, `red` and
+  `color(srgb 1 0 0)`). A role's row is followed by its bare name too (`background`).
+- **`baseline`** (*1.14*, stage 10b): the export text a client pulled, for a client below `write`,
+  whose `export` keeps none. It is taken when its header's digest is an export this server run gave
+  out, a kept one, or the design's own, and its contexts (each one's name, modes and scheme) and axes
+  are the design's now; else the import is refused, 409 with `stale: true` ("pull first"). It
+  decides only which of the file's values are the client's edits: the operations are planned
+  against the design as it is, so a baseline can at most make a client propose values it did not
+  change, never revert another's edit unseen.
 
 ### `export` (*1.4*, LLP 1121 D14)
 
 `{kind: "dtcg"}`, read-only for the design: the app's design as DTCG Format 2025.10 with the Resolver
 Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the same serializer.
-- **The reply** is `{kind, text, baseline}`: `text` is the file, `baseline` where it is kept, by
+- **The reply** is `{kind, text, baseline, digest}`: `text` is the file, `digest` its header's design
+  digest (*1.14*, the baseline an `import` may name), `baseline` where it is kept, by
   path from the app (`.exact/tamber-dtcg/<digest>.json`, the design's digest). Each export keeps
   what it wrote there, the newest 16, in a directory whose own `.gitignore` (`*`) keeps them out of
   every commit. A link in a baseline's place is replaced, never written through. Below `write`
@@ -1037,6 +1145,20 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.
+  - A web page in a frame its parent names `exact-copy-<n>` (`n` of one or two digits; the
+    design tool's copies, *1.14*, LLP 1122 T7) keeps its id under that name, since a tab's
+    same-origin frames share its storage. The page only reads the name, which never enters the app's URL, is never sent, and
+    ties nothing; a frame of any other name keeps the tab's one id. A framed page posts `{type:
+    "exact-build", id}` to its parent each time it registers, so the page framing it finds which
+    frame is which build by the message's source (the id grants nothing without the nonce).
+  - The design tool frames each copy at a loopback name of its own,
+    `http://exact-copy-<n>.localhost:<port>/` (theme2's F1 ruling: a browser carries at most six
+    HTTP/1.1 connections a host, and each copy holds a stream). The dev loop admits those names
+    (`n` 1 to 99), never as local. Each copy is then its own origin, with its own storage.
+  - In a copy (a page in an `exact-copy-<n>` frame) that is pinned, the pin holds over the app's
+    own `setScheme`, `setMode` and `setRootFontSize` for the facts it pins (theme2's F2 ruling;
+    elsewhere the app's own wins, LLP 1122 D3). What the app asked instead is kept, takes effect
+    when the pin is handed back, and is said in the copy's `status` as `app`.
   - `plan` is the generation the build runs (the envelope's identity; the JS target, which runs
     no plan, sends none), and `design` its design digest. Before accepting a dev generation,
     Apple reports the digest of its running embedded or cached plan.
@@ -1074,7 +1196,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
 - **Reports up** (`POST /__dev/report`, each with the nonce), told to every client as events:
   - `status`: the effective `scheme`, `contrast`, `mode` (`{axis: value}`) and `rootFontSize`,
     the facts that paint, the `plan` and `design` digests (and `planDigest`, *1.9*, as it moves),
-    and the pin `revision` it applied.
+    and the pin `revision` it applied. The web pages also say their `location` (*1.14*, LLP 1122
+    T7): the path, query and fragment they show, on their own origin (at most 2 KiB; no scheme or
+    host), reported when it moves. A pinned copy also says `app` (*1.14*): `{scheme?, mode?,
+    rootFontSize?}`, what the app asked instead of its pin (strings; `mode` `{axis: value}`; at
+    most 1 KiB), or nothing.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
     `setRootFontSize` included (at most once a turn). A scrub's frames move the design without a
     status each: the web pages report it once, about 150 ms after the drag rests. A native host
@@ -1159,6 +1285,26 @@ The tool drives no input into an app; a command changes only what `prefer` would
     again itself under the same plan, unsaid; a frame that comes while it swaps waits for it, and a
     clear always applies. A revision a host ended itself is not taken again
     when its frame is resent; a lower revision is a new server's.
+  - `navigate` (*1.14*, LLP 1122 T7) `{seq, location}`: route to `location`, a path with its
+    query and fragment on the build's own origin, in place, as a link to it would: the app's
+    navigation root's `navigate` handler, else the router's own `go`, with no reload, so the
+    app's state is kept. A fragment that differs is then set as the page's own. A location that
+    is no route of the app, or a page with no router, answers `unsupported` with `what:
+    "navigate"` and that `seq` as its `revision`. It moves the page's `location`, which its next
+    `status` says. A build that can says `navigate` among its `capabilities` (the wasm and JS web
+    pages; the native hosts don't yet). It is navigation, not input: no tap or key is driven.
+- **Navigation at the server** (*1.14*). `{method: "navigate", client, build, location}` needs
+  write scope and a present client, and names a registered build (else 400) that can navigate
+  (else 409 with `unsupported: "navigate"`; the design tool then reloads that copy's frame at
+  the location instead). `location` must start with one `/` (not `//` or `/\`) and be
+  spelled as a URL and the router write it (RFC 3986's path, query and fragment characters but
+  `'`, each `%` a whole escape), at most 2 KiB as given and as a URL spells it once resolved (no
+  dot segment may make it `//…`); any other is 400. A status's `location` is any printable
+  ASCII path within the bound. Each is journaled with its client
+  and answered `{navigated: true, build, seq}`. A navigation holds nothing on the build: there is
+  nothing to replay when it registers again or to clear when its client goes. Only the latest
+  waits in a polled stream's queue. A build's `unsupported` for it is its sender's event alone
+  (`only`), and only for the last `seq` sent that build.
 - **Holds at the server** (*1.11*). `{method: "hold", client, build, site, instance, state}`
   (`state` null to let it go) needs write scope and a present client, and names a registered
   build that holds states (else 409, said so). The hold is its client's: let go on that build when

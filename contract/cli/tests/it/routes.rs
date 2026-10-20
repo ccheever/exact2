@@ -304,7 +304,10 @@ fn route_diagnostics_and_dynamic_location_boundary() {
         let error = contract::compile(&base.replace("DEST", expr)).unwrap_err();
         assert_eq!(error.id, id, "{expr}: {error}");
         if id == "route-template" {
-            assert_eq!(error.message, "use `path()`");
+            assert!(
+                error.message.ends_with("write `path(\"post\", id)`"),
+                "{error}"
+            );
         }
     }
     for expr in [

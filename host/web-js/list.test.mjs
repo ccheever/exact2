@@ -1,19 +1,14 @@
 // App-owned virtual-list restoration through the browser runtime and real DOM geometry.
 import { beforeAll, afterAll, test as bunTest, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { Cdp } from '../../scripts/agent.mjs';
-import { chromium, DESKTOP_INPUT } from '../../scripts/agent-launch.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+import { cdpBrowser, chromium, DESKTOP_INPUT } from '../../scripts/agent-launch.mjs';
 import { need } from '../../scripts/coverage.mjs';
 
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const test = need('chrome', unavailable, { test: bunTest });
-let server, child, cdp, evaluate, dir, call;
+let server, suite, cdp, evaluate, call;
 beforeAll(async () => {
   if (unavailable) return;
-  dir = mkdtempSync(join(tmpdir(), 'exact-collection-'));
   server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;
     if (path === '/names.js') return new Response('export const sourceTypes = {};', {headers: {'content-type':'text/javascript'}});
@@ -22,11 +17,9 @@ beforeAll(async () => {
       headers: { 'content-type': path.endsWith('.js') ? 'text/javascript' : 'text/html' },
     });
   }});
-  child = spawn(chrome, ['--headless=new', DESKTOP_INPUT, '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
-  cdp = new Cdp(child.stdio[3], child.stdio[4]);
-  child.on('exit', () => cdp.fail('Chrome closed'));
-  const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+  suite = await cdpBrowser({ args: [DESKTOP_INPUT] });
+  ({ cdp } = suite);
+  const { sessionId } = await suite.page();
   call = (method, params) => cdp.send(method, params, sessionId);
   evaluate = async expression => {
     const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -37,9 +30,8 @@ beforeAll(async () => {
   await evaluate(`Promise.all([import('/rt.js'), import('/list.js')]).then(([rt, list]) => { globalThis.rt = rt; globalThis.list = list; rt.clock.agent = true; })`);
 }, 60_000); // hang bounds: Chrome's launch and exit are awaited as events, and take longer than 5 s under load
 afterAll(async () => {
-  if (child && child.exitCode === null) { const exit = new Promise(r => child.once('exit', r)); child.kill(); await exit; }
+  await suite?.close();
   server?.stop(true);
-  if (dir) rmSync(dir, { recursive: true, force: true });
 }, 60_000);
 
 test('a scroll event saves a row and an explicit restore survives remount and new measurements', async () => {

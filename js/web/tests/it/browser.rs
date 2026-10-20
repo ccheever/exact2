@@ -12,6 +12,14 @@ fn browser_fixture_serves_every_on_demand_host_module_without_chrome() {
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .output()
         .unwrap();
+    if let Some(why) = String::from_utf8_lossy(&result.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("missing chrome: "))
+        .map(str::to_owned)
+    {
+        missing("chrome", &why);
+        return;
+    }
     assert!(
         result.status.success(),
         "{}\n{}",
@@ -22,18 +30,11 @@ fn browser_fixture_serves_every_on_demand_host_module_without_chrome() {
 
 #[test]
 fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
-    let chrome = std::env::var("CHROME")
-        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
-    if !Path::new(&chrome).exists() {
-        missing("chrome", "browser module sweep unavailable: set CHROME");
-        return;
-    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let ec_pair =
         exact_data::crypto::generate_p256(&exact_runner::Store::new("", []), true).unwrap();
     let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROBE])
-        .env("CHROME", chrome)
         .env(
             "EXACT_PARITY",
             serde_json::to_string(&caltrain::oracle()).unwrap(),
@@ -174,6 +175,9 @@ fn grant_sets() -> String {
 
 const PROBE: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
+import { chromium } from './scripts/agent-launch.mjs';
+const { executable: browserExecutable, unavailable: browserMissing } = chromium();
+if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { webHostFiles } from './scripts/app.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -270,7 +274,7 @@ fixtures.agentStream=process.env.EXACT_AGENT_STREAM;
 fixtures.ecJwk=process.env.EXACT_EC_JWK;
 fixtures.grantSets=JSON.parse(process.env.EXACT_GRANT_SETS);
 const profile = mkdtempSync(resolve(tmpdir(),'exact-module-browser-'));
-const child = spawn(process.env.CHROME, ['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking','--host-resolver-rules=MAP lan.test 127.0.0.1',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
+const child = spawn(browserExecutable, ['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking','--host-resolver-rules=MAP lan.test 127.0.0.1',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
 const cdp = new Cdp(child.stdio[3],child.stdio[4]);
 const exited = new Promise(r=>child.on('exit',()=>{cdp.fail('browser closed');r();}));
 try {
@@ -1064,19 +1068,20 @@ try {
 
 #[test]
 fn browser_portable_storage_shares_fieldnotes_data_and_enforces_scope() {
-    let chrome = std::env::var("CHROME")
-        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
-    if !Path::new(&chrome).exists() {
-        missing("chrome", "browser storage sweep unavailable: set CHROME");
-        return;
-    }
     let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROTOCOL_PROBE])
-        .env("CHROME", chrome)
         .env("EXACT_GRANT_SETS", grant_sets())
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .output()
         .unwrap();
+    if let Some(why) = String::from_utf8_lossy(&result.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("missing chrome: "))
+        .map(str::to_owned)
+    {
+        missing("chrome", &why);
+        return;
+    }
     eprintln!("{}", String::from_utf8_lossy(&result.stdout));
     assert!(
         result.status.success(),
@@ -1088,6 +1093,9 @@ fn browser_portable_storage_shares_fieldnotes_data_and_enforces_scope() {
 
 const PROTOCOL_PROBE: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
+import { chromium } from './scripts/agent-launch.mjs';
+const { executable: browserExecutable, unavailable: browserMissing } = chromium();
+if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { webHostFiles } from './scripts/app.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -1103,7 +1111,7 @@ const server=createServer((req,res)=>{
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const profile=mkdtempSync(resolve(tmpdir(),'exact-storage-protocol-'));
-const child=spawn(process.env.CHROME,['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
+const child=spawn(browserExecutable,['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
 const cdp=new Cdp(child.stdio[3],child.stdio[4]);
 const exited=new Promise(resolve=>child.on('exit',()=>{cdp.fail('browser closed');resolve();}));
 try {

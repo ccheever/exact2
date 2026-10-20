@@ -1,6 +1,7 @@
 //! Presentation-only clock work: no settlement, handlers or app data calls.
 //! @ref LLP 1126 D6
 use super::*;
+use crate::instance::DocTree;
 use exact_kernel::time::{duration_shape, instant, relative_delay, reservation, TimeRequest};
 use exact_kernel::{Op, PropId as P, PropList, PropValue};
 use std::collections::{BTreeMap, BTreeSet};
@@ -129,7 +130,6 @@ impl<D: DataSource> Runner<D> {
                 self.live_times.0.remove(id);
             }
         }
-        let now = self.time.epoch_at_zero + self.now_ms;
         let context = format!(
             "{}/{}/{}/{}",
             self.time.epoch_at_zero, self.time.utc_offset, self.place.locale, self.place.time_zone
@@ -149,129 +149,198 @@ impl<D: DataSource> Runner<D> {
             undo.remember(&self.live_times, id);
             let live = self.live_times.0.get_mut(&id).unwrap();
             live.context.clone_from(&context);
-            let number = |p| {
-                live.props
-                    .get(p)
-                    .and_then(PropValue::as_float)
-                    .filter(|n| instant(*n))
-            };
-            if live.props.str(P::SemanticTag) == Some("time") {
-                let text = number(P::Datetime).and_then(|datetime| {
-                    let format = live.props.str(P::TimeFormat).unwrap_or("date-medium");
-                    let shown_now = if format == "relative" {
-                        datetime - ((datetime - now) / 60_000.0).ceil() * 60_000.0
-                    } else {
-                        now
-                    };
-                    let request = TimeRequest {
-                        datetime,
-                        now: shown_now,
-                        format,
-                        locale: &self.place.locale,
-                        time_zone: &self.place.time_zone,
-                        utc_offset: self.time.utc_offset,
-                    };
-                    let text = self.kernel.format_time(&request)?;
-                    let key = format!(
-                        "{datetime}/{}/{}/{}/{}/{}",
-                        request.format,
-                        request.locale,
-                        request.time_zone,
-                        request.utc_offset,
-                        self.time.epoch_at_zero
-                    );
-                    let reset = !live.reservation_key.starts_with(&format!("{key}/"));
-                    if reset {
-                        live.duration_shape = duration_shape(&request);
-                    }
-                    if format == "timer" {
-                        live.duration_shape = live.duration_shape.max(duration_shape(&request));
-                    }
-                    let key = format!("{key}/{}", live.duration_shape);
-                    if key != live.reservation_key {
-                        let reserve = reservation(&request, |r| self.kernel.format_time(r));
-                        put(
-                            id,
-                            P::TextReservation,
-                            &mut live.reserve,
-                            Some(reserve),
-                            ops,
-                        );
-                        live.reservation_key = key;
-                    }
-                    live.due = match request.format {
-                        "relative" => Some(self.now_ms + relative_delay(datetime, now)),
-                        "timer" | "countdown"
-                            if request.format != "countdown" || datetime > now =>
-                        {
-                            Some(self.now_ms + 1000.0 - (now - datetime).rem_euclid(1000.0))
-                        }
-                        _ => None,
-                    };
-                    Some(text)
-                });
-                if text.is_none() {
-                    live.due = None;
-                    live.reservation_key.clear();
-                    put(id, P::TextReservation, &mut live.reserve, None, ops);
+            refresh(
+                live,
+                id,
+                self.now_ms,
+                &self.time,
+                &self.place,
+                &mut self.kernel,
+                ops,
+            );
+        }
+        undo
+    }
+
+    /// Give `doc`'s `time` and `progress` nodes the props a kernel's ticks
+    /// put on them, computed as a first tick computes them: a detached
+    /// kernel kept none of the ops that set them (`Kernel::detached`), so
+    /// its document is written from here.
+    pub(super) fn fold_live_times(&mut self, doc: &mut DocTree) {
+        for node in doc.nodes_mut() {
+            if node.props.str(P::SemanticTag) != Some("time")
+                && node.props.str(P::Type) != Some("progress")
+            {
+                continue;
+            }
+            let mut live = Live::default();
+            for prop in [
+                P::SemanticTag,
+                P::Type,
+                P::Datetime,
+                P::TimeFormat,
+                P::Start,
+                P::End,
+            ] {
+                if let Some(value) = node.props.get(prop) {
+                    live.props.set(prop, value.clone());
                 }
-                put(id, P::Text, &mut live.text, text, ops);
-            } else {
-                let interval = number(P::Start).zip(number(P::End)).filter(|(a, b)| b > a);
-                if let Some((start, end)) = interval {
-                    for (prop, instant) in [(P::Start, start), (P::End, end)] {
-                        if self
-                            .kernel
-                            .node(id)
-                            .and_then(|n| n.props.get(prop))
-                            .and_then(PropValue::as_float)
-                            != Some(instant)
-                        {
-                            ops.push(Op::SetProp {
-                                id,
-                                prop,
-                                value: PropValue::Float(instant),
-                            });
-                        }
+            }
+            let mut ops = Vec::new();
+            refresh(
+                &mut live,
+                node.id,
+                self.now_ms,
+                &self.time,
+                &self.place,
+                &mut self.kernel,
+                &mut ops,
+            );
+            for op in ops {
+                match op {
+                    Op::SetProp { prop, value, .. } => {
+                        node.props.set(prop, value);
                     }
-                    let value = ((now - start) / (end - start)).clamp(0.0, 1.0);
-                    put(
-                        id,
-                        P::Value,
-                        &mut live.value,
-                        Some(exact_num::js(value)),
-                        ops,
-                    );
-                    if self
-                        .kernel
-                        .node(id)
-                        .is_none_or(|n| n.props.str(P::Max) != Some("1"))
-                    {
-                        ops.push(Op::SetProp {
-                            id,
-                            prop: P::Max,
-                            value: "1".into(),
-                        });
+                    Op::ClearProp { prop, .. } => {
+                        node.props.remove(prop);
                     }
-                    live.due = (now < end).then_some(if now < start {
-                        start - self.time.epoch_at_zero
-                    } else {
-                        (self.now_ms + 1000.0 - (now - start).rem_euclid(1000.0))
-                            .min(end - self.time.epoch_at_zero)
-                    });
-                } else {
-                    if live.props.get(P::Start).is_some() || live.props.get(P::End).is_some() {
-                        ops.extend([P::Start, P::End].map(|prop| Op::ClearProp { id, prop }));
-                    }
-                    if live.value.is_some() {
-                        put(id, P::Value, &mut live.value, None, ops);
-                        ops.push(Op::ClearProp { id, prop: P::Max });
-                    }
-                    live.due = None;
+                    _ => {}
                 }
             }
         }
-        undo
+    }
+}
+
+/// Refresh `live`, view `id`'s, at the runner clock: the ops that set its
+/// text and reservation (a `time`) or its value, max and interval (a
+/// `progress`) go on `ops`, and `live.due` is when it next changes. One
+/// computation for the kernel's ticks and for a document written without a
+/// kernel ([`Runner::fold_live_times`]).
+fn refresh(
+    live: &mut Live,
+    id: ViewId,
+    now_ms: f64,
+    time: &crate::time::WallTime,
+    place: &crate::time::Place,
+    kernel: &mut Kernel,
+    ops: &mut Vec<Op>,
+) {
+    let now = time.epoch_at_zero + now_ms;
+    let number = |p| {
+        live.props
+            .get(p)
+            .and_then(PropValue::as_float)
+            .filter(|n| instant(*n))
+    };
+    if live.props.str(P::SemanticTag) == Some("time") {
+        let text = number(P::Datetime).and_then(|datetime| {
+            let format = live.props.str(P::TimeFormat).unwrap_or("date-medium");
+            let shown_now = if format == "relative" {
+                datetime - ((datetime - now) / 60_000.0).ceil() * 60_000.0
+            } else {
+                now
+            };
+            let request = TimeRequest {
+                datetime,
+                now: shown_now,
+                format,
+                locale: &place.locale,
+                time_zone: &place.time_zone,
+                utc_offset: time.utc_offset,
+            };
+            let text = kernel.format_time(&request)?;
+            let key = format!(
+                "{datetime}/{}/{}/{}/{}/{}",
+                request.format,
+                request.locale,
+                request.time_zone,
+                request.utc_offset,
+                time.epoch_at_zero
+            );
+            let reset = !live.reservation_key.starts_with(&format!("{key}/"));
+            if reset {
+                live.duration_shape = duration_shape(&request);
+            }
+            if format == "timer" {
+                live.duration_shape = live.duration_shape.max(duration_shape(&request));
+            }
+            let key = format!("{key}/{}", live.duration_shape);
+            if key != live.reservation_key {
+                let reserve = reservation(&request, |r| kernel.format_time(r));
+                put(
+                    id,
+                    P::TextReservation,
+                    &mut live.reserve,
+                    Some(reserve),
+                    ops,
+                );
+                live.reservation_key = key;
+            }
+            live.due = match request.format {
+                "relative" => Some(now_ms + relative_delay(datetime, now)),
+                "timer" | "countdown" if request.format != "countdown" || datetime > now => {
+                    Some(now_ms + 1000.0 - (now - datetime).rem_euclid(1000.0))
+                }
+                _ => None,
+            };
+            Some(text)
+        });
+        if text.is_none() {
+            live.due = None;
+            live.reservation_key.clear();
+            put(id, P::TextReservation, &mut live.reserve, None, ops);
+        }
+        put(id, P::Text, &mut live.text, text, ops);
+    } else {
+        let interval = number(P::Start).zip(number(P::End)).filter(|(a, b)| b > a);
+        if let Some((start, end)) = interval {
+            for (prop, instant) in [(P::Start, start), (P::End, end)] {
+                if kernel
+                    .node(id)
+                    .and_then(|n| n.props.get(prop))
+                    .and_then(PropValue::as_float)
+                    != Some(instant)
+                {
+                    ops.push(Op::SetProp {
+                        id,
+                        prop,
+                        value: PropValue::Float(instant),
+                    });
+                }
+            }
+            let value = ((now - start) / (end - start)).clamp(0.0, 1.0);
+            put(
+                id,
+                P::Value,
+                &mut live.value,
+                Some(exact_num::js(value)),
+                ops,
+            );
+            if kernel
+                .node(id)
+                .is_none_or(|n| n.props.str(P::Max) != Some("1"))
+            {
+                ops.push(Op::SetProp {
+                    id,
+                    prop: P::Max,
+                    value: "1".into(),
+                });
+            }
+            live.due = (now < end).then_some(if now < start {
+                start - time.epoch_at_zero
+            } else {
+                (now_ms + 1000.0 - (now - start).rem_euclid(1000.0)).min(end - time.epoch_at_zero)
+            });
+        } else {
+            if live.props.get(P::Start).is_some() || live.props.get(P::End).is_some() {
+                ops.extend([P::Start, P::End].map(|prop| Op::ClearProp { id, prop }));
+            }
+            if live.value.is_some() {
+                put(id, P::Value, &mut live.value, None, ops);
+                ops.push(Op::ClearProp { id, prop: P::Max });
+            }
+            live.due = None;
+        }
     }
 }
 

@@ -223,7 +223,8 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
                     Some((
                         exact_kernel::style::relative::Unit::Em
                             | exact_kernel::style::relative::Unit::Rem
-                            | exact_kernel::style::relative::Unit::Hairline,
+                            | exact_kernel::style::relative::Unit::Hairline
+                            | exact_kernel::style::relative::Unit::Ramp(_),
                         _
                     ))
                 )

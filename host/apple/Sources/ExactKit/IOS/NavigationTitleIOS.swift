@@ -341,8 +341,8 @@ extension NavigationHost {
     func unshownByBar() -> [UInt32: String] {
         var out: [UInt32: String] = [:]
         let back = container?.props["navigationBack"]
-        for nav in allNavigations where stacks[ObjectIdentifier(nav)]?.showsBar == true {
-            for (index, controller) in nav.viewControllers.enumerated() {
+        for routes in barStackRoutes {
+            for (index, controller) in routes.enumerated() {
                 guard let c = controller as? RouteController,
                       let shape = HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) else { continue }
                 func walk(_ node: NodeView) {
@@ -364,8 +364,8 @@ extension NavigationHost {
         guard ExactEnv.authoredChrome else { return [] }
         var out: [NodeView] = []
         let back = container?.props["navigationBack"]
-        for nav in allNavigations where stacks[ObjectIdentifier(nav)]?.showsBar == true {
-            for (index, controller) in nav.viewControllers.enumerated() {
+        for routes in barStackRoutes {
+            for (index, controller) in routes.enumerated() {
                 if let c = controller as? RouteController, let shape = HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) { out.append(shape.header) }
             }
         }
@@ -391,9 +391,10 @@ extension NavigationHost {
     }
 
     /// Whether a route shows the bar: its stack's routes may, and the route
-    /// has something to show in it.
-    func routeShowsBar(_ c: RouteController, in nav: UINavigationController) -> Bool {
-        barShows(nav) && bar(of: c.node, pushed: c.pushed) != .hidden
+    /// has something to show in it. A held stack's (no `nav`) may, as no
+    /// hatch has said otherwise.
+    func routeShowsBar(_ c: RouteController, in nav: UINavigationController?) -> Bool {
+        (nav.map(barShows) ?? !ExactEnv.authoredChrome) && bar(of: c.node, pushed: c.pushed) != .hidden
     }
 
     /// Whether the bar is UIKit's for now on a route's account: its header
@@ -461,16 +462,16 @@ extension NavigationHost {
     /// hidden hides the bar, shown shows it, both with UIKit's own animated
     /// `setTabBarHidden` (iOS 18), as Signal hides its tab bar for the chat
     /// list's multi-select.
-    func followTablist(_ routes: [RouteController], in nav: UINavigationController) {
+    func followTablist(_ routes: [RouteController], in stack: UIViewController) {
         guard !ExactEnv.authoredChrome, let key = selectedKey,
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }
         let hidden = list.style["display"]?.string == "none"
         if let root = routes.first, root.key == key {
-            followTablistAtRoot(root, hidden: hidden, in: nav)
+            followTablistAtRoot(root, hidden: hidden, in: stack)
             return
         }
-        guard let at = routes.indices.dropFirst().first(where: { routes[$0].key == key }) else { return }
+        guard let nav = stack as? UINavigationController, let at = routes.indices.dropFirst().first(where: { routes[$0].key == key }) else { return }
         // A pushed route selected: the root, back on top later, arrives anew.
         if nav.tabBarController === tabController { tablistRoot = nil }
         for (index, c) in routes.enumerated() where index > 0 && index <= at && (index == at || c.tablistHidden == nil) && c.tablistHidden != hidden {
@@ -516,18 +517,18 @@ extension NavigationHost {
     /// hatch's own show stands too. Never mid-transition. A root first seen
     /// with its tablist shown writes nothing. iOS 17 has no
     /// `setTabBarHidden`: there the bar stays.
-    func followTablistAtRoot(_ root: RouteController, hidden: Bool, in nav: UINavigationController) {
+    func followTablistAtRoot(_ root: RouteController, hidden: Bool, in stack: UIViewController) {
         let changed = root.tablistHidden != hidden
         root.tablistHidden = hidden
-        guard root === nav.topViewController, nav.transitionCoordinator == nil, tabBarShows,
-              let tabs = tabController, nav.tabBarController === tabs else { return }
+        guard root === stack.stackRoutes.last, stack.transitionCoordinator == nil, tabBarShows,
+              let tabs = tabController, stack.tabBarController === tabs else { return }
         guard #available(iOS 18.0, tvOS 18.0, *) else { return }
         // Arrived: the root on top at rest for the first time since another
         // route or root was (a pushed route selected clears `tablistRoot`).
         let arrived = tablistRoot !== root
         tablistRoot = root
         guard changed || arrived else { return }
-        let animated = nav.view.window != nil
+        let animated = stack.viewIfLoaded?.window != nil
         if hidden {
             // Exact owns the hide only if it made it: a hatch's own stands.
             if !tabs.isTabBarHidden { tabs.setTabBarHidden(true, animated: animated); tablistHidBar = true }

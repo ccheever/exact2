@@ -75,8 +75,10 @@ impl Kernel {
     /// rather than wait for a view to report it: the first layout has its box
     /// and its ratio. A host's report does not replace a measured size while
     /// those inputs stand. A symbol the measurer cannot size has the size its
-    /// host reports.
-    pub(crate) fn measure_symbols(&mut self) {
+    /// host reports. With `laid_out_only`, a symbol in a box covered whole
+    /// (`display: none`: a closed popover or dialog, LLP 1021 §5) stays owed
+    /// until a layout places it, so one a UIKit menu shows is never measured.
+    pub(crate) fn measure_symbols(&mut self, laid_out_only: bool) {
         // Ask about every symbol again, one the measurer declined too, under a new measurer or new traits (a content size, a scale)
         let revision = Some(self.measurer.measure_revision());
         if revision != self.symbol_revision {
@@ -93,8 +95,11 @@ impl Kernel {
             return;
         }
         let owed: Vec<u32> = self.arena.symbols_owed.iter().collect();
-        self.arena.symbols_owed.clear();
         for slot in owed {
+            if laid_out_only && covered_whole(&self.arena, slot) {
+                continue;
+            }
+            self.arena.symbols_owed.remove(slot);
             let measured = crate::replaced::symbol_role(&self.arena, slot)
                 .and_then(|role| {
                     let font = self.arena.computed_style(slot, crate::StyleMask::TEXT);
@@ -127,6 +132,12 @@ impl Kernel {
             }
         }
     }
+}
+
+/// Whether `slot` or a box above it is covered whole, so not laid out.
+fn covered_whole(arena: &NodeArena, slot: u32) -> bool {
+    std::iter::successors(Some(slot), |&s| arena.parent(s))
+        .any(|s| arena.cover(s) == Some(super::HostCover::Whole))
 }
 
 /// A projected tablist's or radio group's box. A native tab bar fills the

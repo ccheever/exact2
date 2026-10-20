@@ -226,8 +226,13 @@ impl<D: DataSource> Host<D> {
     ) -> Result<Host<D>, String> {
         exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
+        // The terminal's own column (LLP 1121 stage 11 B2): the web's in every
+        // metric, cells for the base scale's spacings, no corners.
+        exact_kernel::style::metrics::set_column(exact_kernel::style::metrics::Column::Terminal);
         let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer::default()));
         kernel.set_cell_borders(true);
+        // And its spaces in whole cells (LLP 1121 stage 11 (c)).
+        kernel.set_cell_spaces(true);
         // LLP 1104 D4/D7: the user's cell face, at one 16px layout row.
         let font = exact_kernel::ControlFont {
             family: "ui-monospace".into(),
@@ -335,6 +340,12 @@ impl<D: DataSource> Host<D> {
     /// The grid size.
     pub fn size(&self) -> (usize, usize) {
         (self.cols, self.rows)
+    }
+
+    /// The running plan, by the SHA-256 of its bytes: what every host's
+    /// agent names it by (the runner's inspection digest).
+    pub fn plan_digest(&self) -> &str {
+        self.runner.inspection_digest()
     }
 
     /// Whether an action asked the host to close.
@@ -1122,3 +1133,7 @@ mod invocation_tests;
 #[cfg(test)]
 #[path = "host_clock_tests.rs"]
 mod clock_tests;
+
+#[cfg(test)]
+#[path = "host_scale_tests.rs"]
+mod scale_tests;

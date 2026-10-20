@@ -122,7 +122,11 @@ pub(crate) fn parse_ops(ops: &Value, design: &str) -> Result<Vec<(String, Op)>, 
 
 /// The app's params as the design's folds take them (LLP 1121 D15).
 pub(crate) fn params(app: &contract::tamber_params::AppParams) -> exact_tamber::params::Params {
-    contract_lower::params::folds(&app.tokens, &app.identities)
+    // And its packages' tokens (LLP 1121 D11), which every plan folds beside the design.
+    exact_tamber::params::Params {
+        joined: contract::tamber_params::joined(app),
+        ..contract_lower::params::folds(&app.tokens, &app.identities)
+    }
 }
 
 /// Each `set-param` and `unset-param` by a name the app has: refused for a

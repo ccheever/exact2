@@ -364,3 +364,31 @@ test('a scrub update or a held proposal past its client\'s deadline: the scrub e
   } finally { now -= 3600_000 + 1; }
 });
 
+
+// LLP 1122 T7 (*1.14*): `navigate` needs write and a present client, goes to
+// one build that can, a location on its own origin only, and is journaled
+// with its client; a build that can't is 409 naming it (the tool then
+// reloads that copy's frame instead).
+test('navigate: write scope, a present client, one build that can, a location on its own origin', async () => {
+  const frames = [], other = [];
+  const s = tamber.channel.open(f => frames.push(f)), t = tamber.channel.open(f => other.push(f));
+  tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'register', id: 'web-nav', host: 'web', capabilities: ['pin', 'navigate'] }));
+  tamber.channel.report(JSON.stringify({ nonce: t.nonce, kind: 'register', id: 'ios-nav', host: 'ios', capabilities: ['pin'] }));
+  const reader = await paired('propose', 'reader-nav');
+  expect((await post({ method: 'navigate', client: 'x', build: 'web-nav', location: '/x' }, reader.token)).status).toBe(403);
+  const p = await paired('write', 'writer-nav');
+  expect((await post({ method: 'navigate', client: 'x', build: 'web-nav', location: '/x' }, p.token)).status).toBe(409);
+  const sub = await subscribe(p.token, 'x');
+  expect((await post({ method: 'navigate', client: 'x', location: '/x' }, p.token)).status).toBe(400);
+  for (const bad of ['https://evil.example/x', '//evil.example/x', 'x', '/a b']) expect((await post({ method: 'navigate', client: 'x', build: 'web-nav', location: bad }, p.token)).status).toBe(400);
+  const ios = await post({ method: 'navigate', client: 'x', build: 'ios-nav', location: '/x' }, p.token);
+  expect([ios.status, ios.error.unsupported]).toEqual([409, 'navigate']);
+  expect(other.some(f => f.kind === 'navigate')).toBe(false);
+  const done = await post({ method: 'navigate', client: 'x', build: 'web-nav', location: '/posts/7#top' }, p.token);
+  expect(done.ok).toEqual({ navigated: true, build: 'web-nav', seq: done.ok.seq });
+  expect(frames.at(-1)).toEqual({ kind: 'navigate', seq: done.ok.seq, location: '/posts/7#top' });
+  expect(logged.some(l => l.includes(`${p.client} navigated web-nav to "/posts/7#top"`))).toBe(true);
+  await post({ method: 'revoke', client: p.client });
+  await sub.ended;
+  s.close(); t.close();
+});

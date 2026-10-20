@@ -36,7 +36,7 @@
 // its own (AppDrop, a store's resigner). The simulator and phone helpers live
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. --release (or EXACT_UPDATE_TRUST=production) builds a signed-update-only artifact.
-import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, entryProfiles } from './widgets.mjs';
+import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, entryProfiles, macWidgetSigning } from './widgets.mjs';
 import { assembleMac, assembleIOS } from './bundle.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -189,7 +189,21 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
 /** Named catalog assets require an app bundle on macOS, including agent drives. */
 export function appleRunBinary(app, host = false) {
   const paths = appleArtifacts(app, { host });
-  return !host && appleAssetCatalogInventory(app, 'macos').length ? resolve(paths.bundle, 'Contents/MacOS', paths.executable) : paths.binary;
+  let widgets = false;
+  try { widgets = JSON.parse(readFileSync(resolve(paths.products, 'receipt.json'), 'utf8')).entitlements?.includes('com.apple.security.application-groups') ?? false; }
+  catch { /* A missing receipt is diagnosed by the driver's build check. */ }
+  return !host && (appleAssetCatalogInventory(app, 'macos').length || widgets) ? resolve(paths.bundle, 'Contents/MacOS', paths.executable) : paths.binary;
+}
+/** Both bare product directories resolve @executable_path/../Frameworks here. */
+export function publishMacFramework(framework, namespace, identity) {
+  mkdirSync(namespace, { recursive: true });
+  const stage = mkdtempSync(resolve(namespace, '.frameworks-'));
+  try {
+    const copy = resolve(stage, 'ExactCore.framework');
+    cpSync(framework, copy, { recursive: true, verbatimSymlinks: true });
+    run('codesign', ['--force', '--sign', identity ?? '-', '--timestamp=none', copy]);
+    placeAppleArtifact(stage, resolve(namespace, 'Frameworks'));
+  } finally { rmSync(stage, { recursive: true, force: true }); }
 }
 /** An ephemeral exclusive writer claim. Never steal: even a dead PID needs
  * explicit removal after the operator verifies its owner. */
@@ -223,8 +237,8 @@ export function captureAppleProduct(build, source, destination) {
  * codesign can add a different identifier. Plists/sidecars are not evidence. */
 export function assertAppleIdentity(app, executable, compatibilityId, shared = null) {
   const linked = read('otool', ['-L', executable]).stdout ?? '';
-  const runtime = shared ?? resolve(dirname(executable), 'Frameworks/ExactCore.framework/ExactCore');
-  const bytes = readFileSync(linked.includes('@rpath/ExactCore.framework/ExactCore') ? runtime : executable, 'utf8');
+  const runtime = shared ?? resolve(dirname(executable), existsSync(resolve(dirname(executable), 'Frameworks')) ? 'Frameworks/ExactCore.framework/ExactCore' : '../Frameworks/ExactCore.framework/ExactCore');
+  const bytes = readFileSync(/@rpath\/ExactCore\.framework\/(?:Versions\/A\/)?ExactCore/.test(linked) ? runtime : executable, 'utf8');
   const identities = [];
   for (const match of bytes.matchAll(/\{"id":"[0-9a-f]{32}","inputs":/g)) {
     let depth = 0, quoted = false, escaped = false;
@@ -681,7 +695,7 @@ async function main(args, lockHeld = false) {
   const gallery = process.env.EXACT_UPDATE_TRUST !== 'production' && !tv && (args.includes('--widget-gallery') || process.env.EXACT_WIDGET_GALLERY === '1');
   // An entry of either kind (a widget, a Live Activity) is the extension, the shared framework, the App Group and
   // the Keychain group (LLP 1126.001 WP13); tvOS has none of them.
-  const widgets = ios && !tv && hasEntries(app);
+  let widgets = !tv && (ios ? hasEntries(app) : platformWidgetEntries(app, 'macos').length > 0);
   const release = lockHeld ? () => {} : appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
@@ -690,13 +704,16 @@ async function main(args, lockHeld = false) {
   const gpuCrate = app.crate('gpu');
   const hasGpu = app.hasGpu;
   let ph, prof;
-  const sha1 = unsigned ? '-' : device ? (() => {
+  let sha1 = unsigned ? '-' : device ? (() => {
     ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined, { tv });
     // With entries, the app's profile is one that grants the group (and the extension's exists), refused here,
     // before anything is built, with the edit; the bundle takes both again with the grants' entitlements.
     prof = widgets ? entryProfiles({ app, udid: ph?.udid }).app : profile(ph?.udid, app.id);
     return identity(prof.team);
   })() : ios ? '-' : (distribution ? process.env.EXACT_DEVELOPER_ID : null) ?? macIdentity();
+  const macWidgets = !ios && widgets ? macWidgetSigning(app, sha1, { distribution }) : null;
+  if (!ios && widgets && !macWidgets) sha1 = null;
+  if (!ios) widgets = !!macWidgets;
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
   // What the presenter dlopens is the same name whatever the app is: one
   // Swift binary serves every app, and two apps' modules would otherwise
@@ -839,7 +856,7 @@ async function main(args, lockHeld = false) {
   // link's claim from here; with another app linking, or anything else, the build is as it was. It links the
   // capabilities that link did (`<product>.linked`), since this build's are known only once the bake ends.
   const sole = args.includes('--host') ? null : ios ? 'ExactIOS' : 'ExactMac';
-  const widgetCore = widgets ? prepareWidgetCore({ app, directory: resolve(pkg, '.build/widget-core'), swiftBuildRoot, swiftArgs, swiftc, triple: iosTripleFor(app, device, tv), device }) : null;
+  const widgetCore = widgets ? prepareWidgetCore({ app, directory: resolve(pkg, '.build/widget-core'), swiftBuildRoot, swiftArgs, swiftc, triple: moduleTripleFor(app, ios, device, tv), device, platform: ios ? 'ios' : 'macos' }) : null;
   const earlyEnv = (link = 'all') => ({ ...swiftEnv(expected.capture, expected.composition, link),
     ...(widgetCore && existsSync(resolve(widgetCore.xcframework, 'Info.plist')) ? { EXACT_CORE_FRAMEWORK: relative(pkg, widgetCore.xcframework) } : {}) });
   const early = (() => {
@@ -849,6 +866,7 @@ async function main(args, lockHeld = false) {
     try { was = JSON.parse(readFileSync(resolve(bin, `${sole}.linked`), 'utf8')); } catch { return null; }
     if (was.libDir !== expected.capture || was.lib !== crate.replace(/-/g, '_') || typeof was.link !== 'string' || !existsSync(resolve(bin, sole)) || !existsSync(resolve(expected.capture, `lib${was.lib}.a`))) return null;
     if (ios && !device && !existsSync(resolve(expected.scratch, `${sole}-entitlements.plist`))) return null;
+    if (was.plan && !existsSync(resolve(expected.scratch, 'plan/app.hbc'))) return null;
     let claim;
     try { claim = claimBuildOutput(app, expected.swiftLock); } catch { return null; }
     const step = startApple('swift', [...swiftArgs, ...entitledArgs(expected.scratch, sole), ...linkedPlanArgs(was.plan && resolve(expected.scratch, 'plan')), '--product', sole], resolve(webBuildDir, 'swift-compile.log'),
@@ -1180,10 +1198,10 @@ async function main(args, lockHeld = false) {
       writeFileSync(answer, swiftBinDir);
     }
     const archive = buildReceipt.products.find(made => made.path === resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`))?.sha256;
-    // The linked plan and compat.json, as the bake verified them, where this app alone links from (and its next early build).
-    const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id) : null;
+    // The linked plan, compat.json and bytecode, as the bake verified them, where this app alone links from (and its next early build).
+    const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id, readFileSync(resolve(buildReceipt.linkedPlan, 'app.hbc'))) : null;
     for (const p of products) {
-      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', '@executable_path/Frameworks'] : []), ...linkedPlanArgs(linkedPlan?.dir)];
+      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', ios ? '@executable_path/Frameworks' : '@executable_path/../Frameworks'] : []), ...linkedPlanArgs(linkedPlan?.dir)];
       let entitled = null;
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
@@ -1206,7 +1224,9 @@ async function main(args, lockHeld = false) {
       copyFileSync(resolve(swiftBinDir, p), executable);
       assertAppleIdentity(app, executable, bakedCompat.id, shared && resolve(shared.framework, 'ExactCore'));
       assertLinkedSdk(executable, designCompatible(app, ios ? 'ios' : 'macos') ? COMPATIBLE_SDK[ios ? 'ios' : 'macos'] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
-      assertCapabilityFrameworks(executable, gallery ? [...swiftCapabilities, 'ExactSnapshot'] : swiftCapabilities, gallery ? ['SwiftUI', 'WidgetKit'] : []);
+      // ExactNumerals uses SwiftUI only on iOS/tvOS; the Mac has no linked numerals presenter.
+      const launchCapabilities = ios ? swiftCapabilities : swiftCapabilities.filter(name => name !== 'ExactNumerals');
+      assertCapabilityFrameworks(executable, gallery ? [...launchCapabilities, 'ExactSnapshot'] : launchCapabilities, gallery ? ['SwiftUI', 'WidgetKit'] : []);
       if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
     }
   } finally { releaseSwift(); }
@@ -1256,6 +1276,7 @@ async function main(args, lockHeld = false) {
   const bin = resolve(binDir, paths.executable);
   const hostPaths = appleArtifacts(app, { destination, composition, trust: cargoEnv.EXACT_UPDATE_TRUST, host: true });
   const publishProducts = () => {
+    if (!ios && shared) publishMacFramework(shared.framework, paths.namespace, sha1);
     if (args.includes('--host')) {
       const hostStage = mkdtempSync(resolve(paths.namespace, '.host-'));
       cleanup.push(hostStage);
@@ -1269,7 +1290,7 @@ async function main(args, lockHeld = false) {
 
   const bundleTools = {runApple,appleArtifacts, macInfoPlist, copyAppleStaticTrees, writeUsageStrings, receipt, shippedReceipt, assertAppleIdentity, placeAppleArtifact, infoPlist, distributionKeys, copyAppleGpuProducts, entitlements};
   if (!ios) {
-    const bundlePath = assembleMac({appleReach, hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
+    const bundlePath = assembleMac({shared, macWidgets, triple: moduleTripleFor(app, ios, device, tv), appleReach, hasWeb, webLoadName, args, app, paths, binDir, libDir, bin, loadName, hasGpu, dylib, moduleDylibs, looseArms, hasSvg, svgLoadName, modulesLoadName, modulesBuilt, svgBuilt, canvasGpuLoadName, canvasGpuBuilt, sha1, linkRoot, swiftc, buildReceipt, development, bakedCompat, rosterKeys, production, distribution, stampSdk, products, composition, sdk, bakedPlan, cleanup}, bundleTools);
     publishProducts();
     release();
     rmSync(webBuildDir, { recursive: true, force: true });
@@ -1417,7 +1438,17 @@ async function test(args) {
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const args = guardFlags(['--ios', '--device', '--tvos', '--watchos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
   useXcode(); if (args.includes('--release')) process.env.EXACT_UPDATE_TRUST = 'production'; // the build that ships: Cargo's release profile, no development trust
-  (args.includes('--test') ? test(args) : main(args)).catch((error) => { console.error(error.message); process.exitCode = 1; });
+  (args.includes('--test') ? test(args) : main(args)).catch((error) => { console.error(error.rebuild ? `${error.message}: ${rebuildArgs(args)}` : error.message); process.exitCode = 1; });
+}
+
+/** This build's command, to run it again: an `exact new` app's `exact.mjs` verb (EXACT_APP_DIR, which that
+ * sets), else this script's. */
+export function rebuildArgs(args, dir = process.env.EXACT_APP_DIR) {
+  const quote = (a) => /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replaceAll("'", "'\\''")}'`;
+  if (!dir) return `bun host/apple/build.mjs ${args.map(quote).join(' ')}`;
+  const ios = ['--ios', '--device', '--tvos'].some((flag) => args.includes(flag));
+  const rest = args.filter((a) => a !== '--ios' && !(a.endsWith('-apple') && !a.startsWith('-')));
+  return [`(cd ${quote(dir)} && bun exact.mjs ${ios ? 'ios' : 'mac'}`, ...rest.map(quote)].join(' ') + ')';
 }
 
 /** The app's module composed with its packages' implementations (LLP 1133.001 D5): an adapter over each package's

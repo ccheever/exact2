@@ -13,13 +13,15 @@ import UIKit
 /// logs the touches it dispatched.
 public final class ExactWindow: UIWindow {
     public override func sendEvent(_ event: UIEvent) {
+        // Read before UIKit delivers the event: which lifts lost the view their touch began on (`TouchLog.viewGone`)
+        let gone = ExactEnv.agentMode && event.type == .touches ? TouchLog.viewGone(event) : []
         // Inspect mode takes every touch and press (InspectIOS.swift), and
         // knows the touches down when it begins. (It reached this window,
         // so the agent's touch log still has it.)
         #if EXACT_INSPECT && os(iOS)
         InspectHost.see(event)
         if Inspect.on || InspectHost.owning, InspectHost.take(event, in: self) {
-            if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self) }
+            if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self, gone: gone) }
             return
         }
         #endif
@@ -33,7 +35,7 @@ public final class ExactWindow: UIWindow {
             HeldState.input(at: touch.view) // a contact on a held node, or in it, lets its hold go (HeldState.swift)
         }
         super.sendEvent(event)
-        if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self) }
+        if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self, gone: gone) }
     }
 }
 
@@ -52,6 +54,25 @@ enum TouchLog {
     /// read inside a held touch waits for that (`touches.mjs`).
     nonisolated(unsafe) static var reached: Set<Int> = []
     static let capacity = 256
+    /// The touches down that began on a view (`viewGone`), held weakly: a cancelled touch never lifts here
+    nonisolated(unsafe) static let viewed = NSHashTable<UITouch>.weakObjects()
+
+    /// The lifts in `event` whose touch began on a view and has none now, read before the window delivers the event:
+    /// the view left the window first (a list cell's detail button UIKit rebuilds while it loads its accessibility), so
+    /// it never has the lift. A view UIKit removes as it handles a lift (a switch's lens) still has the touch then, and a
+    /// touch a system recognizer takes has no view from the start.
+    static func viewGone(_ event: UIEvent) -> Set<UITouch> {
+        var gone: Set<UITouch> = []
+        for touch in event.allTouches ?? [] {
+            if touch.phase == .began, touch.view != nil {
+                viewed.add(touch)
+            } else if touch.phase == .ended, viewed.contains(touch) {
+                viewed.remove(touch)
+                if touch.view == nil { gone.insert(touch) }
+            }
+        }
+        return gone
+    }
 
     /// Outside a scroll view a view's `touchesBegan` runs inside the
     /// window's `sendEvent`, before `record` sees the touch: either names it.
@@ -67,7 +88,7 @@ enum TouchLog {
         return nextTouch
     }
 
-    static func record(_ event: UIEvent, in window: UIWindow) {
+    static func record(_ event: UIEvent, in window: UIWindow, gone: Set<UITouch>) {
         for touch in event.allTouches ?? [] {
             let phase: String
             switch touch.phase {
@@ -86,6 +107,7 @@ enum TouchLog {
             // A touch a system recognizer takes (iOS 26's tab bar selects with
             // one on the window) has no view: where the window's hit test put it.
             for (key, value) in landing(touch.view ?? window.hitTest(p, with: nil)) { entry[key] = value }
+            if gone.contains(touch) { entry["viewGone"] = true }
             entries.append(entry)
             if entries.count > capacity { entries.removeFirst(); dropped += 1 }
         }
@@ -138,8 +160,8 @@ extension Agent {
         if nav.tabController != nil, !nav.tablistAppearanceNone, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
             return "is in the authored tablist \(shown) UIKit's tab bar"
         }
-        for controller in nav.allNavigations where nav.stacks[ObjectIdentifier(controller)]?.showsBar == true {
-            for case let route as RouteController in controller.viewControllers {
+        for routes in nav.barStackRoutes {
+            for case let route as RouteController in routes {
                 guard let shape = HeaderShape.bar(of: route.node) else { continue }
                 let replaced = shape.authored.isEmpty ? [shape.header] : shape.placed
                 if replaced.contains(where: { v === $0 || v.isDescendant(of: $0) }) {

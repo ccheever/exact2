@@ -129,6 +129,24 @@ fn layout_json_is_the_agent_api_shape() {
         &l[..200]
     );
     assert_eq!(l.matches("\"sx\":").count(), 1, "one scroll container");
+    // Its range (LLP 1012 `rx`/`ry`): the stations scroll down, not sideways, as far as a long wheel takes them
+    let reply: serde_json::Value = serde_json::from_str(&l).unwrap();
+    let scroller = reply["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n.get("sx").is_some())
+        .unwrap();
+    assert_eq!(scroller["rx"], 0, "{scroller}");
+    let ry = scroller["ry"].as_f64().unwrap();
+    assert!(ry > 0.0, "{scroller}");
+    let id = scroller["id"].as_u64().unwrap() as u32;
+    let _ = p.wheel(id, 0.0, 100_000.0);
+    assert_eq!(
+        p.scroll_of(id).1 as f64,
+        ry,
+        "the wheel stops at the end of the range"
+    );
     assert!(!l.contains("planDigest"));
     let id = p.host().runner().roots()[0];
     let plain: serde_json::Value = serde_json::from_str(&p.layout_json(Some(id), false)).unwrap();

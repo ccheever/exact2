@@ -20,16 +20,43 @@ final class PreparedPath {
     }
 }
 
-/// A CSS animation spec's lowered parts, carried under "#" in the spec: its
-/// signature (what `CssAnimations.apply` keeps an unchanged one by), and the
-/// keyframe animation's values, key times and timing functions.
-final class PreparedAnimation {
+private func num(_ v: Any?) -> Double { (v as? NSNumber)?.doubleValue ?? 0 }
+
+/// A CSS animation spec as `CssAnimations` plays it (LLP 1055 D7), read from
+/// the batch's dictionary once, on the owner as the batch is decoded
+/// (`SvgPrepare`), and kept for the agent clock's re-seek: kept as the
+/// dictionary, each animated box held about 1 KB.
+struct CssAnimation {
+    let id: String
+    /// The key path's name: a box's (`opacity`, `transform.scale`, …) or a
+    /// shape's (`fillColor`, `path`, `r`).
+    let key: String
+    /// What `CssAnimations.apply` keeps an unchanged one by.
     let signature: Int
-    let values: [Any]
-    let keyTimes: [NSNumber]
-    let timing: [CAMediaTimingFunction]?
-    init(signature: Int, values: [Any], keyTimes: [NSNumber], timing: [CAMediaTimingFunction]?) {
-        self.signature = signature; self.values = values; self.keyTimes = keyTimes; self.timing = timing
+    /// The keyframe animation's values, key times and timing functions.
+    let values: [Any], keyTimes: [NSNumber], timing: [CAMediaTimingFunction]?
+    let duration: Double, repeatCount: Double, fill: Int, start: Double, delay: Double
+    /// The local time an authored pause holds it at, in seconds.
+    let held: Double?
+
+    /// An SVG element's spec carries its reading under "#" (`SvgPrepare.spec`).
+    init?(_ spec: [String: Any]) {
+        if let read = spec["#"] as? CssAnimation { self = read; return }
+        guard let id = spec["id"] as? String else { return nil }
+        self.id = id
+        key = spec["k"] as? String ?? ""
+        var h = Hasher()
+        CssAnimations.digest(spec, into: &h)
+        signature = h.finalize()
+        (values, keyTimes, timing) = CssAnimations.lowered(spec)
+        duration = num(spec["d"]); repeatCount = num(spec["n"]); fill = Int(num(spec["fill"]))
+        start = num(spec["s"]); delay = num(spec["dl"])
+        held = (spec["h"] as? NSNumber)?.doubleValue
+    }
+
+    /// A list as an op or an element carries it: read, or dictionaries.
+    static func list(_ value: Any?) -> [CssAnimation] {
+        value as? [CssAnimation] ?? (value as? [[String: Any]] ?? []).compactMap(CssAnimation.init)
     }
 }
 
@@ -51,7 +78,7 @@ extension Batch {
                 }
             case .animations:
                 if let specs = ops[i].payload["specs"] as? [[String: Any]] {
-                    ops[i].payload["specs"] = specs.map(SvgPrepare.spec)
+                    ops[i].payload["specs"] = specs.compactMap(CssAnimation.init)
                 }
             default: break
             }
@@ -77,14 +104,12 @@ enum SvgPrepare {
         return e
     }
 
-    /// One CSS animation spec with its lowered parts under "#".
+    /// One CSS animation spec with its reading under "#": the scene's
+    /// readers (`SvgFilterLive`) look at the element's dictionaries.
     static func spec(_ spec: [String: Any]) -> [String: Any] {
-        guard spec["#"] == nil else { return spec }
+        guard spec["#"] == nil, let read = CssAnimation(spec) else { return spec }
         var out = spec
-        var h = Hasher()
-        CssAnimations.digest(spec, into: &h)
-        let (values, keyTimes, timing) = CssAnimations.lowered(spec)
-        out["#"] = PreparedAnimation(signature: h.finalize(), values: values, keyTimes: keyTimes, timing: timing)
+        out["#"] = read
         return out
     }
 }

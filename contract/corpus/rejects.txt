@@ -842,6 +842,15 @@ component App
   view
     text "home"
 ---
+== type-haptic
+component App
+  state big = false
+  action buzz
+    haptic(big ? "heavy" : "impact-light")
+  view
+    button press=buzz
+      text "Buzz"
+---
 == analyze-routes-not-root
 routes nav
   home "/"

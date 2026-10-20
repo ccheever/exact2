@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chromium } from '../../scripts/agent-launch.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -69,7 +70,7 @@ if (process.argv.includes('--chrome')) {
   const page = resolve(dir, 'cases.html');
   const fns = cases.map((c) => `[${JSON.stringify(c.name)}, ${caseSource(c)}]`).join(',\n');
   writeFileSync(page, `<pre id=o></pre><script>const r=[${fns}].map(([n,f])=>({name:n,fail:f(document.createElement('canvas').getContext('2d',{colorSpace:/\(display-p3\)$/.test(n)?'display-p3':'srgb'}))}));document.getElementById('o').textContent=JSON.stringify(r)</script>`);
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const chrome = chromium().executable;
   const r = spawnSync(chrome, ['--headless=new', '--disable-gpu', `--user-data-dir=${resolve(dir, 'profile')}`, '--dump-dom', `file://${page}`], { encoding: 'utf8', timeout: 60000 });
   rmSync(dir, { recursive: true, force: true });
   const json = r.stdout.match(/<pre id="o">(.*)<\/pre>/s)?.[1]?.replace(/&quot;/g, '"').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');

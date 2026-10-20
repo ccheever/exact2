@@ -78,7 +78,7 @@ pub(crate) fn emit(
     let mut assets = asset_cards(app, out, manifest)?;
     let (widget_assets, plans) = crate::widgets::emit(
         out,
-        platform == "ios" && app.join("app.ts").is_file(),
+        matches!(platform, "ios" | "macos") && app.join("app.ts").is_file(),
         entries,
     )?;
     assets.extend(widget_assets);

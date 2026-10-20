@@ -20,6 +20,10 @@
 //   {"op":"foreground"}          → {"state":"runningForeground"|…}
 //   {"op":"orientation","to":O}  turns the device (portrait, portraitUpsideDown,
 //                                landscapeLeft, landscapeRight) → {"device":O}
+//   {"op":"springboard","action":"home"|"lock"|"tap"|"hold"|"swipe"|"tree"|"find",
+//    "point":[x,y]?,"to":[x,y]?,"seconds":s?,"label":exactLabel?}
+//                                → {"done":true}, {"tree":snapshot} or {"elements":[snapshot,…]}
+//                                snapshot: label, identifier, type, frame [x,y,w,h], children
 //   {"op":"quit"}                ends the test
 // A tap's `screen`, the same point in the screen's fixed, portrait space,
 // sends it through XCTest's own event synthesizer (`Synthesizer`), and a
@@ -28,7 +32,8 @@
 // its time. Without them, or when that SPI is missing or refuses the touch,
 // the public `XCUICoordinate` call makes it; one the synthesizer has not
 // finished in time fails, never played again.
-// It never launches, activates or terminates the app: the driver launched it.
+// SpringBoard archive operations (LLP 1126.001 WP14) use the same session.
+// It never launches, activates or terminates the app: the driver owns its lifecycle.
 import XCTest
 import UIKit
 import Foundation
@@ -59,9 +64,15 @@ final class ExactTouches: XCTestCase {
             guard let req = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any], let op = req["op"] as? String else {
                 session.send(["error": "unreadable request"]); continue
             }
+            // Socket reads block this run loop. Deliver pending lifecycle notifications before
+            // XCTest reads app state, including a fresh launch after Home or the Lock Screen.
+            for _ in 0..<64 { if CFRunLoopRunInMode(.defaultMode, 0, true) != .handledSource { break } }
             // Fresh each request: the app is launched after the runner starts.
             let target = XCUIApplication(bundleIdentifier: app)
             switch op {
+            case "springboard":
+                do { session.send(try Self.springboard(req)) }
+                catch { session.send(["error": String(describing: error)]) }
             case "foreground":
                 session.send(["state": Self.name(target.state)])
             case "tap":
@@ -121,6 +132,39 @@ final class ExactTouches: XCTestCase {
         case .notRunning: return "notRunning"
         default: return "unknown"
         }
+    }
+
+    static func springboard(_ request: [String: Any]) throws -> [String: Any] {
+        let spring = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        func refuse(_ why: String) -> NSError { NSError(domain: "ExactTouches", code: 1, userInfo: [NSLocalizedDescriptionKey: why]) }
+        func point(_ key: String) throws -> XCUICoordinate {
+            guard let xy = request[key] as? [Double], xy.count == 2, xy.allSatisfy(\.isFinite) else { throw refuse("SpringBoard needs a finite \(key)") }
+            return spring.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: xy[0], dy: xy[1]))
+        }
+        func tree(_ node: any XCUIElementSnapshot) -> [String: Any] {
+            let frame = node.frame
+            return ["label": node.label, "identifier": node.identifier, "type": node.elementType.rawValue,
+                    "frame": [frame.minX, frame.minY, frame.width, frame.height], "children": node.children.map(tree)]
+        }
+        switch request["action"] as? String {
+        case "home": XCUIDevice.shared.press(.home)
+        case "lock":
+            let selector = NSSelectorFromString("pressLockButton")
+            guard XCUIDevice.shared.responds(to: selector) else { throw refuse("this XCTest has no pressLockButton for the locked archive read") }
+            _ = XCUIDevice.shared.perform(selector)
+        case "tap": try point("point").tap()
+        case "hold":
+            guard let seconds = request["seconds"] as? Double, seconds.isFinite, seconds > 0, seconds <= 5 else { throw refuse("SpringBoard hold needs seconds in 0...5") }
+            try point("point").press(forDuration: seconds)
+        case "swipe": try point("point").press(forDuration: 0.1, thenDragTo: point("to"))
+        case "tree": return ["tree": tree(try spring.snapshot())]
+        case "find":
+            guard let label = request["label"] as? String else { throw refuse("SpringBoard find needs an exact label") }
+            let elements = spring.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).allElementsBoundByIndex
+            return ["elements": try elements.map { tree(try $0.snapshot()) }]
+        default: throw refuse("unknown SpringBoard action")
+        }
+        return ["done": true]
     }
 }
 

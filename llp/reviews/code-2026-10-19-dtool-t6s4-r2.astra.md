@@ -1,0 +1,29 @@
+# Code review: the design tool drops the canvas grant on C2's entry word, round 2, 2026-10-19 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via the Codex CLI, reasoning effort max, read-only sandbox, a throwaway worktree at `28db96bfb5`.
+- **Method:** one brief (sha256 `fdbc5d71d4f2844e3f2ddc9ff38bf7ba4ff10fbb44a9dd4235f02e5b902b9cf8`), the plan inline, shared by both reviewers, blind to the other review, with a security pass; commit 28db96bfb5 (round 1's fixes). The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** no blocker (3 SHOULD-FIX, 1 NIT).
+- **Disposition:** taken in `927178760a`: the source check no longer needs the DOM (hidden from the data module in the shipped build): the word counts only from a direct frame of this page (`source.parent === source.top`, `source !== source.top`), so a window the canvas opened (its own top) or a frame inside the canvas is refused, and no source is refused (Astra 1, Grok 2); one mint a key, a second ask sharing the first, and a mint a newer ask overtook answered without its grant and kept nowhere (Astra 2, 3; Grok 1); the poll waits for the canvas to settle before it spends the key's budget (Astra 4); the listener exported for tests, which now give it real sources (a popup, a nested frame, none).
+
+**Nothing blocks this staged commit. Three SHOULD-FIX findings and one NIT remain.** Reviewed `28db96bfb5` against `4bcd6789bd`, including both round 1 records and their disposition.
+
+1. **SHOULD-FIX — The iframe source check is bypassed in the shipped JS build.** [pairing.ts:54](/tmp/rv-dt-t6s4r2/apps/design-tool/pairing.ts:54) accepts the word when `shown` is absent. This is the normal execution path: [build.mjs:552](/tmp/rv-dt-t6s4r2/host/web-js/build.mjs:552) injects `appGlobal` for this module’s `globalThis`, and [ts-fetch.js:183](/tmp/rv-dt-t6s4r2/host/web-js/ts-fetch.js:183) hides `document`. An in-memory probe using that actual proxy confirmed zero iframe lookups and acceptance of another window’s message.
+
+   A canvas-origin popup that retained the tool’s window reference can acknowledge a newly minted grant before its POST completes. A same-origin nested frame, opener, or another tab **with a reference to the tool** can do likewise. The next poll substitutes `/`, potentially aborting entry. Other origins still fail the exact origin check. The framed app itself also passes; after genuine entry, that acknowledgement is harmless. This permits entry disruption, not grant disclosure or session creation. Move source validation to a context that can access the mounted iframe, and reject when its identity cannot be established.
+
+2. **NIT — An overtaken mint’s grant survives in the TypeScript answer cache.** [pairing.ts:84](/tmp/rv-dt-t6s4r2/apps/design-tool/pairing.ts:84) prevents an older, different-key mint from replacing `minted`, but the following return still exposes its grant-bearing answer to the runtime. [ts-data.js:397](/tmp/rv-dt-t6s4r2/host/web-js/ts-data.js:397) converts and caches that answer before the resource checks its ticket; [the cache](/tmp/rv-dt-t6s4r2/host/web-js/ts-data.js:115) retains it.
+
+   Start A, complete B, acknowledge B and clean its URL, then finish A. The visible resource remains clean, but the conversion cache holds A’s unused grant indefinitely until another answer replaces it. This sequence reproduced in memory. Return a grant-free discarded answer for an overtaken mint. This is private retention, not exposure through agent state or the iframe.
+
+3. **SHOULD-FIX — Reload can mint twice for the same key, and the older reply can restore a grant after cleanup.** At [app.contract:690](/tmp/rv-dt-t6s4r2/apps/design-tool/app.contract:690), changing the tick asks `canvasIn` asynchronously while its previous `entered: true` remains available. Consequently, `canvasAt` first calls `loadCanvas` with the new key and `true`, then calls it again when `canvasIn` settles to `false`.
+
+   [pairing.ts:77](/tmp/rv-dt-t6s4r2/apps/design-tool/pairing.ts:77) caches only completed mints; it does not share an in-flight request. Both calls mint, and both satisfy `asked === key`. A controlled source probe produced two grants for one Reload. Completing and acknowledging the newer reply, then completing the older reply, restored `minted.frame`’s grant while `entered` remained true. Share the in-flight mint per key and distinguish request identity when rejecting obsolete completions. The new different-key test does not cover this ordering.
+
+4. **SHOULD-FIX — The new key’s poll budget can be consumed before its canvas mounts.** [watchCanvas:825](/tmp/rv-dt-t6s4r2/apps/design-tool/app.contract:825) checks `pending(canvasIn)` but not `pending(canvasAt)`. After Reload or an epoch change from an unacknowledged canvas, `canvasAt` retains the previous grant URL while the new mint waits. Polls therefore consume the new key’s budget against that stale URL.
+
+   For example, a mint taking 12 seconds can consume roughly 12 polls before mounting. If the server creates the grant near its reply and entry succeeds 29 seconds later, entry is within the grant’s lifetime but beyond the remaining polling window; the word cannot clean contract state or `src`. Arm polling only once `canvasAt` represents the current key and has settled. The counter expression itself correctly yields 40 firings per new key, including a new epoch.
+
+The tests at [design-tool-scope.test.mjs:144](/tmp/rv-dt-t6s4r2/scripts/design-tool-scope.test.mjs:144) exercise direct source calls without the shipped global binding or reactive resource ordering. They also finish the obsolete mint before acknowledging entry, missing finding 2.
+
+Read-only review with isolated in-memory source probes. No files changed, builds, or test suites run; resource/timer integration was assessed from source.

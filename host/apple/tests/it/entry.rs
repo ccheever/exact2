@@ -5,6 +5,7 @@ use crate::host::{handles, out, put};
 
 fn entry_plan() -> Vec<u8> {
     let widget = contract::Widget {
+        requires_secrets: false,
         kind: "card".into(),
         title: None,
         description: None,

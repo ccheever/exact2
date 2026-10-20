@@ -1,0 +1,23 @@
+# Code review: Stage 11 C2: the Android reader held to the Material column, round 1, 2026-10-19 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra via `codex exec`, reasoning effort max, read-only sandbox, a throwaway worktree at `dc8d3172ea`.
+- **Method:** one brief (sha256 `36114ba112db6562f804baa9d6a11328b126fdcacd6fb6cf7510dae6df09c623`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** four P2s (the page's top quantized, every reader radius ~0.5 pt low; the reader ran its APK's bake, which could be stale or another plan; side insets; the fixture app's symlinks under core.symlinks=false), one P3 (§10's accuracy line)
+- **Disposition:** all taken in 365e628374: the compiled plan pushed to unsaid's APK (no fixture app), the page's top to the fraction of a pixel, a page offset across refused, §10 updated; theme2's 16:55 ruling accepted the plan push
+
+I would fix findings 1 and 2 before accepting C2’s Android result.
+
+1. **P2 — `pageTop` quantizes a fractional edge and biases every radius.** [scale-check.mjs:179](/tmp/rv-s11c2r-1/scripts/scale-check.mjs:179) anchors the box at the first qualifying pixel row. In the existing Android PNG, that is row 244, but the preceding row has 37.65% blue coverage: the edge is approximately **243.624 px**. Re-fitting those same pixels with the fractional edge changes **3.7/7.6/11.5/15.5/19.4 pt** to approximately **4/8/12/16/20 pt**. The reported deficit is explained by calibration error; the screenshot supports correct renderer radii. Preserve fractional edge coverage when calculating the offset. The new test uses integer-aligned square boxes and misses this case.
+
+2. **P2 — Android can pass while running an older or different plan.** [scale-check.mjs:259](/tmp/rv-s11c2r-1/scripts/scale-check.mjs:259) discards the freshly compiled plan and launches only `--reader --app`. For example, changing `r-sm` to `radius.lg` without rebuilding the APK can still pass against its old pixels. The APK has no effective freshness check: missing dep-info produces an empty change list. Contrary to the README table and new explanation, [readerDeploy already supports local `--plan`](/tmp/rv-s11c2r-1/scripts/agent-android.mjs:149), pushes it, and forwards `EXACT_PLAN`. Pass the compiled plan alongside the app, or verify that the baked plan matches it. Requiring a nonempty `--app` alone does not establish that correspondence.
+
+3. **P2 — Side insets invalidate both scale and horizontal coordinates.** [scale-check.mjs:190](/tmp/rv-s11c2r-1/scripts/scale-check.mjs:190) adds only a vertical correction while retaining `image.width / layout.viewport.w`. The reader genuinely supports a nonzero page-left offset: [fit_window](/tmp/rv-s11c2r-1/host/linux/src/presenter/window.rs:126) subtracts left/right bars and cutouts, and Kotlin places the view there. In landscape, screenshot width therefore includes pixels outside the page, inflating the inferred density and sampling the wrong columns. Use the page rectangle and actual density, or explicitly reject unsupported geometry. The added test has neither side insets nor a horizontal offset.
+
+4. **P2 — The new app symlinks break corpus checks when Git materializes links as text.** [app.contract:1](/tmp/rv-s11c2r-1/apps/scale-fixture/app.contract:1) is the first symlinked app entry under `apps/`. With `core.symlinks=false`, including Windows checkouts configured that way, the formatter, lint and compilation sweeps read the pathname text as Contract source and fail. Existing conformance symlinks do not establish precedent for those app sweeps. Keep ordinary files at the app entry points, or establish an explicit symlink requirement before these readers run.
+
+5. **P3 — §10’s accuracy statement contradicts the Android row.** [The new row](/tmp/rv-s11c2r-1/llp/1121-tamber.rfc.md:4699) differs by up to 0.6 pt, while the preceding sentence still says every host’s corners were within 0.2 pt. Update that statement and the baked-plan explanation when addressing findings 1–2.
+
+On this checkout, the links resolve correctly: compilation finds the design, app identity remains the fixture’s, and release capture includes the linked targets. The Android crate matches Unsaid’s model, including its accurate Hello-data comments. Caps excludes `.contract`/`.tamber`; the app corpus readers follow them. For this fixture, the long uninterrupted `r-sm` center run rejects the thin focus ring and status-bar marks, and retaining the initial expectations across phases is appropriate.
+
+No files changed, builds or tests run. The numerical analysis used the already-existing Android screenshot.

@@ -3,8 +3,9 @@
 //! again; a host that cannot say keeps the size its view reports.
 
 use exact_kernel::{
-    AlignItems, Display, FlexDirection, Kernel, MonospaceMeasurer, NodeType, Offer, Op, PropId,
-    PropValue, StyleId, StyleProps, SymbolRequest, TextMeasureRequest, TextMeasurer, TextMetrics,
+    AlignItems, Display, FlexDirection, HostCover, Kernel, MonospaceMeasurer, NodeType, Offer, Op,
+    PropId, PropValue, StyleId, StyleProps, SymbolRequest, TextMeasureRequest, TextMeasurer,
+    TextMetrics,
 };
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -125,6 +126,24 @@ fn the_first_layout_has_the_symbols_box() {
     // A portable role is asked by its role: the host knows its own name for it
     let mut kernel = tree(symbols().0, "symbol:settings", 10.0);
     assert_eq!(size(&mut kernel), (12.0, 10.0));
+}
+
+/// A symbol in a box covered whole (a closed popover: `display: none`) is
+/// not measured until a layout places it, so one a UIKit menu shows never is.
+#[test]
+fn a_covered_symbol_is_measured_once_its_box_is_given_back() {
+    let (measurer, asked) = symbols();
+    let mut kernel = tree(measurer, "symbol:sf/gear", 20.0);
+    kernel.set_host_cover(2, Some(HostCover::Whole)).unwrap();
+    assert_eq!(size(&mut kernel), (0.0, 0.0));
+    assert!(asked.borrow().is_empty(), "not measured while covered");
+    kernel.set_host_cover(2, None).unwrap();
+    assert_eq!(
+        size(&mut kernel),
+        (24.0, 20.0),
+        "measured before the layout that places it"
+    );
+    assert_eq!(asked.borrow().len(), 1);
 }
 
 #[test]
