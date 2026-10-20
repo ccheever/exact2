@@ -237,8 +237,8 @@ theme
     when density=roomy tone=loud: calc(space.md * 3)
     when density=tight tone=loud: calc(space.sm * 3)
   covered = calc(space.xl * 2)
-    when density=roomy: 1px
-    when density=tight: 2px
+    when density=roomy: calc(space.xs * 5)
+    when density=tight: calc(space.xs * 6)
   neg = calc(space.md * -1)
   gap.m = max(space.sm, 12px)
   edge = 4px
