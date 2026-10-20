@@ -323,13 +323,15 @@ extension Agent {
         // control as it lifts. Measured with real touches (iOS 27
         // simulator, Shelf's discover list): 200 points past the top
         // refreshes, 180 does not.
-        let pull = CGFloat(delta[1]) - (o.y + sv.adjustedContentInset.top)
         var refreshed = false
+        #if os(iOS)
+        let pull = CGFloat(delta[1]) - (o.y + sv.adjustedContentInset.top)
         if scrollsY, pull >= 200, let control = sv.refreshControl, control.isEnabled, !control.isRefreshing {
             control.beginRefreshing()
             control.sendActions(for: .valueChanged)
             refreshed = true
         }
+        #endif
         presenter.settlePump()
         return ["tapped": Int(v.id), "at": [Agent.r2(start.x), Agent.r2(start.y)], "scrolledBy": [Agent.r2(by.x - o.x), Agent.r2(by.y - o.y)],
                 "delivery": "recognized", "native": "scroll", "refreshed": refreshed]
