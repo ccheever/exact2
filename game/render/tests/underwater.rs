@@ -297,7 +297,10 @@ fn the_recipe_frame_trips_no_tell_in_a_look_frame() {
     let look: serde_json::Value = serde_json::from_str(&reply).unwrap();
     let look = &look["look"];
     let mean = look["mean"].as_f64().unwrap() as f32;
-    eprintln!("underwater look frame at 500 ms: mean {mean:.4}, tells {}", look["tells"]);
+    eprintln!(
+        "underwater look frame at 500 ms: mean {mean:.4}, tells {}",
+        look["tells"]
+    );
     assert!(BAND.contains(&mean), "{look}");
     assert_eq!(look["tells"], serde_json::json!([]), "{look}");
     assert_eq!(look["gaps"], serde_json::json!([]), "{look}");
