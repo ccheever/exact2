@@ -12,10 +12,31 @@ pub struct FontFace {
     pub declared: String,
     /// The face's file, relative to the app.
     pub source: String,
-    /// Its weight.
-    pub weight: u16,
+    /// Its weights, low and high; one weight is both (LLP 1019 D2).
+    pub weight: [u16; 2],
+    /// Its widths in tenths of a percent, low and high.
+    pub stretch: [u16; 2],
     /// Whether it is italic.
     pub italic: bool,
+}
+
+impl FontFace {
+    /// `@font-face`'s `font-weight` descriptor: one weight, or a range.
+    pub fn weight_css(&self) -> String {
+        match self.weight {
+            [low, high] if low == high => low.to_string(),
+            [low, high] => format!("{low} {high}"),
+        }
+    }
+
+    /// `@font-face`'s `font-stretch` descriptor: one width, or a range.
+    pub fn stretch_css(&self) -> String {
+        let percent = |tenths: u16| format!("{}%", exact_num::Shortest(f64::from(tenths) / 10.0));
+        match self.stretch {
+            [low, high] if low == high => percent(low),
+            [low, high] => format!("{} {}", percent(low), percent(high)),
+        }
+    }
 }
 
 pub(super) fn font_names(plan: &Plan) -> Vec<String> {
@@ -84,7 +105,8 @@ pub fn font_faces(plan: &Plan) -> Vec<FontFace> {
                 family: name.clone(),
                 declared: plan.str(family.name).to_string(),
                 source: plan.str(face.source).to_string(),
-                weight: face.weight,
+                weight: [face.weight, face.weight_max],
+                stretch: [face.stretch_min, face.stretch_max],
                 italic: face.italic,
             });
         }
@@ -106,8 +128,9 @@ pub(super) fn font_catalog(faces: &[FontFace]) -> String {
         crate::batch::quote(&face.source, &mut out);
         let _ = write!(
             out,
-            ",\"weight\":{},\"style\":\"{}\"}}",
-            face.weight,
+            ",\"weight\":\"{}\",\"stretch\":\"{}\",\"style\":\"{}\"}}",
+            face.weight_css(),
+            face.stretch_css(),
             if face.italic { "italic" } else { "normal" }
         );
     }

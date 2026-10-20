@@ -57,7 +57,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         let (Some(strings), Some(base)) = (strings.as_ref(), base) else {
             let table = strings.as_ref().map_or_else(
                 || "the app has no strings/ directory".to_string(),
-                |s| format!("strings/{}.json has no \"{}\"", s.base, grant.purpose),
+                |s| format!("strings/{}.json has no \"{}\": add `\"{}\": \"…\"`, the text the person is shown when asked", s.base, grant.purpose, grant.purpose),
             );
             errors.push(format!(
                 "grant-purpose: `device.{} {}` names its purpose by strings key (LLP 1060), and {table}",

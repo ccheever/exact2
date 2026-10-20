@@ -1029,12 +1029,23 @@ public extension ExactEnv {
     /// sees them, their items pressing the authored controls they stand for.
     /// The default paints the authored header and tablist in their place.
     static let agentChrome = environment["EXACT_AGENT_CHROME"] ?? "agent"
+    /// Whether a driver can reach this launch. On iOS it is named by
+    /// `EXACT_AGENT_SOCKET` or `EXACT_AGENT_CONNECT` (`Agent.startSocket`);
+    /// the Mac's driver owns stdio. An iOS launch with `EXACT_AGENT=1` and
+    /// neither, as a grader's `simctl launch` arming only the fault table
+    /// (`EXACT_AGENT_FAIL_FETCH`) is, has no driver to read painted chrome:
+    /// it shows what a person sees.
+    #if os(iOS) || os(tvOS)
+    static let agentDriven = agentMode && (environment["EXACT_AGENT_SOCKET"] != nil || environment["EXACT_AGENT_CONNECT"] != nil)
+    #else
+    static let agentDriven = agentMode
+    #endif
     /// Whether the authored header and tablist paint instead of UIKit's
     /// bars: the agent's default chrome.
-    static let authoredChrome = agentMode && agentChrome != "platform"
+    static let authoredChrome = agentDriven && agentChrome != "platform"
     /// Whether the agent paints the popovers a person sees as UIKit's
     /// menus (LLP 1021 D4). `EXACT_AGENT_PRESENTATION=native`, which
     /// `--touch platform` launches with (LLP 1080.000 D7), shows UIKit's:
     /// a real touch opens one and picks its item.
-    static let agentPaints = agentMode && environment["EXACT_AGENT_PRESENTATION"] != "native"
+    static let agentPaints = agentDriven && environment["EXACT_AGENT_PRESENTATION"] != "native"
 }

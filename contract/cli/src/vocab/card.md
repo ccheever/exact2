@@ -184,7 +184,7 @@ test "a pick survives a relaunch"
   expect text "n" == "1"
 ```
 ### composing a screen
-One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, filtering live. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
+One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search: `input type="search"` in the `header`, filtered live. A form is a grouped list (`grouped-form`); no rows, an `EmptyState`, its `button` indented under it.
 ```contract
 use SummaryCard from "exact:content"
 column gap=16 padding=16

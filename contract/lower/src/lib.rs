@@ -34,6 +34,7 @@ mod edits;
 mod error;
 pub mod expr;
 mod fields;
+mod font_axes;
 mod fonts;
 mod grouped;
 mod handlers;
@@ -253,6 +254,8 @@ pub(crate) struct Lowerer<'a> {
 #[derive(Debug, Clone)]
 struct DeclaredFont {
     stack: StacksId,
+    /// Each face's heaviest weight (a variable face's range reaches it) and
+    /// whether it is italic.
     faces: Vec<(u16, bool)>,
 }
 

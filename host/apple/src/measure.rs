@@ -47,6 +47,8 @@ pub struct CRun {
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits: 1 is `tabular-nums` (LLP 1053 G4).
     pub font_variant_numeric: u8,
+    /// CSS `font-stretch`, percent of normal width (LLP 1019 D8).
+    pub font_stretch: f32,
 }
 
 /// One request, as the callback sees it.
@@ -160,8 +162,15 @@ pub struct CFontFace {
     pub source_len: usize,
     /// Plan stack id.
     pub stack: u16,
-    /// CSS weight; with an empty source, 0 names a local family and 1 a generic.
+    /// CSS weight, or the low end of a variable face's range; with an empty
+    /// source, 0 names a local family and 1 a generic.
     pub weight: u16,
+    /// The weight range's high end; `weight` for one weight.
+    pub weight_max: u16,
+    /// Widths in tenths of a percent, low and high; 1000 is normal.
+    pub stretch_min: u16,
+    /// The width range's high end.
+    pub stretch_max: u16,
     /// 1 for italic.
     pub italic: u8,
 }
@@ -204,6 +213,9 @@ pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *m
                     source_len: 0,
                     stack: stack_index as u16,
                     weight: u16::from(family.is_none()),
+                    weight_max: u16::from(family.is_none()),
+                    stretch_min: 1000,
+                    stretch_max: 1000,
                     italic: 0,
                 });
             }
@@ -218,6 +230,9 @@ pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *m
                         source_len: source.len(),
                         stack: stack_index as u16,
                         weight: face.weight,
+                        weight_max: face.weight_max,
+                        stretch_min: face.stretch_min,
+                        stretch_max: face.stretch_max,
                         italic: u8::from(face.italic),
                     });
                 }
@@ -254,6 +269,9 @@ pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *m
             source_len: 0,
             stack: *stack,
             weight: u16::from(generic),
+            weight_max: u16::from(generic),
+            stretch_min: 1000,
+            stretch_max: 1000,
             italic: 0,
         });
     }
@@ -325,6 +343,7 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
         line_height: style.line_height.unwrap_or(0.0),
         letter_spacing: style.letter_spacing,
         font_variant_numeric: style.font_variant_numeric,
+        font_stretch: style.font_stretch,
     }
 }
 

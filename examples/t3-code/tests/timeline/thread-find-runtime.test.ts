@@ -113,8 +113,8 @@ test('file, citation and skill faces paint the displayed label while preserving 
   for (const name of ['FileChipFace', 'CitationContextChip', 'ChipFace']) {
     const face = contractComponent('markdown.contract', name);
     const scope = { run, label, chip: { kind: 'skill', label }, urls: [] };
-    expect(face.drawn('FindParts(parts=run.findParts, strike=run.strike)', scope)).toBeTrue();
-    expect(face.drawn('FindParts(parts=run.findParts, strike=run.strike)', { ...scope, label: 'Different', chip: { kind: 'skill', label: 'Different' } })).toBeFalse();
+    expect(face.drawn('FindParts(parts=run.findParts)', scope)).toBeTrue();
+    expect(face.drawn('FindParts(parts=run.findParts)', { ...scope, label: 'Different', chip: { kind: 'skill', label: 'Different' } })).toBeFalse();
   }
 });
 

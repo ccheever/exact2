@@ -237,7 +237,11 @@ impl Server {
                             exact_tamber::Length::Px(n) => ("px", json!(n)),
                             exact_tamber::Length::Rem(n) => ("rem", json!(n)),
                             exact_tamber::Length::Em(n) => ("em", json!(n)),
-                            exact_tamber::Length::Named(_) => ("named", Value::Null),
+                            // An expression over base names is each
+                            // host's, as a bare one is (stage 12 B2).
+                            exact_tamber::Length::Named(_) | exact_tamber::Length::Base(_) => {
+                                ("named", Value::Null)
+                            }
                         };
                         return json!({"modes": modes, "value": v.css(), "kind": "length", "unit": unit, "amount": amount});
                     }

@@ -2,7 +2,7 @@
 //! and values conform to their shapes or are refused.
 
 use exact_plan::asm::Asm;
-use exact_plan::builder::PlanBuilder;
+use exact_plan::builder::{Face, PlanBuilder};
 use exact_plan::bytes::Reader;
 use exact_plan::{
     BindingKind, BindingsRow, Code, CodeError, EventKind, Opcode, Plan, PlanError, RegionKind,
@@ -130,14 +130,24 @@ fn a_static_plan_keeps_its_data_pool_in_place() {
     ));
 }
 
+/// A face at `weight` (one weight, or a range) of normal width.
+fn face(source: &str, weight: [u16; 2]) -> Face<'_> {
+    Face {
+        source,
+        weight,
+        stretch: [1000, 1000],
+        italic: false,
+    }
+}
+
 #[test]
 fn font_tables_round_trip_and_validate_their_identity_graph() {
     let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
     let family = b.font_family(
         "Fixture Sans",
         &[
-            ("assets/FixtureSans.ttf", 400, false),
-            ("assets/FixtureSans-Bold.ttf", 700, false),
+            face("assets/FixtureSans.ttf", [400, 400]),
+            face("assets/FixtureSans-Bold.ttf", [700, 700]),
         ],
     );
     let stack = b.font_stack(&[(StackMemberKind::Family, Some(family))]);
@@ -149,6 +159,7 @@ fn font_tables_round_trip_and_validate_their_identity_graph() {
 
     let mut duplicate_coordinate = plan.clone();
     duplicate_coordinate.faces[1].weight = 400;
+    duplicate_coordinate.faces[1].weight_max = 400;
     assert_eq!(
         duplicate_coordinate.validate(),
         Err(PlanError::DuplicateFace {
@@ -158,6 +169,27 @@ fn font_tables_round_trip_and_validate_their_identity_graph() {
             italic: false,
         })
     );
+
+    // A variable face's ranges: one face beside the static ones is not a
+    // duplicate, and a range that runs backwards is refused.
+    let mut ranged = plan.clone();
+    ranged.faces[1].weight = 100;
+    ranged.faces[1].weight_max = 900;
+    ranged.faces[1].stretch_min = 750;
+    ranged.faces[1].stretch_max = 1250;
+    assert_eq!(ranged.validate(), Ok(()));
+    let mut backwards = ranged.clone();
+    backwards.faces[1].weight_max = 99;
+    assert_eq!(
+        backwards.validate(),
+        Err(PlanError::FaceWeight {
+            face: 1,
+            weight: 100
+        })
+    );
+    let mut narrow = ranged;
+    narrow.faces[1].stretch_max = 700;
+    assert_eq!(narrow.validate(), Err(PlanError::FaceStretch { face: 1 }));
 
     let mut dangling = plan.clone();
     dangling.stack_members[8].family = Some(exact_plan::FamiliesId(99));
@@ -182,7 +214,7 @@ fn font_tables_round_trip_and_validate_their_identity_graph() {
 fn font_sources_are_portable_local_relative_paths() {
     let build = |source: &str| {
         let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
-        let family = b.font_family("Fixture Sans", &[(source, 400, false)]);
+        let family = b.font_family("Fixture Sans", &[face(source, [400, 400])]);
         b.font_stack(&[(StackMemberKind::Family, Some(family))]);
         b.finish()
     };
@@ -848,15 +880,15 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     assert_eq!(same, plan);
 }
 
-/// LLP 1133.002 D13 adds the `modules` table: the sources a native module
-/// answers, which the runner routes away from the app's data. Every host
-/// needs a new binary for this plan format.
+/// LLP 1019 §13 gives each `faces` row its weight and width ranges, as
+/// `@font-face`'s descriptors. Every host needs a new binary for this plan
+/// format.
 /// The format digest is pinned: a change to `tables/format.json`, a comment
 /// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0x38b0_cc69_f28b_6f12,
+        FORMAT_DIGEST, 0x9d27_3fc6_f660_afb5,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }

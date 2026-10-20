@@ -35,6 +35,9 @@ struct RegionTextRun: Sendable {
     let fixedInk: Bool
     let underline: Bool
     let strike: Bool
+    /// A decorating box's colour for a line its own colour does not draw (`Run.propagate`).
+    let underlineColor: CGColor?
+    let strikeColor: CGColor?
     let href: String
     let range: NSRange
 }
@@ -79,8 +82,11 @@ final class RegionTextSource: Sendable {
                                  letterSpacing: run.letterSpacing,
                                  color: TextEngine.color(run.color ?? spec.color).cgColor,
                                  fixedInk: run.fixedInk && run.color != nil,
-                                 underline: run.underlined,
-                                 strike: run.decoration.contains("line-through"), href: run.href,
+                                 underline: run.underlined || run.underlineColor != nil,
+                                 strike: run.decoration.contains("line-through") || run.strikeColor != nil,
+                                 underlineColor: run.underlined ? nil : run.underlineColor.map { TextEngine.color($0).cgColor },
+                                 strikeColor: run.decoration.contains("line-through") ? nil : run.strikeColor.map { TextEngine.color($0).cgColor },
+                                 href: run.href,
                                  range: NSRange(location: offset, length: count))
         }
         let base = spec.strut ?? spec.runs.first
@@ -134,6 +140,8 @@ final class RegionTextSource: Sendable {
             if run.fixedInk { attributes[.exactFixedInk] = true }
             if run.underline { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if run.strike { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            if let c = run.underlineColor { attributes[NSAttributedString.Key(kCTUnderlineColorAttributeName as String)] = c }
+            if let c = run.strikeColor { attributes[.strikethroughColor] = c }
             value.append(NSAttributedString(string: run.text, attributes: attributes))
         }
         TextEngine.setBaseDirection(value, direction: direction)
