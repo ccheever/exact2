@@ -6,8 +6,9 @@
 // project order) and moves the contextual project's group first
 // (buildSidebarProjectPickerEntries). Each entry is one group: its target is the
 // contextual member when the group holds it, else the group's representative,
-// and it is titled with the group's display name. Both the Projects search group
-// and the New thread in... page read this list.
+// and it is titled with the group's display name; `memberTitle` keeps the target's
+// own title (its ProjectFavicon's name) and `memberProjects` the group's members.
+// Both the Projects search group and the New thread in... page read this list.
 import type { T3Client } from '../client/client';
 import { str, type Obj } from '../client/domain';
 import { projectScopes } from '../sidebar/sidebar-view';
@@ -17,7 +18,7 @@ export function pickerProjects(client: T3Client): Obj[] {
   const preferred = client.projectId;
   const entries = projectScopes(client).flatMap(scope => {
     const target = scope.members.find(member => str(member.id) === preferred) ?? scope.members[0];
-    return target ? [{ project: { ...target, title: scope.name || str(target.title) }, preferred: !!preferred && scope.ids.has(preferred) }] : [];
+    return target ? [{ project: { ...target, title: scope.name || str(target.title), memberTitle: str(target.title), memberProjects: scope.members }, preferred: !!preferred && scope.ids.has(preferred) }] : [];
   });
   const at = entries.findIndex(entry => entry.preferred);
   if (at > 0) entries.unshift(...entries.splice(at, 1));
