@@ -765,7 +765,7 @@ package final class Presenter {
         defer { fieldsWaiting = outerWaiting }
         defer { applyLanguage(batch); applyWakeLock(batch) }
         if applySnapshots(batch) { return }
-        PaintOrder.begin()
+        PaintOrder.begin(); ColorSchemes.begin(); defer { ColorSchemes.end() }
         let post = Self.signposts.beginInterval("apply")
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)

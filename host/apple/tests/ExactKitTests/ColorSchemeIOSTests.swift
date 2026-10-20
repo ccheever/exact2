@@ -67,5 +67,63 @@ final class ColorSchemeIOSTests: XCTestCase {
         XCTAssertFalse(child.drawsDark)
         XCTAssertEqual(material.traitCollection.userInterfaceStyle, .light)
     }
+
+    /// A chain of node views carrying one scheme, in a window, each with a
+    /// plain view below it that records every appearance it is given.
+    @MainActor
+    private func chain(_ count: Int) -> (views: [NodeView], seen: () -> [[UIUserInterfaceStyle]], window: UIWindow) {
+        let p = Presenter()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.overrideUserInterfaceStyle = .light
+        window.makeKeyAndVisible()
+        var views: [NodeView] = [], probes: [UIView] = [], seen: [[UIUserInterfaceStyle]] = Array(repeating: [], count: count)
+        for i in 0..<count {
+            let v = NodeView(id: UInt32(i + 1), kind: "view", presenter: p)
+            p.views[v.id] = v
+            if let parent = views.last { parent.container.addSubview(v) } else { window.addSubview(v) }
+            v.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+            v.applyStyle(["color_scheme": "dark"])
+            let probe = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+            v.container.addSubview(probe)
+            views.append(v); probes.append(probe)
+        }
+        window.layoutIfNeeded()
+        for (i, probe) in probes.enumerated() {
+            probe.updateTraitsIfNeeded()
+            probe.registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: UIView, _: UITraitCollection) in
+                seen[i].append(view.traitCollection.userInterfaceStyle)
+            }
+        }
+        return (views, { seen }, window)
+    }
+
+    /// In a batch, a child that keeps its parent's old scheme never shows
+    /// the parent's new one on its way to overriding it.
+    @MainActor
+    func testAChildKeepingTheOldSchemeNeverShowsTheNewOne() {
+        let (views, seen, window) = chain(2)
+        XCTAssertEqual(views[1].overrideUserInterfaceStyle, .unspecified, "it inherits its parent's dark")
+        ColorSchemes.begin()
+        views[0].applyStyle(["color_scheme": "light"])
+        ColorSchemes.end()
+        XCTAssertEqual(views[1].overrideUserInterfaceStyle, .dark)
+        XCTAssertTrue(views[1].drawsDark)
+        XCTAssertEqual(seen()[1], [], "never light")
+        XCTAssertEqual(seen()[0], [.light])
+        withExtendedLifetime(window) {}
+    }
+
+    /// A chain whose scheme changes from its root, each node's style in turn
+    /// as a batch sends them: each view's appearance changes once.
+    @MainActor
+    func testAChainChangingItsSchemeUpdatesEachViewOnce() {
+        let (views, seen, window) = chain(8)
+        ColorSchemes.begin()
+        for v in views { v.applyStyle(["color_scheme": "light"]) }
+        ColorSchemes.end()
+        XCTAssertEqual(seen(), Array(repeating: [.light], count: 8))
+        XCTAssertEqual(views.map(\.overrideUserInterfaceStyle), [.light] + Array(repeating: .unspecified, count: 7))
+        withExtendedLifetime(window) {}
+    }
 }
 #endif

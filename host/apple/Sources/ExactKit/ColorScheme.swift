@@ -8,8 +8,9 @@ extension NodeView {
     /// appearance, which UIKit's trait inheritance carries to every view
     /// below — so `light-dark()`, platform colours and materials there
     /// resolve in it — and each re-resolves through its trait-change
-    /// registration. The trait update is taken now, so this style pass
-    /// already reads the new scheme.
+    /// registration. Outside a batch the trait update is taken now, so this
+    /// style pass already reads the new scheme; in one, at its end
+    /// (`ColorSchemes`).
     func applyColorScheme() {
         settleColorScheme()
         // The node views below that inherit through this one decide again.
@@ -36,7 +37,7 @@ extension NodeView {
         let own = wanted != .unspecified && inherited == wanted ? .unspecified : wanted
         guard overrideUserInterfaceStyle != own else { return }
         overrideUserInterfaceStyle = own
-        updateTraitsIfNeeded()
+        ColorSchemes.changed(self)
     }
 
     private var colorScheme: UIUserInterfaceStyle {
@@ -57,6 +58,32 @@ extension NodeView {
             at = view.superview
         }
         return nil
+    }
+}
+
+/// The overrides a batch changes, made visible together at its end: each
+/// override is set first and the traits are updated once, from the topmost
+/// changed views. Updated as each changed, a view that kept its parent's old
+/// scheme would show the new one until the walk below pinned it back (and
+/// report it), and a chain of N views would update its subtree N times.
+enum ColorSchemes {
+    private static var depth = 0
+    private static var staged: [NodeView] = []
+    static func begin() { depth += 1 }
+    static func changed(_ view: NodeView) {
+        if depth == 0 { view.updateTraitsIfNeeded() } else { staged.append(view) }
+    }
+    static func end() {
+        depth -= 1
+        guard depth == 0, !staged.isEmpty else { return }
+        let views = staged
+        staged = []
+        let changed = Set(views.map(ObjectIdentifier.init))
+        for view in views {
+            var above = view.superview, covered = false
+            while let up = above, !covered { covered = changed.contains(ObjectIdentifier(up)); above = up.superview }
+            if !covered { view.updateTraitsIfNeeded() }
+        }
     }
 }
 #elseif os(macOS)
