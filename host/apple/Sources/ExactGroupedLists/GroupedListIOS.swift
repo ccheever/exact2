@@ -466,6 +466,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private var flipping: UInt32?
     /// A custom cell's height changed since the list was last laid out.
     private var resized = false
+    /// How far the collection reaches past the list's box at its left and
+    /// right: over the window's side safe area where the list's edge meets
+    /// it, as a hand-built list spans the screen (iPhone landscape).
+    private var reach: (left: CGFloat, right: CGFloat) = (0, 0)
     /// Only the host-hidden bit: CSS display remains authoritative.
     private var hiddenRoots: [UInt32: (node: NodeView, hidden: Bool)] = [:]
     /// The list's padding and final footer space, independent of other insets.
@@ -737,7 +741,16 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // A short settings list bounces, as UIKit's collection default would not.
         assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
         assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
-        assign(collection, \.frame, owner.scrollFrame) // with the page's bands it reaches (LLP 1130 D3)
+        // With the page's bands it reaches (LLP 1130 D3), and the side safe
+        // areas its edges meet, where UIKit insets the cards by its own rule.
+        #if os(iOS)
+        reach = sideReach()
+        (collection as? GroupedCollectionView)?.sideSafeArea = reach
+        #endif
+        var frame = owner.scrollFrame
+        frame.origin.x -= reach.left
+        frame.size.width += reach.left + reach.right
+        assign(collection, \.frame, frame)
         for cell in collection.visibleCells {
             guard let cell = cell as? GroupedCell, let id = cell.row else { continue }
             carry(id, into: cell)
@@ -877,17 +890,40 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     }
 
     /// Where UIKit put this list's cards and their content: a shown cell's
-    /// insets from the list's left and right edges, then its layout margins,
-    /// left and right, where content pinned to them starts and ends (nil
-    /// while no cell shows).
+    /// insets from the list's left and right edges (the list's box, not the
+    /// collection's reach past it), then its layout margins, left and right,
+    /// where content pinned to them starts and ends (nil while no cell shows).
     func margins() -> [CGFloat]? {
         guard let cell = collection.visibleCells.first as? UICollectionViewListCell,
               let path = collection.indexPath(for: cell),
               let frame = collection.layoutAttributesForItem(at: path)?.frame else { return nil }
         let m = cell.directionalLayoutMargins
         let rtl = cell.effectiveUserInterfaceLayoutDirection == .rightToLeft
-        return [frame.minX, collection.bounds.width - frame.maxX, rtl ? m.trailing : m.leading, rtl ? m.leading : m.trailing]
+        return [frame.minX - reach.left, collection.bounds.width - frame.maxX - reach.right, rtl ? m.trailing : m.leading, rtl ? m.leading : m.trailing]
     }
+
+    #if os(iOS)
+    /// The window's side safe area at each side the list's edge meets,
+    /// where nothing between the list and the window transforms or clips it
+    /// away: Exact's layout keeps a route's content inside it (LLP 1123),
+    /// where UIKit puts an inset-grouped list's cards 20 in, and 16 past it
+    /// when the list spans the screen, as a hand-built one does.
+    private func sideReach() -> (left: CGFloat, right: CGFloat) {
+        guard let window = owner.window else { return (0, 0) }
+        let safe = window.safeAreaInsets, r = owner.convert(owner.bounds, to: window)
+        let meets = { (inset: CGFloat, edge: CGFloat) in inset > 0 && abs(edge - inset) < 0.5 ? inset : 0 }
+        let reach = (left: meets(safe.left, r.minX), right: meets(safe.right, window.bounds.width - r.maxX))
+        guard reach.left > 0 || reach.right > 0 else { return reach }
+        let reached = r.inset(by: UIEdgeInsets(top: 0, left: -reach.left, bottom: 0, right: -reach.right))
+        var at: UIView? = owner.superview
+        while let v = at, v !== window {
+            if !v.transform.isIdentity { return (0, 0) }
+            if v.clipsToBounds, !v.convert(v.bounds, to: window).insetBy(dx: -0.5, dy: -0.5).contains(reached) { return (0, 0) }
+            at = v.superview
+        }
+        return reach
+    }
+    #endif
 
     /// Row `id`'s middle, or the middle of `inner` (a box in the row's own
     /// space), scrolled to the middle of `port` when outside it, unanimated
@@ -1326,7 +1362,24 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 }
 
 /// A grouped list's collection view, by type, for the agent's wheel.
-final class GroupedCollectionView: UICollectionView, GroupedScroller {}
+final class GroupedCollectionView: UICollectionView, GroupedScroller {
+    /// The window's safe area at the sides the collection reaches over
+    /// (`sideReach`), which the host keeps from the views it lays out
+    /// (LLP 1123): UIKit insets the cards from it, as in a hand-built list.
+    var sideSafeArea: (left: CGFloat, right: CGFloat) = (0, 0) {
+        didSet {
+            guard sideSafeArea != oldValue else { return }
+            safeAreaInsetsDidChange()
+            collectionViewLayout.invalidateLayout()
+        }
+    }
+    override var safeAreaInsets: UIEdgeInsets {
+        var insets = super.safeAreaInsets
+        insets.left = max(insets.left, sideSafeArea.left)
+        insets.right = max(insets.right, sideSafeArea.right)
+        return insets
+    }
+}
 
 extension UICollectionViewListCell {
     /// A row's or header's margins are the list layout's, never the safe
