@@ -674,6 +674,133 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(p.selection.selectedText(), " gamma")
     }
 
+    /// CSS UI 4 `user-select: all` (LLP 1115.000 D11.6): one click selects
+    /// the whole element, and a drag, a Shift-click or Shift with an arrow
+    /// that reaches into it takes all of it, as Chrome does. An inline run's
+    /// element is its offsets in its paragraph.
+    func testUserSelectAllTakesAnInlineRunWhole() throws {
+        // "Folder: " 0-8, "/tmp/work" 8-17, ". Check it." 17-28.
+        let p = fixture(measured: true), node = try XCTUnwrap(p.views[2])
+        node.props = [:]
+        p.apply(wireBatch([["op": "paragraph", "id": 2, "runs": [
+            ["id": 21, "parent": 2, "paint": true, "props": ["text": "Folder: "]],
+            ["id": 22, "parent": 2, "paint": true, "props": ["text": "/tmp/work"], "style": ["user_select": "all"]],
+            ["id": 23, "parent": 2, "paint": true, "props": ["text": ". Check it."]],
+        ]]]))
+        var heard: [String] = []
+        p.onSelectionChange = { _, text, start, end, _ in heard.append("\(start)-\(end):\(text)") }
+        try press(node, 12)
+        XCTAssertEqual(p.selection.selectedText(), "/tmp/work", "one click takes the element")
+        XCTAssertEqual(heard.last, "8-17:/tmp/work")
+        try press(node, 8)
+        XCTAssertEqual(p.selection.selectedText(), "/tmp/work", "its first character too")
+        try press(node, 3)
+        XCTAssertEqual(p.selection.selectedText(), "", "a click outside it is a caret")
+        try press(node, 2, to: 10)
+        XCTAssertEqual(p.selection.selectedText(), "lder: /tmp/work", "a drag into it takes it to its end")
+        try press(node, 12, to: 19)
+        XCTAssertEqual(p.selection.selectedText(), "/tmp/work. ", "a drag from it keeps it whole")
+        try press(node, 12, to: 2)
+        XCTAssertEqual(p.selection.selectedText(), "lder: /tmp/work", "backwards too")
+        try press(node, 1)
+        try press(node, 10, flags: .shift)
+        XCTAssertEqual(p.selection.selectedText(), "older: /tmp/work", "a Shift-click into it")
+        try press(node, 20)
+        try press(node, 10, flags: .shift)
+        XCTAssertEqual(p.selection.selectedText(), "/tmp/work. C", "from after it, to its start")
+        let left: UInt16 = 123, right: UInt16 = 124
+        try press(node, 6)
+        node.keyDown(with: arrow(right, .shift)); node.keyDown(with: arrow(right, .shift))
+        XCTAssertEqual(p.selection.selectedText(), ": ", "up to its edge, a character at a time")
+        node.keyDown(with: arrow(right, .shift))
+        XCTAssertEqual(p.selection.selectedText(), ": /tmp/work", "one more takes it all")
+        node.keyDown(with: arrow(left, .shift))
+        XCTAssertEqual(p.selection.selectedText(), ": ", "and back leaves it all")
+        try press(node, 12, clicks: 2)
+        XCTAssertEqual(p.selection.selectedText(), "/tmp/work", "a double click inside it is the element, not a word")
+    }
+
+    /// `user-select: all` on a box of paragraphs: a click in any of them
+    /// selects them all, from the first's start to the last's end, and that
+    /// is what is copied; a drag from outside into it takes it whole.
+    func testUserSelectAllTakesABoxOfParagraphsWhole() throws {
+        let (session, node) = laidOut("Before the box")
+        defer { session.destroy() }
+        let p = session.presenter
+        let box = NodeView(id: 5, kind: "view", presenter: p)
+        box.frame = NSRect(x: 0, y: 30, width: 380, height: 50)
+        box.style = ["user_select": "all"]
+        p.root.addSubview(box); p.views[5] = box
+        func line(_ id: UInt32, _ text: String, y: CGFloat) -> NodeView {
+            let paragraph = NodeView(id: id, kind: "text", presenter: p)
+            paragraph.frame = NSRect(x: 0, y: y, width: 380, height: 20)
+            paragraph.props = ["text": text]
+            paragraph.style = ["font_size": 16.0, "line_height": "20px"]
+            box.addSubview(paragraph); p.views[id] = paragraph
+            return paragraph
+        }
+        let first = line(6, "First line", y: 0), second = line(7, "Second line", y: 25)
+        p.selection.structureChanged()
+        try press(second, 3)
+        XCTAssertEqual(p.selection.selectedText(), "First line\n\nSecond line")
+        XCTAssertEqual(p.selection.range(first), NSRange(location: 0, length: 10))
+        try press(node, 7, to: 2, in: first)
+        XCTAssertEqual(p.selection.selectedText(), "the box\n\nFirst line\n\nSecond line", "into it from above")
+        try press(first, 2, to: 3, in: node)
+        XCTAssertEqual(p.selection.selectedText(), "ore the box\n\nFirst line\n\nSecond line", "out of it upwards, the box still whole")
+    }
+
+    /// A link in a later paragraph of a `user-select: all` box still opens on
+    /// a click, though the box's first paragraph is the selection's anchor.
+    /// An inline run that says `all` in chrome text (a `header`'s label, not
+    /// selectable on the Mac) is selectable alone, as on the web and iOS.
+    func testUserSelectAllKeepsLinksAndAdmitsARunInChromeText() throws {
+        final class Links: ExactSessionDelegate {
+            var opened: [String] = []
+            func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
+                if name == "openURL" { opened += args.compactMap { $0 as? String } }
+            }
+        }
+        let p = fixture(measured: true), links = Links()
+        session?.delegate = links
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "view", "style": ["user_select": "all"]],
+            ["op": "create", "id": 31, "kind": "text", "props": ["text": "First"], "style": ["font_size": 16.0]],
+            ["op": "create", "id": 32, "kind": "text", "style": ["font_size": 16.0]],
+            ["op": "create", "id": 40, "kind": "view", "props": ["semanticTag": "header"]],
+            ["op": "create", "id": 41, "kind": "text", "style": ["font_size": 16.0]],
+            ["op": "children", "id": 30, "ids": [31, 32]], ["op": "children", "id": 40, "ids": [41]],
+            ["op": "children", "id": 1, "ids": [2, 3, 5, 6, 7, 8, 10, 30, 40]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 400],
+            ["op": "frame", "id": 30, "x": 10, "y": 290, "w": 300, "h": 45],
+            ["op": "frame", "id": 31, "x": 0, "y": 0, "w": 300, "h": 20],
+            ["op": "frame", "id": 32, "x": 0, "y": 25, "w": 300, "h": 20],
+            ["op": "frame", "id": 40, "x": 10, "y": 340, "w": 300, "h": 20],
+            ["op": "frame", "id": 41, "x": 0, "y": 0, "w": 300, "h": 20],
+            ["op": "paragraph", "id": 32, "runs": [
+                ["id": 33, "parent": 32, "paint": true, "props": ["text": "Open docs", "href": "https://example.com/docs"]],
+            ]],
+            ["op": "paragraph", "id": 41, "runs": [
+                ["id": 42, "parent": 41, "paint": true, "props": ["text": "Folder: "]],
+                ["id": 43, "parent": 41, "paint": true, "props": ["text": "/tmp/work"], "style": ["user_select": "all"]],
+                ["id": 44, "parent": 41, "paint": true, "props": ["text": ". Check it."]],
+            ]],
+        ]))
+        let link = try XCTUnwrap(p.views[32]), chrome = try XCTUnwrap(p.views[41])
+        try press(link, 2)
+        XCTAssertEqual(p.selection.selectedText(), "First\n\nOpen docs")
+        XCTAssertEqual(links.opened, ["https://example.com/docs"], "the click's own paragraph follows its link")
+        XCTAssertFalse(chrome.textSelectable, "a header's label")
+        try press(chrome, 12)
+        XCTAssertEqual(p.selection.selectedText(), "/tmp/work", "its run alone")
+        try press(chrome, 2)
+        XCTAssertEqual(p.selection.selectedText(), "", "the label's own text selects nothing")
+        try press(chrome, 2, to: 20)
+        XCTAssertEqual(p.selection.selectedText(), "/tmp/work", "a drag across it takes the run, not the label")
+        try press(try XCTUnwrap(p.views[2]), 2)
+        XCTAssertEqual(p.selection.selectedText(), "", "a click with no `all` anywhere is still a caret")
+    }
+
     /// LLP 1115.000 D7.9: which selected glyphs take AppKit's colour for text
     /// on the selection's fill is as an `NSTextView` has it (measured on
     /// macOS 27.0, a key window and one that is not alike). Dark: every one,

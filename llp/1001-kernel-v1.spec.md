@@ -1538,18 +1538,29 @@ CSS form and text vocabulary (app diaries kanban F11, ledger F1/F4,
 minesweeper F4, pomodoro F2): `rows` is HTML intrinsic line count and maxlength
 limits user UTF-16 edits, leaving authored values intact. Native interactive
 CSS resize handles are not implemented; Contract admits none and diagnoses
-other CSS values. user-select admits auto, none and text (2026-10-12, LLP
-1115.000 D11.6): the nearest authored value decides, and a control's label is
+other CSS values. user-select admits auto, none, text (2026-10-12, LLP
+1115.000 D11.6) and all (2026-10-20): the nearest authored value decides, and a control's label is
 not selectable unless text is said on it or inside the control. What is left
 is auto with nothing above it, the platform's: macOS resolves it as AppKit
 does (LLP 1115 D8: the chrome's label is not selectable, `article` and other
 content text is) and iOS as UIKit does (not selectable, a `UILabel`), so on
 iOS only text its author made selectable is, by UIKit's own text interaction
-over the paragraph's lines, one paragraph at a time. Declared deviation:
+over the paragraph's lines, one paragraph at a time. all is CSS UI 4's
+atomic selection on the web (the browser's own), macOS and iOS: a press in
+the element selects all of it, and a selection that takes part of it takes
+all of it, so a drag, a Shift-click or a Shift-arrow that reaches into it
+extends by the whole element; the outermost such element is the unit, an
+inline run's being its offsets in its paragraph. On macOS an element around
+paragraphs spans from its first paragraph's start to its last's end. On iOS
+a long press or a double tap in it selects it in place of a word, a tap
+selects nothing (a UITextView's), and an element around a paragraph is that
+paragraph (one selection is one paragraph). On the web, macOS and iOS an
+inline run that says all is selectable, alone, in text that is not. A
+scripted setSelectionRange is not widened. Declared deviation:
 Linux, Windows, Android and tvOS have no text selection executor, and text
-there is auto. all and contain are diagnosed at compile time
-(`lower-css-user-select`): no native presenter selects an element whole on one
-press or keeps a selection inside its element. Border shorthands reset and
+and all there are auto; the terminal's selection is the terminal's. contain
+is diagnosed at compile time (`lower-css-user-select`): no native presenter
+keeps a selection inside its element. Border shorthands reset and
 lower to existing side rows, including `inset`, `dotted` and `dashed` under
 §1's border semantics and raster deviation; other line styles are diagnosed.
 The one-to-four-value box shorthands (`padding`, `margin`, `inset`,

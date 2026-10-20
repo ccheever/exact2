@@ -615,10 +615,11 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         let b = v.tapBox(box(v))
-        // A wrapped run's union can include blank space. Hover a painted
-        // fragment, then let the normal hit test decide who receives it.
-        let inlinePoint = (req["hover"] as? Bool == true || secondary) && (req["id"] as? UInt32).flatMap(presenter.inlineText) != nil
-            ? tapPoint(req, node: v) : nil
+        // A wrapped run's union can include blank space. Hover or click a
+        // painted fragment of a run (the web's driver clicks the span's), not
+        // its paragraph's middle, then let the normal hit test decide who
+        // receives it.
+        let inlinePoint = (req["id"] as? UInt32).flatMap(presenter.inlineText) != nil ? tapPoint(req, node: v) : nil
         let center = inlinePoint ?? CGPoint(x: b.midX, y: b.midY)
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window. `at` is a

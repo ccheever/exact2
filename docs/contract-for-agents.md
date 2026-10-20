@@ -3452,9 +3452,20 @@ and other content text is (so put prose a reader copies in `article`, not a
 it), and a long press or a double tap there selects a word with the system's
 handles and its Copy, Look Up, Translate and Share menu, one paragraph (one
 `text`) at a time. A label inside a control stays unselectable unless the
-`text` is said on it or inside the control. Linux, Windows, Android and tvOS
-have no text selection, so `text` changes nothing there. `all` and `contain`
-are refused by name: no native host has them. These rows take literals
+`text` is said on it or inside the control. `user-select="all"` makes an
+element's text one unit, as CSS UI 4 has it (a path, a device code): on the
+web and macOS one click in it selects all of it, and a drag, a Shift-click
+or Shift with an arrow that reaches into it takes it whole. On iOS a long
+press or a double tap in it selects it instead of a word, and a tap selects
+nothing, as on a `UITextView`; an element around a paragraph selects that
+paragraph (one selection is one paragraph there). An inline run that says
+`all` is selectable in text that is not (a label, a `header`), alone, on
+all three. Text that presses (`press=`) still presses on each click or
+tap; on macOS it does not select, and on iOS a tap while it holds a
+selection clears the selection, as in a text view. Linux, Windows, Android
+and tvOS have no text
+selection, so `text` and `all` change nothing there. `contain` is refused by
+name: no native host has it. These rows take literals
 or choices of literals, so unsupported runtime values cannot bypass the check.
 
 **Colours: say a role, not a value.** Leave a colour unsaid where you can (text,
