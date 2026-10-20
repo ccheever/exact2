@@ -35,10 +35,10 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
 | `--timing platform`, `--touch platform` | UIKit's own transition timing (default: frozen); every tap and drag a real touch. |
 | `--sim <udid\|name>` (`EXACT_SIM`) | Which simulator (default: the app's). |
 
-- Drive by `testId` (a bar button's, field's, segment's, tab's
+- Drive by `testId` (a bar button's, field's, tab's
   `accessibilityIdentifier`), never by coordinates.
 - `tap` and `type` scroll their target into view first.
-- A wheel or `tap <scroller> drag 0 -300` moves content that far, bars as a finger would; a
-  real drag glides unless held 100 ms ([more](../contract-for-agents.md#drags-on-ios)).
+- A wheel or `tap <scroller> drag 0 -300` moves content (and bars) that far; a real
+  drag glides unless held 100 ms ([more](../contract-for-agents.md#drags-on-ios)).
 - A tap on an alert's or action sheet's button returns once UIKit has dismissed it and the press
   lands, so a `clock data` next sees it.
