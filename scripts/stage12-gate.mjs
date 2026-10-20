@@ -167,10 +167,20 @@ export function baseline(copy, out, hosts = CLONE_HOSTS) {
   return record;
 }
 
+/** The web's floor (theme2's stage 12 E ruling): Chromium draws the edge of
+ * an avatar's round clip one of two ways per launch, a level or two apart
+ * (598 px, 501 at 1 and 97 at 2, in about four launches of ten, whatever
+ * the raster flags), so an anti-aliased EDGE pixel may differ by up to
+ * `floor` there; any other pixel, a flat area's, compares strictly, so a
+ * change of one level there still fails. An edge pixel is one a 4-neighbour
+ * differs from by more than `edge` in some channel, in the before shot. */
+export const WEB_NOISE = { floor: 2, edge: 32 };
+
 /** Pixels differing between two screenshots outside `allow` (rectangles
- * [x, y, w, h], each with a reason) by more than `floor` in any channel:
+ * [x, y, w, h], each with a reason): any channel apart, or more than
+ * `noise.floor` apart on a before-shot edge pixel (`noise.edge`):
  * {differ, total, size}. A size change is every pixel. */
-export function pixelDiff(a, b, allow = [], floor = 0) {
+export function pixelDiff(a, b, allow = [], noise = null) {
   const A = decodePng(a), B = decodePng(b);
   if (A.width !== B.width || A.height !== B.height) return { differ: A.width * A.height, total: A.width * A.height, size: [A.width, A.height, B.width, B.height] };
   const inside = (x, y) => allow.some(([rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh);
@@ -178,8 +188,10 @@ export function pixelDiff(a, b, allow = [], floor = 0) {
   for (let y = 0; y < A.height; y++) {
     for (let x = 0; x < A.width; x++) {
       const i = (y * A.width + x) * 4;
-      const d = Math.max(Math.abs(A.data[i] - B.data[i]), Math.abs(A.data[i + 1] - B.data[i + 1]), Math.abs(A.data[i + 2] - B.data[i + 2]), Math.abs(A.data[i + 3] - B.data[i + 3]));
-      if (d > floor && !inside(x, y)) differ++;
+      const d = apart(A.data, i, B.data, i);
+      if (d === 0 || inside(x, y)) continue;
+      if (noise && d <= noise.floor && edgeAt(A, x, y, noise.edge)) continue;
+      differ++;
     }
   }
   return { differ, total: A.width * A.height };
@@ -195,8 +207,20 @@ export function comparePixels(before, after) {
     const a = later.get(key(b));
     if (!b.ok || !a?.ok) return { shot: key(b), ok: false, said: !a ? 'no after shot' : `not shot: ${(b.ok ? a : b).said}` };
     const allow = [...b.allow ?? [], ...a.allow ?? []];
-    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect));
+    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host === 'web' ? WEB_NOISE : null);
     return { shot: key(b), ok: d.differ === 0, differ: d.differ, total: d.total, allow };
+  });
+}
+
+/** The largest channel difference between pixel `i` of `p` and `j` of `q`. */
+const apart = (p, i, q, j) => Math.max(Math.abs(p[i] - q[j]), Math.abs(p[i + 1] - q[j + 1]), Math.abs(p[i + 2] - q[j + 2]), Math.abs(p[i + 3] - q[j + 3]));
+
+/** Whether (x, y) is an anti-aliased edge: a 4-neighbour more than `edge` apart. */
+function edgeAt(img, x, y, edge) {
+  const i = (y * img.width + x) * 4;
+  return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+    const nx = x + dx, ny = y + dy;
+    return nx >= 0 && ny >= 0 && nx < img.width && ny < img.height && apart(img.data, i, img.data, (ny * img.width + nx) * 4) > edge;
   });
 }
 

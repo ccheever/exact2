@@ -5,7 +5,7 @@ import { encodePng } from './png.mjs';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { allowOf, comparePixels, lines, parse, pixelDiff, SCREENS, screenOps } from './stage12-gate.mjs';
+import { allowOf, comparePixels, lines, parse, pixelDiff, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -33,9 +33,14 @@ test('the pixel diff counts what differs outside the allowlist', () => {
   expect(pixelDiff(a, b)).toEqual({ differ: 2, total: 16 });
   expect(pixelDiff(a, b, [[1, 1, 1, 1]])).toEqual({ differ: 1, total: 16 });
   expect(pixelDiff(a, img(4, 5, () => [0, 0, 0, 255])).differ).toBe(16);
-  // A floor: a channel off by up to it is the same pixel.
-  const near = img(4, 4, (x, y) => x === 0 && y === 0 ? [2, 1, 0, 255] : [0, 0, 0, 255]);
-  expect([pixelDiff(a, near).differ, pixelDiff(a, near, [], 2).differ, pixelDiff(a, near, [], 1).differ]).toEqual([1, 0, 1]);
+  // The web's noise: up to its floor on an anti-aliased edge pixel, never in
+  // a flat area, where one level fails.
+  const flat = img(4, 4, (x, y) => x === 1 && y === 1 ? [1, 0, 0, 255] : [0, 0, 0, 255]);
+  expect([pixelDiff(a, flat).differ, pixelDiff(a, flat, [], WEB_NOISE).differ]).toEqual([1, 1]);
+  const edgy = img(4, 4, (x) => x < 2 ? [0, 0, 0, 255] : [200, 200, 200, 255]);
+  const edgy2 = img(4, 4, (x, y) => x === 1 && y === 1 ? [2, 2, 0, 255] : x < 2 ? [0, 0, 0, 255] : [200, 200, 200, 255]);
+  const edgy3 = img(4, 4, (x, y) => x === 1 && y === 1 ? [3, 0, 0, 255] : x < 2 ? [0, 0, 0, 255] : [200, 200, 200, 255]);
+  expect([pixelDiff(edgy, edgy2).differ, pixelDiff(edgy, edgy2, [], WEB_NOISE).differ, pixelDiff(edgy, edgy3, [], WEB_NOISE).differ]).toEqual([1, 0, 1]);
 });
 
 test('every line waits on its parts until they exist', async () => {
