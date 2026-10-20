@@ -1110,7 +1110,9 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-inspect-dist-'));
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-  const browser = await suiteBrowser();
+  // Site isolation on, as desktop Chrome has it: the pinned headless shell (the default browser without CHROME) runs a
+  // cross-site frame in its parent's process unless told, so the check below could never pass there.
+  const browser = await suiteBrowser('chromium', { args: ['--site-per-process'] });
   let tool;
   try {
     const base = `http://127.0.0.1:${port}`;
@@ -1131,10 +1133,9 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
     const frame = page.frames().find(f => f.url().startsWith(base.replace('127.0.0.1', 'localhost')));
     await frame.locator('#exact-inspect').waitFor();
     // Another site than the tool's: the browser runs it out of the tool's
-    // process (an iframe target of its own). Its target's URL can trail the
-    // frame's first navigation (most likely: one loaded run saw it not yet
-    // there), so it is asked again for a while; a frame in the tool's own
-    // process never shows as one.
+    // process (an iframe target of its own, with site isolation on, above).
+    // Its target's URL can trail the frame's first navigation, so it is asked
+    // again for a while; a frame in the tool's own process never shows as one.
     const cdp = await page.context().newCDPSession(page), here = base.replace('127.0.0.1', 'localhost');
     let isolated = false;
     for (const end = Date.now() + 10_000; Date.now() < end; await Bun.sleep(200)) {
