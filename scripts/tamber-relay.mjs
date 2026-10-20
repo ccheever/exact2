@@ -12,7 +12,8 @@
 //   connector: `EXACT-RELAY/1 <account>\r\nauthorization: Bearer <token>\r\n`
 //              `run: <id>\r\n` (one random id a run, on every connection: the
 //              relay's one session for it, R3), (`names: <tool> <canvas>\r\n`
-//              with names of its own), `\r\n`
+//              with names of its own, or once the relay has named the run's),
+//              `\r\n`
 //   relay:     `READY <tool> <canvas>\n`, then idle; or `REFUSED <why>\n`
 //   relay:     `CLIENT <sni> <address>\n` and the client's bytes, both ways
 // The token is never in a URL, never logged, never sent to a client; the
@@ -257,7 +258,10 @@ export function connectRelay({ host, port, account, token, names = null }, { cli
     conn.once('secureConnect', () => {
       if (closed) return conn.destroy();
       if (!conn.authorized) { warn(`tamber: the relay ${host}:${port}'s certificate did not verify: ${conn.authorizationError ?? 'unknown'}`); return conn.destroy(); }
-      conn.write(`EXACT-RELAY/1 ${account}\r\nauthorization: Bearer ${token}\r\nrun: ${run}\r\n${names ? `names: ${names.tool} ${names.canvas}\r\n` : ''}\r\n`);
+      // (once served, its names asked for again on every connection: a relay that restarted, or let the session
+      // lapse, gives this run the same names back, or refuses; never others the run would have to drop)
+      const asked = names ?? served;
+      conn.write(`EXACT-RELAY/1 ${account}\r\nauthorization: Bearer ${token}\r\nrun: ${run}\r\n${asked ? `names: ${asked.tool} ${asked.canvas}\r\n` : ''}\r\n`);
     });
     const onData = chunk => {
       buf = Buffer.concat([buf, chunk]);

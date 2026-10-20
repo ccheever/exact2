@@ -25,7 +25,7 @@
 import { createHash, createPrivateKey, randomBytes, timingSafeEqual, X509Certificate } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, watch } from 'node:fs';
 import { createServer as createTCP } from 'node:net';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { createServer as createTLS } from 'node:tls';
 import { dnsHook, LINE, NAME, RECORD } from './tamber-relay.mjs';
 
@@ -34,7 +34,7 @@ export const LABEL = /^[a-z0-9][a-z0-9-]{0,62}$/;
 /** A TLS record's body, at most (RFC 8446 §5.1). */
 const RECORD_MAX = 16_384;
 /** What a session's limits are when the config says none. */
-export const LIMITS = { perIpPerSession: 30, streamsPerSession: 64, sessionsPerAccount: 4, txtPerAccount: 10, greetingsPerIp: 10, waitMs: 2000, graceMs: 60_000, helloMs: 10_000 };
+export const LIMITS = { perIpPerSession: 30, streamsPerSession: 64, idlePerSession: 8, sessionsPerAccount: 4, txtPerAccount: 10, greetingsPerIp: 10, waitMs: 2000, graceMs: 60_000, helloMs: 10_000 };
 const MINUTE = 60_000;
 
 /** The server name a client's first TLS record asks for. `buf` is what has
@@ -91,21 +91,24 @@ const sha256 = text => createHash('sha256').update(text).digest();
 
 /** The accounts at `path`: `{accounts: {<label>: {token_sha256, names?}},
  * revoked: [<label>]}`, with `labels.seen` beside it, appended with each
- * label it holds. Refused (thrown) when a label is malformed, revoked and
- * an account too, or seen before and in neither (a label is never given
- * out again); when a token hash is not 64 hex digits; or when a parent of
- * the account's own (`names`, for `--relay-name`) is not a name, is under
+ * label it holds (`<label>`) and each it revokes (`revoked <label>`), for
+ * good. Refused (thrown) when a label is malformed; is an account and
+ * revoked, now or ever (`labels.seen` says so though `revoked` no longer
+ * does); or was seen and is in neither (a label is never given out again);
+ * when a token hash is not 64 hex digits; or when a parent of the
+ * account's own (`names`, for `--relay-name`) is not a name, is under
  * `domain`, or is another account's or under or over one. */
 export function loadAccounts(path, domain) {
   const file = JSON.parse(readFileSync(path, 'utf8'));
   const accounts = new Map(), revoked = new Set(file.revoked ?? []);
   const seenPath = join(dirname(path), 'labels.seen');
-  const seen = new Set(existsSync(seenPath) ? readFileSync(seenPath, 'utf8').split('\n').filter(Boolean) : []);
+  const lines = existsSync(seenPath) ? readFileSync(seenPath, 'utf8').split('\n').filter(Boolean) : [];
+  const seen = new Set(lines.map(l => l.replace(/^revoked /, ''))), gone = new Set(lines.filter(l => l.startsWith('revoked ')).map(l => l.slice(8)));
   for (const label of revoked) if (!LABEL.test(label)) throw new Error(`revoked: ${JSON.stringify(label).slice(0, 70)} is no label`);
   const parents = [];
   for (const [label, a] of Object.entries(file.accounts ?? {})) {
     if (!LABEL.test(label)) throw new Error(`${JSON.stringify(label).slice(0, 70)} is no label (lowercase letters, digits and -)`);
-    if (revoked.has(label)) throw new Error(`${label} is revoked: a label is never given out again`);
+    if (revoked.has(label) || gone.has(label)) throw new Error(`${label} is revoked: a label is never given out again`);
     if (!/^[0-9a-f]{64}$/.test(a?.token_sha256 ?? '')) throw new Error(`${label}: token_sha256 is not 64 hex digits`);
     const names = a.names ?? [];
     for (const p of names) {
@@ -117,32 +120,45 @@ export function loadAccounts(path, domain) {
     }
     accounts.set(label, { hash: Buffer.from(a.token_sha256, 'hex'), names });
   }
-  for (const label of seen) if (!accounts.has(label) && !revoked.has(label)) throw new Error(`${label} was an account and is neither one nor revoked: a label is never given out again`);
-  const fresh = [...accounts.keys(), ...revoked].filter(l => !seen.has(l));
+  for (const label of seen) if (!accounts.has(label) && !revoked.has(label) && !gone.has(label)) throw new Error(`${label} was an account and is neither one nor revoked: a label is never given out again`);
+  const fresh = [...[...accounts.keys(), ...revoked].filter(l => !seen.has(l)), ...[...revoked].filter(l => !gone.has(l)).map(l => `revoked ${l}`)];
   if (fresh.length) appendFileSync(seenPath, fresh.map(l => `${l}\n`).join(''), { mode: 0o600 });
-  return { accounts, revoked };
+  return { accounts, revoked: new Set([...revoked, ...gone]) };
 }
 
 /** Whether `token` is `account`'s (in constant time, by its hash). */
-const holds = (account, token) => !!account && timingSafeEqual(sha256(token), account.hash);
+// (a missing account is compared against nothing it could match, so every refusal costs one hash and one compare)
+const NONE = Buffer.alloc(32);
+const holds = (account, token) => timingSafeEqual(sha256(String(token)), account?.hash ?? NONE) && !!account;
 
-/** A count of events in the last minute, by key. */
+/** Keys a minute's count holds at most: past it, whatever is new is
+ * refused until the minute's old keys are swept (fails closed). */
+const KEYS = 100_000;
+/** A count of events in the last minute, by key; a key with none in the
+ * minute dropped (swept as it grows, and `sweep()`). */
 function perMinute(limit, now) {
   const seen = new Map();
+  const sweep = () => { const t = now(); for (const [k, list] of seen) if (!list.some(x => t - x < MINUTE)) seen.delete(k); };
   return {
     take(key) {
       const t = now(), list = (seen.get(key) ?? []).filter(x => t - x < MINUTE);
+      if (!seen.has(key) && seen.size >= KEYS) { sweep(); if (seen.size >= KEYS) return false; }
       if (list.length >= limit) { seen.set(key, list); return false; }
       list.push(t);
       seen.set(key, list);
       return true;
     },
     peek(key) { const t = now(); return (seen.get(key) ?? []).filter(x => t - x < MINUTE).length; },
+    sweep,
+    get size() { return seen.size; },
   };
 }
 
 /** An address as a log shows it: an IPv4's first three parts, an IPv6's first four groups. */
-const masked = ip => (/^\d+\.\d+\.\d+\.\d+$/.test(ip) ? ip.replace(/\.\d+$/, '.x') : String(ip).split(':').slice(0, 4).join(':') + '::');
+const masked = address => {
+  const ip = String(address).replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, '');
+  return /^\d+\.\d+\.\d+\.\d+$/.test(ip) ? ip.replace(/\.\d+$/, '.x') : ip.split(':').slice(0, 4).join(':') + '::';
+};
 
 /** The relay: `config` as the file says it (`domain`, `listen`, `tls`
  * `{cert, key}` (PEM text), `accounts` (a path), `dns`, `limits`). `dns`
@@ -156,23 +172,34 @@ export function relayServer(config, { log = line => console.log(line), now = () 
   const domain = String(config.domain ?? '').toLowerCase();
   if (!NAME.test(domain)) throw new Error('domain: the relay\'s own name (lowercase, dotted)');
   const limits = { ...LIMITS, ...(config.limits ?? {}) };
-  // Its own certificate, for its own name only, valid now and its key's: else no start (theme2's 14:34 (5)).
+  for (const [k, v] of Object.entries(limits)) if (!(k in LIMITS) || !Number.isSafeInteger(v) || v <= 0) throw new Error(`limits.${k}: a whole number above 0 (one of ${Object.keys(LIMITS).join(', ')})`);
+  // Its own certificate, for its own name, valid now and its key's: else no start (theme2's 14:34 (5)).
   const own = new X509Certificate(config.tls?.cert ?? '');
   if (!own.checkHost(domain, { partialWildcards: false })) throw new Error(`tls.cert does not name ${domain}`);
   if (Date.parse(own.validFrom) > now() || Date.parse(own.validTo) <= now()) throw new Error(`tls.cert is not valid now (${own.validFrom} to ${own.validTo})`);
   if (!own.checkPrivateKey(createPrivateKey(config.tls.key))) throw new Error('tls.key is not tls.cert\'s key');
-  const control = createTLS({ cert: config.tls.cert, key: config.tls.key, minVersion: 'TLSv1.2' }, conn => greet(conn));
+  // (its handshake within helloMs too: the first record's deadline runs on through it)
+  const control = createTLS({ cert: config.tls.cert, key: config.tls.key, minVersion: 'TLSv1.2', handshakeTimeout: limits.helloMs }, conn => greet(conn));
   control.on('tlsClientError', (_e, s) => s?.destroy());
   const accountsPath = resolve(config.accounts);
   let { accounts, revoked } = loadAccounts(accountsPath, domain);
-  const dns = config.dns?.command ? { publish: (r, v) => dnsHook(config.dns.command, r, v), clear: (r, v) => dnsHook(config.dns.command, r, v, { clear: true }) } : config.dns;
+  /** Each label's pending DNS work, stopped when the label is cut. */
+  const stops = new Map();
+  const stopOf = label => { let c = stops.get(label); if (!c || c.signal.aborted) { c = new AbortController(); stops.set(label, c); } return c.signal; };
+  const dns = config.dns?.command
+    ? { publish: (r, v, signal) => dnsHook(config.dns.command, r, v, { signal }), clear: (r, v, signal) => dnsHook(config.dns.command, r, v, { clear: true, signal }) }
+    : config.dns;
   /** Each live session, by its key (`<label> <run>`) and by each of its names. */
   const sessions = new Map(), byName = new Map();
-  /** Each label's connector connections (idle or carrying), cut together on revocation. */
+  /** Each label's control connections (idle, carrying, or asking for a TXT record), cut together. */
   const conns = new Map();
   const clientsPerIp = perMinute(limits.perIpPerSession, now), txts = perMinute(limits.txtPerAccount, now), refusals = perMinute(limits.greetingsPerIp, now);
+  const sweeper = setInterval(() => { for (const m of [clientsPerIp, txts, refusals]) m.sweep(); }, MINUTE);
+  sweeper.unref?.();
   const tcp = createTCP({ pauseOnConnect: false }, socket => route(socket));
   const live = new Set(), quietOf = new WeakMap();
+  /** A refused or answered connection: ended, and destroyed a moment after whether or not its peer closes. */
+  const finish = (conn, text) => { conn.end(text); setTimeout(() => conn.destroy(), 1000).unref?.(); };
 
   /** A client's first record read (never more), then down to its session, to the control endpoint, or closed. */
   function route(socket) {
@@ -182,6 +209,7 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     let buf = Buffer.alloc(0);
     const late = setTimeout(() => socket.destroy(), limits.helloMs);
     const onData = d => {
+      // (held only to be handed on whole: the parser reads the first record of it and no further)
       buf = Buffer.concat([buf, d]);
       const h = helloName(buf);
       if (h.state === 'more') { if (buf.length > 5 + RECORD_MAX) socket.destroy(); return; }
@@ -202,18 +230,18 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     socket.on('data', onData);
   }
 
-  /** `socket` (its first bytes `first`) down an idle connection of `session`, or closed. */
+  /** `socket` (its first bytes `first`) down an idle connection of `session`, or closed. Carried and waiting
+   * together at most `streamsPerSession`. */
   function hand(session, name, socket, first) {
     const ip = socket.remoteAddress ?? 'unknown';
     if (!clientsPerIp.take(`${session.key} ${ip}`)) { log(`relay: ${session.label} ${session.id}: ${masked(ip)} over ${limits.perIpPerSession} a minute`); return socket.destroy(); }
-    if (session.carried.size >= limits.streamsPerSession) return socket.destroy();
+    if (session.carried.size + session.waiting.size >= limits.streamsPerSession) return socket.destroy();
     const give = conn => {
       conn.off('data', quietOf.get(conn));
       session.carried.add(conn);
       conn.once('close', () => { session.carried.delete(conn); socket.destroy(); ended(session); });
       socket.once('close', () => conn.destroy());
-      conn.write(`CLIENT ${name} ${ip.replace(/^::ffff:/, '')}\n`);
-      conn.write(first);
+      conn.write(Buffer.concat([Buffer.from(`CLIENT ${name} ${ip.replace(/^::ffff:/i, '')}\n`), first]));
       socket.pipe(conn);
       conn.pipe(socket);
       socket.resume();
@@ -221,7 +249,7 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     const conn = session.idle.shift();
     if (conn) return give(conn);
     // (none idle: a moment for the connector to dial one, then closed)
-    const wait = { give, timer: setTimeout(() => { session.waiting.delete(wait); socket.destroy(); }, limits.waitMs) };
+    const wait = { give, socket, timer: setTimeout(() => socket.destroy(), limits.waitMs) };
     session.waiting.add(wait);
     socket.once('close', () => { clearTimeout(wait.timer); session.waiting.delete(wait); });
   }
@@ -232,7 +260,7 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     conn.on('error', () => conn.destroy());
     let head = '';
     const late = setTimeout(() => conn.destroy(), limits.helloMs);
-    const refuse = (why, quiet = false) => { refusals.take(ip); if (!quiet) log(`relay: refused ${masked(ip)}: ${why}`); conn.end(`REFUSED ${why}\n`); };
+    const refuse = why => { refusals.take(ip); log(`relay: refused ${masked(ip)}: ${why}`); finish(conn, `REFUSED ${why}\n`); };
     const onData = d => {
       head += d.toString('latin1');
       const end = head.indexOf('\r\n\r\n');
@@ -246,8 +274,14 @@ export function relayServer(config, { log = line => console.log(line), now = () 
       const [magic, label] = lines[0].split(' ');
       const field = name => { const l = lines.slice(1).filter(x => x.toLowerCase().startsWith(`${name}: `)); return l.length === 1 ? l[0].slice(name.length + 2) : l.length ? undefined : null; };
       const bearer = field('authorization');
-      const account = magic === 'EXACT-RELAY/1' && LABEL.test(label ?? '') ? accounts.get(label) : null;
-      if (!account || typeof bearer !== 'string' || !bearer.startsWith('Bearer ') || !holds(account, bearer.slice(7))) return refuse('no such account');
+      const account = magic === 'EXACT-RELAY/1' && LABEL.test(label ?? '') ? accounts.get(label) : undefined;
+      const said = typeof bearer === 'string' && bearer.startsWith('Bearer ') ? bearer.slice(7) : '';
+      if (!holds(account, said)) return refuse('no such account');
+      // (every authenticated connection the account's, cut with it)
+      const mine = conns.get(label) ?? new Set();
+      conns.set(label, mine);
+      mine.add(conn);
+      conn.once('close', () => mine.delete(conn));
       const txt = field('txt'), clear = field('txt-clear');
       if (txt !== null || clear !== null) return record(conn, label, txt ?? clear, clear !== null && txt === null, refuse);
       const run = field('run'), names = field('names');
@@ -265,41 +299,53 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     if (!txts.take(label)) return refuse(`more than ${limits.txtPerAccount} TXT requests a minute`);
     if (more !== undefined || !RECORD.test(record ?? '') || !/^[A-Za-z0-9_-]{43}$/.test(value ?? '')) return refuse('no ACME TXT record of that shape');
     if (record !== `_acme-challenge.${label}.${domain}`) return refuse('not your account\'s name');
+    // (stopped when the account is cut: no record put up for a revoked account)
+    const signal = stopOf(label);
     try {
-      await (clearing ? dns.clear(record, value) : dns.publish(record, value));
-      conn.end('TXT-OK\n');
-    } catch (e) { log(`relay: ${label}: the TXT record could not be ${clearing ? 'taken down' : 'put up'}: ${String(e?.message ?? e).slice(0, 120)}`); conn.end('REFUSED the record could not be put up\n'); }
+      await (clearing ? dns.clear(record, value, signal) : dns.publish(record, value, signal));
+      finish(conn, 'TXT-OK\n');
+    } catch (e) { log(`relay: ${label}: the TXT record could not be ${clearing ? 'taken down' : 'put up'}: ${String(e?.message ?? e).slice(0, 120)}`); finish(conn, 'REFUSED the record could not be put up\n'); }
   }
 
-  /** A connector's connection: the session of its run, made the first time (its names the relay's, or of the account's own parents). */
+  /** The names a greeting says, for `label`: under a parent the account holds, or the relay's own form for
+   * this label (a session's names kept across the relay's restart or a lapse). Null when neither. */
+  function namesFor(label, tool, canvas) {
+    if (!NAME.test(tool ?? '') || !NAME.test(canvas ?? '') || tool === canvas) return null;
+    const parentOf = n => n.slice(n.indexOf('.') + 1);
+    if (parentOf(tool) !== parentOf(canvas)) return null;
+    if (accounts.get(label).names.includes(parentOf(tool))) return { tool, canvas, id: tool.split('.')[0] };
+    const m = new RegExp(`^([0-9a-f]{12})-tool\\.${label}\\.${domain.replace(/\./g, '\\.')}$`).exec(tool);
+    return m && canvas === `${m[1]}-canvas.${label}.${domain}` ? { tool, canvas, id: m[1] } : null;
+  }
+
+  /** A connector's connection: the session of its run, made the first time (its names the relay's, or the
+   * account's own, or the relay's from before for this label). */
   function connector(conn, label, run, names, refuse) {
     const key = `${label} ${run}`;
     let session = sessions.get(key);
     if (!session) {
       if ([...sessions.values()].filter(s => s.label === label).length >= limits.sessionsPerAccount) return refuse(`more than ${limits.sessionsPerAccount} sessions on this account`);
-      let tool, canvas;
+      let said;
       if (names) {
-        [tool, canvas] = names.split(' ');
-        const parentOf = n => n.slice(n.indexOf('.') + 1);
-        const ours = n => NAME.test(n ?? '') && accounts.get(label).names.includes(parentOf(n));
-        if (!ours(tool) || !ours(canvas) || tool === canvas || parentOf(tool) !== parentOf(canvas)) return refuse('names not of your account');
-        if (byName.has(tool) || byName.has(canvas)) return refuse('names in use by another session');
+        said = namesFor(label, ...names.split(' '));
+        if (!said) return refuse('names not of your account');
+        if (byName.has(said.tool) || byName.has(said.canvas)) return refuse('names in use by another session');
       } else {
-        const id = randomBytes(8).toString('hex').slice(0, 12);
-        [tool, canvas] = [`${id}-tool.${label}.${domain}`, `${id}-canvas.${label}.${domain}`];
+        let id;
+        do id = randomBytes(6).toString('hex'); while (byName.has(`${id}-tool.${label}.${domain}`));
+        said = { tool: `${id}-tool.${label}.${domain}`, canvas: `${id}-canvas.${label}.${domain}`, id };
       }
-      session = { key, label, id: tool.split('.')[0].replace(/-tool$/, ''), tool, canvas, idle: [], carried: new Set(), waiting: new Set(), grace: null };
+      session = { key, label, ...said, idle: [], carried: new Set(), waiting: new Set(), grace: null };
       sessions.set(key, session);
-      byName.set(tool, session);
-      byName.set(canvas, session);
+      byName.set(session.tool, session);
+      byName.set(session.canvas, session);
       log(`relay: ${label} ${session.id}: session up`);
     } else if (names && names !== `${session.tool} ${session.canvas}`) return refuse('names not this run\'s');
+    // (a run's idle connections, at most `idlePerSession`: more are closed, said nothing, and the connector waits)
+    if (session.idle.length >= limits.idlePerSession) return conn.destroy();
     clearTimeout(session.grace);
     session.grace = null;
-    const mine = conns.get(label) ?? new Set();
-    conns.set(label, mine);
-    mine.add(conn);
-    conn.once('close', () => { mine.delete(conn); const i = session.idle.indexOf(conn); if (i >= 0) session.idle.splice(i, 1); ended(session); });
+    conn.once('close', () => { const i = session.idle.indexOf(conn); if (i >= 0) session.idle.splice(i, 1); ended(session); });
     conn.write(`READY ${session.tool} ${session.canvas}\n`);
     // (an idle connection says nothing: one that does is no connector's)
     const quiet = () => conn.destroy();
@@ -313,28 +359,42 @@ export function relayServer(config, { log = line => console.log(line), now = () 
   /** A session with no connection left: after `graceMs`, gone (its names free again). */
   function ended(session) {
     if (session.idle.length || session.carried.size || session.grace || !sessions.has(session.key)) return;
-    session.grace = setTimeout(() => {
-      if (session.idle.length || session.carried.size) return;
-      sessions.delete(session.key);
-      byName.delete(session.tool);
-      byName.delete(session.canvas);
-      log(`relay: ${session.label} ${session.id}: session down`);
-    }, limits.graceMs);
+    session.grace = setTimeout(() => drop(session, 'down'), limits.graceMs);
     session.grace.unref?.();
   }
+  /** A session gone: its names free, its clients (waiting or carried) and connections cut. */
+  function drop(session, why) {
+    clearTimeout(session.grace);
+    for (const w of session.waiting) { clearTimeout(w.timer); w.socket.destroy(); }
+    for (const c of [...session.idle, ...session.carried]) c.destroy();
+    session.waiting.clear();
+    if (sessions.get(session.key) !== session) return;
+    sessions.delete(session.key);
+    byName.delete(session.tool);
+    byName.delete(session.canvas);
+    log(`relay: ${session.label} ${session.id}: session ${why}`);
+  }
 
-  /** The accounts read again: a label gone, revoked or its token changed is cut, every connection and stream. */
+  /** The accounts read again. A label gone, revoked or its token changed is cut: every connection (idle,
+   * carrying or asking for a TXT record), every client waiting, its DNS work; a session whose names are no
+   * longer its account's (a parent moved to another account) is dropped. */
   function reload() {
     let next;
     try { next = loadAccounts(accountsPath, domain); } catch (e) { log(`relay: ${config.accounts} not taken (the accounts before it kept): ${e.message}`); return false; }
+    const cut = new Set();
     for (const [label, a] of accounts) {
       const b = next.accounts.get(label);
       if (b && b.hash.equals(a.hash)) continue;
-      for (const c of conns.get(label) ?? []) c.destroy();
-      for (const s of sessions.values()) if (s.label === label) { for (const c of s.carried) c.destroy(); for (const w of s.waiting) clearTimeout(w.timer); }
+      cut.add(label);
       log(`relay: ${label}: ${b ? 'its token changed' : next.revoked.has(label) ? 'revoked' : 'removed'}: every connection cut`);
     }
     ({ accounts, revoked } = next);
+    for (const label of cut) {
+      stops.get(label)?.abort();
+      for (const c of conns.get(label) ?? []) c.destroy();
+      for (const s of [...sessions.values()]) if (s.label === label) drop(s, 'cut');
+    }
+    for (const s of [...sessions.values()]) if (!namesFor(s.label, s.tool, s.canvas)) drop(s, 'cut: its names are no longer its account\'s');
     return true;
   }
   let watcher = null;
@@ -343,7 +403,9 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     async listen() {
       const [, host, port] = /^(.*):(\d+)$/.exec(config.listen ?? '127.0.0.1:0') ?? [];
       await new Promise((ok, fail) => { tcp.once('error', fail); tcp.listen(Number(port), host.replace(/^\[|\]$/g, ''), ok); });
-      try { watcher = watch(accountsPath, () => reload()); } catch { /* reload() on SIGHUP alone */ }
+      // (the directory watched, not the file: a file replaced by a rename, as `accounts` writes it, is seen every time)
+      const file = basename(accountsPath);
+      try { watcher = watch(dirname(accountsPath), (_e, name) => { if (!name || name === file) reload(); }); } catch { /* reload() on SIGHUP alone */ }
       return tcp.address().port;
     },
     get port() { return tcp.address()?.port; },
@@ -352,9 +414,11 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     reload,
     async close() {
       watcher?.close();
+      clearInterval(sweeper);
       for (const s of live) s.destroy();
       for (const set of conns.values()) for (const c of set) c.destroy();
-      for (const s of sessions.values()) clearTimeout(s.grace);
+      for (const s of [...sessions.values()]) drop(s, 'closed');
+      for (const c of stops.values()) c.abort();
       await new Promise(ok => tcp.close(() => ok()));
     },
   };
@@ -369,6 +433,7 @@ export const CONFIG_HELP = [
   ['dns.command', 'a command that puts an ACME TXT record up or takes one value down (EXACT_ACME_ACTION publish|clear, EXACT_ACME_RECORD, EXACT_ACME_VALUE)'],
   ['limits.perIpPerSession', `client connections a minute from one address to one session (${LIMITS.perIpPerSession})`],
   ['limits.streamsPerSession', `clients carried at once for one session (${LIMITS.streamsPerSession})`],
+  ['limits.idlePerSession', `a session's idle connector connections at once (${LIMITS.idlePerSession})`],
   ['limits.sessionsPerAccount', `sessions one account holds at once (${LIMITS.sessionsPerAccount})`],
   ['limits.txtPerAccount', `TXT requests a minute from one account (${LIMITS.txtPerAccount})`],
   ['limits.greetingsPerIp', `refused greetings a minute from one address before it is answered nothing (${LIMITS.greetingsPerIp})`],
@@ -416,7 +481,7 @@ if (import.meta.main) {
       file.revoked = [...(file.revoked ?? []), label];
     } else { console.log(usage()); process.exit(2); }
     writeFileSync(`${path}.tmp`, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
-    loadAccounts(`${path}.tmp`, String(config.domain));
+    loadAccounts(`${path}.tmp`, String(config.domain).toLowerCase());
     renameSync(`${path}.tmp`, path);
     // (printed once, here, to the operator who asked: never logged, never kept but as its hash)
     if (token) console.log(`${label}: its connector token (EXACT_RELAY_TOKEN), shown once: ${token}`);

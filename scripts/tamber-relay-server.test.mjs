@@ -108,12 +108,15 @@ test('the accounts: a label never given out again, nor one account\'s names anot
     const t = hash('x');
     write({ accounts: { a: { token_sha256: t }, b: { token_sha256: t, names: ['tamber.example.com'] } }, revoked: ['old'] });
     expect([...loadAccounts(path, DOMAIN).accounts.keys()]).toEqual(['a', 'b']);
-    expect(readFileSync(join(dir, 'labels.seen'), 'utf8')).toBe('a\nb\nold\n');
+    expect(readFileSync(join(dir, 'labels.seen'), 'utf8')).toBe('a\nb\nold\nrevoked old\n');
     // Revoked and an account again; dropped from both; or a seen label reissued after a revoke's removal: refused.
     write({ accounts: { a: { token_sha256: t }, b: { token_sha256: t }, old: { token_sha256: t } }, revoked: ['old'] });
     expect(() => loadAccounts(path, DOMAIN)).toThrow('old is revoked: a label is never given out again');
     write({ accounts: { a: { token_sha256: t } }, revoked: ['old'] });
     expect(() => loadAccounts(path, DOMAIN)).toThrow('b was an account and is neither one nor revoked');
+    // Taken off the revoked list and given out again, under another token (round 1): labels.seen remembers.
+    write({ accounts: { a: { token_sha256: t }, b: { token_sha256: t }, old: { token_sha256: hash('new owner') } }, revoked: [] });
+    expect(() => loadAccounts(path, DOMAIN)).toThrow('old is revoked: a label is never given out again');
     // One account's names another's, or under or over them; or under the relay's own domain: refused.
     write({ accounts: { a: { token_sha256: t, names: ['example.com'] }, b: { token_sha256: t, names: ['tamber.example.com'] } }, revoked: ['old'] });
     expect(() => loadAccounts(path, DOMAIN)).toThrow('one account\'s names may not be, or be under or over, another\'s');
@@ -282,7 +285,8 @@ test('accounts add prints a token once and keeps its hash; revoke is for good; -
   closing.push(() => rmSync(dir, { recursive: true, force: true }));
   const config = join(dir, 'relay.json');
   writeFileSync(config, JSON.stringify({ domain: DOMAIN, accounts: 'accounts.json' }));
-  const run = (...args) => spawnSync('bun', [join(import.meta.dir, 'tamber-relay-server.mjs'), ...args, '--config', config], { encoding: 'utf8' });
+  const { NODE_TLS_REJECT_UNAUTHORIZED: _tls, ...env } = process.env;
+  const run = (...args) => spawnSync('bun', [join(import.meta.dir, 'tamber-relay-server.mjs'), ...args, '--config', config], { encoding: 'utf8', env });
   const added = run('accounts', 'add', 'newbie');
   expect(added.status).toBe(0);
   const token = /shown once: (\S+)$/m.exec(added.stdout)[1];
@@ -293,8 +297,8 @@ test('accounts add prints a token once and keeps its hash; revoke is for good; -
   const again = run('accounts', 'add', 'newbie');
   expect([again.status, again.stderr.trim()]).toEqual([1, 'newbie is taken, or was: a label is never given out again']);
   const help = spawnSync('bun', [join(import.meta.dir, 'tamber-relay-server.mjs'), '--help'], { encoding: 'utf8' }).stdout;
-  for (const key of ['domain', 'listen', 'tls.cert', 'tls.key', 'accounts', 'dns.command', 'perIpPerSession', 'streamsPerSession', 'sessionsPerAccount', 'txtPerAccount', 'greetingsPerIp', 'waitMs', 'graceMs', 'helloMs']) expect(help).toContain(key);
-  expect(CONFIG_HELP.length).toBe(11);
+  for (const key of ['domain', 'listen', 'tls.cert', 'tls.key', 'accounts', 'dns.command', 'perIpPerSession', 'streamsPerSession', 'idlePerSession', 'sessionsPerAccount', 'txtPerAccount', 'greetingsPerIp', 'waitMs', 'graceMs', 'helloMs']) expect(help).toContain(key);
+  expect(CONFIG_HELP.length).toBe(12);
 });
 
 test('R4\'s lines on loopback (scripts/tamber-relay-gate.mjs): every one met', async () => {
@@ -304,3 +308,86 @@ test('R4\'s lines on loopback (scripts/tamber-relay-gate.mjs): every one met', a
   expect(results.filter(r => !r.met).map(r => r.gate), said.join('\n')).toEqual([]);
   expect(results.length).toBe(7);
 }, 120_000);
+
+test('round 1: a hostile hello, cut and flipped anywhere, is never read past its record and never throws', async () => {
+  const named = await helloTo('s1-tool.acct.relay.test');
+  let seed = 7;
+  const rand = n => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  for (let i = 0; i < 5000; i++) {
+    const b = Buffer.from(named);
+    for (let k = rand(4) + 1; k > 0; k--) b[rand(b.length)] = rand(256);
+    const tail = Buffer.from('after');
+    const h = helloName(Buffer.concat([b.subarray(0, rand(b.length) + 1), tail]));
+    expect(['ok', 'bad', 'more']).toContain(h.state);
+    if (h.state === 'ok') expect(h.read).toBeLessThanOrEqual(5 + 16_384);
+  }
+});
+
+test('round 1: revocation cuts the clients waiting for a connection and the account\'s TXT requests too; a parent moved to another account drops the session on it', async () => {
+  const { relay, port, path } = await startRelay({ limits: { waitMs: 60_000 } });
+  // A session with no idle connection: a client waits.
+  const c = await greet(port, hello('acct', TOKENS.acct, [`run: ${RUN}`]));
+  const tool = c.line.split(' ')[1];
+  const first = await helloTo(tool);
+  const busy = connectTCP({ host: '127.0.0.1', port }, () => busy.write(first)); // (takes the one idle connection)
+  busy.on('error', () => {});
+  await until(() => [...relay.sessions.values()][0]?.carried.size === 1);
+  const waiting = connectTCP({ host: '127.0.0.1', port }, () => waiting.write(first));
+  const waited = new Promise(ok => waiting.on('close', ok));
+  waiting.on('error', () => {});
+  await until(() => [...relay.sessions.values()][0]?.waiting.size === 1);
+  // A BYO session on `other`'s parent.
+  const byo = await greet(port, hello('other', TOKENS.other, [`run: ${RUN}`, 'names: tool.tamber.example.com canvas.tamber.example.com']));
+  expect(byo.line).toBe('READY tool.tamber.example.com canvas.tamber.example.com');
+  const file = JSON.parse(readFileSync(path, 'utf8'));
+  delete file.accounts.acct;
+  file.revoked.push('acct');
+  file.accounts.other.names = [];
+  file.accounts.third = { token_sha256: hash('third'), names: ['tamber.example.com'] };
+  writeFileSync(path, JSON.stringify(file));
+  expect(relay.reload()).toBe(true);
+  await waited;
+  await until(() => byo.conn.destroyed);
+  expect([...relay.sessions.values()].map(s => s.tool)).toEqual([]);
+});
+
+test('round 1: a session\'s idle connections and its carried and waiting clients are capped; a refused peer that holds its end open is cut', async () => {
+  const { relay, port } = await startRelay({ limits: { idlePerSession: 2, streamsPerSession: 1, waitMs: 60_000 } });
+  const a = await greet(port, hello('acct', TOKENS.acct, [`run: ${RUN}`]));
+  await greet(port, hello('acct', TOKENS.acct, [`run: ${RUN}`]));
+  const third = await greet(port, hello('acct', TOKENS.acct, [`run: ${RUN}`]));
+  expect(third.line).toBeNull(); // (closed, nothing said: the connector waits)
+  const first = await helloTo(a.line.split(' ')[1]);
+  const open = () => new Promise(ok => { const s = connectTCP({ host: '127.0.0.1', port }, () => s.write(first)); let lived = false; const t = setTimeout(() => { lived = true; ok(true); }, 300); s.on('close', () => { clearTimeout(t); if (!lived) ok(false); }); s.on('error', () => {}); closing.push(() => s.destroy()); });
+  expect([await open(), await open()]).toEqual([true, false]);
+  expect([...relay.sessions.values()][0].carried.size + [...relay.sessions.values()][0].waiting.size).toBe(1);
+  // A refused greeting whose peer never closes its side: destroyed all the same.
+  const held = await greet(port, hello('acct', 'wrong', [`run: ${RUN}`]));
+  expect(held.line).toBe('REFUSED no such account');
+  await until(() => held.conn.destroyed, 3000);
+});
+
+test('round 1: a run whose session lapsed (or whose relay restarted) asks for its names again and gets them back; another account can\'t take them', async () => {
+  const { relay, port } = await startRelay({ limits: { graceMs: 50 } });
+  const a = await greet(port, hello('acct', TOKENS.acct, [`run: ${RUN}`]));
+  const [, tool, canvas] = a.line.split(' ');
+  a.conn.destroy();
+  await until(() => relay.sessions.size === 0);
+  expect((await greet(port, hello('other', TOKENS.other, [`run: ${RUN}`, `names: ${tool} ${canvas}`]))).line).toBe('REFUSED names not of your account');
+  expect((await greet(port, hello('acct', TOKENS.acct, [`run: ${'e'.repeat(32)}`, `names: ${tool} ${canvas}`]))).line).toBe(`READY ${tool} ${canvas}`);
+});
+
+test('round 1: the accounts file replaced by a rename, again and again, is read each time', async () => {
+  const { relay, path } = await startRelay();
+  const { renameSync } = await import('node:fs');
+  const replace = file => { writeFileSync(`${path}.tmp`, JSON.stringify(file)); renameSync(`${path}.tmp`, path); };
+  const file = JSON.parse(readFileSync(path, 'utf8'));
+  delete file.accounts.acct;
+  file.revoked.push('acct');
+  replace(file);
+  await until(() => relay.revoked.has('acct'), 5000);
+  delete file.accounts.other;
+  file.revoked.push('other');
+  replace(file);
+  await until(() => relay.revoked.has('other'), 5000);
+});

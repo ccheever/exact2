@@ -13,7 +13,7 @@ bun scripts/tamber-relay-server.mjs --help                                      
 
 ## One port, the ClientHello's name deciding
 
-The relay reads the first TLS record of each connection: the ClientHello, at most 16 KiB. It reads only as far as the server name.
+The relay reads the first TLS record of each connection: the ClientHello, at most 16 KiB. It walks that record's fields and extensions for the server name, and never reads a second record: the bytes after the first are only held to be handed on whole.
 
 - **The relay's own name** (`domain`). TLS ends here, on the relay's only certificate. This is the control endpoint. Connectors greet it, and ACME TXT records are asked for here.
 - **A live session's name.** That is `<id>-tool.<label>.<domain>` or `<id>-canvas.<label>.<domain>`, or a name under one of the account's own parents. One line, `CLIENT <name> <address>`, goes down an idle connection of that session, then the client's bytes as they came, both ways. The relay holds no key for these names and reads nothing past the first record.
@@ -31,30 +31,30 @@ On the control endpoint, over the relay's own TLS (WebPKI-verified by the connec
 connector: EXACT-RELAY/1 <label>\r\n
            authorization: Bearer <token>\r\n
            run: <32 hex digits>\r\n               one random id per run, on every connection
-           [names: <tool> <canvas>\r\n]           names of the account's own
+           [names: <tool> <canvas>\r\n]           names of the account's own, or the run's once named
            \r\n
 relay:     READY <tool> <canvas>\n                then idle
        or  REFUSED <why>\n
 relay:     CLIENT <name> <address>\n              then the client's bytes, both ways
 ```
 
-- **Sessions.** Every connection of a run is in one session. The first time a run greets without `names`, it gets a fresh id (12 hex digits) and its two names under `<label>.<domain>`. With `names`, both must be under one parent the account holds in the accounts file. A session lives 60 s after its last connection, so a reconnect keeps its names.
+- **Sessions.** Every connection of a run is in one session. The first time a run greets without `names`, it gets a fresh id (12 hex digits, never one in use) and its two names under `<label>.<domain>`. With `names`, both must be under one parent the account holds in the accounts file, or be the relay's own form for this label (`<id>-tool.<label>.<domain>` and its canvas twin). The connector asks for its names again on every connection once named, so a run whose session lapsed, or whose relay restarted, gets the same names back unless another session holds them. A session lives 60 s after its last connection. A session holds at most `limits.idlePerSession` idle connections (more are closed, said nothing), and its carried and waiting clients together at most `limits.streamsPerSession`.
 - **TXT records.** A connection whose greeting carries `txt: <record> <value>` or `txt-clear: <record> <value>` is answered `TXT-OK` or `REFUSED <why>`, then closed. The record must be `_acme-challenge.<label>.<domain>`, the connector's own account's. Any other is refused, including another account's, the apex, or a name of the account's own parent (those go through the developer's own DNS, `--relay-dns-hook`). The value must be ACME-shaped. A clear takes down only its own value. Requests are limited per account, refused ones counted too.
-- **Refusals.** A wrong token, an unknown label and a revoked one all get the same words, `no such account`. After `limits.greetingsPerIp` refusals in a minute, an address is answered nothing.
+- **Refusals.** A wrong token, an unknown label and a revoked one all get the same words, `no such account`, and cost the same work (one hash, one constant-time compare). A refused or answered connection is destroyed a second after its last line, whether or not its peer closes. After `limits.greetingsPerIp` refusals in a minute, an address is answered nothing.
 
 ## Accounts
 
 `accounts.json`:
 
 ```json
-{ "accounts": { "<label>": { "token_sha256": "<64 hex>", "names": ["tamber.example.com"] } },
-  "revoked": ["<label>"] }
+{ "accounts": { "acme": { "token_sha256": "<64 hex>", "names": ["tamber.example.com"] } },
+  "revoked": ["old-label"] }
 ```
 
 - **Tokens** are kept as their SHA-256 only and compared in constant time. They are never logged.
 - **`names`** are the parents an account may use with `--relay-name`. One account's parent may not be another's, or under or over another's, nor under the relay's own domain.
-- **Labels are never given out again.** A revoked label stays in `revoked`. Every label the relay has seen is appended to `labels.seen` beside the file. A file that drops a seen label, or revokes one and lists it as an account too, is not taken.
-- **Reloading.** The file is read again when it changes, and on SIGHUP. A file that isn't taken leaves the accounts before it in place. An account removed, revoked or given a new token is cut at once: every connection and every stream it carries.
+- **Labels are never given out again.** A revoked label stays in `revoked`. Every label the relay has seen is appended to `labels.seen` beside the file, and every revocation too (`revoked <label>`), for good. A file that drops a seen label, or lists as an account one that is or ever was revoked, is not taken.
+- **Reloading.** The file is read again when it changes (its directory is watched, so a file replaced by a rename is seen every time), and on SIGHUP. A file that isn't taken leaves the accounts before it in place. An account removed, revoked or given a new token is cut at once: every connection (idle, carrying a client, or asking for a TXT record), every client waiting, and its DNS work under way. A session whose names are no longer its account's (a parent moved to another account) is dropped.
 
 ## Config keys
 
@@ -67,6 +67,7 @@ relay:     CLIENT <name> <address>\n              then the client's bytes, both 
 | `dns.command` | puts an ACME TXT record up or takes one value down. It gets `EXACT_ACME_ACTION` (`publish` or `clear`), `EXACT_ACME_RECORD` and `EXACT_ACME_VALUE`, runs in its own process group, and has a deadline |
 | `limits.perIpPerSession` | client connections a minute from one address to one session (30) |
 | `limits.streamsPerSession` | clients carried at once for one session (64) |
+| `limits.idlePerSession` | a session's idle connector connections at once (8) |
 | `limits.sessionsPerAccount` | sessions one account holds at once (4) |
 | `limits.txtPerAccount` | TXT requests a minute from one account (10) |
 | `limits.greetingsPerIp` | refused greetings a minute from one address before it is answered nothing (10) |
