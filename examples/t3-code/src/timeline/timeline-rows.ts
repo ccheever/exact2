@@ -8,6 +8,8 @@ import {
   singleToolCallLabel, successKeepsLive, last, findLast, findLastIndex, summarizeToolGroup, summaryIcon, summaryKind, toolPresentation, visibleInGroup, type WorkEntry,
 } from './timeline-worklog';
 import { inlineReference, type InlineReference } from './inline-documents';
+import { compactDynamicToolOutput } from './inline-tool-output';
+import { t3ToolDefinition } from './timeline-t3tools';
 import { groupToolPresentation } from './timeline-work-rows';
 import { agentStarted } from './timeline-worktree';
 import { turnItemIsWorkspacePreparation } from './workspace-retry';
@@ -53,7 +55,8 @@ export interface RowInput {
 }
 
 const STANDALONE = new Set(['fork', 'handoff', 'run_interrupt_request', 'run_interrupt_result', 'subagent', 'secret_request']);
-const PERSISTENT = new Set(['fork', 'thread_created']);
+// A secret request stays answerable after a steer supersedes the attempt that asked.
+const PERSISTENT = new Set(['fork', 'thread_created', 'secret_request']);
 export function rowKey(row: Obj): string { return JSON.stringify([row.sourceThreadId, row.sourceItemId]); }
 
 const attemptOf = (attempt: Obj): Attempt => ({ id: str(attempt.id), runId: str(attempt.runId), status: str(attempt.status), completedAt: str(attempt.completedAt) });
@@ -114,7 +117,7 @@ const latestIso = (a: string | null, b: string | null) => !a ? b : !b ? a : Date
 
 /** deriveMessagesTimelineRows, without T3's tool catalogue, worktree setup or created-thread summaries. */
 export function deriveRows(input: RowInput): Row[] {
-  const entries = settleReasoning(timelineEntries(input));
+  const entries = withoutDelegationRows(settleReasoning(timelineEntries(input)));
   const latestRun = input.latestRun;
   const unsettled = input.runningRunId || (latestRun && !(latestRun.completedAt && !['running', 'starting', 'waiting'].includes(str(latestRun.status))) ? str(latestRun.id) : '');
   const failedRuns = new Set<string>();
@@ -134,7 +137,7 @@ export function deriveRows(input: RowInput): Row[] {
   const attemptGroups = new Map<string, Entry[]>();
   for (const entry of entries) {
     if (entry.attempt?.status !== 'superseded' || completeAttempts.has(entry.attempt.id) || failedRuns.has(entry.attempt.runId) || entry.kind === 'message' && entry.role === 'user'
-      || persistentResource(entry) || liveSubagents.has(entry.id) || entry.kind === 'work' && entry.entry.itemType === 'system_notice') continue;
+      || entry.kind === 'document' || persistentResource(entry) || liveSubagents.has(entry.id) || entry.kind === 'work' && entry.entry.itemType === 'system_notice') continue;
     attemptGroups.set(entry.attempt.id, [...attemptGroups.get(entry.attempt.id) ?? [], entry]);
   }
   const attemptFolds = new Map<string, { runId: string; attemptId: string; createdAt: string; hidden: Set<string> }>();
@@ -218,7 +221,8 @@ export function deriveRows(input: RowInput): Row[] {
       const work = entry.entry;
       if (work.runId && failedRuns.has(work.runId) || work.itemType === 'error' && work.status === 'failed' || work.tone === 'error'
         || work.sourceActivityKind === 'runtime.error' || work.itemType === 'system_notice' || work.itemType === 'notification') {
-        rows.push({ kind: 'entry', id: entry.id, createdAt: entry.createdAt, entries: [work] });
+        // WorkGroupSection draws only what a collapsed group shows: a failed run's unfinished tool call has no row.
+        if (visibleInGroup(work)) rows.push({ kind: 'entry', id: entry.id, createdAt: entry.createdAt, entries: [work] });
         continue;
       }
       const grouped = [work];
@@ -357,6 +361,28 @@ function completeSupersededReplyIds(entries: Entry[]): Set<string> {
   return ids;
 }
 
+/**
+ * withoutSubagentDelegationRows: a delegation already has its child's durable card, so its tool row
+ * goes once the returned task id names that child (pending calls can share a prompt).
+ */
+function withoutDelegationRows(entries: Entry[]): Entry[] {
+  const children = new Map<string, Set<string>>();
+  for (const entry of entries) {
+    if (entry.kind !== 'event' || entry.item.type !== 'subagent' || entry.item.origin !== 'app_owned' || !entry.item.runId) continue;
+    const runId = str(entry.item.runId);
+    children.set(runId, (children.get(runId) ?? new Set()).add(str(entry.item.subagentId)));
+  }
+  return entries.filter(entry => {
+    if (entry.kind !== 'work' || displayFailed(entry.entry)) return true;
+    const item = entry.entry.item;
+    if (item.type !== 'dynamic_tool' || !item.runId || item.status !== 'running' && item.status !== 'completed'
+      || t3ToolDefinition(str(item.toolName))?.summaryAction !== 'delegate') return true;
+    const output = compactDynamicToolOutput(item.output);
+    if (output?.isError || output?.taskId === undefined) return true;
+    return !children.get(str(item.runId))?.has(output.taskId);
+  });
+}
+
 function settleReasoning(entries: Entry[]): Entry[] {
   return entries.map((entry, index) => index === entries.length - 1 || entry.kind !== 'work' || entry.entry.itemType !== 'reasoning'
     || entry.entry.status !== 'inProgress' ? entry : { ...entry, entry: { ...entry.entry, status: 'completed' } });
@@ -387,7 +413,8 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
     }
     let own: string | null = null;
     if (entry.kind === 'work' && entry.entry.itemType === 'system_notice') own = null;
-    else if (entry.kind === 'message' && entry.role === 'assistant' || entry.kind === 'work' || entry.kind === 'document') own = runOf(entry) || runless;
+    // An inline render or MCP app is the turn's output, never folded work.
+    else if (entry.kind === 'message' && entry.role === 'assistant' || entry.kind === 'work') own = runOf(entry) || runless;
     else if (entry.kind === 'event' && (persistentResource(entry) || entry.item.type === 'subagent')) own = str(entry.item.runId) || runless;
     if (!own) return;
     // A resumed subagent's item moves to the resuming run but keeps its place in the turn that
