@@ -42,7 +42,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
-import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { evictArms, keepRoster, keptRoster, snapshotSources } from './arms.mjs';
 import { documentTypes, exportedTypes, importedTypes, openingLinks, webPageTypes } from './documents.mjs';
 import { executableName, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
@@ -1107,7 +1107,8 @@ async function main(args, lockHeld = false) {
     if (placed) return;
     packages.forEach((p, i) => {
       const r = spawnSync('xcrun', packageArgs(p, i), { encoding: 'utf8' });
-      const said = packageCopies[i].reduce((text, copy, j) => text.replaceAll(copy, p.sources[j]), r.stderr ?? '');
+      // Each copy's real path first (the temporary directory's `/private/var/…`), as `snapshot.authored` maps the app's.
+      const said = packageCopies[i].reduce((text, copy, j) => text.replaceAll(realpathSync(copy), p.sources[j]).replaceAll(copy, p.sources[j]), r.stderr ?? '');
       if (r.status !== 0) throw new Error(`host/apple: ${p.extension}'s Swift (${p.sources.join(', ')}) did not compile:\n${said}`);
     });
     placed = true;
