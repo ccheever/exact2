@@ -4,8 +4,9 @@
 // `.exact/commands.jsonl`. This assembles what has not been sent yet, redacts
 // it, and sends it only when asked.
 //
-//   feedback [preview]      print exactly what `send` would send
-//   feedback send [--yes]   send it (asks first on a terminal unless --yes)
+//   feedback [preview]      print exactly what `send` would send, and the README offered beside it
+//   feedback send [--yes] [--readme]   send it (asks first on a terminal unless --yes); the
+//                           README goes too only when confirmed, or with --readme
 //   feedback delete <id>    delete a sent diary by its receipt
 //   feedback always|never|ask|local   this project's standing answer
 //   feedback status         that answer, and what is unsent
@@ -20,6 +21,7 @@
 // carries one line for them and a `never` project carries none (LLP 1116 D3). With
 // EXACT_DIARY=detailed set, it also prints the detailed diary's extra instructions
 // (DETAILED below), so only a study's agents carry them in context.
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
@@ -91,30 +93,66 @@ export function pending(dir) {
 }
 const safeParse = line => { try { return JSON.parse(line); } catch { return null; } };
 
+// A workaround an agent writes into its README is feedback the diary may not hold (LLP 1139.004 D5).
+const WORKAROUND = [/\bif\b[^]*?\bfail/i, /\bdelete\b/i, /\bre-?run\b/i, /\bworkaround\b/i];
+const NOTES = '<!-- exact:begin', NOTES_END = '<!-- exact:end -->';
+/** The passages (paragraphs and list items) of `text` that read as workarounds. */
+export function workarounds(text) {
+  return text.split(/\n\s*\n|\n(?=\s*(?:[-*]|\d+\.)\s)/).map(p => p.trim()).filter(p => p && WORKAROUND.some(w => w.test(p)));
+}
+/** The app's README.md, and the author's part of AGENTS.md (outside the block `exact new` writes) when there is
+ * one, each redacted, unsent in this form: what `send` offers beside the diary, never sends without consent. */
+export function attachments(dir) {
+  const sent = readJson(resolve(dir, '.exact/sent.json'), {}).attachments ?? {};
+  const read = name => { try { return readFileSync(resolve(dir, name), 'utf8'); } catch { return ''; } };
+  const notes = read('AGENTS.md'), begin = notes.indexOf(NOTES), end = notes.indexOf(NOTES_END);
+  const own = begin < 0 || end < begin ? notes : notes.slice(0, begin) + notes.slice(end + NOTES_END.length);
+  return [['README.md', read('README.md')], ['AGENTS.md', own]]
+    .map(([name, text]) => [name, redact(text.trim(), dir)])
+    .filter(([name, text]) => text && sent[name] !== digest(text))
+    .map(([name, text]) => ({ name, text, workarounds: workarounds(text) }));
+}
+const digest = text => createHash('sha256').update(text).digest('hex');
+/** What `preview` shows of the attachments: their workaround passages first, then each whole. */
+export function attachmentPreview(files) {
+  return files.map(({ name, text, workarounds: found }) => `# Attachment: ${name} (sent only if you confirm, or with send --readme)\n\n`
+    + (found.length ? `Passages that read as workarounds:\n\n${found.map(p => p.replace(/^/gm, '> ')).join('\n\n')}\n\n` : 'No passage reads as a workaround.\n\n')
+    + `## ${name}\n\n${text}\n`).join('\n');
+}
+
 async function confirm(question) {
   if (!process.stdin.isTTY) return false;
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try { return /^y(es)?$/i.test((await rl.question(question)).trim()); } finally { rl.close(); }
 }
 
-export async function send(dir, { yes = false, fetch: post = fetch } = {}) {
+export async function send(dir, { yes = false, readme = false, fetch: post = fetch } = {}) {
   if (standing(dir) === 'never') return 'This project is set to never send feedback (`feedback ask` undoes that).';
   if (standing(dir) === 'local') return 'This project keeps its diary on this machine and never sends it (`feedback ask` undoes that).';
   const { diaries, commands, logLength, text } = pending(dir);
   if (!diaries.length && !commands.length) return 'Nothing unsent.';
+  let files = attachments(dir);
   if (!yes) {
     console.log(`${text}\n---\nThis goes to ${ENDPOINT}.`);
     if (!(await confirm('Send it? [y/N] '))) return 'Not sent.';
+    // A separate consent: the README is the app's own text, not the diary.
+    if (files.length && !readme) {
+      console.log(`\n${attachmentPreview(files)}\n---`);
+      readme = await confirm(`Attach ${files.map(f => f.name).join(' and ')} too? [y/N] `);
+    }
   }
+  if (!readme) files = [];
   const exact2 = commands.findLast(c => c.exact2)?.exact2 ?? null;
-  const response = await post(`${ENDPOINT}/diary`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: 1, exact2, text }) });
+  const response = await post(`${ENDPOINT}/diary`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: 1, exact2, text, ...(files.length ? { attachments: files } : {}) }) });
   if (!response.ok) throw new Error(`the feedback endpoint answered ${response.status}; nothing was marked sent`);
   const { id } = await response.json();
   const sentDir = resolve(dir, '.exact/diary/sent');
   mkdirSync(sentDir, { recursive: true });
   for (const f of diaries) renameSync(resolve(dir, '.exact/diary', f), resolve(sentDir, f));
-  writeFileSync(resolve(dir, '.exact/sent.json'), JSON.stringify({ commands: logLength, receipts: [...(readJson(resolve(dir, '.exact/sent.json'), {}).receipts ?? []), id] }) + '\n');
-  return `Sent ${diaries.length} ${diaries.length === 1 ? 'diary' : 'diaries'} and ${commands.length} logged commands. Receipt: ${id}\nTo delete it: bun exact.mjs feedback delete ${id}`;
+  const before = readJson(resolve(dir, '.exact/sent.json'), {});
+  const attached = { ...before.attachments, ...Object.fromEntries(files.map(f => [f.name, digest(f.text)])) };
+  writeFileSync(resolve(dir, '.exact/sent.json'), JSON.stringify({ commands: logLength, receipts: [...(before.receipts ?? []), id], ...(Object.keys(attached).length ? { attachments: attached } : {}) }) + '\n');
+  return `Sent ${diaries.length} ${diaries.length === 1 ? 'diary' : 'diaries'}, ${commands.length} logged commands${files.length ? ` and ${files.map(f => f.name).join(' and ')}` : ''}. Receipt: ${id}\nTo delete it: bun exact.mjs feedback delete ${id}`;
 }
 
 /** The detailed diary (EXACT_DIARY=detailed): what a study of authoring needs beyond docs/diary.md. */
@@ -158,8 +196,8 @@ export function status(dir, env = process.env) {
 async function main([verb = 'preview', ...rest]) {
   const dir = process.env.EXACT_APP_DIR;
   if (!dir) throw new Error('run this through an app\'s exact.mjs (bun exact.mjs feedback …)');
-  if (verb === 'preview') { const { text } = pending(dir); return text || 'Nothing unsent.'; }
-  if (verb === 'send') return send(dir, { yes: rest.includes('--yes') });
+  if (verb === 'preview') { const { text } = pending(dir), files = attachments(dir); return [text || 'Nothing unsent.', ...(files.length ? [attachmentPreview(files)] : [])].join('\n---\n'); }
+  if (verb === 'send') return send(dir, { yes: rest.includes('--yes'), readme: rest.includes('--readme') });
   if (verb === 'status') return status(dir);
   if (ANSWERS.includes(verb)) { setStanding(dir, verb); return `This project's feedback answer is now: ${verb}.`; }
   if (verb === 'delete' && rest[0]) {
@@ -167,7 +205,7 @@ async function main([verb = 'preview', ...rest]) {
     if (!response.ok) throw new Error(`the feedback endpoint answered ${response.status}`);
     return `Deleted ${rest[0]}.`;
   }
-  throw new Error('usage: bun exact.mjs feedback [preview|send [--yes]|delete <id>|always|never|ask|local|status]');
+  throw new Error('usage: bun exact.mjs feedback [preview|send [--yes] [--readme]|delete <id>|always|never|ask|local|status]');
 }
 
 if (import.meta.main) {

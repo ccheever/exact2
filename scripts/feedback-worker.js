@@ -2,7 +2,8 @@
 // Worker over one KV namespace. A diary is stored once, under a random receipt
 // that is also the only way to delete it; Slack is told counts, never content.
 //
-//   POST   /diary        {version, exact2, text} -> {id}
+//   POST   /diary        {version, exact2, text, attachments?} -> {id}; attachments are the app's
+//                         README.md or AGENTS.md, each {name, text, workarounds}, sent only with consent
 //   DELETE /diary/<id>   delete that diary
 //   GET    /diaries      every stored diary (Authorization: Bearer $ADMIN_TOKEN)
 //   GET    /needs        each capability's provided / by hand / missing count across them (same token)
@@ -14,6 +15,15 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), { status
 
 /** A Needed line's capability and how it went: `- camera: by hand (...)`. */
 const NEED = /^\s*[-*]\s+([a-z][a-z0-9 /&-]{0,39}?)\s*:\s*(provided|by hand|missing)\b/i;
+
+/** The attachments a diary may carry (scripts/feedback.mjs `attachments`), or null when malformed. */
+export function attachments(value) {
+  if (value === undefined) return [];
+  const names = new Set(['README.md', 'AGENTS.md']);
+  const ok = Array.isArray(value) && value.length <= names.size && new Set(value.map(a => a?.name)).size === value.length
+    && value.every(a => names.has(a?.name) && typeof a.text === 'string' && Array.isArray(a.workarounds) && a.workarounds.every(w => typeof w === 'string'));
+  return ok ? value.map(({ name, text, workarounds }) => ({ name, text, workarounds })) : null;
+}
 
 /** What Slack hears: how many of each, from the diary's own headings, and which
  * generic capabilities were needed (the Needed section names nothing else). */
@@ -60,13 +70,16 @@ export default {
       let body;
       try { body = JSON.parse(raw); } catch { return json({ error: 'not JSON' }, 400); }
       if (typeof body.text !== 'string' || !body.text.trim()) return json({ error: 'no text' }, 400);
+      const attached = attachments(body.attachments);
+      if (!attached) return json({ error: 'attachments are README.md or AGENTS.md, each {name, text, workarounds}' }, 400);
       const id = crypto.randomUUID(), received = new Date().toISOString();
-      await env.DIARIES.put(`diary:${id}`, JSON.stringify({ id, received, exact2: body.exact2 ?? null, version: body.version ?? null, text: body.text }));
+      await env.DIARIES.put(`diary:${id}`, JSON.stringify({ id, received, exact2: body.exact2 ?? null, version: body.version ?? null, text: body.text, ...(attached.length ? { attachments: attached } : {}) }));
       if (env.SLACK_WEBHOOK) {
         const s = summary(body.text);
         const text = `New exact diary \`${id}\` (exact2 ${body.exact2 ?? '?'}): ${s.diaries} ${s.diaries === 1 ? 'diary' : 'diaries'}, `
           + `${s.rough} rough, ${s.lean} lean-in; checkpoints ${s.smooth} smooth / ${s.roughSteps} rough; `
           + `${s.commands} commands, ${s.failed} failed.`
+          + (attached.length ? ` Attached: ${attached.map(a => `${a.name} (${a.workarounds.length} workaround${a.workarounds.length === 1 ? '' : 's'})`).join(', ')}.` : '')
           + (s.needs.length ? ` Needed: ${s.needs.map(([name, how]) => `${name} (${how})`).join(', ')}.` : '');
         context.waitUntil(fetch(env.SLACK_WEBHOOK, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) }));
       }

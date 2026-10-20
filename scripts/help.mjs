@@ -407,9 +407,9 @@ Ports    none. Runs to completion.`,
   },
   feedback: {
     line: 'the authoring diary: preview, send, or set this project\'s standing answer',
-    usage: 'bun exact.mjs feedback [preview|send [--yes]|delete <id>|status|always|never|ask|local]',
-    flags: [['--yes', 'with send: do not ask first on a terminal']],
-    body: `  preview (the default)    exactly what send would send, redacted
+    usage: 'bun exact.mjs feedback [preview|send [--yes] [--readme]|delete <id>|status|always|never|ask|local]',
+    flags: [['--yes', 'with send: do not ask first on a terminal'], ['--readme', 'with send: attach the README (and AGENTS.md\'s own notes) too']],
+    body: `  preview (the default)    exactly what send would send, redacted; the README offered beside it
   send · delete <id>       send it · delete a sent diary by its receipt
   status                   the standing answer, and what is unsent
   always|never|ask|local   set the answer (local: keep the diary, never ask or send)
