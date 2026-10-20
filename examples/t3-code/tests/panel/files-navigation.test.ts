@@ -126,3 +126,34 @@ test('generated file art retains language logos, theme tints and the diff/XML st
   }
   expect(drawings).toContain('stroke-width=w0');
 });
+
+test('the search belongs to one tab: a file opened from a filtered tree and a switched tab show an empty field and the whole tree', async () => {
+  const { client } = fixture();
+  const request = client.restAccess(native).request;
+  client.restAccess = (() => ({ request: async (method: string, payload: Record<string, unknown>) => {
+    if (method === 'projects.searchEntries') return { entries: [{ path: 'assets/logo.png', kind: 'file' }] };
+    if (method === 'projects.listEntries' && !payload.directoryPath) return { entries: [{ path: 'assets', kind: 'directory' }, { path: 'README.md', kind: 'file' }] };
+    if (method === 'projects.listEntries') return { entries: [{ path: 'assets/logo.png', kind: 'file' }] };
+    return request(method, payload);
+  } })) as unknown as T3Client['restAccess'];
+  const readme = file('README.md'), logo = file('assets/logo.png'), tabs = panelState(client);
+  Object.assign(tabs, panel(readme));
+  await filesView(client, native, readme);
+  await filesLocal(client, native, 'search', '', 'logo');
+  const filtered = await filesView(client, native, readme);
+  expect(filtered.query).toBe('logo');
+  expect(filtered.rows.map(row => row.path)).toEqual(['assets', 'assets/logo.png']);
+  // FileBrowserPanel: the new tab mounts its own explorer, so its field is empty and its tree whole, with the file revealed.
+  tabs.surfaces.push(logo); tabs.active = logo.id;
+  const opened = await filesView(client, native, logo);
+  expect(opened.query).toBe('');
+  expect(opened.rows.map(row => row.path)).toEqual(['assets', 'assets/logo.png', 'README.md']);
+  // A search typed in one tab is gone after a switch away and back.
+  await filesLocal(client, native, 'search', '', 'math');
+  tabs.active = readme.id;
+  expect((await filesView(client, native, readme)).query).toBe('');
+  await filesLocal(client, native, 'search', '', 'math');
+  tabs.active = logo.id;
+  expect((await filesView(client, native, logo)).query).toBe('');
+  expect(filesState(client).search).toBeNull();
+});

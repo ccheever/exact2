@@ -168,7 +168,7 @@ component ConnectionsPanel
     column width="100%" gap="2rem" testId="connections-settings"
       text routeKeyboard.announcement aria-live="polite" position="absolute" width=1 height=1 overflow="hidden" testId="environment-route-announcement"
       ThisMachineSection(machine=page.thisMachine, net=page.network, wide=rowWide, busy=busy, op=op, ask=remove)
-      // Shown while network access is on or Tailscale HTTPS answers.
+      // Shown whenever this session can read or grant access, whatever the exposure.
       if page.network.visible and page.network.clientsVisible
         AuthorizedClients(net=page.network, busy=busy, ask=remove, op=op)
       column width="100%" gap="0.625rem"
@@ -237,6 +237,9 @@ component ThisMachineSection
   action toggle
     ask(machine.enabled ? "local-environment:off" : "local-environment:on")
     focus("local-environment-cancel")
+  state permissionsOpen = false
+  action togglePermissions
+    permissionsOpen = not permissionsOpen
   derive menuItems = [KmItem(id=`environment-icon-${machine.environment.environmentId}`, label="Icon")]
   action triggerKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
@@ -286,12 +289,19 @@ component ThisMachineSection
                   text machine.updateNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="this-machine-update-note"
                 if machine.upToDate
                   text "Up to date" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="this-machine-up-to-date"
-        if machine.canManage
-          box padding="1rem" width="100%" box-sizing="border-box"
-            SessionPermissions(environment=machine.environment)
         // Network access, its endpoints and Tailscale HTTPS (connections-network.contract).
         if machine.canManage and net.visible
           NetworkAccessRows(net=net, wide=wide, busy=busy, ask=ask, op=op)
+        // The primary's "Permissions" disclosure (a closed `<details>`), the card's last row.
+        if machine.menu
+          column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId="this-machine-permissions"
+            button press=togglePermissions aria-expanded=permissionsOpen testId="this-machine-permissions-toggle" display="flex" flex-direction="row" align-items="center" gap="0.5rem" min-height="2.75rem" padding=0 border-width=0 background-color="#00000000" data-focus-stop=(busy ? "" : "enabled")
+              text "Permissions" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              box rotate=(permissionsOpen ? 90 : 0) display="flex"
+                CnGlyph(name="chevron-right", size=12, color="light-dark(#71717b, #818181)")
+            if permissionsOpen
+              box width="100%" box-sizing="border-box" padding-bottom="0.75rem"
+                SessionPermissions(environment=machine.environment)
         if machine.status != ""
           PvRow(title="Local server", description=machine.status, status="", policy="", wide=wide, divided=true)
 

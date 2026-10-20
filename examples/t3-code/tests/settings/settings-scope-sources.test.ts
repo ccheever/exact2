@@ -16,6 +16,7 @@ import { groupDeviceHosts, scopedDeviceHostsView, deviceHostsCommand, hostChecks
 import { taskEnvironmentSummaries } from '../../src/settings/scheduled-view';
 import { toasts } from '../../src/shell/toast';
 import { runCleanup } from '../../src/settings/storage-maintenance';
+import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 
 const capabilities = { storageCleanup: true, storageCleanupRun: true, projectWorktreeCleanup: true, settledWorktreeCleanup: true, worktreesDirectory: true, projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true };
 function focused(settings: Obj = {}) {
@@ -182,6 +183,41 @@ describe('settings scope across environments', () => {
   });
 });
 
+describe('the primary represents a scope that includes it', () => {
+  const P = 'http://127.0.0.1:16109\nenv-p';
+  const ready = { instanceId: 'acp', driver: 'acp', enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' }, models: [{ slug: 'stand-in', name: 'Stand-in', isDefault: true }] };
+  afterEach(() => resetPrimary());
+  test('the primary lists first and supplies General’s values, even while another environment is focused', () => {
+    const client = focused();
+    client.config.environment = { ...(client.config.environment as Obj), label: 'Lane Second' };
+    client.config.providers = [ready];
+    // The fleet holds the background environments, the primary connected first; the saved catalog keeps pairing order.
+    fleet.entries.set(P, entry(P, 'env-p', "Daehyeon's MacBook Pro", {}));
+    fleet.entries.set(C, entry(C, 'env-c', 'Lane Third', {}));
+    fleet.saved = [{ environmentId: 'env-a', origin: 'http://127.0.0.1:16100' }, { environmentId: 'env-c', origin: 'http://127.0.0.1:16102' }];
+    primaryAt('http://127.0.0.1:16109', 'env-p', "Daehyeon's MacBook Pro");
+    const scope = resolveScope(as(client), '', '', '');
+    expect(scope.environmentChoices.map(choice => choice.label)).toEqual(['All environments', "Daehyeon's MacBook Pro", 'Lane Second', 'Lane Third']);
+    const model = generalSections(as(client), serverContext(as(client), scope, new Map())).flatMap(section => section.rows).find(row => row.id === 'default-model')!;
+    expect([model.status, model.kind, model.label]).toEqual(['Automatic', 'text-only', 'No providers available']);
+    // Without a primary the focused environment represents the scope, as before.
+    resetPrimary();
+    const focusedModel = generalSections(as(client), serverContext(as(client), resolveScope(as(client), '', '', ''), new Map())).flatMap(section => section.rows).find(row => row.id === 'default-model')!;
+    expect(focusedModel.kind).not.toBe('text-only');
+  });
+  test('the project menu lists groups by their cross-environment name, alphabetically, marked by the project title', () => {
+    const notes = (id: string) => ({ id, title: 'shared-notes', workspaceRoot: `/w/${id}`, repositoryIdentity: { canonicalKey: 'github.com/t3-fixture/shared-notes', displayName: 't3-fixture/shared-notes', name: 'shared-notes' } });
+    const client = { ...focused(), projectGroups: () => [
+      { key: 'github.com/t3-fixture/shared-notes', name: 'shared-notes', members: [notes('pn')] },
+      { key: 'env-a:/w/background-only', name: 'background-only', members: [{ id: 'pb', title: 'background-only', workspaceRoot: '/w/background-only' }] },
+      { key: 'env-a:/w/agent-edits', name: 'agent-edits', members: [{ id: 'pe', title: 'agent-edits', workspaceRoot: '/w/agent-edits' }] }] };
+    const remote = entry(C, 'env-c', 'Lane Third', {});
+    remote.shell = applyShell(initialShell(), { snapshotSequence: 1, projects: [notes('pn2')], threads: [] });
+    fleet.entries.set(C, remote);
+    const choices = resolveScope(client as unknown as T3Client, '', '', '').projectChoices;
+    expect(choices.map(choice => [choice.label, choice.mark])).toEqual([['All projects', ''], ['agent-edits', 'AE'], ['background-only', 'BO'], ['t3-fixture/shared-notes', 'SN']]);
+  });
+});
 
 describe('eight-machine settings', () => {
   test('the scope keeps offline choices and groups equal raw inheritance resolutions', () => {

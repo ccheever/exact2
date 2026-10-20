@@ -79,6 +79,8 @@ type FilesState = {
   // A folder's first load (not a refresh) shows a spinner in its row (useDirectoryEntries loadingDirectories).
   loadingDirs: Set<string>; hosts: Map<string, Tree>; searching: boolean;
   query: string; search: { query: string; entries: Entry[]; truncated: boolean; error: string } | null;
+  // The mounted explorer the query belongs to: its thread and tab (FileBrowserPanel's `query` is component state).
+  queryOwner: string;
   reads: Map<string, Read>; edits: Map<string, Edit>; loading: number; editing: string; editorText: string; crumb: { root: string; dir: string } | null;
 };
 // Preferences the reference keeps in localStorage (t3code.fileExplorerOpen, t3code.renderMarkdown, t3code.renderTable),
@@ -92,7 +94,7 @@ export function filesState(client: T3Client): FilesState {
   const { cwd } = workspaceOf(client), key = `${client.environmentId}|${cwd}`;
   let state = states.get(client);
   if (!state || state.key !== key) {
-    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null };
+    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null };
     states.set(client, state);
   }
   return state;
@@ -594,8 +596,21 @@ export const emptyFiles = (): FilesView => ({
   markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
 });
 
+/** FileBrowserPanel's `useState("")`: each file tab mounts its own explorer, so its search starts empty and ends with it. */
+function clearSearch(state: FilesState): void {
+  state.query = ''; state.search = null; state.searching = false;
+  for (const tree of state.hosts.values()) tree.query = '';
+}
+/** The Files surface is not shown (another tab, a hidden panel): its explorer unmounts, and the search with it. */
+export function filesHidden(client: T3Client): void {
+  const state = states.get(client);
+  if (state && state.queryOwner) { clearSearch(state); state.queryOwner = ''; }
+}
 export async function filesView(client: T3Client, native: Native, active: Surface, now = 0): Promise<FilesView> {
   const state = filesState(client), preferences = prefsOf(client), { cwd, projectName } = workspaceOf(client);
+  const owner = `${panelKey(client)}|${active.id}`;
+  // A search typed before this explorer's first view (no owner yet) is its own; another tab's is not.
+  if (state.queryOwner !== owner) { if (state.queryOwner) clearSearch(state); state.queryOwner = owner; }
   if (!state.dirs.has('') && !state.errors.has('')) await ensureTree(client, native);
   const path = placeOf(client, state, active).path;
   if (crumbsMounting(client, client.threadId)) settleMounted(state, path);
