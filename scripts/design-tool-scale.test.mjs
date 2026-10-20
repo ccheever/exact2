@@ -26,7 +26,7 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
   // (Its web target is its web crate's: the manifest alone names iOS and the Mac.)
   mkdirSync(join(app, 'web'), { recursive: true });
   cpSync(resolve(ROOT, 'apps/theme-fixture/web/Cargo.toml'), join(app, 'web/Cargo.toml'));
-  const design = 'tamber t\n\ntheme\n  brand = reading.card\n  radius.md = 12px\n';
+  const design = 'tamber t\n\ntheme\n  brand = reading.card\n  radius.md = 12px\n  card.pad: length = space.md\n';
   writeFileSync(join(app, 'app.tamber'), design);
   const pkg = join(app, 'node_modules/@acme/reading');
   mkdirSync(pkg, { recursive: true });
@@ -51,23 +51,27 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
       'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'tree',
       'tap token-base-more-space.md', 'tap token-base-more-radius.md', 'tree',
       // Set for this app: space.md, from the first shipped column's value.
-      'tap set-for-app-space.md', 'clock data', 'state', 'tree', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tree',
+      'tap set-for-app-space.md', 'clock data', 'clock +1', 'clock data', 'state', 'tree', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tree',
+      // Newly the app's, its cell edits as the app's line.
+      'tap cell-space.md-0-light', 'clock data', 'tree',
       // Back to the base, then undo it.
-      'tap back-space.md', 'clock data', 'state', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tree',
+      'tap back-space.md', 'clock data', 'clock +1', 'clock data', 'state', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tree',
       'tap undo', 'clock data', 'clock +1', 'clock data', 'tree',
       // A package's value opens read only; Set for this app from there writes the app's line over it, and Back to the package removes it.
       'tap cell-reading.measure-0-light', 'clock data', 'tree',
       'tap set-for-app-reading.measure', 'clock data', 'clock +1', 'clock data', 'state', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tree',
       'tap back-reading.measure', 'clock data', 'clock +1', 'clock data', 'state', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tree',
       // radius.full, the pill, set for this app starts from a length an app may write.
-      'tap set-for-app-radius.full', 'clock data', 'clock +1', 'clock data', 'state',
+      'tap set-for-app-radius.full', 'clock data', 'clock +1', 'clock data', 'state', 'tap apply', 'clock data', 'clock +1', 'clock data',
+      // An alias over a base name: the base name is the value's input.
+      'tap cell-card.pad-0-light', 'clock data', 'tree',
       // The app's override of a base name edits as the app's line (explain carries its branches).
       'tap cell-radius.md-0-light', 'clock data', 'tree',
     ]);
     const trees = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {})));
     const node = (t, id) => t.nodes.find(n => n.props.testId === id);
     const text = (t, id) => node(t, id)?.props.text;
-    const [first, expanded, setAsked, setDone, backDone, undone, pkgCell, pkgSet, pkgBack, overCell] = trees;
+    const [first, expanded, setAsked, setDone, setCell, backDone, undone, pkgCell, pkgSet, pkgBack, aliasCell, overCell] = trees;
     const value = (name, column = shipped[0]) => row(name).columns[column].value;
     // The base group, its rows per platform: the shipped columns first, in describe's targets' order, the rest one expand away.
     expect(text(first, 'token-group-Base scale (Exact)')).toBe('Base scale (Exact)');
@@ -95,6 +99,8 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
     expect(set).toBe(`${design}  space.md = ${value('space.md')}\n`);
     expect(text(setDone, 'token-over-space.md')).toBe(`Set for this app, over Exact's base (${LABELS[shipped[0]]} ${value('space.md')}).`);
     expect(node(setDone, 'set-for-app-space.md')).toBeUndefined();
+    expect(text(setCell, 'branch-readonly')).toBeUndefined();
+    expect(node(setCell, 'branch-value')?.props.value ?? text(setCell, 'branch-value')).toBe(value('space.md'));
     // Back to the base: remove-token, the design as it was, Exact's row again with Set offered; its undo gives back Set's bytes.
     expect([states[1].slots.editKind, states[1].slots.editTarget]).toEqual(['remove-token', 'space.md']);
     expect(tool.writes[1].after).toBe(design);
@@ -104,9 +110,10 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
     expect(text(undone, 'token-over-space.md')).toBe(text(setDone, 'token-over-space.md'));
     // The package's token: the app's line over it (its kind kept, as set-token writes it), then gone again, Set offered again.
     expect([states[2].slots.editKind, states[2].slots.editTarget, states[2].slots.editValue]).toEqual(['set-token', 'reading.measure', '640px']);
-    expect(tool.writes.slice(3).map(w => [w.method, w.ok])).toEqual([['transaction', true], ['transaction', true]]);
+    expect(tool.writes.slice(3).map(w => [w.method, w.ok])).toEqual([['transaction', true], ['transaction', true], ['transaction', true]]);
     expect(tool.writes[3].after).toBe(`${set}  reading.measure: length = 640px\n`);
     expect(text(pkgSet, 'token-over-reading.measure')).toBe(`Set for this app, over the ${pkgName} package's value.`);
+    expect(node(pkgSet, 'set-for-app-reading.measure')).toBeUndefined();
     expect(states[3].slots.editKind).toBe('remove-token');
     expect(tool.writes[4].after).toBe(set);
     expect(text(pkgBack, 'token-over-reading.measure')).toBeUndefined();
@@ -118,9 +125,14 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
     expect(text(overCell, 'branch-readonly')).toBeUndefined();
     expect(disabled(overCell, 'branch-value')).toBe(false);
     expect(node(overCell, 'branch-value')?.props.value ?? text(overCell, 'branch-value')).toBe('12px');
-    // The pill as a length, and the server takes it.
+    // The pill as a length: the server's proposal for this draft, applied, the app's line written.
     expect([states[4].slots.editTarget, states[4].slots.editValue]).toEqual(['radius.full', '9999px']);
-    expect(states[4].resources.proposal).toMatchObject({ ok: true });
+    expect(states[4].resources.proposal).toMatchObject({ ok: true, active: true });
+    expect(states[4].resources.proposal.diff).toContain('+  radius.full = 9999px');
+    expect(tool.writes[5].after).toBe(`${set}  radius.full = 9999px\n`);
+    // The alias's input is the base name it names (explain's bases).
+    expect(text(aliasCell, 'branch-inputs')).toContain('space.md');
+    expect(node(aliasCell, 'input-space.md')).toBeTruthy();
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });

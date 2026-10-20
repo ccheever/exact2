@@ -738,9 +738,9 @@ const sources: Sources = {
     const snap = snapshots.get(answer);
     const col = snap?.columns.find(c => c.id === column);
     if (!token || !col || !snap || snap.file !== file) return none;
-    const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) });
+    const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) }, READ_WAIT);
     if (error) return { ...none, ok: false, error };
-    const raw = reply.ok as { value?: string; whens?: { when: When[]; value: string }[]; dials?: string[]; names?: string[]; files?: Record<string, string>; kind?: string; package?: string; file?: string; base?: { override?: { text?: string } | null; columns?: Record<string, { value?: string }> } };
+    const raw = reply.ok as { value?: string; whens?: { when: When[]; value: string }[]; dials?: string[]; names?: string[]; bases?: string[]; files?: Record<string, string>; kind?: string; package?: string; file?: string; base?: { override?: { text?: string } | null; columns?: Record<string, { value?: string }> } };
     // A base name (stage 11, `kind: 'base'`): its override is the app's line, edited as one; with none, the
     // base's value, read only (no per-tuple fold: each platform's, the first the app ships said).
     // An override with its branches (`whens`, as an app token's explain gives them) is edited as one; a base
@@ -756,7 +756,8 @@ const sources: Sources = {
     const value = b.index >= 0 ? x.whens[b.index].value : x.value;
     // An expression's inputs: the tokens and dials it names; a dial's
     // control is where it is edited.
-    const inputs = inputsOf(value, x.names, x.dials);
+    // (A base name a value names, stage 11, is an input too: explain lists those apart, as `bases`.)
+    const inputs = inputsOf(value, [...x.names, ...(Array.isArray(raw.bases) ? raw.bases : [])], x.dials);
     // A dial with no control (`control=none`) is said, not offered.
     const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false, hidden: !snap.dials.has(name) }));
     return {
