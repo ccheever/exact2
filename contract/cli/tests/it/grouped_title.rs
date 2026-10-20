@@ -303,3 +303,46 @@ fn a_rows_one_box_fills_the_row() {
         "equal shares draw bars a share of the row: {a:?} {b:?}"
     );
 }
+
+/// A bare title before two values (a lap, its time and its total) is no
+/// value cell: it is boxed with them, and each value wraps under the one
+/// before where they do not fit, as a hand-built cell's labels stack at the
+/// accessibility sizes. Beside the two at the largest size the title was
+/// squeezed to no width and the total ran past the row (stopwatch, round 30).
+#[test]
+fn a_bare_title_before_two_values_keeps_its_words_and_they_stack() {
+    for (root, beside) in [(17.0f32, true), (53.0, false)] {
+        let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"item\" gap=8 align-items=\"center\"\n      text \"Lap 12\" flex=1 testId=\"title\"\n      text \"00:13.51\" font-variant-numeric=\"tabular-nums\" testId=\"lap\"\n      text \"03:06.12\" font-variant-numeric=\"tabular-nums\" testId=\"total\"";
+        let mut r = boot(body);
+        r.set_root_font_size(root.into()).unwrap();
+        let k = r.kernel_mut();
+        let page = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(page, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+        let (row, title, lap, total) =
+            (frame("item"), frame("title"), frame("lap"), frame("total"));
+        assert!(
+            title.width >= 2.0 * root,
+            "at {root}: the title keeps its words: {title:?}"
+        );
+        for v in [lap, total] {
+            assert!(
+                v.x + v.width <= row.width + 0.5,
+                "at {root}: the value stays in the row: {v:?} in {row:?}"
+            );
+        }
+        if beside {
+            assert!(
+                title.x + title.width <= lap.x && lap.x + lap.width <= total.x && (lap.y - title.y).abs() < root,
+                "at {root}: one line, the values at the far edge: {title:?} {lap:?} {total:?} in {row:?}"
+            );
+        } else {
+            assert!(
+                lap.y >= title.y + title.height - 0.5 && total.y >= lap.y + lap.height - 0.5 && lap.x == title.x && total.x == title.x,
+                "at {root}: each value under the one before, at the title's edge: {title:?} {lap:?} {total:?}"
+            );
+        }
+    }
+}
