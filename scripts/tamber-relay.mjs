@@ -130,12 +130,14 @@ export function dnsHook(command, record, value, { clear = false, ms = 300_000, s
     const { EXACT_RELAY_TOKEN: _token, ...env } = process.env;
     const child = spawn('sh', ['-c', command], { stdio: 'ignore', detached: true, env: { ...env, EXACT_ACME_ACTION: clear ? 'clear' : 'publish', EXACT_ACME_RECORD: record, EXACT_ACME_VALUE: value } });
     const kill = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } };
-    const done = setTimeout(() => { kill(); fail(new Error(`--relay-dns-hook took more than ${ms / 1000} s`)); }, ms);
-    // (stopped with the run: all it started)
-    const stop = () => { clearTimeout(done); kill(); fail(new Error('stopped')); };
+    // (killed, by its time or with the run: settled only once it has exited, so a clear after never races it)
+    let why = null;
+    const done = setTimeout(() => { why = `--relay-dns-hook took more than ${ms / 1000} s`; kill(); }, ms);
+    const stop = () => { clearTimeout(done); why = 'stopped'; kill(); };
     if (signal?.aborted) stop(); else signal?.addEventListener('abort', stop, { once: true });
-    child.on('exit', code => { clearTimeout(done); signal?.removeEventListener('abort', stop); code === 0 ? ok() : fail(new Error(`--relay-dns-hook exited ${code} for ${clear ? 'clearing' : 'publishing'} ${record}`)); });
-    child.on('error', e => { clearTimeout(done); fail(new Error(`--relay-dns-hook: ${e.code ?? e.message}`)); });
+    const settle = () => { clearTimeout(done); signal?.removeEventListener('abort', stop); };
+    child.on('exit', code => { settle(); if (why) fail(new Error(why)); else code === 0 ? ok() : fail(new Error(`--relay-dns-hook exited ${code} for ${clear ? 'clearing' : 'publishing'} ${record}`)); });
+    child.on('error', e => { settle(); fail(new Error(`--relay-dns-hook: ${e.code ?? e.message}`)); });
   });
 }
 
