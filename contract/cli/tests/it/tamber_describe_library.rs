@@ -211,5 +211,17 @@ fn an_app_whose_only_library_component_has_no_params_lists_it_by_its_own_name() 
             json!({"identity": "@acme/lib/index.contract#Badge", "name": "Badge", "params": [], "library": true, "parts": [{"name": "face", "groups": ["paint"], "slot": false}], "variants": []})
         ],
     );
+    // `contract tamber ir` lists it the same way (round 2).
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "ir", dir.join("app.tamber").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ir: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(ir["components"], json!(all));
     let _ = std::fs::remove_dir_all(&dir);
 }
