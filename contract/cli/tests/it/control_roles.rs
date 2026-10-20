@@ -51,7 +51,9 @@ fn an_accent_on_switches_is_unreachable_on_the_mac_only() {
     );
     // What ships the Mac, which `exact new` writes unasked, and how to stop.
     assert!(
-        said[0].ends_with("The app ships macos (app.json `host.macos`); not shipping it? delete those keys"),
+        said[0].ends_with(
+            "The app ships macos (app.json `host.macos`); not shipping it? delete those keys"
+        ),
         "{said:?}"
     );
     // A control and its disabled state that the Mac leaves alike: one line.

@@ -21,6 +21,10 @@ is minutes; `EXACT_UPDATE_TRUST=production bun exact.mjs agent ios …` drives i
 on a simulator no `--touch platform` drive has used: it leaves accessibility on, about 1 s slower.
 To turn it off: `xcrun simctl spawn <udid> defaults write com.apple.Accessibility
 AutomationEnabled -bool false`, then `xcrun simctl shutdown <udid>` and `boot <udid>`.
+A launch times the installed build, never a plan an `agent ios` drive swapped in: `bun exact.mjs
+ios` each variant first. `SIMCTL_CHILD_EXACT_SMOKE=1 xcrun simctl launch --console-pty <udid>
+<bundle id>` prints Exact's phases to first draw (exec→main, scene, runner and layout, apply,
+painted) and exits; a data module's first answer is a hook's to stamp.
 
 **Sound, MIDI and a transport are Exact's** (`sequence`, `play(tracks…)`, `exactMIDI()`,
 `sendMIDI`, `midimessage`: [the guide's "Sound, MIDI and media"](../contract-for-agents.md#sound-midi-and-media),

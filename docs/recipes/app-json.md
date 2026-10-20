@@ -43,11 +43,9 @@ component App
   screen centres on `background_color`, `width` points wide.
 - **`host.ios.icon`** `"assets/App.icon"`: an Icon Composer `.icon`, in place of `icons`.
 - **`protocol_handlers`**: `euxy://p/abc` is `/p/euxy%3A%2F%2Fp%2Fabc` (whole at `%s`).
-  `navigate` hears it while the app runs; a cold launch opens it as the first
-  location, in its route's tab, so declare its route (`p "/p/:d"`) or it is Not Found.
-  A running app's `go` puts it on the selected tab; a route under another tab
-  goes there with `go(select(nav, "lib"), url)` (`contract vocab navigate`). A drive
-  delivers one: `agent ios "type <root> euxy://p/abc"`, no `simctl openurl`.
+  A cold launch opens it in its route's tab, so declare it (`p "/p/:d"`); running,
+  `navigate`'s `go` puts it on the selected tab (`contract vocab navigate`). A drive
+  delivers one: `agent ios "type <root> euxy://p/abc"`.
 - **Other keys:** `icons`, `data` (the `data-*`
   words a hatch reads), `tamber` (the design's file, else `app.tamber`), `strings` (string
   tables), `typescript.sources` (directories outside the app that `app.ts` imports),

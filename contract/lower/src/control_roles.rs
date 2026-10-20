@@ -205,21 +205,29 @@ pub(crate) fn unreachable(view: &[Node], styles: &[StyleDecl], out: &mut Vec<Low
             }
         }
         // An app made by `exact new` ships the Mac without asking for it,
-        // so the line says what ships it and how to stop.
-        let stop = crate::icons::without(&target.name)
-            .map(|step| format!("{step} removes it"))
-            .unwrap_or_else(|| "delete those keys".into());
+        // so the line says what ships it and how to stop. The web stays:
+        // it is the dev loop's and the agent's.
+        let stop = match crate::icons::without(&target.name) {
+            _ if target.name == "web" => String::new(),
+            Some(step) => format!(
+                ". The app ships {}; not shipping it? {step} removes it",
+                target.described()
+            ),
+            None => format!(
+                ". The app ships {}; not shipping it? delete those keys",
+                target.described()
+            ),
+        };
         for f in found {
             out.push(LowerError {
                 id: "tamber-unreachable",
                 message: format!(
-                    "{} on {} {}: {} (the first at line {}; LLP 1121 D9). The app ships {}; not shipping it? {stop}",
+                    "{} on {} {}: {} (the first at line {}; LLP 1121 D9){stop}",
                     f.parameter,
                     host_name(&target.name),
                     f.controls.join(" and "),
                     f.why,
                     f.line,
-                    target.described()
                 ),
                 span: f.span,
             });
