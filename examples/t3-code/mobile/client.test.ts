@@ -239,7 +239,7 @@ describe('pinned shared sources', () => {
       const pin = name === 'pages-usage.ts' ? 'c65b209d587e246d05f2fd6fd67fd12d1d6fa5a0'
         : name === 'word-diff.ts' ? '633320b410683cc88018c8f66bc908177fffd0f4'
         : name === 'timeline-t3tools.ts' ? 'eefa4fe3744d6c4e0dc5c9f0a84bdfb9d3961ba4'
-        : name === 'shell-vcs.ts' ? '81c704c7d12afef7233b12b1f2e7118fd6e84677' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
+        : name === 'shell-vcs.ts' ? 'c280acc1806c4e1fea5d4797b1278b99b5ee2ba0' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
       const adapted = ['client.ts', 'client-ops-composer.ts', 'composer-controls.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts'].includes(name);
