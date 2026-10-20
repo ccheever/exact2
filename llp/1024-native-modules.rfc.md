@@ -734,8 +734,14 @@ sources run as a Mac Catalyst executable, else as an iOS simulator one under
 `simctl spawn` on the simulator `--sim` or `EXACT_SIM` names, else a booted one
 (with none booted, the build boots one and shuts it down, about 7 s), else as a
 macOS slice). A roster read is kept beside the probe's cached build, whose key
-is every input it compiles from, so a build whose probe is unchanged reads it
-there and runs no probe (the simulator route: 8.6–9.0 s a build against
+is the arm cache's: the probe's arguments (the route's SDK and target among
+them), its sources' text, the compiler, the link flags and each library's and
+archive header's path, size and mtime. A build whose probe is unchanged reads
+it there and runs no probe. The roster is the module's table as written, not
+a runtime's answer: a `views` that varies with the OS it runs on (an
+`#available` around a tag or its `firstFrame`) is unsupported, as it already
+was, since the roster the build reads on a Mac or a simulator is the one every
+device's Info.plist carries (the simulator route: 8.6–9.0 s a build against
 2.2–3.9 s, `apps/native-fixture` with an iOS-only dependency, 2026-10-20);
 `host/web/build.mjs`
 reads the web module’s `roster` export. A roster tag the artifact lacks fails

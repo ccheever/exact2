@@ -1258,9 +1258,9 @@ async function main(args, lockHeld = false) {
         if (compiled !== true) throw failed('compile', readFileSync(compiled, 'utf8'), log);
         let text = keptRoster(placed.cached); if (text === undefined && !route.variant) try { const { dlopen, read: at, CString } = import.meta.require('bun:ffi'); text = new CString(at.ptr(dlopen(route.built, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString(); } catch (e) { throw failed('load', e.message, log); }
         else if (text === undefined && route.variant === 'maccatalyst') text = ran(read(route.built, [], { timeout: 60_000 }), log);
-        else if (text === undefined) { // the simulator named (--sim, EXACT_SIM), else any booted
-          const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM; let sim = pick ? null : simulators().find(d => /SimRuntime\.iOS/.test(d.runtime) && d.state === 'Booted');
-          if (!sim) try { sim = simulator(pick ?? null); } catch (e) { noSimulator = /^no iPhone simulator/.test(e.message); throw noSimulator ? new Error('no iPhone simulator on an installed iOS runtime') : e; }
+        else if (text === undefined) { // the iOS simulator named (--sim, EXACT_SIM; a name that is none is not this route's), else any booted
+          const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM, ios = simulators().filter(d => /SimRuntime\.iOS/.test(d.runtime)), named = pick && ios.find(d => d.udid === pick || d.name === pick); let sim = named ? null : ios.find(d => d.state === 'Booted');
+          if (!sim) try { sim = simulator(named?.udid ?? null); } catch (e) { noSimulator = /^no iPhone simulator/.test(e.message); throw noSimulator ? new Error('no iPhone simulator on an installed iOS runtime') : e; }
           try { text = ran(read('xcrun', ['simctl', 'spawn', sim.udid, route.built], { timeout: 60_000 }), log); } finally { if (sim.bootedHere) read('xcrun', ['simctl', 'shutdown', sim.udid]); }
         }
         try { roster = JSON.parse(text); } catch (e) { throw failed('load', `${e.message}\n${text}`, log); } keepRoster(placed.cached, text);
