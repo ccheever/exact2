@@ -1,6 +1,5 @@
 import { test, expect } from 'bun:test';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 test('relaunch reloads the browser document and keeps committed storage', async () => {
   const server = Bun.serve({ port: 0, fetch(request) {
@@ -23,7 +22,7 @@ test('relaunch reloads the browser document and keeps committed storage', async 
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.goto(server.url.href);
     await page.waitForFunction(() => document.querySelector('#state').textContent === '1:');
@@ -64,7 +63,7 @@ test("a prompt's Return commits its field, then presses its action", async () =>
   } });
   let browser;
   try {
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.goto(server.url.href);
     // Return queues the action on a zero-delay timer. Read after a timer

@@ -5,7 +5,8 @@ function trackCount(s) { let count = 0; for (let i = 0; i < s.length;) { while (
 export function gridValue(kind, value) {
   if (value == null) return value;
   // A design token's property (LLP 1121 D7): each tuple's value was checked as this row's when it was built.
-  if (/^\s*var\(--x-[\w-]+\)\s*$/.test(String(value))) return value;
+  // A base name's (LLP 1121 stage 11 B2): one length of the kernel's scale, exactly these nine (base_scale.rs).
+  if (/^\s*var\((?:--x-[\w-]+|--exact-(?:space-(?:xs|sm|md|lg|xl)|radius-(?:sm|md|lg|full)))\)\s*$/.test(String(value))) return value;
   const prop = kind === "tracks" ? "grid-template-columns" : kind === "placement" ? "grid-column" : kind === "flow" ? "grid-auto-flow" : "justify-items", v = normal(prop, String(value));
   const refuse = why => { say(`unset ${prop}: ${JSON.stringify(value)} (${why})`); return "unset"; };
   if (!v) return refuse("the browser rejected it");

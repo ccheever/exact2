@@ -2,10 +2,9 @@
 //!
 //! See `src/secrets/darwin_keychain.mm` for the Objective-C++ half: generic
 //! password items, service = the app's identity, account = the name. On iOS
-//! the item is `AfterFirstUnlockThisDeviceOnly`; on macOS it goes to the login
-//! keychain, whose ACL trusts the app that created it by its code signature —
-//! which is why a consumer that rebuilds is signed with a stable identity
-//! (LLP 0069 §3; exact2 LLP 1018 D7).
+//! the item is `AfterFirstUnlockThisDeviceOnly`. macOS normally uses the login
+//! Keychain; a provisioned widget cohort migrates to its restricted
+//! data-protection group (exact2 LLP 1126.001 WP16).
 //!
 //! @ref LLP 0069#3-the-backends — the Keychain, and why the login keychain on macOS
 
@@ -15,6 +14,7 @@ use super::{is_valid_name, SecretStore};
 use crate::boundary::HostError;
 
 extern "C" {
+    fn ibex2_darwin_keychain_prepare(service: *const c_char, out_error: *mut *mut c_char) -> c_int;
     /// 0 found (`out_value`/`out_len` set, freed with `ibex2_darwin_free`),
     /// 1 not found, -1 failed (`out_error` set).
     fn ibex2_darwin_keychain_get(
@@ -71,6 +71,18 @@ impl KeychainStore {
         let service: String = service.into();
         Self {
             service: CString::new(service).unwrap_or_else(|_| CString::new("ibex2").unwrap()),
+        }
+    }
+
+    /// Migrate a provisioned Mac app's login items at launch. Other bundles do nothing.
+    pub fn prepare(&self) -> Result<(), HostError> {
+        let mut error = std::ptr::null_mut();
+        // SAFETY: the service is NUL-terminated; the shim returns an owned error.
+        let rc = unsafe { ibex2_darwin_keychain_prepare(self.service.as_ptr(), &mut error) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(take_error(error, "migrate", "service"))
         }
     }
 

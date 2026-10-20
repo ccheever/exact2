@@ -5,8 +5,8 @@ A second screen is a route (`if` over state gets no Back, links or split).
 
 A route's `header` is its bar when first in the route with one heading (the title: large at
 `aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route without
-one gets the system Back (`contract vocab header`); iOS titles Back with the
-route's `button id="back"` text.
+one gets the system Back (`contract vocab header`): UIKit's bare chevron, or
+its `button id="back"` text.
 
 <!-- check: app -->
 ```contract

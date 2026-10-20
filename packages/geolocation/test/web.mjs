@@ -7,7 +7,7 @@
 // permission and sets the position.
 //
 // usage: bun packages/geolocation/test/web.mjs [chromium] [firefox] [webkit]
-//   (every engine by default; `bunx playwright@1.63.0 install firefox webkit` first)
+//   (every engine by default; `bunx playwright@1.64.1 install firefox webkit` first)
 import { rmSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import { checker, makeFixture, root, run } from './fixture.mjs';

@@ -171,7 +171,9 @@ next drive passes `--keep-storage` (a browser profile served on one port per
 name; a Firefox or WebKit drive starts fresh each time, so a name there lasts
 for the drive, including its `reload`). A native drive that names none uses the
 store `default`, kept the same way, as the app keeps its files from launch to
-launch. A web drive without one has no
+launch. A drive that compares with a reference (`screenshot … compare`) starts
+empty on every host unless it passes `--keep-storage`, so a plain drive after
+one can show what an earlier plain drive stored. A web drive without one has no
 app storage: an `app:/` file read finds an empty store (code `ENOENT`, as a
 fresh install's first launch does), and a write or SQLite request is refused (`storage
 is unavailable in agent mode unless the drive names a scratch store (--storage
@@ -1978,6 +1980,8 @@ the complete original URL percent-encoded in `u`; read it with
 navigation root with `navigate=`. At cold launch it is the initial location;
 when already running, each link fires one `navigate` event in arrival order.
 An app without `protocol_handlers` keeps ordinary URL-to-location behavior.
+A drive on macOS or iOS delivers a link as the system would, without iOS's
+"Open in …?" alert: `type <root> "web+notes://auth/callback#done"`.
 For a packaged-only scheme, use
 `[{"protocol":"notes","url":"/open?u=%s","distribution_only":true}]`.
 Apple archives and `--distribution` builds register it; local builds omit both
@@ -2804,11 +2808,33 @@ input does not wait for a request its action sends; `clock data` lands it.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down, before the hold. Under `--touch platform` the
 lift is scripted, so the reads run inside the hold and `during` needs one
-(`hold 300 during "state"`). `tap <target> drag to <other> [at <x> <y>]`
+(`hold 300 during "state"`); the hold then moves the clock by its length on real time,
+as a `clock +<ms> real` would, so the app's `every` and `after` run while it is held. `tap <target> drag to <other> [at <x> <y>]`
 ends the drag on another node (refused by name when it is not mounted or off
 screen); a drag that should autoscroll a list or a board is `drag dx dy hold ms`. On iOS
 without `--touch platform` a drag scrolls the scroll or list it starts on with the
 finger, no fling; any other drag there is refused, naming the flag.
+Under `--touch platform` a tap replies `viewGone: true` when its view left the
+window before the finger lifted, so that view had no lift (UIKit rebuilds a
+grouped row's detail button in the first seconds after the list appears).
+Read the state, and tap again if nothing changed.
+
+#### Drags on iOS
+
+A wheel (`tap <scroller> wheel 0 300`) and, without `--touch platform`, a drag on
+the scroll or list it starts on (`tap <scroller> drag 0 -300`, past the screen
+too) leave it as a person's scroll by that distance does, with no glide: the
+content moves that far, a large title collapses as it goes, and a scroll back to
+the top opens it again. As a person's, none stops with the content partway under
+a large title: it eases to the title's open or closed rest, whichever is nearer,
+so under one a wheel of 20 from the top moves nothing (with a search field in the
+bar it stays where it ends: not measured). Under `--touch platform` a drag whose ends
+are both on screen is a real one (`delivery: platform`): the content follows the
+finger once UIKit's pan begins, some 10 points in, and glides on after the lift;
+`clock settle` waits up to 4 s for it to stop (`reason: "scroll"` past that). A
+hold shorter than about a second still glides, since XCTest's finger sends
+nothing while it is still; `hold 1000` lifted with none where measured. A drag that ends past the
+screen is the agent's drag above, `delivery: recognized`.
 During a reorder `state.reorder` reads `{ item, from, to, before, phase,
 ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
@@ -3391,7 +3417,8 @@ the web; LLP 1095): CSS's system colours `Canvas`, `CanvasText`, `LinkText`,
 `GrayText`, `AccentColor`, `AccentColorText`, `Field`, `FieldText`, `ButtonFace`,
 `ButtonText`, `Highlight`, `HighlightText` (`AccentColor` and `LinkText` are the
 tint: the nearest `accent-color` a node or an ancestor sets, else the platform's, as
-UIKit's inherited `tintColor` is), and Exact's `-exact-label`,
+UIKit's inherited `tintColor` is; `AccentColorText` is the ink on that accent, on the web
+black or white by its lightness as a filled button's label), and Exact's `-exact-label`,
 `-exact-secondary-label`, `-exact-tertiary-label`, `-exact-quaternary-label`,
 `-exact-placeholder`, `-exact-separator`, `-exact-opaque-separator`, `-exact-link`,
 `-exact-symbol` (what a symbol nobody tinted is, the initial `-exact-tint-color`:
@@ -3554,9 +3581,8 @@ same file declares, roles, and the base names `space.xs`…`space.xl` and
 ships (`tamber-unknown-token`). An app can't use two packages whose names end
 alike (`@acme/reading` and `@other/reading`) when both ship a design. A
 refusal points at its line in the package's file. `contract tamber
-check|eval|ir|gen` read the app's design alone, so an app token naming a
-package token fails there; check the whole with `contract build` (and
-`contract types`, which lists the package tokens the build keeps).
+check|eval|ir|gen` and the design server fold the app's design with its
+packages' tokens, as the build does.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into

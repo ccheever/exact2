@@ -46,7 +46,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var paintGhosts = 0
     weak var paintParent: PaintView?
     weak var ghostParent: NodeView?
-    let firstDraw: () -> Void
+    let firstDraw: DrawReceipt?
     let kind: String
     var inlineText: [InlineText] = [] { didSet { inlineAccessibility = nil } }
     /// Its runs' elements, kept until the runs change, and what else made
@@ -474,7 +474,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     init(id: UInt32, kind: String, presenter: Presenter) {
         self.id = id
-        firstDraw = presenter.session?.drawReceipt() ?? {}
+        firstDraw = presenter.session?.drawReceipt()
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
@@ -1013,7 +1013,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             applyLayerPaint()
         }
         repaintThrough()
-        if presenter?.views[id] === self { firstDraw() }
+        if presenter?.views[id] === self { firstDraw?.drawn() }
     }
 
     /// Whether the style clips the children (`overflow: hidden` or `clip`; a paragraph's
@@ -1316,7 +1316,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // display pass and finds no first draw yet; an app with no later
         // batch — no image, no timer, no motion — would never load it
         // (found by the readback fixture, LLP 1014).
-        if presenter?.views[id] === self { firstDraw() }
+        if presenter?.views[id] === self { firstDraw?.drawn() }
         if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
         // What the layer shows (`BoxLayerMac.swift`) is not painted again,
         // nor into a capture where the capture shows the layer's paint as

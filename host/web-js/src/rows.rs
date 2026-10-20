@@ -214,7 +214,8 @@ impl Em<'_> {
             })
             .flatten()
             .map(|m| {
-                let name = crate::measures::map_name(id, attribute, container);
+                let bases = !crate::base_scale::named(plan).is_empty();
+                let name = crate::measures::map_name(id, attribute, container, bases);
                 let map = self.uses.constant(&name, || m);
                 format!("()=>{map}(({f})())")
             });

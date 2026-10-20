@@ -520,10 +520,20 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private func label(_ view: UICollectionViewListCell, header: Bool, section index: Int) {
         let s = section(at: index)
         var c = view.defaultContentConfiguration()
-        c.text = header ? s?.header : s?.footer
         // UIKit's header and footer ink is the secondary label: the theme's where it replaces it.
         if let ink = ThemeRoles.color("secondary-label", in: host.presenter.root) { c.textProperties.color = ink }
         (header ? s?.headerLook : s?.footerLook)?.apply(to: &c.textProperties, engine: owner.text)
+        // A grouped table's header and footer hyphenate only a line that
+        // would otherwise be less than 0.45 full (their labels'
+        // hyphenationFactor, iOS 27). A collection view list's take 1, as
+        // its cells do, and hyphenate "Reading to-gether" at the largest
+        // text size, where a hand-built table wraps the word whole.
+        if let text = header ? s?.header : s?.footer {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.hyphenationFactor = 0.45
+            paragraph.lineBreakMode = c.textProperties.lineBreakMode
+            c.attributedText = NSAttributedString(string: text, attributes: [.paragraphStyle: paragraph])
+        }
         view.contentConfiguration = c
         view.marginsIgnoreSafeArea()
     }

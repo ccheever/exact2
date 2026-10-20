@@ -107,17 +107,23 @@ pub fn endow(grants: &str) -> Result<Bindings, String> {
 /// scratch tree (files, not the Keychain).
 pub fn endow_for(grants: &str, app_id: &str) -> Result<Bindings, String> {
     let mut host = Host::new();
+    let agent = std::env::var_os("EXACT_AGENT").is_some();
+    let store = std::env::var("EXACT_STORE").unwrap_or_default();
+    let memory = (agent && store != "real") || store == "memory";
     if let Some(root) = group_root(app_id) {
         host = host.with_kv_store(Box::new(ibex2::kv::FileStore::new(root.join("kv"))));
         #[cfg(target_vendor = "apple")]
         {
-            host = host
-                .with_secret_store(Box::new(ibex2::secrets::darwin::KeychainStore::new(app_id)));
+            let secrets = ibex2::secrets::darwin::KeychainStore::new(app_id);
+            let prepared = if cfg!(target_os = "macos") && !memory {
+                secrets.prepare()
+            } else {
+                Ok(())
+            };
+            host = with_shared_secrets(host, Box::new(secrets), prepared);
         }
     }
-    let agent = std::env::var_os("EXACT_AGENT").is_some();
-    let store = std::env::var("EXACT_STORE").unwrap_or_default();
-    if (agent && store != "real") || store == "memory" {
+    if memory {
         host = match crate::picker::agent_secret_root(app_id) {
             Some(root) => host
                 .with_secret_store(Box::new(ibex2::secrets::FileStore::new(
@@ -136,6 +142,18 @@ pub fn endow_for(grants: &str, app_id: &str) -> Result<Bindings, String> {
             .with_kv_store(Box::new(ibex2::kv::MemoryStore::new()));
     }
     endow_in(host, grants)
+}
+
+#[cfg(any(target_vendor = "apple", test))]
+fn with_shared_secrets(
+    host: Host,
+    secrets: Box<dyn ibex2::secrets::SecretStore>,
+    prepared: Result<(), HostError>,
+) -> Host {
+    if let Err(error) = prepared {
+        eprintln!("Keychain migration: {error:?}; retained login items will be retried on the next launch");
+    }
+    host.with_secret_store(secrets)
 }
 
 /// [`endow_for`] for a boot. One that reads the store (`fresh`, not a
@@ -726,6 +744,36 @@ fn publish_widget_change(root: std::path::PathBuf, app: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_login_migration_keeps_shared_secrets_and_other_grants_bound() {
+        for reason in [
+            "errSecAuthFailed",
+            "errSecInteractionNotAllowed",
+            "errSecDecode",
+        ] {
+            let secrets = ibex2::secrets::MemoryStore::new();
+            ibex2::secrets::SecretStore::set(&secrets, "app.session", "migrated").unwrap();
+            let host = with_shared_secrets(
+                Host::new().with_kv_store(Box::new(ibex2::kv::MemoryStore::new())),
+                Box::new(secrets),
+                Err(HostError::Failed(reason.into())),
+            );
+            let bindings = endow_in(host, "secret.keep app.session\nstorage.kv library").unwrap();
+            assert_eq!(
+                bindings.secrets.get("app.session").unwrap().as_deref(),
+                Some("migrated")
+            );
+            bindings.secrets.set("app.session", "new session").unwrap();
+            bindings.kv.set_text("library", "book", "saved").unwrap();
+            assert_eq!(
+                bindings.kv.get_text("library", "book").unwrap().as_deref(),
+                Some("saved")
+            );
+            bindings.secrets.forget("app.session").unwrap();
+            assert_eq!(bindings.secrets.get("app.session").unwrap(), None);
+        }
+    }
 
     #[test]
     fn a_launch_reads_no_more_kept_answers_than_the_runner_keeps_together() {

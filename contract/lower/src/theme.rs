@@ -13,6 +13,8 @@
 
 pub(crate) mod packages;
 mod scan;
+mod scheme;
+pub(crate) use scheme::one_scheme_tokens;
 
 use crate::{LowerError, Lowerer};
 use contract_syntax::{Attr, Component, Expr, File, Span};
@@ -106,11 +108,20 @@ pub fn vocab() -> tamber::Vocab {
             .collect(),
         named_lengths: tamber::Vocab::named_lengths(
             exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
-            exact_kernel::NAMED_LENGTHS.iter().copied(),
+            exact_kernel::NAMED_LENGTHS
+                .iter()
+                .copied()
+                .chain(exact_kernel::LENGTH_RAMPS.iter().map(|(n, _)| *n)),
         ),
+        bases: exact_kernel::style::scale::names()
+            .map(String::from)
+            .collect(),
         sizes: tamber::Vocab::named_lengths(
             exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
-            exact_kernel::NAMED_LENGTHS.iter().copied(),
+            exact_kernel::NAMED_LENGTHS
+                .iter()
+                .copied()
+                .chain(exact_kernel::LENGTH_RAMPS.iter().map(|(n, _)| *n)),
         )
         .into_iter()
         .filter_map(|name| {
@@ -119,6 +130,7 @@ pub fn vocab() -> tamber::Vocab {
             let px = f64::from(unit.basis(MEDIUM, MEDIUM, 1.0) * n);
             Some((name, exact_num::Shortest(px).to_string()))
         })
+        .chain(crate::scale::sizes())
         .collect(),
     }
 }
@@ -215,6 +227,7 @@ impl Lowerer<'_> {
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
         MEASURES.with(|m| m.borrow_mut().clear());
+        crate::scale::declare(Vec::new());
         RETENTION.with(|r| *r.borrow_mut() = None);
         MOTION.with(|m| m.borrow_mut().clear());
         // The components' params, tokens of the design (D15): an app with
@@ -494,6 +507,7 @@ impl Lowerer<'_> {
                 .map(|e| (e.name.clone(), e.value.clone()))
                 .collect()
         });
+        crate::scale::declare(folding.tokens.iter().map(|t| t.name.clone()).collect());
         MEASURES.with(|m| {
             *m.borrow_mut() = self
                 .theme
@@ -1014,6 +1028,7 @@ pub(crate) fn lint_scope(file: &File) -> exact_kernel::style::theme::ThemeScope 
             entries.iter().map(|n| (n.as_str(), "transparent", false)),
         );
     };
+    crate::scale::declare(folding.tokens.iter().map(|t| t.name.clone()).collect());
     MEASURES.with(|m| {
         *m.borrow_mut() = folding
             .tokens
@@ -1130,84 +1145,19 @@ pub(crate) fn stand_in_profiles(design: &mut tamber::Design) {
     }
 }
 
-/// The app's tokens that are one opaque colour in light and dark in some app
-/// tuple and not marked `scheme=fixed` (LLP 1121 D3), each by its name as
-/// declared with that colour's text and whether it is one colour in every
-/// tuple (only then may it be marked): what `lower-colour-one-scheme` reports
-/// at a token's declaration. Folded by the crate, so a `light-dark()` over a
-/// one-colour token is two colours and an expression is its result. A
-/// profile's colour (`color(--…)`) is the plan's, not judged here.
-pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
-    let design = match (&file.design, &file.theme) {
-        (None, Some(theme)) => inline_design(theme),
-        (Some(source), _) => match tamber::parse(&source.text) {
-            Ok(d) => d,
-            Err(_) => return Vec::new(),
-        },
-        (None, None) => return Vec::new(),
-    };
-    // Folded with its packages' tokens, which an app token may name (D11);
-    // only the app's own are judged.
-    let app = design.tokens.len();
-    let Some(mut design) = packages::merge(Some(design), &file.package_designs).0 else {
-        return Vec::new();
-    };
-    // As the build stands one in (`profiles`): nothing to judge.
-    stand_in_profiles(&mut design);
-    let Ok(folding) = tamber::check_design(design, &vocab()) else {
-        return Vec::new();
-    };
-    // A token fixed, or an alias of one (`ink = -exact-label` of a fixed
-    // `label`), by every name it answers to.
-    let pairs: Vec<_> = folding.tokens.iter().zip(&folding.design.tokens).collect();
-    let mut fixed: Vec<String> = Vec::new();
-    let judged = |name: &str| {
-        folding.design.tokens[..app.min(folding.design.tokens.len())]
-            .iter()
-            .any(|t| t.name.value == name)
-    };
-    loop {
-        let before = fixed.len();
-        for (t, declared) in &pairs {
-            let value = declared.value.value.trim();
-            // Only a whole alias with no `when` of its own is the mark's.
-            let alias = declared.whens.is_empty() && fixed.iter().any(|f| same_name(f, value));
-            if (t.fixed || alias) && !fixed.contains(&declared.name.value) {
-                fixed.push(declared.name.value.clone());
-                fixed.push(t.name.clone());
-            }
-        }
-        if fixed.len() == before {
-            break;
-        }
-    }
-    pairs
-        .into_iter()
-        .filter(|(_, declared)| !fixed.contains(&declared.name.value) && judged(&declared.name.value))
-        .filter_map(|(t, declared)| {
-            // Opaque only: a translucent one is an overlay, which reads over
-            // either scheme's ground, and a transparent one paints nothing.
-            let one = t.values.iter().find(|v| {
-                matches!(v, tamber::Value::Color(tamber::Folded::One(h)) if h.wide().alpha >= 1.0 - 1e-9)
-            })?;
-            let every = t
-                .values
-                .iter()
-                .all(|v| matches!(v, tamber::Value::Color(tamber::Folded::One(_))));
-            Some((declared.name.value.clone(), one.css(), every))
-        })
-        .collect()
-}
-
 /// The design's length or number token `text` names, while its styles are
 /// lowered: its kind and its distinct values over the app's tuples.
+/// A base name the design leaves unset (LLP 1121 stage 11 B) is the
+/// scale's length, its values every column's that draws in px.
 pub(crate) fn measure_values(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
-    MEASURES.with(|m| {
-        m.borrow()
-            .iter()
-            .find(|(name, ..)| name == text.trim())
-            .map(|(_, kind, values)| (*kind, values.clone()))
-    })
+    MEASURES
+        .with(|m| {
+            m.borrow()
+                .iter()
+                .find(|(name, ..)| name == text.trim())
+                .map(|(_, kind, values)| (*kind, values.clone()))
+        })
+        .or_else(|| crate::scale::values(text).map(|values| (tamber::Kind::Length, values)))
 }
 
 /// The design's length or number token `text` names, while its styles are
@@ -1400,7 +1350,10 @@ pub(crate) fn measure_row(
                     return refuse("tamber-kind", format!("`{}=\"{text}\"`: `{text}` is the {kind_name} `{value}` in some app mode, which `{}` does not take: {why}", a.name, a.name));
                 }
             }
-            if values.len() > 1 && rows.iter().any(|r| r.inherited()) {
+            if values.len() > 1
+                && rows.iter().any(|r| r.inherited())
+                && crate::scale::values(text).is_none()
+            {
                 return refuse("tamber-inherited-axis", format!("`{}=\"{text}\"`: `{text}` varies by an app axis, and `{}` is inherited: only a colour is chosen again at a mode boundary, so an inherited row names a token with one value (LLP 1121 D7)", a.name, a.name));
             }
             continue;

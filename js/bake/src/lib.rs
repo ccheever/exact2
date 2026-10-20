@@ -4,6 +4,7 @@
 
 #![deny(missing_docs)]
 
+mod linked;
 #[path = "../../package_tool.rs"]
 mod package_tool;
 mod resident;
@@ -13,6 +14,9 @@ pub use resident::Producer;
 
 use contract::DataSource;
 use exact_js::Module;
+use linked::{names_its_plan, take_baked, LINKED_BYTECODE, NAMED};
+#[cfg(test)]
+use linked::{COMPILED, LINKED};
 use package_tool::package_tool;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -55,7 +59,7 @@ pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
         Some(baked) => std::env::var_os("OUT_DIR")
             .ok_or_else(|| "build requires OUT_DIR".to_string())
             .and_then(|out| take_baked(Path::new(&baked), Path::new(&out))),
-        None => build_sources(app, platform, None, None),
+        None => build_sources(app, platform, None, None, false),
     }
     .map_err(BakeError)
 }
@@ -63,15 +67,12 @@ pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
 /// What `build` writes to OUT_DIR, written by a process outside Cargo
 /// (`exact-js-bake --cargo`, with OUT_DIR and TARGET set). Each file is
 /// rewritten only when its bytes change, so the ones Rust compiles keep their
-/// times across a bake that changed only the plan. The `cargo:rerun-if`
-/// lines go to stdout: the inputs whose change calls for another bake.
+/// times across a bake that changed only the plan or the module's code. The
+/// `cargo:rerun-if` lines go to stdout: the inputs whose change calls for
+/// another bake.
 pub fn bake_outside(app: &Path, platform: &str) -> Result<(), BakeError> {
-    build_sources(app, platform, None, None).map_err(BakeError)
+    build_sources(app, platform, None, None, true).map_err(BakeError)
 }
-
-/// The files of a bake the archive compiles: all but the plan and its
-/// receipts, which the link carries.
-const COMPILED: [&str; 5] = ["module.rs", "logic.rs", "linked.rs", "host.rs", "app.hbc"];
 
 /// The module's bytecode for `exact_js::Module::new`, aligned so Hermes reads
 /// it where it is linked instead of a copy (an `include_bytes!` is not).
@@ -95,85 +96,11 @@ fn exact_compat() -> &'static str {
 }
 "#;
 
-/// The entry's plan and compatibility document, from the sections the link added.
-const LINKED: &str = r#"#[allow(dead_code)]
-fn exact_plan() -> &'static [u8] {
-    ::exact_apple::baked::plan()
-}
-#[allow(dead_code)]
-fn exact_compat() -> &'static str {
-    ::exact_apple::baked::compat()
-}
-"#;
-
-/// The pair over an entry that declares `const PLAN` and `const COMPAT`
-/// itself, as `exact new` wrote it before the plan was linked: such an app
-/// builds as it did, its plan in the archive, until `bun exact.mjs update`
-/// drops the two (`names_its_plan`).
-const NAMED: &str = r#"#[allow(dead_code)]
-fn exact_plan() -> &'static [u8] {
-    PLAN
-}
-#[allow(dead_code)]
-fn exact_compat() -> &'static str {
-    COMPAT
-}
-"#;
-
-/// Whether the crate's `src/lib.rs` declares the plan and compatibility
-/// constants itself (see `NAMED`); watched, so `update` dropping them is
-/// noticed. Outside a build script, or in a crate with no `src/lib.rs`, no.
-fn names_its_plan() -> bool {
-    let Some(dir) = std::env::var_os("CARGO_MANIFEST_DIR") else {
-        return false;
-    };
-    let entry = Path::new(&dir).join("src/lib.rs");
-    let Ok(source) = std::fs::read_to_string(&entry) else {
-        return false;
-    };
-    println!("cargo:rerun-if-changed={}", entry.display());
-    let declares = |name: &str| {
-        source
-            .lines()
-            .any(|line| line.starts_with(&format!("const {name}:")))
-    };
-    declares("PLAN") && declares("COMPAT")
-}
-
-/// `build` over a bake made outside Cargo into `baked`, for OUT_DIR `out`.
-fn take_baked(baked: &Path, out: &Path) -> Result<(), String> {
-    if names_its_plan() {
-        return Err("src/lib.rs declares `const PLAN` and `const COMPAT`, which read a plan this build links instead: run `bun exact.mjs update`, which drops them".into());
-    }
-    for name in COMPILED {
-        let from = baked.join(name);
-        println!("cargo:rerun-if-changed={}", from.display());
-        let bytes = std::fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
-        replace_changed(&out.join(name), &bytes)?;
-    }
-    replace_changed(&out.join("baked.rs"), LINKED.as_bytes())?;
-    // What an earlier bake in Cargo left here would be stale.
-    for name in [
-        "app.plan",
-        "app.plan.map.json",
-        "compat.json",
-        "artifacts.json",
-        "app.module.json",
-        "app.js",
-    ] {
-        match std::fs::remove_file(out.join(name)) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.to_string()),
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
 /// Bake a mixed app using each source's own identity and grants. Metadata reads
 /// never invoke or activate the Rust implementation; first-frame values bake
 /// through TypeScript alone.
 pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), BakeError> {
-    build_sources(app, platform, Some(rust), None).map_err(BakeError)
+    build_sources(app, platform, Some(rust), None, false).map_err(BakeError)
 }
 
 /// Bake a mixed app through its own composer (LLP 1027.002 §5 step 0): the
@@ -192,7 +119,7 @@ pub fn build_mixed_with(
         rust_sources: rust_sources.iter().map(|s| s.to_string()).collect(),
         compose: Box::new(compose),
     };
-    build_sources(app, platform, Some(rust), Some(composer)).map_err(BakeError)
+    build_sources(app, platform, Some(rust), Some(composer), false).map_err(BakeError)
 }
 
 /// How a Cargo bake composes the TypeScript module with the app's Rust.
@@ -417,11 +344,45 @@ fn mixed_grants<'a>(
     .transpose()
 }
 
+/// `module.rs`'s first constants: the app, its grants and, but in a linked
+/// bake, the module's hash (`REVISION`, which the web's entry passes on); on
+/// a native platform the bytecode, embedded, or in a linked bake the
+/// section the link adds, so that an edit to the module's code leaves the
+/// file as it was.
+fn module_constants(
+    meta: &serde_json::Value,
+    rust_updates: bool,
+    platform: &str,
+    linked: bool,
+) -> Result<String, String> {
+    let mut metadata = format!(
+        "pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\n",
+        meta["appId"].as_str().ok_or("missing appId")?,
+        meta["grants"].as_str().ok_or("missing grants")?
+    );
+    if !linked {
+        let hash = meta["module"]["sha256"]
+            .as_str()
+            .ok_or("missing module hash")?;
+        metadata.push_str(&format!("pub const REVISION: &str = {hash:?};\n"));
+    }
+    metadata.push_str(&format!("pub const RUST_UPDATES: bool = {rust_updates};\n"));
+    if platform != "web" {
+        metadata.push_str(if linked {
+            LINKED_BYTECODE
+        } else {
+            APP_BYTECODE
+        });
+    }
+    Ok(metadata)
+}
+
 fn build_sources(
     app: &Path,
     platform: &str,
     rust: Option<&dyn DataSource>,
     composer: Option<Composer<'_>>,
+    outside: bool,
 ) -> Result<(), String> {
     if !matches!(platform, "web" | "macos" | "ios" | "linux" | "windows") {
         return Err(format!(
@@ -486,10 +447,7 @@ fn build_sources(
         && compat.inputs["rustModule"]
             .as_str()
             .is_some_and(|module| !module.is_empty());
-    let mut metadata = format!("pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\npub const REVISION: &str = {:?};\npub const RUST_UPDATES: bool = {rust_updates};\n", meta["appId"].as_str().ok_or("missing appId")?, meta["grants"].as_str().ok_or("missing grants")?, meta["module"]["sha256"].as_str().ok_or("missing module hash")?);
-    if platform != "web" {
-        metadata.push_str(APP_BYTECODE);
-    }
+    let mut metadata = module_constants(&meta, rust_updates, platform, outside)?;
     // The module's Canvas 2D roster (LLP 1056 D1), known before it loads.
     metadata.push_str("#[allow(dead_code)]\npub const CANVAS_SURFACES: &[(&str, usize)] = &[");
     for (name, arity) in meta["surfaces"].as_object().into_iter().flatten() {

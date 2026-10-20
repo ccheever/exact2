@@ -284,6 +284,8 @@ open class ExactModule {
     open func routeEnded(_ route: ExactRoute) {}
     /// Exact's tab container (LLP 1075.003 §3.7): once, before its tabs are
     /// laid out. Its appearance is the app's; its tabs and selection Exact's.
+    /// A tab whose stack shows no bar and has pushed nothing is a plain view
+    /// controller in it until the stack pushes or shows a bar.
     open func tabs(_ tabs: ExactTabs) {}
     /// Own the tabs yourself: return a container holding each tab's
     /// controller (`contents.tabs`), which Exact keeps current, or nil to
@@ -338,7 +340,11 @@ public final class ExactApp {
     public internal(set) var processOwner = false
     /// `visible` or `hidden` (`document.visibilityState`).
     public internal(set) var visibilityState = "visible"
-    public internal(set) var onLine = true
+    /// `navigator.onLine`, asked of the host on main (else as last told).
+    /// Connectivity is watched from the first read: read it once, even in
+    /// the `isNew` call, to be told of its changes.
+    public var onLine: Bool { hatches?.onLine() ?? toldOnLine }
+    var toldOnLine = true
     /// `light` or `dark`.
     public internal(set) var prefersColorScheme = "light"
     /// `no-preference`, `more`, `less` or `custom`.
@@ -364,7 +370,7 @@ public final class ExactApp {
         data = ExactData(json["data"] as? [String: String] ?? [:])
         let facts = json["facts"] as? [String: Any] ?? [:]
         visibilityState = facts["visibilityState"] as? String ?? visibilityState
-        onLine = facts["onLine"] as? Bool ?? onLine
+        toldOnLine = facts["onLine"] as? Bool ?? toldOnLine
         prefersColorScheme = facts["prefersColorScheme"] as? String ?? prefersColorScheme
         prefersContrast = facts["prefersContrast"] as? String ?? prefersContrast
         prefersReducedMotion = facts["prefersReducedMotion"] as? Bool ?? prefersReducedMotion
@@ -501,7 +507,13 @@ final class ExactHatches {
     /// One of 104 or more: the bindings' answer (LLP 1121 D12; ExactTamber.swift).
     typealias TamberFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UInt32
     let tamberFn: TamberFn?
+    /// One of 120 or more: `app.onLine`.
+    typealias OnLineFn = @convention(c) (UnsafeMutableRawPointer?) -> UInt32
+    let onLineFn: OnLineFn?
     #if os(iOS) || os(tvOS)
+    /// One of 112 or more: a held tab's navigation controller, built (`ExactTab.controller`).
+    typealias StackFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
+    let stackFn: StackFn?
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
     var tabs: ExactTabs?
@@ -536,7 +548,15 @@ final class ExactHatches {
         partsFn = regions ? table.load(fromByteOffset: 88, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: PartsFn.self) } : nil
         tamberFn = table.load(as: UInt32.self) >= 104
             ? table.load(fromByteOffset: 96, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: TamberFn.self) } : nil
+        #if os(iOS) || os(tvOS)
+        stackFn = table.load(as: UInt32.self) >= 112
+            ? table.load(fromByteOffset: 104, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: StackFn.self) } : nil
+        #endif
+        onLineFn = table.load(as: UInt32.self) >= 120
+            ? table.load(fromByteOffset: 112, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: OnLineFn.self) } : nil
     }
+
+    func onLine() -> Bool? { onLineFn.flatMap { f in let answer = f(host); return answer > 1 ? nil : answer == 1 } }
 
     func log(_ line: String) {
         let bytes = Array(line.utf8)
@@ -661,9 +681,22 @@ public final class ExactTabs {
 /// controller Exact keeps its stack in, and the item its authored tab gives.
 public struct ExactTab {
     public let name: String
-    public let controller: UINavigationController
-    /// The controller's item, which Exact updates in place as the authored tab changes.
-    public var item: UITabBarItem { controller.tabBarItem }
+    /// The navigation controller Exact keeps the tab's stack in. A tab whose
+    /// stack shows no bar and has pushed nothing has none until this is
+    /// read: reading it builds it, and the tab keeps it.
+    public var controller: UINavigationController {
+        if let nav = shown as? UINavigationController { return nav }
+        guard let hatches, let stack = hatches.stackFn, let built = stack(hatches.host, Unmanaged.passUnretained(shown).toOpaque()) else {
+            preconditionFailure("tab \(name): the host built no navigation controller")
+        }
+        return Unmanaged<UINavigationController>.fromOpaque(built).takeUnretainedValue()
+    }
+    /// The tab's item, which Exact updates in place as the authored tab changes.
+    public var item: UITabBarItem { shown.tabBarItem }
+    /// What Exact shows the tab in: its navigation controller, or the plain
+    /// container of a tab that has none yet.
+    let shown: UIViewController
+    weak var hatches: ExactHatches?
 }
 
 /// What a container the app owns holds (LLP 1075.003 §3.6): each tab's
@@ -1267,16 +1300,17 @@ private let moduleTabs: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsafe
 }
 
 /// `tab_container(module, json, len, controllers, count) → controller`: the
-/// tabs (`{"names": […], "nodes": […], "selected": i}`) and their navigation
-/// controllers; a container the app owns, retained once for the host, or nil.
+/// tabs (`{"names": […], "nodes": […], "selected": i}`) and their controllers
+/// (a navigation controller, or a held tab's container, `heldStacks`); a
+/// container the app owns, retained once for the host, or nil.
 private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> UnsafeMutableRawPointer? = { raw, json, length, controllers, count in
     #if os(iOS) || os(tvOS)
     guard let m = module(raw), let hatches = m.hatches, let json, let controllers,
           let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any],
           let names = object["names"] as? [String], let nodes = object["nodes"] as? [NSNumber], names.count == Int(count) else { return nil }
-    let navs = (0..<Int(count)).compactMap { controllers[$0].map { Unmanaged<UINavigationController>.fromOpaque($0).takeUnretainedValue() } }
-    guard navs.count == names.count else { return nil }
-    let tabs = zip(names, navs).map { ExactTab(name: $0, controller: $1) }
+    let shown = (0..<Int(count)).compactMap { controllers[$0].map { Unmanaged<UIViewController>.fromOpaque($0).takeUnretainedValue() } }
+    guard shown.count == names.count else { return nil }
+    let tabs = zip(names, shown).map { ExactTab(name: $0, shown: $1, hatches: hatches) }
     let contents = ExactTabContents(tabs: tabs, selected: object["selected"] as? Int ?? 0, tabNodes: nodes.map(\.uint32Value), hatches: hatches)
     guard let container = m.tabContainer(contents) else { return nil }
     hatches.contents = contents
@@ -1403,8 +1437,12 @@ private let table: UnsafeMutableRawPointer = {
     // Beside the tags, under a key no tag can take (a tag has a hyphen): the
     // hatch words this module was built to handle (LLP 1075.003.000.001
     // §4.3), so the host calls it with no word its code never compiled.
-    let words = "\"hatches\":{\"words\":[" + ExactHatchKey._words.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
+    // `heldStacks`: `tabContainer` takes a tab Exact holds without a
+    // navigation controller, whose `ExactTab.controller` builds it.
+    let words = "\"hatches\":{\"heldStacks\":true,\"words\":[" + ExactHatchKey._words.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
         + ",\"extensions\":{\"names\":[" + ExactExtensions.names.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
+        // `app.onLine` is asked of the host (`on_line`), not read from the facts.
+        + ",\"facts\":{\"onLine\":\"asks\"}"
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse),\"firstFrame\":\(roster[tag]!.firstFrame)}"
     } + [words]).joined(separator: ",") + "}"

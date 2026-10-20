@@ -1048,7 +1048,7 @@ pub(super) fn check_command(
         }
         return Ok(());
     }
-    if matches!(name, "playSound" | "playSounds" | "stopSounds") {
+    if matches!(name, "playSound" | "playSounds" | "stopSounds" | "haptic") {
         return sounds::args(name, args, scope, shapes, span);
     }
     if matches!(name, "requestMIDIAccess" | "sendMIDI") {

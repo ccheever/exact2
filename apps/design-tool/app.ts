@@ -11,8 +11,10 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
+import { baseColumns, groupOf, shippedOf, sourceOf } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
+import { gridSources } from './grid';
 import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
@@ -104,7 +106,7 @@ let liveTable = false;
  * the files' digests again after them; if a write landed between, the
  * replies may be of two revisions, so it reads again. `wanted`: false once
  * a newer read overtakes it, which then asks for nothing more. */
-async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown }> {
+async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown; base?: any[]; targets?: unknown }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3 && wanted(); attempt++) {
     const described = await call('/__tamber', { method: 'describe', ...which }, READ_WAIT);
@@ -139,7 +141,7 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
       const col = tuples.find(c => c.tuple === i);
       return !col || ir.axes.every((a: Axis, k: number) => t.modes?.[a.name] === col.values[k]);
     }));
-    if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before, pairs };
+    if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before, pairs, base: Array.isArray(described.reply.ok?.base) ? described.reply.ok.base : [], targets: described.reply.ok?.targets };
   }
   return { error: wanted() ? 'The design kept changing while it was read. Try again.' : 'overtaken by a newer read' };
 }
@@ -326,7 +328,7 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
 // gap, a new run), then the build events. Each with the revision of the
 // last pin frame it was sent (`pinRevision`, whoever sent it), and the last
 // command it could not apply, kept while that pin is its pin.
-type BuildState = { id: string; host: string; status: any; plan: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding };
+type BuildState = { id: string; host: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding; navRefusals?: number };
 let buildsNow = new Map<string, BuildState>();
 // The latest selection (the server's join, LLP 1122 D5) with what it was
 // made under; a stale one stays stale until a fresh selection (a reload back
@@ -370,7 +372,7 @@ const buildOf = (b: any, was?: BuildState): BuildState => {
   if (note) holdNotes.set(id, note); else holdNotes.delete(id);
   // Another hold, none, or a new frame of the same one (its report forgotten at the server): asked afresh.
   if (!sameHold(holding.hold, was?.holding.hold) || (holding.hold && was?.holding.held && !holding.held)) { forgetHeld(id); asked.delete(id); }
-  return { id, host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding };
+  return { id, host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, planDigest: 'planDigest' in b ? (typeof b.planDigest === 'string' ? b.planDigest : null) : was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding, navRefusals: was?.navRefusals };
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
@@ -392,6 +394,8 @@ let commitsTold = 0;
 const scrubsOpen = new Set<string>();
 // Each scrub opened or ended (two in one answer still move it); each client paired or gone (the list read again).
 let scrubMoves = 0, clientMoves = 0;
+// The scale columns the app ships, as the last design read named them (stage 11).
+let shippedNow: string[] = [];
 const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
 // Each read's stored values, axes and columns, by `<file>|<its digest>`; a few.
 const reads = new Map<string, { stored: Map<string, Stored[][]>; axes: Axis[]; columns: Column[] }>();
@@ -606,12 +610,14 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
   if (!app(file) || !snap || (op.op !== 'set-param' && op.op !== 'set-token')) return null;
   return rescopeOf(op as { op: string; name: string; when: When[]; value: string }, snap.params, snap.tokenOf, async name => {
     const { error, reply } = await call('/__tamber', { method: 'explain', token: name }, 15000, token);
-    return error ? null : (reply.ok as { value: string; whens: { when: When[]; value: string }[]; files?: Record<string, string> });
+    // (A base name's explain, stage 11, has no branches to re-scope: none offered.)
+    return error || !Array.isArray(reply.ok?.whens) ? null : (reply.ok as { value: string; whens: { when: When[]; value: string }[]; files?: Record<string, string> });
   }, key);
 }
 
 const sources: Sources = {
   ...pairingSources(call, pairWith, remote),
+  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes),
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };
@@ -640,6 +646,8 @@ const sources: Sources = {
       // Each token's stored value per tuple and scheme, a residual as its
       // fallback (no running app reports it until T2).
       const stored = new Map<string, Stored[][]>();
+      const baseRows = new Map<string, any>((read.base ?? []).map((r: any) => [String(r.name), r])), targets = shippedOf(read.targets);
+      shippedNow = targets;
       const tokens = ir.tokens.map((t: { name: string; kind: string; dials: string[]; role: string | null }, i: number) => {
         const tuples = (resolved[i].tuples ?? []) as any[];
         const sides = tuples.map(r => [false, true].map(dark => {
@@ -658,8 +666,11 @@ const sources: Sources = {
           const shadow = t.kind === 'box-shadow' || t.kind === 'text-shadow' ? String(v.value ?? '') : '';
           return { scheme: c.dark ? 'dark' : 'light', column: c.id, label: `${t.name}, ${c.label}, ${v.residual ? `${v.note}, fallback ${v.srgb}` : v.css}`, css: v.css, swatch: t.kind !== 'color' ? 'transparent' : v.residual ? v.srgb : v.css, residual: v.residual, note: v.note, kind: t.kind, shadow, pairs: [] as { name: string; ratio: string; low: boolean }[] };
         });
-        return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells };
+        // (Set for this app starts from the value as written, never the grid's words for it.)
+        return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells, start: String(tuples[0]?.value ?? ''), ...sourceOf(t, baseRows.get(t.name), targets, designFile) };
       });
+      // Exact's base names the app does not override (stage 11): per platform, no fold, so no cells.
+      for (const row of baseRows.values()) if (!row.override && !tokens.some((t: { name: string }) => t.name === row.name)) { const src = sourceOf(null, row, targets, designFile); tokens.push({ name: row.name, kind: 'length', follows: '', cells: [], start: src.columns[0]?.value ?? '', ...src }); }
       // Each declared pair's contrast per cell (LLP 1121 D3, `pair=`): the
       // token over what it is drawn on, a token's stored value or a role's
       // fallback; below 4.5:1, WCAG's for text, it is marked low.
@@ -690,7 +701,7 @@ const sources: Sources = {
       // A role override, as the IR marks it (`role`), whatever its name.
       const roles = new Set(ir.tokens.filter((t: { role: string | null }) => t.role).map((t: { name: string }) => t.name));
       for (const t of tokens) {
-        const g = roles.has(t.name) ? 'roles' : t.name.split(t.name.includes('.') ? '.' : '_')[0];
+        const g = roles.has(t.name) ? 'roles' : groupOf(t, t.name.split(t.name.includes('.') ? '.' : '_')[0]);
         if (!groups.has(g)) groups.set(g, []);
         groups.get(g)!.push(t);
       }
@@ -723,16 +734,24 @@ const sources: Sources = {
     }
   },
   loadBranch: async ([file, token, column, answer]) => {
-    const none = { ok: true, error: '', token: '', kind: 'color', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', param: false, answer };
+    const none = { ok: true, error: '', token: '', kind: 'color', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', param: false, readOnly: '', answer };
     const snap = snapshots.get(answer);
     const col = snap?.columns.find(c => c.id === column);
     if (!token || !col || !snap || snap.file !== file) return none;
     const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) });
     if (error) return { ...none, ok: false, error };
-    const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[]; files?: Record<string, string> };
+    const raw = reply.ok as { value?: string; whens?: { when: When[]; value: string }[]; dials?: string[]; names?: string[]; files?: Record<string, string>; kind?: string; package?: string; file?: string; base?: { override?: { text?: string } | null; columns?: Record<string, { value?: string }> } };
+    // A base name (stage 11, `kind: 'base'`): its override is the app's line, edited as one; with none, the
+    // base's value, read only (no per-tuple fold: each platform's, the first the app ships said).
+    // An override with its branches (`whens`, as an app token's explain gives them) is edited as one; a base
+    // reply that names the override's text alone shows it read only, since its branches can't be read back.
+    const based = raw.kind === 'base', overridden = based && !!raw.base?.override, branched = Array.isArray(raw.whens);
+    const first = baseColumns(raw.base, shippedNow)[0]?.value ?? '';
+    const x = { value: based && !branched ? String(raw.base?.override?.text ?? first) : String(raw.value ?? ''), whens: branched ? raw.whens! : [], dials: raw.dials ?? [], names: raw.names ?? [], files: raw.files };
     // Of the revision the grid shows, or it is read again with the grid.
     if (x.files && digestKey(x.files) !== snap.digests) return { ...none, ok: false, error: 'The design changed while this cell was read; it is read again with the grid.' };
-    const b = branchOf(snap.axes, col, x.whens, snap.kinds.get(token) ?? 'color');
+    const kind = snap.kinds.get(token) ?? (based ? 'length' : 'color');
+    const b = branchOf(snap.axes, col, x.whens, kind);
     if (b.tie) return { ...none, ok: false, error: `${token} has two branches for ${col.label}, ${b.tie}; the checker refuses that, so fix the file by hand.` };
     const value = b.index >= 0 ? x.whens[b.index].value : x.value;
     // An expression's inputs: the tokens and dials it names; a dial's
@@ -741,8 +760,10 @@ const sources: Sources = {
     // A dial with no control (`control=none`) is said, not offered.
     const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false, hidden: !snap.dials.has(name) }));
     return {
-      ok: true, error: '', token, kind: snap.kinds.get(token) ?? 'color', column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
+      ok: true, error: '', token, kind, column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
       expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, param: snap.params.has(token), answer,
+      // (Stage 11: the base's or a package's value is theirs; the app sets its own, from the grid.)
+      readOnly: based && !overridden ? 'Exact\'s base, read only: Set for this app (in the grid) to change it here.' : based && !branched ? 'Set for this app: the server names its line without its branches, so edit it in the app\'s design here once it does.' : raw.package && raw.file !== designFile ? `The ${raw.package} package's, read only: Set for this app (in the grid) to change it here.` : '',
     };
   },
   // The branch editor's typed fields for a value (parts.ts), the names in
@@ -1056,6 +1077,8 @@ const sources: Sources = {
       }
       else if (e.event === 'unsupported') {
         const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
+        // (A navigation its page refused, counted: the grid reloads that copy at the place instead, LLP 1122 T7.)
+        if (b && e.what === 'navigate') b.navRefusals = (b.navRefusals ?? 0) + 1;
         if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`);
         if (e.what === 'inspect' && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
       }

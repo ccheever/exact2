@@ -285,7 +285,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     now_ms: f64,
 ) -> Result<Rendered, String> {
     let direct = direct_for(plan, ids, projection)?;
-    let page = settle_at(
+    let mut page = settle_at(
         plan, data, viewport, location, deadline, direct, now_ms, None,
     )?;
     let settled_tree = if direct {
@@ -386,7 +386,7 @@ fn render_time() -> f64 {
 
 /// What sees a render's runner as it boots, before its first answer (a
 /// route's boot document, LLP 1048.005).
-pub(crate) type OnBoot<'a, D> = &'a mut dyn FnMut(&Runner<Anonymous<D>>);
+pub(crate) type OnBoot<'a, D> = &'a mut dyn FnMut(&mut Runner<Anonymous<D>>);
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
@@ -471,7 +471,7 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     // The boot document, before any answer: a route's `paint=boot`
     // (LLP 1048.005).
     if let Some(on_boot) = on_boot {
-        on_boot(&runner);
+        on_boot(&mut runner);
     }
     let settled = match if booted_late {
         Ok(Settled::Deadline)

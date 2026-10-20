@@ -124,6 +124,7 @@ test('E10 real admission survives canvas removal and remount inside one clock op
   mkdirSync(resolve(root, 'target'), {recursive:true});
   const temporary = mkdtempSync(resolve(root, 'target/edit-lifetime-'));
   const app = process.env.EXACT_EDIT_PROBE ?? resolve(temporary, 'edit-lifetime');
+  let passed = false;
   const originals = new Map();
   const write = (name, text) => {
     const path = resolve(app, name);
@@ -202,20 +203,27 @@ await proof(import.meta, async ({open, check, pin, pinSave, out}) => {
   await s.close();
 });
 `);
+    const failures = [];
     for (const host of ['linux', 'web', 'macos']) for (const collecting of [false, true]) {
       const out = resolve(temporary, `${host}-${collecting}`); mkdirSync(out);
       const child = Bun.spawn([process.execPath, resolve(app, 'proof.mjs'), host], {
         cwd:root, env:{...process.env, EXACT_PROOF_REPIN: collecting ? '1' : '0', EXACT_PROOF_OUT:out},
         stdout:Bun.file(resolve(out, 'run.log')), stderr:Bun.file(resolve(out, 'build.log')),
       });
-      expect(await child.exited).toBe(1);
-      const summary = JSON.parse(readFileSync(resolve(out, 'summary.json'), 'utf8'));
-      expect(summary.failures).toEqual(['pin refused: run contains a set development edit']);
-      expect(summary.pins).toEqual({ticks:{}, saves:{}});
-      console.log(`PASS real ${host} collecting=${collecting}: admission, remount, capture, match, pinSave and close`);
+      const code = await child.exited;
+      try {
+        expect(code).toBe(1);
+        const summary = JSON.parse(readFileSync(resolve(out, 'summary.json'), 'utf8'));
+        expect(summary.failures).toEqual(['pin refused: run contains a set development edit']);
+        expect(summary.pins).toEqual({ticks:{}, saves:{}});
+        console.log(`PASS real ${host} collecting=${collecting}: admission, remount, capture, match, pinSave and close`);
+      } catch (error) { failures.push({host, collecting, out, error:error.message}); }
     }
+    expect(failures).toEqual([]);
+    passed = true;
   } finally {
+    if (!passed) console.error(`Retained failed edit proof: ${temporary}`);
     for (const [path, bytes] of originals) writeFileSync(path, bytes);
-    if (existsSync(temporary)) rmSync(temporary, {recursive:true, force:true});
+    if (passed && existsSync(temporary)) rmSync(temporary, {recursive:true, force:true});
   }
 }, 600000);

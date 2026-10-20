@@ -646,7 +646,7 @@ final class AccessibilityTests: XCTestCase {
         let p = session.presenter
         let edit = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "edit" })
         XCTAssertNil(p.focusedNode, "the first batch takes no focus")
-        session.drawReceipt()()
+        session.drawReceipt().drawn()
         XCTAssertNil(p.focusedNode, "activation and release are later turns")
         var afterActivation: NodeView?? = nil
         DispatchQueue.main.async { afterActivation = .some(p.focusedNode) } // after activation, before the release it queues
@@ -669,7 +669,7 @@ final class AccessibilityTests: XCTestCase {
         let p = session.presenter
         XCTAssertTrue(session.apply(plan))
         XCTAssertNil(p.focusedNode)
-        session.drawReceipt()()
+        session.drawReceipt().drawn()
         spin { p.focusedNode != nil }
         XCTAssertEqual(p.focusedNode?.props["testId"], "edit")
         XCTAssertTrue(session.apply(plan))
@@ -687,7 +687,7 @@ final class AccessibilityTests: XCTestCase {
         let replacement = try compile(Self.launchSource)
         XCTAssertTrue(session.apply(replacement))
         XCTAssertTrue(session.apply(replacement), "a second restart, with nothing focused, keeps it consumed")
-        session.drawReceipt()()
+        session.drawReceipt().drawn()
         for _ in 0..<2 { // activation's turn, then the turn of the release it queues
             var ran = false
             DispatchQueue.main.async { ran = true }

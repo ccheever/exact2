@@ -13,6 +13,20 @@ import { allows, needs, refusal } from '../../../scripts/tamber-pairing.mjs';
 import DIALS from './dials.json';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
+// Stage 11 D's rows (LLP 1121 stage 11; theme2's 16:17Z 1.14 shape), as a test turns them on: describe's
+// `base` rows (two names, one the app overrides), the app's override as its token, and a package's token.
+let SCALE = false;
+// (Rebuilt at each restart: a test's writes move them.)
+let BASE_ROWS: Record<string, any>[] = [], SCALE_TOKENS: Record<string, any>[] = [];
+const metric = (ref: string) => ({ kind: 'metric', ref });
+const baseRows = (): Record<string, any>[] => [
+  { name: 'space.md', kind: 'length', columns: { ios: { value: '16px', source: metric('grouped-row-inset') }, mac: { value: '10px', source: metric('grouped-row-inset') }, neutral: { value: '16px', source: metric('grouped-row-inset') }, material: { value: '16px', source: { kind: 'guideline', cite: 'M3 spacing' } }, terminal: { value: '1cell', source: { kind: 'terminal' } } }, override: null },
+  { name: 'radius.md', kind: 'radius', columns: { ios: { value: '8px', source: metric('control-radius') }, mac: { value: '6px', source: { kind: 'stretch', ref: 'control-radius', why: 'the Mac draws no larger control' } }, neutral: { value: '8px', source: metric('control-radius') }, material: { value: '8px', source: { kind: 'measured', id: 'm3-shape-small' } }, terminal: { value: '0', source: { kind: 'terminal' } } }, override: { file: 'app.tamber', line: 40, col: 3, text: '12px' } },
+];
+const scaleTokens = (): Record<string, any>[] => [
+  { name: 'radius.md', kind: 'length', role: null, dials: [], entries: null, values: ['12px'], fallback: ['12px', '12px'] },
+  { name: 'reading.measure', kind: 'length', role: null, dials: [], entries: null, values: ['640px'], fallback: ['640px', '640px'], package: 'reading', file: 'reading.tamber' },
+];
 // A run's token: a restart issues another, as the server does.
 let TOKEN = 'stub-token';
 let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
@@ -86,6 +100,24 @@ const answered = (r: { status?: number; ok?: unknown; error?: unknown }) => r.ok
 let miss = false;
 // Held proposals, as a test holds them (`/__stub/hold`).
 let held: Record<string, unknown>[] = [], holds = 0;
+// Live copies (LLP 1122 T7), as a test turns them on (`/__stub/copies`):
+// hello's page is this stub's own origin, whose root is a copy's page: it
+// registers a build named by its frame (`copy-<name>`, a stable id, as a
+// real page keeps its id under its frame's name), after the delay a test
+// gives that name, and posts that id to the page framing it. A copy of a
+// name in `noNavigate` can't navigate. Each navigate is kept, in order.
+let copyDelays: Record<string, number> = {}, noNavigate: string[] = [], refuseLater: string[] = [];
+const navs: { client: string; build: string; location: string }[] = [];
+const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(async () => {
+  const r = await fetch('/__stub/copy', { method: 'POST', body: JSON.stringify({ name: window.name, location: location.pathname + location.search }) });
+  const { id } = await r.json().catch(() => ({}));
+  if (id && parent !== window) parent.postMessage({ type: 'exact-build', id }, '*');
+  document.getElementById('at').textContent = id ?? 'no copy';
+})();</script>`;
+/** A copy's build as the server would list it: its facts its pin's (a page reports what it paints). */
+const copyBuild = (id: string, name: string, location = '/') => ({ id, host: 'web', capabilities: ['pin', 'inspect', 'hold', ...(noNavigate.includes(name) ? [] : ['navigate'])], plan: 'g1', planDigest: 'c'.repeat(64), design: 'd1',
+  status: { scheme: 'light', contrast: 'no-preference', mode: {}, rootFontSize: 16, revision: 0, location }, pin: null, pinRevision: 0, hold: null, held: null, unsupported: null });
+const copyFacts = (b: any, pin: any) => ({ ...b.status, scheme: pin?.scheme ?? 'light', mode: pin?.mode ?? {}, rootFontSize: pin?.rootFontSize ?? 16 });
 // What a page reports held when a refresh asks it again (`/__stub/held-answer`).
 let heldAnswer: Record<string, unknown> | null = null;
 let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
@@ -216,6 +248,24 @@ Bun.serve({ hostname, port: Number(port), routes: {
         save();
         return send({ ok: { build: request.build } });
       }
+      // A navigation (LLP 1122 T7): one build that can, moved to the location, as its page then reports.
+      if (request.method === 'navigate') {
+        if (!present.has(request.client)) return send({ error: { message: `navigate: \`${request.client}\` is not present` } }, 409);
+        const b = BUILDS.find(x => x.id === request.build);
+        if (!b) return send({ error: { message: `no registered build \`${request.build}\`` } }, 400);
+        if (!(b.capabilities ?? []).includes('navigate')) return send({ error: { message: `build \`${b.id}\` (web) cannot navigate`, unsupported: 'navigate' } }, 409);
+        navs.push({ client: request.client, build: b.id, location: request.location });
+        // (A page that takes the command and then can't route there: its refusal comes later, as an event to the sender alone.)
+        if (refuseLater.includes(`exact-copy-${String(b.id).slice('copy-'.length)}`)) {
+          log.push({ event: 'unsupported', epoch: EPOCH, build: b.id, what: 'navigate', detail: `${JSON.stringify(request.location)} is no route of this app`, only: request.client, seq: seq() + 1 });
+          save();
+          return send({ ok: { navigated: true, build: b.id, seq: navs.length } });
+        }
+        BUILDS = BUILDS.map(x => x.id === b.id ? { ...x, status: { ...(x.status ?? {}), location: request.location } } : x);
+        log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+        save();
+        return send({ ok: { navigated: true, build: b.id, seq: navs.length } });
+      }
       if (request.method === 'inspect') {
         // Below write a refresh reads the selection each build last reported, asking no build again
         // and moving no inspect mode (ruling 5), as the server answers it.
@@ -252,7 +302,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
         pins += 1;
         // Each record replaced, never edited: an event logged before keeps
         // what it said.
-        BUILDS = BUILDS.map(b => ids.includes(b.id) ? { ...b, pin: request.method === 'preview' ? { mode: { [request.axis]: request.value } } : request.pin, pinRevision: pins, pinBy: request.client } : b);
+        BUILDS = BUILDS.map(b => ids.includes(b.id) ? { ...b, pin: request.method === 'preview' ? { mode: { [request.axis]: request.value } } : request.pin, pinRevision: pins, pinBy: request.client, ...(String(b.id).startsWith('copy-') ? { status: { ...copyFacts(b, request.pin), revision: pins } } : {}) } : b);
         log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
         save();
         return send({ ok: { builds: ids, revision: pins } });
@@ -264,7 +314,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
-      if (request.method === 'describe') return send({ ok: { ...DIALS.describe, ...(reversed ? { ir: { ...DIALS.describe.ir, axes: [...DIALS.describe.ir.axes].reverse() } } : {}), files: FILES } });
+      if (request.method === 'describe') { const ir = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) }; return send({ ok: { ...DIALS.describe, ir: SCALE ? { ...ir, tokens: [...ir.tokens, ...SCALE_TOKENS] } : ir, ...(SCALE ? { base: BASE_ROWS, targets: [{ target: 'ios', column: 'ios' }, { target: 'macos', column: 'mac' }, { target: 'web', column: 'neutral' }, { target: 'linux', column: 'neutral' }] } : {}), files: FILES } }); }
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
       const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
@@ -274,6 +324,14 @@ Bun.serve({ hostname, port: Number(port), routes: {
         const card = DIALS.resolve['surface.card'];
         return send({ ok: { ...card, files: FILES, tuples: order(card.tuples).map((t: Record<string, unknown>) => ({ ...t, dark: `#${FILES['app.tamber'].slice(0, 6)}ff` })) } });
       }
+      // Stage 11 D's rows, as a test turns them on (`/__stub/scale`): length tuples like space.gap's.
+      const scaled = SCALE ? SCALE_TOKENS.find(t => t.name === request.token) : undefined, baseRow = SCALE ? BASE_ROWS.find(r => r.name === request.token) : undefined;
+      if (baseRow && !baseRow.override && request.method === 'resolve') return send({ ok: { name: baseRow.name, base: baseRow, files: FILES } });
+      // (An overridden base name explains as the app's line, its branches, with the base row: the shape asked of theme2.)
+      if (baseRow && !baseRow.override && request.method === 'explain') return send({ ok: { kind: 'base', name: baseRow.name, base: baseRow, files: FILES } });
+      if (baseRow && request.method === 'explain') return send({ ok: { kind: 'base', name: baseRow.name, token: baseRow.name, value: baseRow.override.text, whens: [], dials: [], names: [], base: baseRow, files: FILES } });
+      if (scaled && request.method === 'resolve') return send({ ok: { token: scaled.name, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>) => ({ ...u, value: scaled.values[0], amount: parseFloat(scaled.values[0]) }))), ...(baseRow ? { base: baseRow } : {}) } });
+      if (scaled && request.method === 'explain') return send({ ok: { token: scaled.name, value: scaled.values[0], whens: [], dials: [], names: [], files: FILES, ...(scaled.package ? { package: scaled.package, file: scaled.file } : {}) } });
       if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: { ...DIALS.resolve[request.token], tuples: order(DIALS.resolve[request.token].tuples), files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: { ...DIALS.explain[request.token], files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       // A write is not applied: canned answers in its shape, enough for the
@@ -289,6 +347,16 @@ Bun.serve({ hostname, port: Number(port), routes: {
       const refusedRow = ['propose', 'transaction'].includes(request.method) && ((request.ops ?? []).map(rowRefusal).find(Boolean) || moveRefusal(request.ops ?? []));
       if (refusedRow) return send({ error: typeof refusedRow === 'string' ? { message: refusedRow } : refusedRow }, 409);
       if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
+      // A base name set for this app, or its override taken away (stage 11): the rows describe gives move with it.
+      if (SCALE && request.method === 'transaction') for (const o of request.ops ?? []) {
+        const row = BASE_ROWS.find(r => r.name === o.name);
+        if (row && o.op === 'set-token' && !row.override) { row.override = { file: 'app.tamber', line: 41, col: 3, text: String(o.value) }; SCALE_TOKENS.push({ name: row.name, kind: 'length', role: null, dials: [], entries: null, values: [String(o.value)], fallback: [String(o.value), String(o.value)] }); }
+        if (row && o.op === 'remove-token') { row.override = null; const at = SCALE_TOKENS.findIndex(t => t.name === row.name); if (at >= 0) SCALE_TOKENS.splice(at, 1); }
+        // A package's token set for this app, or back to the package's: its row's file moves (A2 part 2).
+        const pkg = SCALE_TOKENS.find(t => t.name === o.name && t.package);
+        if (pkg && o.op === 'set-token' && pkg.file !== 'app.tamber') { pkg.file = 'app.tamber'; pkg.values = [String(o.value)]; }
+        if (pkg && o.op === 'remove-token') { pkg.file = 'reading.tamber'; pkg.values = ['640px']; }
+      }
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
       if (request.method === 'commit') return refuseCommit
@@ -309,9 +377,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
           // Its own diff and tokens: the items kept, as the server plans them.
           const kept = (p.ops as { index: number; op: { name?: string } }[]).filter(o => request.items.includes(o.index));
           // Its review renumbered to the items kept, as the server's is.
-          const review = p.review as { tokens?: number; offers?: { items?: number[] }[] } | undefined;
+          const review = p.review as { tokens?: number; offers?: { items?: number[] }[]; dials?: { items?: number[] }[]; pins?: { items?: number[] }[] } | undefined;
           const at = (i: number) => kept.findIndex(o => o.index === i);
-          const remapped = review && { ...review, tokens: kept.filter(o => o.index < (review.tokens ?? 0)).length, offers: (review.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(at).filter(i => i >= 0) })) };
+          const renumber = (all: { items?: number[] }[]) => all.map(o => ({ ...o, items: (o.items ?? []).map(at).filter(i => i >= 0) }));
+          // A re-import's dials and pins too, those whose operations it kept (stage 10b).
+          const marks = review && Object.fromEntries((['dials', 'pins'] as const).filter(k => review[k]).map(k => [k, renumber(review[k]!).filter(m => m.items.length)]).filter(([, all]) => all.length));
+          const remapped = review && { ...review, dials: undefined, pins: undefined, ...marks, tokens: kept.filter(o => o.index < (review.tokens ?? 0)).length, offers: renumber(review.offers ?? []) };
           const fresh = { ...p, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: kept.map((o, index) => ({ index, op: o.op })), ...(remapped ? { review: remapped } : {}), diff: `--- app.tamber\n+++ app.tamber\n${kept.map(o => `+  ${o.op.name} (kept)`).join('\n')}\n`, changed: kept.map(o => ({ file: 'app.tamber', token: o.op.name })) };
           held.push(fresh);
           return send({ ok: { recomputed: true, replaces: p.proposal, proposal: fresh.proposal } });
@@ -344,6 +415,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
   // The origin the next canvas grants name (a test's: another host refused by the tool).
   '/__stub/canvas': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasAt = (await req.json().catch(() => ({}))).origin ?? ''; return send({ ok: true }); } },
   '/__stub/forge-local': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); forgeLocal = true; return send({ ok: true }); } },
+  '/__stub/scale': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); SCALE = true; BASE_ROWS = baseRows(); SCALE_TOKENS = scaleTokens(); return send({ ok: true }); } },
   // The next pair-code and clients refused, once each.
   '/__stub/refuse-pairing': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refusePairing = new Set(['pair-code', 'clients']); return send({ ok: true }); } },
   // A code or a revoke as the local tool would ask it, for a test whose tool is the paired one.
@@ -389,7 +461,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false;
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; SCALE = false;
+      copyDelays = {}; noNavigate = []; refuseLater = []; navs.length = 0;
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;
@@ -411,6 +484,29 @@ Bun.serve({ hostname, port: Number(port), routes: {
       return send({ ok: true });
     },
   },
+  '/__stub/copies': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      const body = await req.json().catch(() => ({}));
+      PAGE = `http://127.0.0.1:${copies.port}`;
+      copyDelays = body.delays ?? {};
+      noNavigate = body.noNavigate ?? [];
+      refuseLater = body.refuseLater ?? [];
+      return send({ ok: true });
+    },
+  },
+  // The person moving one copy (its page reports a new location).
+  '/__stub/move': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      const { build, location } = await req.json().catch(() => ({}));
+      BUILDS = BUILDS.map(x => x.id === build ? { ...x, status: { ...(x.status ?? {}), location } } : x);
+      log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+      save();
+      return send({ ok: true });
+    },
+  },
+  '/__stub/navs': { GET: (req) => (driver(req) ? send({ navs }) : send({ message: 'Not found.' }, 404)) },
   '/__stub/page': {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
@@ -481,6 +577,26 @@ Bun.serve({ hostname, port: Number(port), routes: {
       for (const e of body.events ?? [body]) take(e);
       save();
       return send({ ok: true });
+    },
+  },
+} });
+// The copies' dev loop: its own origin (hello's page is never the tool's
+// server's), whose root is a copy's page and which takes its registration.
+const copies = Bun.serve({ hostname, port: 0, routes: {
+  // (Every path: a copy reloaded at a place is the same page there.)
+  '/*': { GET: () => new Response(COPY_PAGE, { headers: { 'content-type': 'text/html' } }) },
+  '/__stub/copy': {
+    POST: async (req) => {
+      const body = await req.json().catch(() => ({})), name = String(body.name ?? ''), at = /^\/[\w/?=&-]*$/.test(String(body.location)) ? String(body.location) : '/';
+      if (!/^exact-copy-\d{1,2}$/.test(name)) return send({ id: null });
+      await new Promise(ok => setTimeout(ok, copyDelays[name] ?? 0));
+      const id = `copy-${name.slice('exact-copy-'.length)}`;
+      // (Registered again, a copy keeps the pin the server holds for it, as the server replays it.)
+      const was = BUILDS.find(b => b.id === id);
+      BUILDS = BUILDS.filter(b => b.id !== id).concat([{ ...copyBuild(id, name, at), ...(was?.pin ? { pin: was.pin, pinRevision: was.pinRevision, status: { ...copyFacts(was, was.pin), revision: was.pinRevision, location: at } } : {}) }]);
+      log.push({ event: 'builds', epoch: EPOCH, builds: BUILDS, seq: seq() + 1 });
+      save();
+      return send({ id });
     },
   },
 } });

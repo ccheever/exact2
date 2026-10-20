@@ -255,3 +255,46 @@ fn a_fit_content_height_is_the_content_laid_out_alone_and_publishes_nothing() {
     assert!(k.node(2).unwrap().frame.height < 180.0, "shrunk in place");
     assert_eq!(k.fit_content_height(key(&k, 1)), Some(180.0 + 30.0));
 }
+
+#[test]
+fn activity_placement_reports_width_and_resolved_minimum_separately() {
+    let mut k = tree();
+    k.apply(
+        1,
+        2,
+        &[style(
+            2,
+            &[
+                (StyleId::PositionType, StyleValue::Text("absolute".into())),
+                (StyleId::MinWidth, StyleValue::Text("50%".into())),
+                (StyleId::PaddingLeft, StyleValue::Number(8.0)),
+                (StyleId::PaddingRight, StyleValue::Number(12.0)),
+                (StyleId::BoxSizing, StyleValue::Text("content-box".into())),
+            ],
+        )],
+    )
+    .unwrap();
+    k.compute_layout(1, offer()).unwrap();
+    let box_ = k.placement_box(key(&k, 2)).unwrap();
+    assert_eq!(box_[4], 0.0, "min-width does not make width explicit");
+    assert_eq!(
+        box_[5], 220.0,
+        "the percentage minimum plus content-box padding"
+    );
+    k.apply(
+        2,
+        3,
+        &[style(
+            2,
+            &[
+                (StyleId::Width, StyleValue::Number(300.0)),
+                (StyleId::BoxSizing, StyleValue::Text("border-box".into())),
+            ],
+        )],
+    )
+    .unwrap();
+    k.compute_layout(1, offer()).unwrap();
+    let box_ = k.placement_box(key(&k, 2)).unwrap();
+    assert_eq!(box_[4], 1.0);
+    assert_eq!(box_[5], 200.0);
+}

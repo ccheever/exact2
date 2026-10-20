@@ -156,12 +156,45 @@ pub fn keep(design: &Path, exported: &str) -> std::io::Result<PathBuf> {
     Ok(dir.join(file))
 }
 
-/// The baselines kept for the design at `design`, the newest first.
+/// All the kept baselines read, at most (an import reads them in a
+/// process of its own, but a full directory still costs it nothing past this).
+const KEPT_BYTES: u64 = 64 << 20;
+
+/// The baselines kept for the design at `design`, the newest first: the
+/// newest [`KEPT`], and only while they total [`KEPT_BYTES`]; none when
+/// `.exact` or its baselines directory is a link (never read through one,
+/// as [`keep`] never writes through one).
 pub fn kept(design: &Path) -> Vec<String> {
-    kept_files(&baselines(design))
-        .into_iter()
-        .filter_map(|(p, _)| std::fs::read_to_string(p).ok())
-        .collect()
+    kept_within(design, KEPT_BYTES)
+}
+
+fn kept_within(design: &Path, mut left: u64) -> Vec<String> {
+    use std::io::Read;
+    let dir = baselines(design);
+    let plain = |d: &Path| std::fs::symlink_metadata(d).is_ok_and(|m| m.is_dir());
+    if !plain(dir.parent().expect("in .exact")) || !plain(&dir) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (path, _) in kept_files(&dir).into_iter().take(KEPT) {
+        let Ok(f) = std::fs::File::open(path) else {
+            continue;
+        };
+        // Every byte read is charged, a file that is not text too; one
+        // byte past what is left ends the reading.
+        let mut bytes = Vec::new();
+        let read = f.take(left + 1).read_to_end(&mut bytes);
+        let n = bytes.len() as u64;
+        if n > left {
+            break;
+        }
+        left -= n;
+        // (a read that failed part way is charged, never kept)
+        if let (Ok(_), Ok(text)) = (read, String::from_utf8(bytes)) {
+            out.push(text);
+        }
+    }
+    out
 }
 
 fn kept_files(dir: &Path) -> Vec<(PathBuf, std::time::SystemTime)> {
@@ -175,4 +208,67 @@ fn kept_files(dir: &Path) -> Vec<(PathBuf, std::time::SystemTime)> {
         .collect();
     all.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
     all
+}
+
+#[cfg(test)]
+mod kept_tests {
+    use super::{baselines, kept, KEPT};
+
+    /// The import's read of the kept baselines: the newest [`KEPT`], none
+    /// through a linked directory (stage 10b E2+E3 round 9's leftover).
+    #[cfg(unix)]
+    #[test]
+    fn kept_reads_the_newest_and_never_through_a_link() {
+        let root = std::env::temp_dir().join(format!("exact-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (app, elsewhere) = (root.join("app"), root.join("elsewhere"));
+        std::fs::create_dir_all(&app).unwrap();
+        let design = app.join("app.tamber");
+        let dir = baselines(&design);
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..KEPT + 4 {
+            std::fs::write(dir.join(format!("{i:02}.json")), format!("{{\"n\": {i}}}")).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(5)); // (each newer)
+        }
+        let read = kept(&design);
+        assert_eq!(read.len(), KEPT);
+        assert_eq!(
+            read[0],
+            format!("{{\"n\": {}}}", KEPT + 3),
+            "the newest first"
+        );
+        // `.exact` a link to another directory with baselines: none read.
+        std::fs::rename(app.join(".exact"), &elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, app.join(".exact")).unwrap();
+        assert!(kept(&design).is_empty());
+        // `.exact` real, its baselines directory a link: none read either.
+        std::fs::remove_file(app.join(".exact")).unwrap();
+        std::fs::create_dir_all(app.join(".exact")).unwrap();
+        std::os::unix::fs::symlink(elsewhere.join(dir.file_name().unwrap()), &dir).unwrap();
+        assert!(kept(&design).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Read up to a total only, a file that is not text charged too.
+    #[test]
+    fn kept_stops_at_its_total() {
+        let root = std::env::temp_dir().join(format!("exact-kept-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let design = root.join("app.tamber");
+        let dir = baselines(&design);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Oldest to newest: a text file, then one not text, then a newer text file.
+        std::fs::write(dir.join("a.json"), "{\"n\": 1}").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::write(dir.join("b.json"), [0xff; 100]).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::write(dir.join("c.json"), "{\"n\": 3}").unwrap();
+        // 8 bytes, then 100 not read as text but charged, then 8 more: 116 in all.
+        assert_eq!(
+            super::kept_within(&design, 8 + 100 + 8),
+            ["{\"n\": 3}", "{\"n\": 1}"]
+        );
+        assert_eq!(super::kept_within(&design, 8 + 100 + 7), ["{\"n\": 3}"]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
