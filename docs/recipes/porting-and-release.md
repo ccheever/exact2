@@ -15,6 +15,8 @@ read [its pitfalls](../agent-pitfalls.md#porting-a-react-native-app) first.
 **What ships.** `ios --release` builds what ships (`--prebuild --release` early: its first build
 is minutes; `EXACT_UPDATE_TRUST=production bun exact.mjs agent ios …` drives it). Time launches
 on a simulator no `--touch platform` drive has used: it leaves accessibility on, about 1 s slower.
+To turn it off: `xcrun simctl spawn <udid> defaults write com.apple.Accessibility
+AutomationEnabled -bool false`, then `xcrun simctl shutdown <udid>` and `boot <udid>`.
 
 **Sound, MIDI and a transport are Exact's** (`sequence`, `play(tracks…)`, `exactMIDI()`,
 `sendMIDI`, `midimessage`: [the guide's "Sound, MIDI and media"](../contract-for-agents.md#sound-midi-and-media),
