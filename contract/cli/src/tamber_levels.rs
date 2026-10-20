@@ -163,7 +163,12 @@ impl<'a> Designs<'a> {
                 || self.row(r).is_some())
     }
 
-    /// A line's value in `tuple`: its `when` line's that holds most, else its own.
+    /// A line's value in `tuple`: its `when` line's that holds most (the
+    /// first of those, as the checker's `select`), else its own. A `when`
+    /// naming an axis `under scheme=dark` is a colour's light/dark pair (the
+    /// checker's `under_value`: its light side another line's): no one
+    /// side is followed, so its value here is none (`""`), and the line
+    /// that owns the pair wins.
     fn value_in<'t>(&self, t: &'t exact_tamber::Token, tuple: usize) -> &'t str {
         let axes = self.axes();
         let mut rest = tuple;
@@ -181,10 +186,14 @@ impl<'a> Designs<'a> {
             .filter(|&i| t.whens[i].conds.iter().all(holds))
             .collect();
         let most = holding.iter().map(|&i| t.whens[i].conds.len()).max();
+        let under = |(axis, _): &(String, String)| {
+            axes.iter().any(|a| &a.name.value == axis && a.under_dark)
+        };
         match holding
             .into_iter()
             .find(|&i| Some(t.whens[i].conds.len()) == most)
         {
+            Some(i) if t.whens[i].conds.iter().any(under) => "",
             Some(i) => &t.whens[i].value.value,
             None => &t.value.value,
         }
@@ -247,9 +256,11 @@ impl<'a> Designs<'a> {
             return None;
         }
         // Through params' defaults (never the app's `params` lines) to the
-        // first line that is no param's.
+        // first line that is no param's, within the walk's [`HOPS`]: the
+        // default's reference is the first hop, so at most `HOPS - 1`
+        // params are passed and the token is reached at hop `HOPS` at most.
         let mut r = p.param.default.trim();
-        for _ in 0..HOPS {
+        for _ in 1..HOPS {
             match self.param(r) {
                 Some(q) => r = q.param.default.trim(),
                 None => break,

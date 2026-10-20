@@ -565,7 +565,9 @@ tuple:
   either spelling, as the checker keys it: `secondary-label` or `-exact-secondary-label`, any case),
   then a package's token. It takes each line's value in the tuple and goes at most 8 hops. It stops
   at a line whose value is no reference (a literal such as `transparent` or `-1`, or an
-  expression), at a base name or at a role, and that place wins. An icon param answers the same.
+  expression), at a base name or at a role, and that place wins. A `when` naming an axis `under
+  scheme=dark` is a colour's light/dark pair: the walk follows neither side, and its line wins. An icon
+  param answers the same.
   - Each of `resolve`'s tuples adds `level`, one of `app-param`, `app-token`, `package`, `base`,
     `role` or `default` (the param's own default, a literal or an expression: a tool's word for it is
     "the component's default"), and `name`, the name at

@@ -5497,8 +5497,8 @@ Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels add
   component's default"). rt1's stage 12 D3 reads the same walker; its
   signature was sent to rt1.
 - **`resolve` of a param**: each tuple adds `level` and `name`, from the walker.
-- **`explain` and `resolve` of a param**: `levels: {token, app, base, param}`, only when the default is a bare
-  reference (none for an expression, theme2's ruling).
+- **`explain` and `resolve` of a param**: `levels: {token, app, base, param}` when the default is a reference;
+  `levels: null`, explicitly, for a literal or an expression (theme2's ruling; round 1).
   - `token` is the first token the default names, `{name, package?, file, line, value}`: a package's own line with
     stage 11 A2's `package` and `file` exactly, else the app's.
   - `app` is the app's override of that package token, `{file, line, value}`, or null.
@@ -5541,3 +5541,24 @@ Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels add
   agreeing) and `icon_params_param_aliases_and_literals` (a literal package icon param with `levels: null`, an app
   component's icon param naming the app's icon, the app setting the package's icon param through its icon and as
   written, both aliases, `transparent` and `-1`). Each fails on the commit before.
+
+**After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES):**
+- **`levels.token` keeps the walk's cap** (Astra 1 = Grok 1). `levels` took the default's reference and then followed
+  8 more params, one hop past the walk. The default's reference is now the first hop, so `levels.token` and
+  `reaches.token` name a line the walk can reach: at most 7 params passed, the token at hop 8.
+- **A light/dark pair stops on its line** (Grok 2). A `when` naming an axis `under scheme=dark` makes a colour's pair
+  (the checker's `under_value`: light from the line without that axis, dark from the `when`). The walk followed the
+  dark side alone. It now follows neither: the line owning the pair wins, so `level` and `name` match the tuple's
+  light/dark value.
+- **Tests:**
+  - `levels_token_keeps_the_walks_eight_hops`: nine `.tamber` params, each naming the next and the last
+    `reading.pin` (eight aliases): the tuple's level is `default` on the last param, `levels.token` and
+    `reaches.token` null. Eight reach `reading.pin` at hop 8, and both say it.
+  - `a_light_dark_pair_stops_on_its_line`: `reading.chain = #ffffff` with `when dark-style=dim: reading.pin`: both
+    tuples `app-token` `reading.chain`, the dim tuple light `#ffffff`, dark `#333333`.
+  - `two_axes_overlapping_whens_on_a_package_token_and_an_app_param` (Astra 2): axes `mode` and `size`. A package
+    token has `when mode=b`, `when size=l` and `when mode=b size=l`; then the app's `params` line has its own
+    `when size=l` and `when mode=a size=l`. Every tuple's modes, level, name and value are asserted.
+  - Each fails with its fix reverted (checked by hand: `0..HOPS`; the pair arm removed; the first holding `when` in
+    place of the most specific).
+- **§10's lead sentence** (Grok 3) says `levels: null` for a literal or an expression, as the wire does.

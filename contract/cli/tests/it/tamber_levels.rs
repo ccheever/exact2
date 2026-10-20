@@ -424,3 +424,137 @@ fn icon_params_param_aliases_and_literals() {
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Each tuple's `(modes, level, name, value)`.
+fn rows(resolved: &Value) -> Vec<(Value, String, String, Value)> {
+    resolved["tuples"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| {
+            let s = |k: &str| t[k].as_str().unwrap().to_string();
+            (
+                t["modes"].clone(),
+                s("level"),
+                s("name"),
+                t["value"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// Round 2 (Astra 1 = Grok 1): `levels.token` keeps the walk's cap. Nine
+/// params, each naming the next and the last the package's token, are
+/// eight aliases: the walk stops on the last param and `levels` names no
+/// token. Eight reach the token at hop eight, and both say it.
+#[test]
+fn levels_token_keeps_the_walks_eight_hops() {
+    let dir = reading("levels-hops", "tamber t\n\ntheme\n  ink = #111111\n");
+    let pkg = dir.join("node_modules/@acme/reading/reading.tamber");
+    let mut text = std::fs::read_to_string(&pkg).unwrap();
+    for (component, n) in [("Nine", 9), ("Eight", 8)] {
+        text.push_str(&format!("\ncomponent {component}\n  params\n"));
+        for i in 0..n {
+            let next = match i + 1 < n {
+                true => format!("param.p{}", i + 1),
+                false => "reading.pin".to_string(),
+            };
+            text.push_str(&format!("    p{i}: color = {next}\n"));
+        }
+    }
+    std::fs::write(&pkg, text).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let nine = "@acme/reading/reading.tamber#Nine";
+    let r = ask(&mut s, "resolve", &format!("{nine}.p0"));
+    assert_eq!(steps(&r), [("default".to_string(), format!("{nine}.p8"))]);
+    assert_eq!(r["levels"]["token"], Value::Null, "{r}");
+    assert_eq!(reaches(&mut s, &format!("{nine}.p0"))["token"], Value::Null);
+    let eight = "@acme/reading/reading.tamber#Eight";
+    let r = ask(&mut s, "resolve", &format!("{eight}.p0"));
+    assert_eq!(
+        steps(&r),
+        [("package".to_string(), "reading.pin".to_string())]
+    );
+    assert_eq!(r["levels"]["token"]["name"], "reading.pin", "{r}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 2 (Grok 2): a `when` naming an axis `under scheme=dark` makes a
+/// colour's light/dark pair, its light side the token's own line: the walk
+/// follows neither side alone, and the line owning the pair wins.
+#[test]
+fn a_light_dark_pair_stops_on_its_line() {
+    let dir = reading("levels-pair", "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = #111111\n  reading.chain = #ffffff\n    when dark-style=dim: reading.pin\n");
+    let mut s = Serve::start(&dir, &[]);
+    let r = ask(&mut s, "resolve", &format!("{MAP}.chain"));
+    let chain = ("app-token".to_string(), "reading.chain".to_string());
+    assert_eq!(steps(&r), [chain.clone(), chain], "{r}");
+    assert_eq!(
+        (&r["tuples"][1]["light"], &r["tuples"][1]["dark"]),
+        (&json!("#ffffffff"), &json!("#333333ff")),
+        "the pair: {r}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 2 (Astra 2): two axes, general and specific `when` lines that
+/// overlap, on a package token and on the app's `params` line with its
+/// own: every tuple's modes, level, name and value, so a wrong tuple order,
+/// the first holding `when` in place of the most specific, or a param's
+/// `when` lines ignored, each fails.
+#[test]
+fn two_axes_overlapping_whens_on_a_package_token_and_an_app_param() {
+    let dir = reading(
+        "levels-axes",
+        "tamber t\n\naxes\n  mode = a | b\n  size = s | l\n\ntheme\n  ink = #111111\n",
+    );
+    let pkg = dir.join("node_modules/@acme/reading/reading.tamber");
+    let text = std::fs::read_to_string(&pkg).unwrap().replace(
+        "  reading.pin = #333333\n",
+        "  reading.pin = #333333\n  reading.tone = #101010\n    when mode=b: #202020\n    when size=l: AccentColor\n    when mode=b size=l: reading.deep\n  reading.deep = #303030\n",
+    ) + "    tone: color = reading.tone\n";
+    std::fs::write(&pkg, text).unwrap();
+    let tone = format!("{MAP}.tone");
+    // Each tuple's (mode, size, level, name, value), a role's value its own.
+    type Row<'a> = (&'a str, &'a str, &'a str, &'a str, Option<&'a str>);
+    let expect = |r: &Value, want: [Row; 4]| {
+        let got = rows(r);
+        for (g, (m, z, l, n, v)) in got.iter().zip(want) {
+            assert_eq!(g.0, json!({"mode": m, "size": z}), "the tuples' order: {r}");
+            assert_eq!((g.1.as_str(), g.2.as_str()), (l, n), "{m} {z}: {r}");
+            if let Some(v) = v {
+                assert_eq!(g.3, json!(v), "{m} {z}: {r}");
+            }
+        }
+        assert_eq!(got.len(), 4);
+    };
+    let mut s = Serve::start(&dir, &[]);
+    let r = ask(&mut s, "resolve", &tone);
+    expect(
+        &r,
+        [
+            ("a", "s", "package", "reading.tone", Some("#101010ff")),
+            ("a", "l", "role", "AccentColor", None),
+            ("b", "s", "package", "reading.tone", Some("#202020ff")),
+            ("b", "l", "package", "reading.deep", Some("#303030ff")),
+        ],
+    );
+    drop(s);
+    // The app's value, with `when` lines of its own over both axes.
+    std::fs::write(dir.join("app.tamber"), "tamber t\n\naxes\n  mode = a | b\n  size = s | l\n\ntheme\n  ink = #111111\n\nparams\n  Map.tone = #505050\n    when size=l: reading.tone\n    when mode=a size=l: ink\n").unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let r = ask(&mut s, "resolve", &tone);
+    expect(
+        &r,
+        [
+            ("a", "s", "app-param", &tone, Some("#505050ff")),
+            ("a", "l", "app-token", "ink", Some("#111111ff")),
+            ("b", "s", "app-param", &tone, Some("#505050ff")),
+            ("b", "l", "package", "reading.deep", Some("#303030ff")),
+        ],
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
