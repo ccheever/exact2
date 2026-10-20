@@ -648,43 +648,53 @@ fn a_parked_note_ends_in_the_segment_its_end_falls_in() {
     );
 }
 
+/// [`SOURCE`] reading `exactMIDI().sent`, with sends at chosen times.
+fn sent_source() -> String {
+    SOURCE
+        .replace(
+            "shape MIDI\n  state: string\n",
+            "shape Message\n  output: string\n  data: number[]\n  timeStamp: number\n\nshape MIDI\n  state: string\n  sent: Message[]\n",
+        )
+        .replace("`${midi.state} ${midi.outputs.length}`", "`${midi.state} ${midi.sent.length}`")
+        .replace(
+            "  action ask\n",
+            "  action sendLater\n    sendMIDI(\"synth\", [144, 61, 100], at=performanceNow() + 1000)\n  action sendSooner\n    sendMIDI(\"synth\", [144, 62, 100], at=performanceNow() + 10)\n  action ownTick\n    sendMIDI(\"synth\", [248], at=performanceNow() + 100)\n  action ask\n",
+        )
+}
+
+/// `exactMIDI().sent` as each message's bytes and time.
+fn listed(r: &Runner<Granted>) -> Vec<(Vec<f64>, f64)> {
+    let Some(Value::Record(f)) = r.resource("midi") else {
+        panic!()
+    };
+    let Value::List(items) = &f[1] else {
+        panic!("{:?}", f[1])
+    };
+    items
+        .iter()
+        .map(|m| match m {
+            Value::Record(m) => {
+                assert_eq!(m[0], Value::str("synth"));
+                let Value::List(d) = &m[1] else { panic!() };
+                let d = d.iter().map(|b| match b {
+                    Value::Number(n) => *n,
+                    _ => panic!(),
+                });
+                let Value::Number(at) = m[2] else { panic!() };
+                (d.collect(), at)
+            }
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
 /// `exactMIDI().sent` (euxy's activity log): what went out by now, oldest
 /// first, as `output`, `data` and `timeStamp`, never a clock tick or a
 /// message taken back. Each message's time answers its reader again, with
 /// no app action; a plan that declares no `sent` is answered no more often.
 #[test]
 fn sent_lists_what_went_out_and_is_answered_as_each_goes() {
-    let source = SOURCE
-        .replace(
-            "shape MIDI\n  state: string\n",
-            "shape Message\n  output: string\n  data: number[]\n  timeStamp: number\n\nshape MIDI\n  state: string\n  sent: Message[]\n",
-        )
-        .replace("`${midi.state} ${midi.outputs.length}`", "`${midi.state} ${midi.sent.length}`");
-    let listed = |r: &Runner<Granted>| -> Vec<(Vec<f64>, f64)> {
-        let Some(Value::Record(f)) = r.resource("midi") else {
-            panic!()
-        };
-        let Value::List(items) = &f[1] else {
-            panic!("{:?}", f[1])
-        };
-        items
-            .iter()
-            .map(|m| match m {
-                Value::Record(m) => {
-                    assert_eq!(m[0], Value::str("synth"));
-                    let Value::List(d) = &m[1] else { panic!() };
-                    let d = d.iter().map(|b| match b {
-                        Value::Number(n) => *n,
-                        _ => panic!(),
-                    });
-                    let Value::Number(at) = m[2] else { panic!() };
-                    (d.collect(), at)
-                }
-                other => panic!("{other:?}"),
-            })
-            .collect()
-    };
-    let mut r = granted(&source);
+    let mut r = granted(&sent_source());
     r.act("withClock", vec![]).unwrap();
     r.act("start", vec![]).unwrap();
     r.land_then();
@@ -709,4 +719,44 @@ fn sent_lists_what_went_out_and_is_answered_as_each_goes() {
     r.act("start", vec![]).unwrap();
     r.land_then();
     assert!(r.advance(260.0).unwrap().is_empty());
+}
+
+/// `sent` is in the order messages went (time, then id), not the order
+/// they were queued; it outlives the queue's record; and Timing Clock is
+/// never listed nor answered for, whoever sent it (review round 1).
+#[test]
+fn sent_is_in_time_order_outlives_the_queue_and_leaves_out_clock() {
+    let mut r = granted(&sent_source());
+    r.act("sendLater", vec![]).unwrap();
+    r.act("sendSooner", vec![]).unwrap();
+    r.advance(1000.0).unwrap();
+    assert_eq!(
+        listed(&r),
+        [
+            (vec![144.0, 62.0, 100.0], 10.0),
+            (vec![144.0, 61.0, 100.0], 1000.0)
+        ]
+    );
+    // An app's own Timing Clock is neither listed nor an answer.
+    r.act("ownTick", vec![]).unwrap();
+    assert!(r.advance(1200.0).unwrap().is_empty());
+    assert_eq!(listed(&r).len(), 2);
+    // 1,024 messages queued ten seconds on push the sent ones out of the
+    // queue's record; `sent` keeps them.
+    r.act("floodOn", vec![]).unwrap();
+    r.act("flood", vec![]).unwrap();
+    assert!(
+        r.midi().sent().all(|s| s.at > 1200.0),
+        "the record let them go"
+    );
+    assert_eq!(listed(&r).len(), 2);
+    // Of what went, the last 128 by time.
+    r.advance(12_000.0).unwrap();
+    let went = listed(&r);
+    assert_eq!(went.len(), 128);
+    assert!(
+        went.iter().all(|(_, at)| *at == 11_200.0),
+        "{:?}",
+        &went[..2]
+    );
 }

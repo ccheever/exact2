@@ -1,9 +1,8 @@
 # Recipe: a native module in Swift
 
-**Sound, MIDI and a transport are built in** (`sequence`, `sendMIDI`: the
-guide's "A sound effect", `apps/metronome`): write no module for them. Another platform API
-with no view (a measurement hook) is the app's one module, which
-`app.ts` asks: `modules/apple/*.swift`, one `ExactModule` subclass that `let exactModule` names.
+**Sound, MIDI and a transport are built in** ([guide](../contract-for-agents.md#sound-midi-and-media),
+`apps/metronome`): write no module. Another platform API with no view (a measurement
+hook) is the app's one module, which `app.ts` asks: `modules/apple/*.swift`, one `ExactModule` subclass that `let exactModule` names.
 app.json needs nothing for it ([app-json](app-json.md)).
 
 ```swift

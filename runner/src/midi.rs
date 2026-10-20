@@ -363,10 +363,21 @@ impl Sent {
         self.by.is_none() && self.at - HOLD <= t
     }
 
-    /// Gone out by `t`, as `exactMIDI().sent` lists it: due, never taken
-    /// back, and not a clock tick (ticks are counted, not listed).
+    /// What `exactMIDI().sent` may list: not Timing Clock, whether clock
+    /// out's tick or an app's own `[248]` (24 a beat would be most of it).
+    fn listed(&self) -> bool {
+        self.tick.is_none() && self.data != [0xF8]
+    }
+
+    /// Gone out by `t`, as `exactMIDI().sent` lists it: due and never
+    /// taken back.
     fn gone(&self, t: f64) -> bool {
-        self.tick.is_none() && self.by.is_none() && self.at <= t
+        self.listed() && self.by.is_none() && self.at <= t
+    }
+
+    /// `exactMIDI().sent`'s order: by time, then by id.
+    fn order(&self, other: &Sent) -> std::cmp::Ordering {
+        self.at.total_cmp(&other.at).then(self.id.cmp(&other.id))
     }
 
     /// The record of `fields`, by name; `None` for a field it lacks.
@@ -540,6 +551,9 @@ pub struct Midi {
     /// The app grants `device.midi`.
     granted: bool,
     queue: VecDeque<Sent>,
+    /// Listed messages the queue let go once handed, which can no longer be
+    /// taken back, in `sent`'s order: its history beyond the queue.
+    out: Vec<Sent>,
     next: u64,
     received: VecDeque<Received>,
     heard: u64,
@@ -575,6 +589,7 @@ impl Midi {
             }),
             granted,
             queue: VecDeque::new(),
+            out: Vec::new(),
             next: 0,
             received: VecDeque::new(),
             heard: 0,
@@ -668,7 +683,10 @@ impl Midi {
             "inputs" => list(&self.ports.inputs),
             "outputs" => list(&self.ports.outputs),
             "sent" => {
-                let gone: Vec<&Sent> = self.queue.iter().filter(|s| s.gone(t)).collect();
+                let mut gone: Vec<&Sent> = (self.out.iter().filter(|s| s.at <= t))
+                    .chain(self.queue.iter().filter(|s| s.gone(t)))
+                    .collect();
+                gone.sort_by(|a, b| a.order(b));
                 let items: Option<Vec<Value>> = gone[gone.len().saturating_sub(SENT)..]
                     .iter()
                     .map(|s| s.value(item_fields))
@@ -685,10 +703,10 @@ impl Midi {
         if !self.reads_sent {
             return f64::INFINITY;
         }
-        self.queue
-            .iter()
-            .filter(|s| s.tick.is_none() && s.by.is_none() && s.at > t)
+        (self.queue.iter().filter(|s| s.listed() && s.by.is_none()))
+            .chain(&self.out)
             .map(|s| s.at)
+            .filter(|at| *at > t)
             .fold(f64::INFINITY, f64::min)
     }
 
@@ -860,10 +878,7 @@ impl Midi {
             at: m.at,
         });
         // A reader of `sent` is answered again when the message goes.
-        if self.reads_sent && m.tick.is_none() {
-            self.answer_due = self.answer_due.min(m.at);
-        }
-        self.queue.push_back(Sent {
+        let sent = Sent {
             id,
             output: m.output.to_string(),
             data: m.data,
@@ -873,7 +888,11 @@ impl Midi {
             step_at: m.step_at,
             tick: m.tick,
             on_at: m.on_at,
-        });
+        };
+        if self.reads_sent && sent.listed() {
+            self.answer_due = self.answer_due.min(sent.at);
+        }
+        self.queue.push_back(sent);
         self.trim(t);
         id
     }
@@ -911,10 +930,21 @@ impl Midi {
         }
         while self.queue.len() > RECORD {
             let Some(i) = self.queue.iter().position(|s| !s.waits(t)) else {
-                return;
+                break;
             };
-            self.queue.remove(i);
+            // Handed, it goes whatever comes after: `sent` keeps it.
+            if let Some(s) = self
+                .queue
+                .remove(i)
+                .filter(|s| s.by.is_none() && s.listed())
+            {
+                let at = self.out.partition_point(|o| o.order(&s).is_lt());
+                self.out.insert(at, s);
+            }
         }
+        // What 128 later messages due already follow is never listed again.
+        let due = self.out.partition_point(|s| s.at <= t);
+        self.out.drain(..due.saturating_sub(SENT));
     }
 
     /// Whether a note-on at `on_at` would find no waiting place at `t`: it

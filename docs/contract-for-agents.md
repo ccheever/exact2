@@ -25,6 +25,7 @@ This guide is documentation, not an additional policy layer. Documents in
 - [Data requests and side effects](#data-requests-and-side-effects)
 - [Views, layout, and interaction](#views-layout-and-interaction)
   - [Tabular numbers](#tabular-numbers)
+  - [Sound, MIDI and media](#sound-midi-and-media)
 - [Routes and web documents](#routes-and-web-documents)
 - [Tabs and stacks](#tabs-and-stacks)
 - [Time, motion, graphics, and platform facts](#time-motion-graphics-and-platform-facts)
@@ -1585,6 +1586,8 @@ draws on the web only; on Apple it is an `error`. A tinted remote image on the w
 needs CORS headers, or it is an `error` too. A drive sees both after `clock +<ms>
 real`; `clock settle` can return just before them.
 
+### Sound, MIDI and media
+
 A sound effect is a declared WAV that an action plays ([LLP
 1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the
 top level (16-bit or float PCM, one or two channels, at most 10 s; the compiler
@@ -1769,7 +1772,7 @@ MIDI is Web MIDI's, and the runner keeps its queue as it keeps the voices (LLP
 `strings/en.json`: `"purpose.midi": "…"`, the text the person is shown when asked. Read the ports with `resource midi = exactMIDI() as
 shape MIDI` (`state`: `prompt`, `granted`, `denied`, `unavailable`; `outputs` and
 `inputs`, each `{id, name, manufacturer, state}`; `sent`, the last 128 messages that
-went out, each `{output, data, timeStamp}`, clock ticks left out: an activity log), ask for them from a press with
+went out in time order, each `{output, data, timeStamp}`, Timing Clock left out: an activity log), ask for them from a press with
 `requestMIDIAccess()`, and let the person pick an output (a `select` of
 `midi.outputs` by `id`). Then a step's `note` plays on its track's `output` (a
 note-on, and a note-off `duration` beats later), `clockOut=output` on `play`
@@ -1858,6 +1861,8 @@ Tests trigger an action as the platform would and read what is published:
 `tap "audio" mediasession "seekto" 600` (the seconds are a seek's `seekOffset`,
 `seekto`'s time), `expect mediasession title == "Episode 12, part 1"`, `expect
 mediasession has "nexttrack"`; `state mediaSession` is the whole record.
+
+### Markdown editing and colour
 
 A Markdown editor is a `textarea` with `markup="markdown"`; a `text` with it is
 the reader (one node; the value stays the source string). Its toolbar is

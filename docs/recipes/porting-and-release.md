@@ -17,7 +17,7 @@ is minutes; `EXACT_UPDATE_TRUST=production bun exact.mjs agent ios …` drives i
 on a simulator no `--touch platform` drive has used: it leaves accessibility on, about 1 s slower.
 
 **Sound, MIDI and a transport are Exact's** (`sequence`, `play(tracks…)`, `exactMIDI()`,
-`sendMIDI`, `midimessage`: [the guide's "A sound effect"](../contract-for-agents.md#time-motion-graphics-and-platform-facts),
+`sendMIDI`, `midimessage`: [the guide's "Sound, MIDI and media"](../contract-for-agents.md#sound-midi-and-media),
 `apps/metronome`). A [native module](native-module.md) is for what Exact lacks; never port an
 audio or MIDI engine into one.
 

@@ -334,6 +334,9 @@ fn a_numeric_border_says_to_quote_the_shorthand() {
     );
 }
 
+/// `fn`s the computed shorthand tests call.
+const FNS: &str = "fn radii(r: number): string = `${r}px ${r}px 0 0`\nfn corners(first: bool): string = first ? \"12px 12px 2px 2px\" : \"12px\"\nfn outer(on: bool): string = corners(on)\nfn both(on: bool): string = on ? radii(8) : radii(8)\nfn single(on: bool): string = on ? \"12px\" : \"4px\"\n";
+
 /// The euxy port: a computed value that a concatenation or a `fn` builds
 /// into a list for a box shorthand is refused, naming the longhands, since
 /// no host splits one at run time; a template is split at its own text's
@@ -348,13 +351,28 @@ fn a_computed_shorthand_list_is_refused_naming_the_longhands() {
         // grouped cells, which drew square corners).
         ("border-radius=corners(on)", "write `border-top-left-radius`/"),
         ("border-radius=(on ? \"4px\" : outer(on))", "write `border-top-left-radius`/"),
+        // A call both arms make is bound once by a `let` (review round 1),
+        // and an arm inside a template or a concatenation is one of its texts.
+        ("border-radius=both(on)", "write `border-top-left-radius`/"),
+        ("border-radius=`${on ? \"12px 12px 2px 2px\" : \"12px\"}`", "write `border-top-left-radius`/"),
+        ("padding=(\"\" + (on ? \"4px\" : \"4px 8px\"))", "write `padding-top`/"),
     ] {
-        let e = contract::compile(&format!(
-            "fn radii(r: number): string = `${{r}}px ${{r}}px 0 0`\nfn corners(first: bool): string = first ? \"12px 12px 2px 2px\" : \"12px\"\nfn outer(on: bool): string = corners(on)\ncomponent A\n  state pad = 16\n  state on = false\n  view\n    box {attr}\n"
-        ))
-        .unwrap_err();
+        let e = contract::compile(&format!("{FNS}component A\n  state pad = 16\n  state on = false\n  view\n    box {attr}\n"))
+            .unwrap_err();
         assert_eq!(e.id, "lower-css-shorthand", "{attr}: {e}");
         assert!(e.message.contains(says), "{attr}: {e}");
+    }
+    // A `fn`, or an arm, that is one value whichever way it goes is every
+    // corner's.
+    for attr in [
+        "border-radius=single(on)",
+        "border-radius=`${on ? \"12px\" : \"4px\"}`",
+        "border-radius=(on ? single(on) : \"2px\")",
+    ] {
+        let src = format!(
+            "{FNS}component A\n  state pad = 16\n  state on = false\n  view\n    box {attr}\n"
+        );
+        contract::compile(&src).unwrap_or_else(|e| panic!("{attr}: {e}"));
     }
     let e = contract::compile(
         "component A\n  state r = 4\n  view\n    box border-radius=`${r}px ${r}px 0 0 ${r}px`\n",

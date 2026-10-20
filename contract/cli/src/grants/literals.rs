@@ -161,6 +161,9 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
     // The last significant character of code, the word it ends, and the
     // word before the last punctuation (`concat` at `concat!(`).
     let (mut last, mut word, mut before) = (None::<char>, String::new(), String::new());
+    // `last` ends `++` or `--`: an operand's postfix, after which `/` divides
+    // (a prefix one cannot take a regex).
+    let mut postfix = false;
     let mut i = 0;
     // A quoted literal from `i` (its quote) to past its close.
     let quoted = |i: &mut usize| -> Option<String> {
@@ -215,12 +218,16 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
             i = block_comment_end(&s, i, typescript)?;
             continue;
         }
+        let keyword = after_control || BEFORE_REGEX.contains(&word.as_str());
         let regex = typescript
             && c == '/'
-            && (last.is_none_or(|l| "(,=:[!&|?{};+-*%<>~^}".contains(l))
-                || after_control
-                || BEFORE_REGEX.contains(&word.as_str()));
+            && ((last.is_none_or(|l| "(,=:[!&|?{};+-*%<>~^}".contains(l)) && !postfix) || keyword);
         if regex {
+            // After a `}` a block's end begins a regex and an object's or a
+            // function expression's divides: which, this does not model.
+            if last == Some('}') && !keyword {
+                return None;
+            }
             i = regex_end(&s, i)?;
             (last, word) = (Some('"'), String::new());
             continue;
@@ -315,6 +322,7 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
             } else if !word.is_empty() {
                 before = std::mem::take(&mut word);
             }
+            postfix = matches!(c, '+' | '-') && last == Some(c) && i > 0 && s[i - 1] == c;
             last = Some(c);
         }
         i += 1;
@@ -575,6 +583,11 @@ mod tests {
                 "const r = /a[/\nb/; export const grants = 'device.midi purpose.midi';",
                 true,
             ),
+            // After a `}`, a block's end or an object's: which is unknown.
+            (
+                "if (x) { y() } /[/*]/.test(s); export const grants = 'device.midi purpose.midi'; // */",
+                true,
+            ),
             (
                 "const R: &str = r#\"a /* b\"#; const G: &str = \"device.midi purpose.midi\";",
                 false,
@@ -609,6 +622,13 @@ mod tests {
             "if (x) /[/*]/.test(s); export const grants = 'device.midi purpose.midi'; // */",
             "while (ok(x)) /\\/*/.exec(s); export const grants = 'device.midi purpose.midi'; // */",
             "const q = /'/g; export const grants = 'device.midi purpose.midi';",
+            // A `/` after a postfix `++` or `--` divides (review round 1:
+            // read as a regex, it swallowed the grant).
+            "const q=n++ / 2; export const grants=\"device.midi purpose.midi\"; const r=/x/;",
+            "const q=n-- /2; export const grants=\"device.midi purpose.midi\"; const r=/x/;",
+            // A unary `+` before a regex, and `+ +` that is no `++`.
+            "const t = +/1/.test(s); export const grants = 'device.midi purpose.midi';",
+            "const t = a + +/1/.test(s); export const grants = 'device.midi purpose.midi';",
         ] {
             assert_eq!(read(source, true), key("purpose.midi"), "{source}");
         }

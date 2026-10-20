@@ -640,66 +640,123 @@ pub(crate) fn computed_list<'e>(
     value: &'e Expr,
     body: &dyn Fn(&str) -> Option<&'e Expr>,
 ) -> Result<(), LowerError> {
-    // The text a computed value spells, a computed part as one word.
-    fn shape<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>, depth: u8) -> String {
-        match e {
-            Expr::Str(s, _) => s.clone(),
-            Expr::Template(parts, _) => parts
-                .iter()
-                .map(|p| match p {
-                    contract_syntax::TemplatePart::Text(t) => t.clone(),
-                    contract_syntax::TemplatePart::Expr(e) => shape(e, body, depth),
-                })
-                .collect(),
-            Expr::Binary(contract_syntax::BinOp::Add, l, r, _) => {
-                shape(l, body, depth) + &shape(r, body, depth)
-            }
-            Expr::Call(f, _, _) if depth < 8 => {
-                body(f).map_or_else(|| "x".into(), |b| shape(b, body, depth + 1))
-            }
-            _ => "x".into(),
-        }
-    }
-    // Whether any value a `fn`'s body can return is a list: a literal arm,
-    // a template or a concatenation, through `?:`, `match`, `let` and the
-    // `fn`s it calls. A call's result is not split, so a template there is
-    // a list as a concatenation is.
-    fn returns_list<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>, depth: u8) -> bool {
-        match e {
-            Expr::Ternary(_, yes, no, _) => {
-                returns_list(yes, body, depth) || returns_list(no, body, depth)
-            }
-            Expr::Match { some, none, .. } => {
-                returns_list(some, body, depth) || returns_list(none, body, depth)
-            }
-            Expr::Let { body: b, .. } => returns_list(b, body, depth),
-            Expr::Call(f, _, _) if depth < 8 => {
-                body(f).is_some_and(|b| returns_list(b, body, depth + 1))
-            }
-            e => box_sides::values(&shape(e, body, depth)).len() > 1,
-        }
-    }
-    fn lists<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>) -> Option<Span> {
-        match e {
-            Expr::Call(..) => returns_list(e, body, 0).then(|| e.span()),
-            // A literal is split at compile time, and a template at its
-            // text's white space: each interpolation is one value.
-            Expr::Str(..) => None,
-            // Refused only where an interpolation the compiler can read adds
-            // a value: its white space outside the template's parentheses.
-            Expr::Template(parts, at) => match template_words(parts, *at) {
-                Some(words) => {
-                    (box_sides::values(&shape(e, body, 0)).len() > words.len()).then(|| e.span())
+    /// The `let`s in scope: each name and its value.
+    type Env<'e> = Vec<(&'e str, &'e Expr)>;
+    /// The texts a computed value can spell, one per way its `?:`, `match`
+    /// and the `fn`s it calls can go, a computed part as one word; `None`
+    /// when they are too many or the calls too deep to tell.
+    fn texts<'e>(
+        e: &'e Expr,
+        body: &dyn Fn(&str) -> Option<&'e Expr>,
+        env: &mut Env<'e>,
+        depth: u8,
+    ) -> Option<Vec<String>> {
+        const MOST: usize = 64;
+        // Every text of `a` followed by every text of `b`.
+        let join = |a: Vec<String>, b: Vec<String>| -> Option<Vec<String>> {
+            (a.len() * b.len() <= MOST).then(|| {
+                a.iter()
+                    .flat_map(|x| b.iter().map(move |y| format!("{x}{y}")))
+                    .collect()
+            })
+        };
+        let either = |mut a: Vec<String>, b: Vec<String>| -> Option<Vec<String>> {
+            a.extend(b);
+            (a.len() <= MOST).then_some(a)
+        };
+        Some(match e {
+            Expr::Str(s, _) => vec![s.clone()],
+            Expr::Template(parts, _) => {
+                let mut out = vec![String::new()];
+                for p in parts {
+                    let part = match p {
+                        TemplatePart::Text(t) => vec![t.clone()],
+                        TemplatePart::Expr(e) => texts(e, body, env, depth)?,
+                    };
+                    out = join(out, part)?;
                 }
-                None => (box_sides::values(&shape(e, body, 0)).len() > 1).then(|| e.span()),
+                out
+            }
+            Expr::Binary(contract_syntax::BinOp::Add, l, r, _) => {
+                join(texts(l, body, env, depth)?, texts(r, body, env, depth)?)?
+            }
+            Expr::Ternary(_, yes, no, _) => {
+                either(texts(yes, body, env, depth)?, texts(no, body, env, depth)?)?
+            }
+            Expr::Match { some, none, .. } => either(
+                texts(some, body, env, depth)?,
+                texts(none, body, env, depth)?,
+            )?,
+            Expr::Let {
+                name,
+                value,
+                body: b,
+                ..
+            } => {
+                env.push((name, value));
+                let out = texts(b, body, env, depth);
+                env.pop();
+                out?
+            }
+            Expr::Ident(name, _) => match env.iter().rev().find(|(n, _)| n == name) {
+                Some(&(_, value)) => texts(value, body, env, depth)?,
+                None => vec!["x".into()],
             },
-            Expr::Ternary(_, yes, no, _) => lists(yes, body).or_else(|| lists(no, body)),
-            Expr::Match { some, none, .. } => lists(some, body).or_else(|| lists(none, body)),
-            Expr::Let { body: b, .. } => lists(b, body),
-            e => (box_sides::values(&shape(e, body, 0)).len() > 1).then(|| e.span()),
+            Expr::Call(f, _, _) => match body(f) {
+                // A `fn`'s parameters are computed parts; its `let`s its own.
+                Some(b) if depth < 8 => texts(b, body, &mut Vec::new(), depth + 1)?,
+                Some(_) => return None,
+                None => vec!["x".into()],
+            },
+            _ => vec!["x".into()],
+        })
+    }
+    // Whether a computed value may hold more than `most` values, or cannot
+    // be told not to.
+    fn more<'e>(
+        e: &'e Expr,
+        body: &dyn Fn(&str) -> Option<&'e Expr>,
+        env: &mut Env<'e>,
+        most: usize,
+    ) -> bool {
+        texts(e, body, env, 0)
+            .is_none_or(|all| all.iter().any(|t| box_sides::values(t).len() > most))
+    }
+    // Where the value builds a list that is not split at compile time: a
+    // literal arm and a template's own white space are ([`sides`]); a
+    // `fn`'s result, a `let`'s value and a concatenation are not.
+    fn lists<'e>(
+        e: &'e Expr,
+        body: &dyn Fn(&str) -> Option<&'e Expr>,
+        env: &mut Env<'e>,
+    ) -> Option<Span> {
+        match e {
+            Expr::Str(..) => None,
+            // Refused only where an interpolation adds a value: its white
+            // space outside the template's parentheses.
+            Expr::Template(parts, at) => {
+                let words = template_words(parts, *at).map_or(1, |w| w.len());
+                more(e, body, env, words).then(|| e.span())
+            }
+            Expr::Ternary(_, yes, no, _) => lists(yes, body, env).or_else(|| lists(no, body, env)),
+            Expr::Match { some, none, .. } => {
+                lists(some, body, env).or_else(|| lists(none, body, env))
+            }
+            Expr::Let {
+                name,
+                value,
+                body: b,
+                ..
+            } => {
+                env.push((name, value));
+                let out = lists(b, body, env);
+                env.pop();
+                out
+            }
+            e => more(e, body, env, 1).then(|| e.span()),
         }
     }
-    let Some(span) = lists(value, body) else {
+    let Some(span) = lists(value, body, &mut Vec::new()) else {
         return Ok(());
     };
     let longhands: Vec<String> = longhands(name).iter().map(|l| format!("`{l}`")).collect();

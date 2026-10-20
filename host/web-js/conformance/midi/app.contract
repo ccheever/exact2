@@ -8,8 +8,9 @@
 // `ended=`, `midimessage` heard by two elements with coalescing, an app's
 // own Start taken back at a stop without silencing the clock's Stop, and an
 // output pulled. The journal's `midi` and `sequence` lines, `state.midi` and
-// `exactMIDI()`'s answer, `sent` included, compare on every target. (No slot shares a name
-// with the metronome's.)
+// `exactMIDI()`'s answer compare on every target, `sent` included: in time
+// order, an own Timing Clock left out, kept past a flood that fills the
+// queue. (No slot shares a name with the metronome's.)
 
 shape Step
   beat: number
@@ -70,6 +71,12 @@ component MidiConf
     sendMIDI("synth", [176, 7, 100], at=performanceNow() - 25)
   action midiMalformed
     sendMIDI("synth", midiBad)
+  action midiSoon
+    sendMIDI("synth", [144, 65, 1], at=performanceNow() + 10)
+  action midiTick
+    sendMIDI("synth", [248], at=performanceNow() + 20)
+  action midiFlood
+    sendMIDI("synth", range(1024).map(i => [144, 66, 1]).flat(), at=performanceNow() + 10000)
   action midiOwnStart
     sendMIDI("synth", [250], at=performanceNow() + 10000)
   action midiStart
@@ -108,6 +115,9 @@ component MidiConf
       button "start" press=midiStart testId="start"
       button "stop" press=midiStop testId="stop"
       button "own start" press=midiOwnStart testId="ownstart"
+      button "soon" press=midiSoon testId="soon"
+      button "tick" press=midiTick testId="tick"
+      button "flood" press=midiFlood testId="flood"
       button "faster" press=midiFaster testId="faster"
       button "later" press=midiLater testId="later"
       button "restart" press=midiRestart testId="restart"
