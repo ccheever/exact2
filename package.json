@@ -9,7 +9,7 @@
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",
     "playwright-core": "1.64.1",
     "rolldown": "1.2.9",
-    "snapback4": "0.4.29",
+    "snapback4": "0.4.33",
     "typescript": "7.0.2"
   },
   "bin": {
@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@exact/scale-fixture-cards": "workspace:*",
+    "@exact/actions": "workspace:*",
+    "@exact/cards": "workspace:*",
     "@exact/geolocation": "workspace:*",
     "@exact/scale-fixture-notes": "workspace:*",
     "@exact/reading": "workspace:*"

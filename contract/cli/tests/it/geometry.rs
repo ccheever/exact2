@@ -709,8 +709,8 @@ fn top_layer_uses_presented_frames_and_stack_order() {
     let front = view("front");
     r.top_layer_frames(
         &[
-            (back, [120.0, 10.0, 50.0, 50.0]),
-            (front, [120.0, 10.0, 50.0, 50.0]),
+            (back, [120.0, 10.0, 50.0, 50.0], None),
+            (front, [120.0, 10.0, 50.0, 50.0], None),
         ],
         None,
     );

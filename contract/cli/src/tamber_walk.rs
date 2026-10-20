@@ -47,6 +47,34 @@ fn read(path: &Path) -> String {
     std::fs::read(path).map(|b| digest(&b)).unwrap_or_default()
 }
 
+/// `path`'s digest as a walk reads it (none, empty, for a file not there):
+/// what the background whole build checks its inputs by.
+pub(super) fn digest_of(path: &Path) -> String {
+    read(path)
+}
+
+/// [`Walk::facts`] read again from disk: the `package.json`s at `manifests`
+/// and `dir`'s `node_modules` entries.
+pub(super) fn facts(dir: &Path, manifests: &[PathBuf]) -> String {
+    let digests: Vec<String> = manifests.iter().map(|p| read(p)).collect();
+    facts_text(manifests, &digests, &Walk::modules(dir))
+}
+
+fn facts_text(
+    manifests: &[PathBuf],
+    digests: &[String],
+    modules: &[(PathBuf, Option<PathBuf>)],
+) -> String {
+    let mut out = String::new();
+    for (p, d) in manifests.iter().zip(digests) {
+        out.push_str(&format!("manifest\t{}\t{d}\n", p.display()));
+    }
+    for (p, t) in modules {
+        out.push_str(&format!("module\t{}\t{t:?}\n", p.display()));
+    }
+    out
+}
+
 /// A file a walk read: its path, its stamp then, its digest, and whether
 /// it is a design file (which the synthetic tokens' key leaves out).
 struct Read {
@@ -81,6 +109,28 @@ pub(super) struct Walk {
 }
 
 impl Walk {
+    /// Each file it read, with its digest then: a whole build's inputs.
+    pub(super) fn inputs(&self) -> Vec<(PathBuf, String)> {
+        self.files
+            .iter()
+            .map(|f| (f.path.clone(), f.digest.clone()))
+            .collect()
+    }
+
+    /// What else it read that a whole build's loading reads: each
+    /// `package.json` above a source (its digest, empty when none) and each
+    /// `node_modules` entry with where it leads, as [`facts`] reads them
+    /// again.
+    pub(super) fn facts(&self) -> (Vec<PathBuf>, String) {
+        let paths: Vec<PathBuf> = self.manifests.iter().map(|(p, _)| p.clone()).collect();
+        let digests: Vec<String> = self
+            .manifests
+            .iter()
+            .map(|(_, d)| d.clone().unwrap_or_default())
+            .collect();
+        (paths.clone(), facts_text(&paths, &digests, &self.modules))
+    }
+
     fn modules(dir: &Path) -> Vec<(PathBuf, Option<PathBuf>)> {
         let entries = |d: &Path| -> Vec<PathBuf> {
             std::fs::read_dir(d)
@@ -265,6 +315,57 @@ impl Server {
             );
         }
         params.1.clone()
+    }
+
+    /// The exported library components' slot chains (LLP 1139 D4), from
+    /// the params' IR `library` block, built again only when the params
+    /// are (each chain's tokens read at check time, closed over references
+    /// by the checker itself, so no design fold here).
+    /// None when no component is the library's.
+    pub(super) fn slot_chains(
+        &self,
+    ) -> Option<std::rc::Rc<contract_lower::anatomy::slot::SlotChains>> {
+        let app = self.app_params();
+        let mut slots = self.slots.borrow_mut();
+        if !matches!(&*slots, Some((of, _)) if std::rc::Rc::ptr_eq(of, &app)) {
+            let mut library = contract::tamber_params::library(&app, None);
+            // Indexed by the names each row's own value says (a bare name, or
+            // each a `calc(…)` names: a name as the lexer reads one, never a
+            // function's before its `(` or a word in quotes): what those
+            // reach is the candidate fold's to say (check_slots closes over
+            // it), never the packages' defaults an app line may have replaced.
+            for node in library
+                .as_array_mut()
+                .into_iter()
+                .flatten()
+                .flat_map(|e| e["chain"].as_array_mut().into_iter().flatten())
+            {
+                let mut direct: Vec<serde_json::Value> = Vec::new();
+                for value in node["rows"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|r| r.get(1).and_then(|v| v.as_str()))
+                {
+                    for name in row_names(value) {
+                        let name = serde_json::Value::from(name);
+                        if !direct.contains(&name) {
+                            direct.push(name);
+                        }
+                    }
+                }
+                node["tokens"] = serde_json::Value::Array(direct);
+            }
+            let any = library.as_array().is_some_and(|all| {
+                all.iter()
+                    .any(|e| e["library"] == serde_json::Value::Bool(true))
+            });
+            let chains = any.then(|| {
+                std::rc::Rc::new(contract_lower::anatomy::slot::SlotChains::from_ir(&library))
+            });
+            *slots = Some((app, chains));
+        }
+        slots.as_ref().and_then(|(_, c)| c.clone())
     }
 }
 
@@ -495,5 +596,64 @@ mod tests {
             retention_key(&[fake]),
             "metadata spelling a row"
         );
+    }
+}
+
+/// The token names a row's value says: each run of identifiers joined by
+/// `.` (an identifier a letter or `_` first, then letters, digits, `_` and
+/// `-`, a trailing `-` its own, as the lexer reads one), but a function's
+/// name (its `(` next) and anything in quotes.
+fn row_names(value: &str) -> Vec<&str> {
+    let bytes = value.as_bytes();
+    let (mut out, mut i, mut quote) = (Vec::new(), 0, None);
+    while i < bytes.len() {
+        let c = bytes[i];
+        if let Some(q) = quote {
+            quote = (c != q).then_some(q);
+            i += 1;
+            continue;
+        }
+        if c == b'"' || c == b'\'' {
+            quote = Some(c);
+            i += 1;
+            continue;
+        }
+        let starts = (c.is_ascii_alphabetic() || c == b'_')
+            && (i == 0
+                || !(bytes[i - 1].is_ascii_alphanumeric()
+                    || matches!(bytes[i - 1], b'_' | b'-' | b'.')));
+        if !starts {
+            i += 1;
+            continue;
+        }
+        let from = i;
+        while i < bytes.len()
+            && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'_' | b'-' | b'.'))
+        {
+            i += 1;
+        }
+        let name = value[from..i].trim_end_matches('.');
+        if bytes.get(i) != Some(&b'(') && !name.is_empty() {
+            out.push(name);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod row_names_tests {
+    #[test]
+    fn a_rows_names_are_its_references_only() {
+        assert_eq!(super::row_names("lib.w"), ["lib.w"]);
+        assert_eq!(
+            super::row_names("calc(_lib.w * 2 + cards.pad-x)"),
+            ["_lib.w", "cards.pad-x"]
+        );
+        assert_eq!(
+            super::row_names("calc(2px + max(a.b, 1px)) 'quoted.name' \"x.y\""),
+            ["a.b"]
+        );
+        assert_eq!(super::row_names("12px"), Vec::<&str>::new());
+        assert_eq!(super::row_names("calc(lib.w- * 2)"), ["lib.w-"]);
     }
 }

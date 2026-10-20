@@ -92,7 +92,8 @@ pub(crate) fn intersection(
                     slot = up;
                 }
                 Shown::Viewport(to) => {
-                    clipped = map(mul(to, transform), clipped);
+                    clipped =
+                        top_clip(scrolled, arena.key(slot), map(mul(to, transform), clipped))?;
                     let env = arena.env();
                     let viewport = [
                         0.0,
@@ -132,8 +133,17 @@ fn to_viewport(
                 transform = mul(to, transform);
                 slot = up;
             }
-            Shown::Viewport(to) => return Some(map(mul(to, transform), rect)),
+            Shown::Viewport(to) => {
+                return top_clip(scrolled, arena.key(slot), map(mul(to, transform), rect))
+            }
         }
+    }
+}
+
+fn top_clip(scrolled: &Scrolled, key: NodeKey, rect: Rect) -> Option<Rect> {
+    match scrolled.top_clip(key) {
+        Some([x, y, w, h]) => clip(rect, [x, y, x + w, y + h]),
+        None => Some(rect),
     }
 }
 

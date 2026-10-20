@@ -577,6 +577,10 @@ half-typed `-` or `1.` survives). That makes the contract:
 - **on commit** (`change`, which a text field fires on Enter and on blur), the
   action writes the accepted value and writes the normalized text back into the
   draft, which changes the binding and redraws the field.
+  Since `change` also fires when an edited field loses focus, it is no
+  "submit on Return": a form submitting on it submits on a tap away from the
+  field (an eye, a "Forgot password?"). Submit on Return with `submit`, which
+  runs on Return alone, after the commit (and never for an IME's Return).
 
 A field bound straight to the accepted value breaks this: an action that
 normalizes `-2` to the `0` it already held leaves the binding unchanged, so the
@@ -816,7 +820,7 @@ component Water
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures (under them where they do not fit on one line): a grouped list `row`'s content, or any list's |
 | `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under white ink (dark on the light hues: green, mint, teal, cyan, yellow, orange); read as its text |
 | `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-red"`), ink the host picks for contrast; a light hue (green, mint, teal, cyan, yellow, orange) is the platform's tinted style, the hue on the hue at low opacity; `none` is the neutral grey with the label's ink; the title stays the default body size at every text size |
-| `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and checkmark), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross), `"dimmed"` (the rest, once told), or `"chosen"` (the person's own pick once told or closed: the selected look, disabled, so a closed poll still marks the vote while the rest dim); told, dimmed and chosen tiles are disabled; as a grouped list's row it is the list's cell, the checkmark its accessory; a reader hears "Quito, correct" |
+| `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and checkmark), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross), `"dimmed"` (the rest, once told), or `"chosen"` (the person's own pick once told or closed: the selected look, disabled, so a closed poll still marks the vote while the rest dim); told, dimmed and chosen tiles are disabled; as a grouped list's row it is the list's cell on every host (`-exact-row-look`), the checkmark its accessory; a reader hears "Quito, correct" |
 
 - Props have no defaults: pass `none` for an option. A symbol is an `image` source:
   a role (`"symbol:calendar"`) draws on every host, `"symbol:sf/<name>"` on Apple only.
@@ -1415,7 +1419,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `button` (`buttonStyle`, native by default) | `UIButton` |
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)); a row of your own parts starts and ends at the cell's margin, as UIKit's own rows do, so write no padding at its ends |
 | the same, `listStyle="plain"`, each `section`'s `header` one letter (Contacts) | the list with UIKit's A–Z section index at its trailing edge, when every section has a row; a name that starts with no letter A–Z goes under `#`, not nowhere |
-| `list` with no `appearance`, its rows down the page (each child is a row) | a plain list's cells: UIKit's separators, the cell's grey ground while a row is pressed, the row selected under the screen it pushed. Draw none of it, but pad each row's content (16 at each end): the row is your box; a border you write on a row is yours and replaces the separator there (`border-bottom="none"`: none), and `appearance="none"` keeps rows of your own (a transcript, a feed of cards). The Mac shows a table, the web and the Linux desktop one line between rows, Android none (LLP 1115.000 D16) |
+| `list` with no `appearance`, its rows down the page (each child is a row) | a plain list's cells: UIKit's separators, the cell's grey ground while a row is pressed, the row selected under the screen it pushed. Draw none of it, and no inset either: a row's content stands at the cell's margin (16 at each end; UIKit's, 20 in an iPhone's landscape) where you write no padding, the row `border-box` (LLP 1138); write a padding to choose your own. The row is your box; a border you write on a row is yours and replaces the separator there (`border-bottom="none"`: none), and `appearance="none"` keeps rows of your own (a transcript, a feed of cards). The Mac shows a table, the web and the Linux desktop one line between rows, Android none (LLP 1115.000 D16) |
 | `delete=remove(id)` on either list's row (`disabled` beside it: no delete) | the cell's swipe action Delete, which a full swipe performs (`contract vocab swipe`) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="radio"` (the radios of one `name` are a group) | the SF Symbols circle, filled at its centre when checked, at body size; in a grouped list's row no circle but the row's checkmark, which a tap on the row moves (LLP 1115.000 D13.2) |
@@ -2845,8 +2849,13 @@ without `--touch platform` a drag scrolls the scroll or list it starts on with t
 finger, no fling; any other drag there is refused, naming the flag.
 Under `--touch platform` a tap replies `viewGone: true` when its view left the
 window before the finger lifted, so that view had no lift (UIKit rebuilds a
-grouped row's detail button in the first seconds after the list appears).
-Read the state, and tap again if nothing changed.
+grouped row's detail button in the first seconds after the list appears), and
+`downAfterLift: true` when the window had the down only after the finger lifted
+(the app busy, or the system slow to deliver it; a UIKit switch in a list cell
+takes a down and a lift that arrive together as no tap). Read the state, and tap
+again if nothing changed; `touch.dispatched` less `touch.ended` says how late
+the down was, and an app that blocks its main thread that long loses a
+person's tap too.
 
 #### Drags on iOS
 
@@ -3466,7 +3475,9 @@ it vanishes); a surface inside either card is its pair's tertiary role. A route 
 scroll is a grouped list (`list appearance="auto"`, `inset-grouped` or `grouped`) is a
 `-exact-grouped-background` page with nothing written, bar to bottom edge, so a switcher
 or summary between its `header` and the list sits on the list's grey (LLP 1116.007 D5); a
-`background-color` on the route, or on that content, wins. A brand colour
+`background-color` on the route, or on that content, wins. One on the list itself is its
+ground around the cards, which keep theirs: `transparent` shows what lies behind it, such
+as an `aria-hidden` `svg` at `z-index=-1` (LLP 1084 §6.5). A brand colour
 the platform has no role for is the one place for a literal.
 
 **Type: say a heading, not a size.** Body text is the platform's body size
@@ -3569,7 +3580,9 @@ is its package's however a `use` reaches it). A param is a row's value in its
 component's own rows (a style, shorthand or motion row, an image's `symbol:`
 source): a string or a template, through `?:` branches, `match` arms and `+`,
 as a motion token is; and its defaults. Passed in a component's argument, it is
-the child's row's value. One in a `style`, a `keyframes` or a state's value,
+the child's row's value. One in a `style` that one component's view alone
+applies is that component's (LLP 1139 D3); one in a `style` another
+component applies too, a `keyframes` or a state's value,
 or in what a row computes (a function's argument, a condition, a comparison,
 a callback), or that a child reads otherwise than as a row's value, is refused
 (`tamber-param-scope`). A param no
@@ -3622,6 +3635,26 @@ a `calc()`, `min()`, `max()` or `clamp()` with px and numbers
 compiler checks every column, naming the one a row refuses (a padding that is
 negative on mac). A base name times a length, `rem`, `em` or `%` beside one,
 and a shadow over one are refused.
+A package that is `"private": true` and ships a design is a library (LLP
+1139): each component its entry declares or re-exports is held to its rules.
+Its spacing, corner and colour rows (a shorthand's each side; `border`'s
+colour), and its params' defaults of every kind, name a param, a token, a
+role or a base name, or compute over one (`color-mix`, `light-dark`,
+`calc`), never a literal (`0`/`0px` and CSS keywords such as `auto` and
+`transparent` excepted; `lower-library-literal`); a control's role is the native control's (`input`,
+`textarea`, `select`, `progress`, a native `button`) with what its platform
+needs (`checked` and `aria-label` or `aria-labelledby`, a range's
+`min`/`max`, …;
+`lower-library-control`); and nothing in the package reads the host it runs
+on (`exactDelivery`, `exactSurface`, `exactViewport().displayMode` read
+from the viewport wherever the package passes it: an alias, a `provide`, a
+`fn`; a prop's `displayMode` is the app's data; `lower-library-platform`). Not checked yet: an injected value whose
+provider is outside the package, and per-platform host entries (no syntax
+for them). Its names are its API: an app line or a Contract row naming a
+name under its namespace that it doesn't define, or a param line naming one
+it lacks, fails the build (`tamber-package-unknown`; the nine base names are
+no package's), and its params are named in full, a short name that names
+none too (`tamber-param-short-library`).
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into

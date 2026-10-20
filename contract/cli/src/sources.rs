@@ -1,6 +1,7 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+mod library;
 pub(crate) mod packages;
 mod refused;
 mod uses;
@@ -195,7 +196,9 @@ impl Loader<'_> {
         // Each component's `param.` names, as their tokens (LLP 1121 D15),
         // before anything reads a row.
         let mut params_refused: Vec<CompileError> = Vec::new();
+        let mut owned = Vec::new();
         for unit in &mut self.units {
+            owned.extend(contract_lower::params::owned(&unit.file));
             params_refused.extend(
                 contract_lower::params::rewrite(&mut unit.file)
                     .into_iter()
@@ -256,8 +259,16 @@ impl Loader<'_> {
             &params,
             &identities,
         );
+        let library = library::read(&self.sources, self.app_root);
         match self.scope() {
             Ok(mut file) => {
+                let escaped = contract_lower::params::escaped(&file, &owned);
+                if !escaped.is_empty() {
+                    let all = escaped.into_iter().map(CompileError::from).collect();
+                    return Err(resolve(&self.sources, all));
+                }
+                file.library = library.components;
+                file.library_packages = library.packages;
                 file.design = design;
                 file.package_designs = package_designs;
                 crate::modules::desugar(&mut file).map_err(|all| resolve(&self.sources, all))?;
@@ -474,63 +485,7 @@ pub fn code_beside(root: &Path) -> bool {
     })
 }
 
-/// The `use` lines each file of the program rooted at `path` lacks (LLP
-/// 1091 D1), for `contract fmt --uses`; the loader's other refusals as
-/// they are.
-pub(crate) fn use_fixes(
-    path: &Path,
-    src: &str,
-    app_root: &Path,
-) -> Result<Vec<uses::UseFix>, Vec<CompileError>> {
-    let root_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let mut loader = Loader {
-        app_root,
-        sources: Sources {
-            paths: vec![root_key.clone()],
-            origins: vec![Origin::App],
-            digests: vec![digest(src)],
-            homes: Vec::new(),
-            texts: vec![src.into()],
-            imports: Vec::new(),
-            packages: Vec::new(),
-            consulted: Vec::new(),
-            motion: Vec::new(),
-        },
-        active: vec![root_key.clone()],
-        units: Vec::new(),
-        cache: HashMap::new(),
-        fixes: Vec::new(),
-        proposed: Vec::new(),
-        declared: Vec::new(),
-        motion: Vec::new(),
-        refused: Refused::default(),
-    };
-    let resolve = |sources: &Sources, all: Vec<CompileError>| {
-        all.into_iter()
-            .map(|e| sources.resolve(e))
-            .collect::<Vec<_>>()
-    };
-    let loaded = loader.load_source(&root_key, src, 0);
-    if !loader.refused.errors.is_empty() {
-        return Err(std::mem::take(&mut loader.refused.errors));
-    }
-    if let Err(all) = loaded {
-        return Err(resolve(&loader.sources, all));
-    }
-    match loader.scope() {
-        Ok(_) => Ok(Vec::new()),
-        Err(_) if !loader.fixes.is_empty() => Ok(std::mem::take(&mut loader.fixes)
-            .into_iter()
-            .map(|mut fix| {
-                fix.error = loader.sources.resolve(fix.error);
-                fix
-            })
-            .collect()),
-        Err(all) => Err(resolve(&loader.sources, all)),
-    }
-}
-
-pub(crate) use uses::apply as apply_uses;
+pub(crate) use uses::{apply as apply_uses, unreached, use_fixes};
 
 /// One source a compilation reads (LLP 1091 D10).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -681,6 +636,8 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     // for, so adding it rebuilds.
     let (designs, unmade) = packages::sources(&loader.sources);
     sources.extend(designs);
+    // The files that say which components are the library's (LLP 1139 D0).
+    let library = library::read(&loader.sources, app_root).read;
     let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
     sources.extend(icons.into_iter().map(|path| Source {
         path,
@@ -694,6 +651,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             .consulted
             .into_iter()
             .chain(missing)
+            .chain(library)
             .collect(),
         errors,
     }
@@ -1362,6 +1320,8 @@ impl Loader<'_> {
             // The design is the app's, read beside its root (`design`).
             design: None,
             package_designs: Vec::new(),
+            library: Vec::new(),
+            library_packages: Vec::new(),
             fns: all!(fns),
             modules: all!(modules),
             components: all!(components),

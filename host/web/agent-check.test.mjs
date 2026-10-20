@@ -271,7 +271,7 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   // on a dark grey (3.5:1) is held to 4.5:1 there too.
   expect(found([{ ...text, fg: [0, 0, 0, 1], bg: [100, 100, 100], on: 'own' }], { look: 'neutral', scheme: 'dark' })).toEqual(['contrast:1']);
   expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true }])).toEqual(['clipped:1']);
-  expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true, clamp: true }])).toEqual([]);
+  expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true, clamp: true, ellipsis: true }])).toEqual([]);
   // A card on white whose fill is white shows nothing; on grey it shows; with an edge it shows.
   const card = { id: 2, x: 4, y: 4, w: 12, h: 12, fill: [255, 255, 255, 1], radius: 8, fillRole: 'secondary-grouped-background' };
   const invisible = judge(obs([card]), png);
@@ -316,6 +316,11 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const teal = judge(obs([{ ...white, bg: [0, 195, 208], on: 'own', label: true, onAccent: true }]), null);
   expect(teal.map((f) => f.kind)).toEqual(['contrast']);
   expect(teal[0].hint).toContain('leave the accent unsaid');
+  // A tinted button's label in a system hue on its own pale fill is UIKit's drawing (the Clock's green Start): not judged. The
+  // same green as a text on the page is.
+  const green = { ...text, fg: [52, 199, 89, 1], bg: [225, 247, 231], on: 'own', label: true };
+  expect(found([{ ...green, tinted: true }])).toEqual([]);
+  expect(found([green])).toEqual(['contrast:1']);
   // LLP 1116.020 D7: white on an accent fill that is no button (a sent bubble) is held to a filled button's 3:1: UIKit's blue
   // (3.4:1) reads, a pale accent (the web's dark one, 2.6:1) is found with the accent's hint; on another fill it stays 4.5:1.
   expect(found([{ ...white, bg: [0, 136, 255], on: 'own', onAccentFill: true }])).toEqual([]);

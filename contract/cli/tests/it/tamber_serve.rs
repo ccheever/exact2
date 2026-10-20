@@ -52,7 +52,7 @@ pub(crate) fn plan_alone(dir: &std::path::Path, request: Value) -> (Value, Vec<V
 
 pub(crate) struct Serve {
     child: Child,
-    input: ChildStdin,
+    input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     next: u64,
 }
@@ -68,7 +68,7 @@ impl Serve {
             cmd.env(k, v);
         }
         let mut child = cmd.spawn().unwrap();
-        let input = child.stdin.take().unwrap();
+        let input = child.stdin.take();
         let output = BufReader::new(child.stdout.take().unwrap());
         Serve {
             child,
@@ -82,8 +82,9 @@ impl Serve {
     pub(crate) fn ask(&mut self, mut request: Value) -> (Value, Vec<Value>) {
         self.next += 1;
         request["id"] = json!(self.next);
-        writeln!(self.input, "{request}").unwrap();
-        self.input.flush().unwrap();
+        let input = self.input.as_mut().expect("open");
+        writeln!(input, "{request}").unwrap();
+        input.flush().unwrap();
         let mut events = Vec::new();
         loop {
             let mut line = String::new();
@@ -103,6 +104,22 @@ impl Serve {
             }
             return (v, events);
         }
+    }
+}
+
+impl Serve {
+    /// Close its input, as a client closes, and wait for it to exit, at most
+    /// `limit`: whether it did.
+    pub(crate) fn close(&mut self, limit: std::time::Duration) -> bool {
+        self.input = None;
+        let began = std::time::Instant::now();
+        while began.elapsed() < limit {
+            if self.child.try_wait().ok().flatten().is_some() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        false
     }
 }
 
@@ -215,10 +232,14 @@ fn a_transaction_writes_a_line_its_inverse_undoes_and_a_stale_digest_conflicts()
     let (conflict, _) = s.ask(json!({"method": "transaction", "client": "two", "files": {"app.tamber": seen}, "ops": [{"op": "set-token", "name": "contrast_0", "value": "#000000"}]}));
     assert_eq!(conflict["error"]["conflict"], true);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), after);
-    // A structural edit (a kept token renamed) is a rebuild; the inverse
-    // gives the bytes back.
+    // A kept token renamed where a row names it breaks the row: refused at
+    // the write in the compiler's words, where the row is (the rows check,
+    // theme2's 14:19 ruling), where it was a rebuild the build then
+    // refused. The inverse gives the bytes back.
     let (rename, _) = s.ask(json!({"method": "propose", "ops": [{"op": "rename-token", "from": "mute_banner", "to": "banner.mute"}]}));
-    assert_eq!(rename["ok"]["class"], "rebuild");
+    let refused = &rename["error"]["diagnostics"][0];
+    assert_eq!(refused["id"], "tamber-unknown-token", "{rename}");
+    assert_eq!(refused["file"], "app.contract", "{rename}");
     let (undone, _) =
         s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
     assert!(undone["ok"]["inverse"].is_string(), "{undone}");
@@ -405,8 +426,8 @@ fn requests_are_typed_bounded_and_attributed() {
     );
     // A line over the limit, and one that is not UTF-8, are answered and
     // the server reads on.
-    writeln!(s.input, "{}", "x".repeat(1 << 21)).unwrap();
-    s.input.write_all(b"\xff\xfe\n").unwrap();
+    writeln!(s.input.as_mut().unwrap(), "{}", "x".repeat(1 << 21)).unwrap();
+    s.input.as_mut().unwrap().write_all(b"\xff\xfe\n").unwrap();
     for _ in 0..2 {
         let mut line = String::new();
         s.output.read_line(&mut line).unwrap();

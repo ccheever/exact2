@@ -24,6 +24,174 @@ fn authored<'a>(kernel: &'a Kernel, row: &NodeRef<'a>) -> Option<NodeRef<'a>> {
     row.children().first().and_then(|c| kernel.node(*c))
 }
 
+/// @ref LLP 1138 — the platform's cell margin on a cells list's row: the
+/// row's padding at each end its author wrote none of, and the row's box the
+/// cell's (`border-box`, unless its author wrote `box-sizing`), so a row
+/// written `width: 100%` still spans its list. The margin is the one the host
+/// reports for the list (`Kernel::set_list_margins`: UIKit's, which follows
+/// the orientation and the device), else the look's (`list-row-inset`); a
+/// terminal's rows take none. Layout only, as a grouped list's margins are:
+/// the row's own rows are the author's.
+pub(crate) fn apply_margins(
+    arena: &crate::arena::NodeArena,
+    slot: u32,
+    s: &mut taffy::style::Style,
+) {
+    use taffy::style::LengthPercentage as Lp;
+    let Some(list) = inset_row(arena, slot) else {
+        return;
+    };
+    let Some(m) = arena.list_margins(list).or_else(look_margins) else {
+        return;
+    };
+    let written = &arena.style(slot).written;
+    if !written.has(StyleId::PaddingLeft) {
+        s.padding.left = Lp::length(m[0]);
+    }
+    if !written.has(StyleId::PaddingRight) {
+        s.padding.right = Lp::length(m[1]);
+    }
+    if !written.has(StyleId::BoxSizing) {
+        s.box_sizing = taffy::style::BoxSizing::BorderBox;
+    }
+}
+
+/// Restyle what a prop decides a row's place by (LLP 1138): a list's
+/// `listRows` its rows, a wrapper's `listItemKey` and a swipe's
+/// `swipeContent` and `swipeLeading` the box and what it holds. Whether it
+/// restyled.
+pub(crate) fn prop_changed(
+    arena: &crate::arena::NodeArena,
+    layout: &mut dyn crate::layout::LayoutMirror,
+    slot: u32,
+    prop: PropId,
+    touched: &mut Vec<crate::NodeKey>,
+) -> bool {
+    let rows: Vec<u32> = match prop {
+        PropId::ListRows => arena.children(slot).to_vec(),
+        PropId::ListItemKey | PropId::SwipeContent | PropId::SwipeLeading => vec![slot],
+        _ => return false,
+    };
+    for row in rows {
+        crate::grouped::restyle(arena, layout, row);
+        // A content region a restyled box owns is laid out again: its
+        // padding changed while its border box may not have.
+        let mut walk = vec![(row, 3u8)];
+        while let Some((s, depth)) = walk.pop() {
+            touched.push(arena.key(s));
+            if depth > 0 {
+                walk.extend(arena.children(s).iter().map(|&c| (c, depth - 1)));
+            }
+        }
+    }
+    true
+}
+
+/// A swipe's children in a cells list moved: which is first, and so its row
+/// (`row_of`), may have changed.
+pub(crate) fn children_changed(
+    arena: &crate::arena::NodeArena,
+    layout: &mut dyn crate::layout::LayoutMirror,
+    slot: u32,
+) {
+    if arena.props(slot).str(PropId::SwipeContent).is_some() && in_cells(arena, slot) {
+        for &child in arena.children(slot) {
+            crate::grouped::restyle(arena, layout, child);
+        }
+    }
+}
+
+/// The look's row inset at each end, `None` in a terminal or where the
+/// look has none.
+fn look_margins() -> Option<[f32; 2]> {
+    use crate::style::metrics::{column, length, Column};
+    if column() == Column::Terminal {
+        return None;
+    }
+    let inset = length(crate::generated::metric::LIST_ROW_INSET, 0.0, 0.0)?;
+    Some([inset, inset])
+}
+
+/// The cells list whose inset `slot` takes as its row: a row that is no
+/// form control, which keeps its own padding (the web's sheet resets a
+/// switch's with `!important`); a button is a row like any box.
+fn inset_row(arena: &crate::arena::NodeArena, slot: u32) -> Option<u32> {
+    let control = match arena.node_type(slot) {
+        NodeType::TextInput => true,
+        NodeType::Control => {
+            crate::ControlKind::of(NodeType::Control, arena.props(slot))
+                != Some(crate::ControlKind::Button)
+        }
+        _ => false,
+    };
+    (!control)
+        .then(|| row_of(arena, slot))
+        .flatten()
+        .map(|(list, _)| list)
+}
+
+impl Kernel {
+    /// Whether `view` takes its cells list's row inset at an end its author
+    /// wrote no padding at (LLP 1138): a host that draws a native button's
+    /// title by its own insets places it by these sides instead.
+    pub fn takes_row_inset(&self, view: crate::NodeKey) -> bool {
+        self.arena()
+            .resolve(view)
+            .is_some_and(|slot| inset_row(self.arena(), slot).is_some())
+    }
+}
+
+/// Whether `slot` stands within a cells list's rows, as deep as a row's
+/// inset reaches (a windowed row's wrapper, its swipe, the swipe's content,
+/// and what arrives beside that content, which can make it the first child):
+/// what arrives or leaves there is styled again.
+pub(crate) fn in_cells(arena: &crate::arena::NodeArena, slot: u32) -> bool {
+    std::iter::successors(arena.parent(slot), |s| arena.parent(*s))
+        .take(4)
+        .any(|s| {
+            arena.node_type(s) == NodeType::List
+                && arena.props(s).bool(PropId::ListRows) == Some(true)
+        })
+}
+
+/// The cells list `slot` is a row of, and whether it is a swipe's content:
+/// the list's child (not a windowed row's wrapper, nor a swipe's scroll,
+/// whose content is the row), the row in a windowed list's wrapper, or a
+/// swipe's content, its scroll's first child (a `delete=` row's). A swipe
+/// with leading actions is its author's.
+pub(crate) fn row_of(arena: &crate::arena::NodeArena, slot: u32) -> Option<(u32, bool)> {
+    let props = |slot: u32| arena.props(slot);
+    let cells = |s: u32| {
+        (arena.node_type(s) == NodeType::List && props(s).bool(PropId::ListRows) == Some(true))
+            .then_some(s)
+    };
+    // The list a box is a row's place in: its parent, or its windowed wrapper's.
+    let place = |s: u32| {
+        let parent = arena.parent(s)?;
+        cells(parent).or_else(|| {
+            props(parent)
+                .str(PropId::ListItemKey)
+                .and_then(|_| arena.parent(parent))
+                .and_then(cells)
+        })
+    };
+    let own = props(slot);
+    if own.str(PropId::ListItemKey).is_none() && own.str(PropId::SwipeContent).is_none() {
+        if let Some(list) = place(slot) {
+            return Some((list, false));
+        }
+    }
+    // A swipe's content: its scroll's first child, where the scroll names no
+    // leading actions to stand before it (what the web's sheet can select).
+    let scroll = arena.parent(slot)?;
+    let swipe = props(scroll);
+    (swipe.str(PropId::SwipeContent).is_some()
+        && swipe.str(PropId::SwipeLeading).is_none()
+        && arena.children(scroll).first() == Some(&slot))
+    .then(|| place(scroll).map(|list| (list, true)))
+    .flatten()
+}
+
 fn wrote(node: &NodeRef<'_>, width: StyleId, line: StyleId) -> bool {
     node.style.written.has(width) || node.style.written.has(line)
 }

@@ -228,8 +228,15 @@ export async function resetBackends(origins, rows = null, ms = 10000, app = null
   const said = [];
   for (const origin of origins) {
     let status;
-    try { const r = await fetch(`${origin}/dev/status`, { signal: AbortSignal.timeout(ms) }); status = r.ok ? await r.json().catch(() => null) : null; }
+    let closed = false;
+    try {
+      const r = await fetch(`${origin}/dev/status`, { signal: AbortSignal.timeout(ms) }), body = await r.json().catch(() => null);
+      status = r.ok ? body : null;
+      closed = r.status === 403 && /development doors are closed/.test(body?.denied?.message ?? '');
+    }
     catch (e) { throw new Error(`fresh: nothing answered at ${origin}${app ? ` (source: ${backendOriginSource(app,origin)})` : ''} (${e.cause?.code ?? e.message}): start \`snapback4 dev --port ${new URL(origin).port || 80}\` there first`); }
+    // Since 0.4.33 a password-only app's `dev` keeps /dev/* closed unless started with --unsafe-dev-doors.
+    if (closed) throw new Error(`fresh: the snapback4 dev server at ${origin} keeps its development doors closed (a password-only app's \`dev\` does unless asked): restart it with \`snapback4 dev --unsafe-dev-doors --port ${new URL(origin).port || 80}\` (\`bun exact.mjs backend dev --unsafe-dev-doors\`)`);
     if (typeof status?.storeId !== 'string') continue;
     const r = await fetch(`${origin}/dev/reset`, { method: 'POST', signal: AbortSignal.timeout(ms), ...(rows ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) } : {}) });
     const text = await r.text();
