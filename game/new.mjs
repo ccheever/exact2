@@ -9,14 +9,17 @@ import { cargoEnvironment, lockedMetadata, pathFrom, patchLines } from '../scrip
 import { APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT } from '../scripts/linked-plan.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
- * (what `use exact_game::*` brings in) and the template's own. */
+ * (what `use exact_game::*` brings in), the template's own and those it imports. */
 export function takenTypes(directory = import.meta.dir) {
   const read = path => existsSync(path) ? readFileSync(path, 'utf8') : '';
   const lib = read(resolve(directory, 'engine/src/lib.rs'));
   const exported = [...lib.matchAll(/^pub use [^;]*;/gms)].flatMap(m => m[0].match(/\b[A-Z][A-Za-z0-9]*\b/g) ?? []);
   const items = text => [...text.matchAll(/^\s*pub (?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
-  const template = [...read(resolve(directory, 'new/logic/src/lib.rs')).matchAll(/^\s*(?:pub )?(?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
-  return new Set([...exported, ...items(read(resolve(directory, 'engine/src/scene.rs'))), ...template.filter(t => t !== 'SmallGame')]);
+  const starter = read(resolve(directory, 'new/logic/src/lib.rs'));
+  const template = [...starter.matchAll(/^\s*(?:pub )?(?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
+  // Types the template imports by name (`use exact_game::spawn::Spawner;`).
+  const imported = [...starter.matchAll(/^use [^;]*;/gms)].flatMap(m => m[0].match(/\b[A-Z][A-Za-z0-9]*\b/g) ?? []);
+  return new Set([...exported, ...items(read(resolve(directory, 'engine/src/scene.rs'))), ...template.filter(t => t !== 'SmallGame'), ...imported]);
 }
 /** The `--assets` starter: a model under `art/`, shown by the scene, and hostless
  * tests that bake it in memory (`sim_with_art!`), one of them saving and restoring
@@ -1046,7 +1049,7 @@ at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 Look things up in this order before reading engine source:
 
 - \`bun exact.mjs game vocab <name>\`: a component's fields and evaluated defaults, a \`World\` verb or a method, with its recipe (no name lists them all).
-- ${sdk('game/recipes/README.md')}: runnable recipes by task (cameras, pickups, emitters, sounds, saves, art export).
+- ${sdk('game/recipes/README.md')}: runnable recipes by task: first the gameplay kit every game needs (steering, schools, pickups, spawners, a shop), which the starter's critter, coins and shop use; then cameras, emitters, sounds, saves, art export.
 - ${sdk('game/names.md')}: names from three.js, Unity and Godot, and what they are here.
 - ${sdk('game/README.md')}, by section: "The programming model", "Proof pins", "The agent's interface", "Determinism — the contract", "Assets, animation and placed UI".
 - ${sdk('game/engine/README.md')}: the engine's reference (borrowing, registration, saves and assets).

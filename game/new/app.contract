@@ -1,7 +1,17 @@
+shape ShopRow
+  key: string
+  name: string
+  price: number
+  action: string
+  reason: string
+
 shape Hud
   lit: number
   total: number
   near: string
+  coins: number
+  critter: string
+  shop: ShopRow[]
 
 shape Viewport
   pointer: string
@@ -40,6 +50,13 @@ component SmallGame
               text (paused ? "Resume" : "Pause")
           if hud.near != ""
             text "Press E or tap Light" testId="near-prompt" position="absolute" top=76 left=24 padding=12 border-radius=12 background-color="#202731cc"
+          // The shop: each button holds its Actions action (1 and 2 on the keyboard).
+          if hud.critter != "asleep"
+            column testId="shop" position="absolute" top=76 right=24 gap=8 align-items="flex-end"
+              text `Coins ${hud.coins} · critter ${hud.critter}` testId="hud-coins" font-variant-numeric="tabular-nums" padding=12 border-radius=12 background-color="#202731cc"
+              for r in hud.shop key=r.key
+                button action=r.action disabled=(r.reason != "") testId=`buy-${r.key}` aria-label=(r.reason == "" ? `${r.name}, ${r.price} ${r.price == 1 ? "coin" : "coins"}, key ${r.key}` : `${r.name}, ${r.reason}`) padding=12 border-radius=12 background-color=(r.reason == "" ? "#e8ad61" : "#202731cc")
+                  text (r.reason == "" ? `${r.key} ${r.name} · ${r.price}` : `${r.key} ${r.name} · ${r.reason}`) font-variant-numeric="tabular-nums" color=(r.reason == "" ? "#202731" : "#ffffff")
           if touchControls == "always" or (touchControls == "auto" and viewport.pointer == "coarse")
             button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
               text "Move" color="#ffffff"
@@ -59,6 +76,7 @@ component SmallGame
           column width="100%" max-width=320 align-items="center" gap=8
             text "Move with WASD or arrow keys" width="100%" text-align="center"
             text "Space jumps · E lights" width="100%" text-align="center"
+            text "Walk to the critter: it drops coins · 1 feeds it · 2 buys shoes" width="100%" text-align="center"
             text "On a touch screen, touch controls appear during play" width="100%" text-align="center"
           button press=play autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
             text "Play" font-size=20 color="#202731"

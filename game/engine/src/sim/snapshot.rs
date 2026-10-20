@@ -142,6 +142,12 @@ impl<G: Game> Sim<G> {
         if validated.hz() != G::HZ || validated.tick() as u128 != due {
             return Err(DataError::new("restore refused: EXSIM v7 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
         }
+        G::restorable(&validated).map_err(|reason| {
+            DataError::new(format!(
+                "restore refused: `{}` refuses this save: {reason}; inspect `state` and create a fresh save",
+                G::ID
+            ))
+        })?;
         input.restore_dynamic(s.input);
         let mut next =
             Self::from_world(bound, validated, input, s.queue.into()).map_err(DataError::new)?;

@@ -61,6 +61,13 @@ pub trait Game: 'static {
     fn validate(_args: &Self::Args) -> Result<(), String> {
         Ok(())
     }
+    /// Accept or refuse a decoded save before it replaces the running world. A
+    /// game whose saved shape changed under the same `ID` names the difference
+    /// here (a save-contract resource it inserts in setup and checks), so an
+    /// older save is refused by name instead of failing on a later tick.
+    fn restorable(_saved: &World) -> Result<(), String> {
+        Ok(())
+    }
     /// Register types that vary with setup arguments, without gameplay side effects.
     /// Receives only named setup/restart arguments; live values cannot shape the schema.
     fn register(_world: &mut World, _args: &std::collections::BTreeMap<&str, Value>) {}
