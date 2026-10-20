@@ -1,0 +1,11 @@
+// The stage 11 gate app with no design of its own: @exact/cards and
+// @exact/notes read each host's base values for space.md, radius.md and
+// radius.lg (the gate's "with no app value set" line).
+use Card from "@exact/cards"
+use Note from "@exact/notes"
+
+component App
+  view
+    column testId="root" width=360 gap=8 padding-top=120 background-color="#ffffff"
+      Card(title="A card")
+      Note(body="A note")

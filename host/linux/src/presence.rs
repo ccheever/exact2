@@ -53,6 +53,35 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// An agent's jump to `to`, stopping after a timer that sends
+    /// ([`exact_runner::Runner::advance_until_request`]). The engine hears
+    /// each commit of a jump at its timer's due time (LLP 1002 D3), but the
+    /// kernel holds only the jump's last tree, laid out at its end: a box a
+    /// timer moved inside the jump would start its layout transition there.
+    /// While a node declares a layout transition, the jump lays out at each
+    /// due time, as real frames would; only a request stops it short of `to`,
+    /// so these stops spend none of the agent's request stops.
+    pub(super) fn advance_in_layout_steps(&mut self, to: f64) -> Option<String> {
+        if self.presence.layout.is_empty() {
+            let a = self.runner.advance_until_request(to);
+            return self.advanced(a).0;
+        }
+        let mut error = None;
+        for _ in 0..LAYOUT_STOPS {
+            let due = self.runner.timer_due_ms().unwrap_or(to);
+            let step = due.max(self.runner.now_ms()).min(to);
+            let a = self.runner.advance_until_request(step);
+            // A commit that sent stops the jump: the next send would drop
+            // its reply (LLP 1016 D5).
+            let stopped = a.error.is_some() || a.stopped_on_request || step >= to;
+            error = error.or(self.advanced(a).0);
+            if stopped || self.presence.layout.is_empty() {
+                break;
+            }
+        }
+        error
+    }
+
     /// Observe every tracked node's box, after a layout.
     pub(super) fn observe_layout(&mut self) {
         let snap = std::mem::take(&mut self.presence.snap);
@@ -71,3 +100,7 @@ impl<D: DataSource> Host<D> {
         }
     }
 }
+
+/// The most layout stops one agent call makes: a frame task's every frame
+/// across ten minutes. The agent's loop calls again past it.
+const LAYOUT_STOPS: usize = 60 * 60 * 10;

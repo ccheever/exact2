@@ -191,9 +191,13 @@ same array, one per TypeScript diagnostic (`id` `typescript-TS<n>`). Exit codes 
 
 `build --map -o <file.plan>` also writes `<file.plan>.map.json`, keyed by
 SHA-256 of the plan bytes. Each plan node has its original file and range,
-component call-site chain, and the winning style row's origin (`own`,
-`class:<Name>`, or `tag`); a row an `:active` part lowered to the press paint
-also has `"state": "active"` and `at`, where that row is written (LLP 1121 D8). Slots, derives and actions retain their declarations,
+component call-site chain, and one binding per style row: its base value's
+origin (`own`, `class:<Name>`, or `tag`) and, where an author wrote it, `at`
+and `attr`; and `states`, one `{state, origin, at}` per state part that
+writes the row: `:active`'s (on the press paint row it lowers to), `:hover`'s
+and `:focus-visible`'s (LLP 1121 D8, LLP 1122); a conditional class's
+(`class=(c ? A : B)`) says no `at`, as its base row says none. A row only a
+state part writes, a press row among them, has no base fields. Slots, derives and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside
@@ -271,7 +275,15 @@ have, sets `"keepRunning": true` in `app.json`'s `host.macos.window`. ⌘W,
 File ▸ Close Window and the red button then hide the window without asking
 `beforeunload`, and the app keeps running with its session and native module
 alive. A Dock click or `open -a` shows the window again as it was, and a
-document routed to the app shows it too. ⌘Q quits as before, and the app's own
+document routed to the app shows it too. While the window is hidden,
+`exactPage().visibilityState` is `hidden`, as for a minimized window, and it
+is `visible` again when the window shows. The close and the reopen are also the
+web's back/forward cache: `exactPage().persisted` is `true` from the close (a
+`pagehide` with `persisted`) until the reopen, and `exactPage().restores`
+counts the reopens (each a `pageshow` with `persisted`). A minimize, ⌘H, a
+covering window or a locked screen changes neither. So an app that opens
+something new on a reopen, as a Mac app makes a new window there, keys a task
+on the count: `task fresh when page.restores > 0 key=page.restores`. ⌘Q quits as before, and the app's own
 `close()` still closes the window and ends the app. A `navigate-new` app
 (`launch_handler`) already outlives its last window, and the key changes
 nothing there. The agent's `state.documents.windows[].visible` says whether
@@ -1340,8 +1352,8 @@ hits running out. `state.transport.follow` shows the input, the ticks heard,
 the window, the estimate, the ticks since Start and where Stop held it.
 
 **MIDI** (`exactMIDI()`, `requestMIDIAccess()`, `sendMIDI`, a step's note and
-`clockOut=`, `midimessage`; LLP 1125 D6–D8) needs the grant `device.midi` on
-every host. The runner keeps one queue for every message, a sequence's notes and
+`clockOut=`, `midimessage`; LLP 1125 D6–D8) needs the grant `device.midi purpose.midi`
+on every host, `purpose.midi` a key of `strings/en.json` (the purpose the person is shown). The runner keeps one queue for every message, a sequence's notes and
 clock ticks included, and a host hands each to its output 50 ms before it is due
 and holds it until then: CoreMIDI could take it early and flush, but
 `MIDIFlushOutput` empties the whole destination and Chromium has no

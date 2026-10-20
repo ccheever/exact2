@@ -4183,6 +4183,17 @@
       "default": 1,
       "_comment": "@ref LLP 1121 D8 (stage 8 B): not CSS, and lowering's alone (an author's is refused): an `:active` part's `opacity`, the absolute opacity a node shows while a pointer holds it pressed, eased from the opacity shown at the press (a hover or focus look's included). Replaces `-exact-press-opacity`'s share for the node; it replaces the platform's unsaid press as the pressed paint does. Not a motion target; paint only.",
       "cold": true
+    },
+    {
+      "bit": 216,
+      "field": "font_stretch",
+      "snapshot": "admit",
+      "codec": "f32",
+      "inherited": true,
+      "text": true,
+      "layout": true,
+      "default": 100,
+      "_comment": "@ref LLP 1019 D8: CSS `font-stretch` (Fonts 4's `font-width`), a percentage of the face's normal width, 100 normal; `<percentage>` or a keyword (`condensed` 75, …). It selects among a family's faces before style and weight (CSS Fonts 4 §5.2), and a face declared over a `wdth` range draws at it on that axis. Inherited, as in CSS."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

@@ -1622,6 +1622,7 @@ dependencies = [
  "exact-kernel",
  "exact-motion",
  "exact-num",
+ "libc",
  "serde_json",
 ]
 

@@ -345,6 +345,19 @@ fileprivate final class HeadlessLines {
     init(node: HeadlessSession.Node, engine: TextEngine, language: String, rootFontSize: Double, markdown: [Run]?) {
         // Capture individual COW values, not the node and its previous line cache.
         let props = node.props, style = node.style, inline = node.inline.filter(\.paints), flow = node.flow, box = node.contentBox
+        // Each leaf's own lines and its inline containers' (CSS Text
+        // Decoration 3 §2.1); the paragraph's own are added as it is drawn
+        // (`SnapshotTextPaint.decoration`).
+        let decorates = node.inline.contains { !$0.paints && !$0.lightRun.decoration.isEmpty }
+        let byId = decorates ? Dictionary(node.inline.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) : [:]
+        let lines = !decorates ? inline.map(\.lightRun.decoration) : inline.map { leaf in
+            var all = [leaf.lightRun.decoration], up = byId[leaf.parent]
+            while let run = up {
+                all.append(run.lightRun.decoration)
+                up = byId[run.parent]
+            }
+            return all.filter { !$0.isEmpty }.joined(separator: " ")
+        }
         let catalog = engine.catalog, resolve = engine.resolve, read = engine.read, bundled = engine.bundled
         build = { [weak engine] in
             let engine = engine ?? {
@@ -365,7 +378,7 @@ fileprivate final class HeadlessLines {
                     letterSpacing: run.letterSpacing, numeric: run.numeric,
                     color: Self.color(input?.colorRef, light: run.color, dark: input?.darkColor),
                     background: Self.color(input?.backgroundRef, light: run.background, dark: input?.darkBackground),
-                    decoration: run.decoration, href: run.href, hidden: run.hidden, font: engine.font(run) as CTFont)
+                    decoration: input == nil ? run.decoration : lines[index], href: run.href, hidden: run.hidden, font: engine.font(run) as CTFont)
             }
             var ends: [Int] = [], offset = 0
             for run in spec.runs { offset += run.text.utf16.count; ends.append(offset) }

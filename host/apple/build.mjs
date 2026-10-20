@@ -20,7 +20,7 @@
 // presenter for the simulator triple, assembles the .app here (its
 // Info.plist written, never committed), installs it on a simulator — --sim
 // or EXACT_SIM names one; else a booted iPhone; else the iPhone Pro on the newest iOS;
-// --no-install stops before that and asks for no simulator, a compile check — and with --run shows it in Simulator.app. --device is the
+// --no-install stops before that and installs on no simulator (an iOS module roster no Mac Catalyst slice can read is read on one), a compile check — and with --run shows it in Simulator.app. --device is the
 // same for a phone: the aarch64-apple-ios target and the iphoneos SDK, the
 // bundle signed with a development identity and a provisioning profile on
 // this Mac that covers the phone and the bundle id (EXACT_IDENTITY, a
@@ -1164,16 +1164,25 @@ async function main(args, lockHeld = false) {
     if (r.status !== 0) throw new Error(`host/apple: ${p.extension}'s Swift (${p.sources.join(', ')}) did not compile:\n${r.stderr}`);
   }
   if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', moduleTripleFor(app, true, device, tv), '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), [...moduleSources, ...packageObjects], modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
-  // The roster the artifact serves (its tags, and which join the first frame) is read from its table: for iOS from a Mac
-  // Catalyst executable of the same sources (their iOS code, run here), else a macOS slice; for tvOS the macOS slice, and no
-  // tag joins the first frame. A probe that does not compile or run is named; it, or no slice, fails a production build.
-  const sliced = (forIos, variant) => (modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, forIos, variant, macArch); return true; } catch { return false; } });
-  const via = !ios ? 'macOS' : !tv && sliced(true, 'maccatalyst') ? 'Mac Catalyst' : sliced(false, false) ? 'macOS' : null, probeable = via !== null;
-  let probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable, probeFailure = null, rosterKeys = {};
-  const probe = !ios ? modulesBuilt : resolve(webBuildDir, via === 'macOS' ? 'probe-' + modulesLoadName : 'probe-roster'), probeMain = resolve(linkRoot, 'ExactRosterProbe.swift'), catalyst = probed && via === 'Mac Catalyst' && resolve(read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim(), 'System/iOSSupport');
-  if (catalyst) writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n');
-  const probing = !(probed && ios) ? null : catalyst ? [moduleArgs('macosx', ['-target', `${macArch}-apple-ios${targets.ios}-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], frameworkStamp(true, 'maccatalyst', macArch)] : [moduleArgs('macosx', macTarget, probe), moduleSources, frameworkStamp(false, false, macArch)];
-  if (probing) { const placed = arm(probing[0], probing[1], probe, probing[2], true, true); arms.push(async () => { const log = await placed(); if (log !== true) { probed = false; const at = resolve(linkRoot, 'roster-probe.log'); copyFileSync(log, at); probeFailure = { did: 'compile', text: readFileSync(at, 'utf8'), at }; } }); }
+  // The roster the artifact serves (its tags, and which join the first frame) is read by running its table: a macOS build
+  // dlopens its artifact; an iOS build links the same sources (their iOS code) with each xcframework's slice for a route, and
+  // the first route that reads it stands: a Mac Catalyst executable run here, an iOS simulator one spawned on a booted
+  // simulator (UIKit will not start without one: any booted, else one booted here and shut down after), a macOS dylib dlopened
+  // here. A route with no slice, or whose probe does not compile, load or run, falls through; a roster read is final. tvOS has
+  // the macOS route alone, and no first-frame tag. The first route compiles beside the build, a later one only when needed.
+  let rosterKeys = {};
+  const routes = !(modulesBuilt && modules.tags.length && typeof Bun !== 'undefined') ? [] : !ios ? [{ via: 'macOS', built: modulesBuilt, placed: async () => true }]
+    : [...(tv ? [] : [['Mac Catalyst', 'maccatalyst'], ['iOS Simulator', true]]), ['macOS', false]].map(([via, variant]) => ({ via, variant,
+      lacking: (modules.frameworks ?? []).find(fw => { try { frameworkSlice(fw, variant !== false, variant, macArch); return false; } catch { return true; } }),
+      built: resolve(webBuildDir, variant === false ? 'probe-' + modulesLoadName : `probe-roster-${variant === true ? 'simulator' : variant}`) }));
+  const compileProbe = ({ variant, built }, probeMain = resolve(linkRoot, 'ExactRosterProbe.swift')) => {
+    if (variant === false) return arm(moduleArgs('macosx', macTarget, built), moduleSources, built, frameworkStamp(false, false, macArch), true, true);
+    writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n');
+    const on = variant === true ? 'iphonesimulator' : 'macosx', catalyst = variant !== true && resolve(read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim(), 'System/iOSSupport');
+    const target = catalyst ? ['-target', `${macArch}-apple-ios${targets.ios}-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`] : ['-target', `${macArch}-apple-ios${targets.ios}-simulator`, '-sdk', read('xcrun', ['--sdk', on, '--show-sdk-path']).stdout.trim()];
+    return arm(moduleArgs(on, [...target, probeMain], built, true, variant, macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], built, frameworkStamp(true, variant, macArch), true, true);
+  };
+  const firstRoute = routes.find(r => !r.lacking); if (firstRoute && !firstRoute.placed) try { firstRoute.placed = compileProbe(firstRoute); } catch (e) { firstRoute.placed = () => { throw e; }; }
   await hostCompile?.done({ repeated: true });
   // The early build stands when it succeeded and the bake came out as it was expected to.
   const linkedEarly = early ? await early.step.done({ repeated: true }) && expected.capture === libDir && expected.composition === composition && expected.scratch === paths.scratch : false;
@@ -1233,24 +1242,44 @@ async function main(args, lockHeld = false) {
   const tSwift = Date.now();
   for (const placed of arms) await placed();
   if (modules.tags.length) {
-    let provided = [];
-    const blind = modulesBuilt && typeof Bun !== 'undefined' && !probeable && 'host/apple: an xcframework has neither a Mac Catalyst nor a macOS slice, so the iOS module roster cannot be read';
-    if (blind) { if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(blind); console.warn(`${blind}; the manifest's roster stands`); }
-    const ran = probed && catalyst ? read(probe, []) : null;
-    if (ran && ran.status !== 0) { probed = false; probeFailure = { did: 'run', text: `${ran.stderr ?? ''}${ran.error?.message ?? ''}` || `exit ${ran.status}`, at: `exit status ${ran.status ?? ran.error?.message}` }; }
-    if (probeFailure) {
-      const lines = probeFailure.text.trim().split('\n'), named = lines.filter(l => / error: |^ld: |[Uu]ndefined symbol/.test(l));
-      const why = `host/apple: the module's Swift does not ${probeFailure.did} for ${via}, where an iOS build reads its roster (${probeFailure.at}):\n${(named.length ? named : lines.slice(-5)).slice(0, 5).join('\n')}`;
-      if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(why); else console.warn(`${why}\nThe manifest's roster stands, and no tag joins the first frame (docs/recipes/native-views.md)`);
-    } else if (probed) {
-      const { dlopen, read: at, CString } = import.meta.require('bun:ffi');
-      const roster = JSON.parse(ran ? ran.stdout : new CString(at.ptr(dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString());
+    // The manifest's roster stands when no route reads the artifact's; with no artifact, it serves nothing.
+    let provided = modulesBuilt ? modules.tags : [], roster = null, noSimulator = false;
+    if (modulesBuilt && typeof Bun === 'undefined') console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
+    const causes = [], logs = [], failed = (did, text, log, lines = text.trim().split('\n')) => {
+      writeFileSync(log, text); logs.push(log); const named = lines.filter(l => / error: |^ld: |[Uu]ndefined symbol/.test(l));
+      return new Error(`does not ${did}:\n${(named.length ? named : lines.slice(-5)).slice(0, 5).map(l => `    ${l}`).join('\n')}`);
+    };
+    const ran = (r, log) => { if (r.status !== 0 || r.error) throw failed('run', `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? `${r.error.message}\n` : ''}exit ${r.status ?? r.signal}`, log); return r.stdout; }; // a minute is a hang: the table reads in milliseconds
+    for (const route of routes) {
+      if (route.lacking) { causes.push(`${route.via}: ${basename(route.lacking)} has no ${route.via} slice`); continue; }
+      const log = resolve(linkRoot, `roster-probe-${route.via.replaceAll(' ', '-')}.log`);
+      try {
+        const compiled = await (route.placed ?? compileProbe(route))();
+        let text; if (compiled !== true) throw failed('compile', readFileSync(compiled, 'utf8'), log);
+        if (!route.variant) try { const { dlopen, read: at, CString } = import.meta.require('bun:ffi'); text = new CString(at.ptr(dlopen(route.built, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString(); } catch (e) { throw failed('load', e.message, log); }
+        else if (route.variant === 'maccatalyst') text = ran(read(route.built, [], { timeout: 60_000 }), log);
+        else {
+          let sim = simulators().find(d => /SimRuntime\.iOS/.test(d.runtime) && d.state === 'Booted');
+          if (!sim) try { sim = simulator(null); } catch (e) { noSimulator = /^no iPhone simulator/.test(e.message); throw noSimulator ? new Error('no iPhone simulator on an installed iOS runtime') : e; }
+          try { text = ran(read('xcrun', ['simctl', 'spawn', sim.udid, route.built], { timeout: 60_000 }), log); } finally { if (sim.bootedHere) read('xcrun', ['simctl', 'shutdown', sim.udid]); }
+        }
+        try { roster = JSON.parse(text); } catch (e) { throw failed('load', `${e.message}\n${text}`, log); }
+        if (route !== routes[0]) console.log(`host/apple: the module roster was read on ${route.via}`);
+        break;
+      } catch (e) { causes.push(`${route.via}: ${e.message}`); }
+    }
+    if (roster) {
       provided = Object.keys(roster);
       // LLP 1024 D3's first-frame tags, which the host reads before it loads the module.
       const firstFrame = provided.filter(tag => roster[tag].firstFrame === true);
       if (firstFrame.length && !tv) rosterKeys = { ExactFirstFrameModules: firstFrame };
-    } else if (modulesBuilt) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
-    checkModuleRoster(app, modulesBuilt && (typeof Bun === 'undefined' || !probeable || probeFailure) ? modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
+    } else if (routes.length) {
+      const why = `host/apple: cannot qualify ${app.id}'s ${tv ? 'tvOS' : ios ? 'iOS' : 'macOS'} native-module roster.\n${causes.map(c => `  ${c}`).join('\n')}\n${noSimulator ? 'Install an iOS Simulator runtime (xcodebuild -downloadPlatform iOS), or add an iPhone simulator in Xcode' : 'Give each xcframework a slice for one route, or fix the failure a route names'}, and rebuild.${logs.length ? `\nLogs: ${logs.join(', ')}` : ''}`;
+      if (production) throw new Error(`${why}\nA production build does not take the manifest's roster: a missing factory would pass, and no tag would join the first frame.`);
+      console.warn(`${why}\nThe manifest's roster stands, and no tag joins the first frame (docs/recipes/native-views.md)`);
+    }
+    // A roster read that lacks a tag's factory fails here: another route is not tried.
+    checkModuleRoster(app, provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, production);
   }
   const tArms = Date.now();
   // The SVG island module (@ref LLP 1055.000 §8 ruling 4: exact-svg-raster,

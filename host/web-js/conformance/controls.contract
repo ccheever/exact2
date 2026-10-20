@@ -84,7 +84,10 @@ component Controls
         progress testId="busy" aria-label="Loading"
         progress testId="busy-large" width=37 height=37 color="#007aff"
       progress value=level max=10 testId="level-bar" aria-label="Level"
-      text `${pick} ${day} ${hour} ${level} ${agreed} ${far} ${inner}` testId="values"
+      // Its line height written: a normal one is the font's, which differs by
+      // a pixel between Chrome and the kernel (18 and 19 px as measured here),
+      // and every box below it would.
+      text `${pick} ${day} ${hour} ${level} ${agreed} ${far} ${inner}` testId="values" line-height="20px"
       scroll testId="inner-scroll" height=80
         box height=300
         button press=pressInner testId="inner" width=80

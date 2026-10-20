@@ -21,11 +21,9 @@ fn findPaint(mark: number): string = mark >= 2 ? "light-dark(#f59e0b, #f59e0b)" 
 component FindParts
   props
     parts: FindPart[]
-    // A struck run's line (`<del>`): each nested span draws its own text decoration.
-    strike: bool
   view
     for part in parts key=part.id
-      text part.text background-color=findPaint(part.find) id=(part.find == 3 ? "thread-find-active" : "") color=(part.find >= 2 ? "#171717" : "inherit") text-decoration-line=(strike ? "line-through" : "none")
+      text part.text background-color=findPaint(part.find) id=(part.find == 3 ? "thread-find-active" : "") color=(part.find >= 2 ? "#171717" : "inherit")
 fn findPartAt(parts: FindPart[], id: string): number = parts.slice(0, max(0, parts.map((part) => part.id).indexOf(id))).map((part) => part.text).join("").length
 component FindToken
   props

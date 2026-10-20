@@ -171,36 +171,15 @@ fn a_base_name_in_an_inherited_row_is_no_axis_refusal_and_a_wrong_row_is_refused
     .is_err());
 }
 
-/// Round 1 (theme2's (a)): an expression over a base name the design leaves
-/// unset is refused; over one it sets, it is its token's; a bare one is an alias
-/// (`contract/cli/tests/base_alias.rs`).
+/// Round 1 (theme2's (a)), widened by stage 12 B2: a bare base name the
+/// design leaves unset is an alias (`contract/cli/tests/base_alias.rs`), an
+/// expression over one is kept for each host
+/// (`tests/it/tamber_base_expression.rs`), and over one the design sets it
+/// is its token's expression, as any.
 #[test]
-fn an_expression_over_a_base_name_is_refused() {
+fn an_expression_over_a_base_name_the_design_sets_folds() {
     let view = "component App\n  view\n    column padding=\"card.pad\"\n      text \"a\"\n";
-    for (name, design) in [
-        (
-            "calc",
-            "tamber t\n\ntheme\n  card.pad: length = calc(space.md + 4px)\n",
-        ),
-        (
-            "max",
-            "tamber t\n\ntheme\n  card.pad: length = max(space.sm, 4px)\n",
-        ),
-    ] {
-        let e = contract::compile_path(&app(
-            name,
-            &[("app.tamber", design), ("app.contract", view)],
-        ))
-        .unwrap_err();
-        assert_eq!(e.id, "tamber-base-expression", "{name}: {e:?}");
-        assert!(
-            e.message.contains("bare") && e.message.contains("QUEUE"),
-            "{}",
-            e.message
-        );
-    }
-    // Over a base name the design sets, it is the design's token's expression, as any.
-    contract::compile_path(&app(
+    let plan = contract::compile_path(&app(
         "own-calc",
         &[
             (
@@ -211,18 +190,12 @@ fn an_expression_over_a_base_name_is_refused() {
         ],
     ))
     .unwrap();
-    // Bare, it compiles (an alias).
-    contract::compile_path(&app(
-        "bare-alias",
-        &[
-            (
-                "app.tamber",
-                "tamber t\n\ntheme\n  card.pad: length = space.md\n",
-            ),
-            ("app.contract", view),
-        ],
-    ))
-    .unwrap();
+    let token = plan
+        .theme
+        .iter()
+        .find(|t| plan.str(t.name) == "card.pad")
+        .unwrap();
+    assert_eq!(plan.str(token.value), "24px");
 }
 
 /// Round 2 (Astra 2): outside Exact (the DTCG export) an alias to a base name
