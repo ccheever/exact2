@@ -29,14 +29,16 @@ struct WaterFragment {
     @builtin(frag_depth) depth: f32,
 }
 @fragment fn water_fs(input: SkyVarying) -> WaterFragment {
+    // From the near plane, so an orthographic camera's parallel rays start apart.
+    let near = frame.inverse_view_proj * vec4(input.ndc, 0.0, 1.0);
+    let origin = near.xyz / near.w;
     let d = view_ray(input.ndc);
-    let eye = frame.camera_alpha.xyz;
     let height = frame.water.x;
-    let t = (height - eye.y) / d.y;
-    let hit = eye + d * t;
+    let t = (height - origin.y) / d.y;
+    let hit = origin + d * t;
     let footprint = length(fwidth(hit.xz));
     if !(t > 0.0 && t < 1.0e9) { discard; }
-    let below = eye.y < height;
+    let below = origin.y < height;
     let n = wave_normal(hit.xz, footprint);
     var color: vec3<f32>;
     var alpha = 1.0;

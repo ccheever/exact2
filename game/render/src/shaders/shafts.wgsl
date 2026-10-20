@@ -25,8 +25,10 @@ fn shaft_point(ndc: vec2<f32>, z: f32) -> vec3<f32> {
 fn shaft_scene(pixel: vec2<f32>, far: f32) -> vec3<f32> {
     let ndc = shaft_ndc(pixel);
     let raw = textureLoad(depth, vec2<i32>(pixel), 0);
-    let eye = frame.camera_alpha.xyz;
-    if raw >= 1.0 { return eye + normalize(shaft_point(ndc, 0.5) - eye) * far; }
+    if raw >= 1.0 {
+        let origin = shaft_point(ndc, 0.0);
+        return origin + normalize(shaft_point(ndc, 0.5) - origin) * far;
+    }
     // World depth fills [split, 1] of the range while a viewmodel draws.
     let split = frame.water.w;
     return shaft_point(ndc, max(raw - split, 0.0) / (1.0 - split));
@@ -46,17 +48,17 @@ fn shaft_noise(p: vec2<f32>) -> f32 {
 // The light the surface lets through at a screen position: 0 where the ray
 // never meets it or something nearer hides it.
 fn shaft_source(pixel: vec2<f32>) -> f32 {
-    let eye = frame.camera_alpha.xyz;
     let ndc = shaft_ndc(pixel);
-    let d = normalize(shaft_point(ndc, 0.5) - eye);
+    let origin = shaft_point(ndc, 0.0);
+    let d = normalize(shaft_point(ndc, 0.5) - origin);
     if d.y <= 0.0 { return 0.0; }
-    let t = (frame.water.x - eye.y) / d.y;
+    let t = (frame.water.x - origin.y) / d.y;
     let size = frame.logical_size.xy;
     if all(pixel >= vec2(0.0)) && all(pixel < size) {
-        if distance(shaft_scene(pixel, 1.0e4), eye) < t * 0.99 - 0.02 { return 0.0; }
+        if distance(shaft_scene(pixel, 1.0e4), origin) < t * 0.99 - 0.02 { return 0.0; }
     }
     // Three cells a wavelength, and a finer layer 1.27 times smaller (water.rs).
-    let hit = (eye + d * t).xz / max(frame.water_waves.x, 0.01) * 3.0;
+    let hit = (origin + d * t).xz / max(frame.water_waves.x, 0.01) * 3.0;
     let n = 0.6 * shaft_noise(hit + frame.water_drift.xy)
         + 0.4 * shaft_noise(hit * 1.27 + frame.water_drift.zw);
     return smoothstep(0.35, 0.65, n);
