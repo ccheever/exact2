@@ -436,6 +436,18 @@ fn expressions<'t>(text: &'t str, is_token: &dyn Fn(&str) -> bool) -> Vec<&'t st
     out
 }
 
+/// Whether `word` is a dotted identifier, a name a design's token may have
+/// (`eu.glow`): a letter first, then only letters, digits, `.`, `_` and
+/// `-`, with a `.` among them. A number, a dimension (`-1.5px`) or a
+/// function (`rgb(0.5 0 0)`) is none (stage 12 B3, round 1, Astra 4).
+pub(crate) fn dotted_name(word: &str) -> bool {
+    word.starts_with(|c: char| c.is_ascii_alphabetic())
+        && word.contains('.')
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
 /// `tamber-unknown-token` or `tamber-kind` for a word inside a literal the
 /// kernel refused in a row that holds a colour among other words (a shadow,
 /// a border, a gradient; LLP 1121 stage 12 B3, QUEUE's item): a dotted word
@@ -469,7 +481,7 @@ pub(crate) fn literal_word(
                 "tamber-kind",
                 format!("`{attr}=\"{text}\"`: a shadow row's lengths are px: name a shadow token (`x: {kind} = 0 {word} 4px black`) to read `{word}`"),
             ),
-            _ if word.contains('.') && theme::bound() && !theme::names(word) && !length => (
+            _ if dotted_name(word) && theme::bound() && !theme::names(word) && !length => (
                 "tamber-unknown-token",
                 format!("`{attr}=\"{text}\"`: `{word}` is no token of this app's design and no role"),
             ),

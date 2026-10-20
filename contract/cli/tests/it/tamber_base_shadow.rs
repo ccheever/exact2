@@ -165,6 +165,61 @@ fn a_shadows_bases_and_a_base_the_design_sets() {
     );
 }
 
+/// Round 1 (Astra 1): a length's function in a shadow folds by the length's
+/// own code whatever it names, so setting a base never turns the same text
+/// into a refusal, and a function over a px length token folds to px (main
+/// read either as a colour, and refused it).
+#[test]
+fn a_shadows_function_folds_as_a_lengths_whatever_it_names() {
+    const SHADOW: &str = "  card.shadow: box-shadow = 0 calc(space.md * 2) 4px black
+";
+    let unset = compiled("fn-unset", SHADOW, VIEW).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(value(&unset, "card.shadow").starts_with("0px calc(space.md * 2) 4px "));
+    let set = compiled(
+        "fn-set",
+        &format!(
+            "  space.md = 10px
+{SHADOW}"
+        ),
+        VIEW,
+    )
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        value(&set, "card.shadow").starts_with("0px 20px 4px "),
+        "{}",
+        value(&set, "card.shadow")
+    );
+    for (name, theme, want) in [
+        (
+            "fn-token",
+            "  gap = 3px
+  card.shadow: box-shadow = 0 calc(gap * 2) 4px black
+",
+            "0px 6px 4px ",
+        ),
+        (
+            "fn-px",
+            "  card.shadow: box-shadow = 0 max(1px, 2px) calc(2px * 3) black
+",
+            "0px 2px 6px ",
+        ),
+        (
+            "fn-mixed",
+            "  gap = 3px
+  card.shadow: box-shadow = 0 min(space.lg, gap * 4) 4px black
+",
+            "0px min(space.lg, 12px) 4px ",
+        ),
+    ] {
+        let plan = compiled(name, theme, VIEW).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        assert!(
+            value(&plan, "card.shadow").starts_with(want),
+            "{name}: {}",
+            value(&plan, "card.shadow")
+        );
+    }
+}
+
 /// B2's refusals hold inside a shadow; a literal blur is still never
 /// negative.
 #[test]
@@ -279,7 +334,7 @@ fn every_column_is_checked_and_a_refusal_names_its_column() {
 /// token. A shadow token's unknown colour is refused by tamber already.
 #[test]
 fn a_word_in_a_literal_shadow_says_what_it_is() {
-    let theme = "  eu.glow = #ff00ff\n  lift: length = 4px\n";
+    let theme = "  eu.glow = #ff00ff\n  lift: length = 4px\n  lift.edge: length = 2px\n";
     let view = |row: &str| {
         format!("component App\n  view\n    column background-color=\"eu.glow\" {row}\n      text \"a\"\n")
     };
@@ -319,6 +374,46 @@ fn a_word_in_a_literal_shadow_says_what_it_is() {
             "border=\"1px solid eu.nope\"",
             "tamber-unknown-token",
             "`eu.nope`",
+        ),
+        // A base name or a length token in a border or a gradient is no
+        // unknown token (round 1, Grok 2): the row's own refusal stands.
+        (
+            "border-base",
+            "border=\"1px solid space.md\"",
+            "lower-css-shorthand",
+            "`space.md` is not an admitted `border`",
+        ),
+        (
+            "border-length",
+            "border=\"1px solid lift.edge\"",
+            "lower-css-shorthand",
+            "`lift.edge` is not an admitted `border`",
+        ),
+        // A number, a dimension or a function is no name (round 1, Astra
+        // 4): the row's width or colour refusal stands.
+        (
+            "border-negative",
+            "border=\"-1.5px solid black\"",
+            "lower-css-shorthand",
+            "`-1.5px` is not an admitted `border`",
+        ),
+        (
+            "border-function",
+            "border=\"1px solid rgb(0.5 0.25)\"",
+            "lower-css-shorthand",
+            "`rgb(0.5 0.25)` is not an admitted `border`",
+        ),
+        (
+            "shadow-function",
+            "box-shadow=\"0px 0px 8px rgb(0.5 0.25)\"",
+            "lower-attr-value",
+            "",
+        ),
+        (
+            "gradient-base",
+            "background-image=\"linear-gradient(space.md, #fff)\"",
+            "lower-attr-value",
+            "",
         ),
     ] {
         let (got, message) = compiled(name, theme, &view(row)).unwrap_err();

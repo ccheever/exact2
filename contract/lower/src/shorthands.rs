@@ -185,9 +185,16 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
                     return err("lower-css-shorthand", edit.lead(name, text), span);
                 }
                 // A dotted word no token has, in a colour row's words (LLP
-                // 1121 stage 12 B3, QUEUE's item).
-                use exact_kernel::style::theme;
-                if word.contains('.') && theme::bound() && !theme::names(word) {
+                // 1121 stage 12 B3, QUEUE's item); a base name or a length
+                // token is a length, which the refusal below names.
+                use exact_kernel::style::{scale, theme};
+                let length = scale::is_base(word)
+                    || crate::theme::measure_named(word) == Some(exact_tamber::Kind::Length);
+                if crate::theme::scan::dotted_name(word)
+                    && theme::bound()
+                    && !theme::names(word)
+                    && !length
+                {
                     return err("tamber-unknown-token", format!("`{name}=\"{text}\"`: `{word}` is no token of this app's design and no role"), span);
                 }
                 return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths, `-exact-hairline` or thin/medium/thick"), span);

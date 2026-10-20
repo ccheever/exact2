@@ -157,6 +157,23 @@ pub fn evaluate(expr: &str, column: Column) -> Option<f32> {
     fold(&substitute(expr, column)?)
 }
 
+/// The colour functions a shadow's colour may be, which [`fold_lengths`]
+/// keeps whole.
+const COLOUR_FUNCTIONS: [&str; 12] = [
+    "rgb",
+    "rgba",
+    "hsl",
+    "hsla",
+    "hwb",
+    "lab",
+    "lch",
+    "oklab",
+    "oklch",
+    "color",
+    "color-mix",
+    "light-dark",
+];
+
 /// A shadow's text with each length over base names folded to px (LLP 1121
 /// stage 12 B3): split at white space and commas outside parentheses, an
 /// item naming a base is substituted through `base` ([`substitute_with`])
@@ -167,7 +184,12 @@ pub fn evaluate(expr: &str, column: Column) -> Option<f32> {
 pub fn fold_lengths(text: &str, mut base: impl FnMut(&str) -> Option<String>) -> Option<String> {
     let mut out = String::with_capacity(text.len());
     let mut item = |part: &str, out: &mut String| -> Option<()> {
-        if named_in(part).is_empty() {
+        // A colour is kept whole, whatever its words: only a length folds
+        // (a base name inside one is the codec's to refuse).
+        let colour = part
+            .split_once('(')
+            .is_some_and(|(f, _)| COLOUR_FUNCTIONS.iter().any(|c| f.eq_ignore_ascii_case(c)));
+        if colour || named_in(part).is_empty() {
             out.push_str(part);
             return Some(());
         }
@@ -614,6 +636,19 @@ mod tests {
             fold_lengths("0px space.md 1px #000", |n| of(n, Column::Terminal)
                 .map(css)),
             Some(format!("0px {}px 1px #000", crate::style::cells::COLUMN))
+        );
+        // A colour function is kept whole, a base name inside it too, for
+        // the codec to refuse (round 1, Grok 4).
+        assert_eq!(
+            mac("0px space.md 1px light-dark(space.md, #000)"),
+            Some(format!(
+                "0px {} 1px light-dark(space.md, #000)",
+                px("calc(space.md)")
+            ))
+        );
+        assert_eq!(
+            mac("0px 1px 1px RGB(space.sm 0 0)").as_deref(),
+            Some("0px 1px 1px RGB(space.sm 0 0)")
         );
         // A base `base` gives none for, or one that doesn't fold: none.
         assert_eq!(fold_lengths("0px space.md 1px #000", |_| None), None);

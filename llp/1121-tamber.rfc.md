@@ -5606,9 +5606,8 @@ codec and the wire don't move: the theme row's value is the shadow's text, its l
   is `tamber-kind`, pointing to a shadow token (`` a shadow row's lengths are px: name a shadow token (`x:
   box-shadow = 0 space.md 4px black`) to read `space.md` ``). A literal shadow stays px (theme2's Q1: QUEUE). The
   kernel's own message is unchanged.
-- **Wire.** One clause on the `tamber/1.15` line (theme2's Q2): a shadow token's `lengths` over base names are their
-  text, and its `bases` list them. Per-column folded shadow text in `explain` and `resolve` is QUEUE's, beside D1's
-  per-column values.
+- **Wire.** One clause on the `tamber/1.15` line (theme2's Q2): a shadow token's `bases` list the base names its
+  lengths read. Per-column folded shadow text in `explain` and `resolve` is QUEUE's, beside D1's per-column values.
 - **Tests:** `contract/cli/tests/it/tamber_base_shadow.rs` (each kept form and its text, folded in the neutral, mac
   and iOS columns; `bases`; a base the design sets; B2's refusals in a shadow; a negative blur on mac alone and an
   unfoldable length, each naming its column; the literal's words; `uses` of an inlined length token; the DTCG
@@ -5619,3 +5618,30 @@ codec and the wire don't move: the theme row's value is the shadow's text, its l
   recorded, a varying base refused); tamber `shadow` (text, `bases`, `folded`); web-js `base_scale_tests` (the
   `var()` text, a release row, a development build's property); host/web `tests/base_scale.rs` (a wasm boot's
   `box-shadow` in the neutral column, through the kernel).
+
+**After review round 1 (Astra, Grok; theme2's rulings T1–T3):**
+- **A length's function in a shadow folds as a length's** (Astra 1, blocking). `calc(space.md * 2)` in a shadow
+  compiled while `space.md` was unset and was refused, read as a colour, once the design set it. Every `calc()`,
+  `min()`, `max()` and `clamp()` in a shadow now folds by B2's length fold whatever it names: px, a px length token
+  (`calc(gap * 2)`) or a base the design sets give px, an unset base a residual. Main read such a function over px or
+  a length token as a colour and refused it; it is accepted now, by the one path.
+- **`length_texts`** (theme2's T1). `resolve`'s shadow `lengths` keep their type: a length over base names is null
+  there, and a parallel `length_texts` (only when one is) gives every length's text, px ones too (`["0px",
+  "space.md", "calc(space.sm * 2)"]`). The 1.15 clause names `bases` and `length_texts`.
+- **A state look keeps what it newly read** (Grok 1). `looks::op` returns the tokens a look read as resolved again,
+  and `set_tokens` adds them to the look's (`ThemeIndex::looks_read`), as a row's: a `:hover` shadow re-set to read
+  `space.md` follows the next edit of `space.md`. The bits are added, never replaced (Grok 3's nit, left so and said
+  in `also_read`'s comment): a stale bit costs one re-set that changes nothing.
+- **A base name or length token in a border or gradient literal** (Grok 2) is no unknown token: the row's own refusal
+  stands (`lower-css-shorthand`, `lower-attr-value`). Only a dotted identifier is looked up as a token (Astra 4): a
+  letter first, then letters, digits, `.`, `_` and `-`; a number, a dimension (`-1.5px`) or a function
+  (`rgb(0.5 0.25)`) keeps the row's width or colour refusal.
+- **A colour function is kept whole by `fold_lengths`** (Grok 4): `rgb()`, `hsl()`, `lab()`, `oklch()`, `color()`,
+  `color-mix()`, `light-dark()` and their kin are never folded as lengths, a base name inside one left for the codec
+  to refuse.
+- **An export from before the header's shadow clause** (theme2's T3, Grok 5) still finds its baseline, by the header's
+  design digest: kept, or the design's own export; one value edited in it proposes exactly that edit (Astra 5).
+- **Tests:** `a_shadows_function_folds_as_a_lengths_whatever_it_names` (unset then set; `calc(gap * 2)`; px; a pick
+  over both), the literal's words for a border's and a gradient's base name and length token,
+  `state_looks::a_look_follows_a_base_its_shadows_new_value_reads`, `tamber_serve_base`'s `length_texts` (and none
+  for a px shadow), kernel `fold_lengths`' colour functions, tamber `an_export_from_before_the_shadow_clause_still_finds_its_baseline`.

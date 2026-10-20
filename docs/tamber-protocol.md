@@ -117,8 +117,9 @@ on macOS and Linux.
   either style's).
 - `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
   values for a length over unset base names (stage 12 D1); a shadow token's lengths over unset base
-  names, kept as written (`lengths` gives each as its text, a px one as its number) with the base names
-  they read in its `bases` (stage 12 B3); a param's levels (stage 12 B2-levels):
+  names, kept as written: in `resolve`'s shadows such a length is null among `lengths`, and
+  `length_texts` (only then) gives every length's text, with the base names they read in `bases`
+  (stage 12 B3); a param's levels (stage 12 B2-levels):
   `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name`, and
   `describe`'s param rows' `reaches`; a relay session's `spki` with its
   certificate got by ACME (stage 10c R2); and names this machine's files in no answer:

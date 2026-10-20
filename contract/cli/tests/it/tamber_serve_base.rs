@@ -404,19 +404,27 @@ theme
 }
 
 /// Stage 12 B3 (*1.15*): a shadow token's lengths over base names are
-/// answered as written, a px one as its number, and its `bases` list them.
+/// answered as written in `length_texts` (null among `lengths`), and its
+/// `bases` list them; a shadow over none has no `length_texts`.
 #[test]
 fn a_shadow_over_base_names_answers_its_lengths_as_written() {
     let dir = app(
         "base-shadow",
-        "tamber t\n\ntheme\n  card.shadow: box-shadow = 0 space.md calc(space.sm * 2) #000\n",
+        "tamber t\n\ntheme\n  card.shadow: box-shadow = 0 space.md calc(space.sm * 2) #000\n  plain.shadow: box-shadow = 0 1px 2px #000\n",
     );
     let mut s = Serve::start(&dir, &[]);
     let (resolved, _) = s.ask(json!({"method": "resolve", "token": "card.shadow"}));
     let tuple = &resolved["ok"]["tuples"][0];
+    // The numbers' field keeps its type: null where a length is over base
+    // names, every length's text beside (theme2's T1).
     assert_eq!(
         tuple["shadows"][0]["lengths"],
-        json!([0.0, "space.md", "calc(space.sm * 2)"]),
+        json!([0.0, null, null]),
+        "{resolved}"
+    );
+    assert_eq!(
+        tuple["shadows"][0]["length_texts"],
+        json!(["0px", "space.md", "calc(space.sm * 2)"]),
         "{resolved}"
     );
     assert!(
@@ -427,4 +435,8 @@ fn a_shadow_over_base_names_answers_its_lengths_as_written() {
     );
     let (why, _) = s.ask(json!({"method": "explain", "token": "card.shadow"}));
     assert_eq!(why["ok"]["bases"], json!(["space.md", "space.sm"]), "{why}");
+    let (plain, _) = s.ask(json!({"method": "resolve", "token": "plain.shadow"}));
+    let one = &plain["ok"]["tuples"][0]["shadows"][0];
+    assert_eq!(one["lengths"], json!([0.0, 1.0, 2.0]), "{plain}");
+    assert!(one.get("length_texts").is_none(), "{plain}");
 }

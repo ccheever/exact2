@@ -286,10 +286,10 @@ fn one(items: &[Item], text: bool, names: &mut dyn Names) -> Result<Shadow, Fold
 
 /// An item as a shadow's length, `None` when it is no length (a colour, by
 /// elimination). One over base names the design leaves unset is kept, as a
-/// length token's is (stage 12 B3): a bare one, a token aliasing one or
-/// over some (its references inlined), or a length's `calc()`, `min()`,
-/// `max()` or `clamp()` over one, folded by the length's own code, whose
-/// refusals stand.
+/// length token's is (stage 12 B3): a bare one, or a token aliasing one or
+/// over some (its references inlined). A length's `calc()`, `min()`,
+/// `max()` or `clamp()` folds by the length's own code, whose refusals
+/// stand: px, or over base names.
 fn length(item: &Item, names: &mut dyn Names) -> Result<Option<ShadowLength>, FoldError> {
     // The kernel holds a length as an f32: one past it is no length.
     let fits = |n: f64| -> Result<Option<ShadowLength>, FoldError> {
@@ -350,12 +350,12 @@ fn length(item: &Item, names: &mut dyn Names) -> Result<Option<ShadowLength>, Fo
             // A colour by elimination: the colour fold reads it.
             _ => None,
         },
-        // A length's function over a base name: the length's own fold, so
-        // one expression has one text (`calc(space.md)` is `space.md`).
-        Item::Func(f, args, _)
-            if matches!(f.as_str(), "calc" | "min" | "max" | "clamp")
-                && args.iter().any(|a| over_base(a, names)) =>
-        {
+        // A length's function (stage 12 B3): the length's own fold, as a
+        // length token's value folds, so px and length tokens give px, a
+        // base the design sets its px, and one it leaves unset a residual
+        // (`calc(space.md)` is `space.md`); setting the base never turns
+        // the same text into a refusal.
+        Item::Func(f, ..) if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") => {
             return match crate::measure::length(std::slice::from_ref(item), names, &|_| false)? {
                 Length::Px(n) => fits(n),
                 Length::Named(n) => based(Residual::base(&n)),
@@ -370,21 +370,6 @@ fn length(item: &Item, names: &mut dyn Names) -> Result<Option<ShadowLength>, Fo
         _ => None,
     })
 }
-/// Whether `items` name a base name the design leaves unset, at any depth,
-/// or a token over one (an alias of one among them).
-fn over_base(items: &[Item], names: &mut dyn Names) -> bool {
-    items.iter().any(|i| match i {
-        Item::Ident(n) if names.base(n) => true,
-        Item::Ident(n) => match names.named(n) {
-            Ok(Named::Length(Length::Base(_))) => true,
-            Ok(Named::Length(Length::Named(m))) => names.base(&m),
-            _ => false,
-        },
-        Item::Func(_, args, _) => args.iter().any(|a| over_base(a, names)),
-        _ => false,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -341,18 +341,31 @@ impl Server {
                     exact_tamber::Value::Number(n) => {
                         return json!({"modes": modes, "value": v.css(), "kind": "number", "amount": n});
                     }
-                    // Each shadow: its lengths in px, one over base names
-                    // as written (stage 12 B3, *1.15*), and its colour's CSS
+                    // Each shadow: its lengths in px (null for one over base
+                    // names, whose text `length_texts` gives with every
+                    // other's; stage 12 B3, *1.15*) and its colour's CSS
                     // (null for a text shadow's currentcolor).
                     exact_tamber::Value::Shadow(s) => {
-                        let length = |l: &exact_tamber::ShadowLength| match l {
-                            exact_tamber::ShadowLength::Px(n) => json!(n),
-                            other => json!(other.css()),
-                        };
+                        use exact_tamber::ShadowLength;
                         let shadows: Vec<Value> = s
                             .list
                             .iter()
-                            .map(|one| json!({"inset": one.inset, "lengths": one.lengths.iter().map(length).collect::<Vec<_>>(), "color": one.color.as_ref().map(|c| c.css())}))
+                            .map(|one| {
+                                let lengths: Vec<Value> = one
+                                    .lengths
+                                    .iter()
+                                    .map(|l| match l {
+                                        ShadowLength::Px(n) => json!(n),
+                                        ShadowLength::Base(_) => Value::Null,
+                                    })
+                                    .collect();
+                                let mut out = json!({"inset": one.inset, "lengths": lengths, "color": one.color.as_ref().map(|c| c.css())});
+                                if one.lengths.iter().any(|l| matches!(l, ShadowLength::Base(_))) {
+                                    let texts: Vec<String> = one.lengths.iter().map(ShadowLength::css).collect();
+                                    out["length_texts"] = json!(texts);
+                                }
+                                out
+                            })
                             .collect();
                         return json!({"modes": modes, "value": v.css(), "kind": if s.text { "text-shadow" } else { "box-shadow" }, "shadows": shadows});
                     }

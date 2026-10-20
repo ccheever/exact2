@@ -116,9 +116,16 @@ impl<D: DataSource> Runner<D> {
             .filter(|(view, l)| l.tokens & bits != 0 && kernel.node(*view).is_some())
             .collect();
         looks.sort_by_key(|(view, _)| *view);
+        let mut read = Vec::with_capacity(looks.len());
         for (view, l) in looks {
-            ops.push(crate::instance::looks::op(view, l, &self.plan));
+            let (op, tokens) = crate::instance::looks::op(view, l, &self.plan);
+            ops.push(op);
+            read.push((view, tokens));
             set += l.states.iter().map(|(_, rows)| rows.len()).sum::<usize>();
+        }
+        // What they read now, kept beside what they read (as a row's).
+        for (view, tokens) in read {
+            self.ids.theme.looks_read(view, tokens);
         }
         Ok((self.apply(ops)?, set))
     }
