@@ -111,28 +111,28 @@ function threadShowingBrowser(client: T3Client, native: Native, fileEnvironmentI
   const panel = surfaceStore(client).panels.get(`${ref.environmentId}:${ref.threadId}`);
   return panel?.visible && panel.surfaces.find(surface => surface.id === panel.active)?.kind === 'browser' ? ref : null;
 }
-/** startThread: a new thread without a project on this machine's environment, or on the one environment that offers
+/** startLinkThread (the reference's startThread): a new thread without a project on this machine's environment, or on the one environment that offers
  *  threads without a project when there is no such machine. */
 async function startLinkThread(client: T3Client, native: Native, storage: Files, report: (description?: string) => void): Promise<ScopedThreadRef | null> {
   const primary = primaryEnvironmentId(), offering = environments(client).filter(environment => !!str(environment.config.scratchWorkspaceRoot));
   const environment = primary !== null ? offering.find(candidate => candidate.id === primary) : offering.length === 1 ? offering[0] : undefined;
   if (!environment) { report(); return null; }
-  let id: string;
   try {
+    let id: string;
     if (environment.id === client.environmentId) id = await openScratchProject(client, native);
     else {
       const entry = [...fleet.entries.values()].find(candidate => candidate.environmentId === environment.id);
       if (!entry) throw new ClientError('That environment is no longer connected.');
       id = await openRemoteScratch(client, native, entry);
     }
+    await openProject(client, native, storage, { id, environmentId: environment.id });
+    // The reference's new draft has its thread id from the start; here it is allocated now.
+    if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
   } catch (error) {
     if (letGo(error)) throw error;
     report(error instanceof Error ? error.message : 'An error occurred.');
     return null;
   }
-  await openProject(client, native, storage, { id, environmentId: environment.id });
-  // The reference's new draft has its thread id from the start; here it is allocated now.
-  if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
   const ref = activeRef(client);
   if (!ref) report();
   return ref;
@@ -141,8 +141,10 @@ async function startLinkThread(client: T3Client, native: Native, storage: Files,
  *  the panel maximized. A failure is a toast that names the link. */
 async function openWebLink(client: T3Client, native: Native, storage: Files, url: string): Promise<string> {
   const report = (description = url) => { pushToast(client, { kind: 'error', title: 'Could not open the link', description, stacked: true }); };
-  const isFile = url.startsWith('file:');
-  const shown = threadShowingBrowser(client, native, isFile ? primaryEnvironmentId() : null);
+  const isFile = url.startsWith('file:'), primary = primaryEnvironmentId();
+  // This machine's environment serves an HTML file (httpBaseUrl): with none, no server can.
+  if (isFile && primary === null) { report(); return ''; }
+  const shown = threadShowingBrowser(client, native, isFile ? primary : null);
   const ref = shown ?? await startLinkThread(client, native, storage, report);
   if (!ref) return '';
   try {
@@ -159,10 +161,11 @@ async function openWebLink(client: T3Client, native: Native, storage: Files, url
 }
 
 export async function openPromptLink(client: T3Client, native: Native, storage: Files, value: string): Promise<string> {
+  // A web link leaves an open prompt-link dialog open, as the reference's does.
+  if (!promptLinkAppPath(value) && (isWebUrl(value) || value.startsWith('file:'))) return await openWebLink(client, native, storage, value);
   dismissPromptLink(client);
   try {
     const path = promptLinkAppPath(value);
-    if (!path && (isWebUrl(value) || value.startsWith('file:'))) return await openWebLink(client, native, storage, value);
     if (!path) throw new ClientError('This link is not a T3 Code prompt or thread link.');
     const url = new URL(path, 'https://app.t3.codes');
     if (url.pathname !== '/new') {
