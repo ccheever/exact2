@@ -5,15 +5,17 @@
 // persisted relaunch request, and the copy / reveal path.
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { formatElapsedDurationLabel, formatExpiresInLabel, networkPage, networkProjection, networkUi, resetNetwork, runNetworkOp, NETWORK_OPS, type NetworkInput } from '../../src/connections/connections-network';
-import { CONNECTION_OPS, connectionsProjection } from '../../src/connections/connections';
-import { access, createdCredentials, EMPTY_AUTH_ACCESS_SNAPSHOT, type AuthClientSession, type AuthPairingLink } from '../../src/connections/auth-access';
+import { CONNECTION_OPS, connectionsPage, connectionsProjection } from '../../src/connections/connections';
+import { access, AUTH_ACCESS_KEY, createdCredentials, EMPTY_AUTH_ACCESS_SNAPSHOT, type AuthClientSession, type AuthPairingLink } from '../../src/connections/auth-access';
+import { environmentKey, fleet } from '../../src/connections/settings-b-fleet';
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 import { createAdvertisedEndpoint, type AdvertisedEndpoint } from '../../src/connections/advertised-endpoint';
 import { primary } from '../../src/connections/local-primary';
 import { parseLocalBackendStatus } from '../../src/connections/local-backend';
 import { resetPrimary } from '../support/local-primary-fixture';
 import { toasts } from '../../src/shell/toast';
 import { T3Client } from '../../src/client/client';
-import { obj, type Obj } from '../../src/client/domain';
+import { initialShell, obj, type Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
 
 const core = { id: 'desktop-core', label: 'Desktop', kind: 'core', isAddon: false };
@@ -332,6 +334,50 @@ describe('pairing links and client commands', () => {
 });
 
 describe('the Connections page carries the section', () => {
+  afterEach(() => fleet.entries.clear());
+
+  it.each(['snapshot', 'failure'])('loads the background primary’s access on opening with a remote draft selected: %s', async outcome => {
+    primary.update(ready(), true);
+    const client = new T3Client();
+    Object.assign(client, { connection: 'connected', generation: 1, environmentId: 'env-remote', origin: 'http://192.168.1.9:16102', config: { environment: { label: 'Lane Second' } } });
+    const key = environmentKey('http://127.0.0.1:16101', 'env-local');
+    fleet.entries.set(key, { key, origin: 'http://127.0.0.1:16101', environmentId: 'env-local', primary: true,
+      phase: 'connected', message: '', traceId: '', generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {},
+      config: {}, shell: initialShell(), scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true });
+    const events: Obj[] = [];
+    const { native, requests } = fakeNative(request => {
+      if (request.op === 'localNetworkFacts') return facts(LAN);
+      if (request.op === 'status') return { ok: true, generation: 1, value: { state: 'connected', origin: client.origin, environmentId: client.environmentId } };
+      if (request.op === 'subscribe') return { ok: true, generation: 1, value: { id: '1-7' } };
+      if (request.op === 'events') return { ok: true, generation: 1, value: { events: events.filter(event => Number(event.seq) > Number(request.after)), latest: events.length } };
+      return undefined;
+    });
+    const opening = (await connectionsPage(client, native, true, NOW)).network;
+    expect([opening.networkOn, opening.accessLoading, opening.empty, opening.clients]).toEqual([false, true, false, []]);
+    expect(requests.filter(request => request.key === AUTH_ACCESS_KEY)).toEqual([
+      { op: 'subscribe', fleet: key, generation: 1, key: AUTH_ACCESS_KEY, method: 'subscribeAuthAccess', payload: {} },
+    ]);
+
+    const self = session('desktop', { current: true, scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
+      client: { label: 'T3 Code Desktop', deviceType: 'desktop', ipAddress: '127.0.0.1' } });
+    events.push({ seq: 1, generation: 1, subscriptionId: '1-7', key: AUTH_ACCESS_KEY, value: outcome === 'snapshot'
+      ? { version: 1, revision: 1, type: 'snapshot', payload: { pairingLinks: [], clientSessions: [self] } }
+      : { _transportError: { message: 'The access stream ended.' } } });
+    await fleet.sync(native, client);
+    const view = (await connectionsPage(client, native, true, NOW)).network;
+    if (outcome === 'snapshot') {
+      expect([view.summary, view.accessLoading, view.accessError]).toEqual(['1 client', false, '']);
+      expect(view.clients.map(row => [row.label, row.current, row.device, row.scopeCount])).toEqual([
+        ['T3 Code Desktop', true, 'Desktop · 127.0.0.1', '16 scopes'],
+      ]);
+    } else {
+      expect([view.accessLoading, view.empty, view.clients, view.accessError]).toEqual([true, false, [], 'The access stream ended.']);
+    }
+    expect(client.environmentId).toBe('env-remote');
+    await connectionsPage(client, native, false, NOW);
+    expect(requests.filter(request => request.key === AUTH_ACCESS_KEY).at(-1)).toEqual({ op: 'unsubscribe', key: AUTH_ACCESS_KEY, fleet: key, generation: 1 });
+  });
+
   it('routes every network op through Connections, and a closed page stops the access stream', async () => {
     for (const op of NETWORK_OPS) expect(CONNECTION_OPS).toContain(op);
     expect(connectionsProjection({ connection: 'disconnected', origin: '', environmentId: '', statusMessage: '', scopes: [], config: {} }, []).network.visible).toBe(false);

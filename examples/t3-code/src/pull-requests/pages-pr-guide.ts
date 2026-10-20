@@ -106,7 +106,7 @@ export async function generateGuide(ctx: GuideContext): Promise<void> {
 }
 export function emptyGuideView() {
   return { enabled: false, phase: 'empty', error: '', running: false, canWrite: false, stale: false, failure: '', hasGuide: false, key: '', headSha: '', generatedAt: '',
-    position: 0, stopCount: 0, readCount: 0, previous: false, next: false, nextTitle: '', title: '', summaryId: '', attention: '', attentionNote: '',
+    position: 0, stopCount: 0, readCount: 0, previous: false, next: false, nextTitle: '', title: '', summaryId: '', attention: '', attentionId: '',
     stops: [] as { key: string; index: number; number: string; title: string; subline: string; seen: boolean; current: boolean; attention: boolean }[],
     questions: [] as { key: string; text: string }[], notes: [] as { key: string; marker: string; title: string; bodyId: string; path: string; line: number }[],
     canAsk: false, canFinish: false, finishNonce: 0 };
@@ -127,8 +127,12 @@ export function presentGuide(client: T3Client, reference: GuideReference, detail
   view.stops = guide.stops.map((item, index) => ({ key: String(index), index, number: String(index + 1), title: item.title, subline: `${stopFilePaths(item).length} ${stopFilePaths(item).length === 1 ? 'file' : 'files'}`, seen: progress.seen.has(index), current: position === index, attention: item.attention !== null }));
   if (stop) {
     view.title = stop.title; view.summaryId = `guide:${entry.key}:${guide.headSha}:${position}:summary`;
-    view.attention = stop.attention ? ATTENTION_LABELS[stop.attention.kind] : ''; view.attentionNote = stop.attention?.note ?? '';
+    view.attention = stop.attention ? ATTENTION_LABELS[stop.attention.kind] : '';
     bodies.push({ id: view.summaryId, kind: 'assistant', title: '', body: stop.summary });
+    if (stop.attention) {
+      view.attentionId = `${view.summaryId}:attention`;
+      bodies.push({ id: view.attentionId, kind: 'assistant', title: '', body: stop.attention.note });
+    }
     view.questions = stop.questions.map((text, index) => ({ key: String(index), text }));
     view.notes = stop.notes.map((note, index) => { const bodyId = `${view.summaryId}:note:${index}`; bodies.push({ id: bodyId, kind: 'assistant', title: '', body: note.body }); return { key: String(index), marker: index < 26 ? String.fromCharCode(65 + index) : String(index + 1), title: note.title, bodyId, path: note.path, line: note.line }; });
   }

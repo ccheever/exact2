@@ -12,8 +12,10 @@ shape TimelineReadsResult
   complete: bool
 shape Time
   epochAtZero: number
-// exactPage(): the window's visibility and focus (document.visibilityState, document.hasFocus(); exact2 #219).
+// exactPage(): the window's visibility and focus (document.visibilityState, document.hasFocus(); exact2 #219),
+// and its returns from being put away (the back/forward cache's pageshow with persisted: the window ⌘W hid, reopened).
 shape Page
   visibilityState: string
   hasFocus: bool
   onLine: bool
+  restores: number

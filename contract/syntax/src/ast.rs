@@ -115,12 +115,13 @@ pub struct RouteDecl {
     /// Where.
     pub span: Span,
 }
-/// A declared font family. Faces are static in v1: one path, weight, style.
+/// A declared font family: its faces, each one file at a weight or a weight
+/// range, and a style.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FontDecl {
     /// The Contract alias; hosts bind this name to these bytes.
     pub name: String,
-    /// Its static faces.
+    /// Its faces.
     pub faces: Vec<FontFaceDecl>,
     /// Where.
     pub span: Span,
@@ -134,11 +135,13 @@ pub struct SoundDecl {
     /// Where.
     pub span: Span,
 }
-/// One static face in a [`FontDecl`].
+/// One face in a [`FontDecl`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct FontFaceDecl {
-    /// CSS weight 1–1000.
-    pub weight: u16,
+    /// CSS weights 1–1000, low and high, as `@font-face`'s `font-weight`
+    /// descriptor: one weight is both. `None` is the descriptor's `auto`, the
+    /// file's own range (`font "Name" = "path"`).
+    pub weight: Option<[u16; 2]>,
     /// Italic, rather than normal.
     pub italic: bool,
     /// App-relative TTF/OTF source.

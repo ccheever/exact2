@@ -11,8 +11,8 @@ The only required reading; the rest is lookup.
    are a `list`'s rows: its children are rows, so draw no separator and no press. A
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
    <exact2>/scripts/no-tells.mjs .` lists literals). Leave the accent unsaid: it is the
-   platform's blue, and a filled button keeps its white label (`check` reports a pale
-   accent's low contrast). A brand is an `app.tamber`; a colour names a role or
+   platform's blue, and a filled button keeps its white label (a pale accent under
+   it is warned, `tamber-contrast`). A brand is an `app.tamber`; a colour names a role or
    one of its tokens (`recipes/tamber.md`). A card is `-exact-secondary-background`
    (`-exact-secondary-grouped-background` on a grouped page).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
@@ -22,7 +22,7 @@ The only required reading; the rest is lookup.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
    - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
      `"correct"`, `"wrong"`, `"dimmed"` or `"chosen"` (your pick once closed). `SummaryCard`: the one number, shown once
-   - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` over your `button`
+   - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` with your `button` indented under it
 4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
    phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
    list whose rows push (beside its detail) need no code. The rows of a list the person deletes from swipe to
@@ -90,6 +90,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |Not in a pattern|Look up|
 |---|---|
 |an entry or settings form|`grouped-form`|
+|a sheet that edits the row tapped, filled with its values|`edit-sheet`|
 |rows added and removed in a form|`editable-rows`|
 |a write that may be refused|`after-a-write`|
 |a failure the person must acknowledge (an alert with OK)|`error-alert`|

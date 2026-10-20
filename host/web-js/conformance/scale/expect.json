@@ -33,6 +33,16 @@
    "padding": "space.xl"
   },
   {
+   "testId": "expr",
+   "child": "expr-inner",
+   "padding": {
+    "ios": 40,
+    "macos": 40,
+    "terminal": 32,
+    "default": 48
+   }
+  },
+  {
    "testId": "r-lg",
    "child": "r-lg-inner",
    "padding": "space.lg"

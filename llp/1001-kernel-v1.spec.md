@@ -1576,6 +1576,13 @@ underline/line-through to the existing line row; other color/style/thickness
 components are diagnosed. Linux draws its UA lines from font size and glyph
 advances; underline skip-ink:auto is not implemented and its driver log names
 that deviation once. Web and Apple use their text systems' decoration metrics.
+A box's lines cross its inline descendants' visible text in the box's colour,
+whatever the box's own visibility (CSS Text Decoration 3 §2.1); where boxes
+draw the same line, the nearest box's shows, as in Chrome. Native hosts place
+each glyph run's line by that run's font, not the decorating box's. Apple
+carries a text node's lines to its inline descendants only, not a block's to
+the paragraphs inside it. A terminal cell, and an Apple widget snapshot's text, draw
+a box's lines in the text's own colour.
 
 CSS flex shorthand admits grow/shrink factors and any admitted dimension basis,
 with the factors adjacent as CSS requires. Intrinsic flex-basis keywords

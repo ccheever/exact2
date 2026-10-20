@@ -32,11 +32,12 @@ describe('table expand toggle (tableHasClippedCells)', () => {
 });
 
 describe('strikethrough (`<del>`)', () => {
-  test('every run draws its find spans with the run\'s line through, since a nested span keeps its own decoration', async () => {
+  test('a struck run draws its line through its find spans, as CSS propagates a decoration to nested text', async () => {
     const markdown = await Bun.file(appPath('markdown.contract')).text();
     const find = await Bun.file(appPath('thread-find.contract')).text();
-    expect(markdown.match(/FindParts\(parts=run\.findParts\)/g)).toBeNull();
-    expect(markdown.match(/FindParts\(parts=run\.findParts, strike=run\.strike\)/g)!.length).toBeGreaterThan(10);
-    expect(find).toContain('text-decoration-line=(strike ? "line-through" : "none")');
+    expect(markdown.match(/text-decoration-line=\(run\.strike \? "line-through" : "none"\)/g)!.length).toBeGreaterThan(10);
+    expect(markdown.match(/FindParts\(parts=run\.findParts\)/g)!.length).toBeGreaterThan(10);
+    expect(markdown).not.toContain('strike=');
+    expect(find.slice(find.indexOf('component FindParts'), find.indexOf('component FindToken'))).not.toContain('text-decoration');
   });
 });

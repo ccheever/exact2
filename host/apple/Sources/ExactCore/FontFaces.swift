@@ -5,13 +5,46 @@ import CoreText
 package struct RegisteredFace {
     package let family: String
     package let generic: Int?
-    package let weight: Int
+    /// The CSS weights it covers, as `@font-face`'s `font-weight`: a variable
+    /// face declared over a range draws each on its `wght` axis (LLP 1019 D2).
+    package let weights: ClosedRange<Int>
+    /// The widths it covers, in percent, as `@font-face`'s `font-stretch`.
+    package let stretches: ClosedRange<CGFloat>
     package let italic: Bool
     /// Created from the registered URL itself — never from the Contract alias
     /// or a lookup in the system font library (LLP 1019 D3).
     package let descriptor: CTFontDescriptor
+    /// Whether the file has an `opsz` axis.
+    let opticalSize: Bool
     package init(family: String, generic: Int?, weight: Int, italic: Bool, descriptor: CTFontDescriptor) {
-        self.family = family; self.generic = generic; self.weight = weight; self.italic = italic; self.descriptor = descriptor
+        self.init(family: family, generic: generic, weights: weight...weight, stretches: 100...100, italic: italic, descriptor: descriptor)
+    }
+    package init(family: String, generic: Int?, weights: ClosedRange<Int>, stretches: ClosedRange<CGFloat>, italic: Bool,
+                 descriptor: CTFontDescriptor) {
+        self.family = family; self.generic = generic; self.weights = weights; self.stretches = stretches
+        self.italic = italic; self.descriptor = descriptor
+        let axes = CTFontCopyVariationAxes(CTFontCreateWithFontDescriptor(descriptor, 16, nil)) as? [[CFString: Any]] ?? []
+        opticalSize = axes.contains { ($0[kCTFontVariationAxisIdentifierKey] as? NSNumber)?.intValue == 0x6f70737a }
+    }
+
+    /// Its descriptor drawn at a requested weight, width and size: each axis
+    /// the face declares a range of is set to the request, clamped to the
+    /// range, as a browser sets a variable face's axes from `font-weight` and
+    /// `font-stretch` (CSS Fonts 4 §5.2, `font-variation-settings` aside).
+    /// Once a descriptor carries a variation (these, or a pinned weight)
+    /// CoreText no longer sets `opsz` from the size, so it is set here, as
+    /// `font-optical-sizing: auto` sets it; CoreText clamps it to the axis.
+    package func drawn(weight: Int, stretch: CGFloat, size: CGFloat) -> CTFontDescriptor {
+        var axes: [NSNumber: NSNumber] = [:]
+        if weights.count > 1 { axes[0x77676874] = min(max(weight, weights.lowerBound), weights.upperBound) as NSNumber } // 'wght'
+        if stretches.lowerBound < stretches.upperBound {
+            axes[0x77647468] = min(max(stretch, stretches.lowerBound), stretches.upperBound) as NSNumber // 'wdth'
+        }
+        let current = CTFontDescriptorCopyAttribute(descriptor, kCTFontVariationAttribute) as? [NSNumber: NSNumber] ?? [:]
+        guard !axes.isEmpty || !current.isEmpty else { return descriptor }
+        if opticalSize { axes[0x6f70737a] = size as NSNumber } // 'opsz'
+        return CTFontDescriptorCreateCopyWithAttributes(
+            descriptor, [kCTFontVariationAttribute: current.merging(axes) { $1 }] as CFDictionary)
     }
 }
 
@@ -58,12 +91,29 @@ extension TextEngine {
         return (normal.isEmpty ? faces : normal).map(\.0)
     }
 
-    package static func matched(_ faces: [RegisteredFace], weight: Int, italic: Bool) -> RegisteredFace {
+    /// CSS Fonts 4 §5.2 inside the first family: the nearest width, then
+    /// the style, then the nearest weight. A face declared over a range
+    /// matches every value in it exactly, and is otherwise as near as the
+    /// range's nearer end.
+    package static func matched(_ faces: [RegisteredFace], weight: Int, italic: Bool, stretch: CGFloat = 100) -> RegisteredFace {
         let first = faces.filter { $0.family == faces[0].family }
-        let styled = first.filter { $0.italic == italic }
-        let candidates = styled.isEmpty ? first : styled
+        // Narrower faces first at or below normal width, wider ones above
+        // it; nearer before farther in either. One number orders them.
+        func width(_ face: RegisteredFace) -> CGFloat {
+            let range = face.stretches
+            if range.contains(stretch) { return 0 }
+            let narrower = range.upperBound < stretch
+            let distance: CGFloat = narrower ? stretch - range.upperBound : range.lowerBound - stretch
+            let preferred = narrower == (stretch <= 100)
+            return preferred ? distance : 100_000 + distance
+        }
+        var nearest = CGFloat.infinity
+        for face in first { nearest = min(nearest, width(face)) }
+        let wide = first.filter { width($0) == nearest }
+        let styled = wide.filter { $0.italic == italic }
+        let candidates = styled.isEmpty ? wide : styled
         func rank(_ face: RegisteredFace) -> (Int, Int) {
-            let w = face.weight
+            let w = min(max(weight, face.weights.lowerBound), face.weights.upperBound)
             if weight >= 400 && weight <= 500 {
                 if w >= weight && w <= 500 { return (0, w - weight) }
                 if w < weight { return (1, weight - w) }

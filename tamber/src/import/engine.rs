@@ -204,8 +204,8 @@ impl Read<'_> {
     /// A colour as a block sees `var`: the winner nearest it, never through
     /// a cycle. As written (a reference a token's name) and resolved, and
     /// how many links down the chain it is. The chain is followed once, each
-    /// variable on it remembered, so a long chain costs its length, however
-    /// many read it.
+    /// variable on it remembered (a walk cut past `LINKS` remembers only its
+    /// start), so a long chain costs its length, however many read it.
     fn seen(&self, at: &Target, var: &str) -> (Option<(String, String)>, usize) {
         // The chain from `var`: each variable and the one its value names.
         let mut path: Vec<(String, Option<String>)> = Vec::new();
@@ -238,9 +238,13 @@ impl Read<'_> {
             };
             path.push((x, Some(r.clone())));
             // Past `LINKS` references the walk stops: every block's walk
-            // costs at most that. Nothing on it is remembered, as each
-            // variable's own chain may be shorter.
+            // costs at most that. Only `var` is remembered as past them (each
+            // later variable on the walk may have a shorter chain of its
+            // own); a walk that reaches it later is past them too, at once.
             if path.len() > LINKS {
+                self.memo
+                    .borrow_mut()
+                    .insert((at.clone(), var.to_string()), (None, usize::MAX));
                 return (None, usize::MAX);
             }
             x = r;

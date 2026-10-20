@@ -336,6 +336,8 @@ extension Agent {
     /// not measured, is left as `place` leaves it.
     static func rest(_ sv: UIScrollView, at want: CGPoint, x: Bool, y: Bool) {
         place(sv, at: want, x: x, y: y)
+        // tvOS has no large titles.
+        #if os(iOS)
         let o = sv.contentOffset, top = -sv.adjustedContentInset.top, reach = min(sv.bounds.height, sv.window?.bounds.height ?? 0) / 2
         guard y, o.y > top + 0.5, o.y < top + reach, let c = bar(following: sv), c.navigationItem.searchController == nil,
               c.navigationController?.navigationBar.prefersLargeTitles == true, c.navigationItem.largeTitleDisplayMode != .never else { return }
@@ -348,6 +350,7 @@ extension Agent {
         let closed = move(min(open + reach, max(open, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)))
         let inBand = closed - open > 0.5 && o.y > open + 0.5 && o.y < closed - 0.5
         place(sv, at: CGPoint(x: o.x, y: !inBand ? o.y : o.y - open < closed - o.y ? open : closed), x: false, y: true)
+        #endif
     }
 
     /// Leaves `sv` where a scroll with motion to `want` leaves it, on the axes

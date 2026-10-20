@@ -958,6 +958,7 @@ exact_web::host!(
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac
   ${run} linux        build the Linux host (then test linux / agent linux, headless anywhere)
+  ${run} update --without linux  ship no Linux (an iPhone app's port: \`symbol:sf/…\` is blank there)
   ${run} help         every verb; ${run} <verb> --help gives its flags and an example${deferred ? `
 Cargo.lock is still exact2's: this machine's Cargo cache lacks some of its crates, so the
 first build resolves it, fetching them once (it needs the network then, not now).` : ''}`;

@@ -1052,7 +1052,7 @@ if (deckFixture) {
   const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/motion.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) failures.push('the motion fixture did not compile: ' + c.stderr);
   else {
-    const w = (l, id) => box(l, id)?.w;
+    const w = (l, id) => box(l, id)?.w, x = (l, id) => box(l, id)?.x, both = l => [w(l, 'timed'), x(l, 'slid') - x(l, 'linear')]; // `slid`: 0 to 100 right of `linear` (unscaled here) under its layout transition
     const near = (a, b, tol = 0.05) => Math.abs(a - b) <= tol;
     const m = await open({ host, browser: 'chrome', plan });
     try {
@@ -1087,13 +1087,13 @@ if (deckFixture) {
     // born at the timer's due time either way.
     const once = await open({ host, browser: 'chrome', plan });
     let oneShot;
-    try { await once.clock(1250); oneShot = [w(await once.layout(), 'timed')]; await once.clock(1500); oneShot.push(w(await once.layout(), 'timed')); } finally { await once.close(); }
+    try { await once.clock(1250); oneShot = both(await once.layout()); await once.clock(1500); oneShot.push(...both(await once.layout())); } finally { await once.close(); }
     const steps = await open({ host, browser: 'chrome', plan });
     let stepwise;
-    try { await steps.clock(1000); stepwise = [w(await steps.layout(), 'timed')]; await steps.clock(1250); stepwise.push(w(await steps.layout(), 'timed')); await steps.clock(1500); stepwise.push(w(await steps.layout(), 'timed')); } finally { await steps.close(); }
-    check(oneShot[0] === 75 && oneShot[1] === 100, `one seek to 1250 then 1500 across the timer: ${oneShot.join(', ')} (expected 75, 100)`);
-    check(stepwise[0] === 50 && stepwise[1] === 75 && stepwise[2] === 100, `stepping 1000, 1250, 1500: ${stepwise.join(', ')} (expected 50, 75, 100)`);
-    console.log(`${host} motion: linear 75 at 125 ms, spring in flight, settle a fixed point; across the timer one seek = steps (${oneShot.join('/')} vs ${stepwise.slice(1).join('/')})`);
+    try { await steps.clock(1000); stepwise = both(await steps.layout()); await steps.clock(1250); stepwise.push(...both(await steps.layout())); await steps.clock(1500); stepwise.push(...both(await steps.layout())); } finally { await steps.close(); }
+    check(oneShot.join() === '75,50,100,100', `one seek to 1250 then 1500 across the timer, the scaled box's width and the slid box's offset: ${oneShot.join(', ')} (expected 75, 50, 100, 100)`);
+    check(stepwise.join() === '50,0,75,50,100,100', `stepping 1000, 1250, 1500: ${stepwise.join(', ')} (expected 50, 0, 75, 50, 100, 100)`);
+    console.log(`${host} motion: linear 75 at 125 ms, spring in flight, settle a fixed point; across the timer one seek = steps, a scale and a layout transition (${oneShot.join('/')} vs ${stepwise.slice(2).join('/')})`);
   }
   rmSync(tmp, { recursive: true, force: true });
 }

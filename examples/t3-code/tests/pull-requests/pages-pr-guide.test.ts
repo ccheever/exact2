@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { obj } from '../../src/client/domain';
 import { connected } from '../support/client-fixture';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
-import { decodeGuideResult, guideRunKey, guideState, moveGuide, settleGuideWatch, type GuideResult } from '../../src/pull-requests/pages-pr-guide-logic';
+import { ATTENTION_LABELS, decodeGuideResult, guideRunKey, guideState, moveGuide, settleGuideWatch, type GuideResult } from '../../src/pull-requests/pages-pr-guide-logic';
 import { generateGuide, guideEntry, guideReader, guideNavigate, guideOpenTarget, guidesEnabled, presentGuide, readGuide } from '../../src/pull-requests/pages-pr-guide';
 
 const reference = { projectId: 'p', host: 'github.com', repository: 'owner/repo', number: 3 };
@@ -11,6 +11,21 @@ const result = (): GuideResult => decodeGuideResult({ guide, run: null, currentH
 afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 
 describe('review guide protocol and reader progress', () => {
+  test('every attention kind uses the review heading and contributes its note to the Markdown documents', async () => {
+    const { client } = await connected(), entry = guideEntry(client, reference);
+    const labels = ['A tradeoff to weigh', 'A contract to check', 'A product call', 'A risk to judge', 'An accessibility call'];
+    for (const [index, kind] of Object.keys(ATTENTION_LABELS).entries()) {
+      const note = `Inspect **this invariant** in \`src/a.ts\`.`;
+      entry.result = decodeGuideResult({ guide: { ...guide, stops: [{ ...guide.stops[0], attention: { kind, note } }] }, run: null, currentHeadSha: 'head' });
+      const presented = presentGuide(client, reference, {});
+      expect(presented.view.attention).toBe(labels[index]!);
+      expect(presented.bodies.find(body => body.id === presented.view.attentionId)?.body).toBe(note);
+    }
+    entry.result = decodeGuideResult({ guide: { ...guide, stops: [{ ...guide.stops[0], attention: null }] }, run: null, currentHeadSha: 'head' });
+    const presented = presentGuide(client, reference, {});
+    expect(presented.view.attentionId).toBe('');
+    expect(presented.bodies.some(body => body.id.endsWith(':attention'))).toBe(false);
+  });
   test('decodes real variants and rejects unknown runs, reversed ranges and malformed dates', () => {
     expect(result().guide?.stops[0].excerpts[0].side).toBe('old');
     for (const value of [{ guide: null, run: { _tag: 'Done' }, currentHeadSha: 'head' }, { guide: { ...guide, generatedAt: 'yesterday' }, run: null, currentHeadSha: 'head' }, { guide: { ...guide, stops: [{ ...guide.stops[0], excerpts: [{ ...guide.stops[0].excerpts[0], end: 1 }] }] }, run: null, currentHeadSha: 'head' }]) expect(() => decodeGuideResult(value)).toThrow('invalid review guide');
