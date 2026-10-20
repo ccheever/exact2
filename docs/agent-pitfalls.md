@@ -1036,19 +1036,18 @@ screen, 2026-10-16.)
   tap does not wait out. Fix: `clock settle` after tapping an alert's button (and
   after the action that shows it, before tapping in it), as `apps/shelf`'s tests do.
   (Shelf recipe, 2026-10-10.)
-- **After a long press made with `axe touch --down --up --delay`, the iOS simulator
-  ignores taps.** An action sheet or alert the long press opened stays up whatever
-  is tapped, and relaunching the app does not help: Apple's Settings app on that
-  simulator ignores taps too, until the simulator reboots. In an Exact app the
-  symptom can be partial: the tab bar and an alert's buttons, which are UIKit's,
-  ignore taps while the app's own buttons still answer them. UIKit's controls do
-  that while another touch is down: with `axe touch --down` holding one finger,
-  Apple's Photos ignores a tap on its tab bar exactly as an Exact app's does, and
-  a sequencer's play button still plays. Cause: AXe 1.8.0's touch command, not
-  the app. Fix: make real touches with the agent, which taps
-  an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
-  "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
-  prompt, and its tab bar after a relaunch, 2026-10-18.)
+- **An alert's buttons and the tab bar ignore `axe tap` on iOS 27; the app looks stuck.**
+  An action sheet a long press opened stays up whatever is tapped, a rename prompt
+  with it, and a first tap on a tab after launch does nothing, while the app's own
+  buttons answer. Cause: UIKit's controls (`UIAlertController`'s actions, the tab bar's
+  items) do not take AXe 1.8.0's zero-length tap, neither its default style nor
+  `--tap-style physical`; the app is not stuck. A prompt the Sequencer's menu opens
+  ignores it the same way, so the long press is not the cause either. Fix: a touch
+  held for a tenth of a second, which each of those took at once: `axe touch -x … -y
+  … --down --up --delay 0.1`; or real touches with the agent, which taps an alert's
+  buttons by `testId`: `bun exact.mjs agent ios --touch platform "tap <row> down"
+  "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy ports 16 and 17,
+  2026-10-18 and 2026-10-20: the Patterns long-press sheet, measured on a dev build.)
 - **A deep link in a drive is `"type <root> euxy://p/…"`, not `simctl openurl`; a
   blind tap where iOS's "Open in …?" alert was dismisses the sheet the link opened.**
   `xcrun simctl openurl` asks "Open in …?" only sometimes (the first link after the simulator boots, in
