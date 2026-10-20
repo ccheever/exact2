@@ -328,7 +328,24 @@ impl Server {
         let app = self.app_params();
         let mut slots = self.slots.borrow_mut();
         if !matches!(&*slots, Some((of, _)) if std::rc::Rc::ptr_eq(of, &app)) {
-            let library = contract::tamber_params::library(&app, None);
+            let mut library = contract::tamber_params::library(&app, None);
+            // Indexed by each row's own value only: what those reach is the
+            // candidate fold's to say (check_slots closes over it), never the
+            // packages' defaults an app line may have replaced.
+            for node in library
+                .as_array_mut()
+                .into_iter()
+                .flatten()
+                .flat_map(|e| e["chain"].as_array_mut().into_iter().flatten())
+            {
+                let direct: Vec<serde_json::Value> = node["rows"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|r| r.get(1).cloned())
+                    .collect();
+                node["tokens"] = serde_json::Value::Array(direct);
+            }
             let any = library.as_array().is_some_and(|all| {
                 all.iter()
                     .any(|e| e["library"] == serde_json::Value::Bool(true))

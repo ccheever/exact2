@@ -211,3 +211,18 @@ fn a_propose_and_a_removed_override_are_checked_too() {
     assert_eq!(refusals(&removed).len(), 1, "{removed}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_package_default_the_app_replaced_selects_no_chain() {
+    // The app's own `lib.w` (8px) replaces the package's `space.md`; `lib.op` is already 0.
+    let dir = app(
+        "replaced",
+        "tamber app\n\ntheme\n  other = 2px\n  lib.w = 8px\n  lib.op = 0\n",
+    );
+    let mut s = Serve::start(&dir, &[]);
+    let files = || json!({"app.tamber": digest(&dir.join("app.tamber"))});
+    // A write to space.md: no chain reads it in the candidate, so none is asked.
+    let (base, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "set-token", "name": "space.md", "value": "20px"}]}));
+    assert!(base["ok"].is_object(), "{base}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
