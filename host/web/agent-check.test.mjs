@@ -316,6 +316,11 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const teal = judge(obs([{ ...white, bg: [0, 195, 208], on: 'own', label: true, onAccent: true }]), null);
   expect(teal.map((f) => f.kind)).toEqual(['contrast']);
   expect(teal[0].hint).toContain('leave the accent unsaid');
+  // A tinted button's label in a system hue on its own pale fill is UIKit's drawing (the Clock's green Start): not judged. The
+  // same green as a text on the page is.
+  const green = { ...text, fg: [52, 199, 89, 1], bg: [225, 247, 231], on: 'own', label: true };
+  expect(found([{ ...green, tinted: true }])).toEqual([]);
+  expect(found([green])).toEqual(['contrast:1']);
   // LLP 1116.020 D7: white on an accent fill that is no button (a sent bubble) is held to a filled button's 3:1: UIKit's blue
   // (3.4:1) reads, a pale accent (the web's dark one, 2.6:1) is found with the accent's hint; on another fill it stays 4.5:1.
   expect(found([{ ...white, bg: [0, 136, 255], on: 'own', onAccentFill: true }])).toEqual([]);
