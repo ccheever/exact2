@@ -71,6 +71,44 @@ test('a selection is joined to its site\'s source, each row\'s origin and editab
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('a held `:hover` or `:focus-visible` row is joined at its part, keyed by row and state: the template rung on the node\'s own part, the state rung on a style\'s, never the base row\'s place (LLP 1122 queue item (1))', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-looks-'));
+  try {
+    const app = joinPath(dir, 'app.contract');
+    const lines = ['style Card', '  background-color="#eeeeee"', '  :hover', '    border-color="#111111"', '', 'component App', '  view', '    box class=Card background-color="#ffffff"', '      :hover', '        background-color="#dddddd"', '      :focus-visible', '        opacity=0.5', ''];
+    const text = lines.join('\n');
+    writeFileSync(app, text);
+    const place = (line, name) => { const col = lines[line - 1].indexOf(name) + 1; return { file: app, line, col, end_col: col + name.length }; };
+    const hoverAt = place(10, 'background-color'), sideAt = place(4, 'border-color');
+    const map = { digest: 'p1', sources: [{ file: app, sha256: sha(text) }], nodes: [
+      { file: app, line: 8, col: 5, end_col: 8, component: 'App', chain: [], bindings: [
+        { row: 'background_color', origin: 'own', at: place(8, 'background-color'), attr: 'background-color', states: [{ state: 'hover', origin: 'own', at: hoverAt }] },
+        { row: 'border_color_top', states: [{ state: 'hover', origin: 'class:Card', at: sideAt }] },
+        { row: 'opacity', states: [{ state: 'focus-visible', origin: 'own', at: place(12, 'opacity') }] },
+      ] },
+    ] };
+    const selected = { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#ffffff', source: 'authored' }] };
+    const hold = (state, rows) => join({ id: 'web-1' }, { ...selected, held: { state, node: 1, site: 0, instance: [], rows } }, map, { app: dir });
+    const hover = hold('hover', [{ name: 'background_color', value: '#dddddd' }, { name: 'border_color_top', value: '#111111' }, { name: 'opacity', value: 0.9 }]);
+    // Each at its part's place, in the held state; the base row's own place never stands in for it.
+    expect(hover.held.rows.map(r => [r.name, r.state, r.source?.line])).toEqual([['background_color', 'hover', 10], ['border_color_top', 'hover', 4], ['opacity', 'hover', 8]]);
+    // The node's own part: set-row at its place with its state (T5's template rung).
+    expect(hover.held.rows[0].editable).toEqual({ rung: 'template', file: 'app.contract', at: { line: 10, col: hoverAt.col }, sha256: sha(text), row: 'background-color', state: 'hover', instances: 1, text: '#dddddd', component: 'App' });
+    // A style's part: set-state on the style, a border side as the `border-color` the part writes whole.
+    expect(hover.held.rows[1].editable).toEqual({ rung: 'state', style: 'Card', state: 'hover', row: 'border-color', file: 'app.contract', text: '#111111' });
+    // A held row the map gives no part in that state (opacity's is focus-visible's): no rung, never the base's.
+    expect(hover.held.rows[2].editable.rung).toBe(null);
+    const focus = hold('focus-visible', [{ name: 'opacity', value: 0.5 }]);
+    expect(focus.held.rows[0]).toMatchObject({ source: { line: 12 }, editable: { rung: 'template', row: 'opacity', state: 'focus-visible', at: { line: 12 } } });
+    // The selection's own row is the base value's, at its own place, with no state.
+    const base = join({ id: 'web-1' }, selected, map, { app: dir }).rows[0];
+    expect([base.state, base.at?.line, base.editable.rung, base.editable.state]).toEqual([undefined, 8, 'template', undefined]);
+    // `uses` names a look row's part: outlining it finds the node.
+    expect(sitesAt(map, hoverAt)).toEqual([0]);
+    expect(sitesAt(map, sideAt)).toEqual([0]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('an `:active` row lowered to the press paint is joined at its part, read-only but by token, and outlines its node (LLP 1121 D8)', () => {
   const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-active-'));
   try {

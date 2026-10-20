@@ -387,16 +387,16 @@ pub fn sites(
                 "end_col": site["end_col"],
                 "component": site["component"],
             });
-            // A state part's row lowered onto the node is read where it is
-            // written (LLP 1121 D8: `:active`'s press paint).
-            // The map keys a part by (row, state): the row's `states`.
+            // A state part's row is read where it is written: `:active`'s
+            // press paint (LLP 1121 D8), a look's row at its `:hover` or
+            // `:focus-visible` line (LLP 1122's queue item (1)). The map
+            // keys a part by (row, state): the row's `states`.
+            let state = look.unwrap_or("active");
             let bound = site["bindings"].as_array().into_iter().flatten();
-            if let Some(part) = bound.filter(|b| b["row"] == row.name()).find_map(|b| {
-                b["states"]
-                    .as_array()?
-                    .iter()
-                    .find(|p| p["state"] == "active")
-            }) {
+            if let Some(part) = bound
+                .filter(|b| b["row"] == row.name())
+                .find_map(|b| b["states"].as_array()?.iter().find(|p| p["state"] == state))
+            {
                 for key in ["file", "line", "col", "end_col"] {
                     at[key] = part["at"][key].clone();
                 }
@@ -405,6 +405,7 @@ pub fn sites(
             if !via.is_null() {
                 at["via"] = via;
             }
+            // (A look's row the map gives no part keeps the node's place, in its state.)
             if let Some(state) = look {
                 at["state"] = state.into();
             }

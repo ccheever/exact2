@@ -169,7 +169,9 @@ fn uses_names_an_active_rows_own_line() {
     assert_eq!(sites[0]["line"], 8, "the `:active` row's line: {sites:?}");
 }
 
-/// A token a `:hover` row reads is used at its node, as that state's.
+/// A token a `:hover` row reads is used where that row is written, as that
+/// state's: its `:hover` line, not its node's (LLP 1122's queue item (1);
+/// theme2's 03:18, a correction of the line it named).
 #[test]
 fn uses_finds_a_hover_looks_token() {
     let path = app(
@@ -181,6 +183,7 @@ fn uses_finds_a_hover_looks_token() {
     let sites = contract::tamber_uses::sites(&plan, &map, "ink", &Default::default(), &[]);
     assert_eq!(sites.len(), 4, "a border colour's four sides: {sites:?}");
     assert!(sites.iter().all(|s| s["state"] == "hover"), "{sites:?}");
+    assert!(sites.iter().all(|s| s["line"] == 11), "the `:hover` row's line: {sites:?}");
 }
 
 /// LLP 1122 D8 (stage 9 E): `layout <node>` says a node's looks' rows as it

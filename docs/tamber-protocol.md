@@ -108,7 +108,12 @@ on macOS and Linux.
   file); `add-token` refuses a package's or the base scale's name, and a new name in a package's
   namespace, as `rename-token` refuses renaming onto one. A package design changed on disk is a
   `changed` event naming it in `edited`, with `packages`; a held proposal is planned again on
-  accept, on the packages as they are then.
+  accept, on the packages as they are then. LLP 1122's queue item (1), landed before stage 11 closed (theme2's
+  2026-10-20 ruling): a selection's held `:hover` and `:focus-visible` rows carry their part's
+  place as `source`, and the state rung or the template rung with `state`, as a held `:active`
+  row does; and `uses` names a look's row at its part's line, not its node's (a correction). The
+  source map behind them (development only, never on the wire) keys each state part by its row and
+  state: a binding's `states`, `[{state, origin, at}]`.
 
 ## Where it runs
 
@@ -500,8 +505,11 @@ through a token whose value names it, through a synthetic token (a row's express
 tokens) that reads it, or through a slot or derive that may hold it (a slot whose initial
 value, or a value an action stores in it, names it). A value compared (`mode == "brand"`) is no
 read, nor an element id (`url(#brand)`). It answers `{token, plan, sites, aliases, files}`:
-- `sites: [{site, row, file, line, col, end_col, component, via?}]`: the plan node (`site`), the
-  row, and its source span from the plan's source map. `via` is absent for a direct read, `{token}`
+- `sites: [{site, row, file, line, col, end_col, component, via?, state?}]`: the plan node
+  (`site`), the row, and its source span from the plan's source map. A row a state part writes is
+  read at its part's line, with `state`: an `:active` row lowered to the press paint (*1.11*), and
+  a `:hover` or `:focus-visible` look's row (its `:hover` row's line since *1.14*, LLP 1122's
+  queue item (1); its node's before, which was the wrong line). `via` is absent for a direct read, `{token}`
   through a token naming it, `{synthetic, through}` through a synthetic token's expression
   (`through` null, or the `{token}` it reads it by), and `{slot}` or `{derive}` through one;
 - `plan`: the digest of the plan the sites index, compiled from the sources as they are, before
@@ -1357,8 +1365,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
   app's files change, for a new plan, and after a failed read) is left out, and the row is
   read-only, said so; while a new plan's read is out the names stand and no `token` is offered. A
   row whose one name is a param (an inherited or dynamic one) links it by its full name. A client
-  that knows no `param` rung offers no edit for it. A row a style's state part writes (its map `state` and
-  `at`, the origin `class:<Name>`) answers `{rung: "state", style, state, row, file, text?, token?}`
+  that knows no `param` rung offers no edit for it. A row a style's state part writes (its map part, a `states` entry's
+  `{state, origin, at}`, the origin `class:<Name>`) answers `{rung: "state", style, state, row, file, text?, token?}`
   (*1.12*, LLP 1122 T4), the default: the style by the name its file declares it with, the state,
   the row as its author wrote it under the state (`background-color`, not the press paint's
   `press_background_color`), the style's file relative to the app (what `set-state` takes), the
@@ -1391,9 +1399,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
   expression or a name in scope answers a reason, as does a file outside the app's own Contract
   sources, and a layout row (its `layout`, D14: `set-row`'s reason, up front; the selection's row
   carries `layout` too); any of these offers the token rung where its whole value is one token. A row the map gives no place answers a reason (the source's to edit), or, a whole
-  token, the token rung. Only an `:active`
-  part's rows (lowered to the press paint) carry their part's place in the map: a `:hover`,
-  `:focus-visible`, `:disabled` or `:checked` part's are offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  token, the token rung. An `:active` part's rows (lowered to the press paint) carry their part's
+  place in the map, and so, held (*1.14*, LLP 1122's queue item (1)), do a `:hover` or
+  `:focus-visible` part's: the map keys each part by its row and state, never by its row alone, so
+  a look's row is never offered at its base row's place. A `:disabled` or `:checked` part's are
+  offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit).
   A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place (its edit, the state rung
@@ -1408,8 +1418,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
   (*1.11*; `node`, `site`, `instance` and a row's `token` *1.12*): the node the state is held on
   (the press it resolved to, named on a node inside it) and the rows that state shows (`active`:
   the press paint's; a look's otherwise), each with its value, the token it read, `state` and
-  `source` (an `:active` row's part's place, a look's row its node's), joined at the held node's
-  site. An `:active` row is named as its author wrote it under the part (`background-color`), the
+  `source` (its part's place: an `:active` row's, and since *1.14* a `:hover` or `:focus-visible`
+  look's row's; the node's for a row the map gives no part in that state), joined at the held
+  node's site, and `editable` as a row's above: a look's row is edited as an `:active` row is (the
+  state rung on a style's part, the template rung with its `state` on one written under the node),
+  a border side as the `border-color` its part writes whole. An `:active` row is named as its author wrote it under the part (`background-color`), the
   press row it lowered to beside it (`row`, *1.12*). A host that cannot name a row's token says
   `provenance: "incomplete"`. Each file the join reads is
   checked against the digest the map says it was compiled from (`sources`): one that moved since

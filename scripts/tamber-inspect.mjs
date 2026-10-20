@@ -179,8 +179,9 @@ const scrubbed = (rows, params) => (rows ?? []).map(r => (r.token ? { ...r, toke
 // A held state's rows (LLP 1121 stage 8 E), scrubbed as the selection's.
 const heldOf = (held, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
-// A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below).
-const authored = name => AUTHORED[name] ?? String(name).replace(/_/g, '-');
+// A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below), a look's
+// border side as the `border-color` its part writes whole (contract/lower/src/states.rs `longhands`).
+const authored = name => AUTHORED[name] ?? (/^border_color_(top|right|bottom|left)$/.test(name) ? 'border-color' : String(name).replace(/_/g, '-'));
 
 /** A state part's row as `set-state` addresses it (LLP 1122 T4, tamber/1.12):
  * the style whose part writes it, by the name its file declares it with
@@ -390,8 +391,8 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   // counts them (a `button "…"`'s label shares its span and chain, and is no second copy).
   const copiesOf = n => Math.max(1, new Set(sitesAt(map, n).filter(i => same(map.nodes[i], n)).map(i => JSON.stringify((map.nodes[i].chain ?? []).map(c => [c.file, c.line, c.col])))).size);
   const copies = copiesOf(node);
-  // What is held (LLP 1122 D8): each row where it is written: an `:active` row lowered to the press paint at its
-  // part's place (the map's `at`), a state look's at its node, with the state. Its node is the one it is held on
+  // What is held (LLP 1122 D8): each row where it is written, its part's place (the map's `states`, keyed by row and
+  // state): an `:active` row lowered to the press paint, a `:hover` or `:focus-visible` look's row (queue item (1)). Its node is the one it is held on
   // (the press it resolved to, named on a node inside it: stage 9 E), its site's map node.
   if (base.held) {
     const ownerBound = owner === node ? bound : new Map((owner?.bindings ?? []).map(b => [b.row, b]));
@@ -399,12 +400,12 @@ export function join(build, selected, map, { read = readFileSync, served = null,
     // Edited where it is held (T4): only where the build names that node (its held site); else shown, not offered.
     const heldHere = Number.isSafeInteger(base.held.site) && !!owner;
     base.held = { ...base.held, rows: (base.held.rows ?? []).map((r, i) => {
-      const b = asPart(ownerBound.get(r.name), 'active') ?? asBase(ownerBound.get(r.name));
+      const b = asPart(ownerBound.get(r.name), base.held.state) ?? asBase(ownerBound.get(r.name));
       // An `:active` row is named as its author wrote it, under its part (theme2's 16:13 (2)), the press row it
       // lowered to beside it (`row`).
       const authored = b?.state ? AUTHORED[r.name] ?? null : null;
-      // (A held look's row is set-row's only where it is written under the node in that state: a hover's row
-      // with no place of its own is the base row's binding, not the look's.)
+      // (A held look's row is its part's, never its base row's: a row the map gives no part in the held state is
+      // the base's, which the look is not written at.)
       // (Whether it reads a param not yet read: from the host's own report, before its names were scrubbed.)
       const unread = named(selected.held.rows?.[i]?.token, params).unread;
       const offered = !heldHere || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, unread, stateRung(r, b, app, read, own), b?.state ? rowRung(r, b, map, app, copiesOf(owner), read, own) : null);
@@ -433,8 +434,8 @@ export function join(build, selected, map, { read = readFileSync, served = null,
 export function sitesAt(map, source) {
   if (!map || !source) return [];
   const here = x => x && x.file === source.file && x.line === source.line && x.col === source.col;
-  // A node, or a state part's row it lowered (`uses` names that row's own place).
-  return map.nodes.flatMap((n, site) => here(n) || (n.bindings ?? []).some(b => here(asPart(b, 'active')?.at)) ? [site] : []);
+  // A node, or a state part's row on it (`uses` names that row's own place).
+  return map.nodes.flatMap((n, site) => here(n) || (n.bindings ?? []).some(b => (b.states ?? []).some(p => here(p.at))) ? [site] : []);
 }
 
 /** The one site of plan map `to` that is site `site` of plan map `from`
