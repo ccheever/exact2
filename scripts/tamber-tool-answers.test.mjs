@@ -32,9 +32,12 @@ test('a dev loop that answers its first token probe late is reached on a later t
 }, 30_000);
 
 test('nothing listening is said at once, tries or not; a loop that never answers is refused after them', async () => {
-  const port = await free(), t0 = Date.now();
-  expect(await toolAnswers(`http://127.0.0.1:${port}`, 5)).toBe(null);
-  expect(Date.now() - t0).toBeLessThan(1000);
+  // Refused: one attempt, however many tries are allowed (the fetches to it counted).
+  const port = await free(), refused = `http://127.0.0.1:${port}`, real = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = (url, ...rest) => { if (String(url).startsWith(refused)) attempts++; return real(url, ...rest); };
+  try { expect(await toolAnswers(refused, 5)).toBe(null); } finally { globalThis.fetch = real; }
+  expect(attempts).toBe(1);
   const mute = loop(() => 60_000), t1 = Date.now();
   try {
     expect(await toolAnswers(mute.origin, 3)).toBe(null);
