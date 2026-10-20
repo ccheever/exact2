@@ -182,11 +182,13 @@ export function named(token, params) {
 /** A `selected` report as the server publishes it: its rows' token names
  * scrubbed of IR param tokens as the join's are. */
 export function published(selected, params) {
-  if (!selected?.rows) return selected;
-  return { ...selected, rows: scrubbed(selected.rows, params), ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
+  if (!selected || typeof selected !== 'object') return selected;
+  return { ...selected, ...(selected.rows ? { rows: scrubbed(selected.rows, params) } : {}), ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
 }
-// (a `library` is the map's to say, never the host report's: dropped from what the host sent, on every path)
-const scrubbed = (rows, params) => (rows ?? []).map(({ library: _host, ...r }) => (r.token ? { ...r, token: named(r.token, params).token } : r));
+// (a `library` is the map's to say, never the host report's: dropped from what the host sent, on every path, a
+// row's own and its source's)
+const bare = ({ library: _host, ...r }) => (r.source && typeof r.source === 'object' ? { ...r, source: (({ library: _said, ...at }) => at)(r.source) } : r);
+const scrubbed = (rows, params) => (rows ?? []).map(bare).map(r => (r.token ? { ...r, token: named(r.token, params).token } : r));
 // A held state's rows (LLP 1121 stage 8 E), scrubbed as the selection's.
 const heldOf = ({ library: _host, ...held }, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
@@ -401,7 +403,7 @@ const asBase = b => (b?.origin ? b : null);
 export function join(build, selected, map, { read = readFileSync, served = null, design = null, params = new Map(), app = null, own = null } = {}) {
   const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
   // (a `library` is the map's to say, never the host report's: dropped from what the host sent)
-  const rows = (selected.rows ?? []).map(({ library: _host, ...r }) => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
+  const rows = (selected.rows ?? []).map(bare).map(r => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
   if (!map) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
   const node = map.nodes[selected.site];
   if (!node) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'the site is not in the source map' } })), readOnly: 'the site is not in the source map' };

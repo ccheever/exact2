@@ -746,7 +746,7 @@ test('end to end: a compiled library app\'s own source map names a package compo
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 600_000);
 
-test('round 1: a held state on a library node gives its rows and its source the held node\'s library; a library the host report carries is never published', () => {
+test('round 1: a held state on a library node gives its rows and its source the held node\'s library; a library the host report carries is never published', async () => {
   const map = { digest: 'p1', sources: [], nodes: [
     { file: 'node_modules/@acme/lib/index.contract', line: 4, col: 5, end_col: 11, component: 'Card', library: '@acme/lib/index.contract#Card', part: 'face', chain: [], bindings: [{ row: 'background_color', origin: 'own', states: [{ state: 'active', origin: 'own' }] }] },
     { file: 'app.contract', line: 6, col: 7, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'color', origin: 'own' }] },
@@ -767,5 +767,15 @@ test('round 1: a held state on a library node gives its rows and its source the 
     expect(out.rows[0].library).toBeUndefined();
     expect(out.held.library).toBeUndefined();
     expect(out.held.rows[0].library).toBeUndefined();
+  }
+  // A held row's own `source` with a library in it (round 3): dropped too, joined or not.
+  const sourced = { ...forged, site: 1, held: { ...forged.held, rows: [{ name: 'background_color', value: '#00f', source: { file: 'x', library: 'forged' } }] } };
+  for (const m of [null, map]) expect(join({ id: 'web-1' }, sourced, m, { read }).held.rows[0].source?.library).not.toBe('forged');
+  expect(join({ id: 'web-1' }, sourced, null, { read }).held.rows[0].source).toEqual({ file: 'x' });
+  // The published report (the `selected` event) too, with rows or none.
+  const { published } = await import('./tamber-inspect.mjs');
+  for (const report of [forged, { ...forged, rows: undefined }, sourced]) {
+    const out = published(report, new Map());
+    expect([out.held.library, out.held.rows[0].library, out.held.rows[0].source?.library, out.rows?.[0]?.library]).toEqual([undefined, undefined, undefined, undefined]);
   }
 });
