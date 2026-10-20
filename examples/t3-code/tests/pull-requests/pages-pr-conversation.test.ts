@@ -151,6 +151,34 @@ const selected = JSON.stringify({ projectId: 'p1', host: 'github.com', repositor
 const deferred = () => { let release: (value: unknown) => void = () => {}; const promise = new Promise(resolve => { release = resolve; }); return { promise, release }; };
 
 describe('the panel reads (PullRequestDetailPanel queries)', () => {
+  test('PR file metadata is shared across bodies without merging source occurrences, paths or line references', async () => {
+    const body = 'Read `src/lib/version.ts`, then `src/lib/version.ts` again; [the guide](docs/guide.md).';
+    const note = 'Callers must switch to `src/lib/version.ts`; start at `src/lib/version.ts:3`.';
+    const comment = 'Check `src/lib/version.ts`, `src/lib/version.ts:7` and `test/lib/version.ts`; [the notes](docs/guide.md).';
+    for (const page of [false, true]) {
+      const { client, settle } = fixture({
+        'pullRequests.detail': () => detail({ body, workspaceRoot: '/pr-workspace' }),
+        'pullRequests.activity': () => ({ ...conversation(), comments: [remark('file-reference', 5, { body: comment })] }),
+      });
+      client.config.settings = { reviewGuidesEnabled: true };
+      client.request = async (_native, method) => {
+        expect(method).toBe('pullRequests.reviewGuide');
+        return { guide: { headSha: 'head', generatedAt: at(1), modelSelection: { instanceId: 'codex', model: 'gpt-6' },
+          stops: [{ title: 'Version module', summary: 'One version constant.', attention: { kind: 'contract', note }, excerpts: [], files: [], notes: [], questions: [] }] }, run: null, currentHeadSha: 'head' };
+      };
+      const view = await settle({ page });
+      expect(view.guide.hasGuide).toBe(true);
+      expect([view.bodyId, view.guide.attentionId, 'pr-comment:file-reference'].map(id => view.bodies.find(entry => entry.id === id)?.body)).toEqual([body, note, comment]);
+      expect(view.md.chips.filter(chip => chip.kind === 'link').map(chip => [chip.href, chip.tip]).sort()).toEqual([
+        ['t3-file:docs/guide.md', '/pr-workspace/docs/guide.md'],
+        ['t3-inline-code:src/lib/version.ts', '/pr-workspace/src/lib/version.ts'],
+        ['t3-inline-code:src/lib/version.ts:3', '/pr-workspace/src/lib/version.ts:3'],
+        ['t3-inline-code:src/lib/version.ts:7', '/pr-workspace/src/lib/version.ts:7'],
+        ['t3-inline-code:test/lib/version.ts', '/pr-workspace/test/lib/version.ts'],
+      ]);
+    }
+  });
+
   test('PR Markdown resolves file chips from the PR workspace on the page and beside a thread', async () => {
     const body = 'Read `src/lib/version.ts:3`, keep `const value = 1` and [the guide](docs/guide.md), or see [the site](https://example.com) and [PR #7](https://github.com/acme/playground/pull/7).';
     for (const page of [false, true]) {
