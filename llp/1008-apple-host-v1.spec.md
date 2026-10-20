@@ -696,11 +696,11 @@ its content keeps out of the new insets, a non-cover viewport is the display
 less the insets, the software keyboard rises and `resizes-content`'s bar rides
 it, a focused field keeps its text and focus, a pushed screen and a presented
 sheet survive, a scrolled list keeps its offset, the two-session sample host's
-panes both follow, and the scene turns with the device at every pose (the
-`insets`, `keyboard-bar`, `lab`, `host` and `rotate` legs). `devicectl device
+panes both follow, the scene turns with the device at every pose, and in a
+resizable app session the Fold screen follows each window UIKit gives it (the
+`insets`, `keyboard-bar`, `lab`, `host`, `rotate` and `resize` legs). `devicectl device
 orientation set` is accepted and turns nothing, so the turns go through the
-helper. Not exercised: Split View with another app beside this one; a resizable
-app session is measured by hand (QUEUE).
+helper. Not exercised: Split View with another app beside this one (QUEUE).
 
 *Reserved regions, evaluated.* UIKit 27.1 adds `UIView.reservedRegions(kind:)`
 and `UIHingeInteraction`. On the inner panel the simulator reports two
