@@ -546,6 +546,8 @@ test('R1b: the canvas through the relay: its own gateway and origin pair, minted
   expect((await https1(relay.pub, CANVAS, { headers: { cookie, 'sec-fetch-site': 'same-site', 'sec-fetch-mode': 'no-cors', 'sec-fetch-dest': 'style' } })).status).toBe(404);
   expect((await https1(relay.pub, CANVAS, { headers: { cookie, 'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'no-cors' } })).status).toBe(200);
   expect((await https1(relay.pub, CANVAS, { headers: { cookie, 'sec-fetch-site': 'same-site', 'sec-fetch-mode': 'navigate' } })).status).toBe(200);
+  // A form POST navigation from another origin passes the metadata check as a navigation, and dies on the Origin check.
+  expect((await https1(relay.pub, CANVAS, { method: 'POST', path: '/__dev/report', headers: { cookie, origin: 'https://s9-canvas.other.relay.test', 'sec-fetch-site': 'same-site', 'sec-fetch-mode': 'navigate', 'content-type': 'application/x-www-form-urlencoded' }, body: 'a=1' })).status).toBe(403);
   // Host bound to the SNI, both ways: no fronting from one name into the other's server.
   expect((await https1(relay.pub, CANVAS, { host: TOOL, headers: { cookie } })).status).toBe(404);
   // (a page the canvas gateway would answer 200, asked through the tool's SNI with the canvas's Host)

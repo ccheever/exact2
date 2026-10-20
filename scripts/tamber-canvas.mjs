@@ -543,7 +543,9 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
         out[key] = key === 'content-security-policy' || key === 'content-security-policy-report-only' ? frameAncestors(rewrite.text(v), loopPort, origin, toolOrigin) : rewrite.text(v);
       }
       out['cache-control'] = 'no-store';
-      // (and for a browser without Fetch metadata: no other origin may include it)
+      // (and for a browser without Fetch metadata: no other origin may include it;
+      // this governs no-cors subresources, never the tool's frame, and the tool
+      // sends no COEP: should it ever, a framed canvas would need its own policy)
       out['cross-origin-resource-policy'] = 'same-origin';
       const type = String(out['content-type'] ?? '');
       const stream = /^text\/event-stream\b/i.test(type);
