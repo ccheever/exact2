@@ -12,28 +12,31 @@ use exact_tamber::{parse, Op};
 use std::time::Duration;
 
 /// That `run` grows linearly on `make`'s inputs: its CPU time at `4n`
-/// within eight times its time at `n`, each the best of three runs taken in
-/// turn (built before the clock starts); a run at `n` under 50 ms, too short
-/// to time, is held to 400 ms at `4n` instead.
+/// within eight times its time at `n`. Each is timed as a batch of as many
+/// runs as take the input at `n` past 50 ms (one clock reading too coarse
+/// for a short run), the batches at `n` and `4n` the same count and taken in
+/// turn, the best of three each (built before the clock starts).
 fn linear<I>(what: &str, n: usize, make: impl Fn(usize) -> I, run: impl Fn(&I)) {
-    let time = |input: &I| {
+    let batch = |input: &I, runs: u32| {
         let t = cpu();
-        run(input);
+        for _ in 0..runs {
+            run(input);
+        }
         cpu() - t
     };
     let (small, large) = (make(n), make(4 * n));
+    let mut runs = 1;
+    while runs < 1 << 16 && batch(&small, runs) < Duration::from_millis(50) {
+        runs *= 2;
+    }
     let (mut a, mut b) = (Duration::MAX, Duration::MAX);
     for _ in 0..3 {
-        a = a.min(time(&small));
-        b = b.min(time(&large));
+        a = a.min(batch(&small, runs));
+        b = b.min(batch(&large, runs));
     }
-    let limit = match a > Duration::from_millis(50) {
-        true => a * 8,
-        false => Duration::from_millis(400),
-    };
     assert!(
-        b <= limit,
-        "{what}: {a:?} at {n}, {b:?} at {}: not linear",
+        b <= a * 8,
+        "{what}: {a:?} at {n}, {b:?} at {} ({runs} runs each): not linear",
         4 * n
     );
 }
@@ -60,6 +63,14 @@ fn cpu() -> Duration {
 
 fn design() -> exact_tamber::Design {
     parse("tamber app\n").unwrap()
+}
+
+fn tailwind_of(css: &str) -> exact_tamber::import::Import {
+    // (Built once, outside the timed runs.)
+    thread_local! {
+        static DESIGN: exact_tamber::Design = design();
+    }
+    DESIGN.with(|d| tailwind::import(css, "", d).unwrap())
 }
 
 fn shadcn_of(css: &str) -> exact_tamber::import::Import {
@@ -174,7 +185,9 @@ fn nesting_reads_each_level_and_stops_at_its_cap() {
     assert!(import.unmapped.iter().any(|u| u
         .why
         .starts_with("not read: its enclosing rules copy past 8 MiB")));
-    linear("labels", 1_500, label, |css| {
+    // (Each label copies the prelude, so it stays one size, both sizes under
+    // the cap: 1,000 labels, each copied twice, which the full size is past.)
+    linear("labels", 250, label, |css| {
         shadcn_of(css);
     });
 }
@@ -264,7 +277,7 @@ fn tailwind_writes_each_key_out_once() {
         }
         css + "}\n"
     };
-    let import = tailwind::import(&theme(5_000), "", &design()).unwrap();
+    let import = tailwind_of(&theme(5_000));
     assert_eq!(
         import.counted.mapped,
         2 * 5_000 + 1,
@@ -272,7 +285,7 @@ fn tailwind_writes_each_key_out_once() {
         import.unmapped.first()
     );
     linear("type keys", 1_250, theme, |css| {
-        tailwind::import(css, "", &design()).unwrap();
+        tailwind_of(css);
     });
     // A chain of 16 that doubles at each key, read by many keys: each key
     // written out once, and the whole cut off past what one import writes.
@@ -290,7 +303,7 @@ fn tailwind_writes_each_key_out_once() {
         }
         css + "}\n"
     };
-    let import = tailwind::import(&doubling(2_000), "", &design()).unwrap();
+    let import = tailwind_of(&doubling(2_000));
     assert!(
         import
             .unmapped
@@ -300,7 +313,7 @@ fn tailwind_writes_each_key_out_once() {
         import.unmapped.iter().map(|u| &u.why).collect::<Vec<_>>()
     );
     linear("doubling var()s", 500, doubling, |css| {
-        tailwind::import(css, "", &design()).unwrap();
+        tailwind_of(css);
     });
 }
 
@@ -319,10 +332,10 @@ fn wide_themes_read_each_key_once() {
         }
         css + "}\n:root { --color-k0: #ffffff; }\n"
     };
-    let import = tailwind::import(&theme(20_000), "", &design()).unwrap();
+    let import = tailwind_of(&theme(20_000));
     assert_eq!(import.counted.source, 22_001);
     linear("tailwind keys", 5_000, theme, |css| {
-        tailwind::import(css, "", &design()).unwrap();
+        tailwind_of(css);
     });
     // shadcn: lengths of the other kinds.
     let lengths = |n: usize| {
@@ -442,7 +455,8 @@ fn long_values_are_reported_and_wide_sheets_read_once() {
         "{whys:?}"
     );
     // Empty rules inside a long prelude: the context is not copied for each.
-    let empty = |n: usize| format!(".{}{{{}}}", "q".repeat(4_000), ".x{}".repeat(n));
+    // (The prelude grows with the rules, as the label's above.)
+    let empty = |n: usize| format!(".{}{{{}}}", "q".repeat(n / 5), ".x{}".repeat(n));
     linear("empty rules", 5_000, empty, |css| {
         css_read(css);
     });
@@ -459,7 +473,7 @@ fn long_values_are_reported_and_wide_sheets_read_once() {
         css + "}\n"
     };
     linear("resets", 4_500, resets, |css| {
-        tailwind::import(css, "", &design()).unwrap();
+        tailwind_of(css);
     });
     // Colour declarations, each token's sources grouped by name.
     let colours = |n: usize| {
