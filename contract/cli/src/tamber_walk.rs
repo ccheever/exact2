@@ -340,13 +340,38 @@ pub(super) fn retention_key(texts: &[&str]) -> String {
             "other"
         }
     };
+    // A value as the key holds it (theme2's pre-approved fallback, after the
+    // fourth re-check found generated `param.…` names and a header the
+    // reference scan missed): a literal (one that names nothing: a hex, a
+    // length, `light-dark(#fff, #000)`) by its rough kind only, so editing
+    // it keeps the cache; anything else verbatim, so every name it could
+    // reach keys, however it is spelled.
+    // A literal names nothing: no word in it is a name of the designs (a
+    // token, an icon, a dial, as folded) and none is dotted (a package's
+    // token, or a component's generated `param.…` name, which the designs
+    // don't declare). `light-dark(#fff, #000)` and `rgba(…)` are literals.
+    let literal = |text: &str| {
+        refs(text).is_empty()
+            && !text
+                .split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
+                .any(|w| w.contains('.') && w.trim_matches('.').parse::<f64>().is_err())
+    };
+    let value = |text: &str| {
+        if literal(text) {
+            class(text).to_string()
+        } else {
+            format!("={} [{}]", text.trim(), refs(text))
+        }
+    };
     let mut key = String::new();
     for (text, design) in texts.iter().zip(&parsed) {
         let Some(d) = design else {
             key.push_str(&format!("whole {}\n", digest(text.as_bytes())));
             continue;
         };
-        key.push_str("design\n");
+        // Its name: a package design's header decides whether its tokens
+        // join (fourth re-check).
+        key.push_str(&format!("design {}\n", d.name));
         // Each row says its section: a name moved from `icons` to `theme`
         // changes what the views may read (re-check).
         let sections = d
@@ -356,19 +381,13 @@ pub(super) fn retention_key(texts: &[&str]) -> String {
             .chain(d.icons.iter().map(|t| ("icon", t)));
         for (section, t) in sections {
             let (v, n) = (&t.value.value, &t.name.value);
-            key.push_str(&format!(
-                "{section} {n} {:?} {} [{}]",
-                t.kind,
-                class(v),
-                refs(v)
-            ));
+            key.push_str(&format!("{section} {n} {:?} {}", t.kind, value(v)));
             for w in &t.whens {
-                let v = &w.value.value;
-                key.push_str(&format!(" when {:?} {} [{}]", w.conds, class(v), refs(v)));
+                key.push_str(&format!(" when {:?} {}", w.conds, value(&w.value.value)));
             }
-            // What its metadata names (`pair=` another token).
+            // Its metadata, verbatim (`pair=` another token).
             for (k, v) in &t.meta {
-                key.push_str(&format!(" {k}=[{}]", refs(v)));
+                key.push_str(&format!(" {k}={v}"));
             }
             key.push('\n');
         }
@@ -400,4 +419,48 @@ pub(super) fn retention_key(texts: &[&str]) -> String {
         ));
     }
     key
+}
+
+#[cfg(test)]
+mod tests {
+    use super::retention_key;
+
+    /// The key's fourth re-check (Astra), answered by theme2's verbatim key:
+    /// a value that names anything keys as written (a component's generated
+    /// `param.…` name the scan can't know included); a pure literal's edit
+    /// keeps the key; a design's header keys (a package's repaired header
+    /// joins its tokens).
+    #[test]
+    fn a_non_literal_value_keys_verbatim_a_literal_does_not_and_the_header_keys() {
+        let design = |pick: &str, ink: &str, name: &str| {
+            format!("tamber {name}\n\ntheme\n  ink = {ink}\n  pick = {pick}\n")
+        };
+        let key = |d: String| retention_key(&[&d]);
+        let base = key(design("param.f0.Card.a", "#111111", "t"));
+        assert_ne!(
+            base,
+            key(design("param.f0.Card.b", "#111111", "t")),
+            "a generated param reference moved"
+        );
+        assert_eq!(
+            base,
+            key(design("param.f0.Card.a", "#121212", "t")),
+            "a hex edit"
+        );
+        assert_eq!(
+            key(design("x", "8px", "t")),
+            key(design("x", "10px", "t")),
+            "a length edit"
+        );
+        assert_ne!(
+            key(design("x", "8px", "t")),
+            key(design("x", "#111111", "t")),
+            "a length became a colour"
+        );
+        assert_ne!(
+            base,
+            key(design("param.f0.Card.a", "#111111", "wrong")),
+            "the header"
+        );
+    }
 }
