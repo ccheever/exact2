@@ -116,7 +116,9 @@ on macOS and Linux.
   state: a binding's `states`, `[{state, origin, at?}]` (no `at` for a conditional class's part,
   either style's).
 - `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
-  values for a length over unset base names (stage 12 D1); a relay session's `spki` with its
+  values for a length over unset base names (stage 12 D1); a param's levels (stage 12 B2-levels):
+  `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name`, and
+  `describe`'s param rows' `reaches`; a relay session's `spki` with its
   certificate got by ACME (stage 10c R2); and names this machine's files in no answer:
   every `file` field and file name in an answer or event is app-relative, or `<package>/<path inside it>`
   for a package's file (a package linked from outside the app included), never absolute, `hello`'s `app`
@@ -466,6 +468,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `{value, line, whens}` of its `params` line, or null; `pinned` names the tokens the default
     reads that a literal `set` no longer follows (D14's mark). Moving the declaring file is a new
     identity, so a value keyed by the old one no longer applies.
+    A param whose default is a bare reference adds `reaches: {token, base, app_set}` (*1.15*): the first
+    token its default names, the base name its first tuple reaches (or null), and whether the app
+    overrides that token (`explain`'s `levels`, compact).
     A component that isn't Contract, declared in the design (`component MapCard` over
     `params`, stage 7 D), is listed the same way, its identity the design file and its name
     (`app.tamber#MapCard`).
@@ -554,6 +559,23 @@ tuple:
 - **A param** (*1.12*) adds `param: {component, identity, kind, file, line, col, default, set}`:
   where its line is, its default as written, and `set`, the design's line that sets the app's
   value (`{file, line, value}`), or null.
+- **A param's levels** (*1.15*, stage 12 B2-levels), on `explain` and `resolve` of a param, from one
+  walker. It starts at the app's own value of the param (its `params` line), else the param's default,
+  and follows each bare reference: another param, then the app's token (a role's spelling in any
+  case), then a package's token. It takes each line's value in the tuple and goes at most 8 hops. It
+  stops at a line whose value is no reference (a literal or an expression), at a base name or at a
+  role, and that place wins.
+  - Each of `resolve`'s tuples adds `level`, one of `app-param`, `app-token`, `package`, `base`,
+    `role` or `default` (the param's own default, a literal or an expression), and `name`, the name at
+    that level (a param's full name, a token's, a base name, a role's spelling).
+  - `levels: {token, app, base, param}`, present only when the param's default is a bare reference
+    (none for an expression):
+    - `token` is the first token the default names, `{name, package?, file, line, value}`: a package's
+      own line with stage 11 A2's `package` and `file` (`<package>/<file>`), else the app's line;
+    - `app` is the app's override of that package token, `{file, line, value}`, or null;
+    - `base` is the base name the first tuple's walk reaches, or null;
+    - `param` is the app's own value of the param, `{file, line, value}`, or null (`param.set`
+      stays).
 - **A base name** (*1.14*) answers `{kind: "base", name, base, files}`, its base row. One the app
   sets also carries its line's fields as any token's (`token, value, whens, dials, names`), so a
   tool reads and edits its `when` lines.

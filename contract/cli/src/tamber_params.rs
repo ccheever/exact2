@@ -308,6 +308,8 @@ pub fn components(
     let all = app.tokens.as_slice();
     let design = design.cloned().unwrap_or_default();
     let folding = exact_tamber::check_design(laid(&design, app), vocab).ok();
+    // What each param's default reaches (stage 12 B2-levels, *1.15*).
+    let designs = crate::tamber_levels::Designs::parsed("", Some(design.clone()), app, vocab);
     let mut out: Vec<Value> = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
     for p in all {
@@ -366,7 +368,7 @@ pub fn components(
                         Some(json!(t.values.iter().map(|v| v.css()).collect::<Vec<_>>()))
                     }
                 });
-                json!({
+                let mut row = json!({
                     "name": q.full,
                     "short": short(q, &app.identities, &app.tokens),
                     "param": q.param.name,
@@ -384,7 +386,11 @@ pub fn components(
                     "help": attr("help"),
                     "group": attr("group"),
                     "priority": num("priority").unwrap_or(2.0),
-                })
+                });
+                if let Some(reaches) = designs.reaches(q) {
+                    row["reaches"] = reaches;
+                }
+                row
             })
             .collect();
         let name = p

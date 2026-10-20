@@ -47,6 +47,7 @@ mod tests_json;
 pub use tests_json::tests_json;
 pub mod snapshot;
 /// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
+pub mod tamber_levels;
 pub mod tamber_params;
 pub mod tamber_uses;
 pub mod terminal;

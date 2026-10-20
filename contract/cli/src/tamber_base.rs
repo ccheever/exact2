@@ -359,11 +359,33 @@ impl Server {
             .collect();
         // The digests it read, so a client reading several tokens can tell
         // one revision from two.
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        // A param's (stage 12 B2-levels, *1.15*): each tuple's winning level
+        // and the name there, and its levels when its default is a bare
+        // reference, from the one walker.
+        let app = self.app_params();
+        let mut tuples = tuples;
+        let mut levels = None;
+        if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
+            let text = snap
+                .iter()
+                .find(|(f, ..)| *f == file)
+                .map(|(_, t, _)| t.as_str());
+            let designs = contract::tamber_levels::Designs::read(&file, text, &app, &self.vocab);
+            for (tuple, row) in tuples.iter_mut().enumerate() {
+                let step = designs.walk(p, tuple);
+                row["level"] = json!(step.level);
+                row["name"] = json!(step.name);
+            }
+            levels = designs.levels(p);
+        }
         let mut out = json!({"token": name, "tuples": tuples, "files": files_json(&snap)});
+        if let Some(levels) = levels {
+            out["levels"] = levels;
+        }
         if let Some(base) = base {
             out["base"] = base;
         }
-        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
         crate::tamber_packages::fields(&self.app_params(), &snap, &file, &name, &mut out, false);
         Ok(out)
     }
@@ -440,6 +462,15 @@ impl Server {
         // the design's line that sets the app's value, *1.12*.
         if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
             out["param"] = crate::tamber_explain::param(&self.dir, &design, p, &app, &snap);
+            // Its levels (stage 12 B2-levels, *1.15*), a bare reference's default only.
+            let text = snap
+                .iter()
+                .find(|(f, ..)| *f == design)
+                .map(|(_, t, _)| t.as_str());
+            let designs = contract::tamber_levels::Designs::read(&design, text, &app, &self.vocab);
+            if let Some(levels) = designs.levels(p) {
+                out["levels"] = levels;
+            }
         }
         crate::tamber_packages::fields(&app, &snap, &design, &name, &mut out, true);
         Ok(with(out))

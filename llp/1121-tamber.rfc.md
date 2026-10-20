@@ -5482,3 +5482,35 @@ Stage 12 §B's first commit, under no wire change (the server's existing fields 
   - After the key's second re-check (Astra): a reference is found by its folded form but keyed as written, so two tokens differing only in case (`Foo`, `foo`) stay two; a chain moved from one to the other builds again (`two_tokens_of_one_name_in_two_cases_stay_two`, failing without the fix)
   - After the key's fourth re-check (Astra; theme2's pre-approved fallback): the key holds a value VERBATIM whenever it names anything (a name of the designs, as folded, or any dotted word, a package token or a component's generated `param.…` name the designs don't declare); only a literal that names nothing (a hex, a length, `light-dark(#fff, #000)`, `rgba(…)`) is kept by its rough kind, so its edit is a cache hit. Each design's header name is keyed too (a package header repaired joins its tokens). So a non-literal value edit now recomputes retention, as an alias move does. Re-measured on the clone copy (/tmp/bsky-bench.py, debug, median of 5, ms; old key vs this key): a literal edit 370 vs 364 (warm 10 vs 12, a cache hit); an alias move 399 (the old key never rebuilt) vs 3354 (a whole-app compile, as round 3's key). A unit test in tamber_walk.rs holds the key's rules.
   - After the key's fifth re-check (Astra): every string the key holds (names, values, metadata, params, component params) is written quoted, so a metadata value decoding to a newline can't spell another token's row (a unit test, failing without the quoting)..
+### Stage 12, commit B2-levels: a param's three levels (draft for theme2)
+
+Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels adds a clause to its one summary line).
+
+- **One walker** (`contract::tamber_levels`, library). Per tuple it starts at the app's own value of a param (its
+  `params` line, by its full name or a short name only it answers, with that line's `when` for the tuple), else the
+  param's default. It then follows each bare reference, in order: another param (its app value or its default), the
+  app's token (a role's spelling in any case), then a package's token, each line's value in the tuple. It goes at
+  most 8 hops (`HOPS`) and stops at a line whose value is no reference (a literal or an expression), at a base name or
+  at a role. It answers `Step {level, name}`, the level that wins and the name there: `app-param`, `app-token`,
+  `package`, `base`, `role`, or `default`. `default` is not in the plan's list: it is the param's own default being a
+  literal or an expression, the one case none of the five names. rt1's stage 12 D3 reads the same walker; its
+  signature was sent to rt1.
+- **`resolve` of a param**: each tuple adds `level` and `name`, from the walker.
+- **`explain` and `resolve` of a param**: `levels: {token, app, base, param}`, only when the default is a bare
+  reference (none for an expression, theme2's ruling).
+  - `token` is the first token the default names, `{name, package?, file, line, value}`: a package's own line with
+    stage 11 A2's `package` and `file` exactly, else the app's.
+  - `app` is the app's override of that package token, `{file, line, value}`, or null.
+  - `base` is the base name the first tuple reaches, as stage 11 D's `bases` names it, or null.
+  - `param` is the app's own value, `{file, line, value}`, or null; `param.set` stays.
+- **`describe`**: a param whose default is a bare reference adds `reaches: {token, base, app_set}`, compact.
+- **Tests** (`contract/cli/tests/it/tamber_levels.rs`, through the server, with `@acme/reading`'s Contract `Card`
+  and its design's `Map`):
+  - each level wins in turn on one param: the package's line, the app's override (`levels.app`), the app's value
+    (`levels.param`, and `param.set` kept), and an app value naming an app token;
+  - a chain of package tokens;
+  - a base name (`Card.inset` through `reading.gap = space.md`), a role (`AccentColor`), and an expression (no
+    `levels`, its tuples `default`);
+  - `describe`'s `reaches`;
+  - levels differing by tuple (`reading.gap` 12px, `when mode=b: space.lg`): `app-token` then `base`;
+  - a chain of ten app tokens stopping after eight (`c7`).
