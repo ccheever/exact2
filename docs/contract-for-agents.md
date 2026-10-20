@@ -2732,6 +2732,21 @@ Localized strings use `t("key", name=value)` and app `strings/<locale>.json`
 files. Compile against the files to check keys and placeholders. Formatting
 functions accept a narrow set of literal formats; app wording is an app `fn`.
 
+#### Folds on iOS
+
+`exactViewport().devicePosture` and the viewport segments are the web's
+([foldables](recipes/foldables.md)). On the iOS 27.1 simulator UIKit moves an alert
+(an `alertdialog` with text) on either fold, and a page or form sheet (a sheet route
+or a modal `dialog`) on a book fold: folded like a book, an alert to the middle of
+the left segment and a page or form sheet to that segment, its right edge about 12
+points into the band (measured in left-to-right text); folded like a laptop, an
+alert to the bottom segment, while a page or form sheet still spans the fold. The
+tab bar stays clear of either fold. [Apple's adaptive-layout
+talk](https://developer.apple.com/videos/play/tech-talks/111463/) says instead that
+alerts move to the trailing side of a book fold and can move to the top of a laptop
+fold, and that action sheets, menus and popovers move clear too, which was not
+measured.
+
 ## Inspection and testing
 
 On Apple development builds, an `iframe`'s web content is inspectable from
