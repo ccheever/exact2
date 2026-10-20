@@ -1170,9 +1170,9 @@ with no reader (Android, whose field is the platform's own; the terminal; a brow
 field as they last painted it: its text boxes (its glyphs across, their font's content area
 down) through the transform it was painted with, bounded; a field placed by a perspective
 is `unavailable` there (Windows by construction, the same presenter, not yet run on
-Windows). The web's known deviation is Chrome's: an empty field's collapsed range is a zero
-rectangle at the viewport's origin, and an empty line's is at the end of the text before it
-(QUEUE). It reads the layout last drawn, so a `setRangeText` earlier in the same action is
+Windows). The web measures an empty line's and an empty field's caret from a copy of the
+field's text laid out in its box, as Chrome's `createValueRange` answers those at the text
+before the line and at the viewport's origin. It reads the layout last drawn, so a `setRangeText` earlier in the same action is
 not yet measured.
 
 ### Markdown: `markup`, `format`, `select`
