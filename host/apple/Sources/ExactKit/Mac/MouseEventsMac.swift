@@ -433,7 +433,7 @@ extension NodeView {
     private func droppable(_ info: NSDraggingInfo) -> [URL] {
         guard handlers.contains("drop"), !disabled, !inert else { return [] }
         let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        return urls.filter(ExactDocuments.accepts)
+        return urls.filter { ExactDocuments.accepts($0) }
     }
 
     package override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -465,7 +465,7 @@ extension NodeView {
         guard let presenter, let session = presenter.session else { return false }
         // A dropped file is one the person chose (LLP 1069.010.000 D3): kept,
         // it arrives as the path it is kept by.
-        let docs = urls.filter(ExactDocuments.accepts).compactMap { session.keepDocument($0, noting: true) ?? session.mintDocument($0) }
+        let docs = urls.filter { ExactDocuments.accepts($0) }.compactMap { session.keepDocument($0, noting: true) ?? session.mintDocument($0) }
         guard !docs.isEmpty else {
             session.log("drop: refused: no file of a type this app declares")
             return false

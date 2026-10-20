@@ -768,7 +768,12 @@ const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username
 const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large text size give the row room (flex-wrap=\"wrap\" with a flex-basis in rem) rather than breaking words. `break-word` breaks only a word wider than its line (a pasted link); `anywhere` breaks inside any word (\"Octo/ber\"), which verify names on prose: it is for a URL or a token on a `link` or in a monospace face. `word-break` is not admitted";
 
 /// Round 23's chat drew its transcript as a grouped list, open at the oldest message.
-const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never is): `scroll-start=\"end\"` opens it at its last row, `scrollFollowEnd=true` keeps it at the end as rows arrive and the port resizes, while the reader is there. A chat's transcript: `contract vocab chat-thread`";
+const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never is): `scroll-start=\"end\"` opens it at its last row, `scrollFollowEnd=true` keeps it at the end as rows arrive and the port resizes, while the reader is there. A chat's transcript: `contract vocab chat-thread`. Any other scroller, a horizontal strip too, opens at the offset its `scrollLeft=` and `scrollTop=` give, and moves when the value changes";
+
+/// What reaches `navigate=`, and which tab a location lands in (LLP 1038 D8):
+/// the euxy port's warm deep link to another tab's route opened over the
+/// tab it was on.
+const NAVIGATE: &str = "on the navigation root: a location from outside the running app (a link, a protocol handler's or a notification's URL, the web's Back and Forward), whose action chooses the verb (LLP 1038 D8). `go` pops to the location when the selected stack holds it, selects the tab whose top it is, and otherwise pushes it on the selected tab, whatever tab declares its route. `open(nav, url)` lands in the route's declared tab, that tab's stack its declared chain. A cold launch's location is no event: it opens there, as `open` does";
 
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
@@ -859,6 +864,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
             doc["event"] = (*event).into();
             if name == "contextmenu" {
                 doc["note"] = CONTEXTMENU.into();
+            }
+            if name == "navigate" {
+                doc["note"] = NAVIGATE.into();
             }
         }
         AttrTarget::Surface => {}
@@ -1049,6 +1057,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
         }
         AttrTarget::Handler(event) if name == "contextmenu" => {
             vec![format!("event {event}"), CONTEXTMENU.into()]
+        }
+        AttrTarget::Handler(event) if name == "navigate" => {
+            vec![format!("event {event}"), NAVIGATE.into()]
         }
         AttrTarget::Handler(event) => vec![format!("event {event}")],
         AttrTarget::Surface => vec!["a canvas's surface binding: surface=name(args)".into()],

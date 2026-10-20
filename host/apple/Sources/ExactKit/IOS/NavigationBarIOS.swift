@@ -68,9 +68,13 @@ struct HeaderShape: Equatable {
         /// no one presses, whose custom view shows the face as written and
         /// follows it in place (BarReadoutIOS.swift).
         let readout: ChipFace?
-        /// The padding its author wrote on the readout, around its face
-        /// inside the glass (none: UIKit's, the face hugging its capsule).
+        /// The padding around a readout's face inside the glass: each side
+        /// as its author wrote it, else UIKit's (`titleInset` beside words).
         let readoutPadding: UIEdgeInsets
+        /// How far a `UIBarButtonItem(title:)`'s label sits inside its item
+        /// on each side, which UIKit does not publish: 12 pt on iOS 26 and 27
+        /// (measured), so its glass is 16 pt wider than the words each side.
+        static let titleInset: CGFloat = 12
         init(_ button: NodeView, readout isReadout: Bool = false) {
             var symbol: String?, text = "", ink: (NodeView, String)?
             func walk(_ node: NodeView) {
@@ -102,8 +106,13 @@ struct HeaderShape: Equatable {
             id = button.id
             testId = button.props["testId"]
             readout = isReadout ? ChipFace(button, readout: true) : nil
-            let pad = { (side: String) in button.wrote("padding_\(side)") ? button.number("padding_\(side)") : 0 }
-            readoutPadding = isReadout ? UIEdgeInsets(top: pad("top"), left: pad("left"), bottom: pad("bottom"), right: pad("right")) : .zero
+            // A side left unsaid is UIKit's. A bare custom view hugs its
+            // capsule, whose round ends then cut into its words, so a face
+            // with words takes the inset a title item's label has.
+            let words = readout?.parts.contains { if case .text = $0 { true } else { false } } == true
+            let pad = { (side: String, platform: CGFloat) in button.wrote("padding_\(side)") ? button.number("padding_\(side)") : platform }
+            let beside: CGFloat = words ? Self.titleInset : 0
+            readoutPadding = isReadout ? UIEdgeInsets(top: pad("top", 0), left: pad("left", beside), bottom: pad("bottom", 0), right: pad("right", beside)) : .zero
             badge = button.isNativeButton || isReadout ? nil : BadgeFace(button)
             chip = badge == nil && !isReadout ? ChipFace(button) : nil
             let invocation = button.presenter?.invocation(of: button)

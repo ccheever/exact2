@@ -130,6 +130,27 @@ are copied to the web manifest and baked into Apple `Info.plist` as both URL
 schemes and handler templates. They are host metadata, not deploy policy;
 the native session applies LLP 1038 D8's template before delivery.
 
+**Amended 2026-10-20: web links, and two macOS keys** (implemented by
+Claude (Opus 5.5), 2026-10-20). `protocol_handlers` admits `http` and
+`https`, declared as a pair with one template and one `distribution_only`;
+`readManifest` refuses any other form. On macOS the pair is a second URL
+type (`Web site URL`, role `Viewer`), and the build writes the `Web page`
+document type beside it (`public.html`, `public.xhtml`; `Viewer`,
+`Alternate`, marked `ExactWebPage`), because macOS lists an app under
+Default web browser only when it also opens web pages. The pickers and
+`drop` ignore that type. An HTML file Launch Services brings arrives at the
+`https` template as its `file:` URL unless `file_handlers` accept it: one
+delivery path, as the 2026-10-08 ruling keeps. The app makes no call to
+become the default; the person chooses it in System Settings. iOS and tvOS
+refuse the pair (a default browser there needs Apple's managed
+`com.apple.developer.web-browser` entitlement), the web manifest drops it
+(HTML's protocol handler safelist), and Linux, Windows and Android register
+no protocol handler. `host.macos.oneTimeCodeAutofill: "marked"` writes
+`NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac`; absent, the key is
+not written and macOS keeps its default. As with App Transport Security
+below, both are typed fields: there is no `Info.plist` pass-through. The
+Local Network prompt is a grant, LLP 1069.008's `device.local-network`.
+
 **Amended 2026-10-16: a launch picture.** `host.ios.launchImage`
 (`src`, a PNG in the app's directory, and `width` in points) is baked
 into the asset catalog as an image set at 1x, 2x and 3x and named by

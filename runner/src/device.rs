@@ -175,6 +175,16 @@ pub const DEVICES: &[Device] = &[
         keeps_no_answers: true,
         ..ROW
     },
+    // Local network privacy (TN3179): macOS 15 and iOS 14 ask before the app
+    // first reaches a LAN address, and show this text. Deviation: the web's
+    // Local Network Access prompt is the browser's own, and Android asks
+    // for nothing, so the row writes Apple keys only.
+    Device {
+        name: "local-network",
+        ios: &["NSLocalNetworkUsageDescription"],
+        macos: &["NSLocalNetworkUsageDescription"],
+        ..ROW
+    },
     // @ref LLP 1125 D6 — Web MIDI's permission and policy feature. Apple asks
     // for nothing, so no usage key; tvOS has no CoreMIDI (`unavailable`).
     Device {
@@ -346,6 +356,16 @@ mod tests {
             device_grants("device.health purpose.read purpose.write").is_err(),
             "the fork's one row with two keys"
         );
+    }
+
+    #[test]
+    fn local_network_writes_the_apple_key_and_no_web_policy() {
+        let all = device_grants("device.local-network purpose.lan").unwrap();
+        let row = all[0].device;
+        assert_eq!(row.ios, ["NSLocalNetworkUsageDescription"]);
+        assert_eq!(row.macos, ["NSLocalNetworkUsageDescription"]);
+        assert!(row.web.is_none() && row.android.is_empty() && row.hardened.is_none() && row.tvos);
+        assert!(!permissions_policy("device.local-network purpose.lan").contains("local"));
     }
 
     #[test]
