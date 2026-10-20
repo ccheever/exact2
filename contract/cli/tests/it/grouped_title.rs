@@ -225,3 +225,45 @@ fn a_swipe_rows_bare_title_and_value_stack_where_they_do_not_fit() {
         );
     }
 }
+
+/// A text and the worded button that ends its row stay side by side while
+/// the text keeps room for its words, and at the accessibility sizes the
+/// button goes under the text, as a hand-built cell switches its stack to
+/// vertical (household-list at the largest size: its message beside Try
+/// Again broke inside every word). A symbol-only button stays beside it.
+#[test]
+fn a_rows_trailing_button_goes_under_its_text_where_the_text_would_be_squeezed() {
+    for (button, root, under) in [
+        ("text \"Try Again\"", 17.0f32, false),
+        ("text \"Try Again\"", 23.0, false),
+        ("text \"Try Again\"", 40.0, true),
+        ("text \"Try Again\"", 53.0, true),
+        (
+            "image \"symbol:refresh\" aria-label=\"Try Again\"",
+            53.0,
+            false,
+        ),
+    ] {
+        let body = format!("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"item\" gap=8\n      text \"Can't reach the server. Check that it's running, then try again.\" flex=1 min-width=0 testId=\"message\"\n      button press=go testId=\"retry\"\n        {button}");
+        let mut r = boot(&body);
+        r.set_root_font_size(root.into()).unwrap();
+        let k = r.kernel_mut();
+        let page = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(page, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+        let (row, message, retry) = (frame("item"), frame("message"), frame("retry"));
+        if under {
+            assert!(
+                retry.y >= message.y + message.height && message.width >= 0.7 * row.width,
+                "{button} at {root}: the button is under the text, which has the row: {message:?} {retry:?} in {row:?}"
+            );
+        } else {
+            assert!(
+                message.x + message.width <= retry.x && retry.y < message.y + message.height,
+                "{button} at {root}: the button is beside the text: {message:?} {retry:?}"
+            );
+        }
+    }
+}
