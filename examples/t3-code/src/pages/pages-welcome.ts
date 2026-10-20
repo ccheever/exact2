@@ -67,16 +67,18 @@ async function closeSetupTerminals(client: T3Client): Promise<void> {
 }
 
 type Decision = 'pending' | 'wizard' | 'app';
-type Candidate = { key: string; path: string; title: string; projectId: string; sources: string[]; threadCount: number; lastActiveAt: string; alreadyImported: boolean; git: boolean };
-type Scan = { environmentId: string; loading: boolean; error: string; candidates: Candidate[]; truncated: boolean };
+type Candidate = { key: string; environmentId: string; path: string; title: string; projectId: string; sources: string[]; threadCount: number; lastActiveAt: string; alreadyImported: boolean; git: boolean };
+type Scan = { environmentId: string; label: string; error: string; candidates: Candidate[]; truncated: boolean };
 // Data sources have no wall clock: `now` is the last time the view was handed (LLP 1027.000).
-type State = { decision: Decision; selection: Set<string> | null; auto: Set<string>; setup: string[]; scan: Scan | null; picked: Set<string> | null; importing: boolean; now: number; copied: number; seen: Set<string>;
+type State = { decision: Decision; selection: Set<string> | null; auto: Set<string>; setup: string[]; scans: { key: string; list: Scan[] } | null; picked: Set<string> | null; importing: boolean; now: number; copied: number; seen: Set<string>;
+  /** ConnectionStep's expandPairingInitially, taken when the wizard first shows. */
+  pairStartsOpen: boolean | null;
   /** ConnectedAgentsStep's createdAccount: the ChatGPT account Add ChatGPT account just created here. */
   created: { instanceId: string; displayName: string } | null };
 const states = new WeakMap<object, State>();
 const stateOf = (client: object): State => {
   let state = states.get(client);
-  if (!state) states.set(client, state = { decision: 'pending', selection: null, auto: new Set(), setup: [], scan: null, picked: null, importing: false, now: 0, copied: 0, seen: new Set(), created: null });
+  if (!state) states.set(client, state = { decision: 'pending', selection: null, auto: new Set(), setup: [], scans: null, picked: null, importing: false, now: 0, copied: 0, seen: new Set(), created: null, pairStartsOpen: null });
   return state;
 };
 
@@ -223,7 +225,7 @@ export function recentCandidates(candidates: Candidate[], now: number): Set<stri
 }
 export function decodeCandidates(environmentId: string, value: unknown): Candidate[] {
   return arr(obj(value).candidates).filter(candidate => str(candidate.path) && str(candidate.title)).map(candidate => ({
-    key: JSON.stringify([environmentId, str(candidate.path)]), path: str(candidate.path), title: str(candidate.title), projectId: str(candidate.projectId),
+    key: JSON.stringify([environmentId, str(candidate.path)]), environmentId, path: str(candidate.path), title: str(candidate.title), projectId: str(candidate.projectId),
     sources: (Array.isArray(candidate.sources) ? candidate.sources : []).filter((source): source is string => typeof source === 'string'),
     threadCount: num(candidate.threadCount), lastActiveAt: str(candidate.lastActiveAt), alreadyImported: candidate.alreadyImported === true,
     // Servers before the git scan omit `git`: treat their candidates as repositories.
@@ -250,8 +252,9 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
     show: false, step: input.step === 'agents' || input.step === 'import' ? input.step : 'connect',
     computers: [] as { key: string; environmentId: string; label: string; url: string; status: string; selected: boolean }[],
     ready: false, skipped: '', machines: [] as { key: string; label: string; agents: AgentRow[]; chatgpt: boolean; terminal: ReturnType<OnboardingTerminal['view']> & { font: string; fontSize: number; light: string; dark: string } }[],
-    scanning: false, scanError: '', candidates: [] as { key: string; title: string; path: string; parent: string; detail: string; selected: boolean }[],
-    candidateCount: 0, selectedCount: 0, selectionLabel: '', truncated: false, importLabel: 'Import 0 projects', importing: false, emptyScan: false,
+    pairStartsOpen: false, scanning: false,
+    scans: [] as { key: string; label: string; error: string; empty: boolean; truncated: boolean; candidates: { key: string; title: string; path: string; parent: string; detail: string; selected: boolean }[] }[],
+    legend: false, candidateCount: 0, selectedCount: 0, selectionLabel: '', importLabel: 'Import 0 projects', importing: false,
     commandCopied: state.copied,
   };
   if (!native?.available) return view;
@@ -280,6 +283,9 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
     welcomeHosts = [];
   }
   if (!view.show) return view;
+  // WelcomeWizard's localAvailable (the desktop's local server answers): with it "Add a computer" starts closed.
+  state.pairStartsOpen ??= hosted;
+  view.pairStartsOpen = state.pairStartsOpen;
   // A failed pairing registers nothing (PairingForm): the link this client tried
   // and never reached stays out of the list rather than "Connecting…" forever.
   // The primary leads the list ("This machine", preselected); a pairing still connecting is listed once it connected.
@@ -319,37 +325,40 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   welcomeHosts = mounted.map(({ host, native }) => ({ host, native }));
   for (const { host, native: routed, ids } of mounted) await watchProviderSetup(host, routed, 'welcome', { auth: ids, install: ids });
   if (view.step !== 'import') return view;
-  // useProjectScans: this client reads the focused environment's history.
-  const focused = setup.find(source => source.focused);
-  // The scan is recorded only once it answers: an answer the runtime abandons
+  // useProjectScans: each computer set up is scanned, the focused one on this connection, the others on theirs.
+  // The scans are recorded only once they answer: an answer the runtime abandons
   // mid-request must not leave a scan that never finishes (the view shows the
   // search while this step's answer is still out).
-  if (!state.scan || state.scan.environmentId !== (focused?.environmentId ?? '')) {
-    const scan: Scan = { environmentId: focused?.environmentId ?? '', loading: false, error: focused ? '' : 'Connect to this computer to look for its projects.', candidates: [], truncated: false };
-    if (focused) {
-      try {
-        const result = await client.rpc(native, 'agentSessions.scan', {});
-        scan.candidates = decodeCandidates(focused.environmentId, result);
-        scan.truncated = result.truncated === true;
-      } catch (error) { if (letGo(error)) throw error; scan.error = error instanceof Error ? error.message : 'The scan failed.'; }
-    }
-    state.scan = scan;
+  const scanKey = setup.map(source => source.key).join('\n');
+  if (!state.scans || state.scans.key !== scanKey) {
+    state.scans = { key: scanKey, list: await Promise.all(setup.map(source => scanEnvironment(client, native, source))) };
     state.picked = null;
   }
-  const scan = state.scan;
-  const picked = state.picked ?? recentCandidates(scan.candidates, state.now);
-  view.scanning = scan.loading; view.scanError = scan.error; view.truncated = scan.truncated;
-  view.candidates = scan.candidates.map(candidate => ({ key: candidate.key, title: candidate.title, path: splitOnboardingProjectPath(candidate.path).name, parent: splitOnboardingProjectPath(candidate.path).parent, selected: picked.has(candidate.key),
-    detail: [`${candidate.threadCount} ${candidate.threadCount === 1 ? 'thread' : 'threads'}`, relative(candidate.lastActiveAt, state.now), candidate.alreadyImported ? 'Imported' : ''].filter(Boolean).join(' · ') }));
-  view.candidateCount = view.candidates.length;
-  view.selectedCount = view.candidates.filter(candidate => candidate.selected).length;
+  const scans = state.scans.list, all = scans.flatMap(scan => scan.candidates);
+  const picked = state.picked ?? recentCandidates(all, state.now);
+  view.legend = scans.length > 1;
+  view.scans = scans.map(scan => ({ key: scan.environmentId, label: scan.label, error: scan.error, empty: !scan.error && scan.candidates.length === 0, truncated: scan.truncated,
+    candidates: scan.candidates.map(candidate => ({ key: candidate.key, title: candidate.title, path: splitOnboardingProjectPath(candidate.path).name, parent: splitOnboardingProjectPath(candidate.path).parent, selected: picked.has(candidate.key),
+      detail: [`${candidate.threadCount} ${candidate.threadCount === 1 ? 'thread' : 'threads'}`, relative(candidate.lastActiveAt, state.now), candidate.alreadyImported ? 'Imported' : ''].filter(Boolean).join(' · ') })) }));
+  view.candidateCount = all.length;
+  view.selectedCount = all.filter(candidate => picked.has(candidate.key)).length;
   view.selectionLabel = `${view.selectedCount} of ${view.candidateCount} selected`;
-  view.emptyScan = !scan.loading && !scan.error && scan.candidates.length === 0;
   view.importing = state.importing;
   view.importLabel = state.importing ? 'Importing…' : `Import ${view.selectedCount} ${view.selectedCount === 1 ? 'project' : 'projects'}`;
   return view;
 }
 export type WelcomeView = Awaited<ReturnType<typeof welcomeView>>;
+
+/** agentSessionScan on one computer; its failure is that computer's own (formatEnvironmentQueryError). */
+async function scanEnvironment(client: T3Client, native: Native, source: { environmentId: string; label: string }): Promise<Scan> {
+  const scan: Scan = { environmentId: source.environmentId, label: source.label || 'Computer', error: '', candidates: [], truncated: false };
+  try {
+    const result = obj(source.environmentId === client.environmentId ? await client.rpc(native, 'agentSessions.scan', {}) : await environmentRequest(client, native, source.environmentId, 'agentSessions.scan', {}));
+    scan.candidates = decodeCandidates(source.environmentId, result);
+    scan.truncated = result.truncated === true;
+  } catch (error) { if (letGo(error)) throw error; scan.error = error instanceof Error ? error.message : 'The scan failed.'; }
+  return scan;
+}
 
 // ── Commands (pageslocal:welcome-*) ────────────────────────────────────────
 
@@ -395,10 +404,10 @@ export async function welcomeLocal(client: T3Client, native: Native, op: string,
   if (op === 'setup') {
     const selected = state.selection ?? state.auto;
     state.setup = environmentSources(client, fleet.saved, fleet.entries).filter(source => selected.has(source.key) && source.enabled && source.phase === 'connected').map(source => source.key);
-    state.scan = null; state.picked = null; return '';
+    state.scans = null; state.picked = null; return '';
   }
   if (op === 'pick' || op === 'pick-all' || op === 'pick-none') {
-    const candidates = state.scan?.candidates ?? [];
+    const candidates = state.scans?.list.flatMap(scan => scan.candidates) ?? [];
     const current = new Set(state.picked ?? recentCandidates(candidates, state.now));
     if (op === 'pick') { if (current.has(id)) current.delete(id); else current.add(id); }
     state.picked = op === 'pick-all' ? new Set(candidates.map(candidate => candidate.key)) : op === 'pick-none' ? new Set() : current;
@@ -431,30 +440,36 @@ function finish(client: T3Client, landing: string): string {
   return '';
 }
 
-/** ImportStep.runImport: create each missing project, then import its agent history. */
+/** ImportStep.runImport: create each missing project, then import its agent history, each on its own computer. */
 export async function importProjects(client: T3Client, native: Native): Promise<string> {
   const state = stateOf(client);
-  const candidates = (state.scan?.candidates ?? []).filter(candidate => (state.picked ?? recentCandidates(state.scan?.candidates ?? [], state.now)).has(candidate.key));
+  const all = state.scans?.list.flatMap(scan => scan.candidates) ?? [];
+  const picked = state.picked ?? recentCandidates(all, state.now);
+  const candidates = all.filter(candidate => picked.has(candidate.key));
   if (!candidates.length) return finish(client, '');
   state.importing = true;
   let imported = 0, skipped = 0, completed = 0, landing = '', fallback = '';
   try {
     for (const candidate of candidates) {
-      let projectId = candidate.projectId || str(client.shell.projects.find(project => str(project.workspaceRoot).replace(/\/+$/, '') === candidate.path.replace(/\/+$/, ''))?.id);
+      const { environmentId } = candidate, focused = environmentId === client.environmentId;
+      const request = (method: string, payload: Obj) => focused ? client.rpc(native, method, payload, true) : environmentRequest(client, native, environmentId, method, payload).then(obj);
+      const shell = focused ? client.shell : [...fleet.entries.values()].find(entry => entry.environmentId === environmentId)?.shell;
+      let projectId = candidate.projectId || str((shell?.projects ?? []).find(project => str(project.workspaceRoot).replace(/\/+$/, '') === candidate.path.replace(/\/+$/, ''))?.id);
       if (!projectId) {
         const ids = await bridgeReply(native, { op: 'ids', count: 2 });
         const [commandId, created] = (Array.isArray(ids.value) ? ids.value : []).map(value => str(value));
         if (!ids.ok || !commandId || !created) continue;
         try {
-          await client.rpc(native, 'projects.mutate', { type: 'project.create', commandId: `onboarding:project:create:${created}`, projectId: created, title: candidate.title, workspaceRoot: candidate.path, createWorkspaceRootIfMissing: false, defaultModelSelection: null }, true);
+          await request('projects.mutate', { type: 'project.create', commandId: `onboarding:project:create:${created}`, projectId: created, title: candidate.title, workspaceRoot: candidate.path, createWorkspaceRootIfMissing: false, defaultModelSelection: null });
           projectId = created;
         } catch { continue; }
       }
       try {
-        const result = await client.rpc(native, 'agentSessions.import', { projectId, expectedWorkspaceRoot: candidate.path }, true);
+        const result = await request('agentSessions.import', { projectId, expectedWorkspaceRoot: candidate.path });
         imported += num(result.importedCount); skipped += num(result.skippedCount);
-        if (num(result.importedCount) > 0 && !landing) landing = projectId;
-        if (num(result.skippedCount) === 0) { completed += 1; if (!fallback) fallback = projectId; }
+        // The landing opens a thread on this connection, so it is a project of the focused computer.
+        if (num(result.importedCount) > 0 && !landing && focused) landing = projectId;
+        if (num(result.skippedCount) === 0) { completed += 1; if (!fallback && focused) fallback = projectId; }
       } catch { /* counted below as not imported */ }
     }
     client.shell = applyShell(client.shell, await client.restAccess(native).http('/api/orchestration/shell'));

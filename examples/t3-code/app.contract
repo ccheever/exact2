@@ -8,7 +8,7 @@ use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Can
 use PairFields from "./src/connections/pairing-shapes.contract"
 use providerLinkVisit from "./src/shell/app-settings.contract"
 use SshPromptView, SshPromptAnswer from "./src/connections/ssh-prompt.contract" // the SSH password dialog (ssh-auth.ts)
-use TranscriptMarkdown, MarkdownLabels from "./src/timeline/markdown.contract"
+use TranscriptMarkdown, MarkdownLabels, MarkdownSource from "./src/timeline/markdown.contract"
 use TimelineAttachmentUrls from "./src/timeline/timeline-attachments.contract"
 use PagesHome, pageTrailNext from "./src/pages/pages-hero.contract"
 use UsageView, UsageKey from "./src/usage/pages-usage.contract"
@@ -293,6 +293,7 @@ component T3Code
     streamMeasured
     codeCopyDone
     questionDocuments
+    traceDocuments
     welcomeCopyDone
     routeKeyboard
     routeKeyboardInput
@@ -519,6 +520,9 @@ component T3Code
   resource markdown = renderMarkdown(data.messages, data.markdownSkills, threadFind.highlight, threadFind.entry, threadFind.occurrence, data.messages.map((message) => MarkdownLabels(id=message.id, chips=message.md.chips))) as shape TranscriptMarkdown
   resource questionMarkdown = renderQuestionMarkdown(data.questions) as shape TranscriptMarkdown
   derive questionDocuments = questionMarkdown.documents
+  // ReasoningTraceContent: an open thought's trace is Markdown, its single newlines kept as UserMessageBody keeps them.
+  resource traceMarkdown = renderFileMarkdown(data.messages.map((message) => message.activities.filter((a) => a.reasoning and a.detailOpen).map((a) => MarkdownSource(id=`trace:${a.id}`, kind="user", title="", body=a.output))).flat()) as shape TranscriptMarkdown
+  derive traceDocuments = traceMarkdown.documents
   resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision, scheme) as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
   // Its read also brings the open documents up to date (a theme change); what it queues for them reaches them with the
   // next snapshot, so a new post asks for one now instead of at the next minute tick.
@@ -637,10 +641,15 @@ component T3Code
     chatLocal("pr-ui-disarm", prDetail.ref, `serial:${prDetail.actions.armedSerial}`)
   state welcomeStep = "connect"
   state welcomeLink = ""
-  state welcomePairOpen = true
+  // "Add a computer" as the person left it; "" is as the Connect step starts it (ConnectionStep's expandPairingInitially).
+  state welcomePairFold = ""
+  derive welcomePairOpen = welcomePairFold == "" ? welcome.pairStartsOpen : welcomePairFold == "open"
+  state welcomePaired = 0
   resource welcome = welcome(welcomeStep, wallTime.epochAtZero + elapsed, data.revision) as shape WelcomeView
   action welcomeGo(step: string)
     welcomeStep = step
+    if step == "connect"
+      welcomePairFold = ""
   action welcomeSetup
     welcomeStep = "agents"
     send localChanged = command("pageslocal:welcome-setup", "", "", 0)
@@ -654,7 +663,12 @@ component T3Code
       modalError = ""
       send changed = command("welcome-pair", "", welcomeLink, 0)
   action welcomeTogglePair
-    welcomePairOpen = not welcomePairOpen
+    welcomePairFold = welcomePairOpen ? "closed" : "open"
+  // ConnectionStep's onPaired and its `ready` effect: Continue takes the focus once it can.
+  task welcomePairedFocus when welcomePaired > 0 and welcomeStep == "connect" and welcome.ready and not commandPending key=welcomePaired
+    after(1, welcomeFocusContinue)
+  action welcomeFocusContinue
+    focus("welcome-continue")
   action welcomeFinish
     if not commandPending
       commandPending = true
@@ -1588,7 +1602,8 @@ component T3Code
             originEdited = false
           if pendingModal == "welcome-pair"
             welcomeLink = ""
-            welcomePairOpen = false
+            welcomePairFold = "closed"
+            welcomePaired = welcomePaired + 1
           if pendingModal == "provider-add" or pendingModal == "provider-add-local"
             providerDialog = pendingModal == "provider-add-local" ? "" : wizardManual or wizardDriver == "acpRegistry" ? providerDialog : ""
             providerSelected = providerCreated
