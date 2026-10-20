@@ -5511,8 +5511,8 @@ Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels add
   - each level wins in turn on one param: the package's line, the app's override (`levels.app`), the app's value
     (`levels.param`, and `param.set` kept), and an app value naming an app token;
   - a chain of package tokens;
-  - a base name (`Card.inset` through `reading.gap = space.md`), a role (`AccentColor`), and an expression (no
-    `levels`, its tuples `default`);
+  - a base name (`Card.inset` through `reading.gap = space.md`), a role (`AccentColor`), and an expression
+    (`levels: null`, its tuples `default`);
   - `describe`'s `reaches`;
   - levels differing by tuple (`reading.gap` 12px, `when mode=b: space.lg`): `app-token` then `base`, and
     `levels.base` null; then a `when` sending one tuple to another base (`space.md`, `when mode=b: space.lg`):
@@ -5562,3 +5562,4 @@ Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels add
   - Each fails with its fix reverted (checked by hand: `0..HOPS`; the pair arm removed; the first holding `when` in
     place of the most specific).
 - **§10's lead sentence** (Grok 3) says `levels: null` for a literal or an expression, as the wire does.
+- **After review round 3 (Astra RIGHT, Grok RIGHT):** two NITs taken: the test summary says `levels: null` for an expression, and the stage-4 `uses` comment in contract/cli/src/lib.rs sits on `tamber_uses` again.
