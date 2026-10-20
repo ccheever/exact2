@@ -434,6 +434,8 @@ export function tapWords(args, held = false) {
   if (held && first === 'up') return [null, { phase: 'up', ...options(args.slice(1), ['modifiers']) }];
   if (held && first === 'cancel') return [null, { phase: 'cancel', ...options(args.slice(1), []) }];
   if (form === undefined) return [first, {}];
+  // A held contact's phases name no target: the contact is the one `tap <target> down` began.
+  if (['up', 'cancel', 'hold', 'move'].includes(form)) refuse(held ? `a held contact's phases take no target: \`tap ${[form, ...rest].join(' ')}\`` : `${form} is a phase of a held contact, which none is: \`tap <target> down\`, then \`tap ${form}${form === 'move' ? ' <x> <y>' : form === 'hold' ? ' <ms>' : ''}\``);
   if (form.startsWith('{')) { try { return [first, JSON.parse(args.slice(1).join(' '))]; } catch (e) { refuse(e.message); } }
   switch (form) {
     // A click with modifiers held (gallery F20): `tap <target> modifiers Shift+Meta`.
