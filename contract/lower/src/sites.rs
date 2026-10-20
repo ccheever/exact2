@@ -93,6 +93,16 @@ pub enum Origin {
         /// The state part's row.
         span: Span,
     },
+    /// A row a `:disabled` or `:checked` part folds into one value over
+    /// its base (LLP 1122's queue item (2)): the base's attribute where an
+    /// author wrote it, none for one the node takes unwritten, and each
+    /// part folded over it (each an [`Origin::State`]).
+    Folded {
+        /// The base's origin and attribute; none where no author wrote it.
+        base: Option<Box<Origin>>,
+        /// Each part folded over it.
+        parts: Vec<Origin>,
+    },
 }
 
 impl Origin {
@@ -104,6 +114,9 @@ impl Origin {
             Origin::Class(name, _) => format!("class:{name}"),
             Origin::Tag => "tag".into(),
             Origin::State { of, .. } => of.label(),
+            Origin::Folded { base, .. } => {
+                base.as_ref().map_or_else(|| "own".into(), |b| b.label())
+            }
         }
     }
 
@@ -114,6 +127,7 @@ impl Origin {
         match self {
             Origin::Own(w) | Origin::Class(_, w) => w.as_ref(),
             Origin::Tag | Origin::State { .. } => None,
+            Origin::Folded { base, .. } => base.as_ref().and_then(|b| b.written()),
         }
     }
 }

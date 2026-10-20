@@ -286,6 +286,9 @@ impl SourceMap {
             for (row, origin) in &node.rows {
                 match origin {
                     Origin::State { .. } => rows.push((*row, None, vec![origin])),
+                    Origin::Folded { base, parts } => {
+                        rows.push((*row, base.as_deref(), parts.iter().collect()))
+                    }
                     _ => rows.push((*row, Some(origin), Vec::new())),
                 }
             }

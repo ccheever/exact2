@@ -75,6 +75,19 @@ pub(crate) struct Folded {
     /// Where `:active`'s press paint rows start in `attrs` (the last).
     pub pressed: usize,
     pub by_class: Vec<bool>,
+    /// Each fold's sources, parallel to `by_class`, for the map.
+    pub folds: Vec<Fold>,
+}
+
+/// Where a folded row's value comes from (LLP 1122's queue item (2)):
+/// the base's attribute that wrote B, where an author wrote it (its span
+/// and name as written; none for what the node takes unwritten, `none`, a
+/// metric the compiler writes), and each `:disabled` or `:checked` part
+/// folded over it, at its row.
+#[derive(Clone, Debug, Default)]
+pub struct Fold {
+    pub base: Option<(Span, String)>,
+    pub parts: Vec<(&'static str, Span)>,
 }
 
 /// Whether a row `name` (as written) is one `state` takes, a side's colour
@@ -108,13 +121,13 @@ fn longhands(row: &Attr) -> Result<Vec<(String, Expr)>, LowerError> {
 }
 
 /// The base's value for longhand `l`: the last of `base` that writes it,
-/// a shorthand's part for it (`border-color`, `border`, `border-top` …);
-/// `None` where none does.
-fn base_of(base: &[Attr], l: &str) -> Result<Option<Expr>, LowerError> {
+/// a shorthand's part for it (`border-color`, `border`, `border-top` …),
+/// with that attribute's index; `None` where none does.
+fn base_of(base: &[Attr], l: &str) -> Result<Option<(Expr, usize)>, LowerError> {
     let mut out = None;
-    for a in base {
+    for (i, a) in base.iter().enumerate() {
         if a.name == l {
-            out = Some(a.value.clone());
+            out = Some((a.value.clone(), i));
             continue;
         }
         let Some(side) = SIDES.iter().position(|s| *s == l) else {
@@ -124,7 +137,10 @@ fn base_of(base: &[Attr], l: &str) -> Result<Option<Expr>, LowerError> {
         match a.name.as_str() {
             "border-color" => {
                 let sides = shorthands::sides("border-color", &a.value)?;
-                out = Some(sides.map_or_else(|| a.value.clone(), |s| s[side].clone()));
+                out = Some((
+                    sides.map_or_else(|| a.value.clone(), |s| s[side].clone()),
+                    i,
+                ));
             }
             "border" | "border-top" | "border-right" | "border-bottom" | "border-left"
                 if a.name == "border" || a.name == edge =>
@@ -137,7 +153,7 @@ fn base_of(base: &[Attr], l: &str) -> Result<Option<Expr>, LowerError> {
                     BorderColorLeft,
                 ][side];
                 if let Some(index) = shorthands::rows(&a.name).iter().position(|r| *r == colour) {
-                    out = Some(shorthands::component(&a.value, &a.name, index)?);
+                    out = Some((shorthands::component(&a.value, &a.name, index)?, i));
                 }
             }
             _ => {}
@@ -434,7 +450,7 @@ impl Lowerer<'_> {
         }
         // Each folded longhand: its value, where, written, and whether its
         // class wrote every state row in it.
-        let mut folded: Vec<(String, Expr, Span, bool, bool)> = Vec::new();
+        let mut folded: Vec<(String, Expr, Span, bool, bool, Fold)> = Vec::new();
         let mut looks: Vec<(String, Vec<Attr>)> = Vec::new();
         for (state, row, _) in &parts {
             if !matches!(*state, "disabled" | "checked" | "active") {
@@ -465,31 +481,43 @@ impl Lowerer<'_> {
             let Some(condition) = condition else { continue };
             for (_, row, class) in parts.iter().filter(|(s, ..)| *s == state) {
                 for (l, v) in longhands(row)? {
-                    let (under, by_class) = match folded.iter().rposition(|(n, ..)| *n == l) {
-                        Some(i) => {
-                            let f = folded.remove(i);
-                            (f.1, f.4 && *class)
-                        }
-                        // The base's, else what the node takes unwritten (a
-                        // link's colour), else no row.
-                        None => {
-                            let base = base_of(&base, &l)?
-                                .or_else(|| {
-                                    implied
+                    let (under, by_class, mut fold) =
+                        match folded.iter().rposition(|(n, ..)| *n == l) {
+                            Some(i) => {
+                                let f = folded.remove(i);
+                                (f.1, f.4 && *class, f.5)
+                            }
+                            // The base's, else what the node takes unwritten (a
+                            // link's colour), else no row.
+                            None => match base_of(&base, &l)? {
+                                Some((value, i)) => {
+                                    let a = &base[i];
+                                    let fold = Fold {
+                                        base: a.written.then(|| (a.span, a.name.clone())),
+                                        parts: Vec::new(),
+                                    };
+                                    (value, *class, fold)
+                                }
+                                None => {
+                                    let base = implied
                                         .iter()
                                         .rfind(|(n, _)| *n == l)
                                         .map(|(_, e)| e.clone())
-                                })
-                                .unwrap_or(Expr::None(row.span));
-                            (base, *class)
-                        }
-                    };
+                                        .unwrap_or(Expr::None(row.span));
+                                    (base, *class, Fold::default())
+                                }
+                            },
+                        };
                     // The author's row owns what it folds, unless its base is
                     // a metric the compiler writes, which no author may (a
                     // grouped list's ground): then the fold stays implied.
                     let metric = metric_in(&under);
+                    if metric {
+                        fold.base = None;
+                    }
+                    fold.parts.push((state, row.span));
                     let value = choose(condition.clone(), v, under, row.span)?;
-                    folded.push((l, value, row.span, row.written && !metric, by_class));
+                    folded.push((l, value, row.span, row.written && !metric, by_class, fold));
                 }
             }
         }
@@ -501,8 +529,8 @@ impl Lowerer<'_> {
             .count();
         let mut attrs = base;
         let base_len = attrs.len();
-        let mut by_class = Vec::new();
-        for (name, value, span, written, class) in folded {
+        let (mut by_class, mut folds) = (Vec::new(), Vec::new());
+        for (name, value, span, written, class, fold) in folded {
             attrs.push(Attr {
                 name,
                 value,
@@ -510,6 +538,7 @@ impl Lowerer<'_> {
                 written,
             });
             by_class.push(class);
+            folds.push(fold);
         }
         // `:active`'s rows as the press paint's, the class's then the
         // node's (the node's wins), each at its `:active` row's span.
@@ -537,6 +566,7 @@ impl Lowerer<'_> {
             base_len,
             pressed,
             by_class,
+            folds,
         }))
     }
 }
