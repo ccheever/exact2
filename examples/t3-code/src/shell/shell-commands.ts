@@ -20,6 +20,7 @@ import { letGo } from '../client/let-go';
 import { markUnread } from '../sidebar/sidebar-commands';
 import { canStopNativeSubagent, canStopWorkflow } from '../details/lineage-workflows';
 import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
+import { openHome } from '../pages/home-landing';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -143,6 +144,9 @@ export async function shellLocal(client: T3Client, native: Native, op: string, i
     if (response.ok !== true) throw new ClientError('Could not copy to the clipboard.');
   };
   if (op === 'copy-error') { await copy(value); if (Number(id) > 0) markCopied(client, Number(id)); return ''; }
+  // The window ⌘W hid, reopened: the reference's new window loads `/` (DesktopWindow.activate), whose landing opens the
+  // most recent project's draft across every environment (home-landing.ts).
+  if (op === 'reopen') { await openHome(client, native); return 'sidebar:new-thread'; }
   // ThreadDetailsControl in the inline presentation: toggles this thread's docked card (remembered).
   if (op === 'details-inline') { toggleInline(client, detailsKey(client)); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // panel-surfaces.ts
