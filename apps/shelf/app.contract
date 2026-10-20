@@ -500,8 +500,7 @@ component BookRow
         min-width=0
         align-items="center"
         gap=8
-        margin-left=16
-        padding="10px 16px 10px 0"
+        padding="10px 0"
         column flex=1 min-width=0 gap=2
           text book.title font="-exact-headline" line-clamp=2 testId=`book-title-${book.id}`
           text book.author font="-exact-subheadline" color="-exact-secondary-label"
@@ -649,7 +648,7 @@ component WorkRow
     added: bool
     add: action
   view
-    row align-items="center" gap=12 padding-left=16 testId=`work-${work.key}`
+    row align-items="center" gap=12 testId=`work-${work.key}`
       if work.coverUrl != ""
         image work.coverUrl alt=""
           width=44
@@ -664,7 +663,7 @@ component WorkRow
         min-width=0
         align-items="center"
         gap=12
-        padding="10px 16px 10px 0"
+        padding="10px 0"
         column flex=1 min-width=0 gap=2
           text work.title font="-exact-headline" line-clamp=2
           text work.author font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1

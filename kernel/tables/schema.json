@@ -5870,6 +5870,7 @@
     ["control-height-coarse", "length", 44],
     ["control-radius", "length", 8],
     ["control-line", "length", 1],
+    ["list-row-inset", "length", 16, 16, 16, 16, 16],
     ["control-line-alpha", "number", 0.45],
     ["control-line-height", "number", 1.25],
     ["control-weight", "number", 500],
