@@ -5832,6 +5832,7 @@
     ["grouped-row-inset-symbol", "style length", 56, 10, 56, 56],
     ["grouped-row-padding-end", "style length", 16, 10, 16, 16],
     ["grouped-swipe-margin", "style length", 0, 10, 0, 0],
+    ["grouped-swipe-max-width", "style length", "unset", "calc(100% - 10px)", "unset", "unset"],
     ["grouped-swipe-padding", "style length", 16, 0, 16, 16],
     ["grouped-row-gap", "style length", 8, 8, 8, 8],
     ["grouped-stack-min-height", "style length", 52, 36, 52, 52],

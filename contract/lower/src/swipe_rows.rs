@@ -17,7 +17,8 @@
 //! inside the row, so the cell UIKit swipes and its long-press preview hold
 //! it, as a hand-built list's cell does, and the row slides from the card's
 //! edge; the Mac's form, whose rows stand in from both edges, keeps its
-//! leading inset on the scroll (`grouped-swipe-margin`). So the separator
+//! leading inset on the scroll (`grouped-swipe-margin`, and its widest the
+//! card less it, `grouped-swipe-max-width`). So the separator
 //! the sheet's hosts draw under such a row starts at the scroll's edge (the
 //! card's), where UIKit draws its own at the inset.
 
@@ -341,6 +342,8 @@ fn swiped(content: &Node, row: &dyn Fn(&Node, bool) -> Node, span: Span) -> (Nod
     let inset = mark("padding-left");
     let mut outer: Vec<Attr> = attrs.iter().filter(|a| boxed(a)).cloned().collect();
     outer.push(s(&mark("margin-left"), &metric("swipe-margin"), span));
+    // A scroll written as wide as its card still ends with it.
+    outer.push(s(&mark("max-width"), &metric("swipe-max-width"), span));
     let mut inner = vec![s(&inset, &metric("swipe-padding"), span)];
     inner.extend(attrs.into_iter().filter(|a| !boxed(a) && a.name != inset));
     // A leading symbol stands at the row's inset as in any row, with no
