@@ -138,7 +138,9 @@ component App
 ```
 
 - Each option is one short `text` (or a symbol `image` with an `aria-label`); leave its
-  look unsaid. Six or more options, or long labels: a `select`. On or off: `input
+  look unsaid. A radio that paints itself (its own `background-color`, `border` or
+  `border-radius`, LLP 1104 D2) makes the group your drawn control on every host, keys
+  and all; `appearance="none"` on the `radiogroup` says so whatever the radios write. Six or more options, or long labels: a `select`. On or off: `input
   type="checkbox" switch`.
 - `state tip = 18 persist` keeps the choice across launches.
 

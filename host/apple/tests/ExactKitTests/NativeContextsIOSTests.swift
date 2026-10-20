@@ -220,6 +220,32 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertNotNil(p.segments.control(of: 1))
     }
 
+    /// LLP 1115 "what the author writes wins", by LLP 1104 D2: a radio with its
+    /// own background, border or radius is a bare button, and its group is the
+    /// author's drawn control, not `UISegmentedControl`, as on the web. Its
+    /// radios still take the radio group's keys.
+    func testAGroupOfBareRadiosIsKeptAsAuthored() throws {
+        var ops = view(1, ["accessibilityRole": "radiogroup"], style: ["background_color": [240, 240, 240, 255]])
+        for (i, (id, words)) in [(2, "Off"), (4, "808"), (6, "909")].enumerated() {
+            ops += [["op": "create", "id": id, "kind": "button", "handlers": ["press"],
+                     "props": ["accessibilityRole": "radio", "accessibilityChecked": i == 0 ? "true" : "false"],
+                     "style": ["background_color": [0, 0, 0, 255], "written": ["background_color"]]],
+                    ["op": "frame", "id": id, "x": Double(i) * 100, "y": 0.0, "w": 100.0, "h": 40.0],
+                    ["op": "create", "id": id + 1, "kind": "text", "props": ["text": words]],
+                    ["op": "frame", "id": id + 1, "x": 0.0, "y": 0.0, "w": 40.0, "h": 20.0],
+                    ["op": "children", "id": id, "ids": [id + 1]]]
+        }
+        let p = presenter(ops + [["op": "children", "id": 1, "ids": [2, 4, 6]], ["op": "roots", "ids": [1]]], faces: [:])
+        defer { window.isHidden = true }
+        XCTAssertNil(p.segments.control(of: 1), "painted radios are the author's control")
+        let off = try XCTUnwrap(p.views[2])
+        XCTAssertFalse(off.isHidden, "its radios show as drawn")
+        XCTAssertEqual(off.ariaRadioGroup, p.views[1], "and keep the radio group's keys")
+        // A group of native radios, the same words, is the segmented control.
+        let native = tablist([2: face("Off"), 3: face("808"), 4: face("909")], role: "radiogroup")
+        XCTAssertNotNil(native.segments.control(of: 1))
+    }
+
     /// Opacity only paints (CSS); `visibility: hidden` and `inert` take input away.
     func testSegmentsFollowTheirStateNotTheirOpacity() throws {
         let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")])

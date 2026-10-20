@@ -49,6 +49,31 @@ final class SegmentsMacTests: XCTestCase {
         for (role, member) in [("tablist", "tab"), ("radiogroup", "radio")] { try appearanceNone(role, member) }
     }
 
+    /// A radio with its own background, border or radius (LLP 1104 D2's
+    /// disabling rows) keeps its group the author's drawn control (LLP 1115).
+    func testAGroupOfPaintedRadiosIsKeptAsAuthored() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        defer { p.reset() }
+        let paint: [String: Any] = ["border_radius_top_left": 6, "written": ["border_radius_top_left"]]
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "radiogroup"]],
+            ["op": "create", "id": 11, "kind": "button", "props": ["accessibilityRole": "radio"], "handlers": ["press"], "style": paint],
+            ["op": "create", "id": 12, "kind": "button", "props": ["accessibilityRole": "radio"], "handlers": ["press"]],
+            ["op": "create", "id": 13, "kind": "text", "props": ["text": "One"]],
+            ["op": "create", "id": 14, "kind": "text", "props": ["text": "Two"]],
+            ["op": "children", "id": 11, "ids": [13]],
+            ["op": "children", "id": 12, "ids": [14]],
+            ["op": "children", "id": 10, "ids": [11, 12]],
+            ["op": "roots", "ids": [10]],
+        ]))
+        XCTAssertNil(p.segments.control(of: 10))
+        XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
+        XCTAssertEqual(p.views[11]?.ariaRadioGroup, p.views[10], "its radios keep the group's keys")
+        p.apply(wireBatch([["op": "style", "id": 11, "style": ["written": []]]]))
+        XCTAssertNotNil(p.segments.control(of: 10), "unpainted, it is the platform's")
+    }
+
     /// An authored radio group of native buttons: an arrow at one's own
     /// `NSButton` presses the next and gives that one's `NSButton` the focus;
     /// a right-to-left group swaps Left and Right; a hidden radio is neither

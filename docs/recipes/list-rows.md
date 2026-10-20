@@ -62,8 +62,9 @@ test "search, swipe to delete, delete from the menu"
   bulk clear does: its action opens an alert (`contract vocab confirm`).
 - Search querying a server, live or on the Search key: `contract vocab search`.
 - A filter: a `row role="radiogroup"` of `button role="radio"` above the list
-  ([persisted-setting](persisted-setting.md)): a segmented control; `appearance="none"` keeps
-  keys you paint, one Tab stop and the arrows. iOS 26 bar buttons share one glass
+  ([persisted-setting](persisted-setting.md)): a segmented control. Radios that paint their
+  own background, border or radius, or `appearance="none"` on the group, keep keys you
+  paint, one Tab stop and the arrows. iOS 26 bar buttons share one glass
   capsule; `buttonStyle="glass"` gives one its own.
 - One long-press menu serves every row: the row notes which (`aim`), each item acts on `aimed`
   and hides it (iOS: a `UIMenu`). Test: `tap "note-1" contextmenu`.

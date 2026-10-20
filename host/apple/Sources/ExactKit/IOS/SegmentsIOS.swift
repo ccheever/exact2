@@ -490,12 +490,18 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             removeBar(owner: owner.id)
             // Authored tabs a segment cannot show stay as authored, and the
             // tablist tells VoiceOver it is a tab bar (LLP 1035.001 D10).
+            // A radio with its own background, border or radius keeps its
+            // group as written: the author's paint wins (`paintsOwnButton`).
             let unshown = tabs.first { $0.segmentFace == nil }
-            if tabs.count <= 1 || unshown != nil {
+            let painted = radios ? tabs.first(where: \.paintsOwnButton) : nil
+            if tabs.count <= 1 || unshown != nil || painted != nil {
                 restore(owner: owner.id)
                 if !radios { owner.accessibilityTraits.insert(.tabBar) }
                 let member = radios ? "radio" : "tab"
-                decide(owner, unshown.map { "kept as authored: \(member) #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable \(member)s")
+                let why = painted.map { "radio #\($0.id) paints its own background, border or radius" }
+                    ?? unshown.map { "\(member) #\($0.id) is not one image or its label alone, which a segment cannot show" }
+                    ?? "fewer than two pressable \(member)s"
+                decide(owner, "kept as authored: \(why)")
                 continue
             }
             owner.accessibilityTraits.remove(.tabBar)
