@@ -391,13 +391,25 @@ export function lines(opts) {
     }],
     ['restyle', 'Setting space.md, cards.pad or a param moves every library component reading it; removing the line returns it (per host, measured on apps/library-gate)', () =>
       waits('the packages (stage 12 B1\'s package params) and apps/library-gate')],
-    ['anatomy', 'C\'s compiler tests: every anatomy, slot, library-literal, library-platform and library-control refusal with its span', () =>
-      waits('stage 12 C (anatomy, reload1)')],
+    ['anatomy', 'C\'s compiler tests: every anatomy, slot, library-literal, library-platform and library-control refusal with its span', () => {
+      // C's own suites (reload1's stage 12 C), run by name.
+      const r = run('cargo', ['test', '-q', '-p', 'contract', '--test', 'it', '--', 'anatomy::', 'anatomy_slot::', 'library_rules::']);
+      const counts = [...r.out.matchAll(/test result: (\w+)\. (\d+) passed; (\d+) failed/g)];
+      const passed = counts.reduce((n, m) => n + Number(m[2]), 0), failed = counts.reduce((n, m) => n + Number(m[3]), 0);
+      const said = `contract tests anatomy::, anatomy_slot::, library_rules::: ${passed} passed, ${failed} failed`;
+      return r.ok && passed > 0 && failed === 0 ? pass(said) : fail(said, r.out.trim().split('\n').slice(-4).join(' / ').slice(0, 400));
+    }],
     ['slot-rendered', 'Every variant cell of apps/library-gate renders its slot\'s marker, both glyphs, on every required host', () => slotRendered(opts)],
     ['slot-check-time', 'The slot check (check_slots) on the clone with both library packages takes under about 10 ms a check (the lead, 10:15Z; rt1 measures it)', () =>
       waits('stage 12 C (check_slots), the packages and the adoption, then rt1\'s measurement')],
-    ['no-forks', 'lower-library-platform clean over both packages', () =>
-      waits('stage 12 C (lower-library-platform) and the packages')],
+    ['no-forks', 'lower-library-platform clean over both packages', () => {
+      // apps/library-gate uses every export, so its build reads both packages
+      // whole; lower-library-platform is an error, so a clean build is clean.
+      const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(LIBRARY_GATE, 'app.contract'), '-o', join(ROOT, 'target', 'stage12-gate', 'no-forks.plan')]);
+      const forks = r.out.split('\n').filter(l => l.includes('lower-library-platform'));
+      const said = `apps/library-gate built: ${r.ok ? 'yes' : 'NO'}; lower-library-platform: ${forks.length ? forks.length : 'none'}`;
+      return r.ok && !forks.length ? pass(said) : fail(said, ...forks.slice(0, 5));
+    }],
     ['no-regressions', 'Release output unchanged for apps using no library component; conform clean; @exact/reading\'s users unchanged', () =>
       waits('the packages and the adoption (the comparison runs over stage 12 E\'s commits)')],
   ];

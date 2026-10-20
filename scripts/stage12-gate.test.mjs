@@ -47,7 +47,7 @@ test('the pixel diff counts what differs outside the allowlist', () => {
 });
 
 test('a line whose parts are missing waits on them', async () => {
-  const waiting = ['consumer-pixels', 'restyle', 'anatomy', 'slot-check-time', 'no-forks', 'no-regressions'];
+  const waiting = ['consumer-pixels', 'restyle', 'slot-check-time', 'no-regressions'];
   for (const [id, , check] of lines({ baseline: null, hosts: [] }).filter(([id]) => waiting.includes(id))) expect([id, (await check()).status]).toEqual([id, expect.stringMatching(/^WAITS-ON /)]);
 });
 
