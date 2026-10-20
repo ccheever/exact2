@@ -688,7 +688,6 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     expect(first.calls).toEqual([
       ...[native,'web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
       {host:'web',mode:'0',build:true},
-      {host:native,mode:'0',build:false}, {host:'web',mode:'0',build:false},
     ]);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual([native,'web']);
     }

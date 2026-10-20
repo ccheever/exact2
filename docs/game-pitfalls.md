@@ -91,3 +91,9 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
   check never sees it. Fix: put `~/.cargo/bin` on PATH (`.zprofile`), or symlink
   `~/.cargo/bin/wasm-bindgen` beside `cargo`. **Candidate diagnostic:** setup could check
   `~/.cargo/bin` and say the PATH is the problem. (Fishslop bench setup, 2026-10-17.)
+- **A proof reports `no matching rustc unit dep-info` after changing directory spelling.**
+  Cargo's cached dep-info records absolute output paths. On macOS, alternating
+  `/tmp/game` and `/private/tmp/game` can reuse a unit whose recorded spelling the
+  receipt reader refuses. Use the canonical game and target paths from the first
+  build (`pwd -P`); if already mixed, rebuild in a fresh private target directory.
+  (Fresh `--game --assets` baseline, LLP 1139.000, 2026-10-19.)

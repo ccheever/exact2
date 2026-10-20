@@ -54,7 +54,7 @@ test('a newly generated game builds, reports empty pins and captures without edi
     // An empty baseline is UNVERIFIED. All-mode first-pin agreement
     // is covered by prove's tests; it need not rebuild seven bakes in this fixture.
     await run('bun', [resolve(app, 'proof.mjs')], undefined, 3);
-    assert.match(readFileSync(resolve(app, 'artifacts/linux/proof.txt'), 'utf8'), /UNVERIFIED: no pins — run bun game\/prove.mjs/);
+    assert.match(readFileSync(resolve(app, 'artifacts/linux/proof.txt'), 'utf8'), /UNVERIFIED: no baseline yet .*run bun game\/prove.mjs/);
     await run('bun', [resolve(app, 'proof.mjs'), 'web', '--screenshot-only'], undefined, 3);
     assert.match(readFileSync(resolve(app, 'artifacts/web/proof.txt'), 'utf8'), new RegExp(`PROOF UNVERIFIED ${name} web: 0 failures`));
     const capture = JSON.parse(readFileSync(resolve(app, 'artifacts/web/replies.json'), 'utf8'));
