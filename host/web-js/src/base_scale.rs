@@ -583,13 +583,13 @@ pub fn shadow(kind: exact_kernel::style::theme::Kind, value: &str) -> Option<Str
             .map(|w| top(w, ' '))
             .unwrap_or_default()
             .into_iter()
-            .filter(|w| length(w))
+            .filter(|w| scale::is_length_item(w))
             .collect();
         let mut at = 0;
         let words: Vec<String> = top(one, ' ')
             .into_iter()
             .map(|w| {
-                if w == "inset" || !length(w) {
+                if !scale::is_length_item(w) {
                     return w.to_string();
                 }
                 let said = lengths.get(at).copied();
@@ -628,16 +628,6 @@ fn top(text: &str, sep: char) -> Vec<&str> {
     out.push(text[start..].trim());
     out.retain(|p| !p.is_empty());
     out
-}
-
-/// Whether a shadow's word is a length: px (as the plan and the row's CSS
-/// write one, unitless zero too), or over a base name.
-fn length(word: &str) -> bool {
-    word == "0"
-        || word
-            .strip_suffix("px")
-            .is_some_and(|n| n.parse::<f32>().is_ok())
-        || !scale::named_in(word).is_empty()
 }
 
 /// A base name's custom property: `--exact-space-md`.

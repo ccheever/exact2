@@ -621,6 +621,27 @@ fn a_shadow_over_base_names_writes_their_properties() {
         crate::measures::css(Kind::TextShadow, "0px space.xs space.sm #ff0000ff")
             .starts_with("0px var(--exact-space-xs) var(--exact-space-sm) "),
     );
+    // A colour whose words name a base (a platform colour's asset) is a
+    // colour, kept whole, and no length is paired with it (round 3): the
+    // row's CSS, as with no base at all.
+    for (kind, text) in [
+        (
+            Kind::BoxShadow,
+            "0px 1px 2px -exact-platform-color(ios named:space.md, #000000)",
+        ),
+        (
+            Kind::TextShadow,
+            "0px 1px -exact-platform-color(ios named:space.md, #000000)",
+        ),
+    ] {
+        let css = crate::measures::css(kind, text);
+        let plain = match kind {
+            Kind::BoxShadow => exact_kernel::style::BoxShadows::parse(text).map(|s| s.css()),
+            _ => exact_kernel::style::TextShadow::parse(text).map(|s| s.css()),
+        };
+        assert!(!css.contains("var("), "{kind:?}: {css}");
+        assert_eq!(Some(css), plain, "{kind:?}");
+    }
     // Over no base name: the row's CSS, as before.
     assert_eq!(
         crate::measures::css(Kind::BoxShadow, "0px 1px 2px #000000ff"),

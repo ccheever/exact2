@@ -157,6 +157,25 @@ pub fn evaluate(expr: &str, column: Column) -> Option<f32> {
     fold(&substitute(expr, column)?)
 }
 
+/// Whether a shadow's item is a length, as [`fold_lengths`] and the JS
+/// target read one (LLP 1121 stage 12 B3): px (`4px`, unitless `0`), a bare
+/// base name, or a `calc()`, `min()`, `max()` or `clamp()`, in any case.
+/// Any other function, a colour's, is none, whatever its words.
+pub fn is_length_item(item: &str) -> bool {
+    match item.split_once('(') {
+        Some((f, _)) => ["calc", "min", "max", "clamp"]
+            .iter()
+            .any(|m| f.eq_ignore_ascii_case(m)),
+        None => {
+            item == "0"
+                || is_base(item)
+                || item
+                    .strip_suffix("px")
+                    .is_some_and(|n| exact_num::parse_f64(n).is_ok())
+        }
+    }
+}
+
 /// A shadow's text with each length over base names folded to px (LLP 1121
 /// stage 12 B3): split at white space and commas outside parentheses, an
 /// item naming a base is substituted through `base` ([`substitute_with`])
@@ -168,16 +187,11 @@ pub fn evaluate(expr: &str, column: Column) -> Option<f32> {
 pub fn fold_lengths(text: &str, mut base: impl FnMut(&str) -> Option<String>) -> Option<String> {
     let mut out = String::with_capacity(text.len());
     let mut item = |part: &str, out: &mut String| -> Option<()> {
-        // Only a length folds: a bare word, or a `calc()`, `min()`, `max()`
-        // or `clamp()`. Any other function (a colour, a platform colour
-        // whose asset is named `space.md`) is kept whole, whatever its
-        // words, a base name inside one the codec's to refuse.
-        let length = part.split_once('(').is_none_or(|(f, _)| {
-            ["calc", "min", "max", "clamp"]
-                .iter()
-                .any(|m| f.eq_ignore_ascii_case(m))
-        });
-        if !length || named_in(part).is_empty() {
+        // Only a length folds ([`is_length_item`]). Any other item (a
+        // colour, a platform colour whose asset is named `space.md`) is
+        // kept whole, whatever its words, a base name inside one the
+        // codec's to refuse.
+        if !is_length_item(part) || named_in(part).is_empty() {
             out.push_str(part);
             return Some(());
         }
@@ -647,6 +661,26 @@ mod tests {
         ] {
             assert_eq!(mac(text).as_deref(), Some(text));
         }
+        assert!([
+            "0",
+            "4px",
+            "-1.5px",
+            "space.md",
+            "calc(space.md * 2)",
+            "MIN(1px, space.sm)"
+        ]
+        .iter()
+        .all(|i| is_length_item(i)));
+        assert!(![
+            "#000",
+            "black",
+            "space.mdx",
+            "-exact-platform-color(ios named:space.md, #000)",
+            "rgb(0 0 0)",
+            "1rem"
+        ]
+        .iter()
+        .any(|i| is_length_item(i)));
         assert_eq!(
             mac("0px CALC(space.md) 1px #000"),
             Some(format!("0px {} 1px #000", px("calc(space.md)")))

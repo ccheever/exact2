@@ -257,6 +257,22 @@ fn an_unkinded_shadow_of_functions_asks_for_its_kind() {
             "{name}: {message}"
         );
     }
+    // Functions over unset base names count too; over plain numbers they
+    // are a number's, never a shadow's (round 3, Grok).
+    let (_, message) = compiled(
+        "unkinded-base",
+        "  card.shadow = calc(space.md * 2) calc(space.sm) black\n",
+        VIEW,
+    )
+    .unwrap_err();
+    assert!(message.contains("reads as a shadow"), "{message}");
+    let (_, message) = compiled(
+        "unkinded-numbers",
+        "  n = min(1, 2) max(3, 4) calc(5)\n",
+        "component App\n  view\n    column\n      text \"a\"\n",
+    )
+    .unwrap_err();
+    assert!(!message.contains("reads as a shadow"), "{message}");
 }
 
 /// B2's refusals hold inside a shadow; a literal blur is still never

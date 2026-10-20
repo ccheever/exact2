@@ -728,9 +728,11 @@ impl<'a> Checker<'a> {
             if !self.refused[i]
                 && self.kinds[i] == Kind::Color
                 && t.kind.is_none()
-                && crate::shadow::looks(&t.value.value, &mut |name| {
-                    self.named_kind(name, i, &mut walk) == Kind::Length
-                })
+                && crate::shadow::looks(
+                    &t.value.value,
+                    &mut |name| self.named_kind(name, i, &mut walk) == Kind::Length,
+                    self.named_length,
+                )
             {
                 self.refused[i] = true;
                 self.at(&t.name, "tamber-kind", format!("`{}` reads as a shadow: write its kind, `{}: box-shadow` or `{}: text-shadow`", t.name.value, t.name.value, t.name.value));

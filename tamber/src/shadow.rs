@@ -143,8 +143,28 @@ pub(crate) fn split(text: &str) -> Vec<&str> {
 /// Whether a value reads as a shadow (a list, two or more lengths, a
 /// length token's or dial's name or a length's function among them, or
 /// `inset`), so an unwritten kind is asked for rather than read as a
-/// colour.
-pub(crate) fn looks(text: &str, length: &mut dyn FnMut(&str) -> bool) -> bool {
+/// colour. `length` says a name is a length token's or dial's; `named` a
+/// named length's or an unset base name's, which only a function's
+/// arguments are asked of.
+pub(crate) fn looks(
+    text: &str,
+    length: &mut dyn FnMut(&str) -> bool,
+    named: &dyn Fn(&str) -> bool,
+) -> bool {
+    // A function over a dimension or a length's name, at any depth: one
+    // over plain numbers is a number's (stage 12 B3, round 3, Grok).
+    fn measures(
+        args: &[Vec<Item>],
+        length: &mut dyn FnMut(&str) -> bool,
+        named: &dyn Fn(&str) -> bool,
+    ) -> bool {
+        args.iter().flatten().any(|i| match i {
+            Item::Dim(..) => true,
+            Item::Ident(n) => named(n) || length(n),
+            Item::Func(_, args, _) => measures(args, length, named),
+            _ => false,
+        })
+    }
     let parts = split(text);
     parts.len() > 1
         || crate::css::parse(parts[0]).is_ok_and(|items| {
@@ -155,7 +175,10 @@ pub(crate) fn looks(text: &str, length: &mut dyn FnMut(&str) -> bool) -> bool {
                     Item::Number(n) => *n == 0.0,
                     Item::Ident(name) => length(name),
                     // A length's function (stage 12 B3, round 2, Grok 1).
-                    Item::Func(f, ..) => matches!(f.as_str(), "calc" | "min" | "max" | "clamp"),
+                    Item::Func(f, args, _) => {
+                        matches!(f.as_str(), "calc" | "min" | "max" | "clamp")
+                            && measures(args, length, named)
+                    }
                     _ => false,
                 })
                 .count();

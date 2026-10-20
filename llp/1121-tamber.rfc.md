@@ -5658,3 +5658,17 @@ codec and the wire don't move: the theme row's value is the shadow's text, its l
 - **Tests:** kernel `fold_lengths` (a platform colour, `contrast-color()`, `CALC()`);
   `a_platform_colour_named_for_a_base_is_kept_whole` (box and text); `an_unkinded_shadow_of_functions_asks_for_its_kind`
   (both repros); the literal's words for `_eu.nope` on a shadow and a border.
+
+**After review round 3 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES; every earlier item confirmed):**
+- **One length predicate** (both): `scale::is_length_item` (px, unitless `0`, a bare base name, or a `calc()`,
+  `min()`, `max()` or `clamp()` in any case) is what `fold_lengths` folds and what the JS target's shadow rewrite
+  counts as a length, so a platform colour whose asset is named `space.md` stays a colour there too, on a box and a
+  text shadow, and no inserted length is paired with it.
+- **QUEUE's per-column shadow entry** (Astra) says theme2's shape: `lengths` null for a length over base names, with
+  `length_texts`.
+- **An unkinded value's functions over plain numbers** (Grok) are a number's: `shadow::looks` counts a `calc()`,
+  `min()`, `max()` or `clamp()` as a length only over a dimension, a length token or dial, a named length or an
+  unset base name, so `n = min(1, 2) max(3, 4) calc(5)` keeps its earlier refusal.
+- **Tests:** web-js `a_shadow_over_base_names_writes_their_properties` (the platform colour, box and text, as the
+  row's CSS); kernel `is_length_item`; `an_unkinded_shadow_of_functions_asks_for_its_kind` (functions over base
+  names, and over numbers).
