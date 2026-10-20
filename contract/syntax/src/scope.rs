@@ -217,6 +217,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         theme: _,
         design: _,
         package_designs: _,
+        library: _,
         fns,
         modules,
         tests,

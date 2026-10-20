@@ -4,6 +4,7 @@
 
 mod action_related;
 mod anatomy;
+mod anatomy_slot;
 mod ancestor_row_state;
 mod animation_trigger;
 mod announce;

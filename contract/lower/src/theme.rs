@@ -1192,7 +1192,7 @@ pub(crate) fn measure_values(text: &str) -> Option<(tamber::Kind, Vec<String>)> 
 
 /// The design's length or number token `text` names: its kind and its
 /// distinct values over the app's tuples, as the plan carries them.
-fn measure_written(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
+pub(crate) fn measure_written(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
     MEASURES.with(|m| {
         m.borrow()
             .iter()

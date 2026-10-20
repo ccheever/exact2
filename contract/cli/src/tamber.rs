@@ -450,7 +450,8 @@ fn ir(
     }
     // Parts and variants, in the IR file only (LLP 1139 D5; theme2's Q2).
     if !app.library.is_empty() {
-        ir["library"] = contract::tamber_params::library(app);
+        ir["library"] =
+            contract::tamber_params::library(app, exact_tamber::parse(src).ok().as_ref());
     }
     serde_json::to_string_pretty(&ir).unwrap_or_else(|_| folding.ir())
 }

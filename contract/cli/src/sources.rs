@@ -1,6 +1,7 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+mod library;
 pub(crate) mod packages;
 mod refused;
 mod uses;
@@ -256,8 +257,10 @@ impl Loader<'_> {
             &params,
             &identities,
         );
+        let library = library::read(&self.sources, self.app_root).components;
         match self.scope() {
             Ok(mut file) => {
+                file.library = library;
                 file.design = design;
                 file.package_designs = package_designs;
                 crate::modules::desugar(&mut file).map_err(|all| resolve(&self.sources, all))?;
@@ -625,6 +628,8 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     // for, so adding it rebuilds.
     let (designs, unmade) = packages::sources(&loader.sources);
     sources.extend(designs);
+    // The files that say which components are the library's (LLP 1139 D0).
+    let library = library::read(&loader.sources, app_root).read;
     let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
     sources.extend(icons.into_iter().map(|path| Source {
         path,
@@ -638,6 +643,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             .consulted
             .into_iter()
             .chain(missing)
+            .chain(library)
             .collect(),
         errors,
     }
@@ -1306,6 +1312,7 @@ impl Loader<'_> {
             // The design is the app's, read beside its root (`design`).
             design: None,
             package_designs: Vec::new(),
+            library: Vec::new(),
             fns: all!(fns),
             modules: all!(modules),
             components: all!(components),

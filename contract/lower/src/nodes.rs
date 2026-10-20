@@ -864,6 +864,11 @@ impl Lowerer<'_> {
                 .iter()
                 .find(|(node, _)| node == span)
                 .map(|(_, part)| part.clone());
+            site.library = self
+                .library_nodes
+                .iter()
+                .find(|(node, _)| node == span)
+                .map(|(_, identity)| identity.clone());
             sites.nodes.push(site);
         }
         let children = if let Some(sections) = sections {

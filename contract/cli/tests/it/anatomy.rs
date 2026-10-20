@@ -266,7 +266,7 @@ fn the_ir_lists_parts_slot_and_variants() {
     .unwrap();
     std::fs::write(dir.join("card.contract"), card).unwrap();
     let app = contract::tamber_params::params_of(&dir.join("app.contract"));
-    let ir = contract::tamber_params::library(&app);
+    let ir = contract::tamber_params::library(&app, None);
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(
         ir,
@@ -281,6 +281,9 @@ fn the_ir_lists_parts_slot_and_variants() {
                 {"prop": "tone", "options": ["plain", "quiet"]},
                 {"prop": "dense", "options": ["false", "true"]},
             ],
+            // No library's (C2, LLP 1139 D0): no slot chain recorded.
+            "library": false,
+            "chain": [],
         }]),
         "{ir}"
     );
@@ -363,7 +366,7 @@ fn variants_are_read_by_classes_and_rows() {
     .unwrap();
     std::fs::write(dir.join("card.contract"), card).unwrap();
     let app = contract::tamber_params::params_of(&dir.join("app.contract"));
-    let ir = contract::tamber_params::library(&app);
+    let ir = contract::tamber_params::library(&app, None);
     let _ = std::fs::remove_dir_all(&dir);
     let props: Vec<&str> = ir[0]["variants"]
         .as_array()
@@ -414,7 +417,7 @@ fn a_match_arms_binding_is_no_variant() {
     .unwrap();
     std::fs::write(dir.join("card.contract"), card).unwrap();
     let app = contract::tamber_params::params_of(&dir.join("app.contract"));
-    let ir = contract::tamber_params::library(&app);
+    let ir = contract::tamber_params::library(&app, None);
     let _ = std::fs::remove_dir_all(&dir);
     let props: Vec<&str> = ir[0]["variants"]
         .as_array()

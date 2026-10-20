@@ -10,6 +10,8 @@
 //! They run on every component that says anything of parts; which
 //! components must have parts is the library rules' (C3).
 
+pub mod slot;
+
 use crate::{tags, LowerError, Lowerer};
 use contract_syntax::anatomy::{Anatomy, Mark, PartDecl};
 use contract_syntax::{Attr, Component, Expr, File, Node, Span};
@@ -156,6 +158,33 @@ fn element(nodes: &[Node], span: Span) -> Option<(&str, &[Attr], &[Node])> {
         Node::Match { some, none, .. } => element(&some.1, span).or_else(|| element(none, span)),
         Node::Children { .. } => None,
     })
+}
+
+/// Every element's span in `nodes`, at any depth (a fill this view passes
+/// to a component it uses among them: it writes them).
+fn element_spans(nodes: &[Node], out: &mut Vec<Span>) {
+    for n in nodes {
+        match n {
+            Node::Element { children, span, .. } => {
+                out.push(*span);
+                element_spans(children, out);
+            }
+            Node::Use { children, .. } | Node::Each { body: children, .. } => {
+                element_spans(children, out)
+            }
+            Node::When {
+                then, otherwise, ..
+            } => {
+                element_spans(then, out);
+                element_spans(otherwise, out);
+            }
+            Node::Match { some, none, .. } => {
+                element_spans(&some.1, out);
+                element_spans(none, out);
+            }
+            Node::Children { .. } => {}
+        }
+    }
 }
 
 /// The styles a node's `class` names: one, or each side of a choice.
@@ -435,6 +464,45 @@ impl Lowerer<'_> {
     /// for that instance ([`Lowerer::bare_control`]).
     pub(crate) fn check_anatomy(&mut self, file: &File) {
         for c in &file.components {
+            // An exported library component's slot (LLP 1139 D0, D4).
+            let library = c
+                .params
+                .identity
+                .as_ref()
+                .is_some_and(|i| file.library.contains(i));
+            if library {
+                let identity = c.params.identity.clone().unwrap_or_default();
+                let mut spans = Vec::new();
+                element_spans(&c.view, &mut spans);
+                self.library_nodes
+                    .extend(spans.into_iter().map(|s| (s, identity.clone())));
+            }
+            if library && c.slot {
+                // A token's values over the tuples (a param's is its
+                // token's, the rows already name it), each base name or
+                // expression over one in every column of the scale.
+                let columns = |v: &str| {
+                    crate::scale::ranged(v)
+                        .map(|cols| cols.into_iter().map(|(_, n)| crate::scale::px(n)).collect())
+                };
+                let fold = |name: &str| -> Option<Vec<String>> {
+                    // The design's own token first (a base name it sets
+                    // among them); a base name it leaves unset, or an
+                    // expression over one, in every column.
+                    let Some((_, values)) = crate::theme::measure_written(name) else {
+                        return columns(name);
+                    };
+                    Some(
+                        values
+                            .into_iter()
+                            .flat_map(|v| columns(&v).unwrap_or_else(|| vec![v]))
+                            .collect(),
+                    )
+                };
+                for e in slot::check(c, file, &fold) {
+                    self.push(e);
+                }
+            }
             if c.anatomy.is_empty() {
                 continue;
             }
@@ -511,10 +579,18 @@ pub struct Described {
     /// or a row's `?:` or `match`, of the component's view reads), with its
     /// options.
     pub variants: Vec<(String, Vec<String>)>,
+    /// Whether it is an exported library component (LLP 1139 D0).
+    pub library: bool,
+    /// An exported library component's slot chain (LLP 1139 D4), root first: each node's tag and the
+    /// rows of the deny-list its classes (every branch and state layer) and
+    /// its own attributes write, each `(row, value)` as written (a `?:`'s
+    /// every leaf; `?` for one no literal says). What the design server
+    /// asks [`slot::denied`] of on a candidate fold.
+    pub chain: Vec<(String, Vec<(String, String)>)>,
 }
 
-/// [`Described`] for `c`.
-pub fn described(c: &Component) -> Described {
+/// [`Described`] for `c`, its styles found in `file`.
+pub fn described(c: &Component, file: &File) -> Described {
     let parts = c
         .anatomy
         .parts
@@ -550,7 +626,22 @@ pub fn described(c: &Component) -> Described {
             Some((p.name.clone(), options))
         })
         .collect();
-    Described { parts, variants }
+    let library = c
+        .params
+        .identity
+        .as_ref()
+        .is_some_and(|i| file.library.contains(i));
+    let chain = if c.slot && library {
+        slot::chain(c, file)
+    } else {
+        Vec::new()
+    };
+    Described {
+        parts,
+        variants,
+        library,
+        chain,
+    }
 }
 
 /// Whether the element written at `span` holds `children` among its own.

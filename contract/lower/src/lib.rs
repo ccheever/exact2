@@ -241,6 +241,9 @@ pub(crate) struct Lowerer<'a> {
     /// Each node named as a part, by its span, with the part's name: the
     /// source map's (LLP 1139 D5).
     pub(crate) part_names: Vec<(Span, String)>,
+    /// Each element of an exported library component's own view, by its
+    /// span, with the component's identity: the source map's (LLP 1139 D5).
+    pub(crate) library_nodes: Vec<(Span, String)>,
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
@@ -407,6 +410,7 @@ fn lower_with_sites(
         profile,
         control_parts: Vec::new(),
         part_names: Vec::new(),
+        library_nodes: Vec::new(),
     };
     // A refusal that stops lowering is said after those collected before it
     // (a refused token, then a statement no plan can hold), never in their

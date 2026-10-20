@@ -260,6 +260,11 @@ impl SourceMap {
                 out.extend_from_slice(b",\"part\":");
                 quote(&mut out, part);
             }
+            // The exported library component it is of (LLP 1139 D5).
+            if let Some(identity) = &node.library {
+                out.extend_from_slice(b",\"library\":");
+                quote(&mut out, identity);
+            }
             out.extend_from_slice(b",\"chain\":[");
             let mut instance = node.instance as usize;
             let mut first = true;

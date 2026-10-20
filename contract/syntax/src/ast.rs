@@ -54,6 +54,10 @@ pub struct File {
     /// The designs of the packages the app's sources link (LLP 1121 D11),
     /// each `<name>.tamber` beside its package's entry, set by the driver.
     pub package_designs: Vec<DesignSource>,
+    /// The identities of the exported library components (LLP 1139 D0):
+    /// each component a private package that ships a design declares in
+    /// its entry, or re-exports there; set by the driver.
+    pub library: Vec<String>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// Native modules' sources and sends, read from packages (LLP 1133.001).
