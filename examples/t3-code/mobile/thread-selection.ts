@@ -167,8 +167,10 @@ export async function mobileThreadSelection(client: T3Client, id: string, native
     // The shared command answers '' when a newer command superseded it, even after
     // it set threadId. Only the newest selection decides whether to try again.
     if (selections.get(client) === serial) {
-      const previous = retryOf(client), refused = result.message === switchRefusal;
-      const refusal = refused ? { refused: routeId, refusals: previous.refused === routeId ? previous.refusals + 1 : 1, refusing: true }
+      const previous = retryOf(client), wasRefusal = result.message === switchRefusal;
+      // A repeat refusal under the same blocker is not a new refusal: its end is still the one attempt.
+      const refusal = wasRefusal ? { refused: routeId, refusing: true,
+        refusals: previous.refused === routeId ? previous.refusals + (previous.refusing ? 0 : 1) : 1 }
         : previous.refused === routeId ? { refusing: false } : {};
       if (!result.message && (client.environmentId !== environmentId || client.threadId !== threadId
         || (requests > 0 || client.busy) && unopened(client, environmentId, threadId))) {

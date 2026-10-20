@@ -250,6 +250,24 @@ test('only the end of a busy switch refusal re-arms a catalogued target, once', 
   expect(f.facts('remote', 't')).toEqual(released);
 });
 
+test('a switch refused again under the same blocker keeps its key, so it alerts once per attempt', async () => {
+  const f = held();
+  fleet.saved = [{ environmentId: 'remote', origin: 'https://remote.invalid', enabled: true }];
+  f.client.busy = true;
+  expect((await mobileThreadSelection(f.client, 'fleet:remote:t', f.native, f.storage)).message).toBe(BUSY);
+  // A new visit (Back, then the same row) arms an attempt while the target is still refused and blocked.
+  const blocked = f.facts('remote', 't');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    expect((await mobileThreadSelection(f.client, 'fleet:remote:t', f.native, f.storage)).message).toBe(BUSY);
+    expect(f.facts('remote', 't')).toEqual(blocked);
+  }
+  f.client.busy = false;
+  const released = f.facts('remote', 't');
+  expect(released.selectionKey).not.toBe(blocked.selectionKey);
+  expect((await mobileThreadSelection(f.client, 'fleet:remote:t', f.native, f.storage)).message).not.toBe(BUSY);
+  expect(f.facts('remote', 't')).toEqual(released);
+});
+
 test('releasing an environment switch hold publishes a revision for the routes it held', async () => {
   const f = held(), first = f.hold(() => true);
   fleet.saved = [{ environmentId: 'remote', origin: 'https://remote.invalid', enabled: true }];
