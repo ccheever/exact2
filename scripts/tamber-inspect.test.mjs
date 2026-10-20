@@ -3,7 +3,7 @@
 // editability, and the sites to outline.
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel } from './tamber-builds.mjs';
@@ -679,5 +679,103 @@ test('an own or class row carries the attribute it came from, with that file\'s 
     expect(sitesAt(map, at(app, 3, 12))).toEqual([]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a library node\'s selection names its exported component and part, apart from the call site\'s component; a fill\'s does not (LLP 1139 D5, *1.15*)', () => {
+  const map = { digest: 'p1', sources: [], nodes: [
+    { file: 'node_modules/@acme/lib/index.contract', line: 4, col: 5, end_col: 11, component: 'Card', library: '@acme/lib/index.contract#Card', part: 'body', chain: [{ file: 'app.contract', line: 5, col: 5, component: 'App' }], bindings: [{ row: 'padding', origin: 'own' }] },
+    { file: 'node_modules/@acme/lib/index.contract', line: 3, col: 5, end_col: 11, component: 'Card', library: '@acme/lib/index.contract#Card', chain: [], bindings: [] },
+    { file: 'app.contract', line: 6, col: 7, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'color', origin: 'own' }] },
+  ] };
+  const read = () => '';
+  const on = (site, rows) => join({ id: 'web-1' }, { node: 1, site, instance: [], tuple: {}, rows }, map, { read });
+  const part = on(0, [{ name: 'padding', value: 8, source: 'authored' }, { name: 'color', value: '#000', source: 'inherited', from: 3 }]);
+  // (`component` stays the map's bare name; `library` is the declaring identity)
+  expect(part.source).toMatchObject({ component: 'Card', library: { identity: '@acme/lib/index.contract#Card', part: 'body' } });
+  expect(part.rows[0].library).toEqual({ identity: '@acme/lib/index.contract#Card', part: 'body' });
+  expect(part.rows[1].library).toBeUndefined(); // (no map origin: inherited)
+  // A node of the library's view that is no part: its identity, part null.
+  expect(on(1, []).source.library).toEqual({ identity: '@acme/lib/index.contract#Card', part: null });
+  // The slot's fill (the caller's own nodes): none.
+  const fill = on(2, [{ name: 'color', value: '#000', source: 'authored' }]);
+  expect(fill.source.library).toBeUndefined();
+  expect(fill.rows[0].library).toBeUndefined();
+});
+
+test('end to end: a compiled library app\'s own source map names a package component\'s part and identity, and the join publishes them; the app\'s fill has none (LLP 1139 D5, *1.15*)', async () => {
+  // A private library package `@acme/lib` with a design, its `Card` declaring parts and a slot; an app filling it.
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-library-'));
+  try {
+    const lib = joinPath(dir, 'node_modules/@acme/lib');
+    mkdirSync(lib, { recursive: true });
+    writeFileSync(joinPath(lib, 'package.json'), JSON.stringify({ name: '@acme/lib', version: '1.0.0', private: true, exports: { '.': './index.contract' } }));
+    writeFileSync(joinPath(lib, 'index.contract'), 'component Card\n  slot\n  parts\n    surface: paint shape space\n  view\n    column part="surface" padding="lib.pad"\n      children\n');
+    writeFileSync(joinPath(lib, 'lib.tamber'), 'tamber lib\n\ntheme\n  lib.pad = 4px\n');
+    writeFileSync(joinPath(dir, 'app.tamber'), 'tamber app\n');
+    // (by an alias, `Box`: the map's `component` and the declaring identity are still `Card`'s)
+    writeFileSync(joinPath(dir, 'app.contract'), 'use Card as Box from "@acme/lib"\n\ncomponent App\n  view\n    Box()\n      text "fill" color="#000000"\n');
+    // Built as a dev loop builds it, with its map (`contract build --map`).
+    const { spawnSync } = await import('node:child_process');
+    const root = new URL('..', import.meta.url).pathname;
+    const bin = joinPath(process.env.CARGO_TARGET_DIR ?? joinPath(root, 'target'), 'debug', 'contract');
+    if (!existsSync(bin)) throw new Error(`${bin} is missing: build it first (cargo build -p contract)`);
+    const built = spawnSync(bin, ['build', joinPath(dir, 'app.contract'), '-o', joinPath(dir, 'app.plan'), '--map'], { encoding: 'utf8' });
+    expect(built.status, built.stderr).toBe(0);
+    const map = JSON.parse(readFileSync(joinPath(dir, 'app.plan.map.json'), 'utf8'));
+    // The column (the part) and the fill's text, by the map's own nodes.
+    const surface = map.nodes.findIndex(n => n.part === 'surface');
+    const fill = map.nodes.findIndex(n => n.file.endsWith('app.contract') && n.line === 6);
+    expect([surface >= 0, fill >= 0]).toEqual([true, true]);
+    // Each node's row as the map binds it (the column's `padding_top`, the text's `text_color`), not a name made up here.
+    const rowOf = site => (site === surface ? 'padding_top' : 'text_color');
+    expect([surface, fill].map(site => map.nodes[site].bindings.find(b => b.row === rowOf(site))?.origin)).toEqual(['own', 'own']);
+    const on = (site, held) => join({ id: 'web-1' }, { node: 1, site, instance: [], tuple: {}, rows: [{ name: rowOf(site), value: 4, source: 'authored' }], ...(held ? { held } : {}) }, map);
+    const card = on(surface);
+    const library = { identity: map.nodes[surface].library, part: 'surface' };
+    expect(card.source).toMatchObject({ component: 'Card', library });
+    expect(library.identity).toMatch(/^@acme\/lib\/index\.contract#Card$/);
+    expect(card.rows[0].library).toEqual(library);
+    const text = on(fill);
+    expect(text.source.library).toBeUndefined();
+    expect(text.rows[0].library).toBeUndefined();
+    // The fill selected, a state held on the part (its site): the held rows and their source are the part's.
+    const held = on(fill, { state: 'active', node: 2, site: surface, instance: [], rows: [{ name: 'padding_top', value: 4 }] });
+    expect(held.held.rows[0].library).toEqual(library);
+    expect(held.held.rows[0].source).toMatchObject({ component: 'Card', library });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 600_000);
+
+test('round 1: a held state on a library node gives its rows and its source the held node\'s library; a library the host report carries is never published', async () => {
+  const map = { digest: 'p1', sources: [], nodes: [
+    { file: 'node_modules/@acme/lib/index.contract', line: 4, col: 5, end_col: 11, component: 'Card', library: '@acme/lib/index.contract#Card', part: 'face', chain: [], bindings: [{ row: 'background_color', origin: 'own', states: [{ state: 'active', origin: 'own' }] }] },
+    { file: 'app.contract', line: 6, col: 7, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'color', origin: 'own' }] },
+  ] };
+  const read = () => '';
+  // The fill's text selected, the press held on the library's face (the held node, site 0).
+  const s = join({ id: 'web-1' }, { node: 2, site: 1, instance: [], tuple: {}, rows: [{ name: 'color', value: '#000', source: 'authored', library: { identity: 123 } }], held: { state: 'active', node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#00f', library: 'forged' }] } }, map, { read });
+  expect(s.source.library).toBeUndefined(); // (the fill is the caller's)
+  expect(s.rows[0].library).toBeUndefined(); // (the host's own `library` dropped)
+  expect(s.held.rows[0].library).toEqual({ identity: '@acme/lib/index.contract#Card', part: 'face' });
+  // A held row the map gives no origin: no library.
+  const bare = join({ id: 'web-1' }, { node: 2, site: 1, instance: [], tuple: {}, rows: [], held: { state: 'active', node: 1, site: 0, instance: [], rows: [{ name: 'opacity', value: 1 }] } }, map, { read });
+  expect(bare.held.rows[0].library).toBeUndefined();
+  // No map, or a site the map lacks: nothing of the host's either, on the rows, the held rows or the held state.
+  const forged = { node: 2, instance: [], tuple: {}, rows: [{ name: 'color', value: '#000', source: 'authored', library: { identity: 123 } }], held: { state: 'active', node: 1, site: 0, instance: [], library: 'forged', rows: [{ name: 'background_color', value: '#00f', library: 'forged' }] } };
+  for (const [m, site] of [[null, 1], [map, 9]]) {
+    const out = join({ id: 'web-1' }, { ...forged, site }, m, { read });
+    expect(out.rows[0].library).toBeUndefined();
+    expect(out.held.library).toBeUndefined();
+    expect(out.held.rows[0].library).toBeUndefined();
+  }
+  // A held row's own `source` with a library in it (round 3): dropped too, joined or not.
+  const sourced = { ...forged, site: 1, held: { ...forged.held, rows: [{ name: 'background_color', value: '#00f', source: { file: 'x', library: 'forged' } }] } };
+  for (const m of [null, map]) expect(join({ id: 'web-1' }, sourced, m, { read }).held.rows[0].source?.library).not.toBe('forged');
+  expect(join({ id: 'web-1' }, sourced, null, { read }).held.rows[0].source).toEqual({ file: 'x' });
+  // The published report (the `selected` event) too, with rows or none.
+  const { published } = await import('./tamber-inspect.mjs');
+  for (const report of [forged, { ...forged, rows: undefined }, sourced]) {
+    const out = published(report, new Map());
+    expect([out.held.library, out.held.rows[0].library, out.held.rows[0].source?.library, out.rows?.[0]?.library]).toEqual([undefined, undefined, undefined, undefined]);
   }
 });

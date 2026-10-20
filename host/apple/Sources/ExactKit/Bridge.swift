@@ -154,6 +154,20 @@ extension Runtime {
             return read(exact_host_covers(rt, write(bytes)))
         }
     }
+    /// The margin UIKit's cell gives each cells list's rows at its left and
+    /// right, under one layout (LLP 1138); nil clears it.
+    package func listMargins(_ lists: [(UInt32, [CGFloat]?)]) -> Batch {
+        return on {
+            var bytes = Data(capacity: lists.count * 24)
+            for (view, margins) in lists {
+                let lengths = ((margins ?? [0, 0]) + [0, 0]).map { Float($0).bitPattern }
+                for word in [view, margins == nil ? 11 : 10] + lengths {
+                    withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
+                }
+            }
+            return read(exact_host_covers(rt, write(bytes)))
+        }
+    }
     func regionComplete(_ artifact: RegionArtifact) -> Batch {
         return on {
             let p = artifact.metadata

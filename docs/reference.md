@@ -56,9 +56,9 @@ not require `HOME`. App and scratch
 identities and `app:/` path components must be safe Windows leaves; drive, UNC,
 backslash traversal, alternate-stream and reserved-device forms are refused.
 
-Snapback4 consumers use release **0.4.29**: the CLI is pinned in `bun.lock`;
+Snapback4 consumers use release **0.4.33**: the CLI is pinned in `bun.lock`;
 Cargo pins the device and its client to the matching release source commit
-`59fb4ead1ba18569369523bba55b56713cc275e9`. `snapback4/` is one client for an
+`3653cae823145170df3e720f5e321bd1b5b4d79d`. `snapback4/` is one client for an
 app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
 the protocol in Rust without I/O, the native device, the web's wasm, and the
 TypeScript driver an app mounts with `typescript.sources`. The client is its
@@ -883,6 +883,23 @@ source on that refusal, since earlier turns may have written already. For
 example, 20 resources fetching once beside one source fetching 20 times can
 all wait and answer. A failed resource keeps its last value; `refresh` asks
 again. See LLP 1041 §8.4 for the byte reservations and cancellation policy.
+
+That queue runs one request at a time, so a screen that reads twenty feeds
+waits for each in turn. A read whose request and reply may both be handled
+out of order can leave it: `fetch(url, { exactIndependentHttp:
+{ maxResponseBytes: 4194304 } })` in TypeScript, or
+`Request::get(url).independent_http(4 << 20)` from a Rust source. A native app
+then runs up to six such reads at once, within their own budget of 128
+requests and 64 MiB. A running read counts twice its ceiling, so a ceiling
+above about 32 MiB is refused when the read is made: keep it near the largest
+reply you expect. A browser has no lanes and schedules every fetch itself, so
+there only the ceiling applies. On every host a reply larger than
+`maxResponseBytes` fails as `refused`. The ceiling is 1 byte to 64 MiB, and
+anything else is a `TypeError`. A `GET` is
+not independent by default, because a source may depend on its replies
+arriving in order. Leave writes, and any read whose parse depends on an
+earlier reply, in the queue. Storage steps and native continuations cannot
+opt out of it.
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value

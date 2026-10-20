@@ -76,6 +76,17 @@ export function writeLink(manifestPath, url) {
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
+/** The release record the binary embeds, as a file: the origin's own, or a remote origin's (AppDrop's) fetched into `dir`. */
+async function receiptPath(origin, stream, record, dir) {
+  const rel = `${streamPath(stream)}/releases/${record}.json`;
+  if (origin.dir) return resolve(origin.dir, rel);
+  const bytes = await origin.get(rel);
+  if (!bytes) throw new Error(`${origin.describe()}: the release record ${record} is missing`);
+  const path = resolve(dir, `${record}.json`);
+  writeFileSync(path, bytes);
+  return path;
+}
+
 /** The lane after the streams: find the release record the binary embeds, build, create or upload, record. A failure is a row in `failed`. */
 export async function runAppdrop({ table, published, failed, origin, app, channel, release, exactRoot, run, live, env, latestRecord, log }) {
   const plan = table.appdrop;
@@ -93,11 +104,12 @@ export async function runAppdrop({ table, published, failed, origin, app, channe
     }
     const ipa = resolve(run, 'appdrop', `${app.name}.ipa`);
     mkdirSync(dirname(ipa), { recursive: true });
+    const receipt = record && await receiptPath(origin, stream, record, dirname(ipa));
     log(`  appdrop: building ${app.name} for iOS (build ${revision + 1}) into ${ipa}`);
     // build.mjs reports on stdout; this process's stdout is the table or --json.
     const built = spawnSync(process.execPath, [resolve(exactRoot, 'host/apple/build.mjs'), '--device', app.name, '--archive', ipa, '--unsigned'], {
       cwd: exactRoot, stdio: ['ignore', 2, 2],
-      env: { ...env, EXACT_UPDATE_TRUST: 'production', EXACT_BUILD_NUMBER: String(revision + 1), ...(record ? { EXACT_UPDATE_RECEIPT: resolve(origin.dir, streamPath(stream), 'releases', `${record}.json`) } : {}) },
+      env: { ...env, EXACT_UPDATE_TRUST: 'production', EXACT_BUILD_NUMBER: String(revision + 1), ...(receipt ? { EXACT_UPDATE_RECEIPT: receipt } : {}) },
     });
     if (built.status !== 0 || !existsSync(ipa)) throw new Error(`the iOS archive failed (${built.error?.message ?? `exit ${built.status}`})`);
     log(`  appdrop: ${plan.action === 'create' ? 'creating a link' : `uploading to ${plan.url}`}`);

@@ -3264,7 +3264,10 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     value (a text, an attribute that is no row, a function's argument, a condition, a state, a
     derive, an action) is refused (`tamber-param-scope`), naming the param.
   - A param named where no component owns it is refused (`tamber-param-scope`): in a `style` or a
-    `keyframes`, which any component may apply; in a state's or a derive's value. So is one in
+    `keyframes`, which any component may apply; in a state's or a derive's value. *Amended
+    2026-10-20 (LLP 1139 D3, stage 12 C3; theme2's ruling, one rule for every component):* a
+    `style` one component's view alone applies is that component's, and its `param.*` are that
+    component's params; one another component applies too is no one's and stays refused. So is one in
     what a row computes (a function's argument, a condition, a comparison, a callback): what it
     computes is data the param's value never reaches, and a duration there would never be written
     in. A package's file is named by the package's declared name: the nearest directory above the
@@ -5482,3 +5485,84 @@ Stage 12 §B's first commit, under no wire change (the server's existing fields 
   - After the key's second re-check (Astra): a reference is found by its folded form but keyed as written, so two tokens differing only in case (`Foo`, `foo`) stay two; a chain moved from one to the other builds again (`two_tokens_of_one_name_in_two_cases_stay_two`, failing without the fix)
   - After the key's fourth re-check (Astra; theme2's pre-approved fallback): the key holds a value VERBATIM whenever it names anything (a name of the designs, as folded, or any dotted word, a package token or a component's generated `param.…` name the designs don't declare); only a literal that names nothing (a hex, a length, `light-dark(#fff, #000)`, `rgba(…)`) is kept by its rough kind, so its edit is a cache hit. Each design's header name is keyed too (a package header repaired joins its tokens). So a non-literal value edit now recomputes retention, as an alias move does. Re-measured on the clone copy (/tmp/bsky-bench.py, debug, median of 5, ms; old key vs this key): a literal edit 370 vs 364 (warm 10 vs 12, a cache hit); an alias move 399 (the old key never rebuilt) vs 3354 (a whole-app compile, as round 3's key). A unit test in tamber_walk.rs holds the key's rules.
   - After the key's fifth re-check (Astra): every string the key holds (names, values, metadata, params, component params) is written quoted, so a metadata value decoding to a newline can't spell another token's row (a unit test, failing without the quoting)..
+### Stage 12, commit B2-levels: a param's three levels (draft for theme2)
+
+Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels adds a clause to its one summary line).
+
+- **One walker** (`contract::tamber_levels`, library). Per tuple it starts at the app's own value of a param (its
+  `params` line, by its full name or a short name only it answers, with that line's `when` for the tuple), else the
+  param's default. It then follows each bare reference, in order: another param (its app value or its default), the
+  app's token (a role's spelling in any case), then a package's token, each line's value in the tuple. It goes at
+  most 8 hops (`HOPS`) and stops at a line whose value is no reference (a literal or an expression), at a base name or
+  at a role. It answers `Step {level, name}`, the level that wins and the name there: `app-param`, `app-token`,
+  `package`, `base`, `role`, or `default`. `default` is not in the plan's list: it is the param's own default being a
+  literal or an expression, the one case none of the five names (theme2: it stays; a tool's word for it is "the
+  component's default"). rt1's stage 12 D3 reads the same walker; its
+  signature was sent to rt1.
+- **`resolve` of a param**: each tuple adds `level` and `name`, from the walker.
+- **`explain` and `resolve` of a param**: `levels: {token, app, base, param}` when the default is a reference;
+  `levels: null`, explicitly, for a literal or an expression (theme2's ruling; round 1).
+  - `token` is the first token the default names, `{name, package?, file, line, value}`: a package's own line with
+    stage 11 A2's `package` and `file` exactly, else the app's.
+  - `app` is the app's override of that package token, `{file, line, value}`, or null.
+  - `base` is the base name every tuple reaches, as stage 11 D's `bases` names it, or null when the tuples' walks
+    differ or one reaches none (theme2's ruling; each tuple's own is on `resolve`'s tuples).
+  - `param` is the app's own value, `{file, line, value}`, or null; `param.set` stays.
+- **`describe`**: a param whose default is a bare reference adds `reaches: {token, base, app_set}`, compact.
+- **Tests** (`contract/cli/tests/it/tamber_levels.rs`, through the server, with `@acme/reading`'s Contract `Card`
+  and its design's `Map`):
+  - each level wins in turn on one param: the package's line, the app's override (`levels.app`), the app's value
+    (`levels.param`, and `param.set` kept), and an app value naming an app token;
+  - a chain of package tokens;
+  - a base name (`Card.inset` through `reading.gap = space.md`), a role (`AccentColor`), and an expression
+    (`levels: null`, its tuples `default`);
+  - `describe`'s `reaches`;
+  - levels differing by tuple (`reading.gap` 12px, `when mode=b: space.lg`): `app-token` then `base`, and
+    `levels.base` null; then a `when` sending one tuple to another base (`space.md`, `when mode=b: space.lg`):
+    each tuple's base, and `levels.base` null; with no `when`, `space.md` in both and `levels.base` `space.md`;
+  - a chain of ten app tokens stopping after eight (`c7`).
+
+**After review round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES):**
+- **Roles as the checker keys them** (Astra 1 = Grok 1). A role's override is found in either spelling and any case,
+  as `tamber/src/check.rs` `role_key` reads it: `Secondary-Label = …` or `-exact-Secondary-Label = …` overrides
+  `-exact-secondary-label`, and `accentcolor = …` overrides `AccentColor`. An app value written `secondary-label`
+  reaches the override too. A role or its override is named by the row spelling the fold publishes. Only a row
+  spelling stops the walk as a role, as the fold names a role.
+- **Icon params** (Astra 3). `resolve` and `explain` of an icon param returned before the additions; both return
+  paths now carry them (`Designs::annotate`, one call for every param). The walker reads the app's icon tokens. A
+  package's icons are not read yet (`tamber-package-block`), so a package icon param's default is a literal.
+- **`levels.token` walks** (Astra 4 = Grok 2). A default naming another param (`edge: color = param.pin` in a
+  `.tamber`, `edge: length = "param.inset"` in Contract) follows params' defaults, never the app's `params` lines, at
+  most 8 hops, to the first app or package token (`reading.pin`, `reading.gap`).
+- **References, not literals** (Astra 5). A reference is a bare name that is a param, an app token or icon, a package
+  token, a base name or a role's row spelling. `transparent` and `-1` are literals. A literal or an expression
+  default answers `levels: null`, explicitly. describe's `reaches` stays omitted there.
+- **`levels.base`** (Astra 2): every tuple's walk agreeing (folded in from theme2's ruling above).
+- **Tests** (Grok 3): `reaches.app_set` true under an override; a chain's `levels.token` is its first token
+  (`reading.chain`); an app-set `space.md = 10px` wins as `app-token`. Two new tests:
+  `a_roles_override_in_either_spelling_and_an_app_set_base_name` (both spellings, mixed case, the fold's value
+  agreeing) and `icon_params_param_aliases_and_literals` (a literal package icon param with `levels: null`, an app
+  component's icon param naming the app's icon, the app setting the package's icon param through its icon and as
+  written, both aliases, `transparent` and `-1`). Each fails on the commit before.
+
+**After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES):**
+- **`levels.token` keeps the walk's cap** (Astra 1 = Grok 1). `levels` took the default's reference and then followed
+  8 more params, one hop past the walk. The default's reference is now the first hop, so `levels.token` and
+  `reaches.token` name a line the walk can reach: at most 7 params passed, the token at hop 8.
+- **A light/dark pair stops on its line** (Grok 2). A `when` naming an axis `under scheme=dark` makes a colour's pair
+  (the checker's `under_value`: light from the line without that axis, dark from the `when`). The walk followed the
+  dark side alone. It now follows neither: the line owning the pair wins, so `level` and `name` match the tuple's
+  light/dark value.
+- **Tests:**
+  - `levels_token_keeps_the_walks_eight_hops`: nine `.tamber` params, each naming the next and the last
+    `reading.pin` (eight aliases): the tuple's level is `default` on the last param, `levels.token` and
+    `reaches.token` null. Eight reach `reading.pin` at hop 8, and both say it.
+  - `a_light_dark_pair_stops_on_its_line`: `reading.chain = #ffffff` with `when dark-style=dim: reading.pin`: both
+    tuples `app-token` `reading.chain`, the dim tuple light `#ffffff`, dark `#333333`.
+  - `two_axes_overlapping_whens_on_a_package_token_and_an_app_param` (Astra 2): axes `mode` and `size`. A package
+    token has `when mode=b`, `when size=l` and `when mode=b size=l`; then the app's `params` line has its own
+    `when size=l` and `when mode=a size=l`. Every tuple's modes, level, name and value are asserted.
+  - Each fails with its fix reverted (checked by hand: `0..HOPS`; the pair arm removed; the first holding `when` in
+    place of the most specific).
+- **§10's lead sentence** (Grok 3) says `levels: null` for a literal or an expression, as the wire does.
+- **After review round 3 (Astra RIGHT, Grok RIGHT):** two NITs taken: the test summary says `levels: null` for an expression, and the stage-4 `uses` comment in contract/cli/src/lib.rs sits on `tamber_uses` again.

@@ -57,6 +57,7 @@ pub fn inline(file: &File) -> Result<Vec<Node>, SyntaxError> {
 /// `state`s and `action`s of every stateful child use, renamed apart with
 /// the use's number, each owned by the instance it belongs to ([`Owner`]);
 /// a child's `derive` is an expression substituted at each read.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Expanded {
     /// The root, with the children's declarations appended.
     pub root: Component,
@@ -248,6 +249,7 @@ fn expand_with_sites(
         sequences: source.sequences.clone(),
         view: Vec::new(),
         params: source.params.clone(),
+        anatomy: source.anatomy.clone(),
         span: source.span,
     };
     // @ref LLP 1038 D3 — a compiler slot, before authored initializers and

@@ -986,7 +986,7 @@ There is no wasm device, SQLite partition or offline outbox. Start the server wi
 \`../snapback/generated\`; \`app.ts\` names and grants its origin. \`bun exact.mjs snapback --rebuild\` generates operations
 and rebuilds the device, including after exact2 moves; \`snapback --port <n>\` moves the origin. Start
 \`bunx snapback4 dev --port <the origin's port>\` above before \`test web\`. \`fresh\` resets it per test
-(Snapback4 ${snapbackVersion()}, dev only). Typed reads use \`db.read(api.recent, {}, now)\`; \`send\` writes, syncs and answers
+(Snapback4 ${snapbackVersion()}, dev only; a password-only schema's dev needs \`--unsafe-dev-doors\` for it). Typed reads use \`db.read(api.recent, {}, now)\`; \`send\` writes, syncs and answers
 the write's fate. \`failure(x).reason\` carries a refusal's code. Read the guide before data code.`;
   return `Shared data: \`exact new <path> --snapback\`, or \`bun exact.mjs snapback\` here.
 Install \`snapback4@${snapbackVersion()}\` above; ${readme} has setup and server commands.`;

@@ -1065,7 +1065,14 @@ extension NavigationHost {
            previous !== c.collapseScrollView { previous.contentInsetAdjustmentBehavior = .never }
         c.edgeScroll = target
         let shown = shownScroll(target)
+        // A scroller at its start stays there as UIKit begins to inset it.
+        // One made in this batch can hold a safe area from before its first
+        // frame (at the route's top, under the bar): UIKit insets it by that
+        // first, then, given it below, takes the inset away and moves the
+        // offset by as much, scrolling its content out of its port.
+        let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
         shown?.contentInsetAdjustmentBehavior = .automatic
+        if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
         // tvOS has no bottom bar whose edge follows a scroller.
         #if !os(tvOS)
         c.setContentScrollView(shown ?? c.bandedBottom, for: .bottom)

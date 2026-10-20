@@ -103,6 +103,41 @@ impl Kernel {
 }
 
 impl Kernel {
+    /// Set or clear (`None`) the margin the platform's cell gives the rows of
+    /// the cells list `view` at its left and right (LLP 1138). Nonfinite or
+    /// negative lengths are refused.
+    pub fn set_list_margins(
+        &mut self,
+        view: ViewId,
+        margins: Option<[f32; 2]>,
+    ) -> Result<(), KernelError> {
+        let slot = self
+            .arena
+            .slot_of(view)
+            .ok_or(LayoutError::UnknownView(view))?;
+        if !margins
+            .unwrap_or([0.0; 2])
+            .iter()
+            .all(|l| l.is_finite() && *l >= 0.0)
+        {
+            return Err(LayoutError::InvalidIntrinsicSize(view).into());
+        }
+        if self.arena.list_margins(slot) == margins {
+            return Ok(());
+        }
+        self.arena.set_list_margins(slot, margins);
+        if let Some(r) = &mut self.region {
+            r.intrinsic(slot);
+            r.within(&self.arena, slot);
+        }
+        if let Some(layout) = self.layout.as_deref_mut() {
+            for &row in self.arena.children(slot) {
+                crate::grouped::restyle(&self.arena, layout, row);
+            }
+        }
+        Ok(())
+    }
+
     /// Set or clear (`None`) the margins the platform's list gives the
     /// grouped list `view`. Nonfinite or negative lengths are refused.
     pub fn set_grouped_margins(
@@ -207,6 +242,7 @@ pub(crate) fn children_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror,
         layout.restyle(arena, slot, node);
         layout.mark_dirty(node);
     }
+    crate::rows::children_changed(arena, layout, slot);
 }
 
 /// The top inset a box's replaced first child cleared for itself: that

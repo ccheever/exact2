@@ -211,6 +211,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-js-value"
+version = "0.1.0"
+dependencies = [
+ "exact-num",
+ "exact-plan",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-kernel"
 version = "0.1.0"
 dependencies = [
@@ -265,6 +274,7 @@ version = "0.1.0"
 dependencies = [
  "exact-canvas",
  "exact-grants",
+ "exact-js-value",
  "exact-kernel",
  "exact-motion",
  "exact-num",
@@ -983,8 +993,8 @@ dependencies = [
 
 [[package]]
 name = "snapback4-core"
-version = "0.4.29"
-source = "git+https://github.com/expo/snapback.git?rev=59fb4ead1ba18569369523bba55b56713cc275e9#59fb4ead1ba18569369523bba55b56713cc275e9"
+version = "0.4.33"
+source = "git+https://github.com/expo/snapback.git?rev=3653cae823145170df3e720f5e321bd1b5b4d79d#3653cae823145170df3e720f5e321bd1b5b4d79d"
 dependencies = [
  "argon2",
  "getrandom 0.3.4",
@@ -1001,8 +1011,8 @@ dependencies = [
 
 [[package]]
 name = "snapback4-device"
-version = "0.4.29"
-source = "git+https://github.com/expo/snapback.git?rev=59fb4ead1ba18569369523bba55b56713cc275e9#59fb4ead1ba18569369523bba55b56713cc275e9"
+version = "0.4.33"
+source = "git+https://github.com/expo/snapback.git?rev=3653cae823145170df3e720f5e321bd1b5b4d79d#3653cae823145170df3e720f5e321bd1b5b4d79d"
 dependencies = [
  "rusqlite",
  "serde",
@@ -1013,8 +1023,8 @@ dependencies = [
 
 [[package]]
 name = "snapback4-lang"
-version = "0.4.29"
-source = "git+https://github.com/expo/snapback.git?rev=59fb4ead1ba18569369523bba55b56713cc275e9#59fb4ead1ba18569369523bba55b56713cc275e9"
+version = "0.4.33"
+source = "git+https://github.com/expo/snapback.git?rev=3653cae823145170df3e720f5e321bd1b5b4d79d#3653cae823145170df3e720f5e321bd1b5b4d79d"
 dependencies = [
  "serde",
  "serde_json",

@@ -1057,7 +1057,19 @@ length ramps ([LLP 1137](../llp/1137-length-ramps.rfc.md)): UIKit's list-cell
 checkmark at the root font size, growing with the text size as a text style
 does (19 × 17.33 at the default size, 48 × 43.33 at the largest). They are
 taken where `-exact-hairline` is; a grouped list's checkmark in a row of your
-own already has them on iOS.
+own already has them on iOS. `-exact-accessibility-stack-gap` is 8 through the
+largest standard size and wider than any line at the accessibility sizes: as
+the `column-gap` of a row that wraps, it stacks the row's items there, as
+UIKit's cells do (a grouped row's title and value already take it on iOS).
+
+`-exact-row-look="platform"` on an element says its box's look (its
+`background`, `border`, `padding` and `box-shadow` rows) is its own where it stands
+alone and the platform's row where it is a grouped list's row ([LLP
+1139](../llp/1139-a-row-look-that-yields.rfc.md)): there those rows are dropped
+and the list draws the row, as Exact Content's `AnswerTile` is a tile in a quiz and a
+list's cell in a poll. Elsewhere it does nothing. A grouped row's edge or background
+image its author wrote otherwise stays the author's on every host, iOS's carried row
+included.
 
 A `button` is the platform's own control by default ([LLP
 1104](../llp/1104-the-platforms-controls-by-default.rfc.md) D1). Your bare box
@@ -1171,7 +1183,8 @@ argument is the URL), `heading` (`"1"` to `"6"`), `bullet`, `ordered`, `task`,
 media `src`), `indent`, `outdent` and `newline`; another name, or a missing
 argument, changes nothing. A toolbar button takes `retainFocus=true`, so a press
 leaves the editor focused and its selection where it was (on the Mac a click on any
-button does; the attribute is what says it for the web and iOS).
+button does, and on iOS a tap on one does, as UIKit's buttons do; the attribute is
+what says it for the web).
 
 The editor's `select` hands its action a `MarkdownSelection` when the selection
 or the source changes: `formats`, space-separated (the inline command names,

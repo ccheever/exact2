@@ -1,0 +1,10 @@
+// LLP 1054 A4: a scroller with pull to refresh, which the agent's own drag
+// pulls as a finger does (NavigationCollapseIOSTests).
+component PullRefresh
+  state pulls = 0
+  action reload
+    pulls = pulls + 1
+  view
+    scroll testId="feed" refresh=reload refreshing=false height="100%"
+      text `${pulls}` testId="pulls"
+      column height=1600
