@@ -106,16 +106,70 @@ async function offlineSelection(client: T3Client, environmentId: string, threadI
   }
 }
 
+/** The selection that is changing the focused environment. A focus forgets the
+ * target's background entry first, so every route waits instead of superseding it. */
+const switching = new WeakMap<T3Client, number>();
+/** Selections another command interrupted: their count, whether the interrupting
+ * command may still be busy, and the target whose opening was cut short. */
+const interruptions = new WeakMap<T3Client, { count: number; waiting: boolean; target: string }>();
+const unopened = (client: T3Client, environmentId: string, threadId: string) => client.connection === 'connected'
+  && client.environmentId === environmentId && client.threadId === threadId && client.threadSubscription !== threadId
+  && client.shell.threads.some(row => row.id === threadId);
+
+/** The route target's own selection facts (app.contract selectRouteThread). They
+ * never read the previous thread's liveness or reply, and nothing a same-environment
+ * selection changes is in the key, so a refusal alerts once and does not repeat. */
+export function mobileThreadSelectionFacts(client: T3Client, environmentId: string, threadId: string, route: string) {
+  const focused = environmentId === client.environmentId;
+  const background = focused ? undefined : [...fleet.entries.values()].find(row => row.environmentId === environmentId);
+  const phase = focused ? client.connection : background?.phase ?? '';
+  const live = phase === 'connected', transient = phase === 'connecting' || phase === 'reconnecting';
+  const cached = !!identity(environmentId) && mobileCacheCatalogCurrent(client, fleet.saved, environmentId);
+  // offlineSelection refuses a switch for these; their end is a new attempt.
+  const blocked = !focused && !live && (client.busy || !!client.pending || mobileOutboxDriveSnapshot(client, 0).busy);
+  const retry = interruptions.get(client) ?? { count: 0, waiting: false, target: '' };
+  const target = live ? !focused || (client.configLive && client.shellLive) : transient ? cached : true;
+  return { selectionRoute: route,
+    selectionReady: !!environmentId && !!threadId && target && !switching.has(client) && !(retry.waiting && client.busy),
+    selectionReopen: retry.target === JSON.stringify([environmentId, threadId]) && unopened(client, environmentId, threadId),
+    selectionKey: JSON.stringify([environmentId, focused, live, phase, cached, blocked,
+      focused ? client.generation : background?.generation ?? -1, retry.count]) };
+}
+
 /** A route projection can still name the background connection after a completed
  * focus. Resolve against the live client before looking up that removed entry. */
 export async function mobileThreadSelection(client: T3Client, id: string, native: Native, storage: Files) {
   const serial = (selections.get(client) ?? 0) + 1; selections.set(client, serial);
   const target = parseFleetThreadId(id), environmentId = target?.environmentId ?? client.environmentId;
+  const threadId = target?.threadId ?? id, retry = interruptions.get(client);
+  if (retry) retry.waiting = false;
+  if (environmentId !== client.environmentId) switching.set(client, serial);
+  let requests = 0;
+  const counted: Native = { available: native.available, watch: topic => native.watch(topic),
+    later: request => { requests++; return native.later(request); } };
+  try {
+    const result = await select(client, id, environmentId, threadId, counted, storage, serial);
+    // The shared command answers '' when a newer command superseded it, even after
+    // it set threadId. Only the newest selection decides whether to try again.
+    if (selections.get(client) === serial && !result.message) {
+      const previous = interruptions.get(client) ?? { count: 0, waiting: false, target: '' };
+      if (client.environmentId !== environmentId || client.threadId !== threadId
+        || (requests > 0 || client.busy) && unopened(client, environmentId, threadId)) {
+        interruptions.set(client, { count: previous.count + 1, waiting: true, target: JSON.stringify([environmentId, threadId]) });
+        client.revision++;
+      } else interruptions.set(client, { ...previous, target: '' });
+    }
+    return result;
+  } finally { if (switching.get(client) === serial) switching.delete(client); }
+}
+async function select(client: T3Client, id: string, environmentId: string, threadId: string, native: Native,
+  storage: Files, serial: number) {
+  const target = parseFleetThreadId(id);
   const background = target && target.environmentId !== client.environmentId
     ? [...fleet.entries.values()].find(row => row.environmentId === target.environmentId) : null;
   if (environmentId === client.environmentId ? client.connection !== 'connected'
     : background?.phase !== 'connected' && !!identity(environmentId))
-    return offlineSelection(client, environmentId, target?.threadId ?? id, native, storage, serial);
+    return offlineSelection(client, environmentId, threadId, native, storage, serial);
   // Focus restores selection before its shell arrives; do not replace it with a draft.
   if (target?.environmentId === client.environmentId && target.threadId === client.threadId)
     return { revision: client.revision, message: '' };
