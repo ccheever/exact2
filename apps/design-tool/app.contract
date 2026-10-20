@@ -400,9 +400,8 @@ shape ParamRow
   // and whether the tuples differ.
   level: string
   levelWords: string
-  // The column the first tuple is ("" when not known), and whether its own
-  // app line wins in every tuple.
-  levelAt: string
+  // Whether the app's line is a literal with no when branch (its own value
+  // then wins on both scheme sides).
   levelSelf: bool
   levelVaries: bool
 
@@ -2305,7 +2304,7 @@ component ParamControl
           button press=onReset disabled=(locked) testId=`param-${r.short}-reset`
             text (r.package ? "Back to the default" : "Reset")
       if r.levelWords != ""
-        text `wins${r.levelAt != "" ? ` in ${r.levelAt}` : ""}: ${r.levelWords}${r.levelVaries ? " (other modes differ)" : ""}` title=r.level color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-level`
+        text `wins: ${r.levelWords}${r.levelVaries ? " (other modes differ)" : ""}` title=r.level color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-level`
       if r.set
         text `${r.package ? "Back to the default" : "Reset"} removes the app's line${r.whens > 0 ? ` and its ${r.whens} when ${r.whens == 1 ? "branch" : "branches"} with it` : ""}.` color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-whens`
       if r.package and r.packageToken != "" and r.appSet

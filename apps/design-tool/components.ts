@@ -99,11 +99,10 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
     packageToken: '',
     appSet: false,
     whens: p.set?.whens ?? 0,
-    // Its winning level for the first tuple (that column's label), in words and raw, whether its own app line wins in
-    // every tuple (the one case its own value wins whatever the scheme), and whether the tuples differ (`resolve`'s).
+    // Its winning level for the first tuple, in words and raw; whether the app's line is a literal with no `when`
+    // branch (the one case its own value wins on both scheme sides); and whether the tuples differ (`resolve`'s).
     level: '',
     levelWords: '',
-    levelAt: '',
     levelSelf: false,
     levelVaries: false,
   };
@@ -133,8 +132,8 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       const reached = p.reaches?.token ?? '', won = levels.get(p.name);
       const row = { ...found, package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '', tokenBase: !!token && bases.has(token),
         packageToken: fromPackage && reached && packageOf.has(reached) ? reached : '', appSet: !!p.reaches?.app_set,
-        level: won?.level ?? '', levelWords: !won ? '' : won.level ? levelWords(won.level, won.name, p.name) : 'not known (this server says no level)', levelAt: won?.at ?? '',
-        levelSelf: !!won?.self, levelVaries: !!won?.varies };
+        level: won?.level ?? '', levelWords: !won ? '' : won.level ? levelWords(won.level, won.name, p.name) : 'not known (this server says no level)',
+        levelSelf: !!p.set && !p.set.whens && /^(#[0-9a-f]{3,8}|-?[\d.]+[a-z%]*)$/i.test(p.set.value.trim()), levelVaries: !!won?.varies };
       const g = p.group ?? '';
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push(row);

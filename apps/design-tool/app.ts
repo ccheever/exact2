@@ -41,7 +41,7 @@ const WRITE_WAIT = 130_000;
 const READ_WAIT = WRITE_WAIT;
 // The resolves a read has in flight at once (a browser opens six
 // connections to one origin).
-const RESOLVES_AT_ONCE = 4;
+const RESOLVES_AT_ONCE = 4, LEVEL_WAIT = 5000;
 // The one `tamber/1` client (wire.ts): this machine's server at API, or
 // another machine's the tool paired with.
 const { call, RESTARTED, pairWith, remote, scope: scopeNow } = wire(API, id => (heldRaw.find(p => String(p.proposal) === id)?.client ?? null) as string | null);
@@ -106,7 +106,7 @@ let liveTable = false;
  * the files' digests again after them; if a write landed between, the
  * replies may be of two revisions, so it reads again. `wanted`: false once
  * a newer read overtakes it, which then asks for nothing more. */
-type Level = { level: string; name: string; varies: boolean; at: string; self: boolean };
+type Level = { level: string; name: string; varies: boolean };
 async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown; base?: any[]; targets?: unknown; levels?: Map<string, Level> }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3 && wanted(); attempt++) {
@@ -117,7 +117,7 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
     // A few at a time, so the browser keeps connections for the long poll
     // and the other reads; each waits behind the others at the one design
     // server, so the wait is the whole read's, not one request's.
-    // And, in the app's design, each package component's param (an icon's has no level), for its winning level per tuple.
+    // And, in the app's design, each package component's param (an icon's has no level), for its winning level per tuple: a short wait, and one slow or refused has no words, the design shown.
     const owned = new Set(Object.keys(described.reply.ok?.files ?? {})), listed = (!file || file === designFile) && [...owned].some(f => f.endsWith('.contract'));
     const params: string[] = listed ? (ir.components ?? []).filter((c: { identity: string }) => { const home = c.identity.split('#')[0]; return !owned.has(home) && home !== designFile; }).flatMap((c: { params?: { name: string; kind: string }[] }) => (c.params ?? []).filter(p => p.kind !== 'icon').map(p => p.name)) : [];
     const asks = [...ir.tokens.map((t: { name: string }) => t.name), ...params];
@@ -126,11 +126,11 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
     await Promise.all(Array.from({ length: Math.min(RESOLVES_AT_ONCE, asks.length) }, async () => {
       while (next < asks.length && wanted()) {
         const i = next++;
-        resolved[i] = await call('/__tamber', { method: 'resolve', token: asks[i], ...which }, READ_WAIT);
+        resolved[i] = await call('/__tamber', { method: 'resolve', token: asks[i], ...which }, i < ir.tokens.length ? READ_WAIT : LEVEL_WAIT);
       }
     }));
     if (!wanted()) return { error: 'overtaken by a newer read' };
-    const failed = resolved.find(r => r.error);
+    const failed = resolved.slice(0, ir.tokens.length).find(r => r.error), answered = resolved.filter(r => !r.error);
     if (failed) return { error: failed.error };
     const after = await call('/__tamber', { method: 'hello' }, READ_WAIT);
     if (after.error) return { error: after.error };
@@ -141,15 +141,15 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
     const tuples = columnsOf(ir.axes);
     // Each resolve read the revision describe did (an edit and its undo
     // between leave the same digests at the end, not in between).
-    const one = resolved.every(r => digestKey(r.reply.ok?.files) === digestKey(before));
-    const placed = one && resolved.every(r => (r.reply.ok?.tuples ?? []).every((t: { modes?: Record<string, string> }, i: number) => {
+    const one = answered.every(r => digestKey(r.reply.ok?.files) === digestKey(before));
+    const placed = one && answered.every(r => (r.reply.ok?.tuples ?? []).every((t: { modes?: Record<string, string> }, i: number) => {
       const col = tuples.find(c => c.tuple === i);
       return !col || ir.axes.every((a: Axis, k: number) => t.modes?.[a.name] === col.values[k]);
     }));
     if (same && placed) {
-      // Each param's winner at its first tuple (its column's label), any differing, `self` (its own line wins in every tuple); no level said so.
-      const first = tuples.find(c => c.tuple === 0)?.label ?? '', levels = new Map<string, Level>();
-      params.forEach((name, k) => { const t = (resolved[ir.tokens.length + k].reply.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[]; levels.set(name, t.length && typeof t[0].level === 'string' ? { level: t[0].level, name: String(t[0].name ?? ''), varies: t.some(x => x.level !== t[0].level || x.name !== t[0].name), at: first, self: t.every(x => x.level === 'app-param' && x.name === name) } : { level: '', name: '', varies: false, at: '', self: false }); });
+      // Each param's winner at its first tuple, and any differing; no level said so. (Not which scheme side: B2-levels' walk has none.)
+      const levels = new Map<string, Level>();
+      params.forEach((name, k) => { if (resolved[ir.tokens.length + k].error) return; const t = (resolved[ir.tokens.length + k].reply.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[]; levels.set(name, t.length && typeof t[0].level === 'string' ? { level: t[0].level, name: String(t[0].name ?? ''), varies: t.some(x => x.level !== t[0].level || x.name !== t[0].name) } : { level: '', name: '', varies: false }); });
       return { error: '', ir, resolved: resolved.slice(0, ir.tokens.length).map(r => r.reply.ok), files: before, pairs, base: Array.isArray(described.reply.ok?.base) ? described.reply.ok.base : [], targets: described.reply.ok?.targets, levels };
     }
   }
