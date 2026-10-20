@@ -69,7 +69,7 @@ function change(e: any): Change | null {
 }
 
 type Design = Result<'loadDesign'>;
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [], icons: [], components: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], firstColumn: '', tokenGroups: [], names: [], axes: [], icons: [], components: [] });
 let designs = 0;
 
 
@@ -729,12 +729,12 @@ const sources: Sources = {
       }
       return {
         ok: true, error: '', file: file || '', answer: number, groups: panel, axes: axes.map(a => ({ name: a.name, values: a.values })),
-        columns: columns.map(({ id, label }) => ({ id, label })),
+        columns: columns.map(({ id, label }) => ({ id, label })), firstColumn: columns[0]?.id ?? '',
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
         // A param's line is the app design's: the panel only while that is open.
-        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names),
+        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {}))),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;

@@ -68,6 +68,9 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
     set: p.set != null,
     pinned: p.pinned ?? [],
     default: typeof p.default === 'string' ? p.default : '',
+    // The token its default names, which editing instead changes for every use (LLP 1139 D5's second choice).
+    token: typeof p.default === 'string' && tokens.has(p.default) ? p.default : '',
+    package: false,
   };
 }
 
@@ -79,13 +82,19 @@ const iconText = (v: unknown) => {
 
 /** The panel: every component with params (a native one declared in the
  * design too, `app.tamber#Name`), its groups in the order they first
- * appear, each by priority (1 first), priority 3 behind "more". */
-export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>): Design['components'] {
+ * appear, each by priority (1 first), priority 3 behind "more". A package's
+ * component (its identity's file none of the app's own, `own`, describe's
+ * `files`) says so: "Set for this app" writes the app's line, the package's
+ * own files read only (LLP 1139 D5). */
+export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set()): Design['components'] {
   return (list ?? []).filter(c => c.params?.length).map(c => {
     const groups = new Map<string, Row[]>();
+    // (A listing with none of the app's Contract sources, an older server's, says nothing of packages.)
+    const home = c.identity.split('#')[0], fromPackage = [...own].some(f => f.endsWith('.contract')) && !own.has(home) && home !== design;
     for (const p of c.params) {
-      const row = paramRow(p, tokens);
-      if (!row) continue;
+      const found = paramRow(p, tokens);
+      if (!found) continue;
+      const row = { ...found, package: fromPackage };
       const g = p.group ?? '';
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push(row);
@@ -94,6 +103,7 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       identity: c.identity,
       name: c.name,
       native: c.identity.startsWith(`${design}#`),
+      package: fromPackage,
       groups: [...groups].map(([name, all]) => {
         const sorted = all.map((r, i) => [r, i] as const).sort((a, b) => a[0].c.priority - b[0].c.priority || a[1] - b[1]).map(([r]) => r);
         return { name, params: sorted.filter(r => r.c.priority < 3), more: sorted.filter(r => r.c.priority === 3) };

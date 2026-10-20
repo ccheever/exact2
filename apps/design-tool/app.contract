@@ -382,6 +382,10 @@ shape ParamRow
   // (LLP 1121 D14's mark).
   pinned: string[]
   default: string
+  // The token its default names ("" for none), and whether its component is a
+  // package's (LLP 1139 D5: "Set for this app" writes the app's line).
+  token: string
+  package: bool
 
 shape ParamGroup
   name: string
@@ -393,6 +397,7 @@ shape ComponentPanel
   name: string
   // Declared in the design (`app.tamber#Name`): a view that isn't Contract.
   native: bool
+  package: bool
   groups: ParamGroup[]
 
 shape Column
@@ -475,6 +480,9 @@ shape Design
   answer: number
   groups: DialGroup[]
   columns: Column[]
+  // The first column's id ("" for none): where a token opened from the
+  // component panel is shown when no cell is selected.
+  firstColumn: string
   tokenGroups: TokenGroup[]
   names: string[]
   axes: AxisChoice[]
@@ -1822,13 +1830,13 @@ component DesignTool
                           if g.name != ""
                             text g.name font="-exact-subheadline"
                           for r in g.params key=r.c.name
-                            ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+                            ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, selColumn != "" ? selColumn : design.firstColumn))
                           if g.more.length > 0
                             button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
                               text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
                             if opened.includes(`${k.identity}|${g.name}`)
                               for r in g.more key=r.c.name
-                                ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+                                ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, selColumn != "" ? selColumn : design.firstColumn))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -2265,13 +2273,18 @@ component ParamControl
     onStep: action
     onRelease: action
     onReset: action
+    // A package component's param whose default names a token: open that token instead (its every use).
+    onToken: action
   view
     column gap=2 testId=`param-${r.short}`
       DialControl(c=r.c, locked=locked, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
       row gap=8 align-items="center" padding="0 4px"
-        text (r.set ? `set here · default ${r.default}` : "the default") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-source`
+        text (r.package ? (r.set ? `set for this app · the package's default ${r.default}` : `the package's default ${r.default}: a change here is set for this app`) : r.set ? `set here · default ${r.default}` : "the default") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-source`
         if r.set
           button press=onReset disabled=(locked) testId=`param-${r.short}-reset`
-            text "Reset"
+            text (r.package ? "Back to the default" : "Reset")
+      if r.package and r.token != ""
+        button press=onToken disabled=(locked) testId=`param-${r.short}-token`
+          text `Edit the package token ${r.token} instead`
       if r.pinned.length > 0
         text `pinned: no longer follows ${r.pinned.join(", ")}` color="-exact-system-orange" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-pinned`
