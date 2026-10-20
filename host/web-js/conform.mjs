@@ -372,6 +372,14 @@ async function drive(t, report, fail, dir, ws, js) {
       // An app runs its own binary's plan (the web dist's names the web's Rust module); a synthetic plan is swapped in.
       try { L = await open({ host: 'linux', app: t.app, ...facts, ...scaled, ...(t.contract ? { plan: t.plan } : {}) }); }
       catch (e) { fail('linux-open', e.message.split('\n').filter(l => !/^crash report/.test(l)).slice(0, 4).join(' ').slice(0, 400)); }
+      // The one page fact the web answers apart under the agent: it refuses a
+      // picture in a share, so `canSharePictures` is false there and true on a
+      // native host's substitute (LLP 1125 D12). The Linux reference takes the
+      // pages' answer, as `prefer` sets it on every host.
+      if (L) {
+        try { await parseStep('prefer can-share-pictures false').run(L); }
+        catch (e) { fail('linux-open', `prefer can-share-pictures false: ${e.message.split('\n')[0]}`); await L.close?.().catch(() => {}); L = null; }
+      }
     }
     // The first step the Linux host cannot take ends its comparison (its state has left the wasm page's).
     const onLinux = async (step, fn) => {
