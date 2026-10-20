@@ -66,6 +66,14 @@ test('thread selection uses source push/set-params/replace decisions and actual 
   expect(mobileWorkspaceThreadSelection([home, thread, files], true, 'env', 'b')).toMatchObject({ operation: 'replace', sourceAction: 'replace', anchorRouteId: '12' });
 });
 
+test('Home and sidebar route first: a fleet row names its own environment, a bare row the focused one', () => {
+  expect(mobileWorkspaceThreadSelection([home], false, 'env', 'fleet:remote:t:1')).toMatchObject({ operation: 'push', location: '/threads/remote/t%3A1', message: '' });
+  expect(mobileWorkspaceThreadSelection([home, thread], true, 'env', 'fleet:env:a')).toMatchObject({ operation: 'none', message: '' });
+  expect(mobileWorkspaceThreadSelection([home, thread], true, 'env', 'fleet:remote:a')).toMatchObject({ operation: 'replace', sourceAction: 'set-params', location: '/threads/remote/a' });
+  expect(mobileWorkspaceThreadSelection([home], false, 'env', 'b')).toMatchObject({ operation: 'push', location: '/threads/env/b' });
+  expect(mobileWorkspaceThreadSelection([home], false, '', 'b')).toMatchObject({ operation: 'none', message: 'Choose an available thread.' });
+});
+
 test('overlay selection truncates to actual underlying anchor then mutates once, including same-thread dismissal', () => {
   expect(mobileWorkspaceThreadSelection([home, thread, settings], true, 'env', 'a')).toMatchObject({ operation: 'replace', sourceAction: 'set-params', requestRoute: '14', anchorRouteId: '7', anchorLocation: '/threads/env/a', dismissOverlays: true, hideFileInspector: true });
   expect(mobileWorkspaceThreadSelection([home, settings], true, 'e/x', 't y')).toMatchObject({ operation: 'push', anchorRouteId: '0', location: '/threads/e%2Fx/t%20y', dismissOverlays: true });
