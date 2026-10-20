@@ -17,7 +17,7 @@ test('a screen is reached by its taps, each settled, the scheme first', () => {
   for (const [name, taps] of SCREENS) {
     const ops = screenOps(name, 'dark', '/s.png');
     expect(ops[1]).toBe('prefer prefers-color-scheme dark');
-    expect(ops.at(-1)).toBe('screenshot /s.png');
+    expect(ops.slice(-2)).toEqual(['screenshot /s.png', 'logs']);
     for (const t of taps) expect(ops[ops.indexOf(t) + 1]).toBe('clock settle');
   }
 });

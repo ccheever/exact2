@@ -39,7 +39,17 @@ export const SCREENS = [
   ['author-ada', ['tap avatar-0:at://did:plc:fixture0/app.bsky.feed.post/fx0']],
   ['author-bo', ['tap avatar-1:at://did:plc:fixture1/app.bsky.feed.post/fx4']],
   ['thread', ['tap post-0:at://did:plc:fixture0/app.bsky.feed.post/fx0']],
+  // The composer (the Post button): signed in through the form as the
+  // fixture's made-up account, on the drive's reset store (theme2 09:19 (c)).
+  // The password first: on Linux a tap after typing in a password field is
+  // refused (QUEUE). Then a second of real time, for iOS's keyboard, which
+  // is the system's and doesn't follow the agent's clock.
+  ['composer', ['tap bottomBarSignInBtn', 'type loginPasswordInput fixture-password', 'type loginUsernameInput me.fixture.invalid', 'tap loginNextButton', 'tap compose', 'clock +1500 real']],
 ];
+
+/** What the fixture says in the app's log for a request it refuses: a shot
+ * whose drive logged it fails (nothing may reach the network). */
+export const REFUSED = 'FIXTURE-REFUSED';
 
 const pass = (...evidence) => ({ status: 'PASS', evidence });
 const fail = (...evidence) => ({ status: 'FAIL', evidence });
@@ -56,11 +66,11 @@ const sha = buf => createHash('sha256').update(buf).digest('hex');
 /** The agent ops for one screen, light or dark: launched, the clock settled,
  * the scheme preferred, the screen reached, each step settled and a second
  * on (the tab bar's indicator follows a scheme change a frame late, which
- * settling alone left in either place), shot. */
+ * settling alone left in either place), shot, and the app's log read. */
 export function screenOps(screen, scheme, png) {
   const [, taps] = SCREENS.find(([n]) => n === screen);
   const settle = ['clock settle', 'clock +1000', 'clock settle'];
-  return ['clock settle', `prefer prefers-color-scheme ${scheme}`, ...settle, ...taps.flatMap(t => [t, ...settle]), `screenshot ${png}`];
+  return ['clock settle', `prefer prefers-color-scheme ${scheme}`, ...settle, ...taps.flatMap(t => [t, ...settle]), `screenshot ${png}`, 'logs'];
 }
 
 /** One host's drive of the copy: every screen, both schemes, each its own
@@ -90,7 +100,9 @@ function driveScreens(copy, host, dir) {
         ...(host === 'ios' || host === 'macos' ? [] : ['--size', SIZE]), ...(host === 'ios' && process.env.EXACT_SIM ? ['--sim', process.env.EXACT_SIM] : []),
         ...screenOps(screen, scheme, png)];
       const r = run(process.execPath, args, { cwd: copy });
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png), sha: existsSync(png) ? sha(readFileSync(png)) : null, said: r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300) });
+      const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
+      const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length, sha: existsSync(png) ? sha(readFileSync(png)) : null, said });
     }
   }
   return rows;
@@ -157,6 +169,8 @@ export function lines(opts) {
       waits('stage 12 C (anatomy, reload1)')],
     ['slot-rendered', 'Every variant cell of apps/library-gate renders its slot\'s marker, both glyphs, on every required host', () =>
       waits('stage 12 C (parts and the slot) and apps/library-gate')],
+    ['slot-check-time', 'The slot check (check_slots) on the clone with both library packages takes under about 10 ms a check (the lead, 10:15Z; rt1 measures it)', () =>
+      waits('stage 12 C (check_slots), the packages and the adoption, then rt1\'s measurement')],
     ['no-forks', 'lower-library-platform clean over both packages', () =>
       waits('stage 12 C (lower-library-platform) and the packages')],
     ['no-regressions', 'Release output unchanged for apps using no library component; conform clean; @exact/reading\'s users unchanged', () =>
