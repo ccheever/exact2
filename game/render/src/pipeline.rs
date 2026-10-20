@@ -58,6 +58,14 @@ const LIGHTS: &str = piece!("lights");
 const FADE: &str = piece!("fade");
 const TONE: &str = piece!("tone");
 const MODEL: &str = piece!("model");
+const CAUSTICS: &str = piece!("caustics");
+/// The water's surface and its shafts (water.rs).
+pub(crate) fn water_source() -> String {
+    [FRAME, TONE, piece!("sky"), CAUSTICS, piece!("water")].concat()
+}
+pub(crate) fn shafts_source() -> String {
+    [FRAME, CAUSTICS, piece!("shafts")].concat()
+}
 /// The environment prefilter, a standalone module (ibl.rs).
 pub(crate) const ENVIRONMENT: &str = piece!("environment");
 
@@ -83,6 +91,7 @@ fn primitive_sources(early: bool) -> [String; 5] {
     [
         [
             FRAME,
+            CAUSTICS,
             TRANSFORM,
             SHADOW_SAMPLE,
             IBL,
@@ -127,6 +136,9 @@ pub(crate) fn shader_sources() -> Vec<String> {
         ENVIRONMENT.into(),
         outline_source(),
         SHADOW_SEED.into(),
+        water_source(),
+        depth_source(&shafts_source(), 1),
+        shafts_source(),
     ];
     all.extend(quad_sources());
     all
@@ -151,6 +163,7 @@ pub(crate) fn model_sources(shadow: bool, early: bool) -> String {
     };
     [
         FRAME,
+        CAUSTICS,
         TRANSFORM,
         sample,
         IBL,

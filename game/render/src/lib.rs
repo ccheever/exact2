@@ -47,6 +47,8 @@ mod timing;
 mod trace;
 #[cfg(test)]
 mod translucent_tests;
+mod water;
+pub use water::WaterEffects;
 pub mod world;
 
 /// Simulation vocabulary, also used by module! without a direct dependency.
@@ -318,6 +320,8 @@ pub struct FrameInput<'a> {
     pub environment_map: Option<EnvironmentMapInput<'a>>,
     /// Screen-space ambient occlusion; None (the default) draws none.
     pub ambient_occlusion: Option<exact_game::AmbientOcclusion>,
+    /// A water surface and its effects (`water.rs`); None (the default) draws none.
+    pub water: Option<exact_game::Water>,
     /// Optional pass timestamps. Requires TIMESTAMP_QUERY on the device.
     /// Reserve [`GPU_PASS_COUNT`] pairs in the query set. Resolve/read outside draw.
     pub timestamps: Option<&'a wgpu::QuerySet>,
@@ -350,6 +354,7 @@ impl Default for FrameInput<'_> {
             environment: Environment::default(),
             environment_map: None,
             ambient_occlusion: None,
+            water: None,
             timestamps: None,
             headroom: 1.0,
             viewport_css_height: None,

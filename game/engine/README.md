@@ -329,6 +329,23 @@ when fog should match a flat `Environment.background`.
 `Environment.tone_mapping = ToneMapping::None` preserves linear colour before
 sRGB encoding. Use exposure 1 and `bloom: None` to avoid those effects too.
 
+`Water::at(height)` is water with a flat surface at that world Y, an optional
+resource like `AmbientOcclusion`: a world without it draws and hashes as before.
+Inserting it draws the surface (from below, the sky through Snell's window and the
+reflected depths outside it; from above, the sky's reflection over what lies
+beneath, `clarity` of it showing and the rest `color`), confines the fog to the
+part of each view ray below the height, and adds `caustics` (a moving net in the
+sun's light on surfaces under the water, none in shadow) and `shafts`
+(the sun's light scattered by that fog, seen from below). `Waves` bend the
+surface's normals; the plane stays flat, so nothing floats or collides with it.
+`Water` is saved and hashed like any resource, so adopting it moves a game's pins
+(repin); the wave phase and every GPU product derive from the displayed time and
+are never saved. The height is the game's: `Water::default()` exists for the
+codec and puts the surface at Y = 0. Insert it in `setup`, or register it
+(`Game::register`) when it first appears mid-game. The renderer can leave the
+caustics and shafts out at present time without changing the resource
+(`Renderer::set_water_effects`, [renderer](../render/README.md#water)).
+
 `Game::SAMPLES` selects scene sampling for the renderer's lifetime: override it
 with `const SAMPLES: SceneSamples = SceneSamples::One` for 1×, or leave the 4×
 MSAA default. It is a renderer construction choice, not saved simulation state.
