@@ -124,19 +124,33 @@ check('appearance none keeps authored root tabs across selection and restores th
   expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
 }), 60000);
 
+check('a projection with nothing to change writes nothing', () => inChrome(page(tabs(BAR)), async (evaluate) => {
+  // What projections write, but for the selection and a style the test itself sets on the tab bar.
+  await evaluate(`window.writes = (change) => new Promise(done => { const seen = [], watch = new MutationObserver(records => seen.push(...records.filter(r => r.attributeName !== 'navigationkey' && !(r.target.id === 'bar' && r.attributeName === 'style')).map(r => (r.target.id || r.target.localName) + ' ' + r.attributeName))); watch.observe(document.getElementById('exact-root'), { attributes: true, subtree: true }); change(); setTimeout(() => { watch.disconnect(); done(seen); }); })`);
+  // A split showing the detail a row's press pushed, then a bound style that does not place the bar; then a sheet
+  // over it, the tab bar inert beneath.
+  await evaluate(`select('1'); { const row = document.getElementById('r1-bo'); row.addEventListener('click', () => push('2', '/people/bo'), {once:true}); row.click(); }`);
+  expect(await evaluate(`writes(() => { select(2); document.getElementById('bar').style.backgroundColor = 'red'; select(2); }).then(seen => [document.getElementById('nav').hasAttribute('data-exact-sidebar'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row'), seen])`)).toEqual([true, true, []]);
+  await evaluate(`select(3)`);
+  expect(await evaluate(`writes(() => { select(3); select(3); }).then(seen => [document.getElementById('bar').inert, seen])`)).toEqual([true, []]);
+}), 60000);
+
 check('retained root tabs yield to changed authored placement and restore without losing selection', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
+  // Each change to what places the bar, then its undoing: by an inline style, a class or the bar's orientation.
+  await evaluate(`document.head.append(Object.assign(document.createElement('style'), { textContent: '#exact-root .placed { position: absolute !important; }' }))`);
+  const style = (id, property, value) => `document.getElementById('${id}').style.${property} = '${value}'`, bar = "document.getElementById('bar')";
   const samples = [];
-  for (const [id, property, changed, restored] of [
-    ['nav', 'display', 'block', 'flex'],
-    ['bar', 'position', 'absolute', 'relative'],
-    ['nav', 'flexDirection', 'row', 'column'],
-    ['bar', 'flexDirection', 'column', 'row'],
+  for (const change of [
+    [style('nav', 'display', 'block'), style('nav', 'display', 'flex')],
+    [style('bar', 'position', 'absolute'), style('bar', 'position', 'relative')],
+    [style('nav', 'flexDirection', 'row'), style('nav', 'flexDirection', 'column')],
+    [style('bar', 'flexDirection', 'column'), style('bar', 'flexDirection', 'row')],
+    [`${bar}.classList.add('placed')`, `${bar}.classList.remove('placed')`],
+    [`${bar}.setAttribute('aria-orientation', 'vertical')`, `${bar}.removeAttribute('aria-orientation')`],
   ]) {
-    for (const value of [changed, restored]) {
-      samples.push(await evaluate(`document.getElementById(${JSON.stringify(id)}).style[${JSON.stringify(property)}] = ${JSON.stringify(value)}; select(2); [document.getElementById('nav').hasAttribute('data-exact-sidebar'), shown('r2'), shown('t1')]`));
-    }
+    for (const step of change) samples.push(await evaluate(`${step}; select(2); [document.getElementById('nav').hasAttribute('data-exact-sidebar'), shown('r2'), shown('t1')]`));
   }
-  expect(samples).toEqual(Array.from({ length: 4 }, () => [[false, true, false], [true, true, false]]).flat());
+  expect(samples).toEqual(Array.from({ length: 6 }, () => [[false, true, false], [true, true, false]]).flat());
   await size(390);
   expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
   await size(1280);

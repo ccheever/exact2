@@ -2,7 +2,7 @@
 // web host's rendering (`glue.js` `refreshSymbols`) — the role's path as a
 // mask over the node's tint (when it sets none, its `color` where its author
 // wrote one, `data-symbol-color`, LLP 1121 stage 9 B; else `AccentColor`, LLP 1095 D8),
-// sized by its font — after each commit and navigation projection. A
+// sized by its font — after each commit and each change of a root's sidebar. A
 // dynamic source names a role from `table`, the plan's own strings that are
 // roles, or, for one its data names (ledger diary F10), from every role,
 // loaded once (`symbol-roles.js`, the build's). Imported by an app's module
