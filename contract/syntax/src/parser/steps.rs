@@ -3,7 +3,8 @@
 use super::*;
 
 impl Parser {
-    /// `font "Name" = "path.ttf"`, or a block of `weight [italic] = path`.
+    /// `font "Name" = "path.ttf"`, or a block of `weight [weight] [italic] =
+    /// path`: one weight, or a variable face's range of them.
     pub(super) fn font_decl(&mut self) -> R<FontDecl> {
         let span = self.expect_word("font")?;
         let name_span = self.peek().span;
@@ -15,7 +16,7 @@ impl Parser {
             return Ok(FontDecl {
                 name,
                 faces: vec![FontFaceDecl {
-                    weight: 400,
+                    weight: None,
                     italic: false,
                     source,
                     span,
@@ -26,6 +27,16 @@ impl Parser {
         self.newline()?;
         let faces = self.block(|p| {
             let token = p.next();
+            let weight = |n: f64, span| {
+                if n.fract() != 0.0 || !(1.0..=1000.0).contains(&n) {
+                    return Err(SyntaxError {
+                        id: "syntax-font-weight",
+                        message: format!("font face weight `{n}` is not a whole number from 1 to 1000"),
+                        span,
+                    });
+                }
+                Ok(n as u16)
+            };
             let TokenKind::Number(n) = token.kind else {
                 return Err(SyntaxError {
                     id: "syntax-font-weight",
@@ -33,13 +44,22 @@ impl Parser {
                     span: token.span,
                 });
             };
-            if n.fract() != 0.0 || !(1.0..=1000.0).contains(&n) {
-                return Err(SyntaxError {
-                    id: "syntax-font-weight",
-                    message: format!("font face weight `{n}` is not a whole number from 1 to 1000"),
-                    span: token.span,
-                });
-            }
+            let low = weight(n, token.span)?;
+            let high = match p.peek_kind().clone() {
+                TokenKind::Number(n) => {
+                    let span = p.next().span;
+                    let high = weight(n, span)?;
+                    if high < low {
+                        return Err(SyntaxError {
+                            id: "syntax-font-weight",
+                            message: format!("font face weight range `{low} {high}` runs backwards; write the lighter weight first"),
+                            span,
+                        });
+                    }
+                    high
+                }
+                _ => low,
+            };
             let italic = if p.at_ident("italic") {
                 p.next();
                 true
@@ -50,7 +70,7 @@ impl Parser {
             let source = p.str_lit("a TTF or OTF source path")?;
             p.newline()?;
             Ok(FontFaceDecl {
-                weight: n as u16,
+                weight: Some([low, high]),
                 italic,
                 source,
                 span: token.span,

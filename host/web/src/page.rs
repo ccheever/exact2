@@ -179,10 +179,11 @@ fn fonts(out: &mut String, plan: &Plan) -> Result<(), DocumentError> {
         }
         let _ = write!(
             rules,
-            "@font-face{{font-family:\"{}\";src:url(\"{}\");font-weight:{};font-style:{}}}",
+            "@font-face{{font-family:\"{}\";src:url(\"{}\");font-weight:{};font-stretch:{};font-style:{}}}",
             face.family,
             face.source,
-            face.weight,
+            face.weight_css(),
+            face.stretch_css(),
             if face.italic { "italic" } else { "normal" }
         );
     }

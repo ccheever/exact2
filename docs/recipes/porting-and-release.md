@@ -4,7 +4,8 @@
 with the original's name and bundle id if it replaces the original on a device. A bundle id
 changed after the first build makes the next build cold (46 s in the euxy port) and leaves the
 app installed under the old id, to delete by hand. Changing one later means app.json's `app.id`
-and app.ts's `appId` together.
+and app.ts's `appId` together. A new app ships Linux as well; a port of an iPhone app runs
+`bun exact.mjs update --without linux` next, or each `symbol:sf/…` warns that Linux draws it blank.
 
 **Comparing a port with the original.** `agent ios --touch platform` makes each tap a real touch,
 which opens UIKit's menus and reaches a native module's own controls: drive with it to compare a

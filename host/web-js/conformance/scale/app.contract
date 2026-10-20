@@ -10,7 +10,11 @@
 // moves between radius.md and radius.full. Every web build and the Linux host
 // draw the neutral column, so all three agree. A padded box its child fills
 // but for its padding holds the terminal's cells to the same rows above and
-// below.
+// below. A box padded `box.pad`, `calc(space.lg * 2)`, holds each host to
+// its own column's evaluation of an expression (stage 12 B2): each of
+// expect.json's numbers for it is space.lg × 2 in that column (Apple 20,
+// neutral and Material 24, the terminal 2 cells of 8px), so a change to
+// space.lg's row owes a change there.
 style Card
   padding="space.lg"
   border-radius="radius.lg"
@@ -43,6 +47,8 @@ component App
         view testId="lg-inner" width=20 height=10 background-color="probe.ground"
       column testId="xl" padding="space.xl" background-color="probe.fill"
         view testId="xl-inner" width=20 height=10 background-color="probe.ground"
+      column testId="expr" padding="box.pad" background-color="probe.fill"
+        view testId="expr-inner" width=20 height=10 background-color="probe.ground"
       row testId="gap-xs" gap="space.xs"
         view testId="gap-xs-a" width=20 height=10 background-color="probe.fill"
         view testId="gap-xs-b" width=20 height=10 background-color="probe.fill"

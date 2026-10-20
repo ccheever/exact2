@@ -95,26 +95,33 @@ export function sourceMapReader(locator) {
       return maps.size > 0;
     },
     attach(node) {
+      const origin = o => typeof o === 'string' && /^(own|tag|class:.+)$/.test(o);
       delete node.bare_reason;
       for (const style of Object.values(node.style ?? {})) { delete style.origin; delete style.state; delete style.at; }
       const map = digest(node.planDigest) ? maps.get(node.planDigest) : null;
       const entry = Number.isSafeInteger(node.site) && node.site >= 0 ? map?.nodes[node.site] : null;
       if (!entry || !location(entry) || !Array.isArray(entry.chain) || !entry.chain.every(location)
         || !Array.isArray(entry.bindings) || !entry.bindings.every(b => b && typeof b.row === 'string'
-          && typeof b.origin === 'string' && /^(own|tag|class:.+)$/.test(b.origin))) {
+          // A base origin, absent where only a state part writes the row; each part's own (theme2's 03:18).
+          && (b.origin === undefined || origin(b.origin)) && (b.states === undefined || Array.isArray(b.states) && b.states.every(p => p && typeof p.state === 'string' && origin(p.origin))))) {
         node.sourceMap = {status: 'unavailable', reason: map ? 'invalid source location' : problem};
         return;
       }
       node.sourceMap = {status: 'compatible', digest: map.digest, ...at(entry), chain: entry.chain.map(at)};
       // @ref LLP 1104 D2 — the first reason belongs only to this compatible plan site.
       if (typeof entry.bare_reason === 'string' && entry.bare_reason.length > 0 && entry.bare_reason.length <= 1024) node.bare_reason = entry.bare_reason;
-      for (const {row, origin, state, at: written} of entry.bindings) {
-        const style = node.style?.[row];
+      for (const b of entry.bindings) {
+        const style = node.style?.[b.row];
         if (!style || !['authored', 'dynamic'].includes(style.source)) continue;
-        style.origin = origin;
-        // An `:active` row is written in its part (LLP 1121 D8).
+        // A row's base origin; a press row has none, and is its `:active` part's, written in its part (LLP 1121 D8).
+        const part = b.origin === undefined ? b.states?.find(p => p.state === 'active') : null;
+        if (b.origin === undefined && !part) continue;
+        style.origin = part ? part.origin : b.origin;
+        if (part) style.state = part.state;
+        // (Its place where it has one: a conditional class's part has none.)
+        const written = part?.at;
         const placed = written && typeof written.file === 'string' && ['line', 'col', 'end_col'].every(k => Number.isSafeInteger(written[k]));
-        if (typeof state === 'string' && placed) Object.assign(style, {state, at: {file: written.file, line: written.line, col: written.col, end_col: written.end_col}});
+        if (placed) style.at = {file: written.file, line: written.line, col: written.col, end_col: written.end_col};
       }
     },
   };

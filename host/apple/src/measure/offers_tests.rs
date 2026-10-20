@@ -405,6 +405,7 @@ mod storage {
             && actual.has_line_height == expected.has_line_height
             && actual.line_height.to_bits() == expected.line_height.to_bits()
             && actual.letter_spacing.to_bits() == expected.letter_spacing.to_bits()
+            && actual.font_stretch.to_bits() == expected.font_stretch.to_bits()
     }
 
     extern "C" fn inspect_request(ctx: *mut c_void, request: *const CRequest) -> CMetrics {
@@ -461,6 +462,7 @@ mod storage {
             font_size: sizes[variant],
             font_weight: 537,
             font_style: FontStyle::Italic,
+            font_stretch: 87.5,
             font_family: 23,
             line_height: heights[variant],
             letter_spacing: -0.125,
@@ -471,6 +473,7 @@ mod storage {
             font_size: 19.5,
             font_weight: 411,
             font_style: FontStyle::Normal,
+            font_stretch: 100.0,
             font_family: 7,
             line_height: Some(30.25),
             letter_spacing: -0.0,
@@ -499,6 +502,7 @@ mod storage {
                 line_height: heights[variant].unwrap_or(0.0),
                 letter_spacing: -0.125,
                 font_variant_numeric: 0,
+                font_stretch: 87.5,
             },
             CRun {
                 text: "".as_ptr(),
@@ -511,6 +515,7 @@ mod storage {
                 line_height: 30.25,
                 letter_spacing: -0.0,
                 font_variant_numeric: 0,
+                font_stretch: 100.0,
             },
         ];
         let widths = [

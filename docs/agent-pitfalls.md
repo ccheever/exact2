@@ -32,6 +32,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   where it can prove the box keeps its px width around such text, and is silent where it
   cannot. (Bake-off round 13, weather; LLP 1116.011 D2.4.)
 
+- **A border on one cell of a grid of `flex=1` cells pushes its column out of line.**
+  A border adds to a box's outer size (CSS's `content-box`, and `border-box` too: a
+  `flex-basis` of 0 is never smaller than the border), so a calendar's today with
+  `border-width=(isToday ? 2 : 0)` is wider and taller than its neighbours and
+  the days after it sit off the columns above. Fix: give every cell the border and vary
+  its colour, `border-width=2 border-color=(isToday ? "-exact-label" : "transparent")`.
+  (Bake-off round 28, mood journal: 50.9 points against 47.4 on iOS; Chrome alike, with
+  `border-box` too.)
+
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
   scroll and the document scrolls instead: on the web a screenshot shows only the first
@@ -277,6 +286,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   put `touch-action="none"` on that text too. (Authoring bench, LLP 1087, r32 and r33
   t4-kanban, 2026-10-06.)
 
+- **A button row's ellipsis title runs off the screen instead of truncating.** Cause: a
+  `button` is as wide as its content, as HTML's `<button>` is, `display="flex"` or not,
+  and a `white-space="nowrap"` title's narrowest width is the whole title, so the row
+  takes it: in Chrome a 1,052 px row on a 440 px page. `min-width=0` on a column inside
+  does not help; it narrows the column only once the row is narrower. Fix: give the
+  button `width="100%" box-sizing="border-box"`, and put the row's side inset in the
+  list's `padding` or the button's own, not a margin, which 100% does not include
+  (Linear Port, 2026-10-19; `issues/closed/20261020-list-row-max-content-width.md`).
+
 - **A second card drag right after a drop does nothing.** A drag that starts before
   the last one's session ends is refused (LLP 1094 D8): the drop is held until its move
   shows (a second at most; [the agent guide](contract-for-agents.md#views-layout-and-interaction),
@@ -379,7 +397,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   sheets and a popover
   that is no menu as AppKit's popover; each is a window of its own, so a plain
   `screenshot` (the viewport's own drawing) leaves it out and says so
-  (`notShown`). (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
+  (`notShown`). An iOS launch no driver reaches (`simctl launch` with
+  `EXACT_AGENT=1` and `EXACT_AGENT_FAIL_FETCH`, no socket) shows the native bars
+  and menus, its fetches still failing. (Signal Clone, builds 5 and 10; Splitter,
+  rough 4 and 11; Recipe Finder, round 27.)
+- **An `EmptyState`'s button sits at the bottom of the screen.** Cause: the part
+  takes the free height it is given, so a `button` written after it lands at that
+  space's foot. Fix: indent the button under the `EmptyState` call, its slot.
+  (Recipe Finder, round 27.)
 - **An overlay's backdrop stops at the navigation or tab bar.** Cause: content
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
@@ -475,6 +500,7 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
 | a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
 | `alignItems`, `justifyContent`, `gap` on a `View` (a flex column in RN) | `lower-flex-on-block` (warning) | `column` or `row`: a `view` is `display: block`, as a `<div>` is |
+| `<SFSymbol name="x" size={N}>`, expo-symbols `SymbolView` | nothing; hand-drawn as an `svg`, or as `font-size=N`, the glyph comes out smaller | `image "symbol:sf/x" width=N height=N object-fit="contain"`, its tint as `color` ("Values beside an SF Symbol", below) |
 
 What the original's style objects say is not always what its iOS screen shows. Port
 what the screenshot shows. (euxy port against its Expo original, judged screen by

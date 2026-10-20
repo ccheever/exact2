@@ -548,3 +548,19 @@ inner panel's two segments run down it, (0, 0, 669, 455.5) over (0, 495.5, 669, 
 and duo-lab's Fold panes follow them. On the cover panel an iPhone app keeps its last
 orientation when the device turns upside down. The suite starts and ends with the device
 upright, so the recorded panel applies on a simulator left turned.
+
+After closing the Duo, the leg follows SpringBoard's log until its display swap's
+orientation deferrals end, turns the Duo upside down, which an app on the cover panel
+does not take, and waits for SpringBoard to log that pose, before the turns it checks
+(2026-10-19, Xcode 27.1, iOS 27.1 24A94425). Its first turn after closing was lost in 3
+of 21 runs beside another simulator's drives, no app turning though CoreDevice reported
+the device turned; in 3 of 20 when the turn waited 4 s after the swap began; and in 2 of
+29 with the upside-down turn made at once. SpringBoard sets its fold transition style to
+`.fade` as the Duo closes and back once its swap ends, by itself or with the first pose
+that reaches it then; in each failure locationd's pose for the turn (`CMMagicPose`) set
+the style back, and no orientation update followed. An upside-down turn made during the
+swap is applied as any is and leaves the style as it was. Made as the swap ends, it set
+the style back in 23 of 30 runs, and in 11 of them SpringBoard sent no orientation update
+for it; all 30 passed. A plain UIKit app
+turned in 102 of 102 turns made within a second of closing, which missed the window: it
+is SpringBoard's.

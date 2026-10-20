@@ -23,9 +23,30 @@
 //! iOS, and the box would make it custom. A title that is a `column` (one
 //! text, or a title over a subtitle) is custom already. The Mac's form
 //! keeps the two side by side (`grouped-value-wrap`).
+//!
+//! A text followed by a worded `button` that ends the row (a message and its
+//! Try Again) is boxed the same way, as a hand-built cell switches its stack
+//! to vertical at the accessibility sizes (Apple's guidance for Dynamic
+//! Type): the text keeps at least `BUTTON_TITLE_BASIS` beside the button,
+//! and below that the button goes under it, at its leading edge. Without
+//! it a message beside Try Again at the largest size broke inside every
+//! word ("Ca/n't rea/ch", household-list, round 27). A button holding only
+//! a symbol stays where it is: an info button is the row's accessory.
 
 use super::{attr, m, n, s, Count};
 use contract_syntax::{Attr, Expr, Node, Span};
+
+/// The width a text keeps beside its row's trailing button: about ten
+/// words' letters at the default size, beside a button's label on a phone
+/// through the largest standard size, and past the row's width at the
+/// accessibility sizes, which put the button under the text.
+const BUTTON_TITLE_BASIS: &str = "9rem";
+
+/// A `button` that holds a `text`: a labelled action, not a symbol alone.
+fn worded_button(node: &Node) -> bool {
+    matches!(node, Node::Element { tag, children, .. } if tag == "button"
+        && children.iter().any(|c| matches!(c, Node::Element { tag, .. } if tag == "text")))
+}
 
 /// `parts` with the title and the value after it boxed, where `counts`
 /// (each part's texts before and after it) say the title is a `column`, or
@@ -49,10 +70,10 @@ pub(super) fn boxed(
         return parts;
     };
     let value = title + 1;
+    let button = value + 1 == children.len() && worded_button(&children[value]);
     if value >= children.len()
-        || !(tag(title) == Some("column") || swiped && tag(title) == Some("text"))
-        || tag(value) != Some("text")
-        || !counted(value, 1)
+        || !(tag(title) == Some("column") || (swiped || button) && tag(title) == Some("text"))
+        || !(button || tag(value) == Some("text") && counted(value, 1))
     {
         return parts;
     }
@@ -88,6 +109,9 @@ pub(super) fn boxed(
                 n("min-width", 0.0, span),
             ],
         );
+        if button {
+            attrs.insert(0, s("flex-basis", BUTTON_TITLE_BASIS, span));
+        }
     }
     let mut attrs = vec![
         s("display", "flex", span),
