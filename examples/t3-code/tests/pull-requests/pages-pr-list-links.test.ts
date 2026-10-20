@@ -12,6 +12,7 @@ import { toasts } from '../../src/shell/toast';
 import { resolveLinkInput } from '../../src/palette/palette-linkpr';
 import { contractComponent } from '../support/contract-action-fixture';
 import { pullRequestRouter } from '../../src/pull-requests/pages-pr-routing';
+import { prsView } from '../../src/panel/linked-prs';
 
 const ref = { projectId: 'p', host: 'github.com', repository: 'acme/repo', number: 7 };
 const summary = (over: Obj = {}): Obj => ({ ...ref, title: 'Change seven', state: 'open', updatedAt: '2026-10-18T10:00:00Z', ...over });
@@ -32,6 +33,20 @@ describe('pull request list bounds and project order', () => {
 });
 
 describe('shared pull request observations', () => {
+  test('a newer host summary keeps the linked snapshot sync time, and never invents one', () => {
+    for (const syncedAt of ['2026-10-18T11:00:00Z', undefined]) {
+      const client = new T3Client(); client.environmentId = 'env'; client.threadId = 't';
+      client.config = { environment: { capabilities: { threadPullRequests: true } } };
+      client.shell.threads = [{ id: 't', projectId: 'p', pullRequests: [{ ...ref, source: 'manual', linkedAt: '2026-10-18T10:00:00Z',
+        snapshot: summary({ title: 'Saved title', ...(syncedAt ? { syncedAt } : {}) }) }] }];
+      observePullRequestSummary(client, 'env', ref, summary({ title: 'Fresh title', updatedAt: '2026-10-18T11:30:00Z', observedAt: Date.parse('2026-10-18T11:59:00Z') }));
+      const view = prsView(client, Date.parse('2026-10-18T12:00:00Z'));
+      expect(view.rows[0]?.title).toBe('Fresh title');
+      expect(view.footer).toBe(`1 open · 1 linked${syncedAt ? ' · synced 1h ago' : ''}`);
+      expect(prsView(client, Date.parse('2026-10-18T13:00:00Z')).footer).toBe(`1 open · 1 linked${syncedAt ? ' · synced 2h ago' : ''}`);
+    }
+  });
+
   test('the same project, repository and number stay separate on different hosts', () => {
     const client = new T3Client(); client.environmentId = 'env';
     const enterprise = { ...ref, host: 'github.enterprise.test' };

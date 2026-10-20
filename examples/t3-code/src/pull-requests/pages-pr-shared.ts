@@ -47,6 +47,7 @@ export function sharedPullRequestLinks(client: T3Client, links: Obj[], projectId
   return links.map(link => {
     const reference = { projectId, host: str(link.host), repository: str(link.repository), number: num(link.number) };
     const snapshot = sharedPullRequestSummary(client, reference, link.snapshot ? obj(link.snapshot) : null, environmentId);
-    return snapshot ? { ...link, snapshot } : link;
+    // Sync time belongs to this thread's saved link, not a newer host summary.
+    return snapshot ? { ...link, snapshot: { ...snapshot, syncedAt: obj(link.snapshot).syncedAt } } : link;
   });
 }
