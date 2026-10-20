@@ -414,10 +414,10 @@ export function lines(opts) {
         const add = await write({ op: 'add-token', name: 'space.lg', value: '30px' });
         const pointed = !add.ok && /set-token/.test(JSON.stringify(add.error?.diagnostics ?? add.error?.message ?? ''));
         evidence.push(`add-token space.lg: ${add.ok ? 'taken' : `refused: ${JSON.stringify(add.error?.diagnostics?.[0]?.message ?? add.error?.message ?? '')}`}; package files ${untouched() ? 'untouched' : 'CHANGED'}`);
-        // The package file as the server names it (A2 part 2), else no probe:
-        // a path it doesn't know is refused as no file of the design, which
-        // proves nothing of the guard.
-        const packageFile = Object.keys(described?.files ?? {}).find(f => /(^|\/)cards\.tamber$/.test(f));
+        // The package file as the server names it (A2 part 2's `packages`,
+        // `<package>/<file>`), else no probe: a path it doesn't know is
+        // refused as no file of the design, which proves nothing of the guard.
+        const packageFile = (described?.packages ?? []).map(p => p.file).find(f => /(^|\/)cards\.tamber$/.test(String(f)));
         let refusedOutside = false;
         if (packageFile) {
           const outside = await write({ op: 'set-token', file: packageFile, name: 'cards.fill', value: '#123456' });
