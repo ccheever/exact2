@@ -72,12 +72,9 @@ pub fn params_of(app_contract: &Path) -> AppParams {
             files: sources
                 .paths()
                 .iter()
-                .map(|p| {
-                    p.strip_prefix(&dir)
-                        .unwrap_or(p)
-                        .to_string_lossy()
-                        .into_owned()
-                })
+                // As every answer names a file (`tamber_uses::shown`): never
+                // with this machine's directories.
+                .map(|p| crate::tamber_uses::shown(p, &dir))
                 .collect(),
             failed: false,
         },

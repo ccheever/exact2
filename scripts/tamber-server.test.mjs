@@ -560,7 +560,7 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
     const line = readFileSync(contract, 'utf8').split('\n').findIndex(l => l.includes('text "Swap pins"')) + 1;
     const selection = await until(() => events.find(e => e.event === 'selection'));
     expect(selection).toMatchObject({ build: build.id, node: Number(hit), readOnly: null, source: { line, component: 'App' } });
-    expect(realpathSync(selection.source.file)).toBe(realpathSync(contract));
+    expect(selection.source.file).toBe('app.contract'); // named from the app, as every answer names a file (tamber-paths.mjs)
     expect(selection.rows.every(r => r.editable && (r.editable.rung === 'token' || typeof r.editable.reason === 'string'))).toBe(true);
     // Its colour is the page's, inherited: read-only, a link to the token
     // the page's own row reads.

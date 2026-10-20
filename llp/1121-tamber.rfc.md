@@ -4629,6 +4629,48 @@ It fails without the fix, checked by hand. `outline`, which takes `uses`'s sites
 directory as well as the map's own (its path, as given and real), so the design tool's outline of a token's sites
 still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it).
 
+**After the path fix's review round 1 (Astra WRONG; Grok RIGHT WITH CHANGES; one rework):**
+- **No blanket replacement.** The Rust backstop in `Server::handle` and the JS one over replies, events and long polls
+  replaced the app's and home directory's text anywhere. That corrupted authored data: a token value holding
+  `<app>/assets/icon.svg`, a history's text, `/tmp/x` inside `/private/tmp/x`, and `/Users/admin` inside
+  `/Users/administrator`. The Rust one hit local clients too. Both are gone.
+- **Path metadata through one rule.** A file is named from the app's directory where it is in it (as given or
+  real); else from its package, the nearest directory above it whose `package.json` has a name
+  (`<name>/<path inside it>`, as D15's `sources::home` names a package's file, so a `file:` link outside the app and
+  the home directory is unique and stable); else `<outside>/<its name>`. Rust keeps it in `tamber_uses::shown` (for
+  `uses`, explain's icon sites and param file through `AppParams.files`, and a refusal's diagnostics), and JS in
+  `scripts/tamber-paths.mjs` `pathName`. JS applies it, by `file` fields only, to every reply and every event for
+  every client: a selection's source and chain, `inspect`, and the long poll. The stale-map and moved-file messages
+  of `tamber-inspect.mjs` name their file the same way.
+- **Machine-written messages are scrubbed at path boundaries,** for a client that is not local. The app's
+  directory becomes `<app>` and the home directory `~`, longest first, in the given and real forms, only where a
+  whole path starts and ends. It applies only to an `error`'s messages (and its diagnostics') and the `down` event's,
+  including the two 503s that bypassed it: a subscribe while down, and a long poll past the `down` event. Authored
+  text is not read.
+- **`outline` matches by the rule.** Each location's file and each map node's file are named by `pathName` and
+  compared, so a package linked from outside the app round-trips and two packages' same-named files stay apart. A
+  map's named nodes are kept per map read, since a map can move under one plan digest.
+- **Tests:**
+  - `scripts/tamber-paths.test.mjs`: the rule (inside the app, through its real path, through a link inside it, a
+    package's own path outside it, outside both); the boundaries (`/private/tmp/xy`, `<home>istrator`); and that
+    only an error's and `down`'s messages are scrubbed, never a commit's.
+  - `tamber-remote.test.mjs`, through the real design server, with the app under the home directory and
+    `@acme/linked` linked from outside both. A build is registered on the dev loop's channel whose map names the
+    package's real path. A paired client through B's door asks hello, describe, resolve, explain, uses ×2, a
+    refused `set-row` and a checker refusal (propose, transaction), and inspect. It also reads the selection in the
+    long poll (`@acme/linked/index.contract`), outlines `uses`'s site (it reaches the build: sites `[0]`), and asks
+    hello through the tunnel. No reply holds the app's, the home or the linked directory in either form, except
+    describe's authored metadata. Authored text (the token's `help` holding the app's path, the commit's message
+    naming it) is byte-identical to the local and the remote client.
+  - A design server that is down (it says the app's path on stderr): the remote subscribe and long poll are 503 with
+    `<app>`, and the `down` event in a long poll from the start is scrubbed too. Both tests fail without the
+    rework, checked by hand.
+  - `tamber_serve_packages.rs` `authored_text_holding_the_apps_path_is_kept`: a local proposal's diff, describe's
+    metadata and a scrub's fold keep a `help` value holding the app's path byte for byte.
+  - `tamber-server.test.mjs`'s wasm inspect test now expects the selection's file as `app.contract`.
+- **Not covered:** a machine message naming a linked package's directory outside the app and the home directory
+  (the design server's stderr, say) is not scrubbed. No message the servers write names one today.
+
 ### Stage 11, commit B1: the base scale table (draft for theme2)
 
 Built to the approved plan (`~/x2theme/x2p4-s11b-plan.md`, theme2's 09:56 approval and its conditions) and theme2's 10:57

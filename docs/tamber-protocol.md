@@ -379,10 +379,14 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 - `files`;
 - `app`: the app's directory, absolute, for the local client (`local: true`), which `tamber tool` tells
   its own server by (*1.1*); for any other client (paired, through a remote door or a tunnel) the
-  directory's name alone. No answer to a client that is not local names a directory of this
-  machine: a file is named from the app's directory (`node_modules/@acme/reading/index.contract`),
-  and the app's directory and the home directory are dropped from every reply, event and long poll
-  such a client gets (a fix in 1.14's window, no new version);
+  directory's name alone. Every `file` an answer or event carries is named by one rule, for every
+  client: from the app's directory where the file is in it (`node_modules/@acme/reading/index.contract`),
+  else from its package (`<package.json name>/<path inside it>`, as D15 names a package's file),
+  else `<outside>/<its name>`; never by its path on this machine. A client that is not local gets
+  machine-written messages (an error's, a refusal's, the `down` event's) with the app's directory
+  as `<app>` and the home directory as `~`, at whole paths only. What an author wrote (a token's
+  value, a commit's message, a file's text) comes back as written to every client (a fix in 1.14's
+  window, no new version);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
 - `live` (*1.2*): true when a dev loop serves the wire, whose running builds take a value-only edit in
   place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).

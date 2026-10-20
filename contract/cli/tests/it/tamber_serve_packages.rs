@@ -890,16 +890,49 @@ fn no_answer_names_the_machines_directories() {
             assert!(!text.contains(&*d.to_string_lossy()), "{request}: {text}");
         }
     }
-    // A read error's message names the file from the app's directory too.
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
-    let (unread, _) = s.ask(json!({"method": "describe"}));
-    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let text = unread.to_string();
-    assert!(unread.get("error").is_some(), "{text}");
-    assert!(text.contains("app.tamber"), "{text}");
-    for d in [&dir, &canonical] {
-        assert!(!text.contains(&*d.to_string_lossy()), "{text}");
-    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1 of the path fix: only path metadata is named from the app's
+/// directory; what an author wrote, a path to the app's own directory in it
+/// too, comes back byte for byte (a proposal's diff, describe's metadata,
+/// a scrub's fold), to a local client as to any.
+#[test]
+fn authored_text_holding_the_apps_path_is_kept() {
+    let dir = app("authored-path", "tamber t\n\ntheme\n  ink = #111111\n");
+    let canonical = dir.canonicalize().unwrap();
+    let written = format!("{}/assets/icon.svg", canonical.display());
+    let file = dir.join("app.tamber");
+    std::fs::write(
+        &file,
+        format!("tamber t\n\ntheme\n  ink = #111111  help=\"{written}\"\n"),
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!([{"op": "set-token", "name": "ink", "value": "#222222"}]);
+    let (proposed, _) = s.ask(json!({"method": "propose", "ops": op}));
+    let diff = proposed["ok"]["diff"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{proposed}"));
+    assert!(
+        diff.contains(&format!("+  ink = #222222  help=\"{written}\"")),
+        "{diff}"
+    );
+    let (described, _) = s.ask(json!({"method": "describe"}));
+    assert_eq!(
+        described["ok"]["meta"]["tokens"]["ink"],
+        json!([["help", written]]),
+        "{}",
+        described["ok"]["meta"]
+    );
+    let digest = super::tamber_serve::digest(&file);
+    let (folded, _) = s.ask(
+        json!({"method": "scrub-fold", "open": true, "files": {"app.tamber": digest}, "ops": op}),
+    );
+    assert_eq!(
+        folded["ok"]["values"][0]["css"],
+        json!(["#222222ff"]),
+        "{folded}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

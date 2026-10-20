@@ -551,35 +551,48 @@ fn elements(
     Ok((file, sources))
 }
 
-/// `path` as an answer names it: relative to the app's directory `dir`
-/// (as given, or canonical: a temporary directory may be reached through a
-/// link), never the machine's absolute path, which a remote client must not
-/// see; a file outside the app keeps only its name after its package's
-/// directory where it has one, else its last component.
+/// `path` as an answer names it, never with this machine's directories
+/// (the rule `scripts/tamber-paths.mjs` keeps for the JS server too):
+/// - inside the app's directory `dir` (as given or canonical: a temporary
+///   directory may be reached through a link), from it
+///   (`node_modules/@acme/reading/index.contract`);
+/// - else inside a package (the nearest directory above the file whose
+///   `package.json` has a name), as D15 names a package's file
+///   (`sources::home`): `<name>/<path inside it>` (`@acme/linked/index.contract`
+///   for a package linked from outside the app);
+/// - else `<outside>/<its name>`.
+///
+/// A relative path is the app's already and is kept.
 pub fn shown(path: &std::path::Path, dir: &std::path::Path) -> String {
+    let slashed = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/");
+    if path.is_relative() {
+        return slashed(path);
+    }
     let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
-    let path_canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let real = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     for (p, d) in [
         (path, dir),
         (path, canonical.as_path()),
-        (path_canonical.as_path(), canonical.as_path()),
+        (real.as_path(), canonical.as_path()),
     ] {
         if let Ok(rest) = p.strip_prefix(d) {
-            return rest.to_string_lossy().replace('\\', "/");
+            return slashed(rest);
         }
     }
-    if path.is_relative() {
-        return path.to_string_lossy().replace('\\', "/");
+    for root in real.ancestors().skip(1) {
+        let named = std::fs::read_to_string(root.join("package.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|m| m["name"].as_str().map(str::to_string));
+        if let (Some(name), Ok(rest)) = (named, real.strip_prefix(root)) {
+            return format!("{name}/{}", slashed(rest));
+        }
     }
-    // Outside the app (a package linked from elsewhere): from its
-    // `node_modules` on where the path has one, else the file's name.
-    let text = path_canonical.to_string_lossy().replace('\\', "/");
-    match text.rfind("/node_modules/") {
-        Some(i) => text[i + 1..].to_string(),
-        None => path
-            .file_name()
-            .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
-    }
+    format!(
+        "<outside>/{}",
+        real.file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+    )
 }
 
 /// Every `file` in an answer's `sites` (any depth) as [`shown`] names it

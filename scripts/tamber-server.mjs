@@ -84,7 +84,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync, watch } from 'node:fs';
-import { homedir } from 'node:os';
+import { messageScrubber, namedPaths, pathName, scrubbedMessages } from './tamber-paths.mjs';
 import { createServer } from 'node:http';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
@@ -168,21 +168,20 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // What `commit` needs of the session, and who last changed each file.
   const session = designSession(appDir), lastBy = new Map();
   const design = basename(designPath(appDir) ?? 'app.tamber');
-  // What a client that is not local reads (a paired client, through B's
-  // doors or a tunnel): never this machine's directories. The app's, as
-  // given and real, and the home directory's are dropped from every reply,
-  // event and long poll it gets (`hello`'s `app` is the directory's name).
-  const machinePaths = [...new Set([appDir, (() => { try { return realpathSync(appDir); } catch { return appDir; } })()])].filter(d => d.length > 1);
-  const homes = [...new Set([homedir(), (() => { try { return realpathSync(homedir()); } catch { return homedir(); } })()])].filter(d => d && d.length > 1);
-  const unmachined = text => {
-    for (const d of machinePaths) text = text.split(JSON.stringify(d + sep).slice(1, -1)).join('').split(JSON.stringify(d).slice(1, -1)).join('.');
-    for (const h of homes) text = text.split(JSON.stringify(h).slice(1, -1)).join('~');
-    return text;
-  };
-  const forRemote = body => JSON.parse(unmachined(JSON.stringify(body)));
+  // What a client reads of this machine's files (stage 11's window, a fix):
+  // every `file` named by one rule (`tamber-paths.mjs`, the design server's
+  // too), for every client; and a client that is not local (paired, through
+  // B's doors or a tunnel) gets machine-written messages with this machine's
+  // directories taken out. Authored values and file contents go as they are.
+  const scrubText = messageScrubber(appDir);
+  const forRemote = body => scrubbedMessages(body, scrubText);
+  // A source map's nodes with their files named by that rule, once a map read (a map can move under one plan digest).
+  const named = new WeakMap();
+  const namedMap = m => { if (!named.has(m)) named.set(m, { ...m, nodes: m.nodes.map(n => namedPaths(n, appDir)) }); return named.get(m); };
 
   const send = event => {
     let line;
+    event = Object.assign(namedPaths(event, appDir), { seq: event.seq });
     try { line = `data: ${JSON.stringify(event)}\n\n`; } catch { log(`tamber: an event could not be sent (${event.event})`); return; }
     // The last 256 kept, at most 64 MiB of them (each event's size beside it).
     const bytes = Buffer.byteLength(line); events.push(Object.defineProperty(event, 'bytes', { value: bytes })); kept += bytes;
@@ -190,7 +189,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // One `only` a client (a hold's refusal, its owner's: theme2's 07:48 (c)) is that client's alone.
     // A paired subscriber past its deadline gets nothing more (`live` ends it now).
     // A subscriber 8 MiB behind is cut (it reconnects and catches up from `events`), never buffered without end.
-    const remoteLine = unmachined(line);
+    const remoteLine = `data: ${JSON.stringify(forRemote(event))}\n\n`;
     for (const res of subscribers) if (!res.writableEnded && (!res.paired || pairs.live(res.paired)) && (!event.only || res.client === event.only)) { if (queuedOn(res) > 8 << 20) { subscribers.delete(res); res.destroy(); } else res.write(res.paired ? remoteLine : line); }
     for (const poll of polls) poll();
   };
@@ -233,7 +232,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     correspond: (from, to, site) => {
       const b = mapOf(to);
       // (A map it cannot read through is no correspondence: cleared, said so.)
-      try { return b && !staleMap(b) ? correspondingSite(mapOf(from), b, site) : null; } catch (e) { log(`tamber: no correspondence for a hold: ${e.message}`); return null; }
+      try { return b && !staleMap(b, readFileSync, appDir) ? correspondingSite(mapOf(from), b, site) : null; } catch (e) { log(`tamber: no correspondence for a hold: ${e.message}`); return null; }
     },
     selected: (build, report, ask) => {
       if (!current(build, report)) {
@@ -252,7 +251,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (report.selected.planDigest && report.selected.planDigest !== params.plan) learnParams(null, report.selected.planDigest);
       const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir), params: params.map, app: appDir, own: known.size ? new Set(ownContracts()) : null });
       send({ event: 'selection', seq: ++seq, epoch, ...selection });
-      remember(build.id, selection);
+      remember(build.id, namedPaths(selection, appDir));
       // Outlined as the client that owns inspect mode on that build, naming
       // the click it answers (its page does not scroll for it).
       // Every copy on every build (D5): the selection's source span, from its
@@ -264,7 +263,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         channel.outline(channel.inspector(build.id) ?? 'inspect', b => {
           const m = b.planDigest ? mapOf(b.planDigest) : mapOf();
           if (!m) return null;
-          if (!at.has(m.digest)) at.set(m.digest, staleMap(m) ? null : sitesAt(m, selection.source));
+          if (!at.has(m.digest)) at.set(m.digest, staleMap(m, readFileSync, appDir) ? null : sitesAt(m, selection.source));
           return at.get(m.digest) ? { sites: at.get(m.digest), plan: m.digest } : null;
         }, report.click ?? null);
       }
@@ -549,12 +548,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request && who.client) request.client = who.client;
     else if (request && !(url.pathname === '/__tamber' && request.method === 'revoke') && typeof request.client === 'string' && request.client.startsWith(REMOTE)) { json(res, 400, { error: { message: `a client named \`${REMOTE}…\` is a paired client's; name yours otherwise` } }); return true; }
     if (url.pathname === '/__tamber/subscribe') {
-      if (down) { json(res, 503, { error: { message: down } }); return true; }
+      if (down) { json(res, 503, { error: { message: who.local ? down : scrubText(down) } }); return true; }
       const hello = `data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() })}\n\n`;
       if (!fits(Buffer.byteLength(hello))) { json(res, 503, { error: { message: 'too much is queued to slow readers: try again shortly' } }); return true; }
       track(res);
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      res.write(who.local ? hello : unmachined(hello));
+      res.write(hello);
       // `{client}`: its commands live while it is present (LLP 1122 D4).
       const client = typeof request?.client === 'string' && request.client ? request.client : null;
       res.client = client;
@@ -598,7 +597,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // The design server gone: what is kept after `after` (its `down`
       // among it), else an error, which a following client retries slowly,
       // never an empty answer it would ask again at once.
-      if (down && !events.some(e => e.seq > after)) { json(res, 503, { error: { message: down } }); return true; }
+      if (down && !events.some(e => e.seq > after)) { json(res, 503, { error: { message: who.local ? down : scrubText(down) } }); return true; }
       if (down) { answer(); return true; }
       // `wait: false` (a client's first ask, for where to start) is answered at once.
       if (request?.wait === false || events.some(e => e.seq > after) || after > seq || (request?.epoch !== undefined && request.epoch !== epoch)) { answer(); return true; }
@@ -635,7 +634,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     try { reply = await dispatch(request, scope, who.local, who.token, gone.signal, access?.door); } catch (e) { reply = { status: 400, error: { message: `the request could not be handled: ${String(e?.message ?? e).slice(0, 200)}` } }; }
     unend();
     const status = reply.ok !== undefined ? 200 : reply.status ?? (down ? 503 : reply.error?.conflict ? 409 : 400);
-    const answered = reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error };
+    const answered = namedPaths(reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error }, appDir);
     json(res, status, who.local ? answered : forRemote(answered));
     return true;
   }
@@ -816,9 +815,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // no map here, or one whose sources have moved since.
     const map = mapOf(), at = new Map(), why = new Set();
     let mapless = 0;
-    // A location's file as an answer names it (from the app's directory, as `uses` gives it) or as the map does.
-    const places = request.at.flatMap(a => [...new Set([a.file, ...machinePaths.map(d => resolve(d, a.file))])].map(file => ({ ...a, file })));
-    const sitesOf = (m) => { if (!at.has(m.digest)) { const stale = staleMap(m); if (stale) why.add(stale); at.set(m.digest, stale ? null : [...new Set(places.flatMap(a => sitesAt(m, a)))]); } return at.get(m.digest); };
+    // A location's file and the map's, each named by the one rule (`pathName`), so a file outside the app round-trips and two packages' files stay apart.
+    const places = request.at.map(a => ({ ...a, file: pathName(a.file, appDir) }));
+    const sitesOf = (m) => { if (!at.has(m.digest)) { const stale = staleMap(m, readFileSync, appDir); if (stale) why.add(stale); at.set(m.digest, stale ? null : [...new Set(places.flatMap(a => sitesAt(namedMap(m), a)))]); } return at.get(m.digest); };
     const builds = channel.outline(request.client, b => { const m = b.planDigest ? mapOf(b.planDigest) : map; if (!m) mapless += 1; const s = m && sitesOf(m); return s ? { sites: s, plan: m.digest } : null; });
     if (!builds.length && (why.size || mapless || !map)) return why.size ? { status: 409, error: { message: [...why].join('; ') } } : { status: 503, error: { message: 'no source map here for the plans the builds run (yet)' } };
     const sites = (map && sitesOf(map)) ?? [];

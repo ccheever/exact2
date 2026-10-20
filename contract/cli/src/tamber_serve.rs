@@ -614,34 +614,7 @@ impl Server {
             .collect())
     }
 
-    /// [`Self::answer`], with no answer naming the machine's directories:
-    /// the app's directory, as given or canonical, is dropped from every
-    /// path an answer's text holds (a read error's, a build refusal's), as
-    /// a remote client must not see them (stage 11's window, a fix).
     fn handle(&mut self, line: &str) -> Vec<Value> {
-        let dirs: Vec<String> = [Some(self.dir.clone()), self.dir.canonicalize().ok()]
-            .into_iter()
-            .flatten()
-            .map(|d| d.to_string_lossy().into_owned())
-            .filter(|d| d.len() > 1)
-            .collect();
-        self.answer(line)
-            .into_iter()
-            .map(|v| {
-                let mut text = v.to_string();
-                if !dirs.iter().any(|d| text.contains(d.as_str())) {
-                    return v;
-                }
-                for d in &dirs {
-                    // JSON escapes no `/`; a path's own text is as written.
-                    text = text.replace(&format!("{d}/"), "").replace(d.as_str(), ".");
-                }
-                serde_json::from_str(&text).unwrap_or(v)
-            })
-            .collect()
-    }
-
-    fn answer(&mut self, line: &str) -> Vec<Value> {
         self.asked.set(self.asked.get() + 1);
         let request: Value = match serde_json::from_str(line) {
             Ok(v @ Value::Object(_)) => v,
