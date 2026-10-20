@@ -4,3 +4,10 @@ tap run
 tap second
 # A click outside every element is a caret.
 tap folder at 4 8
+# A bound value: `all` takes the whole text, then `text` a caret.
+tap bound
+tap flip
+tap bound
+# A text that presses presses on every click.
+tap code
+tap code

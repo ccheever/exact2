@@ -30,9 +30,10 @@
 //
 // CSS `user-select: all` (CSS UI 4 §6.1): a selection that takes part of
 // such an element takes all of it, so a long press, a double tap or a handle
-// that reaches into one selects the element, not a word, and a tap in one
-// selects it too, as a click does on the web. One selection is inside one
-// paragraph, so an element around the paragraph selects the paragraph.
+// that reaches into one selects the element, not a word. A tap selects
+// nothing, as on a `UITextView`: a click's selection is the web's, not
+// UIKit's. One selection is inside one paragraph, so an element around the
+// paragraph selects the paragraph.
 #if os(iOS)
 import CoreText
 import UIKit
@@ -105,15 +106,6 @@ final class TextSelectionHost {
         guard admits(node) else { return nil }
         let held = install(node)
         guard held.selectWord(at: point) else { return nil }
-        return held.reportable
-    }
-    /// A tap at `point` of `node`: inside a `user-select: all` element it
-    /// selects the element. Nil when there is none there.
-    @discardableResult
-    func selectElement(in node: NodeView, at point: CGPoint) -> (text: String, range: NSRange)? {
-        guard admits(node), node.selectAllElement != nil || node.inlineText.contains(where: \.selectsAll) else { return nil }
-        let held = install(node)
-        guard held.selectElement(at: point) else { return nil }
         return held.reportable
     }
     /// Copy: the selected text to the pasteboard. False with nothing selected.
@@ -273,32 +265,13 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
         let at = SelectablePosition(index(at: point))
         guard let word = (tokenizer.rangeEnclosingPosition(at, with: .word, inDirection: .storage(.forward))
             ?? tokenizer.rangeEnclosingPosition(at, with: .word, inDirection: .storage(.backward))) as? SelectableRange, word.range.length > 0 else { return false }
-        show(word.range)
-        return true
-    }
-    /// The `user-select: all` element at `point`: the one holding the
-    /// character after the caret nearest it, or else the one before.
-    func selectElement(at point: CGPoint) -> Bool {
-        let caret = index(at: point)
-        guard let whole = element(caret) ?? element(caret - 1) else { return false }
-        show(whole)
-        return true
-    }
-    private func show(_ range: NSRange) {
         if !isFirstResponder { _ = becomeFirstResponder() }
         inputDelegate?.selectionWillChange(self)
-        set(range)
+        set(word.range)
         inputDelegate?.selectionDidChange(self)
         display?.isActivated = true
         display?.setNeedsSelectionUpdate()
-    }
-    /// The `user-select: all` element character `c` is in, in this
-    /// paragraph's offsets: the paragraph when the element is around it.
-    private func element(_ c: Int) -> NSRange? {
-        guard let node, c >= 0, c < text.length else { return nil }
-        if node.selectAllElement != nil { return NSRange(location: 0, length: text.length) }
-        let wholes = runs(of: node).filter { NSLocationInRange(c, $0) }
-        return wholes.max { $0.length < $1.length }
+        return true
     }
     /// What a range that takes part of a `user-select: all` element becomes:
     /// one that takes all of it. An empty range stays empty. In a paragraph
@@ -476,13 +449,7 @@ extension Presenter {
         guard let found = textSelection.selectWord(in: node, at: node.convert(point, from: nil)) else { return nil }
         return ["text": found.text, "start": found.range.location, "end": NSMaxRange(found.range)]
     }
-    /// The agent's plain `tap` on a `user-select: all` element, `point` in
-    /// the window: what a finger's tap there selects (`touchesEnded`).
-    func agentSelectElement(_ hit: UIView, at point: CGPoint) -> [String: Any]? {
-        guard let node = hit as? NodeView,
-              let found = textSelection.selectElement(in: node, at: node.convert(point, from: nil)) else { return nil }
-        return ["text": found.text, "start": found.range.location, "end": NSMaxRange(found.range)]
-    }
+
 }
 
 extension NodeView {

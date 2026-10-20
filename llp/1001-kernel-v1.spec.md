@@ -1547,10 +1547,11 @@ all of it, so a drag, a Shift-click or a Shift-arrow that reaches into it
 extends by the whole element; the outermost such element is the unit, an
 inline run's being its offsets in its paragraph. On macOS an element around
 paragraphs spans from its first paragraph's start to its last's end. On iOS
-a tap, a long press or a double tap in it selects it in place of a word, an
-element around a paragraph is that paragraph (one selection is one
-paragraph), and an inline run that says all is selectable in a paragraph that
-is not. A scripted setSelectionRange is not widened. Declared deviation:
+a long press or a double tap in it selects it in place of a word, a tap
+selects nothing (a UITextView's), and an element around a paragraph is that
+paragraph (one selection is one paragraph). On the web, macOS and iOS an
+inline run that says all is selectable, alone, in text that is not. A
+scripted setSelectionRange is not widened. Declared deviation:
 Linux, Windows, Android and tvOS have no text selection executor, and text
 and all there are auto; the terminal's selection is the terminal's. contain
 is diagnosed at compile time (`lower-css-user-select`): no native presenter

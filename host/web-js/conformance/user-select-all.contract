@@ -1,12 +1,17 @@
 // Synthetic conformance plan: CSS `user-select: all` (CSS UI 4 §6.1). One
 // click on such an element selects all of it, a paragraph, an inline run in
 // its paragraph or a box of paragraphs, and a drag from outside into one
-// takes it whole. Each paragraph says its part of the selection.
+// takes it whole. Each paragraph says its part of the selection. A bound
+// value switches between `all` and `text`, and a text that presses still
+// presses on every click.
 component SelectAll
   state path = ""
   state folder = ""
   state first = ""
   state second = ""
+  state bound = ""
+  state whole = true
+  state presses = 0
   action heardPath(s: Selection)
     path = `${s.text}:${s.start}-${s.end}`
   action heardFolder(s: Selection)
@@ -15,8 +20,14 @@ component SelectAll
     first = `${s.text}:${s.start}-${s.end}`
   action heardSecond(s: Selection)
     second = `${s.text}:${s.start}-${s.end}`
+  action heardBound(s: Selection)
+    bound = `${s.text}:${s.start}-${s.end}`
+  action flip
+    whole = not whole
+  action pressed
+    presses = presses + 1
   view
-    column padding=24 gap=16 width=360
+    column padding=24 gap=16 width="22.5rem"
       text "/Users/me/project/src/file.ts" user-select="all" testId="path" selectionchange=heardPath
       text testId="folder" selectionchange=heardFolder
         text "Folder: "
@@ -25,6 +36,10 @@ component SelectAll
       column user-select="all" testId="box"
         text "First line" testId="first" selectionchange=heardFirst
         text "Second line" testId="second" selectionchange=heardSecond
+      text "/Users/me/bound/path.ts" user-select=(whole ? "all" : "text") testId="bound" selectionchange=heardBound
+      text "ABCD-1234" user-select="all" press=pressed testId="code"
+      button "Flip" press=flip testId="flip"
       text `path ${path}` testId="out-path"
       text `folder ${folder}` testId="out-folder"
       text `box ${first} ${second}` testId="out-box"
+      text `bound ${bound} presses ${presses}` testId="out-bound"

@@ -128,7 +128,7 @@ package final class TextSelection {
         let tops: [NSView] = [presenter.root] + presenter.dialogs.presented + presenter.menus.presented
         // Which text is hidden or inert is asked each time: `inert` changes
         // with a prop or a dialog, which leave this order as it is.
-        for top in tops { texts(in: top) { if $0.textSelectable { result.append($0) } } }
+        for top in tops { texts(in: top) { if $0.textSelectable || $0.inlineText.contains(where: \.selectsAll) { result.append($0) } } }
         ordered = result
         indices = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
         return result.filter(selectable)
@@ -287,10 +287,19 @@ package final class TextSelection {
     /// see it and reach it. As in Chrome, text that computes `visibility:
     /// hidden` (the stacked tab not shown, T3 F12-2) or is `inert` is
     /// neither highlighted nor copied, by ⌘A or a drag; a `display: none`
-    /// subtree is `isHidden`, which `texts(in:)` leaves out.
-    private func selectable(_ node: NodeView) -> Bool { !node.cssVisibilityHidden && node.textSelectable && !node.inert }
+    /// subtree is `isHidden`, which `texts(in:)` leaves out. Text that is not
+    /// selectable takes part for its `user-select: all` runs alone (`range`),
+    /// as on the web, where the run's own value stands.
+    private func selectable(_ node: NodeView) -> Bool {
+        !node.cssVisibilityHidden && !node.inert && (node.textSelectable || node.inlineText.contains(where: \.selectsAll))
+    }
+    /// Whether `node` holds or is in a `user-select: all` element.
+    private func atomic(_ node: NodeView) -> Bool { node.selectAllElement != nil || node.inlineText.contains(where: \.selectsAll) }
+    /// The paragraph the last press landed in: its release follows a link there.
+    private weak var pressed: NodeView?
     func begin(_ node: NodeView, event: NSEvent) {
         requested = nil
+        pressed = node
         guard selectable(node) else { clear(); return }
         let clicks = event.clickCount
         // A Shift-click extends what is selected, as in an `NSTextView`
@@ -390,6 +399,8 @@ package final class TextSelection {
     /// whole as it keeps a double click's word (`extend`).
     private func atomize(_ node: NodeView, clicks: Int, point: NSPoint, caret: Int) {
         var start = Spot(node, anchorIndex), end = Spot(node, focusIndex)
+        defer { anchorSpan = (start, end) }
+        guard atomic(node) else { anchorAtomic = false; return }
         if clicks < 2 {
             let text = node.paragraphSpec().runs.map(\.text).joined() as NSString
             if text.length > 0, let found = atom(node, character: character(node, at: point, caret: caret, in: text)) { (start, end) = found }
@@ -400,7 +411,6 @@ package final class TextSelection {
         anchorAtomic = start.node !== node || end.node !== node || start.index != anchorIndex || end.index != focusIndex
         anchor = start.node ?? node; anchorIndex = start.index
         focus = end.node ?? node; focusIndex = end.index
-        anchorSpan = (start, end)
     }
 
     /// The `user-select: all` element (CSS UI 4 §6.1: its content is
@@ -410,7 +420,7 @@ package final class TextSelection {
     /// its paragraph. An element inside another is part of the outer one.
     /// Nil when there is none, and for a character `node` does not have.
     private func atom(_ node: NodeView, character c: Int) -> (start: Spot, end: Spot)? {
-        guard c >= 0, c < length(node) else { return nil }
+        guard atomic(node), c >= 0, c < length(node) else { return nil }
         let outer = node.selectAllElement
         if let outer, outer !== node {
             var inside: [NodeView] = []
@@ -653,7 +663,7 @@ package final class TextSelection {
 
     func end(_ node: NodeView, event: NSEvent) {
         if pendingBegin { deferredEnd = (node, event); return }
-        if !dragged, anchor === node, let reader = node.readerParagraph {
+        if !dragged, pressed === node, let reader = node.readerParagraph {
             let current = gesture
             reader.resolveOffset(at: node.local(event.locationInWindow), node: node) { [weak self] _, url in
                 // A route of this app navigates in it, as a short paragraph's
@@ -663,7 +673,7 @@ package final class TextSelection {
             }
             return
         }
-        guard !dragged, anchor === node, let url = link(node, at: node.local(event.locationInWindow)) else { return }
+        guard !dragged, pressed === node, let url = link(node, at: node.local(event.locationInWindow)) else { return }
         // A route of this app navigates in it; the containing app owns the
         // rest (local Markdown, anchors, browser URLs); no arbitrary URL
         // scheme is launched by the presenter.
@@ -713,8 +723,22 @@ package final class TextSelection {
         return node.paragraphSpec().runs.reduce(0) { $0 + ($1.text as NSString).length }
     }
 
+    /// Text that is not selectable but holds `user-select: all` runs has
+    /// those runs alone: from the first the selection reaches to the last.
     func range(_ node: NodeView) -> NSRange? {
-        guard selectable(node) else { return nil }
+        guard !node.cssVisibilityHidden, !node.inert else { return nil }
+        if node.textSelectable { return spanned(node) }
+        let wholes = node.inlineText.filter(\.selectsAll)
+        guard !wholes.isEmpty, let found = spanned(node), found.length > 0 else { return nil }
+        var lo = Int.max, hi = Int.min
+        for run in wholes {
+            let start = node.shapedOffset(run.range.location), end = node.shapedOffset(NSMaxRange(run.range))
+            if start < NSMaxRange(found), end > found.location { lo = min(lo, start); hi = max(hi, end) }
+        }
+        return hi > lo ? NSRange(location: lo, length: hi - lo) : nil
+    }
+
+    private func spanned(_ node: NodeView) -> NSRange? {
         if let list {
             guard let (owner, p) = position(node, offset: 0), owner === list else { return nil }
             let count = length(node)

@@ -97,9 +97,10 @@ final class TextSelectionIOSTests: XCTestCase {
         XCTAssertTrue(p.textSelection.texts.isEmpty)
     }
 
-    /// CSS `user-select: all`: a tap, a long press or a double tap in the
-    /// element selects all of it, not a word, and a range UIKit asks for
-    /// that takes part of it takes all of it. An inline run's element makes
+    /// CSS `user-select: all`: a long press or a double tap in the element
+    /// selects all of it, not a word, and a range UIKit asks for that takes
+    /// part of it takes all of it. A tap selects nothing, as on a
+    /// `UITextView`, so its single taps stay off for the node's press. An inline run's element makes
     /// its paragraph selectable for that run alone, its own text being a
     /// `UILabel`'s; an element around a paragraph is the whole paragraph.
     func testUserSelectAllSelectsTheWholeElement() throws {
@@ -121,18 +122,19 @@ final class TextSelectionIOSTests: XCTestCase {
         XCTAssertTrue(p.textSelection.admits(path))
         XCTAssertFalse(folder.textSelectable, "the paragraph's own text is a label's")
         XCTAssertTrue(p.textSelection.admits(folder), "its run is selectable")
-        XCTAssertEqual(p.textSelection.selectElement(in: path, at: try point(in: path, of: "project"))?.text, "/Users/me/project/file.ts", "a tap")
-        XCTAssertEqual(heard.last, "2 /Users/me/project/file.ts 0 25")
-        p.textSelection.clear()
+        p.textSelection.touched(path)
+        let taps = (path.gestureRecognizers ?? []).compactMap { $0 as? UITapGestureRecognizer }.filter { $0.numberOfTapsRequired == 1 }
+        XCTAssertFalse(taps.isEmpty)
+        XCTAssertTrue(taps.allSatisfy { !$0.isEnabled }, "nothing selected: a tap is the node's press")
         XCTAssertEqual(p.textSelection.selectWord(in: path, at: try point(in: path, of: "file"))?.text, "/Users/me/project/file.ts", "a long press")
-        XCTAssertEqual(p.textSelection.selectElement(in: folder, at: try point(in: folder, of: "work"))?.text, "/tmp/work")
+        XCTAssertEqual(heard.last, "2 /Users/me/project/file.ts 0 25")
+        XCTAssertEqual(p.textSelection.selectWord(in: folder, at: try point(in: folder, of: "work"))?.text, "/tmp/work")
         XCTAssertEqual(heard.last, "3 /tmp/work 8 17")
         XCTAssertNil(p.textSelection.text(for: path)?.reportable, "one selection on the page")
         p.textSelection.clear()
         XCTAssertEqual(p.textSelection.selectWord(in: folder, at: try point(in: folder, of: "tmp"))?.text, "/tmp/work", "a double tap")
         p.textSelection.clear()
         XCTAssertNil(p.textSelection.selectWord(in: folder, at: try point(in: folder, of: "Check")), "the label's own words select nothing")
-        XCTAssertNil(p.textSelection.selectElement(in: folder, at: try point(in: folder, of: "Check")), "nor does a tap on them")
         // A handle UIKit drags into the run: the run comes whole.
         let held = try XCTUnwrap(p.textSelection.text(for: folder))
         let at = { (offset: Int) in held.position(from: held.beginningOfDocument, offset: offset)! }

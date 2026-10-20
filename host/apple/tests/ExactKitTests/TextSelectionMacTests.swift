@@ -750,6 +750,57 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(p.selection.selectedText(), "ore the box\n\nFirst line\n\nSecond line", "out of it upwards, the box still whole")
     }
 
+    /// A link in a later paragraph of a `user-select: all` box still opens on
+    /// a click, though the box's first paragraph is the selection's anchor.
+    /// An inline run that says `all` in chrome text (a `header`'s label, not
+    /// selectable on the Mac) is selectable alone, as on the web and iOS.
+    func testUserSelectAllKeepsLinksAndAdmitsARunInChromeText() throws {
+        final class Links: ExactSessionDelegate {
+            var opened: [String] = []
+            func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
+                if name == "openURL" { opened += args.compactMap { $0 as? String } }
+            }
+        }
+        let p = fixture(measured: true), links = Links()
+        session?.delegate = links
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "view", "style": ["user_select": "all"]],
+            ["op": "create", "id": 31, "kind": "text", "props": ["text": "First"], "style": ["font_size": 16.0]],
+            ["op": "create", "id": 32, "kind": "text", "style": ["font_size": 16.0]],
+            ["op": "create", "id": 40, "kind": "view", "props": ["semanticTag": "header"]],
+            ["op": "create", "id": 41, "kind": "text", "style": ["font_size": 16.0]],
+            ["op": "children", "id": 30, "ids": [31, 32]], ["op": "children", "id": 40, "ids": [41]],
+            ["op": "children", "id": 1, "ids": [2, 3, 5, 6, 7, 8, 10, 30, 40]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 400],
+            ["op": "frame", "id": 30, "x": 10, "y": 290, "w": 300, "h": 45],
+            ["op": "frame", "id": 31, "x": 0, "y": 0, "w": 300, "h": 20],
+            ["op": "frame", "id": 32, "x": 0, "y": 25, "w": 300, "h": 20],
+            ["op": "frame", "id": 40, "x": 10, "y": 340, "w": 300, "h": 20],
+            ["op": "frame", "id": 41, "x": 0, "y": 0, "w": 300, "h": 20],
+            ["op": "paragraph", "id": 32, "runs": [
+                ["id": 33, "parent": 32, "paint": true, "props": ["text": "Open docs", "href": "https://example.com/docs"]],
+            ]],
+            ["op": "paragraph", "id": 41, "runs": [
+                ["id": 42, "parent": 41, "paint": true, "props": ["text": "Folder: "]],
+                ["id": 43, "parent": 41, "paint": true, "props": ["text": "/tmp/work"], "style": ["user_select": "all"]],
+                ["id": 44, "parent": 41, "paint": true, "props": ["text": ". Check it."]],
+            ]],
+        ]))
+        let link = try XCTUnwrap(p.views[32]), chrome = try XCTUnwrap(p.views[41])
+        try press(link, 2)
+        XCTAssertEqual(p.selection.selectedText(), "First\n\nOpen docs")
+        XCTAssertEqual(links.opened, ["https://example.com/docs"], "the click's own paragraph follows its link")
+        XCTAssertFalse(chrome.textSelectable, "a header's label")
+        try press(chrome, 12)
+        XCTAssertEqual(p.selection.selectedText(), "/tmp/work", "its run alone")
+        try press(chrome, 2)
+        XCTAssertEqual(p.selection.selectedText(), "", "the label's own text selects nothing")
+        try press(chrome, 2, to: 20)
+        XCTAssertEqual(p.selection.selectedText(), "/tmp/work", "a drag across it takes the run, not the label")
+        try press(try XCTUnwrap(p.views[2]), 2)
+        XCTAssertEqual(p.selection.selectedText(), "", "a click with no `all` anywhere is still a caret")
+    }
+
     /// LLP 1115.000 D7.9: which selected glyphs take AppKit's colour for text
     /// on the selection's fill is as an `NSTextView` has it (measured on
     /// macOS 27.0, a key window and one that is not alike). Dark: every one,
