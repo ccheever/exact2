@@ -43,14 +43,21 @@ component App
         PostCard(id="sample-pc-reposted", press=press, inThread=false, lineAbove=false, lineBelow=false, context="reposted", contextText="Reposted by Fen", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="")
           box testId="marker-sample-pc-reposted" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
-        ActionRow(id="ar-base", big=false, haptics=false, replyDisabled=false, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
-        ActionRow(id="ar-big", big=true, haptics=false, replyDisabled=false, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
-        ActionRow(id="ar-haptics", big=false, haptics=true, replyDisabled=false, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
-        ActionRow(id="ar-reposted", big=false, haptics=false, replyDisabled=false, reposted=true, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
-        ActionRow(id="ar-liked", big=false, haptics=false, replyDisabled=false, reposted=false, liked=true, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
-        ActionRow(id="sample-ar-replydisabled", big=false, haptics=false, replyDisabled=true, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
-        ActionRow(id="sample-ar-saved", big=false, haptics=false, replyDisabled=false, reposted=false, liked=false, saved=true, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
-        PostButton(id="pb-base", label="Post", reply=false, disabled=false, press=press)
-        PostButton(id="sample-pb-reply", label="Post", reply=true, disabled=false, press=press)
-        PostButton(id="sample-pb-disabled", label="Post", reply=false, disabled=true, press=press)
+        // The action rows no wider than 23rem, so a row's counted buttons fill it
+        // on every host (the terminal's 64 columns too), where its gap shows (the
+        // gate's restyle line reads it).
+        column max-width="23rem"
+          ActionRow(id="ar-base", big=false, haptics=false, replyDisabled=false, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
+          ActionRow(id="ar-big", big=true, haptics=false, replyDisabled=false, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
+          ActionRow(id="ar-haptics", big=false, haptics=true, replyDisabled=false, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
+          ActionRow(id="ar-reposted", big=false, haptics=false, replyDisabled=false, reposted=true, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
+          ActionRow(id="ar-liked", big=false, haptics=false, replyDisabled=false, reposted=false, liked=true, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
+          ActionRow(id="sample-ar-replydisabled", big=false, haptics=false, replyDisabled=true, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
+          ActionRow(id="sample-ar-saved", big=false, haptics=false, replyDisabled=false, reposted=false, liked=false, saved=true, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
+        // The Post buttons at their own width, which a column would stretch
+        // (the gate's restyle line reads it).
+        row gap=12 align-items="flex-start"
+          PostButton(id="pb-base", label="Post", reply=false, disabled=false, press=press)
+          PostButton(id="sample-pb-reply", label="Post", reply=true, disabled=false, press=press)
+          PostButton(id="sample-pb-disabled", label="Post", reply=false, disabled=true, press=press)
         AtCard(id="at-base", href="https://fixture.attie.site/garden", title="A garden plan", description="Beds, paths and what grows where.", thumb="", atName="Eli Brandt", atHandle="@eli.fixture.invalid", atAvatar="")

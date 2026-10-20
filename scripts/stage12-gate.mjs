@@ -14,13 +14,13 @@
 // screen in SCREENS, plus the copy's plan bytes. The copy is a git clone of
 // the clone, never the clone itself; its exact.mjs names this checkout or
 // another by EXACT2. EXACT_SIM names the simulator.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
-import { drive as drivePlan } from './scale-check.mjs';
+import { baseLength, cellsOf, drive as drivePlan, overridesOf } from './scale-check.mjs';
 import { placements } from './library-gate.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -381,6 +381,196 @@ export function slotRendered(opts) {
   return bad.length || missing.length ? fail(...evidence) : pass(...evidence);
 }
 
+/** The restyle line's cases (LLP 1139 §5, "One app value restyles the
+ * library"): a base name, a package token and a param, each set in
+ * apps/library-gate's design and then removed. Each `reads` is a length
+ * measured on the layout (`at`, in points) and what it is: `is` the value
+ * itself, or `twice` / `once` its change from the base drive (a box that
+ * grows on both sides, or moves). `axis` says which way a terminal cell
+ * rounds it (none for a size). */
+export const RESTYLE = [
+  {
+    name: 'space.md', what: 'a base name', set: '24px', unset: { op: 'remove-token', name: 'space.md' },
+    reads: [
+      { who: 'PostCard', what: 'its end padding (cards.pad-end)', is: true, axis: 'w', at: L => right(L, 'post-pc-base') - right(L, 'postcard-content-pc-base') },
+      // Between its counted buttons' row and save's: three equal columns
+      // (flex 1 each), so the first row ends a column past like's.
+      { who: 'ActionRow', what: 'its gap (param gap, actions.row-gap)', is: true, axis: 'w', at: L => box(L, 'bookmark-ar-base').x - (2 * box(L, 'like-ar-base').x - box(L, 'repost-ar-base').x) },
+      { who: 'AtCard', what: 'its padding (cards.link-pad), the visit button\'s move', once: true, axis: 'w', at: L => box(L, 'atcard-visit-at-base').x - box(L, 'atcard-at-base').x },
+      { who: 'PostButton', what: 'its side padding (actions.post-pad), its width', twice: true, axis: 'w', at: L => box(L, 'compose-post-pb-base').w },
+    ],
+  },
+  {
+    name: 'cards.pad-start', what: 'a package token', set: '20px', unset: { op: 'remove-token', name: 'cards.pad-start' },
+    reads: [{ who: 'PostCard', what: 'its start padding', is: true, axis: 'w', at: L => box(L, 'postcard-avatar-pc-base').x - box(L, 'post-pc-base').x }],
+  },
+  {
+    // A library component's param by its full name (LLP 1139 D8).
+    name: '@exact/actions/post-button.contract#PostButton.height', param: true, what: 'a param', set: '40px', unset: { op: 'unset-param', name: '@exact/actions/post-button.contract#PostButton.height' },
+    // A size, not a space: the terminal keeps it in points (only spaces
+    // are whole cells, LLP 1121 stage 11 (c)).
+    reads: [{ who: 'PostButton', what: 'its height', is: true, axis: null, at: L => box(L, 'compose-post-pb-base').h }],
+  },
+];
+
+const box = (L, id) => {
+  const n = L.nodes.find(x => x.testId === id);
+  if (!n) throw new Error(`${id} is not in the layout`);
+  return n;
+};
+const right = (L, id) => { const n = box(L, id); return n.x + n.w; };
+
+/** A design server for `dir` (`contract tamber serve --stdio`, as the dev
+ * loops run it), asked one request at a time. */
+function designServer(dir) {
+  const child = spawn('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'serve', '--stdio', dir], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
+  const waiting = new Map();
+  let buf = '', next = 0, err = '';
+  child.stderr.on('data', d => { err += d; });
+  child.stdout.on('data', d => {
+    buf += d;
+    for (let i; (i = buf.indexOf('\n')) >= 0;) {
+      const line = buf.slice(0, i);
+      buf = buf.slice(i + 1);
+      let reply;
+      try { reply = JSON.parse(line); } catch { continue; }
+      waiting.get(reply.id)?.(reply);
+      waiting.delete(reply.id);
+    }
+  });
+  child.on('exit', () => { for (const done of waiting.values()) done({ error: { message: `the server exited: ${err.trim().slice(-300)}` } }); waiting.clear(); });
+  return {
+    ask: request => new Promise(done => { const id = ++next; waiting.set(id, done); child.stdin.write(`${JSON.stringify({ ...request, id })}\n`); }),
+    close: () => child.kill(),
+  };
+}
+
+/** library-gate's app (no app.json, as libraryPlan) in `dir`, its design
+ * `design` (the gate's own when null), and its plan; null when it fails. */
+function restylePlan(dir, design = null) {
+  const app = join(dir, 'app');
+  mkdirSync(app, { recursive: true });
+  writeFileSync(join(app, 'app.contract'), readFileSync(join(LIBRARY_GATE, 'app.contract')));
+  writeFileSync(join(app, 'app.tamber'), design ?? readFileSync(join(LIBRARY_GATE, 'app.tamber')));
+  const plan = join(dir, 'library-gate.plan');
+  const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(app, 'app.contract'), '-o', plan]);
+  return r.ok ? plan : null;
+}
+
+/** Each case through the design server on a copy of library-gate: `propose`
+ * the line (its class), write it (`transaction`), `propose` its removal
+ * (its class), and undo the write, which must leave the design's bytes as
+ * they were. The designs: the line set, and after removal. */
+export async function restyleWrites(dir) {
+  const work = join(dir, 'server');
+  restylePlan(work);
+  const design = join(work, 'app', 'app.tamber'), original = readFileSync(design, 'utf8');
+  const server = designServer(join(work, 'app'));
+  const client = 'agent:stage12-gate';
+  try {
+    const hello = await server.ask({ method: 'hello', client });
+    if (!hello.ok) throw new Error(`hello: ${hello.error?.message}`);
+    let files = hello.ok.files;
+    const out = [];
+    for (const c of RESTYLE) {
+      const set = [c.param ? { op: 'set-param', name: c.name, value: c.set } : { op: 'set-token', name: c.name, value: c.set }];
+      const said = (r, what) => { if (!r.ok) throw new Error(`${c.name}: ${what}: ${r.error?.message ?? JSON.stringify(r.error)}`); return r.ok; };
+      const proposed = said(await server.ask({ method: 'propose', ops: set, files }), 'propose');
+      const written = said(await server.ask({ method: 'transaction', client, ops: set, files }), 'transaction');
+      files = written.files;
+      const withLine = readFileSync(design, 'utf8');
+      const removal = said(await server.ask({ method: 'propose', ops: [c.unset], files }), 'propose its removal');
+      const undone = said(await server.ask({ method: 'undo', client, inverse: written.inverse }), 'undo');
+      files = undone.files;
+      const after = readFileSync(design, 'utf8');
+      out.push({ name: c.name, classes: { set: proposed.class, written: written.class, removal: removal.class, undo: undone.class }, withLine, after, restored: after === original, diff: written.diff });
+    }
+    return out;
+  } finally {
+    server.close();
+  }
+}
+
+/** What `read` should measure on `host` for value `v` (points), from the
+ * base drive's `base`: the terminal lays a length out in whole cells. */
+export function expected(read, v, v0, base, cell) {
+  const k = cell && read.axis ? (read.axis === 'h' ? cell.h : cell.w) : 0;
+  const q = x => (k ? cellsOf(x, k) * k : x);
+  if (read.is) return q(v);
+  return base + (read.twice ? 2 : 1) * (q(v) - q(v0));
+}
+
+/** The restyle line on `hosts`: library-gate's base drive, then each case's
+ * set and removed designs, measured against `scale::column_for`'s value for
+ * the host (scale-check's `baseLength` over kernel/tables/schema.json and
+ * the design's own px tokens). */
+export async function restyle(opts) {
+  const dir = join(ROOT, 'target', 'stage12-gate', 'restyle');
+  let writes;
+  try { writes = await restyleWrites(dir); } catch (e) { return fail(`the design server: ${String(e?.message ?? e).slice(0, 300)}`); }
+  const plans = { base: restylePlan(join(dir, 'base')) };
+  for (const w of writes) {
+    const at = w.name.replace(/[^\w.-]+/g, '-');
+    plans[`${w.name} set`] = restylePlan(join(dir, `${at}-set`), w.withLine);
+    plans[`${w.name} removed`] = restylePlan(join(dir, `${at}-removed`), w.after);
+  }
+  const broken = Object.entries(plans).filter(([, p]) => !p).map(([k]) => k);
+  if (broken.length) return fail(`library-gate did not compile: ${broken.join(', ')}`);
+  const schema = JSON.parse(readFileSync(join(ROOT, 'kernel/tables/schema.json'), 'utf8'));
+  const irFile = join(dir, 'base', 'tamber.json');
+  if (!run('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'ir', join(dir, 'base', 'app'), '-o', irFile]).ok) return fail('library-gate\'s design did not read (contract tamber ir)');
+  const ir = JSON.parse(readFileSync(irFile, 'utf8'));
+  const overrides = overridesOf(ir, []);
+  // A name's length on a host: a px token's, or the base name a package
+  // token names (cards.pad-start is space.sm), or a base name's; a param's
+  // is its default's.
+  const lengthOf = (name, host, cell) => {
+    const t = ir.tokens?.find(x => x.name === name);
+    const values = [...new Set(t?.values ?? [])];
+    if (t && !Object.hasOwn(overrides, name) && values.length === 1) return baseLength(schema, overrides, values[0], host, cell);
+    return baseLength(schema, overrides, name, host, cell);
+  };
+  const paramOf = c => ir.components?.flatMap(x => x.params ?? []).find(p => p.name === c.name);
+  const hosts = opts.hosts.length ? opts.hosts.filter(h => SLOT_HOSTS.includes(h)) : SLOT_HOSTS;
+  const rows = [];
+  for (const host of hosts) {
+    const L = {};
+    try {
+      for (const [k, plan] of Object.entries(plans)) L[k] = drivePlan(host, plan, join(dir, `${host}-${k.replace(/\W+/g, '-')}.png`), [], opts.app);
+    } catch (e) { rows.push({ host, ok: false, why: whyOf(e) }); continue; }
+    const cell = L.base.cell ?? null;
+    for (const c of RESTYLE) {
+      const v0 = lengthOf(c.param ? paramOf(c)?.default : c.name, host, cell);
+      const v1 = Number(/^(\d+(?:\.\d+)?)px$/.exec(c.set)[1]);
+      for (const read of c.reads) {
+        const row = { host, case: c.name, who: read.who, what: read.what, ok: true, why: [] };
+        try {
+          const b = read.at(L.base), s = read.at(L[`${c.name} set`]), r = read.at(L[`${c.name} removed`]);
+          const want0 = read.is ? expected(read, v0, v0, b, cell) : b, want1 = expected(read, v1, v0, b, cell);
+          Object.assign(row, { before: b, set: s, removed: r, want: [want0, want1] });
+          if (v0 === undefined) row.why.push(`no value of ${c.name} for ${host}`);
+          if (Math.abs(b - want0) > 0.5) row.why.push(`before ${b}, expected ${want0}`);
+          if (Math.abs(s - want1) > 0.5) row.why.push(`set ${s}, expected ${want1}`);
+          if (Math.abs(r - b) > 0.5) row.why.push(`removed ${r}, not back to ${b}`);
+        } catch (e) { row.why.push(String(e?.message ?? e)); }
+        row.ok = !row.why.length;
+        row.why = row.why.join('; ');
+        rows.push(row);
+      }
+    }
+  }
+  const missing = SLOT_HOSTS.filter(h => !hosts.includes(h));
+  const bad = rows.filter(r => !r.ok);
+  const n = x => (Number.isFinite(x) ? Math.round(x * 100) / 100 : x);
+  const evidence = [
+    ...writes.map(w => `${w.name} (${RESTYLE.find(c => c.name === w.name).what}): propose ${w.classes.set}, written ${w.classes.written}, its removal proposed ${w.classes.removal}, undone ${w.classes.undo}; the design's bytes ${w.restored ? 'restored' : 'NOT restored'}`),
+    ...rows.filter(r => r.case).map(r => `${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.case}: ${r.who} ${r.what}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)} (expected ${n(r.want?.[0])}, ${n(r.want?.[1])})${r.why ? `: ${r.why}` : ''}`),
+    ...rows.filter(r => !r.case).map(r => `FAIL ${r.host}: ${r.why}`),
+    ...missing.map(h => `  ${h}: a required host not run`),
+  ];
+  return bad.length || missing.length || writes.some(w => !w.restored) ? fail(...evidence) : pass(...evidence);
+}
+
 /** The gate's lines, in LLP 1139 §5's order. */
 export function lines(opts) {
   return [
@@ -389,8 +579,7 @@ export function lines(opts) {
       if (!opts.copy || !opts.before) return waits('the clone copy\'s adoption (--copy) and its before (--before, the baseline\'s tag)');
       return consumerPixels(opts);
     }],
-    ['restyle', 'Setting space.md, cards.pad or a param moves every library component reading it; removing the line returns it (per host, measured on apps/library-gate)', () =>
-      waits('the packages (stage 12 B1\'s package params) and apps/library-gate')],
+    ['restyle', 'Setting space.md, cards.pad-start or a param moves every library component reading it; removing the line returns it (per host, measured on apps/library-gate; live or rebuild from the design server)', () => restyle(opts)],
     ['anatomy', 'C\'s compiler tests: every anatomy, slot, library-literal, library-platform and library-control refusal with its span', () => {
       // C's own suites (reload1's stage 12 C), run by name.
       const r = run('cargo', ['test', '-q', '-p', 'contract', '--test', 'it', '--', 'anatomy::', 'anatomy_slot::', 'library_rules::']);

@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, barTop, beforeDrift, BASELINE_TAG, comparePixels, lines, parse, pixelDiff, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, barTop, beforeDrift, BASELINE_TAG, comparePixels, expected, lines, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -47,7 +47,7 @@ test('the pixel diff counts what differs outside the allowlist', () => {
 });
 
 test('a line whose parts are missing waits on them', async () => {
-  const waiting = ['consumer-pixels', 'restyle', 'slot-check-time', 'no-regressions'];
+  const waiting = ['consumer-pixels', 'slot-check-time', 'no-regressions'];
   for (const [id, , check] of lines({ baseline: null, hosts: [] }).filter(([id]) => waiting.includes(id))) expect([id, (await check()).status]).toEqual([id, expect.stringMatching(/^WAITS-ON /)]);
 });
 
@@ -96,4 +96,23 @@ test('a shot with bars above its viewport: the offset that lines up every marker
   const layout = { viewport: { w: 10, h: 10 }, nodes: [{ testId: 'marker-a', x: 0, y: 1, w: 2, h: 1 }, { testId: 'marker-b', x: 5, y: 6, w: 2, h: 1 }] };
   expect(barTop(A, B, layout, ['a', 'b'])).toBe(3);
   expect(barTop(A, B, { ...layout, viewport: { w: 10, h: 14 } }, ['a', 'b'])).toBe(0);
+});
+
+test('the restyle line expects the value, or its change from the base drive, in whole cells on the terminal', () => {
+  const is = { is: true, axis: 'w' }, twice = { twice: true, axis: 'w' }, once = { once: true, axis: 'h' };
+  expect(expected(is, 24, 12, 12, null)).toBe(24);
+  expect(expected(twice, 24, 12, 80, null)).toBe(104);
+  expect(expected(once, 24, 12, 50, null)).toBe(62);
+  // A cell 8 wide and 16 tall: 24 is 3 columns, 12 one (a half rounds
+  // down), and 20 and 12 are both one row.
+  expect(expected(is, 24, 12, 16, { w: 8, h: 16 })).toBe(24);
+  expect(expected(twice, 24, 12, 80, { w: 8, h: 16 })).toBe(112);
+  expect(expected(once, 20, 12, 32, { w: 8, h: 16 })).toBe(32);
+  // Each case names what it sets and how it is removed.
+  for (const c of RESTYLE) {
+    expect(c.set).toMatch(/^\d+px$/);
+    expect(['remove-token', 'unset-param']).toContain(c.unset.op);
+    expect(c.reads.length).toBeGreaterThan(0);
+  }
+  expect(new Set(RESTYLE.flatMap(c => c.reads.map(r => r.who)))).toEqual(new Set(['PostCard', 'ActionRow', 'AtCard', 'PostButton']));
 });
