@@ -38,6 +38,20 @@ export type DraftFile = {
 type Holder = { composerFiles?: DraftFile[] };
 export function draftFiles(local: object | undefined): DraftFile[] { return (local as Holder | undefined)?.composerFiles ?? []; }
 export function setDraftFiles(local: object, files: DraftFile[]): void { (local as Holder).composerFiles = files; }
+const inserting = new WeakMap<object, Map<string, number>>();
+/** Staged bytes belong to the draft while its asynchronous chip insertion is pending. */
+export function holdDraftFiles(local: object, key: string): () => void {
+  const drafts = inserting.get(local) ?? new Map<string, number>();
+  inserting.set(local, drafts);
+  drafts.set(key, (drafts.get(key) ?? 0) + 1);
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    const count = drafts.get(key) ?? 0;
+    if (count <= 1) drafts.delete(key); else drafts.set(key, count - 1);
+  };
+}
 
 /**
  * Decode the saved list: uploaded files survive a restart (their bytes are on
@@ -126,7 +140,7 @@ export function fileContextRecords(files: DraftFile[]): Obj[] {
  */
 export function pruneFiles(local: object, drafts: Record<string, string>, liveKey: string, among?: readonly DraftFile[]): DraftFile[] {
   const files = draftFiles(local);
-  const kept = files.filter(file => (among !== undefined && !among.includes(file)) || file.draftKey === liveKey || (drafts[file.draftKey] ?? '').trim() !== '');
+  const kept = files.filter(file => inserting.get(local)?.has(file.draftKey) || (among !== undefined && !among.includes(file)) || file.draftKey === liveKey || (drafts[file.draftKey] ?? '').trim() !== '');
   if (kept.length !== files.length) setDraftFiles(local, kept);
   return files.filter(file => !kept.includes(file));
 }

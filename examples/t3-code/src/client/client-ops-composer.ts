@@ -3,7 +3,8 @@ import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real ter
 // The composer's client.command() ops (client-ops.ts): the draft and favorite
 // models, Send (a new thread's launch, a follow-up, a fan-out), the model,
 // option and mode pickers, Stop, approvals and the provider's questions, and
-// Retry of a submission T3 may already have taken.
+// Retry of a submission T3 may already have taken. Send's submission text
+// follows T3 Code 9c161462c9 ChatView.tsx onSend (MIT; see LICENSE-T3).
 import { projectCloneBlock } from '../shell/project-clones-live';
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
@@ -16,6 +17,7 @@ import { contextSnapshot } from '../composer/composer-controls-view';
 import { dispatchSelection, promptForSend, ultrathinkChoice } from '../composer/composer-ultrathink';
 import { stepReasoningEffort } from '../composer/composer-effort-step';
 import { queuedEdit, saveQueuedEdit } from '../composer/composer-controls-queue';
+import { ATTACHMENT_ONLY_PROMPT } from '../composer/queued-edit-attachments';
 import { fanoutBase, serverThreadWorkspace, workspaceStrategy } from '../composer/composer-controls-branch';
 import { antigravitySendBlockReason, composerSelection } from '../composer/composer-provider-selection'; // the sent selection
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from '../composer/composer-controls-usage';
@@ -139,8 +141,9 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const rawText = promptForSend(this, sendProviderId, sendModelId, JSON.parse(selection.options), submission ? submission.text : value || this.draft);
   const terminalSubmission = omitExpiredTerminalContexts(this, rawText, this.snapshotDrafts.length > 0);
   if (terminalSubmission.empty) return;
-  const text = terminalSubmission.text;
-  if (!text.trim() && !this.snapshotDrafts.length) throw new ClientError('Write a message or attach an image first.');
+  const text = terminalSubmission.text.trim();
+  if (!text && !this.snapshotDrafts.length) throw new ClientError('Write a message or attach an image first.');
+  const outgoingText = text || promptForSend(this, sendProviderId, sendModelId, JSON.parse(selection.options), ATTACHMENT_ONLY_PROMPT);
   if (promptLengthMessage(text)) throw new ClientError(promptLengthMessage(text));
   if (!this.projectId) throw new ClientError('Choose or add a project first.');
   await refreshNewThreadContext(this, native);
@@ -178,7 +181,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     }
     if (serverWorkspace) {
       // startThreadTurn with bootstrap.prepareWorktree: launchThread on the existing thread (reuseExistingThread).
-      const payload = launchPayload(commandId, selection.threadId, messageId, selection.projectId, text,
+      const payload = launchPayload(commandId, selection.threadId, messageId, selection.projectId, outgoingText,
         dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)), selection.runtimeMode, submission?.interactionMode || selection.interactionMode, attachments);
       Object.assign(payload, { reuseExistingThread: true, workspaceStrategy: serverWorkspace, title });
       await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
@@ -194,7 +197,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
         assertOwner();
         await this.dispatch(native, storage, withDispatchMode(sendPayload(compactCommandId, selection.threadId, compactMessageId, '/compact', []), 'auto', turnSelection), 'Compact context', assertOwner);
       }
-      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments, title), text), mode, turnSelection);
+      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, outgoingText, attachments, title), text), mode, turnSelection);
       if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
       await this.dispatch(native, storage, payload, 'Send', assertOwner);
       setKeepFullHistory(this, false, selection.threadId); // a turn that starts clears the chip's choice; a failed send keeps it
@@ -206,9 +209,9 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     if (intent === 'background' && this.threadId === selection.threadId) await this.openFreshDraft(native);
   } else if (fanoutSelections(this)) {
     // Several models: one background thread each, in its own worktree (composer-controls-fanout.ts).
-    await sendFanout(this, native, storage, { text, attachments, ...fanoutBase(this), runtimeMode: selection.runtimeMode, interactionMode: selection.interactionMode });
+    await sendFanout(this, native, storage, { text: outgoingText, attachments, ...fanoutBase(this), runtimeMode: selection.runtimeMode, interactionMode: selection.interactionMode });
   } else {
-    const payload = launchPayload(commandId, threadId, messageId, selection.projectId, text,
+    const payload = launchPayload(commandId, threadId, messageId, selection.projectId, outgoingText,
       dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)), selection.runtimeMode, selection.interactionMode, attachments);
     payload.workspaceStrategy = workspaceStrategy(this);
     payload.title = title;

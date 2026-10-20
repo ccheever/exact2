@@ -176,7 +176,7 @@ describe('context references', () => {
     expect(contextReferences(`see [A](t3-context://v1/thread/${id}) and [A](t3-context://v1/thread/${id})`)).toEqual([{ kind: 'thread', id, label: 'A' }]);
   });
   test('a send carries the thread records its chips reference', () => {
-    const client = { environmentId: 'env', shell: { threads: [{ id: 't-1', title: 'fixture complete' }], projects: [] } } as unknown as T3Client;
+    const client = { environmentId: 'env', snapshotDrafts: [], shell: { threads: [{ id: 't-1', title: 'fixture complete' }], projects: [] } } as unknown as T3Client;
     const text = `look at ${contextLink('thread', 'thread_t-1', 'fixture complete')} please`;
     expect(threadContextRecords(client, text)).toEqual([{ version: 1, kind: 'thread', contextId: 'thread_t-1', label: 'fixture complete',
       environmentId: 'env', threadId: 't-1', title: 'fixture complete' }]);
