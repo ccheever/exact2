@@ -41,7 +41,7 @@ import { letGo } from '../client/let-go';
 import { annotationDispatchView, annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from '../browser/browser-capture'; // The floating player's browser source, an annotation's send
 import { automationRecordingView, serveRecordingRequests, type AutomationRecordingView } from '../browser/browser-automation-recording';
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
-import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
+import { addBrowserSurface, browserLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
@@ -292,6 +292,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   }
   if (op === 'setup-close') { surfaceStore(client).deviceSetup = ''; return ''; }
   if (op.startsWith('linked-')) return linkedLocal(client, native, state, op.slice(7), id, value); // pr-attachment-surfaces.ts
+  // PreviewView handleMoveTab: the page opens in the other runtime, then the old tab closes as its Close does.
+  if (op === 'browser-move') return await moveBrowserTab(client, native, state, id) ? surfaceLocal(client, native, 'close', browserSurfaceId(id), '') : '';
   if (op.startsWith('browser-')) return browserLocal(client, native, state, op.slice(8), id, value); // browser-surface.ts
   // A sheet's Files search Escape clears the search, then the dialog closes (app.contract chatLocal).
   if (op === 'files-search-key' && id === 'sheet' && value === 'Escape') { await filesLocal(client, native, 'search-key', id, value); return surfaceLocal(client, native, 'hide', '', ''); }
