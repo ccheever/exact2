@@ -645,11 +645,10 @@ fn drawn(attrs: &[Attr], styles: &[StyleDecl]) -> Vec<Attr> {
 /// An element's attributes without a `delete=` that is no list row's,
 /// which `lower-delete-row` names; `None` when it has none.
 pub(crate) fn stray(attrs: &[Attr]) -> Option<Vec<Attr>> {
-    attrs.iter().any(|a| a.name == "delete").then(|| {
-        attrs
-            .iter()
-            .filter(|a| a.name != "delete")
-            .cloned()
-            .collect()
-    })
+    // `-exact-row-look` speaks only to a grouped list's row (`grouped::row`), which took it out.
+    let gone = |a: &Attr| a.name == "delete" || a.name == crate::row_look::ROW_LOOK;
+    attrs
+        .iter()
+        .any(gone)
+        .then(|| attrs.iter().filter(|a| !gone(a)).cloned().collect())
 }

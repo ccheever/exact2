@@ -395,7 +395,10 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                         let attrs = coerced.as_deref().unwrap_or(attrs);
                         // `delete=` is lowering's, a list row's swipe (`swipe_rows.rs`).
                         for a in attrs.iter().filter(|a| {
-                            a.name != "class" && a.name != "delete" && !native::leftover(tag, a)
+                            a.name != "class"
+                                && a.name != "delete"
+                                && a.name != crate::row_look::ROW_LOOK
+                                && !native::leftover(tag, a)
                         }) {
                             if let Some(e) = native::refused(tag, a) {
                                 errors.push(e);

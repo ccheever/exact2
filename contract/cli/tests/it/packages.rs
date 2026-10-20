@@ -1118,6 +1118,23 @@ component App
             (title("Sushi"), false, Accessory::Checkmark, false),
         ]
     );
+    // The tile's own look gives way to the row's on every host (`-exact-row-look`):
+    // no tile edge or fill in the list's card, as the sheet draws a row.
+    {
+        let k = r.kernel();
+        let sushi = k.node(at(k, "Sushi")).unwrap();
+        assert!(
+            !sushi
+                .style
+                .written
+                .has(exact_kernel::StyleId::BorderWidthTop),
+            "no tile edge the author wrote"
+        );
+        assert_ne!(
+            sushi.style.border_width_top, 2.0,
+            "the tile's 2-point edge is gone"
+        );
+    }
     let close = at(r.kernel(), "close");
     r.dispatch(close, exact_runner::Event::Press).unwrap();
     assert_eq!(

@@ -1059,6 +1059,15 @@ does (19 × 17.33 at the default size, 48 × 43.33 at the largest). They are
 taken where `-exact-hairline` is; a grouped list's checkmark in a row of your
 own already has them on iOS.
 
+`-exact-row-look="platform"` on an element says its box's look (its
+`background`, `border`, `padding` and `box-shadow` rows) is its own where it stands
+alone and the platform's row where it is a grouped list's row ([LLP
+1139](../llp/1139-a-row-look-that-yields.rfc.md)): there those rows are dropped
+and the list draws the row, as Exact Content's `AnswerTile` is a tile in a quiz and a
+list's cell in a poll. Elsewhere it does nothing. A grouped row's edge or background
+image its author wrote otherwise stays the author's on every host, iOS's carried row
+included.
+
 A `button` is the platform's own control by default ([LLP
 1104](../llp/1104-the-platforms-controls-by-default.rfc.md) D1). Your bare box
 (`appearance="none"`, or a button given a background, border, radius or rich
