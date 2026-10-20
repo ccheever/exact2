@@ -5,6 +5,13 @@ const STATIC: &[u8] = include_bytes!("../../tests/fonts/Inter-Regular.ttf");
 const TEXT: &str = "Hamburgefonts";
 
 fn declared(bytes: &'static [u8], weights: &[u16]) -> (TextEngine, u16) {
+    let ranges: Vec<_> = weights.iter().map(|w| [*w, *w]).collect();
+    declared_ranges(bytes, &ranges)
+}
+
+/// A family of `bytes` declared once per weight range (one weight is both
+/// ends), each normal width.
+fn declared_ranges(bytes: &'static [u8], weights: &[[u16; 2]]) -> (TextEngine, u16) {
     declared_assets(
         weights,
         Assets::selected(
@@ -14,12 +21,17 @@ fn declared(bytes: &'static [u8], weights: &[u16]) -> (TextEngine, u16) {
     )
 }
 
-fn declared_assets(weights: &[u16], assets: Assets) -> (TextEngine, u16) {
+fn declared_assets(weights: &[[u16; 2]], assets: Assets) -> (TextEngine, u16) {
     let plan = contract::compile("component App\n  view\n    text \"fixture\"\n").unwrap();
     let mut builder = exact_plan::builder::PlanBuilder::from_plan(plan);
     let faces: Vec<_> = weights
         .iter()
-        .map(|weight| ("fonts/InterVariable.ttf", *weight, false))
+        .map(|weight| exact_plan::builder::Face {
+            source: "fonts/InterVariable.ttf",
+            weight: *weight,
+            stretch: [1000, 1000],
+            italic: false,
+        })
         .collect();
     let family = builder.font_family("Pinned", &faces);
     builder.font_stack(&[(StackMemberKind::Family, Some(family))]);
@@ -71,7 +83,11 @@ fn assert_pinned(p: &Paragraph, reference: &Paragraph, weight: u16) {
     let font = swash::FontRef::from_index(VARIABLE, 0).unwrap();
     let coords: Vec<_> = font
         .variations()
-        .normalized_coords([(swash::tag_from_bytes(b"wght"), f32::from(weight))])
+        .normalized_coords([
+            (swash::tag_from_bytes(b"wght"), f32::from(weight)),
+            // `font-optical-sizing: auto` at `shape`'s size.
+            (swash::tag_from_bytes(b"opsz"), 32.),
+        ])
         .collect();
     // Parley omits normalized coordinates when every axis is at its default.
     assert!(face.coords.len() <= coords.len());
@@ -113,7 +129,7 @@ fn declared_variable_600_stays_600_for_requests_400_and_600() {
 fn declared_variable_file_can_supply_two_weights_and_clamps_to_its_axis() {
     let mut installed = system(VARIABLE, "Inter Variable");
     let (mut engine, family) = declared_assets(
-        &[400, 600],
+        &[[400, 400], [600, 600]],
         Assets::embedded(Path::new(env!("CARGO_MANIFEST_DIR")).join("../apple/tests")),
     );
     let mut previous_face = None;
@@ -138,20 +154,44 @@ fn declared_variable_file_can_supply_two_weights_and_clamps_to_its_axis() {
     }
 }
 
+/// LLP 1019 D2: a face declared over a range draws each request in it on
+/// `wght`, and one outside it at the range's nearer end.
+#[test]
+fn a_declared_weight_range_draws_each_request_and_clamps_to_the_range() {
+    let mut installed = system(VARIABLE, "Inter Variable");
+    let (mut engine, family) = declared_ranges(VARIABLE, &[[300, 700]]);
+    for (requested, drawn) in [(650, 650), (450, 450), (100, 300), (900, 700)] {
+        let reference = shape(&mut installed, 0, drawn);
+        assert_pinned(&shape(&mut engine, family, requested), &reference, drawn);
+    }
+    // Beside a static 400, a ranged face covering the request is the match.
+    let (mut engine, family) = declared_ranges(VARIABLE, &[[400, 400], [500, 900]]);
+    let reference = shape(&mut installed, 0, 750);
+    assert_pinned(&shape(&mut engine, family, 750), &reference, 750);
+    // CSS Fonts 4 §5.2: for 420, weights up to 500 come before lighter ones,
+    // so the range's 500 wins; below 400, the static 400 is nearer.
+    let reference = shape(&mut installed, 0, 500);
+    assert_pinned(&shape(&mut engine, family, 420), &reference, 500);
+    let reference = shape(&mut installed, 0, 400);
+    assert_pinned(&shape(&mut engine, family, 380), &reference, 400);
+}
+
 #[test]
 fn system_variable_and_declared_static_weights_keep_their_behavior() {
     let mut installed = system(VARIABLE, "Inter Variable");
     let regular = shape(&mut installed, 0, 400);
     let semibold = shape(&mut installed, 0, 600);
+    // At 32 px Inter draws its `opsz` 32 (display) letters, as CoreText
+    // measures them: 216.28 and 227.26.
     assert!(
-        (advances(&regular).iter().sum::<f32>() - 234.14).abs() < 0.01,
+        (advances(&regular).iter().sum::<f32>() - 216.28).abs() < 0.01,
         "{}",
-        regular.width
+        advances(&regular).iter().sum::<f32>()
     );
     assert!(
-        (advances(&semibold).iter().sum::<f32>() - 240.89).abs() < 0.01,
+        (advances(&semibold).iter().sum::<f32>() - 227.26).abs() < 0.01,
         "{}",
-        semibold.width
+        advances(&semibold).iter().sum::<f32>()
     );
     assert_ne!(advances(&regular), advances(&semibold));
     assert!(regular.lines().faces[0]
@@ -196,7 +236,7 @@ fn reversed_weight_bounds_register_and_shape_without_a_pin() {
     let mut installed = system(&bytes, "Inter Variable");
     let asset = bytes.clone();
     let (mut engine, family) = declared_assets(
-        &[400],
+        &[[400, 400]],
         Assets::selected(
             Path::new("").into(),
             Arc::new(move |name| Ok((name == "fonts/InterVariable.ttf").then(|| asset.clone()))),
@@ -242,7 +282,10 @@ fn unordered_weight_bounds_leave_synthesis_unchanged() {
             parsed.charmap_index(),
         );
         let pinned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            original.clone().with_pinned_weight()
+            let declared = parsed.weight().value();
+            original
+                .clone()
+                .with_declared_ranges((declared, declared), (100., 100.))
         }));
         let Ok(pinned) = pinned else {
             panicked.push((min, max));
@@ -258,4 +301,79 @@ fn unordered_weight_bounds_leave_synthesis_unchanged() {
         }
     }
     assert!(panicked.is_empty(), "pinning panicked for {panicked:?}");
+}
+
+const FLEX: &[u8] = include_bytes!("../../tests/fonts/RobotoFlex-subset.ttf");
+
+/// LLP 1019 D8: `font-stretch` on a face declared over its `wdth` range draws
+/// on that axis, clamped to the range, as the browser does.
+#[test]
+fn a_declared_width_range_draws_font_stretch_on_wdth() {
+    width_range_draws(Assets::selected(
+        Path::new("").into(),
+        Arc::new(|name| Ok((name == "fonts/RobotoFlex-subset.ttf").then(|| Arc::from(FLEX)))),
+    ));
+}
+
+/// The same from a mapped file, as a bundled app's face is.
+#[test]
+fn a_mapped_width_range_draws_font_stretch_on_wdth() {
+    width_range_draws(Assets::embedded(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests"),
+    ));
+}
+
+fn width_range_draws(assets: Assets) {
+    let plan = contract::compile("component App\n  view\n    text \"fixture\"\n").unwrap();
+    let mut builder = exact_plan::builder::PlanBuilder::from_plan(plan);
+    let family = builder.font_family(
+        "Flex",
+        &[exact_plan::builder::Face {
+            source: "fonts/RobotoFlex-subset.ttf",
+            weight: [100, 1000],
+            stretch: [250, 1510],
+            italic: false,
+        }],
+    );
+    builder.font_stack(&[(StackMemberKind::Family, Some(family))]);
+    let plan = builder.finish().unwrap();
+    let catalog = catalog::Catalog::for_assets(&plan, &assets);
+    let family = catalog
+        .families
+        .iter()
+        .position(|f| matches!(f, FamilyChoice::Declared(_)))
+        .unwrap() as u16;
+    let mut engine = TextEngine::with_catalog(catalog);
+    let mut drawn = |stretch: f32| {
+        let style = exact_kernel::StyleProps {
+            font_family: family,
+            font_weight: 700,
+            font_stretch: stretch,
+            font_size: 32.,
+            ..Default::default()
+        };
+        let p = engine.paragraph(&crate::paint::text_spec(&style, TEXT), None);
+        let face = &p.lines().faces[0];
+        let axis = |tag: &[u8; 4]| {
+            face.synthesis
+                .variation_settings()
+                .iter()
+                .find(|(t, _)| t.to_be_bytes() == *tag)
+                .map(|(_, v)| *v)
+        };
+        (axis(b"wdth"), axis(b"wght"), p.width)
+    };
+    let (normal_wdth, normal_wght, normal) = drawn(100.);
+    let (condensed_wdth, condensed_wght, condensed) = drawn(50.);
+    let (expanded_wdth, _, expanded) = drawn(125.);
+    let (clamped_wdth, _, _) = drawn(200.);
+    assert_eq!(normal_wdth, Some(100.));
+    assert_eq!(condensed_wdth, Some(50.));
+    assert_eq!(expanded_wdth, Some(125.));
+    assert_eq!(clamped_wdth, Some(151.), "clamped to the declared range");
+    assert_eq!((normal_wght, condensed_wght), (Some(700.), Some(700.)));
+    assert!(
+        condensed < normal && normal < expanded,
+        "{condensed} {normal} {expanded}"
+    );
 }

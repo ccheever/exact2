@@ -71,6 +71,56 @@ test('a selection is joined to its site\'s source, each row\'s origin and editab
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('a held `:hover` or `:focus-visible` row is joined at its part, keyed by row and state: the template rung on the node\'s own part, the state rung on a style\'s, never the base row\'s place (LLP 1122 queue item (1))', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-looks-'));
+  try {
+    const app = joinPath(dir, 'app.contract');
+    const lines = ['style Card', '  background-color="#eeeeee"', '  :hover', '    border-color="#111111"', '    border-top-color="#444444"', '', 'component App', '  view', '    box class=Card background-color="#ffffff"', '      :hover', '        background-color="#dddddd"', '        border-left-color="#333333"', '      :focus-visible', '        opacity=0.5', ''];
+    const text = lines.join('\n');
+    writeFileSync(app, text);
+    const place = (line, name) => { const col = lines[line - 1].indexOf(name) + 1; return { file: app, line, col, end_col: col + name.length }; };
+    const hoverAt = place(11, 'background-color'), topAt = place(5, 'border-top-color');
+    // As the compiler maps it: the style's top side from its later longhand, its right from the shorthand, the node's left its own.
+    const map = { digest: 'p1', sources: [{ file: app, sha256: sha(text) }], nodes: [
+      { file: app, line: 9, col: 5, end_col: 8, component: 'App', chain: [], bindings: [
+        { row: 'background_color', origin: 'own', at: place(9, 'background-color'), attr: 'background-color', states: [{ state: 'hover', origin: 'own', at: hoverAt }] },
+        { row: 'border_color_top', states: [{ state: 'hover', origin: 'class:Card', at: topAt }] },
+        { row: 'border_color_right', states: [{ state: 'hover', origin: 'class:Card', at: place(4, 'border-color') }] },
+        { row: 'border_color_left', states: [{ state: 'hover', origin: 'own', at: place(12, 'border-left-color') }] },
+        { row: 'opacity', states: [{ state: 'focus-visible', origin: 'own', at: place(14, 'opacity') }] },
+      ] },
+    ] };
+    const selected = { node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#ffffff', source: 'authored' }] };
+    const hold = (state, rows) => join({ id: 'web-1' }, { ...selected, held: { state, node: 1, site: 0, instance: [], rows } }, map, { app: dir });
+    const hover = hold('hover', ['background_color', 'border_color_top', 'border_color_right', 'border_color_left', 'opacity'].map(name => ({ name, value: '#000000' })));
+    // Each at its part's place, in the held state; the base row's own place never stands in for it.
+    expect(hover.held.rows.map(r => [r.name, r.state, r.source?.line])).toEqual([['background_color', 'hover', 11], ['border_color_top', 'hover', 5], ['border_color_right', 'hover', 4], ['border_color_left', 'hover', 12], ['opacity', 'hover', 9]]);
+    // The node's own part: set-row at its place with its state (T5's template rung).
+    expect(hover.held.rows[0].editable).toEqual({ rung: 'template', file: 'app.contract', at: { line: 11, col: hoverAt.col }, sha256: sha(text), row: 'background-color', state: 'hover', instances: 1, text: '#dddddd', component: 'App' });
+    // A style's part: set-state on the style, a border side as written there: its own longhand, or the shorthand whole.
+    expect(hover.held.rows[1].editable).toEqual({ rung: 'state', style: 'Card', state: 'hover', row: 'border-top-color', file: 'app.contract', text: '#444444' });
+    expect(hover.held.rows[2].editable).toEqual({ rung: 'state', style: 'Card', state: 'hover', row: 'border-color', file: 'app.contract', text: '#111111' });
+    expect(hover.held.rows[3].editable).toMatchObject({ rung: 'template', row: 'border-left-color', state: 'hover', text: '#333333', at: { line: 12 } });
+    // A held row the map gives no part in that state (opacity's is focus-visible's): no rung, never the base's.
+    expect(hover.held.rows[4].editable.rung).toBe(null);
+    // A part's place is the map's UTF-8 byte column: a wider character before it on its line moves no name.
+    const wide = joinPath(dir, 'wide.contract'), before = '    -exact-label="é" ';
+    writeFileSync(wide, ['style Wide', '  :hover', `${before}border-color="#555555"`, ''].join('\n'));
+    const col = Buffer.byteLength(before) + 1;
+    expect(stateRung({ name: 'border_color_left' }, { state: 'hover', origin: 'class:Wide', at: { file: wide, line: 3, col, end_col: col + 12 } }, dir)).toEqual({ rung: 'state', style: 'Wide', state: 'hover', row: 'border-color', file: 'wide.contract', text: '#555555' });
+    // A side whose place says neither its longhand nor `border-color` is offered nothing a write could get wrong.
+    expect(stateRung({ name: 'border_color_top' }, { state: 'hover', origin: 'class:Card', at: place(2, 'background-color') }, dir)).toBe(null);
+    const focus = hold('focus-visible', [{ name: 'opacity', value: 0.5 }]);
+    expect(focus.held.rows[0]).toMatchObject({ source: { line: 14 }, editable: { rung: 'template', row: 'opacity', state: 'focus-visible', at: { line: 14 } } });
+    // The selection's own row is the base value's, at its own place, with no state.
+    const base = join({ id: 'web-1' }, selected, map, { app: dir }).rows[0];
+    expect([base.state, base.at?.line, base.editable.rung, base.editable.state]).toEqual([undefined, 9, 'template', undefined]);
+    // `uses` names a look row's part: outlining it finds the node.
+    expect(sitesAt(map, hoverAt)).toEqual([0]);
+    expect(sitesAt(map, topAt)).toEqual([0]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('an `:active` row lowered to the press paint is joined at its part, read-only but by token, and outlines its node (LLP 1121 D8)', () => {
   const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-active-'));
   try {
@@ -79,7 +129,7 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
     writeFileSync(app, text);
     const part = { file: app, line: 9, col: 9, end_col: 25 };
     const map = { digest: 'p1', sources: [{ file: app, sha256: sha(text) }], nodes: [
-      { file: app, line: 7, col: 5, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'press_background_color', origin: 'own', state: 'active', at: part }, { row: 'press_color', origin: 'own', state: 'active', at: { ...part, line: 10 } }] },
+      { file: app, line: 7, col: 5, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'press_background_color', states: [{ state: 'active', origin: 'own', at: part }] }, { row: 'press_color', states: [{ state: 'active', origin: 'own', at: { ...part, line: 10 } }] }] },
     ] };
     const selected = { node: 1, site: 0, instance: [], rows: [
       { name: 'press_background_color', value: '#00f', source: 'authored', token: { names: ['accent.soft'], text: 'accent.soft', modes: '', implied: false } },
@@ -214,12 +264,12 @@ test('a style\'s state part row joins on the state rung for set-state, the defau
     // The compiler renamed this file's `style Card` (another file has one): the map says Card__post.
     const map = { digest: 'p1', sources: [{ file: post, sha256: sha(text) }, { file: pkg, sha256: sha('pkg') }], nodes: [
       { file: post, line: 3, col: 5, end_col: 11, component: 'X', chain: [], bindings: [
-        { row: 'press_background_color', origin: 'class:Card__post', state: 'active', at: at(8, 'background-color="primary_600"') },
-        { row: 'press_opacity_to', origin: 'class:Card__post', state: 'active', at: at(9, 'opacity=0.8') },
-        { row: 'press_color', origin: 'class:A/B', state: 'active', at: at(10, 'color="red"') },
-        { row: 'press_scale', origin: 'class:Pkg', state: 'active', at: { file: pkg, line: 3, col: 5, end_col: 9 } },
+        { row: 'press_background_color', states: [{ state: 'active', origin: 'class:Card__post', at: at(8, 'background-color="primary_600"') }] },
+        { row: 'press_opacity_to', states: [{ state: 'active', origin: 'class:Card__post', at: at(9, 'opacity=0.8') }] },
+        { row: 'press_color', states: [{ state: 'active', origin: 'class:A/B' }] }, // (a conditional class's part says nowhere)
+        { row: 'press_scale', states: [{ state: 'active', origin: 'class:Pkg', at: { file: pkg, line: 3, col: 5, end_col: 9 } }] },
       ] },
-      { file: post, line: 1, col: 1, end_col: 2, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', origin: 'class:Card__post', state: 'active', at: at(9, 'opacity=0.8') }] },
+      { file: post, line: 1, col: 1, end_col: 2, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', states: [{ state: 'active', origin: 'class:Card__post', at: at(9, 'opacity=0.8') }] }] },
     ] };
     const selected = { node: 1, site: 0, instance: [], rows: [
       { name: 'press_background_color', value: '#00f', source: 'authored', token: { names: ['primary_600'], text: 'primary_600', modes: '', implied: false } },
@@ -231,8 +281,9 @@ test('a style\'s state part row joins on the state rung for set-state, the defau
     const state = { rung: 'state', style: 'Card', state: 'active', file: 'post.contract' };
     expect(s.rows[0].editable).toEqual({ ...state, row: 'background-color', text: 'primary_600', token: 'primary_600' });
     expect(s.rows[1].editable).toEqual({ ...state, row: 'opacity', text: '0.8' });
-    // Under a conditional class: no one style to edit.
+    // Under a conditional class: no one style to edit, and no place said (either style's), not even a null one.
     expect(s.rows[2].editable.rung).toBe(null);
+    expect([s.rows[2].state, 'at' in s.rows[2]]).toEqual(['active', false]);
     // A package's style: read-only, said so.
     expect(s.rows[3].editable).toMatchObject({ rung: null, reason: expect.stringContaining("a package's style") });
     // Held, where the build names the held node (stage 9 E's site): offered there; else shown only.
@@ -245,7 +296,7 @@ test('a style\'s state part row joins on the state rung for set-state, the defau
     // The held node's part in another file, moved since: nothing offered, the selected node's files unmoved.
     const styles = joinPath(dir, 'styles.contract'), was = 'style Press\n  :active\n    opacity=0.5\n';
     writeFileSync(styles, was);
-    const two = { ...map, sources: [...map.sources, { file: styles, sha256: sha(was) }], nodes: [...map.nodes, { file: post, line: 2, col: 3, end_col: 7, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', origin: 'class:Press', state: 'active', at: { file: styles, line: 3, col: 5, end_col: 12 } }] }] };
+    const two = { ...map, sources: [...map.sources, { file: styles, sha256: sha(was) }], nodes: [...map.nodes, { file: post, line: 2, col: 3, end_col: 7, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', states: [{ state: 'active', origin: 'class:Press', at: { file: styles, line: 3, col: 5, end_col: 12 } }] }] }] };
     const heldTwo = { ...selected, held: { state: 'active', site: 2, rows: heldAt.rows } };
     expect(join({ id: 'web-1' }, heldTwo, two, { app: dir }).held.rows[0].editable).toEqual({ ...state, style: 'Press', file: 'styles.contract', row: 'opacity', text: '0.5' });
     writeFileSync(styles, `style Other\n${was}`);

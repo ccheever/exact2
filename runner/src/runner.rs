@@ -149,6 +149,10 @@ pub struct Advanced {
     pub now_ms: f64,
     /// The refusal that stopped the advance or the collection edge action.
     pub error: Option<RunnerError>,
+    /// [`Runner::advance_until_request`] stopped after a commit that sent a
+    /// request, short of its cutoff or at it: the host lands the reply
+    /// before it advances again.
+    pub stopped_on_request: bool,
 }
 
 /// Why the runner refused. The kernel is unchanged.

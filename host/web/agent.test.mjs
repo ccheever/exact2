@@ -601,8 +601,8 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
   // The document pickers (studio diary R31): bit 3 where the browser has them.
   platform.showOpenFilePicker = () => {}; expect(real.bits()).toBe(32 | 8);
   delete platform.showOpenFilePicker; let focused = false; platform.document.hasFocus = () => focused; expect(real.bits()).toBe(32 | 16); focused = true; expect(real.bits()).toBe(32); // #114: bit 4 while `document.hasFocus()` is false
-  real.onChange(() => {});
-  expect(listened).toEqual(['visibilitychange', 'online', 'offline', 'focus', 'blur']);
+  const on = {}; platform.addEventListener = (name, f) => { listened.push(name); on[name] = f; }; let told = 0; real.onChange(() => { told++; }); expect(listened).toEqual(['visibilitychange', 'online', 'offline', 'focus', 'blur', 'pagehide', 'pageshow']);
+  on.pageshow({ persisted: false }); on.pagehide({ persisted: false }); expect([real.bits(), told]).toEqual([32, 0]); on.pagehide({ persisted: true }); expect([real.bits(), told]).toEqual([32 | 1024, 1]); on.pageshow({ persisted: true }); expect([real.bits(), told]).toEqual([32 | 1 << 16, 2]); // the back/forward cache (LLP 1069.000 D2): bit 10 while put away, the returns above bit 16; a load's and an unload's events are neither
   const agent = pageReporter(true, new Proxy({}, {get(_, name) { if (name === 'devicePixelRatio') return 2; throw new Error('agent read the platform'); }})); // the display's scale alone is the page's own under the agent too: no drive value stands in for it (LLP 1115.000 D10.3)
   expect(agent.bits()).toBe(4 | 8 | 32 | 256); // the drive navigated to the page: `navigate` (bits 5–6: 1); files in a share, never a picture (LLP 1125 D12)
   agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16 | 32 | 256); agent.prefer({ 'has-focus': 'true' });
@@ -850,9 +850,9 @@ test('a pressable that is no button activates by Enter or Space', () => {
 
 // @ref LLP 1043.000 §3 D7/D8 — optional host code cannot gate data readiness.
 const checkpoint = () => new Promise(resolve => setImmediate(resolve));
-async function startupFixture(rustOnly = false, served = null) {
+async function startupFixture(rustOnly = false, served = null, timerFirst = false) {
   const data = deferred(), input = deferred(), timer = deferred();
-  const frames = [], loads = [], errors = [], events = [];
+  const frames = [], timeouts = [], loads = [], errors = [], events = [];
   const exports = { memory: {}, exact_compat: () => '{"inputs":{}}',
     exact_logic: () => '{"appId":"test.startup"}',
     exact_data_ready: () => { events.push('activate'); return '{"ops":[]}'; },
@@ -867,7 +867,7 @@ async function startupFixture(rustOnly = false, served = null) {
     fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [], imports: () => [] } },
     moduleCall() {}, rustImports: {}, dataImports: {}, grantOrigins, readOut: value => value,
     boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {}, pieces: { pending: () => null },
-    requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
+    requestAnimationFrame: fn => frames.push(fn), setTimeout: (fn, ms) => timeouts.push([fn, ms]), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, editMenu: () => false, focusAutofocus() {},
     resolveModuleReady: () => events.push('ready'), page: served && { holding: true, early: [] }, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
@@ -888,15 +888,15 @@ async function startupFixture(rustOnly = false, served = null) {
   if (served) return { f }; // a served document's first pixel is painted: activation is not a frame away
   expect(events).toEqual(['boot', 'navigation']); // Adoption activates navigation before optional modules or data.
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
-  frames.shift()();
-  expect(loads).toEqual([]);
-  const activation = frames.shift()();
+  const early = timerFirst && timeouts[0][0](); // a frameless page's second (glue.js activateOnce) first: its frames, back later, start nothing more
+  frames.shift()(); if (!early) expect(loads).toEqual([]);
+  const activation = frames.shift()(); expect(timeouts.map(([, ms]) => ms)).toEqual([1000]); expect(timeouts[0][0]()).toBe(activation); if (early) expect(activation).toBe(early); // one activation, whichever comes first
   return { f, data, input, timer, activation };
 }
 
 test('pending, failed and invalid optional modules leave Rust and JS apps ready after paint', async () => {
-  for (const rustOnly of [false, true]) for (const failure of ['pending', 'reject', 'invalid']) {
-    const h = await startupFixture(rustOnly), { f } = h;
+  for (const rustOnly of [false, true]) for (const failure of ['pending', 'reject', 'invalid']) for (const timerFirst of [false, true]) {
+    const h = await startupFixture(rustOnly, null, timerFirst), { f } = h;
     if (!rustOnly) expect(f.inputReady).toBe(false);
     h.data.resolve({});
     await checkpoint();

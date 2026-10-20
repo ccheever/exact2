@@ -372,12 +372,34 @@ async function drive(t, report, fail, dir, ws, js) {
       // An app runs its own binary's plan (the web dist's names the web's Rust module); a synthetic plan is swapped in.
       try { L = await open({ host: 'linux', app: t.app, ...facts, ...scaled, ...(t.contract ? { plan: t.plan } : {}) }); }
       catch (e) { fail('linux-open', e.message.split('\n').filter(l => !/^crash report/.test(l)).slice(0, 4).join(' ').slice(0, 400)); }
+      // A page fact the web answers apart under the agent: it refuses a picture
+      // in a share, so `canSharePictures` is false there and true on a native
+      // host's substitute (LLP 1125 D12). The Linux reference takes the pages'
+      // answer, as `prefer` sets it on every host. (`navigationType` differs
+      // too, "navigate" against a native launch's "", rightly; it is not
+      // compared.)
+      if (L) {
+        try { await parseStep('prefer can-share-pictures false').run(L); }
+        catch (e) { fail('linux-open', `prefer can-share-pictures false: ${e.message.split('\n')[0]}`); await L.close?.().catch(() => {}); L = null; }
+      }
     }
     // The first step the Linux host cannot take ends its comparison (its state has left the wasm page's).
     const onLinux = async (step, fn) => {
       if (!L) return;
       const apart = LINUX_APART[t.name];
-      if (apart && step === apart[0]) { report.steps.push({ target: t.name, step, linux: 'stopped', skipped: `linux: ${apart[1]}` }); await L.close?.().catch(() => {}); L = null; return; }
+      if (apart && step === apart[0]) {
+        // A step whose Linux answer is specified apart is taken and held to
+        // that answer (a wrong one, or a crash, still fails), then ends the comparison.
+        const said = apart[2];
+        if (said) {
+          try {
+            await fn(L); await L.clock('settle');
+            const got = (await L.state()).slots?.[said.slot];
+            if (got !== said.value) fail(step, `linux slots.${said.slot}: ${JSON.stringify(got)}, where ${JSON.stringify(said.value)} is specified (${apart[1]})`);
+          } catch (e) { fail(step, `linux: ${e.message.split('\n')[0]}`); }
+        }
+        report.steps.push({ target: t.name, step, linux: 'stopped', skipped: `linux: ${apart[1]}` }); await L.close?.().catch(() => {}); L = null; return;
+      }
       try { await fn(L); } catch (e) { report.steps.push({ target: t.name, step, linux: 'stopped', skipped: `linux: ${e.message.split('\n')[0]}` }); await L.close?.().catch(() => {}); L = null; }
     };
     const compare = async step => {
@@ -733,8 +755,10 @@ async function bootPress(t, report, fail, dist, browser) {
 const linuxRef = argv.includes('--linux') && !crossBrowser;
 const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer', 'drag', 'down', 'move', 'up', 'mediasession', 'midi'];
 // Where an app's drive reaches what only one host has, the Linux comparison
-// stops before that step (null: from the start), saying why (each is a host
-// difference, not the runner's).
+// ends there, saying why (each is a host difference, not the runner's):
+// [step, why] stops before that step (null: from the start); [step, why,
+// { slot, value }], where Linux's answer is specified, takes the step, holds
+// the slot read after it to that value, then stops.
 const LINUX_APART = {
   caltrain: ['tap open-deck', 'its deck screen is an iframe, whose load and message only a browser delivers'],
   'markdown-stress': ['tap toggle-single', "its editor's selection report (formats, links) is the web's markup editor's, which the Linux host's text field does not make"],
@@ -744,6 +768,7 @@ const LINUX_APART = {
   'interaction-gallery': ['drag sheet-handle 0 -150 300', "the sheet's full stop is its bay's height (`frame`), under three rows of 12 px buttons whose text each host sets in its own sans: Chrome's system-ui, and on macOS the Linux host's Arial (text/fonts.rs, no fontconfig), a row 1 px shorter, so 521 against the page's 518"],
   'synthetic-iframes': ['tap show', 'the Linux host loads no iframe, whose load and message only a browser delivers'],
   'synthetic-native-buttons': ['tap open-dialog', 'the Linux host does not present dialogs (LLP 1001, LLP 1021 D2): it refuses a `commandfor` press, so the opener keeps the focus'],
+  'synthetic-decorations': ['tap measure', "its rangeFrame is the host's text field reader, which the Linux host does not have, so it answers unavailable (docs/contract-grammar.md, rangeFrame; LLP 1114.007)", { slot: 'geometry', value: 'unavailable' }],
 };
 const linuxCrate = app => { const f = resolve(root, 'apps', app, 'linux', 'Cargo.toml'); return existsSync(f) ? /^name\s*=\s*"([^"]+)"/m.exec(readFileSync(f, 'utf8'))?.[1] : null; };
 function linuxFor(t) {
