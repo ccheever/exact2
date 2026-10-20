@@ -45,8 +45,10 @@ struct GroupedListModel: Equatable {
     /// D7: author > platform); the defaults leave it the platform's.
     struct Look: Equatable {
         /// A font as the text's computed rows have it (`TextFont`).
+        /// What its author said of its font, each part nil where they said
+        /// nothing: that part stays UIKit's own (LLP 1115.000 D2).
         struct Font: Equatable {
-            var size: Double, weight: Int, italic = false, family = 0, numeric = 0
+            var size: Double?, weight: Int?, italic: Bool? = nil, family: Int? = nil, numeric: Int? = nil
         }
         /// The most lines it shows, 0 for any number.
         var lines = 0
@@ -64,10 +66,10 @@ struct GroupedListModel: Equatable {
             lines = (o["lines"] as? NSNumber)?.intValue ?? 0
             ellipsis = o["ellipsis"] as? Bool ?? false
             color = o["color"].flatMap(Self.value)
-            font = (o["font"] as? [String: Any]).flatMap { f in
-                (f["size"] as? NSNumber).map { Font(size: $0.doubleValue, weight: (f["weight"] as? NSNumber)?.intValue ?? 400,
-                                                    italic: f["italic"] as? Bool ?? false, family: (f["family"] as? NSNumber)?.intValue ?? 0,
-                                                    numeric: (f["numeric"] as? NSNumber)?.intValue ?? 0) }
+            font = (o["font"] as? [String: Any]).map { f in
+                Font(size: (f["size"] as? NSNumber)?.doubleValue, weight: (f["weight"] as? NSNumber)?.intValue,
+                     italic: f["italic"] as? Bool, family: (f["family"] as? NSNumber)?.intValue,
+                     numeric: (f["numeric"] as? NSNumber)?.intValue)
             }
         }
         /// A JSON value as the batch decodes one.
@@ -82,6 +84,12 @@ struct GroupedListModel: Equatable {
         }
         /// Onto a cell's or a header's text: only what the author said
         /// changes UIKit's. `engine` makes the author's font.
+        /// A UIKit weight as CSS's number, to the nearest of CSS's hundreds.
+        static func cssWeight(_ w: UIFont.Weight) -> Int {
+            let steps: [(UIFont.Weight, Int)] = [(.ultraLight, 100), (.thin, 200), (.light, 300), (.regular, 400), (.medium, 500),
+                                                (.semibold, 600), (.bold, 700), (.heavy, 800), (.black, 900)]
+            return steps.min { abs($0.0.rawValue - w.rawValue) < abs($1.0.rawValue - w.rawValue) }?.1 ?? 400
+        }
         func apply(to text: inout UIListContentConfiguration.TextProperties, engine: TextEngine?) {
             if lines > 0 {
                 text.numberOfLines = lines
@@ -94,8 +102,15 @@ struct GroupedListModel: Equatable {
                         .map(TextEngine.color) ?? .label
                 }
             }
-            if let font, let made = engine?.font(size: CGFloat(font.size), weight: font.weight, family: font.family, italic: font.italic, numeric: font.numeric) {
-                text.font = made
+            if let font {
+                // The cell's own font for each part its author left unsaid.
+                let own = text.font, traits = own.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any]
+                let ownWeight = Self.cssWeight((traits?[.weight] as? NSNumber).map { UIFont.Weight(CGFloat($0.doubleValue)) } ?? .regular)
+                if let made = engine?.font(size: font.size.map { CGFloat($0) } ?? own.pointSize, weight: font.weight ?? ownWeight,
+                                           family: font.family ?? 0, italic: font.italic ?? own.fontDescriptor.symbolicTraits.contains(.traitItalic),
+                                           numeric: font.numeric ?? 0) {
+                    text.font = made
+                }
             }
         }
     }
