@@ -1,6 +1,7 @@
 # enterkeyhint on a textarea does not label the iOS return key
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** UITextView.returnKeyType follows enterkeyhint through the input's mapping (NodeView.returnKey); unsaid it stays the plain key
 **Systems:** Apple host (iOS), native fields (textarea)
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from the Linear Port lane's friction log

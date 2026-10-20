@@ -1,6 +1,7 @@
 # On iOS a text with overflow-x=hidden takes a person's touch from the button around it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A paragraph's scroller with nothing to scroll hands the touch to its node (ScrollView.hitTest), so the press bubbles to the button
 **Systems:** Apple host (iOS), hit testing, text
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from the Linear Port lane's friction log
