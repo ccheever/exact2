@@ -60,7 +60,7 @@ export function moveGuide(progress: GuideProgress, target: number, count: number
   if (count > 0 && (position > current || finish)) seen.add(current);
   return { position, seen };
 }
-export const ATTENTION_LABELS = { tradeoff: 'Tradeoff to weigh', contract: 'Contract to confirm', product: 'Product call', risk: 'Risk to check', accessibility: 'Accessibility check' };
+export const ATTENTION_LABELS = { tradeoff: 'A tradeoff to weigh', contract: 'A contract to check', product: 'A product call', risk: 'A risk to judge', accessibility: 'An accessibility call' };
 export function guideState(result: GuideResult, starting = false) {
   const running = starting || result.run?._tag === 'Running';
   const failure = result.run?._tag === 'Failed' && result.run.headSha === result.currentHeadSha ? result.run.detail : '';
