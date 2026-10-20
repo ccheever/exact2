@@ -102,6 +102,35 @@ public enum ExactDocuments {
         ExactEnv.appMetadata["ExactLaunchMode"] as? String ?? "navigate-existing"
     }
 
+    /// Whether the app outlives its one window (LLP 1069.010 D8): the
+    /// manifest's `host.macos.window.keepRunning`, baked into `ExactWindow`.
+    /// A `navigate-new` app outlives its last window without it, and its
+    /// windows close as documents do.
+    public static func keepsRunning(_ metadata: [String: Any] = ExactEnv.appMetadata) -> Bool {
+        (metadata["ExactWindow"] as? [String: Any])?["keepRunning"] as? Bool == true
+            && metadata["ExactLaunchMode"] as? String != "navigate-new"
+    }
+
+    /// Whether the app ends once no window shows
+    /// (`applicationShouldTerminateAfterLastWindowClosed`): a one-window app
+    /// does, unless it keeps running and its window is only hidden (`hiding`:
+    /// a window is open that its app has not closed); a `navigate-new` app
+    /// stays for File ▸ New Window, Open and the Dock (LLP 1115 D8).
+    public static func endsWithoutWindows(hiding: Bool, _ metadata: [String: Any] = ExactEnv.appMetadata) -> Bool {
+        metadata["ExactLaunchMode"] as? String != "navigate-new" && !(hiding && keepsRunning(metadata))
+    }
+
+    /// The person closes `window` (⌘W, File ▸ Close Window, the red button):
+    /// the only window of an app that keeps running is hidden rather than
+    /// closed, with its session and view as they were, and nothing is asked
+    /// (`beforeunload`), as nothing unloads. Whether it was hidden, which
+    /// the window's `windowShouldClose` answers `false` for.
+    public static func hidesOnClose(_ window: NSWindow, only: Bool, keepsRunning: Bool = keepsRunning()) -> Bool {
+        guard keepsRunning, only else { return false }
+        window.orderOut(nil)
+        return true
+    }
+
     /// What the adapter tells a window it has just made (LLP 1115.000 D7.9).
     ///
     /// It opens with AppKit's own animation: `animationBehavior` is left as
