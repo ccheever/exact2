@@ -132,12 +132,12 @@ pub fn pieces(text: *const u8, len: usize, out: *mut *const CPiece, count: *mut 
 /// selection `sel_start..sel_end` (UTF-16; `u32::MAX` start for none), as one
 /// JSON document the editor reads: `{"p":[[start,end,kind,level,depth,quote]…],
 /// "s":[[start,end,flags,href]…],"h":[[start,end]…],"r":[[start,end,kind,text]…],
-/// "l":[[start,end]…]}`.
+/// "l":[[open,open_end,start,end]…]}`.
 /// Kinds: paragraph 0 body 1 heading 2 bullet 3 ordered 4 task 5 rule 6 fence
 /// 7 code 8 footnote 9 table 10 embed 11 image 12 video; replaced 0 bullet
-/// 1 box 2 checked box 3 rule 4 footnote. `l` is each link's `](target)`,
-/// which the editor hides whatever the selection, as the web editor does
-/// (`exact_markdown_editor::link_destinations`, LLP 1045 D5). Writes the
+/// 1 box 2 checked box 3 rule 4 footnote. `l` is each link's opener and its
+/// `](target)`, which the editor hides whatever the selection, as the web
+/// editor does (`exact_markdown_editor::link_destinations`, LLP 1045 D5). Writes the
 /// text's address and length; returns a handle to free. Zero for invalid
 /// input.
 pub fn style(
@@ -159,18 +159,20 @@ pub fn style(
         return 0;
     };
     let reveal = (sel_start != u32::MAX).then(|| exact_markdown::Range::new(sel_start, sel_end));
-    let mut json = exact_markdown::wire::style(source, reveal);
+    // One parse for both: the styling, and the link syntax in it.
+    let styled = exact_markdown::style(source, reveal);
+    let mut json = exact_markdown::wire::styled(&styled);
     // The document is one object: its closing brace makes room for `l`.
     json.pop();
     json.push_str(",\"l\":[");
-    for (i, (a, b)) in exact_markdown_editor::link_destinations(source)
+    for (i, [o, oe, c, ce]) in exact_markdown_editor::link_destinations(source, &styled)
         .into_iter()
         .enumerate()
     {
         if i > 0 {
             json.push(',');
         }
-        json.push_str(&format!("[{a},{b}]"));
+        json.push_str(&format!("[{o},{oe},{c},{ce}]"));
     }
     json.push_str("]}");
     hold_json(json, out, count)
@@ -464,7 +466,7 @@ mod tests {
         let json = std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) }).unwrap();
         assert_eq!(
             json,
-            r#"{"p":[[0,3,1,1,0,0],[5,21,0,0,0,0]],"s":[[7,8,1,""],[12,13,16,"u"]],"h":[[0,2],[5,7],[8,10],[11,12],[13,21]],"r":[],"l":[[13,21]]}"#
+            r#"{"p":[[0,3,1,1,0,0],[5,21,0,0,0,0]],"s":[[7,8,1,""],[12,13,16,"u"]],"h":[[0,2],[5,7],[8,10],[11,12],[13,21]],"r":[],"l":[[11,12,13,21]]}"#
         );
         // The caret inside the bold reveals its markers as MARKER spans.
         let revealed = style(source.as_ptr(), source.len(), 7, 7, &mut out, &mut count);
@@ -477,7 +479,7 @@ mod tests {
         // destination.
         let linked = style(source.as_ptr(), source.len(), 12, 12, &mut out, &mut count);
         let json = std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) }).unwrap();
-        assert!(json.ends_with(r#""l":[[13,21]]}"#), "{json}");
+        assert!(json.ends_with(r#""l":[[11,12,13,21]]}"#), "{json}");
         free(linked);
         free(handle);
         free(revealed);

@@ -28,7 +28,7 @@ final class MarkupHiddenTests: XCTestCase {
         super.tearDown()
     }
 
-    private func editor(selection: NSRange) -> (NodeView, TextArea, NSWindow) {
+    private func editor(_ text: String = source, selection: NSRange) -> (NodeView, TextArea, NSWindow) {
         _ = NSApplication.shared
         presenter = Presenter()
         // The styler reads the node's fonts from its session's text engine.
@@ -38,7 +38,7 @@ final class MarkupHiddenTests: XCTestCase {
         node.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
         node.makeTextArea()
         node.props["markup"] = "markdown"
-        node.props["value"] = source
+        node.props["value"] = text
         node.handlers = ["input"]
         node.applyTextArea()
         node.layoutTextArea()
@@ -123,6 +123,40 @@ final class MarkupHiddenTests: XCTestCase {
         XCTAssertEqual(f.string, "Ask about [Assistant quote" + destination + "! and more.")
     }
 
+    func testDeletingOrReplacingAWholeLinkKeepsItsBracketAndDestination() throws {
+        let link = "see [docs](http://x) now"
+        let (_, f, window) = editor(link, selection: NSRange(location: 4, length: 16))
+        defer { window.close() }
+        f.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+        XCTAssertEqual(f.string, "see [](http://x) now", "as the web editor leaves it")
+        try XCTUnwrap(f.undoManager).undo()
+        XCTAssertEqual(f.string, link)
+        f.setSelectedRange(NSRange(location: 4, length: 16))
+        f.insertText("Z", replacementRange: f.selectedRange())
+        XCTAssertEqual(f.string, "see [Z](http://x) now")
+        // Two links side by side: each keeps its own `[` and destination.
+        let (_, g, other) = editor("[a](b)[c](d)", selection: NSRange(location: 1, length: 8))
+        defer { other.close() }
+        g.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+        XCTAssertEqual(g.string, "[](b)[](d)")
+    }
+
+    func testCopyOfALabelTakesItsBracketAndDestination() {
+        let (_, f, window) = editor("x [a](b) y", selection: NSRange(location: 3, length: 1))
+        defer { window.close() }
+        f.copy(nil)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "[a](b)")
+    }
+
+    func testACompositionOverADestinationKeepsItAndComposes() {
+        let (_, f, window) = editor(selection: NSRange(location: a - 3, length: b - a + 4))
+        defer { window.close() }
+        f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(f.hasMarkedText(), "the composition goes on")
+        f.unmarkText()
+        XCTAssertEqual(f.string, "Ask about [Assistant quに" + destination + "and more.")
+    }
+
     func testCopyTakesTheDestinationAtTheSelectionsEdge() {
         let (_, f, window) = editor(selection: NSRange(location: a - 5, length: 5))
         defer { window.close() }
@@ -170,7 +204,7 @@ final class MarkupHiddenIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    private func field() -> (Presenter, NodeView, TextArea) {
+    private func field(_ text: String = source) -> (Presenter, NodeView, TextArea) {
         // The styler reads the node's fonts from its session's text engine.
         let made = ExactApp.shared.makeSession(label: "markup-hidden")
         session = made
@@ -181,7 +215,7 @@ final class MarkupHiddenIOSTests: XCTestCase {
         window.makeKeyAndVisible()
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
-            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": source, "markup": "markdown"], "handlers": ["input"]],
+            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": text, "markup": "markdown"], "handlers": ["input"]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 600.0, "h": 300.0],
@@ -216,6 +250,26 @@ final class MarkupHiddenIOSTests: XCTestCase {
         XCTAssertEqual(f.selectedRange, NSRange(location: a - 1, length: 0))
         f.selectedRange = NSRange(location: a - 5, length: 9)
         XCTAssertEqual(f.selectedRange, NSRange(location: a - 5, length: b - a + 5), "a range takes the destination whole")
+    }
+
+    func testDeletingOrReplacingAWholeLinkKeepsItsBracketAndDestination() {
+        let (_, _, f) = field("see [docs](http://x) now")
+        f.selectedRange = NSRange(location: 4, length: 16)
+        f.deleteBackward()
+        XCTAssertEqual(f.text, "see [](http://x) now")
+        let (_, _, g) = field("see [docs](http://x) now")
+        g.selectedRange = NSRange(location: 4, length: 16)
+        g.insertText("Z")
+        XCTAssertEqual(g.text, "see [Z](http://x) now")
+    }
+
+    func testACompositionOverADestinationKeepsItAndComposes() {
+        let (_, _, f) = field()
+        f.selectedRange = NSRange(location: a - 3, length: b - a + 4)
+        f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0))
+        XCTAssertNotNil(f.markedTextRange, "the composition goes on")
+        f.unmarkText()
+        XCTAssertEqual(f.text, "Ask about [Assistant quに" + destination + "and more.")
     }
 
     func testBackspaceAfterTheLinkDeletesTheLabelsLastLetter() throws {

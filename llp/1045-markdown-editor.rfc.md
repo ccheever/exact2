@@ -304,14 +304,22 @@ and the row is kept only if the numbers say so.
   is hidden whatever the selection, as the web hides it: a composer's
   citation link, whose percent-encoded target runs to thousands of
   characters, reads as its label. Which runs are hidden is the editor
-  crate's (`exact_markdown_editor::link_destinations`, the styler's `l`), and
-  so are the rules around them: a caret in one or at its start sits after
-  it; an arrow, word move or deletion from either edge steps over visible
-  text (Backspace after the link deletes the label's last letter, and typing
-  then goes back into the label); a range's ends inside one go to its outer
-  edges; a deletion or replacement across one changes only the visible
-  text, its destination kept; a copy whose edge meets one takes it. The
-  styler marks each run, and TextKit 2's paragraph delegate
+  crate's (`exact_markdown_editor::link_destinations`, the styler's `l`):
+  each link's and image's `](target)` exactly, from the same parse as the
+  styling. A destination that spans a line break stays shown, since its
+  hidden newline would leave an empty line. The rules around a destination
+  are the crate's (`Editor::select`, `remove`, `replace_visible`,
+  `copy_range`), which the Apple host reimplements over the styler's marks,
+  because Apple hides only destinations and the crate's projection hides all
+  syntax: a caret in one or at its start sits after it; an arrow, word move
+  or deletion from either edge steps over visible text (Backspace after the
+  link deletes the label's last letter, and typing then goes back into the
+  label); a range's ends inside one go to its outer edges; a deletion or
+  replacement across one changes only the visible text, its destination and
+  its link's `[` kept; a copy whose edge meets one takes it, and a label's
+  `[` with it; a composition that starts over a selection holding one first
+  deletes what the selection shows, then composes. The styler marks each
+  destination and its `[`, and TextKit 2's paragraph delegate
   (`NSTextContentStorageDelegate`) draws a copy of the paragraph whose
   hidden code units are word joiners (U+2060: no advance, no glyph, no line
   break). The storage keeps the source, so offsets, `rangeFrame`, native

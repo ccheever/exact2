@@ -28,14 +28,16 @@ package final class TextArea: NSTextView {
     var changingText = false
     /// The host is moving the caret across a hidden link destination.
     var placingCaret = false
+    /// An input method is marking text: its edit stays the platform's.
+    var markingText = false
     /// The source's length at the last selection change: a change that
     /// comes with a new length is an edit's.
     var markupLength = 0
-    // Typed text never takes hidden source's attribute from the character
-    // before the caret (a link's closing parenthesis).
+    // Typed text never takes a link's marks from the character before the
+    // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
         get { super.typingAttributes }
-        set { var shown = newValue; shown[.markupHidden] = nil; super.typingAttributes = shown }
+        set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; super.typingAttributes = shown }
     }
     // AppKit asks the first responder for the mask: the native bezel's
     // scroll view, or the bare node's whole authored box.
@@ -138,7 +140,7 @@ package final class TextArea: NSTextView {
     package override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
         // Asked before `super`, which registers the native edit's undo: the
         // editor's own edit replaces it and registers its own.
-        if let markup, !markup.applying, !hasMarkedText(), let text = replacementString, let storage = textStorage,
+        if let markup, !markup.applying, !hasMarkedText(), !markingText, let text = replacementString, let storage = textStorage,
            let rewrite = markup.rewrite(affectedCharRange, with: text, in: storage) {
             if let owner, owner.presenter?.fieldSelections.shouldEdit(owner, range: affectedCharRange, replacement: text, marked: false) == false { return false }
             apply(rewrite, markup)
@@ -172,6 +174,15 @@ package final class TextArea: NSTextView {
     /// AppKit posts no change while text is marked: the owner hears each one
     /// here, and a commit's steps as one (`settlingComposition`).
     package override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        // A composition that starts over a selection holding a hidden link
+        // destination first deletes what the selection shows, as the editor
+        // deletes it, and then composes at the caret.
+        if let markup, !markup.applying, !hasMarkedText(), replacementRange.location == NSNotFound, let storage = textStorage,
+           self.selectedRange().length > 0, let rewrite = markup.rewrite(self.selectedRange(), with: "", in: storage) {
+            apply(rewrite, markup)
+        }
+        markingText = true
+        defer { markingText = false }
         if let selections = owner?.presenter?.fieldSelections {
             selections.withComposition(owner) { super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange) }
         } else { super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange) }

@@ -166,16 +166,18 @@ package final class TextArea: UITextView {
     var changingText = false
     /// The host is moving the caret across a hidden link destination.
     var placingCaret = false
+    /// An input method is marking text: its edit stays the platform's.
+    var markingText = false
     /// The Markdown editor's selection as last seen, which a person's next
     /// change is placed from, and the source's length then: a change that
     /// comes with a new length is an edit's.
     var markupSelection: NSRange?
     var markupLength = 0
-    // Typed text never takes hidden source's attribute from the character
-    // before the caret (a link's closing parenthesis).
+    // Typed text never takes a link's marks from the character before the
+    // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
         get { super.typingAttributes }
-        set { var shown = newValue; shown[.markupHidden] = nil; super.typingAttributes = shown }
+        set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; super.typingAttributes = shown }
     }
     // VoiceOver reads the text without hidden link destinations (LLP 1045 D1).
     package override var accessibilityValue: String? {
@@ -196,6 +198,15 @@ package final class TextArea: UITextView {
     package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
         owner?.presenter?.supersedePress() // composed text, as typed text
         owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
+        // A composition that starts over a selection holding a hidden link
+        // destination first deletes what the selection shows, as the editor
+        // deletes it, and then composes at the caret.
+        if let markup, !markup.applying, markedTextRange == nil, self.selectedRange.length > 0, let owner,
+           let rewrite = markup.rewrite(self.selectedRange, with: "", in: textStorage) {
+            owner.applyMarkup(rewrite, in: self, markup)
+        }
+        markingText = true
+        defer { markingText = false }
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
@@ -530,7 +541,7 @@ extension NodeView {
     package func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         guard TextInputLimit.allows(textView.text ?? "", range: range, replacement: text, props: props),
               presenter?.fieldSelections.shouldEdit(self, range: range, replacement: text, marked: textView.markedTextRange != nil) ?? true else { return false }
-        guard let f = textView as? TextArea, let editor = f.markup, !editor.applying, f.markedTextRange == nil else { return true }
+        guard let f = textView as? TextArea, let editor = f.markup, !editor.applying, f.markedTextRange == nil, !f.markingText else { return true }
         if let rewrite = editor.rewrite(range, with: text, in: f.textStorage) {
             applyMarkup(rewrite, in: f, editor)
             return false

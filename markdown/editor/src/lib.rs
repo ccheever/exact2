@@ -31,12 +31,20 @@ pub use editor::{Change, Editor, Facts, Input, Outcome, Selected, SelectionMode}
 pub use projection::Deco;
 pub use view::Line;
 
-/// Each link's `](target)` in `source`, in UTF-16 code units, in order: the
-/// runs this editor hides and steps a caret over whole, after which a caret
-/// placed in one sits. A host that hides only link destinations (Apple,
-/// LLP 1045 D5) takes them from here.
-pub fn link_destinations(source: &str) -> Vec<(u32, u32)> {
+/// Each link's and image's `[` (or `![`) and `](target)` in `styled`, in
+/// UTF-16 code units: the destinations a host that hides only those (Apple,
+/// LLP 1045 D5) keeps out of layout, with the opener a deletion keeps beside
+/// a kept destination. A destination that spans a line break is left shown:
+/// hidden, its newline would leave an empty line.
+pub fn link_destinations(source: &str, styled: &exact_markdown::Styled) -> Vec<[u32; 4]> {
     let units: Vec<u16> = source.encode_utf16().collect();
-    let styled = exact_markdown::style(source, None);
-    projection::Projection::new(&units, &styled).link_closes()
+    styled
+        .links
+        .iter()
+        .filter(|l| {
+            let close = units.get(l.close.start as usize..l.close.end as usize);
+            close.is_some_and(|c| !c.iter().any(|&u| u == 10 || u == 13))
+        })
+        .map(|l| [l.open.start, l.open.end, l.close.start, l.close.end])
+        .collect()
 }

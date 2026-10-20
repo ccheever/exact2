@@ -1,14 +1,17 @@
 // Link destinations kept out of layout, by the web editor's rules.
 // @ref LLP 1045 D1, D5 — which runs are hidden is
-// `exact_markdown_editor::link_destinations` (the styler's `l`); where a
+// `exact_markdown_editor::link_destinations` (the styler's `l`). Where a
 // caret sits beside one, what a deletion or replacement across one changes,
-// and what a copy takes are that crate's `Editor::select`, `remove`,
-// `replace_visible` and `copy_range`. The styler marks each run
-// `.markupHidden`; TextKit 2 asks this editor for each paragraph it lays
-// out and draws a copy whose hidden code units are word joiners (U+2060:
-// no advance, no glyph, no line break). The storage keeps the source, so
-// offsets, native undo and copy stay source offsets, and `layoutManager`
-// is never touched (it would switch the view to TextKit 1).
+// and what a copy takes follow that crate's `Editor::select`, `remove`,
+// `replace_visible` and `copy_range`. This file reimplements them over the
+// styler's marks, since Apple hides only destinations and the crate's
+// projection hides all syntax. The styler marks each destination
+// `.markupHidden` and its `[` `.markupOpener`; TextKit 2 asks this editor
+// for each paragraph it lays out and draws a copy whose hidden code units
+// are word joiners (U+2060: no advance, no glyph, no line break). The
+// storage keeps the source, so offsets, native undo and copy stay source
+// offsets, and `layoutManager` is never touched (it would switch the view
+// to TextKit 1).
 #if canImport(UIKit)
 import UIKit
 #else
@@ -98,14 +101,17 @@ extension MarkupEditor {
             let at = NSMaxRange(run)
             return MarkupRewrite(edits: [(NSRange(location: at, length: 0), text)], caret: at + text.utf16.count)
         }
-        guard s.hidesSource(in: range) else { return nil }
+        // A destination stays, and so does its link's `[`: without it the
+        // destination would read as text (the web hides both).
         var parts: [NSRange] = []
-        var at = range.location
-        s.enumerateAttribute(.markupHidden, in: range) { value, run, _ in
-            guard value != nil else { return }
+        var at = range.location, keeps = false
+        s.enumerateAttributes(in: range) { attributes, run, _ in
+            guard attributes[.markupHidden] != nil || attributes[.markupOpener] != nil else { return }
+            keeps = true
             if run.location > at { parts.append(NSRange(location: at, length: run.location - at)) }
             at = NSMaxRange(run)
         }
+        guard keeps else { return nil }
         if NSMaxRange(range) > at { parts.append(NSRange(location: at, length: NSMaxRange(range) - at)) }
         guard let first = parts.first else {
             // Only hidden source: a deletion removes nothing; text lands
@@ -122,7 +128,21 @@ extension MarkupEditor {
         guard range.length > 0 else { return range }
         var a = range.location, b = NSMaxRange(range)
         if let run = Self.hidden(at: a, in: s), NSMaxRange(run) == a { a = run.location }
-        if let run = Self.hidden(at: b, in: s), run.location == b { b = NSMaxRange(run) }
+        if let run = Self.hidden(at: b, in: s), run.location == b {
+            b = NSMaxRange(run)
+            // A label copied with its destination takes its `[` too.
+            if let opener = Self.opener(of: run, in: s), NSMaxRange(opener) == a { a = opener.location }
+        }
         return NSRange(location: a, length: b - a)
+    }
+
+    /// The `[` of the link whose destination is `run`.
+    static func opener(of run: NSRange, in s: NSAttributedString) -> NSRange? {
+        guard let n = s.attribute(.markupHidden, at: run.location, effectiveRange: nil) as? Int else { return nil }
+        var found: NSRange?
+        s.enumerateAttribute(.markupOpener, in: NSRange(location: 0, length: run.location), options: .reverse) { value, range, stop in
+            if value as? Int == n { found = range; stop.pointee = true }
+        }
+        return found
     }
 }

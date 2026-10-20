@@ -135,10 +135,13 @@ final class MarkupEditor: NSObject, MarkdownEditing {
                 storage.addAttributes([.font: look.font((look.size * 0.75).rounded(), look.weight, look.family, false), .baselineOffset: look.size * 0.33, .foregroundColor: look.ink.withAlphaComponent(0.62)], range: range)
             }
         }
-        // A link's `](target)`, whatever the selection (MarkupHidden.swift).
-        for l in object["l"] ?? [] where l.count >= 2 {
-            let range = clamp(l[0], l[1])
-            if range.length > 0 { storage.addAttribute(.markupHidden, value: true, range: range) }
+        // A link's `](target)`, whatever the selection, and its `[`
+        // (MarkupHidden.swift). One value marks both of a link.
+        for (n, l) in (object["l"] ?? []).enumerated() where l.count >= 4 {
+            let open = clamp(l[0], l[1]), close = clamp(l[2], l[3])
+            guard close.length > 0 else { continue }
+            storage.addAttribute(.markupHidden, value: n, range: close)
+            if open.length > 0 { storage.addAttribute(.markupOpener, value: n, range: open) }
         }
         storage.endEditing()
     }

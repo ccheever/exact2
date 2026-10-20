@@ -78,6 +78,9 @@ extension NSAttributedString.Key {
     /// Source the Markdown editor keeps out of layout: a link's `](target)`
     /// (LLP 1045 D5). TextKit draws it as nothing; the storage keeps it.
     package static let markupHidden = NSAttributedString.Key("ExactMarkupHidden")
+    /// The `[` of a link whose destination is hidden: an edit around the
+    /// destination keeps it. Its value is the destination's.
+    package static let markupOpener = NSAttributedString.Key("ExactMarkupOpener")
 }
 
 extension NSAttributedString {
