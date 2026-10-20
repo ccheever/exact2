@@ -234,3 +234,35 @@ fn a_package_default_the_app_replaced_selects_no_chain() {
     assert!(base["ok"].is_object(), "{base}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_base_name_reached_only_through_the_apps_own_aliases_is_checked() {
+    // The chain reads `lib.w`; the app's `lib.w` names its own `cards.pad`, which names `space.md`.
+    // (every token whose fold moves is in the plan's changed names, so this holds with or without the
+    // checker's own closure; the closure is for a caller passing only the names it wrote)
+    let dir = app(
+        "app-alias",
+        "tamber app\n\ntheme\n  other = 2px\n  cards.pad = space.md\n  lib.w = cards.pad\n",
+    );
+    let mut s = Serve::start(&dir, &[]);
+    let files = || json!({"app.tamber": digest(&dir.join("app.tamber"))});
+    let (base, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "set-token", "name": "space.md", "value": "0px"}]}));
+    assert_eq!(refusals(&base).len(), 1, "{base}");
+    // A scrub's verify, as the server pays it (its plan, its fold, the check): well under a frame budget's tenfold.
+    let op = json!([{"op": "set-token", "name": "other", "value": "5px"}]);
+    let (open, _) =
+        s.ask(json!({"method": "scrub-fold", "open": true, "files": files(), "ops": op}));
+    assert!(open["ok"].is_object(), "{open}");
+    let t = std::time::Instant::now();
+    for _ in 0..10 {
+        let (v, _) =
+            s.ask(json!({"method": "scrub-fold", "verify": true, "files": files(), "ops": op}));
+        assert!(v["ok"].is_object(), "{v}");
+    }
+    let each = t.elapsed() / 10;
+    assert!(
+        each < std::time::Duration::from_millis(250),
+        "{each:?} a verify"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
