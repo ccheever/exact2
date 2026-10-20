@@ -13,8 +13,8 @@
 // fixtures: packages/cards, packages/notes and apps/scale-gate (its design
 // sets space.md = 20px; base/ has none). Each host's build must be fresh (a
 // stale one's drive says how to build it: host/web/build.mjs caltrain-web,
-// host/apple/build.mjs caltrain-apple [--ios --sim], agent-android.mjs build
-// unsaid --apk); EXACT_SIM names the simulator, and the Android reader takes
+// host/apple/build.mjs caltrain-apple [--ios --sim], cargo build --profile
+// host-dev -p caltrain-linux, agent-android.mjs build unsaid --apk); EXACT_SIM names the simulator, and the Android reader takes
 // the emulator its owner file gives.
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
