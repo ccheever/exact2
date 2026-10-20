@@ -120,7 +120,7 @@ component SidebarScopeMenu
             SidebarIcon(name="search", size=16, color="light-dark(#71717b8c, #8181818c)")
           // ComboboxSearchInput keeps an input's intrinsic width (185pt), so the popup is content-sized past its anchor.
           DialogOpenFocus(target="scope-search")
-          input id="scope-search" value=data.sidebar.scopeQuery input=local("scope-query", "") key=local("scope-key", "") submit=local("scope", "", data.sidebar.scopeFirst) autofocus=true placeholder="Search projects..." class=FieldPlaceholder aria-label="Search projects" role="combobox" testId="scope-search" flex=1 width=0 min-width="11.5625rem" height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f3f3f3)" autocorrect="off"
+          input id="scope-search" value=data.sidebar.scopeQuery input=local("scope-query", "") key=local("scope-key", "") submit=local("scope", "", data.sidebar.scopeFirst) autofocus=true placeholder="Search projects..." class=FieldPlaceholder aria-label="Search projects" role="combobox" testId="scope-search" flex=1 width=0 min-width="11.5625rem" height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f3f3f3)" autocorrect="off" data-editable="yes"
       if data.sidebar.scopes.length == 0
         text "No matching projects." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717b, #818181)"
       scroll flex-shrink=1 min-height=0 max-height="20rem"

@@ -509,7 +509,7 @@ component ScheduledEditor
                     TaskChoiceItem(option=option, menuId="task-environment-menu", itemId=`task-environment-option-${option.value}`, choose=choose("environment", option.value))
             column gap="0.375rem"
               text "Name" class=TkLabel
-              input id="task-title" value=title input=setText("title") placeholder="e.g. Check for Sentry issues" aria-label="Name" class=TkField disabled=busy testId="task-title" autocorrect="off" data-focus-stop=(busy ? "" : "enabled")
+              input id="task-title" value=title input=setText("title") placeholder="e.g. Check for Sentry issues" aria-label="Name" class=TkField disabled=busy testId="task-title" autocorrect="off" data-focus-stop=(busy ? "" : "enabled") data-editable="yes"
             row gap="0.75rem" width="100%"
               column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel

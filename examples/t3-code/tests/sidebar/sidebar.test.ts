@@ -617,15 +617,14 @@ describe('terminal activity in thread lists', () => {
   });
   test('Command-hold jump hints disappear while the terminal owns focus and return on blur', () => {
     const { client } = fake([shell('a')], { threadId: 'a', settings: { legacySidebarEnabled: true } });
-    client.presentation.sidebarJumpHints = true;
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.jumpHints).toBe(true);
-    expect(legacySidebarSnapshot(client, NOW, helpers).jumpHints).toBe(true);
+    client.config.keybindings = [{ command: 'thread.jump.1', shortcut: { key: '1', modKey: true } }];
+    const jumps = () => [sidebarSnapshot(client, NOW, helpers).sidebar.jumpModifiers, legacySidebarSnapshot(client, NOW, helpers).jumpModifiers];
+    const held = ['meta'];
+    expect(jumps()).toEqual([held, held]);
     recordTerminalFocus(client, { environmentId: 'env', threadId: 'a', terminalId: 'term-1', focused: true });
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.jumpHints).toBe(false);
-    expect(legacySidebarSnapshot(client, NOW, helpers).jumpHints).toBe(false);
+    expect(jumps()).toEqual([[], []]);
     recordTerminalFocus(client, { environmentId: 'env', threadId: 'a', terminalId: 'term-1', focused: false });
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar.jumpHints).toBe(true);
-    expect(legacySidebarSnapshot(client, NOW, helpers).jumpHints).toBe(true);
+    expect(jumps()).toEqual([held, held]);
   });
 });
 

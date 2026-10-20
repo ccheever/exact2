@@ -123,7 +123,7 @@ component ProjectActionEditor
                     ScriptIconChoice(id="configure", label="Configure", selected=(icon == "configure"), choose=chooseIcon)
                     ScriptIconChoice(id="build", label="Build", selected=(icon == "build"), choose=chooseIcon)
                     ScriptIconChoice(id="debug", label="Debug", selected=(icon == "debug"), choose=chooseIcon)
-              input id="action-name" value=name input=editName submit=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) placeholder="Test" aria-label="Name" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" flex=1 min-width=0 testId="action-name" autocorrect="off" data-focus-stop=(busy ? "" : "enabled")
+              input id="action-name" value=name input=editName submit=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) placeholder="Test" aria-label="Name" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" flex=1 min-width=0 testId="action-name" autocorrect="off" data-focus-stop=(busy ? "" : "enabled") data-editable="yes"
                 // ui/input.tsx placeholder:text-placeholder; AeField also styles the keybinding row and button.
                 ::placeholder
                   color="light-dark(#71717b, #818181)"

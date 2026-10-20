@@ -445,7 +445,7 @@ component CustomModelEditor
       column gap="0.25rem"
         text "Display name" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
         DialogOpenFocus(target=`custom-model-name-${editor.slug}`)
-        input id=`custom-model-name-${editor.slug}` value=(nameEdited ? name : editor.name) input=editName placeholder=editor.slug aria-label="Display name" autofocus=true spellcheck="false" autocorrect="off" class=PvField width="18rem" max-width="100%" testId=`custom-model-name-${editor.slug}`
+        input id=`custom-model-name-${editor.slug}` value=(nameEdited ? name : editor.name) input=editName placeholder=editor.slug aria-label="Display name" autofocus=true spellcheck="false" autocorrect="off" class=PvField width="18rem" max-width="100%" testId=`custom-model-name-${editor.slug}` data-editable="yes"
       column gap="0.5rem"
         row width="100%" gap="0.5rem" align-items="center" justify-content="space-between" flex-wrap="wrap"
           text "Options shown in the composer" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"

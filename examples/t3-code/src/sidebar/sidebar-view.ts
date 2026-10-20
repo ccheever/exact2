@@ -80,7 +80,7 @@ export interface SidebarView {
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopes: SidebarScope[];
   scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
   renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoText: string; undoLabel: string; undoUntil: number;
-  dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpHints: boolean;
+  dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpModifiers: string[];
   calendar: SnoozeCalendar;
   pillKey: string; pillTone: string; pillTitle: string; pillDescription: string; pillDismissible: boolean; sweepEpoch: number;
 }
@@ -319,6 +319,20 @@ export function shortcutLabel(client: T3Client, command: string): string {
   const shortcut = obj(binding?.shortcut), key = str(shortcut.key);
   return binding && key ? `${shortcut.ctrlKey ? '⌃' : ''}${shortcut.altKey ? '⌥' : ''}${shortcut.shiftKey ? '⇧' : ''}${shortcut.modKey || shortcut.metaKey ? '⌘' : ''}${key.length === 1 ? key.toUpperCase() : key}` : '';
 }
+/**
+ * The modifiers of each thread.jump.N shortcut, named as the window names the ones held (press-modifiers.contract
+ * heldModifiers), mod as ⌘: the window shows the rows' jump labels while one set is held alone
+ * (shouldShowThreadJumpHintsForModifiers, app.contract threadJumpsHeld).
+ */
+export function threadJumpModifiers(client: T3Client): string[] {
+  const sets = new Set<string>();
+  for (let index = 1; index <= 9; index++) {
+    const binding = [...arr(client.config.keybindings)].reverse().find(entry => entry.command === `thread.jump.${index}`);
+    const shortcut = obj(binding?.shortcut);
+    if (binding && str(shortcut.key)) sets.add([shortcut.modKey || shortcut.metaKey ? 'meta' : '', shortcut.ctrlKey ? 'control' : '', shortcut.altKey ? 'alt' : '', shortcut.shiftKey ? 'shift' : ''].filter(Boolean).join('+'));
+  }
+  return [...sets];
+}
 /** thread.jump.N labels for the first nine painted rows, from the server's bindings. */
 function jumpLabels(client: T3Client, count: number): string[] {
   return Array.from({ length: Math.min(9, count) }, (_, index) => shortcutLabel(client, `thread.jump.${index + 1}`));
@@ -332,8 +346,9 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const rows = searching ? searchRows(client, parts) : renderedRows(client, parts);
   if (session.searchQuery !== client.query) { session.searchQuery = client.query; session.searchIndex = 0; }
   const searchIndex = rows.length ? Math.min(session.searchIndex, rows.length - 1) : 0;
-  const hints = !searching && !terminalFocused(client) && client.presentation.sidebarJumpHints === true;
-  const jumps = hints ? jumpLabels(client, rows.length) : [];
+  // The embedded terminal owns keystrokes while it has focus, and a search numbers no rows.
+  const jumping = !searching && !terminalFocused(client);
+  const jumps = jumping ? jumpLabels(client, rows.length) : [];
   // A right-click opens the row's own menu; on a row of the selection, the bulk menu over the selected rows painted now.
   const selected = searching ? [] : session.selection.map(id => rows.find(entry => entry.thread.id === id)?.thread).filter((thread): thread is Obj => !!thread);
   const bulk = selected.length ? menuRows(bulkMenuState(client, selected, now).items) : [];
@@ -378,7 +393,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       calendar: session.dialog.kind !== 'snooze' ? NO_CALENDAR
         : snoozeCalendar(session.dialogDate, session.calendarMonth || session.dialogDate.slice(0, 7), localDate(new Date(now)), firstWeekday(), session.calendarFocus, session.calendarFocusSeq),
       dialogReturn: dialogReturn(session.dialog), // Base UI's finalFocus
-      jumpHints: hints,
+      jumpModifiers: jumping ? threadJumpModifiers(client) : [],
       pillKey: pill?.key ?? '', pillTone: pill?.tone ?? '', pillTitle: pill?.title ?? '', pillDescription: pill?.description ?? '', pillDismissible: pill?.dismissible ?? false,
       sweepEpoch: session.sweepEpoch, // upstream 1826fb55cc
     },
