@@ -31,7 +31,7 @@ afterEach(async () => { for (const c of closing.splice(0)) await c(); });
 async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, label = null, address = '203.0.113.9', drop = false, token = TOKEN } = {}) {
   const idle = [], ungreeted = [], seen = { hellos: [], bytes: [], dials: 0, carried: [] };
   const control = createTLS({ cert: relayCert.cert, key: relayCert.key }, conn => {
-    seen.dials++;
+    const ordinal = ++seen.dials; // (this connection's own, as it was accepted)
     let head = '';
     const onData = d => {
       head += d.toString('latin1');
@@ -41,7 +41,7 @@ async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, l
       if (refuse) { conn.end(`REFUSED ${refuse}\n`); return; }
       if (!head.startsWith('EXACT-RELAY/1 acct\r\n') || !head.includes(`authorization: Bearer ${token}\r\n`)) { conn.end('REFUSED no such account\n'); return; }
       if (greet === null) { ungreeted.push(conn); return; } // (a relay that greets nothing, until a client comes)
-      conn.write(typeof greet === 'function' ? greet(seen.dials) : greet);
+      conn.write(typeof greet === 'function' ? greet(ordinal) : greet);
       // (a relay that hands each connection the tool's name and drops it, at once, every time)
       if (drop) { conn.write(`CLIENT ${TOOL} 203.0.113.9\n`); setImmediate(() => conn.destroy()); return; }
       idle.push(conn);
@@ -509,7 +509,8 @@ function https1(port, sni, { method = 'GET', path = '/', host = sni, headers = {
 test('R1b: the canvas through the relay: its own gateway and origin pair, minted only through the relay\'s door, Host bound to the SNI, a revoke ending it on every gateway', async () => {
   const relay = await fakeRelay();
   // (the loop's /__dev/commands holds, as a long poll does)
-  const loop = createHTTP((req, res) => { if (req.url.startsWith('/__dev/commands')) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': open\n\n'); return; } if (req.url === '/') { res.setHeader('content-type', 'text/html'); res.setHeader('content-security-policy', "frame-ancestors 'self' http://127.0.0.1:7740"); res.end(`<a href="http://127.0.0.1:${loop.address().port}/x">x</a>`); } else res.end('{}'); });
+  const upstream = new Set();
+  const loop = createHTTP((req, res) => { if (req.url.startsWith('/__dev/commands')) { upstream.add(req); req.on('close', () => upstream.delete(req)); res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': open\n\n'); return; } if (req.url === '/') { res.setHeader('content-type', 'text/html'); res.setHeader('content-security-policy', "frame-ancestors 'self' http://127.0.0.1:7740"); res.end(`<a href="http://127.0.0.1:${loop.address().port}/x">x</a>`); } else res.end('{}'); });
   await new Promise(ok => loop.listen(0, '127.0.0.1', ok));
   const loopBase = `http://127.0.0.1:${loop.address().port}`;
   let doors = null;
@@ -542,19 +543,28 @@ test('R1b: the canvas through the relay: its own gateway and origin pair, minted
   expect(page.headers['content-security-policy']).toContain(`frame-ancestors 'self' https://${TOOL}`);
   // Host bound to the SNI, both ways: no fronting from one name into the other's server.
   expect((await https1(relay.pub, CANVAS, { host: TOOL, headers: { cookie } })).status).toBe(404);
-  expect((await https1(relay.pub, TOOL, { host: CANVAS, method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': paired.token }, body: '{"method":"hello"}' })).status).toBe(404);
-  // A grant from the relay's pair never opens the TLS door's canvas, nor one of its pair the relay's.
+  // (a page the canvas gateway would answer 200, asked through the tool's SNI with the canvas's Host)
+  expect((await https1(relay.pub, TOOL, { host: CANVAS, headers: { cookie } })).status).toBe(404);
+  // A grant from the relay's pair never opens the TLS door's canvas, nor one of its pair the relay's:
+  // answered as a grant that is no grant there (an unknown one, asked on this gateway).
+  const notEntered = (await https1(relay.pub, CANVAS, { method: 'POST', path, headers: { origin: `https://${CANVAS}`, 'content-type': 'application/json' }, body: JSON.stringify({ grant: 'x'.repeat(43) }) })).status;
+  expect(notEntered).not.toBe(204);
   const tls = new URL(w.canvas.origin);
   const second = await mint();
-  expect((await https1(Number(tls.port), null, { method: 'POST', path: new URL(second.url).pathname, host: tls.host, headers: { origin: tls.origin, 'content-type': 'application/json' }, body: JSON.stringify({ grant: second.grant }), ca: null })).status).not.toBe(204);
+  expect((await https1(Number(tls.port), null, { method: 'POST', path: new URL(second.url).pathname, host: tls.host, headers: { origin: tls.origin, 'content-type': 'application/json' }, body: JSON.stringify({ grant: second.grant }), ca: null })).status).toBe(notEntered);
   // Minted on the TLS door: its own canvas; that grant never opens the relay's.
   const door = new URL(doors.info().origin);
   const onTls = json((await https1(Number(door.port), null, { method: 'POST', path: '/__tamber', host: door.host, headers: { 'content-type': 'application/json', 'x-exact-tamber-token': paired.token }, body: '{"method":"canvas"}', ca: null })).text).ok;
   expect(onTls.url.startsWith(`${tls.origin}/canvas/`)).toBe(true);
-  expect((await https1(relay.pub, CANVAS, { method: 'POST', path: new URL(onTls.url).pathname, headers: { origin: `https://${CANVAS}`, 'content-type': 'application/json' }, body: JSON.stringify({ grant: onTls.grant }) })).status).not.toBe(204);
+  expect((await https1(relay.pub, CANVAS, { method: 'POST', path: new URL(onTls.url).pathname, headers: { origin: `https://${CANVAS}`, 'content-type': 'application/json' }, body: JSON.stringify({ grant: onTls.grant }) })).status).toBe(notEntered);
   const tlsEntry = await https1(Number(tls.port), null, { method: 'POST', path: new URL(onTls.url).pathname, host: tls.host, headers: { origin: tls.origin, 'content-type': 'application/json' }, body: JSON.stringify({ grant: onTls.grant }), ca: null });
   expect(tlsEntry.status).toBe(204);
   const tlsCookie = tlsEntry.headers['set-cookie'][0].split(';')[0];
+  // Each session cookie opens its own gateway only: exchanged, refused; at home, answered.
+  expect((await https1(relay.pub, CANVAS, { headers: { cookie: tlsCookie } })).status).toBe(404);
+  expect((await https1(Number(tls.port), null, { host: tls.host, headers: { cookie }, ca: null })).status).toBe(404);
+  expect((await https1(relay.pub, CANVAS, { headers: { cookie } })).status).toBe(200);
+  expect((await https1(Number(tls.port), null, { host: tls.host, headers: { cookie: tlsCookie }, ca: null })).status).toBe(200);
   // A live stream on each canvas, open before the revoke.
   const live = (port, sni, host, c, ca) => {
     const p = { open: true, text: '' };
@@ -565,11 +575,13 @@ test('R1b: the canvas through the relay: its own gateway and origin pair, minted
   };
   const viaRelay = live(relay.pub, CANVAS, CANVAS, cookie, devCert.cert), viaTls = live(Number(tls.port), null, tls.host, tlsCookie, null);
   await until(() => viaRelay.text.includes(': open') && viaTls.text.includes(': open'), 3000);
+  expect(upstream.size).toBe(2);
   // Revoked: both live streams cut, and both canvases refuse the next request.
   const rv = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
   queueMicrotask(() => rv.end(JSON.stringify({ method: 'revoke', client: paired.client })));
   await w.handle(rv, { writeHead() {}, setHeader() {}, write() {}, end() {} }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
   await Promise.all([viaRelay.closed, viaTls.closed]);
+  await until(() => upstream.size === 0, 3000); // (and the loop's two requests let go of)
   expect((await https1(relay.pub, CANVAS, { headers: { cookie } })).status).toBe(404);
   expect((await https1(Number(tls.port), null, { host: tls.host, headers: { cookie: tlsCookie }, ca: null })).status).toBe(404);
 });
