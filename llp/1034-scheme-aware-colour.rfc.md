@@ -359,17 +359,12 @@ initial `normal`: the surrounding scheme (the app's, or an ancestor's). An
 author writes `light` or `dark` (`color-scheme="dark"` on any box, text or
 control). `light-dark()` colours, platform colours (LLP 1095) and native
 materials on that node and below resolve in that scheme, and a nested value
-wins below it. `normal` and `light dark` (either order), written or a value
-a binding evaluates to, unset the row, as `unset` does, so they follow the
-surrounding scheme on every host (the JS target removes the property): at the
-root that is the app's, as CSS's page schemes are. *Amended 2026-10-20* (euxy
-port, FRICTION 3: a Theme row's `color-scheme=(theme == "auto" ? "light dark" :
-theme)` was refused, so a computed value had no way to follow the system):
-until then both were refused by name, because inside a `light` or `dark`
-subtree CSS's `normal` and `light dark` take the page's schemes, not the
-parent's. That case keeps the parent's here, a deviation from the browser, and
-the app's scheme itself is `setScheme`'s. Refused by name (`lower-attr-value`):
-`only`, and any other word.
+wins below it. Refused by name (`lower-attr-value`): CSS's `normal`, because
+in CSS it means the page's schemes, not the parent's, so an explicit one under
+a `dark` subtree would differ between the browser and the native hosts; and
+`light dark` and `only`, which ask a browser to choose. A bound value that
+evaluates to `normal` unsets the row, as `unset` does, so it follows the
+surrounding scheme on every host (the JS target removes the property).
 Refused by position (`lower-attr-tag`): an inline `text` run, which paints
 in its paragraph's scheme on every host, and SVG elements (an `svg` root takes
 it; its shapes resolve with it). Leaving the attribute off follows the

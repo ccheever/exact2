@@ -48,41 +48,29 @@ fn color_scheme_is_inherited_and_initially_normal() {
     }
 }
 
-/// `light` and `dark` are written, and `normal` or `light dark` (amended
-/// 2026-10-20) follow the surrounding scheme as no row does; `only` and
-/// other words are refused.
+/// Only `light` and `dark` are written: CSS's `normal` means the page's
+/// schemes, not the parent's, and `light dark` and `only` ask a browser to
+/// choose.
 #[test]
-fn light_dark_and_the_surrounding_scheme_are_written() {
-    for value in ["only dark", "dim", "light only"] {
+fn only_light_and_dark_are_written() {
+    for value in ["normal", "light dark", "only dark", "dim"] {
         let src = format!("component App\n  view\n    column color-scheme=\"{value}\"\n");
         let error = contract::compile(&src).unwrap_err().to_string();
         assert!(error.contains("LLP 1034 §8"), "{value}: {error}");
     }
-    for value in [
-        "light",
-        "dark",
-        "normal",
-        "light dark",
-        "dark light",
-        "unset",
-    ] {
+    for value in ["light", "dark"] {
         let src = format!("component App\n  view\n    column color-scheme=\"{value}\"\n");
         contract::compile(&src).unwrap();
     }
-}
-
-/// An Auto / Light / Dark setting (the euxy port's Theme row): a branch of
-/// `light dark` follows the surrounding scheme, the others fix it.
-#[test]
-fn a_computed_light_dark_branch_follows_the_surrounding_scheme() {
-    for (theme, want) in [("auto", None), ("light", Some(false)), ("dark", Some(true))] {
-        let src = format!("component App\n  state theme = \"{theme}\"\n  view\n    column testId=\"root\" color-scheme=(theme == \"auto\" ? \"light dark\" : theme)\n      text \"a\" testId=\"inner\"\n");
-        let r = boot(&src);
-        let k = r.kernel();
-        for id in ["root", "inner"] {
-            let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
-            assert_eq!(node.color_scheme_dark(), want, "{theme} {id}");
-        }
+    // A Theme row's Auto as a branch (the euxy port, 2026-10-20): the
+    // refusal names the app's own scheme, `setScheme`.
+    for auto in ["light dark", "normal", "unset", ""] {
+        let src = format!("component App\n  state t = \"auto\"\n  view\n    column color-scheme=(t == \"auto\" ? \"{auto}\" : t)\n");
+        let error = contract::compile(&src).unwrap_err().to_string();
+        assert!(
+            error.contains("`setScheme(\"system\" | \"light\" | \"dark\")` in the action"),
+            "{auto}: {error}"
+        );
     }
 }
 

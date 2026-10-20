@@ -55,9 +55,8 @@ component App
   (`tamber-icon-missing`); with no SVG, write the role if there is one (`symbol:play-fill`, drawn
   everywhere), else `symbol:sf/<name>`, blank on the web. A row draws `image "symbol:icon.play"`,
   coloured by `color` and sized by its font ([symbols](symbols.md)).
-- **The scheme:** `setScheme("light" | "dark" | "system")` sets the app's (a Theme setting's
-  action, and a `mount` task for a kept one); `color-scheme` holds a subtree in one, and
-  `normal` or `light dark` (a computed branch too) follows the surrounding scheme. Modes the
-  person picks (Dim, Black) are axes ([tamber](tamber.md)).
+- **The scheme:** `setScheme("light" | "dark" | "system")` sets the app's, as a Theme setting
+  of Auto, Light and Dark does (in its action, and a `mount` task for a kept one); `color-scheme`
+  fixes a subtree in one. Modes the person picks (Dim, Black) are axes ([tamber](tamber.md)).
 - **Check it:** `bun exact.mjs tamber check .` (`pair=` warns below 4.5:1); drive with
   `prefer prefers-color-scheme dark`, or `check both` to judge both schemes.

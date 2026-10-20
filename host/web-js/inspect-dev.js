@@ -84,9 +84,9 @@ const computed = (el, name) => getComputedStyle(el).getPropertyValue(cssName(nam
 // A value that sets no row: CSS's own words for inheriting or none.
 const CLEARS = /^(inherit|initial|unset|revert|revert-layer)$/i;
 // (As the runner reads them, row by row: a colour's `currentcolor` and a
-// colour scheme's `normal` and `light dark` clear too; a font family's `initial` is its own
+// colour scheme's `normal` clear too; a font family's `initial` is its own
 // row, the initial family.)
-const clears = (name, said) => (CLEARS.test(said) && !(name === "font_family" && /^initial$/i.test(said))) || (name === "text_color" && /^currentcolor$/i.test(said)) || (name === "color_scheme" && /^\s*(normal|light\s+dark|dark\s+light)\s*$/i.test(said));
+const clears = (name, said) => (CLEARS.test(said) && !(name === "font_family" && /^initial$/i.test(said))) || (name === "text_color" && /^currentcolor$/i.test(said)) || (name === "color_scheme" && /^normal$/i.test(said));
 /** Whether an expression wrote a clear that inherits (`inherit`, `unset`):
  * the runner keeps it written, so a control's start or a text style does
  * not stand in for it. */

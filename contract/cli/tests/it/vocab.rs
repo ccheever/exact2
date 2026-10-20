@@ -85,8 +85,11 @@ fn appearance_vocab_explains_authored_bars() {
 #[test]
 fn color_scheme_and_exact_midi_say_what_a_port_asked() {
     let out = stdout(&vocab(&["color-scheme"]));
-    assert!(out.contains("`normal` or `light dark`"), "{out}");
-    assert!(out.contains("setScheme(\"system\")"), "{out}");
+    assert!(
+        out.contains("`normal`, `light dark` and `only` are refused"),
+        "{out}"
+    );
+    assert!(out.contains("setScheme(\"system\" | \"light\" | \"dark\")"), "{out}");
     let out = stdout(&vocab(&["exactMIDI"]));
     assert!(out.contains("`sent` never lists it"), "{out}");
     let out = stdout(&vocab(&["navigate"]));
