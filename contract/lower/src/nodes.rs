@@ -564,7 +564,7 @@ impl Lowerer<'_> {
                             Box::new(match class_of(span) {
                                 Some(label) => Origin::Class(
                                     label.clone(),
-                                    Some(w).filter(|_| !label.contains('/')),
+                                    (!label.contains('/')).then_some(w),
                                 ),
                                 None => Origin::Own(Some(w)),
                             })
