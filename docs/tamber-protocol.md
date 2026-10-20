@@ -681,7 +681,9 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   tokens) fold on both sides; a role override's value, or a token one reads, is a value like any
   other (stage 5). It is `rebuild` for structure (a role override gained or lost among it), a
   synthetic token gained, lost or left unfoldable, a profile colour, or an unknown closure (the
-  app's build stops before its design). A `live` edit reaches running development builds as a batch, with
+  app's build stops before its design, or the server's background whole build found a build under
+  the same retention failing, until a whole build of the files as they are now passes; the breaking
+  edit itself, answered before that build reports, is `live`). A `live` edit reaches running development builds as a batch, with
   no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads.
   `propose` through the JS target's dev loop is also `rebuild` when the edit moves a token its pages
   write inline, which the loop's design read marks (a `font-weight` number, an SVG attribute's

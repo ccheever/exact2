@@ -52,7 +52,7 @@ pub(crate) fn plan_alone(dir: &std::path::Path, request: Value) -> (Value, Vec<V
 
 pub(crate) struct Serve {
     child: Child,
-    input: ChildStdin,
+    input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     next: u64,
 }
@@ -68,7 +68,7 @@ impl Serve {
             cmd.env(k, v);
         }
         let mut child = cmd.spawn().unwrap();
-        let input = child.stdin.take().unwrap();
+        let input = child.stdin.take();
         let output = BufReader::new(child.stdout.take().unwrap());
         Serve {
             child,
@@ -82,8 +82,9 @@ impl Serve {
     pub(crate) fn ask(&mut self, mut request: Value) -> (Value, Vec<Value>) {
         self.next += 1;
         request["id"] = json!(self.next);
-        writeln!(self.input, "{request}").unwrap();
-        self.input.flush().unwrap();
+        let input = self.input.as_mut().expect("open");
+        writeln!(input, "{request}").unwrap();
+        input.flush().unwrap();
         let mut events = Vec::new();
         loop {
             let mut line = String::new();
@@ -103,6 +104,22 @@ impl Serve {
             }
             return (v, events);
         }
+    }
+}
+
+impl Serve {
+    /// Close its input, as a client closes, and wait for it to exit, at most
+    /// `limit`: whether it did.
+    pub(crate) fn close(&mut self, limit: std::time::Duration) -> bool {
+        self.input = None;
+        let began = std::time::Instant::now();
+        while began.elapsed() < limit {
+            if self.child.try_wait().ok().flatten().is_some() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        false
     }
 }
 
@@ -405,8 +422,8 @@ fn requests_are_typed_bounded_and_attributed() {
     );
     // A line over the limit, and one that is not UTF-8, are answered and
     // the server reads on.
-    writeln!(s.input, "{}", "x".repeat(1 << 21)).unwrap();
-    s.input.write_all(b"\xff\xfe\n").unwrap();
+    writeln!(s.input.as_mut().unwrap(), "{}", "x".repeat(1 << 21)).unwrap();
+    s.input.as_mut().unwrap().write_all(b"\xff\xfe\n").unwrap();
     for _ in 0..2 {
         let mut line = String::new();
         s.output.read_line(&mut line).unwrap();

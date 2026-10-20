@@ -65,6 +65,8 @@ use std::process::ExitCode;
 mod answers;
 #[path = "tamber_base.rs"]
 mod base;
+#[path = "tamber_check.rs"]
+mod check;
 #[path = "tamber_scrub.rs"]
 mod scrub;
 #[path = "tamber_walk.rs"]
@@ -207,6 +209,12 @@ struct Server {
     /// sources' key: a build the design alone moved reuses them where the
     /// program loads as it did (`contract::retention_build`).
     kept: Option<(String, contract::Kept)>,
+    /// The background whole build, which says when a retention build's
+    /// build fails after the design (theme2's 12:15 ruling).
+    checker: check::Checker,
+    /// The retention key the last answer was made under (a scrub's frames
+    /// ask the check under it).
+    last_key: String,
     /// The app's components' params (LLP 1121 D15), by the Contract
     /// sources' key ([`Server::sources_key`]): every read and write asks
     /// them, and loading them parses the app (~200 ms on the clone).
@@ -354,6 +362,8 @@ impl Server {
             client: None,
             synthetic: None,
             kept: None,
+            checker: check::Checker::default(),
+            last_key: String::new(),
             params: Default::default(),
             graph: Default::default(),
             asked: Default::default(),
@@ -379,13 +389,13 @@ impl Server {
     /// param builds them again on the next propose.
     /// None when the build stopped before the design: not kept, and tried
     /// again.
-    fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
-        let root = self.dir.join("app.contract");
+    /// The retention key of `snap`: the Contract sources' key and what of
+    /// the app's design and each package's can move retention
+    /// (`retention_key`: names and what values name, the `params` block,
+    /// components' params), parsed: a value edit naming nothing (a hex)
+    /// keeps it, where a whole compile of the clone costs seconds.
+    fn retention_key(&self, snap: &Snapshot) -> String {
         let mut key = self.sources_key();
-        // What of the app's design and each package's can move them
-        // (`retention_key`: names and what values name, the `params` block,
-        // components' params), parsed: a value edit naming nothing (a hex)
-        // keeps them, where a whole compile of the clone costs seconds.
         let app = self.app_params();
         let texts: Vec<&str> = snap
             .iter()
@@ -395,6 +405,19 @@ impl Server {
             .chain(app.packages.iter().map(|p| p.text.as_str()))
             .collect();
         key.push_str(&walk::retention_key(&texts));
+        key
+    }
+
+    fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
+        let root = self.dir.join("app.contract");
+        let key = self.retention_key(snap);
+        // A whole build failed under this retention: the closure is
+        // unknown, as on main, and every answer under it is `rebuild` until
+        // a whole build of the files as they are passes (`check`).
+        self.last_key = key.clone();
+        if !self.known(&key) {
+            return None;
+        }
         if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
                 return Some(exprs.clone());
@@ -428,8 +451,43 @@ impl Server {
         self.kept = built.kept.map(|kept| (sources, kept));
         // A build that stopped before the design says nothing of them.
         let retention = built.retention?;
-        self.synthetic = Some((key, built.candidates.clone(), Some(retention)));
+        self.synthetic = Some((key.clone(), built.candidates.clone(), Some(retention)));
+        // Whether the whole build fails after the design: unverified, and
+        // built in the background from here.
+        self.checker.made(&key);
+        self.known(&key);
         Some(built.candidates)
+    }
+
+    /// Whether answers under retention key `key` are known, of the files as
+    /// they are now (`check::Checker::known`): a whole build under it
+    /// failed and none of these files has passed since, not.
+    pub(super) fn known(&mut self, key: &str) -> bool {
+        let walk = self.walk();
+        let (inputs, digests): (Vec<PathBuf>, Vec<String>) = walk.inputs().into_iter().unzip();
+        let (manifests, facts) = walk.facts();
+        drop(walk);
+        let dir = self.dir.clone();
+        self.checker.known(key, || check::Job {
+            root: dir.join("app.contract"),
+            print: check::fingerprint_read(&dir, &inputs, &digests, &facts),
+            dir,
+            key: key.to_string(),
+            inputs,
+            manifests,
+        })
+    }
+
+    /// [`Server::known`] for a scrub opened under retention key `key`: the
+    /// files as they are now are built only when they are still under it,
+    /// so a pass clears only the key its files are under; else whether a
+    /// whole build under it failed.
+    pub(super) fn known_under(&mut self, key: &str) -> bool {
+        let now = self.snapshot().map(|snap| self.retention_key(&snap));
+        match now {
+            Ok(now) if now == key => self.known(key),
+            _ => !self.checker.failed(key),
+        }
     }
 
     fn state(&self) -> PathBuf {

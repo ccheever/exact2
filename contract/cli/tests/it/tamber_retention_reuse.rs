@@ -483,3 +483,341 @@ fn an_edit_failing_after_the_design_is_classed_rebuild_while_retention_is_kept()
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The press-scale app: `scale` an alias of `one`, a button's press scale,
+/// with or without a synthetic expression (`over`).
+fn press(tag: &str, over: bool) -> PathBuf {
+    let dir = super::tamber_serve::app(
+        tag,
+        "tamber t\n\ntheme\n  ink = #111111\n  one = 1\n  neg = -1\n  zero = 0\n  scale = one\n",
+    );
+    let colour = if over {
+        " background-color=\"color-mix(in srgb, ink 50%, white)\""
+    } else {
+        ""
+    };
+    std::fs::write(
+        dir.join("app.contract"),
+        format!("component App\n  view\n    column{colour}\n      button \"Go\" -exact-press-scale=\"scale\"\n"),
+    )
+    .unwrap();
+    dir
+}
+
+/// theme2's 12:15 ruling (option (4)): a design-valid move whose whole build
+/// fails after the design (a negative press scale) is answered from the
+/// stopped build at once, and once the background build reports the
+/// failure, every later edit is `rebuild`, as on main; moving it back
+/// answers `live` again. With or without synthetic expressions.
+#[test]
+fn a_build_failing_after_the_design_is_rebuild_once_the_check_reports() {
+    for over in [false, true] {
+        let dir = press(&format!("ret-press-{over}"), over);
+        // Outside the app: a file in it is an input the check fingerprints.
+        let log = PathBuf::from(format!("{}.check.log", dir.display()));
+        let _ = std::fs::remove_file(&log);
+        let mut s = Serve::start(&dir, &[("EXACT_TAMBER_CHECK_LOG", log.to_str().unwrap())]);
+        let class = |s: &mut Serve| s.ask(propose("ink")).0["ok"]["class"].clone();
+        assert_eq!(class(&mut s), "live");
+        let set = |s: &mut Serve, to: &str| {
+            let (w, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": "scale", "value": to}]}));
+            assert!(w.get("ok").is_some(), "{w}");
+        };
+        set(&mut s, "neg");
+        // The answer right after the move is the stopped build's; once the
+        // check fails, `rebuild`, and it stays.
+        assert_eq!(class(&mut s), "live", "over: {over}");
+        until(&mut s, "rebuild");
+        seen(&log, "failed");
+        assert_eq!(class(&mut s), "rebuild", "over: {over}");
+        set(&mut s, "one");
+        assert_eq!(class(&mut s), "live", "over: {over}");
+        drop(s);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The server's close never waits on a background build (condition (c)).
+#[test]
+fn closing_the_server_mid_check_exits_at_once() {
+    let dir = press("ret-close", false);
+    // A gate never opened: the check waits for good.
+    let gate = PathBuf::from(format!("{}.gate", dir.display()));
+    let _ = std::fs::remove_file(&gate);
+    let mut s = Serve::start(&dir, &[("EXACT_TAMBER_CHECK_GATE", gate.to_str().unwrap())]);
+    assert!(s.ask(propose("ink")).0.get("ok").is_some());
+    assert!(
+        s.close(std::time::Duration::from_secs(5)),
+        "the server waited on its check"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Wait until `log` has a line `line`.
+fn seen(log: &std::path::Path, line: &str) -> String {
+    for _ in 0..600 {
+        let text = std::fs::read_to_string(log).unwrap_or_default();
+        if text.lines().any(|l| l == line) {
+            return text;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("no check said `{line}`");
+}
+
+/// Ask until the answer's class is `want`: the background check's word is
+/// read on an answer after its result, however its builds were coalesced.
+fn until(s: &mut Serve, want: &str) {
+    for _ in 0..200 {
+        if s.ask(propose("ink")).0["ok"]["class"] == want {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("never `{want}`");
+}
+
+/// theme2's 12:19 amendment to (b): while the build is broken, an unrelated
+/// value edit (same retention key) still answers `rebuild`, as on main; a
+/// value edit that fixes it returns the state to known once a whole build of
+/// exactly the files as they are passes.
+#[test]
+fn a_value_edit_while_broken_is_rebuild_and_a_fixing_one_returns_to_live() {
+    let dir = press("ret-press-fix", false);
+    // Outside the app: a file in it is an input the check fingerprints.
+    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let _ = std::fs::remove_file(&log);
+    let mut s = Serve::start(&dir, &[("EXACT_TAMBER_CHECK_LOG", log.to_str().unwrap())]);
+    let class = |s: &mut Serve| s.ask(propose("ink")).0["ok"]["class"].clone();
+    let write = |s: &mut Serve, name: &str, to: &str| {
+        let (w, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": name, "value": to}]}));
+        assert!(w.get("ok").is_some(), "{w}");
+    };
+    assert_eq!(class(&mut s), "live");
+    write(&mut s, "scale", "zero");
+    until(&mut s, "rebuild");
+    seen(&log, "failed");
+    // An unrelated value edit: the key stays, the build is still broken.
+    write(&mut s, "ink", "#555555");
+    assert_eq!(class(&mut s), "rebuild");
+    // The value that breaks it fixed (`0` to `2`, a number either way, so
+    // the key stays): rebuild until the check of exactly these files
+    // passes, then known.
+    write(&mut s, "zero", "2");
+    assert_eq!(class(&mut s), "rebuild");
+    until(&mut s, "live");
+    seen(&log, "passed");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A result raced by an edit mid-build is dropped: the check started for a
+/// broken design, which an edit fixes while it builds, says `lost`, never
+/// `passed`, and the state stays as the stopped build made it.
+#[test]
+fn a_check_raced_by_an_edit_mid_build_is_dropped() {
+    let dir = press("ret-press-race", false);
+    let gate = PathBuf::from(format!("{}.gate", dir.display()));
+    let _ = std::fs::remove_file(&gate);
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n  one = 1\n  neg = -1\n  scale = neg\n",
+    )
+    .unwrap();
+    // Outside the app: a file in it is an input the check fingerprints.
+    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let _ = std::fs::remove_file(&log);
+    let mut s = Serve::start(
+        &dir,
+        &[
+            ("EXACT_TAMBER_CHECK_LOG", log.to_str().unwrap()),
+            ("EXACT_TAMBER_CHECK_GATE", gate.to_str().unwrap()),
+        ],
+    );
+    assert!(s.ask(propose("ink")).0.get("ok").is_some());
+    // Mid-build: its files read the first time, held at the gate.
+    seen(&log, "began");
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n  one = 1\n  neg = -1\n  scale = one\n",
+    )
+    .unwrap();
+    std::fs::write(&gate, "").unwrap();
+    let lines = seen(&log, "lost");
+    assert_eq!(
+        lines.lines().collect::<Vec<_>>(),
+        ["began", "lost"],
+        "{lines}"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A check lost to an edit is asked for again (Astra's round 1): checking a
+/// broken design, an unrelated value edit (same retention key) lands while
+/// it builds; the lost check's files are built again as they are now, and
+/// the answers become `rebuild`.
+#[test]
+fn a_lost_check_is_asked_for_again() {
+    let dir = press("ret-press-lost", false);
+    let gate = PathBuf::from(format!("{}.gate", dir.display()));
+    let _ = std::fs::remove_file(&gate);
+    let open = || std::fs::write(&gate, "").unwrap();
+    // Outside the app: a file in it is an input the check fingerprints.
+    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let _ = std::fs::remove_file(&log);
+    let mut s = Serve::start(
+        &dir,
+        &[
+            ("EXACT_TAMBER_CHECK_LOG", log.to_str().unwrap()),
+            ("EXACT_TAMBER_CHECK_GATE", gate.to_str().unwrap()),
+        ],
+    );
+    let class = |s: &mut Serve| s.ask(propose("ink")).0["ok"]["class"].clone();
+    let write = |s: &mut Serve, name: &str, to: &str| {
+        let (w, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": name, "value": to}]}));
+        assert!(w.get("ok").is_some(), "{w}");
+    };
+    assert_eq!(class(&mut s), "live");
+    open();
+    seen(&log, "passed");
+    write(&mut s, "scale", "zero");
+    class(&mut s);
+    // While that check is held at the gate (its second `began`), an
+    // unrelated value edit; then the gate opens for every build.
+    for _ in 0..600 {
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        if text.lines().filter(|l| *l == "began").count() >= 2 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    write(&mut s, "ink", "#555555");
+    open();
+    seen(&log, "lost");
+    for _ in 0..200 {
+        open();
+        if class(&mut s) == "rebuild" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(class(&mut s), "rebuild");
+    seen(&log, "failed");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An open scrub's frames follow the check (Astra's round 1): a scrub
+/// opened while the check of a broken design runs answers `rebuild` once
+/// it reports, though the scrub cached its retention when it opened.
+#[test]
+fn an_open_scrub_follows_the_check() {
+    let dir = press("ret-press-scrub", false);
+    let gate = PathBuf::from(format!("{}.gate", dir.display()));
+    let _ = std::fs::remove_file(&gate);
+    // Outside the app: a file in it is an input the check fingerprints.
+    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let _ = std::fs::remove_file(&log);
+    let mut s = Serve::start(
+        &dir,
+        &[
+            ("EXACT_TAMBER_CHECK_LOG", log.to_str().unwrap()),
+            ("EXACT_TAMBER_CHECK_GATE", gate.to_str().unwrap()),
+        ],
+    );
+    let (w, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": "scale", "value": "zero"}]}));
+    assert!(w.get("ok").is_some(), "{w}");
+    let files = json!({"app.tamber": digest(&dir.join("app.tamber"))});
+    let frame = |s: &mut Serve, open: bool, v: &str| {
+        let (r, _) = s.ask(json!({"method": "scrub-fold", "open": open, "files": files, "ops": [{"op": "set-token", "name": "ink", "value": v}]}));
+        r["ok"]["class"].clone()
+    };
+    assert_eq!(
+        frame(&mut s, true, "#121212"),
+        "live",
+        "answered from the stopped build"
+    );
+    // The gate opened for every build (the first, of the files before the
+    // write, is lost).
+    for _ in 0..600 {
+        std::fs::write(&gate, "").unwrap();
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        if text.lines().any(|l| l == "failed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    seen(&log, "failed");
+    until(&mut s, "rebuild");
+    assert_eq!(frame(&mut s, false, "#131313"), "rebuild");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Grok's round 1: two writes and no propose between. The breaking write
+/// sees the files before it; the next (an unrelated value) is the first to
+/// see the new retention and starts the check of the files before it; that
+/// failure, of files since moved, still marks the key, and the answers
+/// become `rebuild`.
+#[test]
+fn a_failure_of_files_since_moved_still_marks_the_key() {
+    let dir = press("ret-press-moved", false);
+    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let _ = std::fs::remove_file(&log);
+    let mut s = Serve::start(&dir, &[("EXACT_TAMBER_CHECK_LOG", log.to_str().unwrap())]);
+    let write = |s: &mut Serve, name: &str, to: &str| {
+        let (w, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": name, "value": to}]}));
+        assert!(w.get("ok").is_some(), "{w}");
+    };
+    write(&mut s, "scale", "zero");
+    write(&mut s, "ink", "#555555");
+    for _ in 0..100 {
+        if s.ask(propose("ink")).0["ok"]["class"] == "rebuild" {
+            drop(s);
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("the failure was dropped");
+}
+
+/// A scrub opened under a retention the files have since left never builds
+/// them under its key (Astra's round 2): the files changed on disk to a
+/// passing design under another retention, the frames stay `rebuild`; the
+/// files back, the failure stands.
+#[test]
+fn a_scrubs_frames_never_clear_a_key_the_files_left() {
+    let dir = press("ret-press-scrub-left", false);
+    let log = PathBuf::from(format!("{}.check.log", dir.display()));
+    let _ = std::fs::remove_file(&log);
+    let mut s = Serve::start(&dir, &[("EXACT_TAMBER_CHECK_LOG", log.to_str().unwrap())]);
+    let (w, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [{"op": "set-token", "name": "scale", "value": "zero"}]}));
+    assert!(w.get("ok").is_some(), "{w}");
+    let broken = std::fs::read_to_string(dir.join("app.tamber")).unwrap();
+    let files = json!({"app.tamber": digest(&dir.join("app.tamber"))});
+    let frame = |s: &mut Serve, open: bool, v: &str| {
+        let (r, _) = s.ask(json!({"method": "scrub-fold", "open": open, "files": files, "ops": [{"op": "set-token", "name": "ink", "value": v}]}));
+        r["ok"]["class"].clone()
+    };
+    frame(&mut s, true, "#121212");
+    // The check fails, and before any answer reads it, the alias moves
+    // elsewhere to a passing value: another retention.
+    seen(&log, "failed");
+    std::fs::write(
+        dir.join("app.tamber"),
+        broken.replace("scale = zero", "scale = one"),
+    )
+    .unwrap();
+    for v in ["#131313", "#141414", "#151515"] {
+        assert_eq!(frame(&mut s, false, v), "rebuild");
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    // Back: the failure under its key stands.
+    std::fs::write(dir.join("app.tamber"), &broken).unwrap();
+    assert_eq!(s.ask(propose("ink")).0["ok"]["class"], "rebuild");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}

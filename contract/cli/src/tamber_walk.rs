@@ -47,6 +47,34 @@ fn read(path: &Path) -> String {
     std::fs::read(path).map(|b| digest(&b)).unwrap_or_default()
 }
 
+/// `path`'s digest as a walk reads it (none, empty, for a file not there):
+/// what the background whole build checks its inputs by.
+pub(super) fn digest_of(path: &Path) -> String {
+    read(path)
+}
+
+/// [`Walk::facts`] read again from disk: the `package.json`s at `manifests`
+/// and `dir`'s `node_modules` entries.
+pub(super) fn facts(dir: &Path, manifests: &[PathBuf]) -> String {
+    let digests: Vec<String> = manifests.iter().map(|p| read(p)).collect();
+    facts_text(manifests, &digests, &Walk::modules(dir))
+}
+
+fn facts_text(
+    manifests: &[PathBuf],
+    digests: &[String],
+    modules: &[(PathBuf, Option<PathBuf>)],
+) -> String {
+    let mut out = String::new();
+    for (p, d) in manifests.iter().zip(digests) {
+        out.push_str(&format!("manifest\t{}\t{d}\n", p.display()));
+    }
+    for (p, t) in modules {
+        out.push_str(&format!("module\t{}\t{t:?}\n", p.display()));
+    }
+    out
+}
+
 /// A file a walk read: its path, its stamp then, its digest, and whether
 /// it is a design file (which the synthetic tokens' key leaves out).
 struct Read {
@@ -81,6 +109,28 @@ pub(super) struct Walk {
 }
 
 impl Walk {
+    /// Each file it read, with its digest then: a whole build's inputs.
+    pub(super) fn inputs(&self) -> Vec<(PathBuf, String)> {
+        self.files
+            .iter()
+            .map(|f| (f.path.clone(), f.digest.clone()))
+            .collect()
+    }
+
+    /// What else it read that a whole build's loading reads: each
+    /// `package.json` above a source (its digest, empty when none) and each
+    /// `node_modules` entry with where it leads, as [`facts`] reads them
+    /// again.
+    pub(super) fn facts(&self) -> (Vec<PathBuf>, String) {
+        let paths: Vec<PathBuf> = self.manifests.iter().map(|(p, _)| p.clone()).collect();
+        let digests: Vec<String> = self
+            .manifests
+            .iter()
+            .map(|(_, d)| d.clone().unwrap_or_default())
+            .collect();
+        (paths.clone(), facts_text(&paths, &digests, &self.modules))
+    }
+
     fn modules(dir: &Path) -> Vec<(PathBuf, Option<PathBuf>)> {
         let entries = |d: &Path| -> Vec<PathBuf> {
             std::fs::read_dir(d)

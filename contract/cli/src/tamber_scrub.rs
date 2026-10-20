@@ -5,7 +5,9 @@
 //!   when the digests it names are not the base's: the files at those
 //!   digests (a different one on disk is a conflict, as a `propose`'s is),
 //!   the app's synthetic tokens, its params and the plan's retention. A
-//!   frame reads no file and walks no Contract source.
+//!   frame plans over the base; it reads the files only to ask the
+//!   background whole build (`check`) whether a build under the base's
+//!   retention fails.
 //! - **Each frame** plans the gesture's whole edit over the base with
 //!   `exact_tamber::plan`, the fold `propose` runs, the whole design each
 //!   time. It answers `class` (a rebuild-class edit has no scrub), `changed`
@@ -33,6 +35,9 @@ pub(super) struct Base {
     /// design (then no frame is live).
     exprs: Option<Vec<(String, bool)>>,
     retention: Option<exact_tamber::Retention>,
+    /// The retention key it opened under: a frame is `rebuild` once the
+    /// background whole build says a build under it fails.
+    key: String,
     /// The app's params (D15) when it opened.
     params: std::rc::Rc<contract::tamber_params::AppParams>,
 }
@@ -62,9 +67,17 @@ impl Server {
                 snap,
                 exprs,
                 retention,
+                key: self.last_key.clone(),
                 params: self.app_params(),
             });
         }
+        // Live only from a build that reached the design, and while no
+        // whole build under its retention has failed.
+        let opened = self
+            .scrub
+            .as_ref()
+            .and_then(|b| b.exprs.is_some().then(|| b.key.clone()));
+        let known = opened.is_some_and(|key| self.known_under(&key));
         let Some(base) = &self.scrub else {
             unreachable!("taken above");
         };
@@ -97,9 +110,9 @@ impl Server {
         let planned = exact_tamber::plan(&texts, &ops, &self.vocab, false, synthetic).map_err(|all| {
             json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| super::located(f, d, &base.params)).collect::<Vec<_>>()})
         })?;
-        let class = match base.exprs {
-            Some(_) => planned.class.name(),
-            None => exact_tamber::Class::Rebuild.name(),
+        let class = match known {
+            true => planned.class.name(),
+            false => exact_tamber::Class::Rebuild.name(),
         };
         let verify = request["verify"] == json!(true);
         if verify {
