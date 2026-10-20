@@ -349,8 +349,10 @@ let designAxes: Axis[] = [];
 let libraryParts = new Map<string, { name: string; slot: boolean }[]>();
 const partsFrom = (ir: { components?: { identity: string; parts?: { name: unknown; slot?: unknown }[] }[] } | undefined) =>
   new Map((ir?.components ?? []).filter(c => Array.isArray(c.parts)).map(c => [c.identity, c.parts!.map(p => ({ name: String(p.name), slot: p.slot === true }))]));
-// Each app describe's read while another file is open, numbered: the inspector's outline follows it.
-let appReads = 0, appPartsReads = 0;
+// Each app describe's read while another file is open, numbered: the inspector's outline follows it. And every app
+// describe that gives the parts (the app design's read, or its read while another file is open), numbered: only the
+// newest sets them, so a late one never puts back what a newer one dropped.
+let appReads = 0, partsReads = 0;
 const inspectOn = new Set<string>();
 const latch = () => { if (selectionNow && !selectionNow.stale) selectionNow.stale = staleness(selectionNow, buildsNow.get(String(selectionNow.e.build)), designAxes); };
 // The poll now (a newer one replaces it), and whether the build list must
@@ -640,7 +642,7 @@ const sources: Sources = {
       scope: String(ok.scope ?? 'write'), local, client: String(ok.client ?? ''), epoch: String(ok.epoch ?? '') };
   },
   loadDesign: async ([file]) => {
-    const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1;
+    const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1, partsAt = !file || file === designFile ? ++partsReads : -1;
     try {
       const read = await readDesign(file, () => number === issued);
       if (read.error) return noDesign(read.error);
@@ -720,7 +722,7 @@ const sources: Sources = {
       if (number === issued) {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
-        if (!file || file === designFile) libraryParts = partsFrom(ir);
+        if (partsAt === partsReads) libraryParts = partsFrom(ir);
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir), tokenOf: tokenOfIn(ir) });
         if (!file || file === designFile) { appParams = snapshots.get(number)!.params; appParamsKey = snapshots.get(number)!.digests; appKinds = snapshots.get(number)!.kinds; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
@@ -734,7 +736,7 @@ const sources: Sources = {
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
         // A param's line is the app design's: the panel only while that is open.
-        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {}))),
+        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), tokenOfIn(ir), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package]))),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
@@ -1356,12 +1358,12 @@ const sources: Sources = {
     // read again as the changes move (the open file's read is the app's
     // when none is open).
     if (!file) return { axes: [], answer: 0 };
-    const axesAt = ++axesReads, partsAt = ++appPartsReads, { error, reply } = await call('/__tamber', { method: 'describe' });
+    const axesAt = ++axesReads, partsAt = ++partsReads, { error, reply } = await call('/__tamber', { method: 'describe' });
     const ir = (reply?.ok as { ir?: { axes?: Axis[] } } | undefined)?.ir, axes = error ? [] : (ir?.axes ?? []);
     // Also the axes a selection is placed by, while this file is open; and its library components' parts, of the
     // newest of these reads (the open file's own reads move `axesReads`, never the parts).
     if (!error && axesAt === axesReads) designAxes = axes;
-    if (!error && partsAt === appPartsReads) libraryParts = partsFrom(ir as Parameters<typeof partsFrom>[0]);
+    if (!error && partsAt === partsReads) libraryParts = partsFrom(ir as Parameters<typeof partsFrom>[0]);
     return { axes: axes.map(a => ({ name: a.name, values: a.values })), answer: ++appReads };
   },
   loadSelection: async () => {

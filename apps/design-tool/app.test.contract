@@ -2021,7 +2021,7 @@ test "a folded :disabled row is read as its base, a param's rung, its part benea
   expect text "selrow-state-:disabled background-color" == "Edit PostButton :disabled background-color"
   request POST "/__stub/restart" {} as ada
 
-test "a library component's node: the part outline, its identity and part, its parts with this one and the slot marked; its package rows read only, with no write control (stage 12 D, LLP 1139 D5)"
+test "a library component's node: the part outline, its identity and part, its parts with this one and the slot marked; its package rows read only, with no recipe write control (stage 12 D, LLP 1139 D5)"
   // The server's describe of the library component's parts (stage 12 D3), as the stub gives it.
   request POST "/__stub/library" {"@acme/cards/card.contract#Card": {"name": "Card", "parts": [{"name": "root", "groups": ["paint", "shape"], "slot": false}, {"name": "header", "groups": ["paint", "text"], "slot": false}, {"name": "body", "groups": ["space"], "slot": true}], "variants": []}} as ada
   type "name" "Ada"
@@ -2088,7 +2088,7 @@ test "a library component's node: the part outline, its identity and part, its p
 
 test "a package component's param: set for this app by default, the package's default said, Back to the default, and its package token offered instead (stage 12 D, LLP 1139 D5)"
   // A package's Badge with a fill param whose default names the token accent.fill; the app's own Contract sources listed.
-  request POST "/__stub/package-component" {"files": {"app.contract": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"}, "components": [{"identity": "@acme/cards/badge.contract#Badge", "name": "Badge", "params": [{"name": "@acme/cards/badge.contract#Badge.fill", "short": "Badge.fill", "param": "fill", "token": "param.f00000001.Badge.fill", "kind": "color", "default": "accent.fill", "values": ["#0a7affff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Fill", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.edge", "short": "Badge.edge", "param": "edge", "token": "param.f00000001.Badge.edge", "kind": "color", "default": "#111111", "values": ["#111111ff"], "set": {"value": "#222222", "line": 30, "whens": 0}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Edge", "help": null, "group": "Color", "priority": 1}]}]} as ada
+  request POST "/__stub/package-component" {"files": {"app.contract": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"}, "components": [{"identity": "@acme/cards/badge.contract#Badge", "name": "Badge", "params": [{"name": "@acme/cards/badge.contract#Badge.fill", "short": "Badge.fill", "param": "fill", "token": "param.f00000001.Badge.fill", "kind": "color", "default": "accent.fill", "values": ["#0a7affff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Fill", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.edge", "short": "Badge.edge", "param": "edge", "token": "param.f00000001.Badge.edge", "kind": "color", "default": "#111111", "values": ["#111111ff"], "set": {"value": "#222222", "line": 30, "whens": 0}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Edge", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.soft", "short": "Badge.soft", "param": "soft", "token": "param.f00000001.Badge.soft", "kind": "color", "default": "accent.soft", "values": ["#cce0ffff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Soft", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.ink", "short": "Badge.ink", "param": "ink", "token": "param.f00000001.Badge.ink", "kind": "color", "default": "-Exact-Label", "values": ["#000000ff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Ink", "help": null, "group": "Color", "priority": 1}]}], "tokens": {"accent.soft": "@acme/cards"}} as ada
   type "name" "Ada"
   tap "save-name"
   clock data
@@ -2099,13 +2099,31 @@ test "a package component's param: set for this app by default, the package's de
   // Unset: the package's default, and a change here is set for this app; its token offered instead.
   expect text "param-Badge.fill-source" == "the package's default accent.fill: a change here is set for this app"
   expect tree missing "param-Badge.fill-reset"
-  expect text "param-Badge.fill-token" == "Edit the package token accent.fill instead"
+  // Its default names the app's token accent.fill: the token, not the package's.
+  expect text "param-Badge.fill-token" == "Edit the token accent.fill instead"
+  // A package token: said so. A role's spelling (-Exact-Label): its token, by the role.
+  expect text "param-Badge.soft-token" == "Edit the package token accent.soft instead"
+  expect text "param-Badge.ink-token" == "Edit the token -exact-label instead"
   // Set for this app: Back to the default (the app's line goes); a literal default offers no token.
   expect text "param-Badge.edge-source" == "set for this app · the package's default #111111"
   expect text "param-Badge.edge-reset" == "Back to the default"
   expect tree missing "param-Badge.edge-token"
   // The app's own component keeps its words.
   expect text "param-Card.fade-source" == "the default"
+  // A change here is set for this app (`set-param`, the app design's params line); Back to the default is `unset-param`.
+  type "dial-@acme/cards/badge.contract#Badge.fill-field" "#ff0000"
+  type "dial-@acme/cards/badge.contract#Badge.fill-field" key "Enter"
+  clock settle
+  expect state editKind == "set-param"
+  expect state editTarget == "@acme/cards/badge.contract#Badge.fill"
+  tap "cancel-edit"
+  clock settle
+  tap "param-Badge.edge-reset"
+  clock settle
+  expect state editKind == "unset-param"
+  expect state editTarget == "@acme/cards/badge.contract#Badge.edge"
+  tap "cancel-edit"
+  clock settle
   // The token instead: its branch opens.
   tap "param-Badge.fill-token"
   clock data

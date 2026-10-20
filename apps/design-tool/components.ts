@@ -68,8 +68,10 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
     set: p.set != null,
     pinned: p.pinned ?? [],
     default: typeof p.default === 'string' ? p.default : '',
-    // The token its default names, which editing instead changes for every use (LLP 1139 D5's second choice).
-    token: typeof p.default === 'string' && tokens.has(p.default) ? p.default : '',
+    // The token its default names (by its name or its role's spelling), which editing instead changes for every
+    // use (LLP 1139 D5's second choice), and that token's package ("" for the app's own).
+    token: '',
+    tokenPackage: '',
     package: false,
   };
 }
@@ -86,7 +88,7 @@ const iconText = (v: unknown) => {
  * component (its identity's file none of the app's own, `own`, describe's
  * `files`) says so: "Set for this app" writes the app's line, the package's
  * own files read only (LLP 1139 D5). */
-export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set()): Design['components'] {
+export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map()): Design['components'] {
   return (list ?? []).filter(c => c.params?.length).map(c => {
     const groups = new Map<string, Row[]>();
     // (A listing with none of the app's Contract sources, an older server's, says nothing of packages.)
@@ -94,7 +96,8 @@ export function componentsOf(list: { identity: string; name: string; params: Par
     for (const p of c.params) {
       const found = paramRow(p, tokens);
       if (!found) continue;
-      const row = { ...found, package: fromPackage };
+      const token = typeof p.default === 'string' ? tokenOf(p.default) ?? '' : '';
+      const row = { ...found, package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '' };
       const g = p.group ?? '';
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push(row);
