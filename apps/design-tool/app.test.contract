@@ -2135,3 +2135,30 @@ test "a package component's param: set for this app by default, the package's de
   expect tree has "branch"
   expect text "branch-label" == "accent.fill · default (Light)"
   request POST "/__stub/restart" {} as ada
+
+test "a package component's param's winning level in words, Back to the package with what it removes and an app value that still wins said first, and Back to the default's when branches said (stage 12 D, LLP 1139 D5)"
+  request POST "/__stub/package-component" {"files": {"app.contract": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"}, "tokens": {"accent.soft": "@acme/cards"}, "components": [{"identity": "@acme/cards/pill.contract#Pill", "name": "Pill", "library": true, "parts": [], "variants": [], "params": [{"name": "@acme/cards/pill.contract#Pill.fill", "short": "Pill.fill", "param": "fill", "token": "param.f00000002.Pill.fill", "kind": "color", "default": "accent.soft", "values": ["#ff0000ff"], "set": {"value": "#ff0000", "line": 31, "whens": 2}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Fill", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.soft", "base": null, "app_set": true}}, {"name": "@acme/cards/pill.contract#Pill.tone", "short": "Pill.tone", "param": "tone", "token": "param.f00000002.Pill.tone", "kind": "color", "default": "accent.soft", "values": ["#cce0ffff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Tone", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.soft", "base": null, "app_set": false}}]}], "resolve": {"@acme/cards/pill.contract#Pill.fill": [{"level": "app-param", "name": "@acme/cards/pill.contract#Pill.fill"}, {"level": "app-param", "name": "@acme/cards/pill.contract#Pill.fill"}], "@acme/cards/pill.contract#Pill.tone": [{"level": "package", "name": "accent.soft"}, {"level": "app-token", "name": "accent.soft"}]}} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock settle
+  // The level that wins, in words (the raw level its tooltip); one that differs by mode says so.
+  expect text "param-Pill.fill-level" == "wins: set for this app"
+  expect text "param-Pill.tone-level" == "wins: the package's token accent.soft (it differs by mode)"
+  // Back to the default says the app's line goes with its when branches, before it writes.
+  expect text "param-Pill.fill-whens" == "Back to the default removes the app's line and its 2 when branches with it."
+  expect tree missing "param-Pill.tone-whens"
+  // Back to the package where the app has the token's own line: what it removes, and that the app's own value still wins.
+  expect text "param-Pill.fill-package" == "Back to the package"
+  expect text "param-Pill.fill-package-note" == "removes the app's line for accent.soft, every when branch with it: the token follows the package's line; the app's own value of this param still wins over it."
+  expect tree missing "param-Pill.tone-package"
+  // Its write: the app's line for the token, removed (`remove-token`), nothing of the package's.
+  tap "param-Pill.fill-package"
+  clock settle
+  expect state editKind == "remove-token"
+  expect state editTarget == "accent.soft"
+  expect text "proposal-tokens" == "accent.soft"
+  tap "cancel-edit"
+  request POST "/__stub/restart" {} as ada

@@ -390,6 +390,17 @@ shape ParamRow
   // Whether that token is a base name the app leaves unset (Exact's base).
   tokenBase: bool
   package: bool
+  // The package token its default reaches ("" for none) and whether the app
+  // has its own line for it: "Back to the package" removes that line.
+  packageToken: string
+  appSet: bool
+  // How many `when` branches the app's own param line has.
+  whens: number
+  // Its winning level for the first tuple, raw (the tooltip) and in words,
+  // and whether the tuples differ.
+  level: string
+  levelWords: string
+  levelVaries: bool
 
 shape ParamGroup
   name: string
@@ -1834,13 +1845,13 @@ component DesignTool
                           if g.name != ""
                             text g.name font="-exact-subheadline"
                           for r in g.params key=r.c.name
-                            ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn))
+                            ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=backToBase(r.packageToken))
                           if g.more.length > 0
                             button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
                               text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
                             if opened.includes(`${k.identity}|${g.name}`)
                               for r in g.more key=r.c.name
-                                ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn))
+                                ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=backToBase(r.packageToken))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -2279,6 +2290,8 @@ component ParamControl
     onReset: action
     // A package component's param whose default names a token: open that token instead (its every use).
     onToken: action
+    // Its package token's own line in the app removed: the token follows the package's line again.
+    onBackToPackage: action
   view
     column gap=2 testId=`param-${r.short}`
       DialControl(c=r.c, locked=locked, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
@@ -2287,6 +2300,15 @@ component ParamControl
         if r.set
           button press=onReset disabled=(locked) testId=`param-${r.short}-reset`
             text (r.package ? "Back to the default" : "Reset")
+      if r.levelWords != ""
+        text `wins: ${r.levelWords}${r.levelVaries ? " (it differs by mode)" : ""}` title=r.level color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-level`
+      if r.set and r.whens > 0
+        text `${r.package ? "Back to the default" : "Reset"} removes the app's line and its ${r.whens} when ${r.whens == 1 ? "branch" : "branches"} with it.` color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-whens`
+      if r.package and r.packageToken != "" and r.appSet
+        row gap=8 align-items="center" padding="0 4px"
+          button press=onBackToPackage disabled=(locked) testId=`param-${r.short}-package`
+            text "Back to the package"
+          text `removes the app's line for ${r.packageToken}, every when branch with it: the token follows the package's line${r.set ? "; the app's own value of this param still wins over it" : ""}.` color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-package-note`
       if r.package and r.token != ""
         button press=onToken disabled=(locked) testId=`param-${r.short}-token`
           text (r.tokenPackage != "" ? `Edit the package token ${r.token} instead` : r.tokenBase ? `Edit Exact's base ${r.token} instead` : `Edit the token ${r.token} instead`)

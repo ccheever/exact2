@@ -98,7 +98,7 @@ let copyDelays: Record<string, number> = {}, noNavigate: string[] = [], refuseLa
 let LIBRARY: Record<string, { name: string; parts: unknown[]; variants: unknown[] }> = {};
 // A package's component with params on describe, and the app's own Contract sources in its files (a server lists
 // them since 1.11), as a test turns them on (`/__stub/package-component`).
-let PACKAGED: { components: Record<string, unknown>[]; files: Record<string, string>; tokens?: Record<string, string>; base?: Record<string, unknown>[] } | null = null, filesBefore: Record<string, string> | null = null;
+let PACKAGED: { components: Record<string, unknown>[]; files: Record<string, string>; tokens?: Record<string, string>; base?: Record<string, unknown>[]; resolve?: Record<string, unknown[]> } | null = null, filesBefore: Record<string, string> | null = null;
 const navs: { client: string; build: string; location: string }[] = [];
 const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(async () => {
   const r = await fetch('/__stub/copy', { method: 'POST', body: JSON.stringify({ name: window.name, location: location.pathname + location.search }) });
@@ -306,6 +306,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
+      // A package param's resolve, its tuples' winning level and name (stage 12 B2-levels), as the test gives them.
+      if (request.method === 'resolve' && PACKAGED?.resolve?.[request.token]) return send({ ok: { token: request.token, files: FILES, tuples: PACKAGED.resolve[request.token] } });
       if (request.method === 'describe') { const ir: Record<string, any> = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) };
         if (PACKAGED) ir.components = [...ir.components, ...PACKAGED.components];
         // (A token a package's design defines: its describe row says the package.)

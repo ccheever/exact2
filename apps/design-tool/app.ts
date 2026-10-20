@@ -729,6 +729,16 @@ const sources: Sources = {
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
       }
+      // Each package component param's winning level per tuple (`resolve`'s, stage 12 B2-levels), for the panel.
+      const levels = new Map<string, { level: string; name: string; varies: boolean }>();
+      const owned = new Set(Object.keys(read.files ?? {})), listed = [...owned].some(f => f.endsWith('.contract'));
+      if ((!file || file === designFile) && listed) {
+        const packaged = (ir.components ?? []).filter((c: { identity: string }) => { const home = c.identity.split('#')[0]; return !owned.has(home) && home !== designFile; });
+        await Promise.all(packaged.flatMap((c: { params?: { name: string }[] }) => c.params ?? []).map(async (p: { name: string }) => {
+          const r = await call('/__tamber', { method: 'resolve', token: p.name }, READ_WAIT), t = (r.reply?.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[];
+          if (!r.error && t.length && typeof t[0].level === 'string') levels.set(p.name, { level: t[0].level, name: String(t[0].name ?? ''), varies: t.some(x => x.level !== t[0].level || x.name !== t[0].name) });
+        }));
+      }
       return {
         ok: true, error: '', file: file || '', answer: number, groups: panel, axes: axes.map(a => ({ name: a.name, values: a.values })),
         columns: columns.map(({ id, label }) => ({ id, label })), firstColumn: columns[0]?.id ?? '',
@@ -736,7 +746,7 @@ const sources: Sources = {
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
         // A param's line is the app design's: the panel only while that is open.
-        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name)))),
+        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names, new Set(Object.keys(read.files ?? {})), (v => { const t = tokenOfIn(ir)(v); return t ?? (names.has(v.trim()) ? v.trim() : null); }), new Map(ir.tokens.filter((t: { package?: string | null }) => t.package).map((t: { name: string; package: string }) => [t.name, t.package])), new Set([...baseRows.values()].filter((r: { name: string; override?: unknown }) => !r.override && !ir.tokens.some((t: { name: string }) => t.name === r.name)).map((r: { name: string }) => String(r.name))), levels),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;

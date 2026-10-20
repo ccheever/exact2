@@ -16,7 +16,24 @@ type Param = {
   name: string; short: string | null; kind: string; default: string; values: unknown[] | null;
   range: [number, number] | null; step: number | null; control: string | null; options: string[] | null;
   label: string | null; help: string | null; group: string | null; priority: number | null;
-  set: { value: string } | null; pinned: string[] | null;
+  set: { value: string; whens?: number } | null; pinned: string[] | null;
+  reaches?: { token: string | null; base: string | null; app_set: boolean } | null;
+};
+
+/** A param's winning level, in the words the panel says (LLP 1139 D5; stage 12 B2-levels' `level` on each of
+ * `resolve`'s tuples): one for each raw level, the raw one kept as the row's tooltip. */
+export const LEVEL_WORDS: Record<string, string> = {
+  'app-param': 'set for this app',
+  'app-token': "the app's token",
+  package: "the package's token",
+  base: "Exact's base",
+  role: "the platform's role",
+  default: "the component's default",
+};
+/** The words for a winning `level` at `name` (none for the two that name nothing more). */
+export const levelWords = (level: string, name: string) => {
+  const words = LEVEL_WORDS[level] ?? level;
+  return level === 'app-param' || level === 'default' || !name ? words : `${words} ${name}`;
 };
 
 /** One param's row: its control, by the dials panel's rules, on the value
@@ -75,6 +92,15 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
     tokenPackage: '',
     tokenBase: false,
     package: false,
+    // The package token its default reaches and whether the app has its own line for it (describe's `reaches`):
+    // "Back to the package" removes that line; and how many `when` branches the app's own param line has.
+    packageToken: '',
+    appSet: false,
+    whens: p.set?.whens ?? 0,
+    // Its winning level for the first tuple, in words and raw, and whether the tuples differ (`resolve`'s).
+    level: '',
+    levelWords: '',
+    levelVaries: false,
   };
 }
 
@@ -90,7 +116,7 @@ const iconText = (v: unknown) => {
  * component (its identity's file none of the app's own, `own`, describe's
  * `files`) says so: "Set for this app" writes the app's line, the package's
  * own files read only (LLP 1139 D5). */
-export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set()): Design['components'] {
+export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set(), levels: ReadonlyMap<string, { level: string; name: string; varies: boolean }> = new Map()): Design['components'] {
   return (list ?? []).filter(c => c.params?.length).map(c => {
     const groups = new Map<string, Row[]>();
     // (A listing with none of the app's Contract sources, an older server's, says nothing of packages.)
@@ -99,7 +125,10 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       const found = paramRow(p, tokens);
       if (!found) continue;
       const token = typeof p.default === 'string' ? tokenOf(p.default) ?? '' : '';
-      const row = { ...found, package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '', tokenBase: !!token && bases.has(token) };
+      const reached = p.reaches?.token ?? '', won = levels.get(p.name);
+      const row = { ...found, package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '', tokenBase: !!token && bases.has(token),
+        packageToken: fromPackage && reached && packageOf.has(reached) ? reached : '', appSet: !!p.reaches?.app_set,
+        level: won?.level ?? '', levelWords: won ? levelWords(won.level, won.name) : '', levelVaries: !!won?.varies };
       const g = p.group ?? '';
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push(row);

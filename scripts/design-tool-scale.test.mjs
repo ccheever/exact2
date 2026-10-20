@@ -8,7 +8,7 @@
 // apps/design-tool/app.test.contract.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { drive, proxied, ROOT, toolTurns } from './design-tool-harness.mjs';
@@ -32,7 +32,8 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
   mkdirSync(pkg, { recursive: true });
   writeFileSync(join(pkg, 'package.json'), '{"name":"@acme/reading","version":"1.0.0","exports":{".":"./index.contract"}}');
   writeFileSync(join(pkg, 'index.contract'), 'component ReadingCard\n  view\n    column background-color="reading.card" padding="space.md"\n      text "x"\n');
-  writeFileSync(join(pkg, 'reading.tamber'), 'tamber reading\n\ntheme\n  reading.card = #112233\n  reading.measure: length = 640px\n');
+  const pkgDesign = 'tamber reading\n\ntheme\n  reading.card = #112233\n  reading.measure: length = 640px\n';
+  writeFileSync(join(pkg, 'reading.tamber'), pkgDesign);
   writeFileSync(join(app, 'app.contract'), 'use ReadingCard from "@acme/reading"\ncomponent App\n  view\n    column background-color="brand" padding="space.md" border-radius="radius.md"\n      ReadingCard()\n');
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', 'app.json', 'app.tamber', 'app.contract'); git('commit', '-q', '-m', 'design');
@@ -116,6 +117,8 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
     expect(node(pkgSet, 'set-for-app-reading.measure')).toBeUndefined();
     expect(states[3].slots.editKind).toBe('remove-token');
     expect(tool.writes[4].after).toBe(set);
+    // Back to the package removed the app's line alone: the package's own files, byte for byte as they were (LLP 1139 D5).
+    expect(readFileSync(join(pkg, 'reading.tamber'), 'utf8')).toBe(pkgDesign);
     expect(text(pkgBack, 'token-over-reading.measure')).toBeUndefined();
     expect(node(pkgBack, 'set-for-app-reading.measure')).toBeTruthy();
     // Read only in the branch editor (the field disabled); the app's override of a base name edits as the app's line.
