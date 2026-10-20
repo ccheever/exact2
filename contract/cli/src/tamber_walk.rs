@@ -360,7 +360,7 @@ pub(super) fn retention_key(texts: &[&str]) -> String {
         if literal(text) {
             class(text).to_string()
         } else {
-            format!("={} [{}]", text.trim(), refs(text))
+            format!("={:?} [{}]", text.trim(), refs(text))
         }
     };
     let mut key = String::new();
@@ -381,28 +381,29 @@ pub(super) fn retention_key(texts: &[&str]) -> String {
             .chain(d.icons.iter().map(|t| ("icon", t)));
         for (section, t) in sections {
             let (v, n) = (&t.value.value, &t.name.value);
-            key.push_str(&format!("{section} {n} {:?} {}", t.kind, value(v)));
+            key.push_str(&format!("{section} {n:?} {:?} {}", t.kind, value(v)));
             for w in &t.whens {
                 key.push_str(&format!(" when {:?} {}", w.conds, value(&w.value.value)));
             }
-            // Its metadata, verbatim (`pair=` another token).
+            // Its metadata, verbatim and quoted (`pair=` another token; a
+            // quoted value can't spell another row: fifth re-check).
             for (k, v) in &t.meta {
-                key.push_str(&format!(" {k}={v}"));
+                key.push_str(&format!(" {k:?}={v:?}"));
             }
             key.push('\n');
         }
         for e in &d.params {
-            key.push_str(&format!("param {} = {}", e.name.value, e.value.value));
+            key.push_str(&format!("param {:?} = {:?}", e.name.value, e.value.value));
             for w in &e.whens {
-                key.push_str(&format!(" when {:?} {}", w.conds, w.value.value));
+                key.push_str(&format!(" when {:?} {:?}", w.conds, w.value.value));
             }
             key.push('\n');
         }
         for c in &d.components {
-            key.push_str(&format!("component {}", c.name.value));
+            key.push_str(&format!("component {:?}", c.name.value));
             for p in &c.params {
                 key.push_str(&format!(
-                    " {}:{}={} {:?}",
+                    " {:?}:{:?}={:?} {:?}",
                     p.name.value, p.kind, p.value.value, p.range
                 ));
             }
@@ -461,6 +462,38 @@ mod tests {
             base,
             key(design("param.f0.Card.a", "#111111", "wrong")),
             "the header"
+        );
+    }
+
+    /// A literal colour expression keeps the key; a dotted name the designs
+    /// don't declare keys; and (fifth re-check) a metadata value can't spell
+    /// another row, being quoted.
+    #[test]
+    fn literals_dotted_names_and_metadata() {
+        let design =
+            |pick: &str, ink: &str| format!("tamber t\n\ntheme\n  ink = {ink}\n  pick = {pick}\n");
+        let key = |d: String| retention_key(&[&d]);
+        assert_eq!(
+            key(design("x", "light-dark(#111111, #eeeeee)")),
+            key(design("x", "light-dark(#121212, #eeeeee)")),
+            "a colour expression naming nothing"
+        );
+        assert_ne!(
+            key(design("a.b", "#111111")),
+            key(design("a.c", "#111111")),
+            "a dotted name"
+        );
+        let real =
+            "tamber t\n\ntheme\n  anchor = #111111  label=\"x\"\n  Canvas = old\n  old = #222222\n";
+        let fake = "tamber t\n\ntheme\n  anchor = #111111  label=\"x\\ntoken Canvas None =old [old]\"\n  old = #222222\n";
+        assert!(
+            exact_tamber::parse(fake).is_ok(),
+            "the impersonating design parses"
+        );
+        assert_ne!(
+            retention_key(&[real]),
+            retention_key(&[fake]),
+            "metadata spelling a row"
         );
     }
 }
