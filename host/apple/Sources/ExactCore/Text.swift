@@ -46,6 +46,10 @@ package struct Run: Hashable {
     package var numeric: Int = 0
     package var color: [Double]? = nil
     package var decoration: String = ""
+    /// The lines its decorating ancestors draw through it, each in that
+    /// box's colour; nil where none does (`propagate`). Paint.
+    package var underlineColor: [Double]? = nil
+    package var strikeColor: [Double]? = nil
     package var href: String = ""
     /// The inline box's `background-color`: paint, never metrics.
     package var background: [Double]? = nil
@@ -76,7 +80,8 @@ package struct Run: Hashable {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
-              lhs.decoration == rhs.decoration, lhs.href == rhs.href,
+              lhs.decoration == rhs.decoration, lhs.underlineColor == rhs.underlineColor,
+              lhs.strikeColor == rhs.strikeColor, lhs.href == rhs.href,
               lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.backgroundBox == rhs.backgroundBox,
               lhs.backgroundRadii == rhs.backgroundRadii, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
               lhs.indent == rhs.indent, lhs.hang == rhs.hang else { return false }
@@ -102,6 +107,8 @@ package struct Run: Hashable {
         hasher.combine(numeric)
         hasher.combine(color)
         hasher.combine(decoration)
+        hasher.combine(underlineColor)
+        hasher.combine(strikeColor)
         hasher.combine(href)
         hasher.combine(background)
         hasher.combine(backgroundBox)
@@ -132,6 +139,16 @@ package struct Run: Hashable {
         self.stroke = stroke
         self.indent = indent
         self.hang = hang
+    }
+
+    /// Adds the lines a decorating ancestor box draws through this run
+    /// (CSS Text Decoration 3 §2.1: propagated, not inherited), in that
+    /// box's `color`. Called from the nearest box outward: where boxes draw
+    /// the same line, Chrome shows the nearest box's, and a run's own line
+    /// over any box's.
+    package mutating func propagate(_ lines: String, color: [Double]) {
+        if lines.contains("underline"), underlineColor == nil { underlineColor = color }
+        if lines.contains("line-through"), strikeColor == nil { strikeColor = color }
     }
 }
 
