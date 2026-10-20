@@ -4,6 +4,7 @@
 // runtime carries (files diary F5: `selectText` was refused here).
 import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize } from "./navigation.js";
 import "./prompt-glue.js"; // a prompt's Return (host/web/prompt-glue.js)
+import "./alert-message.js"; // a grouped alert's message box (host/web/alert-message.js)
 // A development page may hold a fact over the app's own (LLP 1122 T7, theme2's F2 ruling: a copy the design tool pins):
 // the app's choice kept as asked, with how to apply it, and applied only when the fact is not held.
 const asked = (fact, value, apply) => { const x = globalThis.exact; if (!x) return apply(); (x.asked ??= {})[fact] = { value, apply }; if (!x.held?.[fact]) apply(); else x.onAsked?.(); };

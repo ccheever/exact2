@@ -1647,6 +1647,12 @@
       "name": "decorationStyles",
       "kind": "str",
       "_comment": "@ref LLP 1114.007: the compiler's table of the `decoration` declarations visible in the textarea's source file, by name, each a list of [style id, literal] rows of the properties `::highlight()` admits. Not an authored attribute."
+    },
+    {
+      "id": 279,
+      "name": "alertPart",
+      "kind": "str",
+      "_comment": "The part of an alert (an alert-shaped `dialog role=\"alertdialog\"`) a child is: `title` (its first text, when it has no `aria-label`), `message` (the box of its texts) or `actions` (the box of its buttons), so a host that draws the alert can scroll a long message while the title and buttons stay in view; a host that presents the platform's alert reads through the boxes. The compiler's, never authored."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -5932,6 +5938,7 @@
     ["alert-action-gap", "length", 12],
     ["alert-title", "length", "1.125em"],
     ["alert-message-gap", "length", 16],
+    ["alert-scroll-gutter", "length", 8],
     ["menu-min-width", "length", "11rem"],
     ["menu-max-width", "length", "20rem"],
     ["menu-margin", "length", 16],
