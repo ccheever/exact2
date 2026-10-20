@@ -309,8 +309,9 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
     links.push(...linked.links, ...pullRequestUrls(linked.text).map(href => ({ href, kind: '' })));
     return { ...body, body: linked.text };
   });
+  // Every body shares the PR workspace; each rendered run needs one file record for its href.
   const fileChips = view.bodies.flatMap(body => messageChips({ text: body.body }, str(display.workspaceRoot), [], body.id).filter(chip => chip.kind === 'link'));
-  view.md = { ...view.md, chips: [...view.md.chips, ...fileChips, ...linkChips(client, context.environmentId, links)] };
+  view.md = { ...view.md, chips: [...view.md.chips, ...new Map(fileChips.map(chip => [chip.href, chip])).values(), ...linkChips(client, context.environmentId, links)] };
   return view;
 }
 /** Web links in Markdown source (inline `](url)`, `<url>`, bare URLs) that name a change request: the ones a card can preview. */
