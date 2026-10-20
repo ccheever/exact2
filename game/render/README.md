@@ -407,7 +407,7 @@ ahead (Apple M5 Max, Metal; the oracles are bands, which every host is held to):
 |---|---|---|
 | Upper quarter, 50° up, mean luminance at least the recipe band's top + 0.1 (0.43) | 0.484 | no water 0.169; a flat opaque quad 0.045 |
 | Pitched 45°: top fifth (in the window) less bottom fifth (outside) above 0.2 | 0.260 | no water 0.000; flat quad −0.033 |
-| From 1 m above a floor 1 m down: lower half's hue within 10° of the floor's without water | 137.6° against 136.5° | flat quad 188.6° |
+| From 1 m above a floor 1 m down: lower half's hue within 10° of the floor's without water | 135.5° against 136.5° | flat quad 188.6° |
 | The window's look frame: no tell | none | |
 | Lit sand, 64 × 64 patch: variance at least 4× that without caustics | 0.00609 against 0.000206 (29.5×) | strength 0, a constant: 1× |
 | The same patch in the sun's shadow: mean within 5% | 0.1245 both | |
