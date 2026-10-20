@@ -533,12 +533,15 @@ fn style_value(
             if rows.contains(&StyleId::TextWrapStyle) && matches!(v.trim(), "pretty" | "stable") {
                 return err("lower-attr-value", format!("`{}=\"{v}\"`: exact2 implements `auto` and `balance`; Chrome's `pretty` and `stable` line breakers are not implemented on the native hosts. Use `auto` for ordinary wrapping", a.name), span);
             }
-            // @ref LLP 1034 §8: `light` or `dark`. CSS's `normal` means the
-            // page's schemes, not the parent's, and `light dark` and `only`
-            // ask a browser to choose: none is implemented; leaving the
-            // attribute off follows the surrounding scheme.
-            if rows.contains(&StyleId::ColorScheme) && !matches!(v.trim(), "light" | "dark") {
-                return err("lower-attr-value", format!("`color-scheme=\"{v}\"`: exact2 implements `light` and `dark` on a subtree (LLP 1034 §8); leave it off to follow the surrounding scheme. CSS's `normal`, `light dark` and `only` are not implemented"), span);
+            // @ref LLP 1034 §8: `light` or `dark`, or a value that follows
+            // the surrounding scheme (`normal`, `light dark`, `unset`), which
+            // a branch of a computed one needs (euxy's Auto theme). `only`
+            // and a scheme's own name are not implemented.
+            if rows.contains(&StyleId::ColorScheme)
+                && !matches!(v.trim(), "light" | "dark")
+                && !exact_kernel::StyleValue::text_unsets(v, StyleId::ColorScheme)
+            {
+                return err("lower-attr-value", format!("`color-scheme=\"{v}\"`: exact2 implements `light` and `dark` on a subtree (LLP 1034 §8), and `normal` or `light dark` to follow the surrounding scheme (the system's at the root), as leaving it off does; the app's own scheme is `setScheme`'s. CSS's `only` is not implemented"), span);
             }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);

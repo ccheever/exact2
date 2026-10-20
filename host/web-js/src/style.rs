@@ -906,7 +906,7 @@ static CLIP_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 });
 static SCHEME_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     format!(
-        r#"v=>v==null?v:v==="light"||v==="dark"?v:/^\s*(normal|inherit|unset)\s*$/i.test(v)?"unset":{}"#,
+        r#"v=>v==null?v:v==="light"||v==="dark"?v:/^\s*(normal|inherit|unset|light\s+dark|dark\s+light|)\s*$/i.test(v)?"unset":{}"#,
         invalid_unset("color-scheme")
     )
 });
@@ -1079,9 +1079,9 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         // @ref LLP 1077 D1 — Apple's curve as the web's stand-in. A bound
         // radius is not rescaled here, as css.rs scales a static one: a
         // dynamic `-exact-continuous` reaches less far on the web.
-        // @ref LLP 1034 §8 — `light` and `dark`; a bound `normal` follows
-        // the surrounding scheme (an explicit clear), as the kernel unsets
-        // it; anything else is no value it takes.
+        // @ref LLP 1034 §8 — `light` and `dark`; a bound `normal` or `light
+        // dark` follows the surrounding scheme (an explicit clear), as the
+        // kernel unsets it; anything else is no value it takes.
         StyleId::ColorScheme => vec![with(
             "color-scheme",
             &SCHEME_MAP,

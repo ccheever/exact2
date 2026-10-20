@@ -324,7 +324,8 @@ fn a_computed_transition_is_checked_as_an_authors() {
 }
 
 /// LLP 1034 §8: a bound `color-scheme` writes `light` or `dark`, and a
-/// bound `normal` (or an invalid value) retains an unset declaration.
+/// bound `normal` or `light dark` (or an invalid value) retains an unset
+/// declaration.
 #[test]
 fn a_bound_color_scheme_is_light_dark_or_unset() {
     let writes = style_writes(StyleId::ColorScheme as u16, false).unwrap();
@@ -333,9 +334,9 @@ fn a_bound_color_scheme_is_light_dark_or_unset() {
     assert_eq!(
         run(
             writes[0].map.unwrap(),
-            &["light", "dark", "normal", "light dark"]
+            &["light", "dark", "normal", "light dark", " Dark  Light ", ""]
         ),
-        serde_json::json!(["light", "dark", "unset", "unset"])
+        serde_json::json!(["light", "dark", "unset", "unset", "unset", "unset"])
     );
 }
 

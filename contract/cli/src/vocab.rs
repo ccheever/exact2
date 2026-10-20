@@ -772,6 +772,10 @@ const DETENT: &str = "on a sheet route (`navigationPresentation=\"modal\"`), its
 /// LLP 1116.020 D3: round 18's builders drew search as a field and a Search
 /// button in the content; the bar's search field is one attribute away.
 const SEARCH_TYPE: &str = "on an `input`, HTML's (`number`, `date`, `checkbox`, …); `type=\"search\"` in a route's `header` is the bar's search field, filtering as you type (iOS: UIKit's search controller; `contract vocab search`)";
+/// `contract vocab color-scheme` (LLP 1034 §8): what each value does, and
+/// the app's own scheme, which is `setScheme`'s (the euxy port's Theme row
+/// guessed at `prefersColorScheme`).
+const COLOR_SCHEME: &str = "`light` or `dark` holds the node and its subtree in that scheme (`light-dark()`, platform colours, glass); `normal` or `light dark`, written or a branch of a computed value, follows the surrounding scheme, as leaving it off does (the system's, at the root). The app's own scheme, which a Theme setting of Auto, Light and Dark sets, is `setScheme(\"system\")`, `\"light\"` or `\"dark\"` in the action that chooses it (and a `mount` task, for a kept choice): the bars, sheets and windows follow it. `exactViewport().prefersColorScheme` is the system's scheme beneath `setScheme` and any subtree's, a fact to read, not one to paint by (`lower-scheme-color`)";
 const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the authored bar; on a header button it keeps only that button authored in place while the rest of the header projects. A title button keeps its contents; an authored Back replaces UIKit Back. Search or a header tablist can opt out on that element; a tab button alone keeps its parent segmented. Tabs retain their panels and navigation stacks. Auto restores platform projection.";
 
 /// Where an attribute is admitted, if not on every tag.
@@ -879,6 +883,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "appearance" {
         doc["note"] = APPEARANCE.into();
+    }
+    if name == "color-scheme" {
+        doc["note"] = COLOR_SCHEME.into();
     }
     if name == "navigationDetent" {
         doc["note"] = DETENT.into();
@@ -990,6 +997,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "appearance" {
                 lines.push(APPEARANCE.into());
+            }
+            if name == "color-scheme" {
+                lines.push(COLOR_SCHEME.into());
             }
             if name == "border-radius" {
                 lines.push(SHEET_RADIUS.into());

@@ -48,19 +48,34 @@ fn color_scheme_is_inherited_and_initially_normal() {
     }
 }
 
-/// Only `light` and `dark` are written: CSS's `normal` means the page's
-/// schemes, not the parent's, and `light dark` and `only` ask a browser to
-/// choose.
+/// `light` and `dark` are written, and `normal` or `light dark` (amended
+/// 2026-10-20) follow the surrounding scheme as no row does; `only` and
+/// other words are refused.
 #[test]
-fn only_light_and_dark_are_written() {
-    for value in ["normal", "light dark", "only dark", "dim"] {
+fn light_dark_and_the_surrounding_scheme_are_written() {
+    for value in ["only dark", "dim", "light only"] {
         let src = format!("component App\n  view\n    column color-scheme=\"{value}\"\n");
         let error = contract::compile(&src).unwrap_err().to_string();
         assert!(error.contains("LLP 1034 §8"), "{value}: {error}");
     }
-    for value in ["light", "dark"] {
+    for value in ["light", "dark", "normal", "light dark", "dark light", "unset"] {
         let src = format!("component App\n  view\n    column color-scheme=\"{value}\"\n");
         contract::compile(&src).unwrap();
+    }
+}
+
+/// An Auto / Light / Dark setting (the euxy port's Theme row): a branch of
+/// `light dark` follows the surrounding scheme, the others fix it.
+#[test]
+fn a_computed_light_dark_branch_follows_the_surrounding_scheme() {
+    for (theme, want) in [("auto", None), ("light", Some(false)), ("dark", Some(true))] {
+        let src = format!("component App\n  state theme = \"{theme}\"\n  view\n    column testId=\"root\" color-scheme=(theme == \"auto\" ? \"light dark\" : theme)\n      text \"a\" testId=\"inner\"\n");
+        let r = boot(&src);
+        let k = r.kernel();
+        for id in ["root", "inner"] {
+            let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+            assert_eq!(node.color_scheme_dark(), want, "{theme} {id}");
+        }
     }
 }
 
