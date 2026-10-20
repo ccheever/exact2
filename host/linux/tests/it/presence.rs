@@ -164,3 +164,31 @@ fn a_growing_box_reveals_its_content_at_its_final_size_and_never_scales_it() {
         assert_eq!(is(&frame, x + 50., y + 150., 1), !clips, "clips: {clips}");
     }
 }
+
+/// `clock +N` as the agent runs it (`clock_stepped`).
+fn agent_jump(h: &mut Host<()>, to: f64) {
+    for _ in 0..4096 {
+        if !h.timer_due_ms().is_some_and(|d| d <= to) {
+            break;
+        }
+        h.advance_until_request(to);
+    }
+    h.advance(to);
+}
+
+#[test]
+fn a_box_a_timer_moves_inside_an_agents_jump_starts_moving_at_the_timer() {
+    let mut h = boot(
+        "component App\n  state small = false\n  state go = false\n  action start\n    go = true\n  action shrink\n    small = true\n  task later when go\n    after(100, shrink)\n  view\n    column width=\"100%\" height=\"100%\" position=\"relative\"\n      button press=start testId=\"go\"\n        text \"Go\"\n      row testId=\"capsule\" position=\"absolute\" right=(small ? 68 : 14) bottom=14 -exact-layout-transition=\"400ms linear\"\n        view width=(small ? 48 : 180) height=48\n",
+    );
+    let capsule = view(&h, "capsule");
+    h.dispatch_at(view(&h, "go"), Event::Press, 0.);
+    // Right-anchored, it shrinks at 100 ms: its left edge goes from 206 to
+    // 284, half way (39 short of it) at 300 ms.
+    agent_jump(&mut h, 300.);
+    assert_eq!(h.kernel().node(capsule).unwrap().frame.x, 284.0);
+    let [dx, ..] = h.presented(capsule).layout;
+    assert!((dx + 39.0).abs() < 1e-3, "half way at 300 ms, not {dx}");
+    agent_jump(&mut h, 1000.);
+    assert_eq!(h.presented(capsule).layout, [0.0, 0.0, 1.0, 1.0]);
+}

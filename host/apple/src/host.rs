@@ -984,7 +984,7 @@ impl<D: DataSource> Host<D> {
     /// [`Host::advance`], stopping after a timer that sends as well: an
     /// agent's jump ([`exact_runner::Runner::advance_until_request`]).
     pub fn advance_until_request(&mut self, now_ms: f64) -> String {
-        let a = self.runner.advance_until_request(now_ms);
+        let a = self.runner.advance_until_request(self.layout_step(now_ms));
         self.advanced(a)
     }
 

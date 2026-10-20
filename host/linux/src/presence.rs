@@ -53,6 +53,20 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// Where an agent's jump to `to` stops next. The engine hears each
+    /// commit of a jump at its timer's due time (LLP 1002 D3), but the kernel
+    /// holds only the jump's last tree, laid out at its end: a box a timer
+    /// moved inside the jump would start its layout transition there. While
+    /// a node declares a layout transition, the jump stops at each due time
+    /// and lays out there, as real frames would.
+    pub(super) fn layout_step(&self, to: f64) -> f64 {
+        if self.presence.layout.is_empty() {
+            return to;
+        }
+        let due = self.runner.timer_due_ms().unwrap_or(to);
+        due.max(self.runner.now_ms()).min(to)
+    }
+
     /// Observe every tracked node's box, after a layout.
     pub(super) fn observe_layout(&mut self) {
         let snap = std::mem::take(&mut self.presence.snap);

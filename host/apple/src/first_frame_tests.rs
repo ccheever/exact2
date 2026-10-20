@@ -639,3 +639,71 @@ fn an_input_a_live_clock_overtook_is_presented_at_the_inputs_time() {
     // a hold there.
     assert_eq!(host.engine.now(), 2.0);
 }
+
+const CAPSULE: &str = r##"component A
+  state small = false
+  state go = false
+  action start
+    go = true
+  action shrink
+    small = true
+  task later when go
+    after(100, shrink)
+  view
+    column width="100%" height="100%" position="relative"
+      button testId="go" press=start
+        text "Go"
+      row testId="capsule" position="absolute" right=(small ? 68 : 14) bottom=14 -exact-layout-transition="400ms linear"
+        box width=(small ? 48 : 180) height=48
+"##;
+
+/// The capsule's presented left edge, and its laid-out one.
+fn capsule_x(host: &Host<NoData>) -> (f64, f32) {
+    let k = host.runner.kernel();
+    let key = k.find_by_test_id("capsule")[0];
+    let shown = host
+        .engine
+        .value(exact_kernel::motion::motion_node(key), Property::Layout)
+        .unwrap()
+        .x;
+    (shown, k.node_by_key(key).unwrap().frame.x)
+}
+
+/// `clock +N` as the agent runs it (`Agent.advanceRunner`, `clock_stepped`).
+fn agent_jump(host: &mut Host<NoData>, to: f64) {
+    for _ in 0..4096 {
+        if !host.runner.timer_due_ms().is_some_and(|d| d <= to) {
+            break;
+        }
+        host.advance_until_request(to);
+    }
+    host.advance(to);
+}
+
+#[test]
+fn a_box_a_timer_moves_inside_an_agents_jump_starts_moving_at_the_timer() {
+    let plan = contract::compile(CAPSULE).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.start_on_frame(false, 0.0);
+    let go = id(&host, "go");
+    host.dispatch_at(go, Event::Press, 0.0);
+    assert_eq!(capsule_x(&host), (196.0, 196.0));
+    // Right-anchored: it shrinks from 180 to 48 wide at 100 ms and its left
+    // edge goes from 196 to 274, half way at 300 ms.
+    agent_jump(&mut host, 300.0);
+    let (shown, laid) = capsule_x(&host);
+    assert_eq!(laid, 274.0);
+    assert!(
+        (shown - 235.0).abs() < 1e-6,
+        "half way at 300 ms, not {shown}"
+    );
+    agent_jump(&mut host, 1000.0);
+    assert_eq!(capsule_x(&host), (274.0, 274.0));
+}

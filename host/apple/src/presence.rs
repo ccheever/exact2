@@ -173,6 +173,21 @@ impl<D: DataSource> Host<D> {
         batch.destroy(leaving.view);
     }
 
+    /// Where an agent's jump to `to` stops next. The engine hears each
+    /// commit of a jump at its timer's due time (LLP 1002 D3), but the kernel
+    /// holds only the jump's last tree, laid out at its end: a box a timer
+    /// moved inside the jump would start its layout transition there, so the
+    /// first read after `clock +N` showed it where it was. While a node
+    /// declares a layout transition, the jump stops at each due time and lays
+    /// out there, as N real frames would.
+    pub(super) fn layout_step(&self, to: f64) -> f64 {
+        if self.engine.starts_on_frame() || self.presence.layout.is_empty() {
+            return to;
+        }
+        let due = self.runner.timer_due_ms().unwrap_or(to);
+        due.max(self.runner.now_ms()).min(to)
+    }
+
     /// Before a commit's layout: each node the commit gave the row starts
     /// from the box it had, which layout has not replaced yet. A node the
     /// commit created has none; its first layout is first seen.
