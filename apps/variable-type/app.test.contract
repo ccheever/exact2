@@ -1,0 +1,25 @@
+test "the poster starts heavy at normal width"
+  expect tree has "poster"
+  expect tree has "row-0"
+  expect state x == 0.5
+  expect state y == 0.55
+
+test "the pad's top left is the heaviest, narrowest type"
+  tap "pad" drag -70 -60
+  expect state x == 0
+  expect state y == 0
+  expect state dragging == false
+
+test "the pad's bottom right is the lightest, widest type"
+  tap "pad" drag 70 60
+  expect state x == 1
+  expect state y == 1
+
+test "arrow keys step the pad and Home centres it"
+  type "pad" key "ArrowRight"
+  expect state x == 0.525
+  type "pad" key "ArrowUp"
+  expect state y == 0.525
+  type "pad" key "Home"
+  expect state x == 0.5
+  expect state y == 0.5

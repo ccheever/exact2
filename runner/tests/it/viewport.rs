@@ -198,6 +198,34 @@ fn page_focus_reanswers_only_the_readers_of_it() {
     assert_eq!(online.resource("onLine").cloned(), one(false));
 }
 
+/// LLP 1139.003 D2: `exactViewport().gpuTier` is the page facts' tier,
+/// `high` until a host tells another, and a change re-answers its readers.
+#[test]
+fn gpu_tier_is_a_page_fact_read_through_the_viewport() {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    let shape = b.record("Viewport", &[("gpuTier", string)]);
+    b.resource("viewport", "exactViewport", &[], shape, None);
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let mut runner = Runner::boot(
+        b.finish().unwrap(),
+        Deferred::default(),
+        Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
+    )
+    .unwrap();
+    let tier = |w: &str| Some(Value::record(vec![Value::str(w)]));
+    assert_eq!(runner.resource("viewport").cloned(), tier("high"));
+    let low = exact_runner::Page::from_bits(runner.page().bits() | 2 << 11);
+    assert!(runner.set_page(low).unwrap().is_some());
+    assert_eq!(runner.resource("viewport").cloned(), tier("low"));
+    assert!(
+        runner.set_page(low).unwrap().is_none(),
+        "the same tier again"
+    );
+}
+
 #[test]
 fn display_mode_changes_reanswer_without_resize_or_app_data() {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);

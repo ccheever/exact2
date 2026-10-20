@@ -313,6 +313,7 @@ test('fresh empties each snapback4 dev server through its reset door, and refuse
   const old = await serve((req, res) => req.url === '/dev/status' ? json(res, 200, { storeId: 'b2' })
     : json(res, 404, { denied: { code: 'E_OP', message: 'no route /dev/reset; operations are POST /q/<op> and POST /m/<op>' } }));
   const other = await serve((req, res) => json(res, 404, {}));
+  const shut = await serve((req, res) => json(res, 403, { denied: { code: 'E_AUTH', message: 'development doors are closed; use serve staging with real users (guide staging), or explicitly opt into dev --unsafe-dev-doors for local fixtures' } }));
   const at = (server) => `http://127.0.0.1:${server.address().port}`;
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-fresh-'));
   try {
@@ -329,9 +330,11 @@ test('fresh empties each snapback4 dev server through its reset door, and refuse
     // A snapback4 older than the door, nothing to reset, and nothing listening each refuse with what to do.
     await expect(resetBackends([at(old)])).rejects.toThrow(/has no reset door \(POST \/dev\/reset answered 404: .*E_OP.*older than the snapback4 that adds it/);
     await expect(resetBackends([at(other)])).rejects.toThrow(`fresh: no snapback4 dev server at ${at(other)}`);
+    // A password-only app's dev (0.4.33) keeps its doors closed unless started with --unsafe-dev-doors.
+    await expect(resetBackends([at(shut)])).rejects.toThrow(/keeps its development doors closed .*snapback4 dev --unsafe-dev-doors --port \d+/);
     await expect(resetBackends([])).rejects.toThrow(/net\.fetch grants: none/);
     await expect(resetBackends(['http://127.0.0.1:1'])).rejects.toThrow(/nothing answered at http:\/\/127\.0\.0\.1:1 .*snapback4 dev --port 1/);
-  } finally { for (const s of [door, old, other]) s.close(); rmSync(dir, { recursive: true, force: true }); }
+  } finally { for (const s of [door, old, other, shut]) s.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
 // A mutation's refused reply is named with why, from either runner's line (sb4 farm wave 6, E3); a resource's is not.

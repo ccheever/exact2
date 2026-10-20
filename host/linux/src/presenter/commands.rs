@@ -28,6 +28,20 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// `postMessage(text, name)` into the named surface's canvas, stamped now
+    /// and held until one is live; the driver's `post` too (LLP 1139.004 D1).
+    pub(crate) fn post_message(&mut self, name: &str, text: &str) -> Result<(), String> {
+        let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
+        if self.surfaces.post(name, event) {
+            Ok(())
+        } else {
+            Err(format!(
+                "postMessage: dropped: {} posts already wait for surface \"{name}\"",
+                crate::surfaces::POST_BOUND
+            ))
+        }
+    }
+
     /// [`Presenter::run_commands`] but for activating a staged update, which
     /// waits for the next full run: it needs a data source.
     pub(super) fn run_queued_commands(&mut self) {
@@ -94,12 +108,8 @@ impl<D: DataSource> Presenter<D> {
                         self.host.log("postMessage: iframe replies are unavailable on Linux");
                         continue;
                     }
-                    let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
-                    if !self.surfaces.post(name, event) {
-                        self.host.log(format!(
-                            "postMessage: dropped: {} posts already wait for surface \"{name}\"",
-                            crate::surfaces::POST_BOUND
-                        ));
+                    if let Err(refused) = self.post_message(name, text) {
+                        self.host.log(refused);
                     }
                 }
                 // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's

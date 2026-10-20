@@ -78,7 +78,7 @@ fn parent_visibility_pixels_remove_mesh_model_shadow_and_light_without_a_tick() 
         model.materials.fill(Default::default());
         model.textures.clear();
         model.validate().unwrap();
-        s.asset("crate.model", Ok(&exact_game::bin::to_vec(&model)));
+        s.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
         s.prepare_assets(
             &gpu.device,
             &gpu.queue,
@@ -188,7 +188,7 @@ fn visible_names_a_pending_model_and_a_hidden_level() {
             .unwrap();
     model.materials.fill(Default::default());
     model.textures.clear();
-    s.asset("crate.model", Ok(&exact_game::bin::to_vec(&model)));
+    s.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
     fixture::render(&gpu, &mut s, &frame(20.)).unwrap();
     let mut word = |name: &str| {
@@ -318,7 +318,10 @@ fn a_skinned_model_is_drawn_and_framed_where_its_joint_holds_it() {
     let mut s = WorldSurface::<Deformed, exact_game_render::ModelExecutor, true>::default();
     s.device_ready(exact_gpu::wgpu::Features::empty());
     s.bind(&[], None).unwrap();
-    s.asset("deformed.model", Ok(&exact_game::bin::to_vec(&model)));
+    s.asset(
+        "deformed.model",
+        Ok(&exact_game::asset::encode_model(&model)),
+    );
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
     fixture::render(&gpu, &mut s, &frame(20.)).unwrap();
     assert!(s.error().is_none(), "{:?}", s.error());

@@ -1,6 +1,6 @@
 # Small game
 
-`bun proof.mjs` verifies gameplay, Contract text/accessibility and saves on the GPU-less Linux host. `bun proof.mjs web` adds pixels. First run `bun /path/to/exact2/game/prove.mjs .` to fill empty pins after every mode and host agrees; accept later intentional changes with `--repin`.
+`bun proof.mjs` verifies gameplay, Contract text/accessibility and saves on the GPU-less Linux host. `bun proof.mjs web` adds pixels. First run `bun /path/to/exact2/game/prove.mjs .` to fill empty pins after every mode and host agrees; accept later intentional changes with `--repin`. Use `prove --release` before shipping; `prove --repin --release` publishes that coverage for existing pins.
 
 `proof.mjs` opens with engine facts that hold for any game, then one block headed
 `// starter: replace these with your game's checks`. The facts: on every GPU host the
@@ -20,6 +20,17 @@ Rust hostless tests read simulation time with `sim.world().now()` and save with
 `await session.world('world').snapshot()`.
 
 The simulation defaults to 120 Hz: the measured 60 Hz tick-wait p95 was about 17 ms. Choosing 60 Hz is an explicit latency/CPU trade, not the starter default.
+
+The HUD is one structure the screen's shape lays out: a `hud-top` group (what the
+player reads at a glance, Pause and Restart), a `hud-bottom` group (the on-screen
+stick and buttons, shown under `pointer: coarse`) and a `panel` (what the player
+opens on purpose: the controls, the Touch controls setting, a shop). In landscape
+the groups sit in the corners and the panel beside the world; when
+`exactViewport()`'s `height` exceeds its `width` they become a top bar and a bottom
+strip and the panel a sheet behind the bar's Menu button, so nothing covers the
+middle third of the world. Add your HUD to these three groups rather than placing
+new corner boxes; the proof drives `resize 420x900`, checks the middle third is
+clear and taps Touch controls through the sheet.
 
 The canvas binds `world(seed=7, paused=paused, restart=again)` by the names in
 `Options`. Reorder these arguments freely; omitted fields use `Options::default()`.
@@ -48,6 +59,24 @@ the tick only retargets the tween. The scene steps `Follow` after your tick.
 
 ![Starter proof capture](artifacts/web/game.png)
 
+The critter sleeps until the player comes within 2.5 m. Awake, it keeps 3 m from a
+lit beacon (`steer::flee`), else follows the player and stops 1.2 m short
+(`steer::arrive`), else wanders (`steer::wander`). A `Spawner` in it drops a coin
+every 2 s, which `collect::drift` brings to the player within 3 m. It starves 40 s
+after it last ate; the shop's Feed (1) unlocks when it is half hungry, and Shoes (2)
+adds a metre a second to the player, three times. The rows, prices and lock reasons
+are published as `shop` and the HUD's buttons hold the same actions as the keys.
+While it is awake and fed the critter declares `busy`, so `clock settle` does not
+report rest between coins; asleep or starved it does not. At most five coins lie on
+the ground; the ones it owes beyond that wait in `Critter.owed`, in order.
+`SaveContract` versions the saves: `Game::restorable` refuses a save of another
+version by name. Bump it when a save from before a change cannot run after it.
+`a_bot_plays_five_minutes_and_the_loop_pays` in `logic/tests/sim.rs` plays five
+minutes on three seeds in about a second and checks the critter never starves and
+the income pays for all three pairs of shoes: change a price or the income and it
+says whether the loop still closes. The SDK's `game/recipes/` (steering, pickup,
+spawner, shop) are the text for this code.
+
 One `nearest_xz_mut` result supplies both the lighting write and the HUD name;
 `w.count::<Beacon>(|b| b.lit)` supplies the total. The proof checks W against
 `d = a*m*(m+1)/(2*h*h) + (n-m)*v/h`, where `m=min(n,floor(v*h/a))`.
@@ -61,7 +90,7 @@ This game is the files you write: `logic/src/lib.rs`, `app.contract` and
 `pins.json`. Identity derives from the directory name and `Game::ID`; add an
 `app.json` only for keys you author (a title, `game.audio`, a bundle id). The
 bake generates everything else, ignored, under `.shells/`. Linux proofs use the
-incremental `gpu-dev` profile; web, Apple and deploy retain their production
+incremental `gpu-dev` profile, as do web proofs; Apple and deploy retain their production
 profiles. `EXACT_GAME_PROOF_PROFILE=release bun proof.mjs` checks Linux against
 release without changing the game.
 

@@ -6,6 +6,7 @@ component App
   state draft = "hi @alice.bsky.social see https://bsky.app #art"
   state painted = "hi @alice.bsky.social see https://bsky.app #art"
   state geometry = ""
+  state sizes = ""
   derive ranges = TextDecorations(value=painted, spans=[TextDecorationSpan(name="mention", start=3, end=21), TextDecorationSpan(name="link", start=26, end=42), TextDecorationSpan(name="tag", start=43, end=47)])
   action edit(value: string)
     draft = value
@@ -21,7 +22,14 @@ component App
     let caret = rangeFrame("composer", 3, 3)
     let mention = rangeFrame("composer", 3, 21)
     let past = rangeFrame("composer", 0, 999)
-    geometry = caret.unavailable ? "unavailable" : `caret ${caret.width}×${caret.height} mention ${mention.width}×${mention.height} past ${past.unavailable}`
+    let field = frame("composer")
+    // Facts every host's fonts agree on (theme2's 17:27 ruling), and the
+    // sizes, which wasm and JS compare and Linux does not (its fonts are its
+    // own: conform.mjs's LINUX_APART, theme2's 18:18 ruling).
+    let line = mention.y == caret.y && mention.height == caret.height
+    let inside = mention.x > field.x && mention.x + mention.width <= field.x + field.width && mention.y > field.y
+    sizes = caret.unavailable ? "unavailable" : `caret ${caret.width}×${caret.height} mention ${mention.width}×${mention.height} past ${past.unavailable}`
+    geometry = caret.unavailable ? "unavailable" : `caret width ${caret.width} mention on its line ${line} from it ${mention.x == caret.x} wide ${mention.width > caret.height * 4} inside ${inside} past ${past.unavailable}`
   view
     column padding=24 gap=12
       textarea id="composer" testId="composer" aria-label="Composer" value=draft input=edit decorations=ranges width=340 height=120 font-size=16

@@ -45,9 +45,10 @@ impl Default for Environment {
 impl Environment {
     /// Clear water seen from inside it: a tank or a shallow sea. The whole frame
     /// sits in one medium, so the sky is the water's colour and fog is uniform.
-    /// Pair it with a sun of about 6,000 lux from above and no opaque surface
-    /// between the sun and the floor; [the underwater recipe](crate::recipes::underwater)
-    /// has the scene, its camera framing and the mean luminance it was measured at.
+    /// Pair it with a sun of about 6,000 lux from above, no opaque surface
+    /// between the sun and the floor, and [`Water`] for the surface;
+    /// [the underwater recipe](crate::recipes::underwater) has the scene, its
+    /// camera framing and the mean luminance it was measured at.
     pub fn underwater() -> Self {
         Self {
             // The fog hides the whole sky, so a flat background would never show.
@@ -131,6 +132,107 @@ impl Default for AmbientOcclusion {
         }
     }
 }
+/// Water with a flat surface at `height`, an optional effect: inserting this
+/// resource draws the surface and confines `Environment`'s fog, either mode,
+/// to the part of each view ray below it. From below, the surface shows the sky
+/// through Snell's window and reflects the depths outside it; from above, it
+/// reflects the sky over what lies beneath. `caustics` and `shafts` add the
+/// sun's light through the moving surface. Saved and hashed like any resource;
+/// the wave phase and every GPU product derive from the displayed time.
+#[derive(Clone, Copy, Debug, PartialEq, Resource)]
+pub struct Water {
+    /// The surface's world Y, in metres.
+    pub height: f32,
+    /// Linear colour of the water seen from above where the floor is not.
+    pub color: [f32; 3],
+    /// From above, the share of what lies beneath that shows through, 0–1.
+    pub clarity: f32,
+    /// The surface's two summed waves, which bend its normals (the plane stays flat).
+    pub waves: Waves,
+    /// The sun's light focused by the waves onto lit surfaces below the height.
+    pub caustics: Option<Caustics>,
+    /// Sunlight scattered in the water: shafts seen from below the surface.
+    pub shafts: Option<Shafts>,
+}
+impl Water {
+    /// A surface at `height` metres, clear blue-green, with gentle waves,
+    /// caustics and shafts.
+    pub fn at(height: f32) -> Self {
+        assert!(height.is_finite(), "a water height in metres");
+        Self {
+            height,
+            color: [0.02, 0.12, 0.15],
+            clarity: 1.,
+            waves: Waves::default(),
+            caustics: Some(Caustics::default()),
+            shafts: Some(Shafts::default()),
+        }
+    }
+}
+/// The codec's default (`Data` needs one): a surface at Y = 0. A game names
+/// its height with [`Water::at`].
+impl Default for Water {
+    fn default() -> Self {
+        Self::at(0.)
+    }
+}
+/// Two waves summed across the surface: the second at 0.61 of the wavelength,
+/// crossing the first at about 70°.
+#[derive(Clone, Copy, Debug, PartialEq, Data)]
+pub struct Waves {
+    /// Height of each wave, in metres.
+    pub amplitude: f32,
+    /// Crest to crest of the longer wave, in metres.
+    pub wavelength: f32,
+    /// Speed of the longer wave, in metres a second.
+    pub speed: f32,
+}
+impl Default for Waves {
+    fn default() -> Self {
+        Self {
+            amplitude: 0.02,
+            wavelength: 2.,
+            speed: 0.6,
+        }
+    }
+}
+/// A moving net of focused light on surfaces under the water, multiplied into
+/// the sun's direct light, so a surface in the sun's shadow shows none.
+#[derive(Clone, Copy, Debug, PartialEq, Data)]
+pub struct Caustics {
+    /// 0 leaves the sunlight even; 1 concentrates it wholly into the net.
+    pub strength: f32,
+    /// Width of one cell of the net, in metres.
+    pub scale: f32,
+}
+impl Default for Caustics {
+    fn default() -> Self {
+        Self {
+            strength: 0.45,
+            scale: 1.5,
+        }
+    }
+}
+/// Sunlight scattered by the water between the camera and what it sees, in
+/// streaks from the surface towards the sun, while the sun is above the
+/// horizon. The scattering is the `Environment`'s fog, either mode: without
+/// fog there are no shafts.
+#[derive(Clone, Copy, Debug, PartialEq, Data)]
+pub struct Shafts {
+    /// Brightness of fully scattered light looking towards the sun, as a share
+    /// of the sun's.
+    pub intensity: f32,
+    /// How far each streak reaches across the frame, as a share of its height.
+    pub length: f32,
+}
+impl Default for Shafts {
+    fn default() -> Self {
+        Self {
+            intensity: 0.7,
+            length: 0.6,
+        }
+    }
+}
 /// How `AmbientOcclusion` trades GPU time for detail. Every level upsamples
 /// with a depth-aware blur, so edges stay crisp at half resolution.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
@@ -181,6 +283,58 @@ impl SceneSamples {
         }
     }
 }
+/// `Game::render_scale`'s default: the quality ladder chooses the raster's
+/// scale (1 on `High`). Not a scale a game returns itself.
+pub const AUTO_RENDER_SCALE: f32 = 0.999_999_9;
+
+/// How much the renderer may spend on what the game left unsaid
+/// (`Game::quality`): read once, before the renderer is made, and never saved.
+/// A rung clamps the scene samples (one under `Low`; `Game::SAMPLES` is the
+/// ceiling), the sun's shadow cascades (none under `Low`, one under `Mid`)
+/// unless the game inserted `Shadows`, and the resolution scale (0.5 under
+/// `Low`, 0.75 under `Mid`) when `render_scale` keeps its default,
+/// [`AUTO_RENDER_SCALE`]; any value the game returns instead, 0.8 or 1
+/// alike, stands on every rung.
+/// `Low` also draws a `Water`'s surface without its caustics and shafts (the
+/// saved resource keeps them). An inserted `AmbientOcclusion` is the game's
+/// and stands. `High` clamps nothing. Nothing in the world reads it: the world hash is the same
+/// on every rung.
+///
+/// A player's setting is a setup argument the game reads here; the rung is
+/// read once, when the canvas's renderer is made, so a new value takes effect
+/// when the canvas is made again:
+///
+/// ```
+/// use exact_game::*;
+/// #[derive(Default, Args)]
+/// struct Settings { battery_saver: bool }
+/// struct Tank;
+/// impl Game for Tank {
+///     const ID: &'static str = "tank";
+///     type Args = Settings;
+///     fn quality(args: &Settings) -> Quality {
+///         if args.battery_saver { Quality::Low } else { Quality::Auto }
+///     }
+///     fn setup(_: &mut World, _: &Settings) {}
+///     fn tick(_: &mut World, _: &Input, _: &Settings) {}
+/// }
+/// assert_eq!(Tank::quality(&Settings { battery_saver: true }), Quality::Low);
+/// assert_eq!(Tank::quality(&Settings::default()), Quality::Auto);
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Quality {
+    /// The device's GPU tier chooses the rung (`exactViewport().gpuTier`:
+    /// `low`, `mid` or `high`; always `high` under the agent).
+    #[default]
+    Auto,
+    /// The cheapest rung, for a phone GPU of the Adreno 600 class.
+    Low,
+    /// The middle rung.
+    Mid,
+    /// Everything the game asks for.
+    High,
+}
+
 /// Height fog, or near/far fog along the camera's forward axis.
 #[derive(Clone, Copy, Debug, PartialEq, Data)]
 pub struct Fog {

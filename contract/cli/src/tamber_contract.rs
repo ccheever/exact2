@@ -695,8 +695,7 @@ pub(crate) fn plan(
                 );
             let shown = |f: &Option<Box<Path>>| {
                 f.as_deref()
-                    .and_then(|f| f.strip_prefix(dir).ok())
-                    .map_or_else(String::new, |p| p.to_string_lossy().into_owned())
+                    .map_or_else(String::new, |f| contract::tamber_uses::shown(f, dir))
             };
             let mut refused = json!({"message": "refused", "diagnostics": all.iter().map(|e| json!({
                 "file": shown(&e.file),

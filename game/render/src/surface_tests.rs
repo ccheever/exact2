@@ -1,4 +1,6 @@
 use super::*;
+#[path = "surface_tests/quality.rs"]
+mod quality;
 #[path = "surface_tests/trace.rs"]
 mod trace;
 use exact_game::{Camera, Input, Mesh, Transform, Vec3};
@@ -734,7 +736,7 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         * glam::Mat4::from_cols_array(&mirrored.transform))
     .to_cols_array();
     model.nodes.push(mirrored);
-    let bytes = exact_game::bin::to_vec(&model);
+    let bytes = exact_game::asset::encode_model(&model);
     let fresh = || {
         let mut s = WorldSurface::<Art, crate::ModelExecutor, true>::default();
         s.device_ready(exact_gpu::wgpu::Features::empty());
@@ -1220,7 +1222,9 @@ fn offsets_move_socketed_props_with_their_owner_and_alone() {
             .unwrap();
         surface.asset(
             "fox.model",
-            Ok(&exact_game::bin::to_vec(&crate::test_model::skinned_model())),
+            Ok(&exact_game::asset::encode_model(
+                &crate::test_model::skinned_model(),
+            )),
         );
         surface.asset(
             "fox/0-srgb-straight.tex",

@@ -148,6 +148,15 @@ extension Presenter {
 #endif
 
 #if os(iOS) || os(tvOS)
+/// The view whose UIKit placement orders a top-layer box (LLP 1123 D2).
+struct TopLayerBox {
+    let view: UIView
+    /// None: the top route presentation, which shows no box yet (its routes
+    /// are mounting, or laid out empty), still begins the modal boundary.
+    let frame: TopLayerFrame?
+    let modal: UIViewController?
+}
+
 /// Each route's root laid out in its controller's view (LLP 1123 D2): the
 /// route is a content owner, and its view's bounds are its containing block
 /// (LLP 1115.002 D8.2), as a pane's are on the Mac (BlockHostMac.swift).
@@ -221,21 +230,20 @@ final class OwnerBlocks {
         return block
     }
 
-    /// Where each presented route a window shows is, in viewport points,
-    /// bottom to top: the top-layer boxes the runner tests before the page.
-    /// And the index of the first of the top presentation's, under which
-    /// UIKit's presentation makes the rest inert: the runner keeps it and
-    /// what is above it live to its point reads, and the rest inert. None
-    /// while nothing is presented.
-    var presented: (frames: [(UInt32, CGRect)], modal: Int?) {
-        var frames: [(UInt32, CGRect)] = [], modal: Int?
+    /// Each presented route a window shows; the top live modal stack's
+    /// first box begins its boundary. Retiring routes remain visible but
+    /// claim no modal boundary (LLP 1123 D2).
+    var presented: [TopLayerBox] {
         let top = presenter.modals.topNavigation
-        for nav in presenter.modals.navigations {
-            if nav === top { modal = frames.count }
-            frames += routes(of: nav, presented: true).filter(\.shown)
-                .map { ($0.route.node.id, presenter.viewportPoints($0.view.convert($0.block, to: presenter.viewport))) }
+        var boxes = presenter.modals.navigations.flatMap { nav in
+            routes(of: nav, presented: true).filter(\.shown).map { route in
+                TopLayerBox(view: route.view,
+                            frame: (route.route.node.id, presenter.viewportPoints(route.view.convert(route.block, to: presenter.viewport)), nil),
+                            modal: nav === top ? nav : nil)
+            }
         }
-        return (frames, modal)
+        if let top, !boxes.contains(where: { $0.modal === top }) { boxes.append(TopLayerBox(view: top.view, frame: nil, modal: top)) }
+        return boxes
     }
 
     /// Gives each route a window shows its block, and an ordinary one its
@@ -330,19 +338,42 @@ final class OwnerBlocks {
 }
 
 extension Presenter {
-    /// Open top-layer views in viewport points, back to front: the presented
-    /// routes a window shows (LLP 1123 D2), then the menus and popovers above
-    /// them; a native confirmation has no frame of its own. And the index of
-    /// the top presentation's first route, or a modal confirmation above it.
-    package var openTopLayer: (frames: [(UInt32, CGRect)], modal: Int?) {
-        let routes = owners.presented
-        let frames = routes.frames + menus.presented.map { ($0.id, $0.topLayerFrame(in: viewport)) }
-        if let confirmation = menus.nativeConfirmation {
-            return (frames + [(confirmation.id, CGRect.zero)], menus.openModally(confirmation) == true ? frames.count : routes.modal)
+    /// Open top-layer boxes in UIKit's paint order, back to front (LLP
+    /// 1123 D2). A popover's current host decides which sheet it is above:
+    /// one opened earlier or outside the dialog stays beneath its card.
+    /// The last modal boundary leaves only it and what is above it live.
+    package var openTopLayer: (frames: [TopLayerFrame], modal: Int?) {
+        let boxes = owners.presented + menus.sheets.presented + menus.presented.map {
+            TopLayerBox(view: $0, frame: ($0.id, $0.topLayerFrame(in: viewport), nil), modal: nil)
         }
-        return (frames, routes.modal)
+        func path(_ view: UIView) -> [Int] {
+            var path: [Int] = [], at = view
+            while let parent = at.superview {
+                let siblings = NodeView.hitOrder(parent.subviews).reversed()
+                path.append(siblings.enumerated().first { $0.element === at }?.offset ?? 0)
+                at = parent
+            }
+            return Array(path.reversed())
+        }
+        // A presentation not in the window yet is above what presents it.
+        func place(_ box: TopLayerBox) -> [Int] {
+            guard box.view.window == nil, let presenting = box.modal?.presentingViewController?.viewIfLoaded else { return path(box.view) }
+            return path(presenting) + [Int.max]
+        }
+        let ordered = boxes.enumerated().map { (box: $0.element, path: place($0.element), index: $0.offset) }.sorted {
+            $0.path == $1.path ? $0.index < $1.index : $0.path.lexicographicallyPrecedes($1.path)
+        }.map(\.box)
+        let frames = ordered.compactMap(\.frame)
+        let topModal = ordered.last { $0.modal != nil }?.modal
+        let modal = topModal.flatMap { controller in
+            ordered.firstIndex { $0.modal === controller }.map { at in ordered[..<at].filter { $0.frame != nil }.count }
+        }
+        if let confirmation = menus.nativeConfirmation {
+            return (frames + [(confirmation.id, CGRect.zero, nil)], menus.openModally(confirmation) == true ? frames.count : modal)
+        }
+        return (frames, modal)
     }
-    package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames }
+    package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames.map { ($0.0, $0.1) } }
 
     /// A rectangle in the viewport's coordinates, less its scrolling: where
     /// a person sees it in the viewport, as the runner reads a top-layer box.

@@ -65,6 +65,8 @@ use std::process::ExitCode;
 mod answers;
 #[path = "tamber_base.rs"]
 mod base;
+#[path = "tamber_check.rs"]
+mod check;
 #[path = "tamber_scrub.rs"]
 mod scrub;
 #[path = "tamber_walk.rs"]
@@ -72,7 +74,7 @@ mod walk;
 use answers::{diagnostic, located, modes_of, no_token, refused, temp_name};
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.14";
+pub const PROTOCOL: &str = "tamber/1.15";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -203,10 +205,34 @@ struct Server {
     /// Contract sources they were read from, with the retention its plan
     /// keeps tokens by (D7), read by the same build.
     synthetic: Option<Synthetic>,
+    /// The last retention build's types and expansion, by the Contract
+    /// sources' key: a build the design alone moved reuses them where the
+    /// program loads as it did (`contract::retention_build`).
+    kept: Option<(String, contract::Kept)>,
+    /// The style rows the last retention build found literal, with each
+    /// source's path, by the Contract sources' key: what a write's rows
+    /// check judges again (`contract_lower::rows`).
+    rows: Option<(String, Vec<contract_lower::rows::Row>, Vec<PathBuf>)>,
+    /// The background whole build, which says when a retention build's
+    /// build fails after the design (theme2's 12:15 ruling).
+    checker: check::Checker,
+    /// The retention key the last answer was made under (a scrub's frames
+    /// ask the check under it).
+    last_key: String,
     /// The app's components' params (LLP 1121 D15), by the Contract
     /// sources' key ([`Server::sources_key`]): every read and write asks
     /// them, and loading them parses the app (~200 ms on the clone).
     params: std::cell::RefCell<(String, std::rc::Rc<contract::tamber_params::AppParams>)>,
+    /// The exported library components' slot chains (LLP 1139 D4, stage 12
+    /// D2), built from the params above when they are loaded again, never
+    /// per write: what a write's candidate fold is checked against.
+    #[allow(clippy::type_complexity)]
+    slots: std::cell::RefCell<
+        Option<(
+            std::rc::Rc<contract::tamber_params::AppParams>,
+            Option<std::rc::Rc<contract_lower::anatomy::slot::SlotChains>>,
+        )>,
+    >,
     /// The Contract sources as last walked ([`walk::Walk`]): every snapshot and
     /// every request's params ask them, and walking them parses the app
     /// (~200 ms on the clone).
@@ -349,7 +375,12 @@ impl Server {
             next: 0,
             client: None,
             synthetic: None,
+            kept: None,
+            rows: None,
+            checker: check::Checker::default(),
+            last_key: String::new(),
             params: Default::default(),
+            slots: Default::default(),
             graph: Default::default(),
             asked: Default::default(),
             contract: Default::default(),
@@ -366,42 +397,114 @@ impl Server {
 
     /// The app's synthetic tokens: every expression over tokens its rows
     /// write, folding or not, as the compiler finds them (the plan keeps
-    /// only those that fold). Read again when a Contract source, what
-    /// resolved its imports, or the design's token names change, which is
-    /// what decides them. None when the build stopped before the design:
-    /// not kept, and tried again.
-    fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
-        let root = self.dir.join("app.contract");
+    /// only those that fold), and the plan's retention beside them. Read
+    /// again when a Contract source or what resolved its imports changes, or
+    /// what of the app's or a package's design can move them does
+    /// (`walk::retention_key`): an edit of a value that names nothing
+    /// keeps them; one that moves an alias, a `params` entry or a component's
+    /// param builds them again on the next propose.
+    /// None when the build stopped before the design: not kept, and tried
+    /// again.
+    /// The retention key of `snap`: the Contract sources' key and what of
+    /// the app's design and each package's can move retention
+    /// (`retention_key`: names and what values name, the `params` block,
+    /// components' params), parsed: a value edit naming nothing (a hex)
+    /// keeps it, where a whole compile of the clone costs seconds.
+    fn retention_key(&self, snap: &Snapshot) -> String {
         let mut key = self.sources_key();
-        if let Some(design) = snap
+        let app = self.app_params();
+        let texts: Vec<&str> = snap
             .iter()
             .find(|(f, _, _)| *f == self.design)
-            .and_then(|(_, t, _)| exact_tamber::parse(t).ok())
-        {
-            for t in &design.tokens {
-                key.push_str(&t.name.value);
-                key.push('\n');
-            }
-            // A native component's params, kept by their declaration, and
-            // what their defaults read.
-            key.push_str(&format!("{:?}\n", design.components));
+            .map(|(_, t, _)| t.as_str())
+            .into_iter()
+            .chain(app.packages.iter().map(|p| p.text.as_str()))
+            .collect();
+        key.push_str(&walk::retention_key(&texts));
+        key
+    }
+
+    fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
+        let root = self.dir.join("app.contract");
+        let key = self.retention_key(snap);
+        // A whole build failed under this retention: the closure is
+        // unknown, as on main, and every answer under it is `rebuild` until
+        // a whole build of the files as they are passes (`check`).
+        self.last_key = key.clone();
+        if !self.known(&key) {
+            return None;
         }
         if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
                 return Some(exprs.clone());
             }
         }
-        let _ = contract_lower::synthetic_candidates();
-        let _ = contract_lower::retention();
-        let built = contract::compile_path_all(&root, false);
-        let exprs = contract_lower::synthetic_candidates();
-        let retention = contract_lower::retention();
+        // Built as far as the design's retention and no further, reusing
+        // the last build's types and expansion where its Contract loads as
+        // it did (theme2's 11:32 ruling). A build that fails after the
+        // design still says them; that it fails is the whole build's to say.
+        let sources = self.sources_key();
+        let kept = self
+            .kept
+            .take()
+            .filter(|(k, _)| *k == sources)
+            .map(|(_, kept)| kept);
+        let built = contract::retention_build(&root, kept);
+        // A test reads how often they are built, and how (`EXACT_TAMBER_RETENTION_LOG`, a line each).
+        if let Some(log) = std::env::var_os("EXACT_TAMBER_RETENTION_LOG") {
+            use std::io::Write;
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log);
+            let line = match (built.reused, built.stale) {
+                (_, true) => "built stale\n",
+                (true, false) => "built reused\n",
+                (false, false) => "built\n",
+            };
+            let _ = file.and_then(|mut f| f.write_all(line.as_bytes()));
+        }
+        self.kept = built.kept.map(|kept| (sources.clone(), kept));
+        self.rows = Some((sources, built.rows, built.paths));
         // A build that stopped before the design says nothing of them.
-        let reached = built.is_ok() || !exprs.is_empty();
-        reached.then(|| {
-            self.synthetic = Some((key, exprs.clone(), retention));
-            exprs
+        let retention = built.retention?;
+        self.synthetic = Some((key.clone(), built.candidates.clone(), Some(retention)));
+        // Whether the whole build fails after the design: unverified, and
+        // built in the background from here.
+        self.checker.made(&key);
+        self.known(&key);
+        Some(built.candidates)
+    }
+
+    /// Whether answers under retention key `key` are known, of the files as
+    /// they are now (`check::Checker::known`): a whole build under it
+    /// failed and none of these files has passed since, not.
+    pub(super) fn known(&mut self, key: &str) -> bool {
+        let walk = self.walk();
+        let (inputs, digests): (Vec<PathBuf>, Vec<String>) = walk.inputs().into_iter().unzip();
+        let (manifests, facts) = walk.facts();
+        drop(walk);
+        let dir = self.dir.clone();
+        self.checker.known(key, || check::Job {
+            root: dir.join("app.contract"),
+            print: check::fingerprint_read(&dir, &inputs, &digests, &facts),
+            dir,
+            key: key.to_string(),
+            inputs,
+            manifests,
         })
+    }
+
+    /// [`Server::known`] for a scrub opened under retention key `key`: the
+    /// files as they are now are built only when they are still under it,
+    /// so a pass clears only the key its files are under; else whether a
+    /// whole build under it failed.
+    pub(super) fn known_under(&mut self, key: &str) -> bool {
+        let now = self.snapshot().map(|snap| self.retention_key(&snap));
+        match now {
+            Ok(now) if now == key => self.known(key),
+            _ => !self.checker.failed(key),
+        }
     }
 
     fn state(&self) -> PathBuf {
@@ -788,7 +891,7 @@ impl Server {
             .map_err(|e| json!({"message": format!("the baseline: {e}")}))?;
         Ok(json!({
             "kind": "dtcg", "text": text, "digest": digest,
-            "baseline": kept.strip_prefix(&self.dir).unwrap_or(&kept).to_string_lossy(),
+            "baseline": contract::tamber_uses::shown(&kept, &self.dir),
         }))
     }
 
@@ -858,12 +961,13 @@ impl Server {
                 )?;
             let map: Value = serde_json::from_str(&map.json(&plan.encode()))
                 .map_err(|e| json!({"message": format!("source map: {e}")}))?;
-            let sites = contract::tamber_uses::motion_instances(
+            let mut sites = contract::tamber_uses::motion_instances(
                 &self.dir.join("app.contract"),
                 sites,
                 &map,
             )
             .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
+            contract::tamber_uses::relative_files(&mut sites, &self.dir);
             return Ok(
                 json!({"token": name, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
             );
@@ -872,7 +976,9 @@ impl Server {
             .map_err(|e| json!({"message": format!("the app does not build: {}", e.message)}))?;
         let map: Value = serde_json::from_str(&map.json(&plan.encode()))
             .map_err(|e| json!({"message": format!("source map: {e}")}))?;
-        let sites = contract::tamber_uses::sites(&plan, &map, &name, &aliases, &synthetic);
+        let mut sites = contract::tamber_uses::sites(&plan, &map, &name, &aliases, &synthetic);
+        // Each site's file as the app names it, never the machine's path.
+        contract::tamber_uses::relative_files(&mut sites, &self.dir);
         Ok(
             json!({"token": name, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
         )

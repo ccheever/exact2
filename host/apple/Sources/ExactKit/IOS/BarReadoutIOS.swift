@@ -4,7 +4,8 @@
 // which on iOS 26 and later sits in the bar's glass like any item. Its parts
 // are the author's as written (`ChipFace`, read with `readout`: fonts,
 // colours, line heights, the dot, the gap, the padding); what the author left
-// unsaid is UIKit's (the label colour, the body font, no padding). The item
+// unsaid is UIKit's (the label colour, the body font, and beside words a
+// title item's inset, `HeaderShape.Item.titleInset`). The item
 // is kept across projections and its view follows the readout in place, so a
 // changing readout does not rebuild the bar's items. VoiceOver reads it as
 // static text, by its `aria-label` or its texts, and speaks a change

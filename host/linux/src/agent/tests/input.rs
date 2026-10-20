@@ -39,6 +39,34 @@ fn the_clipboard_events_reach_the_nearest_handler() {
         &format!(r#"{{"op":"type","id":{log},"clipboard":"cut"}}"#),
     );
     assert!(reply.contains("no cut handler"), "{reply}");
+    // The Linux host pastes text only and takes no drag from outside: both
+    // are refused by name, and neither presses nor pastes.
+    let reply = handle(
+        &mut p,
+        &format!(
+            r#"{{"op":"type","id":{cell},"clipboard":"paste","text":"","files":["/tmp/a.png"]}}"#
+        ),
+    );
+    assert!(
+        reply.contains("unsupported: the Linux host pastes text only"),
+        "{reply}"
+    );
+    for form in [
+        r#""drop":["/tmp/a.png"]"#,
+        r#""dragenter":["/tmp/a.png"]"#,
+        r#""dragleave":true"#,
+    ] {
+        let reply = handle(&mut p, &format!(r#"{{"op":"tap","id":{cell},{form}}}"#));
+        assert!(
+            reply.contains("unsupported: the Linux host takes no drag"),
+            "{reply}"
+        );
+    }
+    let k = p.host().kernel();
+    assert_eq!(
+        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
+        Some("grid:a\tb;copy;")
+    );
 }
 
 /// A paste is Ctrl+V first. A `key` handler that `preventDefault()`s that
@@ -893,4 +921,53 @@ fn into_alignment_is_malformed_before_any_delivery() {
     let state: serde_json::Value =
         serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
     assert_eq!(state["slots"]["n"], 0, "{state}");
+}
+
+/// The driver's `post` (LLP 1139.004 D1) is the page's `postMessage`: held per
+/// surface until a canvas of it is live, at most POST_BOUND, refused by name past it.
+#[test]
+fn a_post_is_held_for_its_surface_and_refused_past_the_bound() {
+    let plan =
+        contract::compile("component App\n  view\n    text \"title\" testId=\"title\"\n").unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let reply = handle(&mut p, r#"{"op":"type","message":"spawn"}"#);
+    assert!(reply.contains("no world is live"), "{reply}");
+    for _ in 0..crate::surfaces::POST_BOUND {
+        let reply = handle(
+            &mut p,
+            r#"{"op":"type","message":"spawn","surface":"world"}"#,
+        );
+        assert!(
+            reply.contains(r#""posted":"world""#) && reply.contains(r#""held":true"#),
+            "{reply}"
+        );
+    }
+    let reply = handle(
+        &mut p,
+        r#"{"op":"type","message":"spawn","surface":"world"}"#,
+    );
+    assert!(
+        reply.contains(
+            r#"post refused: postMessage: dropped: 64 posts already wait for surface \"world\""#
+        ),
+        "{reply}"
+    );
+    let title = p.host().kernel().find_by_test_id("title")[0];
+    let id = p.host().kernel().node_by_key(title).unwrap().id;
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","message":"spawn","id":{id}}}"#),
+    );
+    assert!(
+        reply.contains(&format!("view {id} has no world")),
+        "{reply}"
+    );
 }

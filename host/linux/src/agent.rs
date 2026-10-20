@@ -17,6 +17,16 @@ use exact_runner::instance::collection::Align;
 use exact_runner::DataSource;
 use std::io::{BufRead, Write};
 
+/// The host this agent runs on, as a refusal names it: the Windows host and
+/// the Android reader run this code too.
+const HOST_NAME: &str = if cfg!(windows) {
+    "Windows"
+} else if cfg!(target_os = "android") {
+    "Android"
+} else {
+    "Linux"
+};
+
 pub(crate) fn refusal(subsystem: &str, message: &str) -> serde_json::Value {
     let host = if cfg!(windows) {
         "windows"
@@ -26,6 +36,39 @@ pub(crate) fn refusal(subsystem: &str, message: &str) -> serde_json::Value {
         "linux"
     };
     serde_json::json!({"error":message, "refused":{"host":host, "subsystem":subsystem, "message":message}})
+}
+
+/// The driver's `post` (LLP 1139.004 D1): `postMessage(text, surface)` as the
+/// page sends it, into canvas `view`'s surface, the named one, or the page's
+/// one world. A surface with no live canvas holds it, as it holds the page's.
+fn post<D: DataSource>(
+    p: &mut Presenter<D>,
+    view: Option<u32>,
+    surface: Option<String>,
+    text: &str,
+) -> String {
+    let name = match (view, surface) {
+        (Some(view), _) => match p.surfaces.surface_of(view) {
+            Some(name) => name.to_owned(),
+            None => return error(&format!("view {view} has no world")),
+        },
+        (None, Some(name)) => name,
+        (None, None) => {
+            let names: Vec<_> = p.surfaces.surface_names().into_iter().collect();
+            match names[..] {
+                [name] => name.to_owned(),
+                [] => return error("post: no world is live; name its surface (post <surface> <text>) to hold the message until one is"),
+                _ => return error(&format!("post: {} worlds are live ({}); name one: post <surface> <text>", names.len(), names.join(", "))),
+            }
+        }
+    };
+    match p.post_message(&name, text) {
+        Ok(()) if p.surfaces.waiting(&name) => {
+            serde_json::json!({"posted": name, "delivery": "posted", "held": true}).to_string()
+        }
+        Ok(()) => serde_json::json!({"posted": name, "delivery": "posted"}).to_string(),
+        Err(refused) => error(&format!("post refused: {refused}")),
+    }
 }
 
 fn malformed(message: &str) -> String {
@@ -349,6 +392,14 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             if request.get("close").is_some() {
                 return error("unsupported: the Linux presenter closes no window (no `beforeunload`); close drives a macOS window or the browser's page");
             }
+            // A drag from outside the app: this host takes none (no
+            // `drop`, `dragenter` or `dragleave`, as the guide says).
+            if ["drop", "dragenter", "dragleave"]
+                .iter()
+                .any(|k| request.get(*k).is_some())
+            {
+                return error(&format!("unsupported: the {HOST_NAME} host takes no drag from outside the app (no `drop`, `dragenter` or `dragleave`); drop drives the browser's page or a macOS window"));
+            }
             // @ref LLP 1116.006 D4 — the platform's Back, as Alt+Left or a Back key takes it.
             if request.get("back").is_some() {
                 if request
@@ -497,11 +548,21 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             r.unwrap_or_else(|e| error(&e))
         }
+        Some("type") if field_str(line, "message").is_some() => post(
+            p,
+            id(),
+            field_str(line, "surface"),
+            &field_str(line, "message").unwrap_or_default(),
+        ),
         Some("type") => {
             let Some(id) = id() else {
                 return malformed("type needs an id");
             };
             if let Some(edit) = field_str(line, "clipboard") {
+                // This host's clipboard carries text: a paste's `files` is empty.
+                if line.contains(r#""files":"#) || line.contains(r#""image":"#) {
+                    return error(&format!("unsupported: the {HOST_NAME} host pastes text only (a `ClipboardEvent`'s `files` is empty); paste --file and --image drive the browser's page or an Apple host"));
+                }
                 let text = field_str(line, "text").unwrap_or_default();
                 return p.clipboard(id, &edit, &text).unwrap_or_else(|e| error(&e));
             }
@@ -643,6 +704,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let mut page = p.host().runner().page();
     let mut root_font_size = None;
     let mut display_scale = None;
+    let mut retier = None;
     let mut dark = p.scheme.1;
     for (name, value) in media {
         match (name.as_str(), value.as_str().unwrap_or_default()) {
@@ -706,6 +768,15 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("can-share-pictures", v @ ("true" | "false")) => page.can_share_pictures = v == "true",
             ("can-open-files", v @ ("true" | "false")) => page.can_open_files = v == "true",
             ("has-focus", v @ ("true" | "false")) => page.has_focus = v == "true",
+            // @ref LLP 1139.003 D2 — the fact, and the modules' tier: their
+            // renderers are made again at the new rung.
+            ("gpu-tier", v @ ("high" | "mid" | "low")) => {
+                page.gpu_tier = exact_runner::page::GPU_TIERS
+                    .iter()
+                    .position(|t| *t == v)
+                    .unwrap_or(0) as u8;
+                retier = Some(page.gpu_tier);
+            }
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
                 root_font_size = v.parse::<f64>().ok()
             }
@@ -727,6 +798,9 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     preferences.dark = dark;
     if let Some(e) = p.set_preferences(preferences) {
         return error(&e);
+    }
+    if let Some(code) = retier {
+        p.retier_surfaces(code);
     }
     if let Some(e) = p.set_page(page) {
         return error(&e);
@@ -775,6 +849,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "has-focus": page.has_focus,
         "root-font-size": p.host().runner().root_font_size(),
         "display-scale": p.host().runner().display_scale(),
+        "gpu-tier": page.gpu_tier(),
     }, "fold": {
         "device-posture": fold.posture.keyword(),
         "horizontal-viewport-segments": fold.cols,

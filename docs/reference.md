@@ -56,9 +56,9 @@ not require `HOME`. App and scratch
 identities and `app:/` path components must be safe Windows leaves; drive, UNC,
 backslash traversal, alternate-stream and reserved-device forms are refused.
 
-Snapback4 consumers use release **0.4.29**: the CLI is pinned in `bun.lock`;
+Snapback4 consumers use release **0.4.33**: the CLI is pinned in `bun.lock`;
 Cargo pins the device and its client to the matching release source commit
-`59fb4ead1ba18569369523bba55b56713cc275e9`. `snapback4/` is one client for an
+`3653cae823145170df3e720f5e321bd1b5b4d79d`. `snapback4/` is one client for an
 app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
 the protocol in Rust without I/O, the native device, the web's wasm, and the
 TypeScript driver an app mounts with `typescript.sources`. The client is its
@@ -196,8 +196,12 @@ origin (`own`, `class:<Name>`, or `tag`) and, where an author wrote it, `at`
 and `attr`; and `states`, one `{state, origin, at}` per state part that
 writes the row: `:active`'s (on the press paint row it lowers to), `:hover`'s
 and `:focus-visible`'s (LLP 1121 D8, LLP 1122); a conditional class's
-(`class=(c ? A : B)`) says no `at`, as its base row says none. A row only a
-state part writes, a press row among them, has no base fields. Slots, derives and actions retain their declarations,
+(`class=(c ? A : B)`) says no `at`, as its base row says none; a row a
+`:disabled` or `:checked` part folds over its base says the base's attribute
+as its base and each folded part in `states`. A row only a state part
+writes, a press row among them, has no base fields. Each source is listed
+with its digest, and a Contract source with its `home`, as its components'
+identities name it (a param's full name is `<home>#<component>.<param>`). Slots, derives and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside
@@ -340,17 +344,37 @@ The web manifest carries the same entries; browser registration is subject to
 the browser's supported schemes and installation behavior. Linux's CLI URL
 argument retains the ordinary location conversion because it does not
 register OS protocol handlers.
+
 For packaged-only Apple registration, add `"distribution_only": true` to an
 entry, for example `{"protocol":"notes","url":"/open?u=%s","distribution_only":true}`.
 Archives and `--distribution` builds include it; local builds, including
 `--bundle` and `--release` alone, omit it from both the registered schemes and
 native handler templates. The default is `false`. This option does not filter
 the web manifest or explicit `host.<platform>.urlSchemes`.
+
+`http` and `https` are the web's own schemes. An app declares both or
+neither: each once, with the same `url` and the same `distribution_only`.
+`readManifest` refuses any other form, so every build does, and
+`host.ios.urlSchemes` and `host.macos.urlSchemes` refuse both. The pair makes
+the app a web browser:
+
+| host | what the pair does |
+| --- | --- |
+| macOS | a second URL type, `Web site URL`, role `Viewer`, and a `Web page` document type (`public.html`, `public.xhtml`; `Viewer`, rank `Alternate`), without which macOS lists no browser. The person chooses the app in System Settings › Desktop & Dock › Default web browser; the app never asks to become the default. A link arrives at the template. An HTML file that Finder opens in the app arrives there too, as its `file:` URL (`/open?u=file%3A%2F%2F%2F…`), unless the app's own `file_handlers` accept it. The web-page type is not offered by the app's pickers and does not widen what `drop` accepts. |
+| iOS, tvOS | refused: the bundle registers neither, and the build says so. A default browser on iOS needs Apple's managed `com.apple.developer.web-browser` entitlement. |
+| web | dropped from `manifest.json`: HTML's protocol handler safelist has neither. |
+| Linux, Windows, Android | not registered, as no protocol handler is there. |
+
+With `"distribution_only": true` on both entries, only an archive or a
+`--distribution` build is a browser. A local Mac build then registers neither
+scheme, writes no `Web page` type, and does not join this Mac's browser list.
+
 A file chosen in the app's own picker (`showOpenFilePicker`,
 `showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
 and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
-(LLP 1033 D3). One handed over at launch arrives before first pixel, before
+(LLP 1033 D3). In a Mac browser, an HTML file from the command line or Finder
+that `file_handlers` do not accept is a link instead, at the `https` template. One handed over at launch arrives before first pixel, before
 app storage is ready and before a TypeScript data module has loaded: a send its
 `change` makes waits for both and then runs, pending meanwhile, rather than being
 refused (studio diary R14; notes diary). When nothing takes the path, the
@@ -880,6 +904,23 @@ example, 20 resources fetching once beside one source fetching 20 times can
 all wait and answer. A failed resource keeps its last value; `refresh` asks
 again. See LLP 1041 §8.4 for the byte reservations and cancellation policy.
 
+That queue runs one request at a time, so a screen that reads twenty feeds
+waits for each in turn. A read whose request and reply may both be handled
+out of order can leave it: `fetch(url, { exactIndependentHttp:
+{ maxResponseBytes: 4194304 } })` in TypeScript, or
+`Request::get(url).independent_http(4 << 20)` from a Rust source. A native app
+then runs up to six such reads at once, within their own budget of 128
+requests and 64 MiB. A running read counts twice its ceiling, so a ceiling
+above about 32 MiB is refused when the read is made: keep it near the largest
+reply you expect. A browser has no lanes and schedules every fetch itself, so
+there only the ceiling applies. On every host a reply larger than
+`maxResponseBytes` fails as `refused`. The ceiling is 1 byte to 64 MiB, and
+anything else is a `TypeError`. A `GET` is
+not independent by default, because a source may depend on its replies
+arriving in order. Leave writes, and any read whose parse depends on an
+earlier reply, in the queue. Storage steps and native continuations cannot
+opt out of it.
+
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
 and `Math.random()`: time and seeds are source arguments. Every executor
@@ -1236,6 +1277,18 @@ without a permission prompt. A drive can then `type` the listed location into
 the navigation root to check its screen. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
 
+### Local network
+
+The grant `device.local-network purpose.<key>` writes the strings key's text
+as `NSLocalNetworkUsageDescription` on macOS, iOS and tvOS (with each table's
+translation in `InfoPlist.strings`). That text is the prompt the platform
+shows before the app first reaches an address on the local network (macOS 15
+and later, iOS 14 and later; Apple TN3179). Exact adds no gate of its own:
+the platform asks and refuses. On iOS the grant's text replaces the
+development client's default prompt from `host.ios.localNetworking`, which
+still adds `NSAllowsLocalNetworking`. The web, Linux, Windows and Android
+get nothing: a browser asks with its own Local Network Access prompt.
+
 ### Apple Health
 
 Exact has no Health API: the app's own Swift module (LLP 1067) calls
@@ -1461,15 +1514,17 @@ deferred.
 
 ### Shrink a picked image for upload (`storage.fs.compressImage`)
 
-`storage.fs.compressImage(from, to, {maxDimension, maxBytes})` decodes the image
+`storage.fs.compressImage(from, to, {maxDimension, maxBytes, type})` decodes the image
 at `from`, scales it so its longer side is at most `maxDimension` pixels, and
 writes a JPEG of at most `maxBytes` bytes at `to`, searching JPEG quality the way
 Bluesky's composer does (from quality 51 down and up; when 51 and 26 both miss,
 the size shrinks by 0.8, at most four sizes). Orientation is applied, and none
 of the source's metadata is written (no EXIF, GPS or orientation); transparency
-becomes white and the colour is sRGB. It resolves `{path, type: 'image/jpeg',
-size, width, height}` ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md)
-Amendment A1):
+becomes white and the colour is sRGB. With `type: 'image/png'` it writes a PNG
+instead, which keeps transparency: PNG has no quality, so it is encoded at the
+fitted size and, while over `maxBytes`, the size shrinks by 0.8, at most four
+times. It resolves `{path, type, size, width, height}`, `type` the one written
+([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) Amendment A1, A1.11):
 
 ```ts
 export const grants = 'fs.read app:/tmp\nfs.write app:/tmp';
@@ -1483,6 +1538,7 @@ Both paths are `app:/` files (`fs.read` on `from`, `fs.write` on `to`); `to` is
 replaced atomically, and left as it was on any failure. It always re-encodes, so
 compare the pick's `size`, `width` and `height` first to skip it. It is one
 storage operation in the module's queue; natively it runs off the JS thread. A bad option
+(a `type` other than `'image/jpeg'`, the default, or `'image/png'` too)
 rejects with a `TypeError`; otherwise a refusal's `code` is `denied`, a
 filesystem code, `failed` (a path that is not `app:/`), `too-large` (over 64 MiB,
 or a header over 64 Mi pixels, checked before decoding), `undecodable`, `unfit`
@@ -1491,15 +1547,16 @@ ran out with nothing written) or `unsupported`. macOS and iOS encode with
 ImageIO (an HDR photo is tone-mapped), the web with a canvas (in the page or the
 module's worker; JPEG, PNG, GIF, WebP and BMP, never HEIF or AVIF, whose size it
 cannot read before decoding);
-Linux, Windows and Android have no JPEG encoder and answer `unsupported`, so
+Linux, Windows and Android have no image encoder and answer `unsupported`, so
 upload the original when it already fits. Under the agent it runs for real with
 `--storage <name>`.
 
 ### Documents the person chose (`doc:`)
 
 A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
-`showSaveFilePicker`), or opens from the system at the app's `open-file` node,
-arrives as a `doc:/<n>/<name>` path (LLP 1069.010 D1). `storage.fs` reaches it,
+`showSaveFilePicker`), opens from the system at the app's `open-file` node,
+drops on a node with `drop` or pastes (below), arrives as a `doc:/<n>/<name>`
+path (LLP 1069.010 D1). `storage.fs` reaches it,
 and paths beneath a chosen folder, under the grants `fs.read doc:/` and
 `fs.write doc:/` — the same grants, operations, refusals and codes whether the
 data module is TypeScript or Rust, on every host:
@@ -1590,6 +1647,40 @@ refuses `ENOENT`: ask the person to choose again. Without `doc.keep`
 both calls are refused. Under the agent the kept set is the drive's scratch
 store (`--storage`), never the person's. Linux and iOS keep nothing yet and
 list nothing; the web has neither call yet.
+
+### Files dropped or pasted
+
+A `drop` hands its action a `DragEvent` whose `files` are `doc:` handles of
+any type, a folder's included; a `paste`'s `ClipboardEvent` has `files` too,
+image data with no file (a screenshot) as one `image.png`. Read them as any
+`doc:` path, under `fs.read doc:/`; `storage.fs.stat(path).isDirectory` tells
+a folder. A file drag over a `textarea` or `input` whose node or an ancestor
+declares `drop` lands there, not as path text in the field. `dragenter` and
+`dragleave` bracket the drag over a node, for a drop overlay
+([grammar](contract-grammar.md#pointer)):
+
+```text
+action took(e: DragEvent)
+  paths = e.files
+action pasted(e: ClipboardEvent)
+  if e.files.length > 0
+    paths = e.files
+    preventDefault()
+column dragenter=entered dragleave=left drop=took
+  textarea paste=pasted
+```
+
+| Host | `drop`, `dragenter`, `dragleave` | `ClipboardEvent.files` |
+| --- | --- | --- |
+| Web (JS and wasm targets) | yes: Chromium's handles, else read-only copies; a folder's entry as a read-only folder | `clipboardData.files`, read-only copies |
+| macOS | yes: every file URL Finder drags, a field forwarding the drag to its `drop` node | file URLs, else PNG or TIFF data written as `image.png` |
+| iOS | none (declared; the driver's drag forms answer `unsupported`) | file URLs, else the pasteboard's image as `image.png` |
+| tvOS | none | empty: tvOS has no pasteboard |
+| Linux, Windows, Android, terminal | none (declared; Linux and Windows drivers refuse by name) | empty: these hosts paste text only |
+
+The driver: `tap <target> drop <path…>` (files and folders), `tap <target>
+dragenter <path…>` and `tap <target> dragleave`, `type <target> paste --file
+<path…>` and `type <target> paste --image <png>`.
 
 ### Bake and deliver a TypeScript module
 
@@ -1866,7 +1957,7 @@ JSON result or the host's message. The operations:
 | `"sqlite.transaction"` | the same, `execute` commands only | the executes' results, all or none |
 | `"fs.readFile"`, `"fs.atomicWriteFile"`, `"fs.writeFile"`, `"fs.appendFile"` | `{"path"}`, and `"text"` (or `"bytes"`) to write | read: `{"base64"}`; write: `null` |
 | `"fs.mkdir"`, `"fs.rm"`, `"fs.stat"`, `"fs.readdir"`, `"fs.rename"`, `"fs.copyFile"` | `{"path"}`, and `"destination"` to move or copy | as `storage.fs` answers |
-| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}` | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
+| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}`, and `"type"` (`"image/png"`; absent or `null` is JPEG) | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
 
 Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
 `fs.write app:/data`. Storage is asynchronous and starts after first pixel. It

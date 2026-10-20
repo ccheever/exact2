@@ -608,7 +608,7 @@ fn art_outputs(art: &Path) -> Result<std::collections::BTreeMap<String, Vec<u8>>
             }
         }
         if outputs
-            .insert(name.clone(), encode(&name, &model)?)
+            .insert(name.clone(), encode_model(&name, &model)?)
             .is_some()
         {
             return Err(format!("duplicate art stem {name}"));
@@ -727,6 +727,13 @@ fn digest(bytes: &[u8]) -> String {
 /// The same bounded encoding for both CLI and generated shell builds.
 pub fn encode(name: &str, value: &impl exact_game::Data) -> Result<Vec<u8>, String> {
     let bytes = exact_game::bin::to_vec(value);
+    check_size(name, bytes.len())?;
+    Ok(bytes)
+}
+
+/// A model as the engine reads a `.model` file: versioned (`asset::MODEL_RECORD`), bounded.
+pub fn encode_model(name: &str, model: &exact_game::asset::Model) -> Result<Vec<u8>, String> {
+    let bytes = exact_game::asset::encode_model(model);
     check_size(name, bytes.len())?;
     Ok(bytes)
 }

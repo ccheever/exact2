@@ -545,6 +545,31 @@ mod tests {
     }
 
     #[test]
+    fn local_network_writes_its_purpose_on_apple_hosts_only() {
+        let dir = app(&[
+            ("en", r#"{"lan": "Finds servers nearby."}"#),
+            ("fr", r#"{"lan": "Trouve les serveurs proches."}"#),
+        ]);
+        let text = json!({"en": "Finds servers nearby.", "fr": "Trouve les serveurs proches."});
+        for platform in ["ios", "macos"] {
+            let mut c = compat("device.local-network lan");
+            derive(&dir.0, platform, &mut c).unwrap();
+            assert_eq!(
+                c.reach["usage"],
+                json!({"NSLocalNetworkUsageDescription": text})
+            );
+            assert_eq!(c.reach["entitlements"], json!([]));
+            assert_ne!(c.id, "old", "the purpose joins the compatibility id");
+        }
+        for platform in ["web", "linux"] {
+            let mut c = compat("device.local-network lan");
+            derive(&dir.0, platform, &mut c).unwrap();
+            assert_eq!(c.reach["usage"], json!({}));
+            assert_eq!(c.reach["android"], json!([]));
+        }
+    }
+
+    #[test]
     fn runtime_exceptions_sign_their_own_executable_on_macos_only() {
         // LLP 1069.008 D9.
         let grants = "runtime.allow-jit Helpers/node/bin/node\nruntime.disable-library-validation Helpers/node/bin/node\nruntime.allow-unsigned-executable-memory Helpers/tool/run\nnet.fetch https://x/";

@@ -421,3 +421,102 @@ fn the_missing_use_lines_are_named_and_written() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A root split into files that names none of them (the euxy port): its
+/// neighbours are read too, so `fix_uses` writes the lines the root lacks,
+/// and what stays unreached (another entry) is named, not passed over.
+#[test]
+fn a_root_that_names_no_file_has_its_lines_written() {
+    let dir = temp_dir("unnamed");
+    let write = |name: &str, text: &str| std::fs::write(dir.join(name), text).unwrap();
+    write("model.contract", "shape Pattern\n  name: string\n");
+    write(
+        "ui.contract",
+        "component Row\n  props\n    p: Pattern\n  view\n    text p.name\n",
+    );
+    // Another entry that lacks its own lines, and a link to a file outside
+    // the app that lacks them too: candidates at most, never written.
+    let widget = "component Widget\n  view\n    Row(p=Pattern(name=\"w\"))\n";
+    write("widget.contract", widget);
+    write("broken.contract", "component\n");
+    let shared_dir = temp_dir("unnamed-shared");
+    let shared = "component Shared\n  view\n    Row(p=Pattern(name=\"s\"))\n";
+    std::fs::write(shared_dir.join("x.contract"), shared).unwrap();
+    std::os::unix::fs::symlink(shared_dir.join("x.contract"), dir.join("shared.contract")).unwrap();
+    write("app.test.contract", "test \"a\"\n  clock settle\n");
+    write(
+        "app.contract",
+        "component App\n  view\n    column\n      Row(p=Pattern(name=\"a\"))\n",
+    );
+    let root = dir.join("app.contract");
+    assert!(contract::compile_path(&root).is_err());
+    let (written, refused) = contract::fix_uses(&root).unwrap();
+    assert!(refused.is_empty(), "{refused:?}");
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap();
+    let app = read("app.contract");
+    assert!(
+        app.contains("use Pattern from \"./model.contract\"\n")
+            && app.contains("use Row from \"./ui.contract\"\n"),
+        "{written:?}"
+    );
+    assert!(read("ui.contract").starts_with("use Pattern from \"./model.contract\"\n"));
+    contract::compile_path(&root).unwrap();
+    let unreached: Vec<String> = contract::unreached(&root)
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(unreached, ["broken.contract", "widget.contract"]);
+    assert_eq!(read("widget.contract"), widget);
+    assert_eq!(read("broken.contract"), "component\n");
+    assert_eq!(
+        std::fs::read_to_string(shared_dir.join("x.contract")).unwrap(),
+        shared
+    );
+    assert!(
+        written
+            .iter()
+            .all(|(p, _)| p.starts_with(dir.canonicalize().unwrap())),
+        "{written:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&shared_dir);
+}
+
+/// Review round 2's case: app → Panel, panel → Widget, widget → Panel and
+/// Icon. The Panel/Widget lines would make a cycle and are not written, so
+/// the root never reaches widget.contract, and its `use Icon` is not
+/// written either: only an edge a fix writes makes a file the root's.
+#[test]
+fn a_file_reached_only_through_a_refused_cycle_is_not_written() {
+    let dir = temp_dir("cycle-reach");
+    let write = |name: &str, text: &str| std::fs::write(dir.join(name), text).unwrap();
+    write("icon.contract", "component Icon\n  view\n    text \"i\"\n");
+    let widget = "component Widget\n  view\n    column\n      Panel()\n      Icon()\n";
+    write("widget.contract", widget);
+    let panel = "component Panel\n  view\n    Widget()\n";
+    write("panel.contract", panel);
+    write(
+        "app.contract",
+        "component App\n  view\n    column\n      Panel()\n",
+    );
+    let root = dir.join("app.contract");
+    let (written, refused) = contract::fix_uses(&root).unwrap();
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap();
+    assert_eq!(read("widget.contract"), widget, "{written:?}");
+    assert_eq!(read("panel.contract"), panel, "{written:?}");
+    assert_eq!(
+        read("icon.contract"),
+        "component Icon\n  view\n    text \"i\"\n"
+    );
+    assert!(
+        read("app.contract").starts_with("use Panel from \"./panel.contract\"\n"),
+        "{written:?}"
+    );
+    assert!(
+        refused
+            .iter()
+            .any(|e| e.message.contains("would make a cycle")),
+        "{refused:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -151,13 +151,14 @@ pub(crate) fn merge(
             )));
         }
         // What only the app may declare, and what packages don't carry yet.
+        // A component's params are a package's (LLP 1121 stage 12 B1): named
+        // `<package>/<file>#Name` by its design's home (`params::design_tokens`).
         let blocks = design
             .axes
             .iter()
             .map(|a| (&a.name, "an axis: axes are the app's alone (D11); the app declares it and the package's `when` lines name it"))
             .chain(design.dials.iter().map(|d| (&d.name, "a dial: dials are the app's alone (D11)")))
-            .chain(design.components.iter().map(|c| (&c.name, "a component's params: a package's components come with stage 12 (QUEUE)")))
-            .chain(design.params.iter().map(|t| (&t.name, "a `params` line: the app's design sets params, not a package's")))
+            .chain(design.params.iter().map(|t| (&t.name, "a `params` line: a param's value is the app's to set, in the app's design; a package declares its components' params and their defaults (`component … params`)")))
             .chain(design.icons.iter().map(|t| (&t.name, "an icon token: a package's icons are not read yet (QUEUE)")))
             .chain(design.exports.iter().flatten().map(|e| (e, "an `exports` line: what a build keeps of a package's tokens is D7's rule, as for the app's")));
         for (name, why) in blocks {
@@ -245,7 +246,14 @@ pub(crate) fn unband(message: &str) -> String {
 /// names). A whole alias of a profile's colour, which the build carries as
 /// written out of the fold, is read from the package's own text. Each
 /// refusal at the token's line in its package's design.
-pub(crate) fn references(folding: &tamber::Folding, packages: &[DesignSource]) -> Vec<LowerError> {
+/// `all` and `identities` are the app's params and components, which say
+/// whether the app's design sets a package's param (a unique match).
+pub(crate) fn references(
+    folding: &tamber::Folding,
+    packages: &[DesignSource],
+    all: &[crate::params::ParamToken],
+    identities: &[String],
+) -> Vec<LowerError> {
     let mut refused = Vec::new();
     let declared: Vec<Vec<tamber::Token>> = packages
         .iter()
@@ -306,6 +314,71 @@ pub(crate) fn references(folding: &tamber::Folding, packages: &[DesignSource]) -
             }
         }
     }
+    // A package design's component params (stage 12 B1 round 1, Grok 2):
+    // a default names what the package's tokens may, and its own
+    // component's params besides, said at the default in the package's file.
+    for (band, source) in packages.iter().enumerate() {
+        let params = crate::params::design_tokens(source).0;
+        let package = source.package.as_deref().unwrap_or_default();
+        for p in &params {
+            // One the app sets, by a name only it answers, is the app's
+            // value, which names the app's (round 2, Grok 3).
+            let set = folding.design.params.iter().any(|e| {
+                crate::params::resolve(all, identities, &e.name.value)
+                    .is_ok_and(|q| q.token == p.token)
+            });
+            if set {
+                continue;
+            }
+            let sibling = |name: &str| {
+                params
+                    .iter()
+                    .any(|q| q.identity == p.identity && q.token == name)
+            };
+            let mut wrong = |what: String| {
+                refused.push(LowerError {
+                    id: "tamber-unknown-token",
+                    message: format!("`{}`'s default names {what}: a package's param names its package's own tokens, roles, base names and its component's params only, and no dial (D11)", p.full),
+                    span: p.param.default_span,
+                })
+            };
+            let foreign = |name: &str| !own(band, name) && !shared(name) && !sibling(name);
+            // What its fold read (an icon param's is on `icons`, with none).
+            let checked = folding.tokens.iter().find(|t| t.name == p.token);
+            let names: Vec<&String> = checked
+                .into_iter()
+                .flat_map(|c| c.names.iter().chain(&c.pairs))
+                .collect();
+            for name in &names {
+                if foreign(name) {
+                    let shown = crate::params::shown(name, &params);
+                    wrong(format!(
+                        "`{shown}`, a token that isn't the package `{package}`'s"
+                    ));
+                }
+            }
+            for dial in checked.into_iter().flat_map(|c| &c.reads) {
+                wrong(format!("the dial `{dial}`"));
+            }
+            // A whole alias as written (round 2, Astra 2 and Grok 1, 2): a
+            // profile colour's is folded as `transparent`, naming none, and
+            // an icon param's names an icon; a literal (`icon(sf "…")`)
+            // names nothing.
+            let whole = p.param.default.trim();
+            let named = folding
+                .design
+                .tokens
+                .iter()
+                .chain(&folding.design.icons)
+                .any(|t| t.name.value == whole);
+            if named && foreign(whole) && !names.iter().any(|n| *n == whole) {
+                let shown = crate::params::shown(whole, &params);
+                wrong(format!(
+                    "`{shown}`, a token or icon that isn't the package `{package}`'s"
+                ));
+            }
+        }
+    }
     refused
 }
 
@@ -317,7 +390,9 @@ impl crate::Lowerer<'_> {
         folding: &tamber::Folding,
         file: &contract_syntax::File,
     ) -> bool {
-        let wrong = references(folding, &file.package_designs);
+        let all = crate::params::tokens(file);
+        let identities = crate::params::identities(file);
+        let wrong = references(folding, &file.package_designs, &all, &identities);
         let any = !wrong.is_empty();
         for e in wrong {
             self.push(e);
@@ -340,6 +415,49 @@ impl crate::Lowerer<'_> {
             // None of the app's lines; the packages' by band.
             None => (None, Origin::Inline(Vec::new())),
         };
+        // A name under a library package's namespace that the package
+        // doesn't define (LLP 1139 D8): its names are its API. An app design
+        // line setting one, and a Contract row naming one.
+        for source in file.package_designs.iter().filter(|s| {
+            s.package
+                .as_ref()
+                .is_some_and(|p| file.library_packages.contains(p))
+        }) {
+            let package = source.package.as_deref().unwrap_or_default();
+            let ns = namespace(package);
+            let declared: Vec<String> = tamber::parse(&source.text)
+                .map(|d| d.tokens.into_iter().map(|t| t.name.value).collect())
+                .unwrap_or_default();
+            // The nine base names are no package's (`space.md` under a
+            // package `space` is the app's base override).
+            let unknown = |name: &str| {
+                name.starts_with(&format!("{ns}."))
+                    && !declared.iter().any(|d| d == name)
+                    && !exact_kernel::style::scale::is_base(name)
+            };
+            let message = |name: &str| {
+                format!("`{name}` is under the library package `{package}`'s namespace, which defines no `{name}`: a library's names are its API, so a renamed or removed one fails the build (LLP 1139 D8)")
+            };
+            if let Some(app) = &app {
+                for t in app.tokens.iter().filter(|t| unknown(&t.name.value)) {
+                    let span = self.token_span(&origin, t.name.line, t.name.col);
+                    self.push(LowerError {
+                        id: "tamber-package-unknown",
+                        message: message(&t.name.value),
+                        span,
+                    });
+                }
+            }
+            for (name, span) in crate::anatomy::library::rows_naming(file, ns) {
+                if unknown(&name) {
+                    self.push(LowerError {
+                        id: "tamber-package-unknown",
+                        message: message(&name),
+                        span,
+                    });
+                }
+            }
+        }
         let (merged, refused) = merge(app, &file.package_designs);
         for e in refused {
             self.push(e);

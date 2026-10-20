@@ -358,7 +358,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 69] = [
+pub const HANDLERS: [&str; 71] = [
     "press",
     "change",
     "input",
@@ -412,8 +412,11 @@ pub const HANDLERS: [&str; 69] = [
     // a pinch as a Control-held wheel; it may hand its action a `WheelEvent`.
     "wheel",
     // DOM's `drop` of files from outside (studio diary R19): each a `doc:`
-    // handle in the `DragEvent` its action may take.
+    // handle in the `DragEvent` its action may take. `dragenter` and
+    // `dragleave` bracket a file drag over the node, with the same record.
     "drop",
+    "dragenter",
+    "dragleave",
     "swiperight",
     "refresh",
     "scroll",

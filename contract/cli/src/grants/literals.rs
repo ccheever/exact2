@@ -1,8 +1,9 @@
 //! The string literals of a data-module source, which is where a grant line
 //! is written, and the keys each `device.<name> <key>` in them names. A
 //! warning fires only on what is certain, so every form this does not model
-//! makes the answer unknown rather than a guess: a regex literal, a Rust raw
-//! string, an unterminated literal or comment, and a grant line joined to
+//! makes the answer unknown rather than a guess: a regex literal that does not
+//! close on its line, a Rust raw string, an unterminated literal or comment,
+//! and a grant line joined to
 //! more text (`+`, a literal beside it on the same statement, a template's
 //! `${…}`, a Rust `concat!` argument or a `format!` string with a
 //! placeholder) or ending without its key.
@@ -44,6 +45,33 @@ struct Paren {
     /// A control word's condition.
     control: bool,
     joins: Join,
+}
+
+/// Past the regex literal opening at `i` and its flags (ECMA-262 §12.9.5:
+/// an escape takes the next character, and a `/` inside a class `[…]` does
+/// not close it), or `None` when it does not close on its line.
+fn regex_end(s: &[char], mut i: usize) -> Option<usize> {
+    let mut class = false;
+    i += 1;
+    loop {
+        let c = *s.get(i)?;
+        if line_terminator(c) {
+            return None;
+        }
+        match c {
+            '\\' => i += 1,
+            '[' => class = true,
+            ']' => class = false,
+            '/' if !class => break,
+            _ => {}
+        }
+        i += 1;
+    }
+    i += 1;
+    while s.get(i).is_some_and(|c| c.is_alphanumeric()) {
+        i += 1;
+    }
+    Some(i)
 }
 
 /// ECMAScript's line terminators (ECMA-262 §12.3), each a statement boundary
@@ -133,6 +161,9 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
     // The last significant character of code, the word it ends, and the
     // word before the last punctuation (`concat` at `concat!(`).
     let (mut last, mut word, mut before) = (None::<char>, String::new(), String::new());
+    // `last` ends `++` or `--`: an operand's postfix, after which `/` divides
+    // (a prefix one cannot take a regex).
+    let mut postfix = false;
     let mut i = 0;
     // A quoted literal from `i` (its quote) to past its close.
     let quoted = |i: &mut usize| -> Option<String> {
@@ -187,13 +218,19 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
             i = block_comment_end(&s, i, typescript)?;
             continue;
         }
+        let keyword = after_control || BEFORE_REGEX.contains(&word.as_str());
         let regex = typescript
             && c == '/'
-            && (last.is_none_or(|l| "(,=:[!&|?{};+-*%<>~^}".contains(l))
-                || after_control
-                || BEFORE_REGEX.contains(&word.as_str()));
+            && ((last.is_none_or(|l| "(,=:[!&|?{};+-*%<>~^}".contains(l)) && !postfix) || keyword);
         if regex {
-            return None;
+            // After a `}` a block's end begins a regex and an object's or a
+            // function expression's divides: which, this does not model.
+            if last == Some('}') && !keyword {
+                return None;
+            }
+            i = regex_end(&s, i)?;
+            (last, word) = (Some('"'), String::new());
+            continue;
         }
         if !c.is_whitespace() {
             after_control = false;
@@ -285,6 +322,7 @@ pub(super) fn literals(text: &str, typescript: bool) -> Option<Vec<Lit>> {
             } else if !word.is_empty() {
                 before = std::mem::take(&mut word);
             }
+            postfix = matches!(c, '+' | '-') && last == Some(c) && i > 0 && s[i - 1] == c;
             last = Some(c);
         }
         i += 1;
@@ -542,11 +580,12 @@ mod tests {
     fn a_form_not_modelled_is_unknown() {
         for (source, typescript) in [
             (
-                "const r = /[/*]/; export const grants = 'device.midi purpose.midi'; // */",
+                "const r = /a[/\nb/; export const grants = 'device.midi purpose.midi';",
                 true,
             ),
+            // After a `}`, a block's end or an object's: which is unknown.
             (
-                "const r = s.match(/[^/*]+/); export const grants = 'device.midi purpose.midi';",
+                "if (x) { y() } /[/*]/.test(s); export const grants = 'device.midi purpose.midi'; // */",
                 true,
             ),
             (
@@ -561,16 +600,6 @@ mod tests {
                 "const R: &CStr = cr#\"a /* b\"#; const G: &str = \"device.midi purpose.midi\";",
                 false,
             ),
-            // A regex straight after a control word's condition, where a `/`
-            // after any other `)` divides.
-            (
-                "if (x) /[/*]/.test(s); export const grants = 'device.midi purpose.midi'; // */",
-                true,
-            ),
-            (
-                "while (ok(x)) /\\/*/.exec(s); export const grants = 'device.midi purpose.midi'; // */",
-                true,
-            ),
             ("const s = 'unterminated", true),
             ("/* never closed", true),
         ] {
@@ -582,6 +611,30 @@ mod tests {
                 true
             ),
             key("purpose.midi")
+        );
+        // A regex is read past, a `/` in its class or escaped included
+        // (euxy's app.ts matched a share link with one, which hid that it
+        // granted no `device.midi`); one straight after a control word's
+        // condition too, where a `/` after any other `)` divides.
+        for source in [
+            "const r = /[/*]/; export const grants = 'device.midi purpose.midi'; // */",
+            "const m = raw.match(/[?&]d=([^&]+)/) ?? raw.match(/p\\/([^/?#]+)\\/?$/i);\nexport const grants = 'device.midi purpose.midi';",
+            "if (x) /[/*]/.test(s); export const grants = 'device.midi purpose.midi'; // */",
+            "while (ok(x)) /\\/*/.exec(s); export const grants = 'device.midi purpose.midi'; // */",
+            "const q = /'/g; export const grants = 'device.midi purpose.midi';",
+            // A `/` after a postfix `++` or `--` divides (review round 1:
+            // read as a regex, it swallowed the grant).
+            "const q=n++ / 2; export const grants=\"device.midi purpose.midi\"; const r=/x/;",
+            "const q=n-- /2; export const grants=\"device.midi purpose.midi\"; const r=/x/;",
+            // A unary `+` before a regex, and `+ +` that is no `++`.
+            "const t = +/1/.test(s); export const grants = 'device.midi purpose.midi';",
+            "const t = a + +/1/.test(s); export const grants = 'device.midi purpose.midi';",
+        ] {
+            assert_eq!(read(source, true), key("purpose.midi"), "{source}");
+        }
+        assert_eq!(
+            read("const m = s.match(/x/);\nexport const grants = '';", true),
+            Some(Vec::new())
         );
         assert_eq!(
             read(

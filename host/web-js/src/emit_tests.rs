@@ -331,6 +331,18 @@ fn a_scrollend_handler_is_the_dom_event_on_a_scroll() {
 }
 
 #[test]
+fn a_file_drags_enter_and_leave_bind_through_the_files_piece() {
+    let plan = contract::compile(
+        "component App\n  state over = false\n  action entered\n    over = true\n  action left\n    over = false\n  view\n    column dragenter=entered dragleave=left height=100\n      text \"a\"\n",
+    ).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(
+        js.contains("onFileDrag") && js.contains("\"dragenter\"") && js.contains("\"dragleave\""),
+        "{js}"
+    );
+}
+
+#[test]
 fn a_button_that_styles_its_own_disabled_state_carries_the_mark() {
     let plan = contract::compile(
         "component App\n  state busy = false\n  action go\n    busy = true\n  view\n    column\n      button press=go disabled=busy background-color=(busy ? \"#eee\" : \"#06f\") testId=\"own\"\n        text \"Save\"\n      button press=go disabled=busy testId=\"plain\"\n        text \"Save\"\n",

@@ -56,7 +56,7 @@ fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     assert_eq!(surface.assets().requests, ["sample.model"]);
-    surface.asset("sample.model", Ok(&bin::to_vec(model)));
+    surface.asset("sample.model", Ok(&exact_game::asset::encode_model(model)));
     surface.prepare_assets(
         &gpu.device,
         &gpu.queue,

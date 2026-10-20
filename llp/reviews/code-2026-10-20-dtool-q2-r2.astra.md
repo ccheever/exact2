@@ -1,0 +1,29 @@
+# Code review: a folded :disabled or :checked row read as its base, its parts beside it (LLP 1122 queue item (2)), round 2 of 2, 2026-10-20 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra via codex exec, reasoning effort max, read-only sandbox, a throwaway worktree at `4edf5b8428`.
+- **Method:** one brief (sha256 `472a8c152aaa9934332fa9bbde4c25e8bfbd8fef2257f108aa3f54d445ad9ab4`), shared by both reviewers, each blind to the other's review; commits 2db62df4e4 (c1), caed257141 (c2) and 4edf5b8428 (round 1's fixes). The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** 1 BLOCKER, 3 SHOULD-FIX, 1 NIT.
+- **Disposition:** all taken post-round, in the commit named in the sign-off request (and a narrow verification round on it):
+  - A param base is recognized as one `param.<name>`, trimmed, an identifier; a composite value (`param.fill param.edge`) is a value, its template edit as before (1).
+  - Two parts of one state each stay: the dedupe is reverted (a later part with a `none` arm, or over fewer sides, leaves the earlier's); the inspector tells two of one state apart by their places; tested with a class's `:disabled border-color` under the node's conditional `:disabled border-top-color` (2, 5).
+  - A param base is read from its source whatever the file (`writtenAt`), a package's included, and resolved by `#<component>.<name>` among the params read, the runtime's names choosing between several (a reason where nothing chooses); tested with a vendored package's identity (3).
+  - A role's spelling matches in any case (4).
+
+**One blocker remains:** valid whitespace around a param reference still bypasses round 1’s param handling.
+
+1. **BLOCKER — Param recognition mishandles valid values.** [tamber-inspect.mjs:473](/tmp/rv-dt-q2b/scripts/tamber-inspect.mjs:473) matches untrimmed text with an unrestricted suffix. With `background-color=" param.fill"` and the disabled branch showing a literal, it offers a **template** edit instead of the param—even when the param table is empty and the row should be refused. With multiple readers, that edits one use instead of the shared param. Conversely, `"param.fill "` falsely reports “not read yet.” So does `border-color="param.fill param.edge"` with both params loaded; **HEAD~1 offered that shorthand’s template edit**, confirmed by an in-memory comparison. Trim for recognition, match one valid param identifier, and preserve the template path for composite values.
+
+2. **SHOULD-FIX — Deduplication can discard a part that still supplies the value.** [states.rs:521](/tmp/rv-dt-q2b/contract/lower/src/states.rs:521) assumes the later part completely shadows the earlier one. Consider a class’s `:disabled border-color="#111111"` and the node’s `:disabled border-top-color=(flag ? "#999999" : none)`. These distinct attribute names survive class filtering. With disabled true and flag false, `choose`/`over` retain the class’s top colour, but `retain` removes its provenance and reports only the node’s expression. Preserve or explicitly represent that ambiguity; the earlier part is not always dead. This changes the map’s accuracy, **not plan bytes or checked/disabled precedence**.
+
+3. **SHOULD-FIX — Folded package components still lose their base param editor.** [tamber-inspect.mjs:447](/tmp/rv-dt-q2b/scripts/tamber-inspect.mjs:447) recovers the param through the template rung. For `node_modules/ui/card.contract`, `rowRung` refuses source editing before supplying text, so `writtenToken` clears the already-known param. A folded `background-color="param.fill"` returns “a package’s component: read-only here”; the equivalent unfolded row offers `ui/card.contract#Card.fill`. I reproduced both. A param override writes the app’s design, so package-source edit restrictions should not suppress it. Source recovery also needs the package’s compiler identity, which differs from its filesystem-relative path.
+
+4. **SHOULD-FIX — The role-spelling fix remains case-sensitive.** [tamber-inspect.mjs:480](/tmp/rv-dt-q2b/scripts/tamber-inspect.mjs:480) strips only lowercase `-exact-` and compares exact case. A valid base `background-color="-EXACT-SECONDARY-LABEL"` loses its token alternative even when the runtime reports `secondary-label`. The [role parser accepts ASCII case variants](/tmp/rv-dt-q2b/kernel/src/style/roles.rs:18). The lowercase round 1 example works; the broader role-spelling finding is only partially fixed.
+
+5. **NIT — The new dedupe test does not exercise `retain`.** [source_map.rs:1017](/tmp/rv-dt-q2b/contract/cli/tests/it/source_map.rs:1017) uses the same `:disabled background-color` attribute on class and node. [class.rs:42](/tmp/rv-dt-q2b/contract/lower/src/class.rs:42) removes the class attribute before folding, so this fixture passes without the new dedupe. An overlapping `border-color`/`border-top-color` fixture would exercise the original finding and the fallback case above.
+
+The remaining round 1 fixes hold for their canonical cases: full names with `short: null`, param lookup while the disabled branch shows, refusal of an unread exact `param.fill`, a part’s own edit instead of its param, correct `color`/tint names, placeless parts located at their node, and displayed values for editable literal parts.
+
+I found no regression in legal cross-file class bases: they retain their style file and need no component field. Shared styles cannot contain `param.*` references—the [compiler rejects them](/tmp/rv-dt-q2b/contract/lower/src/params/rewrite.rs:513). `AUTHORED` still takes precedence over `WRITTEN`, preserving active and look-row handling. The fold’s value construction and checked-under-disabled order remain unchanged by inspection.
+
+No files changed. I used source tracing and in-memory join probes; no builds or test suites ran, and I did not rerun the plan-byte comparison.
