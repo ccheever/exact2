@@ -81,8 +81,9 @@ pub enum Column {
     /// Apple's measured pairs: what an Apple host shows before it reports
     /// its own, and what every host shows until it says otherwise.
     Apple,
-    /// The neutral pairs, no platform's palette: the web's under the
-    /// neutral look (D4), a host's that paints its own controls (D17).
+    /// The neutral pairs, no platform's palette: a host's that paints its
+    /// own controls (D17), and the web's for a role its page does not
+    /// report (the page draws Apple's and reports them, D4).
     Neutral,
 }
 
@@ -96,10 +97,10 @@ static NEUTRAL: AtomicBool = AtomicBool::new(false);
 /// (`var(--exact-<role>, …)`), what a painter reads. The look's metrics
 /// follow too (`style::metrics::column`), so this is the look's one switch.
 /// A reported colour still wins over either column. The web calls it, for a
-/// page in the neutral look, which every web build draws since 2026-10-12
-/// (host/web/look.mjs), and so do the Linux desktop and Windows, which have
-/// no platform toolkit under their painter; every other host shows Apple's
-/// pairs, in which a process starts.
+/// page in the neutral look, which every web build draws (host/web/look.mjs;
+/// its colours are Apple's, which the page reports), and so do the Linux
+/// desktop and Windows, which have no platform toolkit under their painter;
+/// every other host shows Apple's pairs, in which a process starts.
 pub fn set_column(column: Column) {
     NEUTRAL.store(column == Column::Neutral, Ordering::Release);
 }
@@ -319,6 +320,9 @@ pub fn theme_css() -> String {
             "AccentColor" => out.push_str(
                 "--exact-accent-design:var(--exact-accent);--exact-accent-said:var(--exact-accent-design);",
             ),
+            // A destructive control draws the theme's red as written, where
+            // the web's own is held to a lightness that reads (neutral.css).
+            "system-red" => out.push_str("--exact-system-red-said:var(--exact-system-red);"),
             _ => {}
         }
     }
@@ -853,6 +857,17 @@ mod tests {
             "{branded}"
         );
         assert!(branded.contains("#exact-root ::selection{background-color:var(--exact-highlight,Highlight);color:var(--exact-highlight-text,HighlightText)}"), "{branded}");
+        // A theme's red is said, so a destructive control draws it as written (neutral.css).
+        set_overrides(vec![(
+            id("-exact-system-red"),
+            pair(0xff78_78ff, 0xff78_78ff),
+        )]);
+        let red = theme_css();
+        assert!(
+            red.starts_with(":root{--exact-system-red:")
+                && red.contains(";--exact-system-red-said:var(--exact-system-red);"),
+            "{red}"
+        );
         set_overrides(Vec::new());
         assert_eq!(theme_css(), "");
     }

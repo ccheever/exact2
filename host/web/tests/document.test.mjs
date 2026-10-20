@@ -820,9 +820,13 @@ browserCheck('date and time controls take the field look', async () => {
 // dark). An authored background is the box's, under the track, as on iOS.
 browserCheck('a determinate progress is the accent over the system fill in light and dark', async () => {
   const shell = SHIPPED;
-  // As both targets write a role's accent: `accent-color` and the custom property beside it.
-  const accent = (role, pair) => `accent-color:var(--exact-${role}, ${pair});--exact-accent:var(--exact-${role}, ${pair});`;
-  const teal = accent('system-teal', 'light-dark(#30b0c7, #40c8e0)'), indigo = accent('system-indigo', 'light-dark(#5856d6, #5e5ce6)');
+  // As both targets write a role's accent: `accent-color` and the custom property beside it. A role is Apple's pair
+  // (look.mjs, from the schema), light and dark.
+  const apple = (role) => JSON.parse(readFileSync(resolve(ROOT, 'kernel/tables/schema.json'), 'utf8')).colors.find(([name]) => name === role).slice(4, 6);
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const [tealPair, indigoPair] = [apple('system-teal'), apple('system-indigo')];
+  const accent = (role, [light, dark]) => `accent-color:var(--exact-${role}, light-dark(${light}, ${dark}));--exact-accent:var(--exact-${role}, light-dark(${light}, ${dark}));`;
+  const teal = accent('system-teal', tealPair), indigo = accent('system-indigo', indigoPair);
   const bar = (id, style) => `<progress id="${id}" value="0.25" max="1" style="width:160px;margin:8px;${style}"></progress>`;
   // A box of the look's `-exact-fill` over the same ground as the bars beside it: what a track is drawn in.
   const fill = (id, under = '') => `<div style="width:160px;margin:8px;${under}"><div id="${id}" style="height:16px;background-color:var(--exact-fill)"></div></div>`;
@@ -844,24 +848,25 @@ browserCheck('a determinate progress is the accent over the system fill in light
     expect([light.join() === '255,255,255', dark.join() === '0,0,0', red.join() === '255,0,0']).toEqual([false, false, false]);
     for (const id of ['teal-light', 'indigo-light']) { near(at(id, 120, 8), light, `${id} track`); near(at(id, 120, 2), [255, 255, 255], `${id} above its track`); }
     for (const id of ['teal-dark', 'indigo-dark']) { near(at(id, 120, 8), dark, `${id} track`); near(at(id, 120, 2), [0, 0, 0], `${id} above its track`); }
-    near(at('teal-light', 20, 8), [0x30, 0xb0, 0xc7], 'teal bar in light');
-    near(at('indigo-light', 20, 8), [0x58, 0x56, 0xd6], 'indigo bar in light');
-    near(at('teal-dark', 20, 8), [0x40, 0xc8, 0xe0], 'teal bar in dark');
-    near(at('indigo-dark', 20, 8), [0x5e, 0x5c, 0xe6], 'indigo bar in dark');
+    near(at('teal-light', 20, 8), rgb(tealPair[0]), 'teal bar in light');
+    near(at('indigo-light', 20, 8), rgb(indigoPair[0]), 'indigo bar in light');
+    near(at('teal-dark', 20, 8), rgb(tealPair[1]), 'teal bar in dark');
+    near(at('indigo-dark', 20, 8), rgb(indigoPair[1]), 'indigo bar in dark');
     near(at('authored', 120, 2), [255, 0, 0], 'the authored background is the box');
     near(at('authored', 120, 8), red, 'the track over it');
-    near(at('authored', 20, 8), [0x30, 0xb0, 0xc7], 'the bar over it');
+    near(at('authored', 20, 8), rgb(tealPair[0]), 'the bar over it');
   }, {html});
 });
 
-browserCheck('modal routes use the platform canvas, keep author paint, and reveal the sheet beneath on Back', async () => {
+// The page's ground is the look's background role (Apple's, black in dark; not each engine's own `Canvas`).
+browserCheck('modal routes use the page\'s ground, keep author paint, and reveal the sheet beneath on Back', async () => {
   const css = SHIPPED.match(/<style>([\s\S]*?)<\/style>/)[1];
   const html = `<!doctype html><style>${css}</style><style>#exact-root#exact-root .authored {background-color:rgb(20,40,60)}</style>
     <div id="exact-root"><main id="nav" navigationKey="2" navigationBack="back">
       <section id="home" navigationKey="0"><button>Home</button></section>
       <section id="first" navigationKey="1" navigationPresentation="modal"><button>First sheet</button></section>
       <section id="second" navigationKey="2" navigationPresentation="modal"><button>Second sheet</button></section>
-    </main><div id="canvas" style="background-color:Canvas"></div><div id="bare"></div></div>`;
+    </main><div id="canvas" style="background-color:var(--exact-background)"></div><div id="bare"></div></div>`;
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'modal fixture');

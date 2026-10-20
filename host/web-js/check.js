@@ -316,7 +316,15 @@ export function observe(views, inactive = () => false) {
   // The scheme the page draws in: a light-dark() probe in the root, whatever the system says.
   const root = document.getElementById('exact-root'), probe = document.createElement('span');
   probe.style.color = 'light-dark(rgb(0, 0, 1), rgb(0, 0, 2))'; root.append(probe);
-  const used = getComputedStyle(probe).color.includes('2)') ? 'dark' : 'light'; probe.remove();
+  const used = getComputedStyle(probe).color.includes('2)') ? 'dark' : 'light';
+  // What the page draws each of Exact's colour roles in, light and dark (host/web/look.mjs names them): the driver knows an ink
+  // or a ground by it.
+  const names = getComputedStyle(document.documentElement).getPropertyValue('--exact-apple-roles').trim(), palette = {};
+  if (names) for (const scheme of ['light', 'dark']) {
+    probe.style.colorScheme = scheme; palette[scheme] = {};
+    for (const name of JSON.parse(names).split(' ')) { probe.style.color = `var(--exact-${name})`; palette[scheme][name] = rgba(getComputedStyle(probe).color); }
+  }
+  probe.remove();
   const coarse = matchMedia('(any-pointer: coarse)').matches, overlap = Math.max(0, H - (globalThis.visualViewport?.height ?? H));
-  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, look: 'neutral', target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
+  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, ...(names ? { palette } : {}), target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
 }
