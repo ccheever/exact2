@@ -2618,7 +2618,12 @@ Firefox and WebKit carriers refuse both.
 `app:/` files and an element's `"#id"`; the web never takes a picture),
 `canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
 system's focus; false while another app or window is in front, so an app can
-choose an in-window message over a system notification). A reminder that should
+choose an in-window message over a system notification), `persisted` and
+`restores` (the back/forward cache: `persisted` is true while the page is put
+away, from a `pagehide` with `persisted` until the `pageshow`; `restores`
+counts those `pageshow` events, so `task t when page.restores > 0
+key=page.restores` runs once for each return, never at launch; a Mac window a
+`keepRunning` close hid is put away, a minimized one only hidden). A reminder that should
 open a route uses `showNotification(title="Done", navigate="/thread/42")`;
 its click reaches the navigation root as a warm `navigate` event or a cold
 launch location. Under the agent `state.notifications` lists `navigate`, and

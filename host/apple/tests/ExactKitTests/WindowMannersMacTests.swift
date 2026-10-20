@@ -45,12 +45,12 @@ final class WindowMannersMacTests: XCTestCase {
     }
 
     /// A counter: its state is what a hidden window must keep. It shows
-    /// its page's `visibilityState` too.
+    /// its page's `visibilityState`, `persisted` and `restores` too.
     private static let counter: Result<Data, Error> = Result {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let source = "shape Page\n  visibilityState: string\ncomponent App\n  resource page = exactPage() as shape Page\n  state count = 0\n  action add\n    count = count + 1\n  view\n    column\n      text `${count}`\n      text `${page.visibilityState}` testId=\"visibility\"\n      button \"Add\" testId=\"add\" press=add\n"
+        let source = "shape Page\n  visibilityState: string\n  persisted: bool\n  restores: number\ncomponent App\n  resource page = exactPage() as shape Page\n  state count = 0\n  action add\n    count = count + 1\n  view\n    column\n      text `${count}`\n      text `${page.visibilityState}` testId=\"visibility\"\n      text `${page.persisted} ${page.restores}` testId=\"transition\"\n      button \"Add\" testId=\"add\" press=add\n"
         try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
         let compiler = Process()
         compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"], "build.mjs --test builds the Contract compiler and names it"))
@@ -115,6 +115,8 @@ final class WindowMannersMacTests: XCTestCase {
         session.tellPage()
         let onScreen = PageFacts.hidden ? "hidden" : "visible"
         XCTAssertEqual(visibility(), onScreen)
+        func transition() -> String? { session.presenter.views.values.first { $0.props["testId"] == "transition" }?.props["text"] }
+        XCTAssertEqual(transition(), "false 0", "a page launched is not put away and has not come back")
 
         let keeps = Closer(keepsRunning: true, only: true)
         shown.delegate = keeps
@@ -124,10 +126,14 @@ final class WindowMannersMacTests: XCTestCase {
         XCTAssertEqual(session.state, .ready, "its session stays")
         XCTAssertTrue(PageFacts.hidden, "a window its close hid is not seen")
         XCTAssertEqual(settled("hidden"), "hidden", "and its page is told so")
+        XCTAssertEqual(transition(), "true 0", "put away: pagehide with persisted")
         shown.makeKeyAndOrderFront(nil) // the reopen's `front()`
         XCTAssertTrue(shown.isVisible, "the reopen shows it")
         let shownAgain = shown.occlusionState.contains(.visible) ? "visible" : "hidden"
         XCTAssertEqual(settled(shownAgain), shownAgain, "and its page reads it as its occlusion says again")
+        let end = Date().addingTimeInterval(5)
+        while transition() != "false 1", Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        XCTAssertEqual(transition(), "false 1", "back: pageshow with persisted, counted once")
         XCTAssertTrue(shown.contentView === view, "the same view")
         XCTAssertEqual(count(), "1", "and the same state")
         add()

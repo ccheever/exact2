@@ -95,8 +95,12 @@ package enum PageFacts {
     #if os(macOS)
     /// The windows a close hid rather than closed (LLP 1069.010 D8). Ordered
     /// out, each is neither on screen nor in the Dock, but its page is still
-    /// there and reads `hidden` until the window shows again.
+    /// there and reads `hidden` until the window shows again. Its page is put
+    /// away, as the back/forward cache keeps a page (`persisted`).
     nonisolated(unsafe) private static var closeHid = NSHashTable<NSWindow>.weakObjects()
+    /// How many times each window a close hid has shown again: its page's
+    /// `pageshow` events with `persisted` true (`restores`).
+    nonisolated(unsafe) private static var restoreCounts: [ObjectIdentifier: Int] = [:]
     /// What hears each such window show again, whoever shows it (the
     /// reopen, a routed document, an app's own module): its `isVisible`,
     /// observed. AppKit posts no public notification for a window ordered
@@ -113,6 +117,7 @@ package enum PageFacts {
                 // Read again once AppKit has finished ordering it.
                 DispatchQueue.main.async {
                     guard window.isVisible || window.isMiniaturized, closeHid.contains(window) else { return }
+                    restoreCounts[ObjectIdentifier(window), default: 0] += 1
                     forgetHidden(window)
                     changed()
                 }
@@ -121,12 +126,40 @@ package enum PageFacts {
         changed()
     }
     /// `window` closed for good: it counts for nothing again.
-    package static func closed(_ window: NSWindow) { forgetHidden(window) }
+    package static func closed(_ window: NSWindow) {
+        forgetHidden(window)
+        restoreCounts.removeValue(forKey: ObjectIdentifier(window))
+    }
     private static func forgetHidden(_ window: NSWindow) {
         closeHid.remove(window)
         showWatch.removeValue(forKey: ObjectIdentifier(window))?.invalidate()
     }
     #endif
+
+    /// The page in `window` is put away (LLP 1069.010 D8): its window was
+    /// hidden by its close and has not shown again, as a page is in the
+    /// back/forward cache from its `pagehide` with `persisted` true until its
+    /// `pageshow`. A minimized, covered or ⌘H-hidden window is not. Never on
+    /// iOS and tvOS. The host's own window, not a reading the agent stands in for.
+    static func persisted(_ window: FocusWindow?) -> Bool {
+        #if os(macOS)
+        guard let window else { return false }
+        return closeHid.contains(window)
+        #else
+        return false
+        #endif
+    }
+    /// How many times the page in `window` came back from being put away:
+    /// its `pageshow` events with `persisted` true.
+    static func restores(_ window: FocusWindow?) -> Int {
+        #if os(macOS)
+        guard let window else { return 0 }
+        return restoreCounts[ObjectIdentifier(window)] ?? 0
+        #else
+        return 0
+        #endif
+    }
+
     static var onLine: Bool {
         if substituted { return agent.onLine }
         startMonitor()
@@ -229,14 +262,16 @@ package enum PageFacts {
         #endif
     }
 
-    /// The ABI's form (`exact_set_page`) for a session in `window`: bit 0
-    /// hidden, bit 1 offline, bit 2 a share sheet, bit 3 the document
-    /// pickers, bit 4 without focus, bit 7 about to be suspended, bits 8 and
-    /// 9 a share takes files and pictures. A session whose plan does not read
-    /// `onLine` starts no monitor for it.
-    static func bits(_ window: FocusWindow?, readsOnLine: Bool = true) -> UInt32 {
+    /// The ABI's form (`exact_set_page`) for a session whose focus is read
+    /// of `window` and whose view is in `page`: bit 0 hidden, bit 1 offline,
+    /// bit 2 a share sheet, bit 3 the document pickers, bit 4 without focus,
+    /// bit 7 about to be suspended, bits 8 and 9 a share takes files and
+    /// pictures, bit 10 put away, bits 16–31 the restores. A session whose
+    /// plan does not read `onLine` starts no monitor for it.
+    static func bits(_ window: FocusWindow?, page: FocusWindow? = nil, readsOnLine: Bool = true) -> UInt32 {
         let online = readsOnLine ? onLine : lastOnLine
-        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0)
+        let transitions = (persisted(page) ? 1024 : 0) | UInt32(restores(page) & 0xFFFF) << 16
+        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0) | transitions
     }
 
     /// Calls `changed` on the main queue when any reading may have changed;
@@ -288,7 +323,7 @@ extension ExactSession {
         // Out of the foreground, a press hands nothing on (PressHandoffIOS).
         if view?.window?.windowScene?.activationState != .foregroundActive { presenter.supersedePress() }
         #endif
-        apply(runtime.setPage(PageFacts.bits(pageWindow, readsOnLine: runtime.readsOnLine())))
+        apply(runtime.setPage(PageFacts.bits(pageWindow, page: view?.window, readsOnLine: runtime.readsOnLine())))
         apply(runtime.setRootFontSize(PageFacts.rootFontSize))
         tellDisplayScale()
     }

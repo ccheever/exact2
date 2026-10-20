@@ -97,6 +97,7 @@ mod notify;
 mod overlay;
 mod package_designs;
 mod packages;
+mod page_transition;
 mod pan;
 mod pan_release;
 mod persist;
