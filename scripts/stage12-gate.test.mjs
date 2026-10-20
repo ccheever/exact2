@@ -2,7 +2,10 @@
 // diff and its allowlist, and that every line says WAITS-ON before its parts.
 import { expect, test } from 'bun:test';
 import { encodePng } from './png.mjs';
-import { allowOf, lines, parse, pixelDiff, SCREENS, screenOps } from './stage12-gate.mjs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { allowOf, comparePixels, lines, parse, pixelDiff, SCREENS, screenOps } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -45,4 +48,17 @@ test('the composer\'s caret strip comes from its field\'s layout', () => {
   expect(allowOf('composer', 'no layout')).toBe(null);
   expect(allowOf('discover', '')).toEqual([]);
   expect(screenOps('composer', 'light', '/s.png').at(-1)).toBe('layout compose-text');
+});
+
+test('before and after compare shot for shot, strict, with both allowlists', () => {
+  const dir = mkdtempSync(join(tmpdir(), 's12e-'));
+  const img = (name, f) => { const data = new Uint8Array(4 * 4 * 4); for (let i = 0; i < 16; i++) data.set(f(i % 4, Math.floor(i / 4)), i * 4); const p = join(dir, name); writeFileSync(p, encodePng({ width: 4, height: 4, data })); return p; };
+  const black = () => [0, 0, 0, 255];
+  const before = { shots: [{ host: 'web', scheme: 'light', screen: 'discover', ok: true, png: img('b1.png', black), allow: [] },
+    { host: 'web', scheme: 'light', screen: 'composer', ok: true, png: img('b2.png', black), allow: [{ rect: [0, 0, 1, 4], reason: 'caret' }] }] };
+  const after = { shots: [{ host: 'web', scheme: 'light', screen: 'discover', ok: true, png: img('a1.png', (x, y) => x === 2 && y === 2 ? [0, 0, 1, 255] : [0, 0, 0, 255]), allow: [] },
+    { host: 'web', scheme: 'light', screen: 'composer', ok: true, png: img('a2.png', (x) => x === 0 ? [255, 0, 0, 255] : [0, 0, 0, 255]), allow: [] }] };
+  const r = comparePixels(before, after);
+  expect(r.map(x => [x.shot, x.ok, x.differ])).toEqual([['web light discover', false, 1], ['web light composer', true, 0]]);
+  expect(comparePixels(before, { shots: [after.shots[1]] })[0]).toMatchObject({ ok: false, said: 'no after shot' });
 });

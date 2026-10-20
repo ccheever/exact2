@@ -185,6 +185,21 @@ export function pixelDiff(a, b, allow = [], floor = 0) {
   return { differ, total: A.width * A.height };
 }
 
+/** Two baseline records shot for shot (each host, scheme and screen):
+ * differing pixels outside both sides' allowlisted rectangles, strict zero
+ * (theme2 12:06: no floor). A shot missing or failed on either side fails. */
+export function comparePixels(before, after) {
+  const key = s => `${s.host} ${s.scheme} ${s.screen}`;
+  const later = new Map(after.shots.map(s => [key(s), s]));
+  return before.shots.map(b => {
+    const a = later.get(key(b));
+    if (!b.ok || !a?.ok) return { shot: key(b), ok: false, said: !a ? 'no after shot' : `not shot: ${(b.ok ? a : b).said}` };
+    const allow = [...b.allow ?? [], ...a.allow ?? []];
+    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect));
+    return { shot: key(b), ok: d.differ === 0, differ: d.differ, total: d.total, allow };
+  });
+}
+
 /** The gate's lines, in LLP 1139 §5's order. */
 export function lines(opts) {
   return [
