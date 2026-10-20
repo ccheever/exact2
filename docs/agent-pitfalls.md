@@ -505,6 +505,7 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
 | a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
 | `alignItems`, `justifyContent`, `gap` on a `View` (a flex column in RN) | `lower-flex-on-block` (warning) | `column` or `row`: a `view` is `display: block`, as a `<div>` is |
+| `flexDirection="row"` on a `Pressable` with content | `lower-flex-on-block` (warning) | `button display="flex"`, and `text-align="left"` where its text is not centred: a `button` is a block with centred text, as `<button>` is |
 | `<SFSymbol name="x" size={N}>`, expo-symbols `SymbolView` | nothing; hand-drawn as an `svg`, or as `font-size=N`, the glyph comes out smaller | `image "symbol:sf/x" width=N height=N object-fit="contain"`, its tint as `color` ("Values beside an SF Symbol", below) |
 
 What the original's style objects say is not always what its iOS screen shows. Port
@@ -536,9 +537,15 @@ screen, 2026-10-16.)
   (`contentInsetAdjustmentBehavior` is `never`), so its `paddingBottom: 24` was the whole
   gap and the last row sat over the home indicator. A route's last scroller in exact2 is
   inset by UIKit as a hand-built one is (`automatic`: the home indicator's 34 points, and
-  the tab bar's height on a tab), and the ported padding adds to that. Fix: subtract the
-  inset from the ported padding (`padding-bottom=0` here leaves 34); do not add
-  `env(safe-area-inset-bottom)` to it.
+  the tab bar's height on a tab; a dialog sheet's outer scroller is `always`), and the
+  ported padding adds to that. That inset is the platform's, as a hand-built table view in
+  a sheet has it (LLP 1116 D2). To match the original's picture anyway, subtract the inset
+  from the ported padding, and where the padding is the smaller (24 here, under 34), write
+  `padding-bottom=0` and the rest as a negative `margin-bottom` on the scroller itself
+  (`margin-bottom=-10` here), which lowers its end into the inset: padding cannot go below
+  zero, and a negative margin on the last child does not move it. Do not add
+  `env(safe-area-inset-bottom)`. (Verified on the euxy port's Edit Lane sheet,
+  2026-10-20: 0 left Delete lane 10 points high, -10 matched the reference.)
 
 - **Rows with a `minHeight`, or boxes with a `height` and padding, come out taller.**
   `padding="13px 16px" min-height=24` made
@@ -665,12 +672,6 @@ screen, 2026-10-16.)
   'flex-start'`, and it centred only because the original wrapped it in a plain `View`,
   which the port dropped as noise. Fix: keep the wrapper (`view`), or drop the
   `align-self`.
-- **A sheet's form stops 34 points short of the original's at its end.** Cause: React
-  Native's `ScrollView` defaults `contentInsetAdjustmentBehavior` to `never`, so its last
-  row scrolls under the home indicator. Exact sets a route's last scroller, and a dialog
-  sheet's outer one, to UIKit's `always`, so it rests above the indicator as a hand-built
-  table view in a sheet does (LLP 1116 D2). That is the platform's: keep it. (euxy's UIKit
-  port matched the original only by setting `.never` on that scroll view by hand.)
 
 ## Actions
 
@@ -1032,8 +1033,9 @@ screen, 2026-10-16.)
   an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
   "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
   prompt, and its tab bar after a relaunch, 2026-10-18.)
-- **A share link's sheet closes before the screenshot.** `xcrun simctl openurl`
-  asks "Open in …?" only sometimes (the first link after the simulator boots, in
+- **A deep link in a drive is `"type <root> euxy://p/…"`, not `simctl openurl`; a
+  blind tap where iOS's "Open in …?" alert was dismisses the sheet the link opened.**
+  `xcrun simctl openurl` asks "Open in …?" only sometimes (the first link after the simulator boots, in
   one run); otherwise the app opens the link at once. A drive that then taps where
   the confirmation's Open button would be (`axe tap -x 275 -y 474` on an iPhone 17)
   taps the dimmed screen just above the 45 % `navigationPresentation="modal"` route

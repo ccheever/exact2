@@ -434,6 +434,14 @@ pub fn source_graph(path: &Path) -> SourceGraph {
     }
 }
 
+/// The `.contract` files beside the root at `path` (not tests) that no
+/// `use` from it reaches: another entry, or a file nothing uses yet.
+pub fn unreached(path: &Path) -> Vec<PathBuf> {
+    let graph = source_graph(path);
+    let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    sources::unreached(&root, |p| graph.sources.iter().any(|s| s.path == p))
+}
+
 /// A file [`fix_uses`] wrote, and the `use` lines it wrote there.
 pub type WrittenUses = (PathBuf, Vec<String>);
 
@@ -466,10 +474,15 @@ pub fn fix_uses(path: &Path) -> Result<(Vec<WrittenUses>, Vec<CompileError>), Ve
         let mut wrote = false;
         let mut refused = Vec::new();
         for fix in fixes {
-            if !fix.unresolved.is_empty() || fix.lines.is_empty() {
+            // Never a file outside the app, whatever path reached it.
+            let inside = fix
+                .path
+                .canonicalize()
+                .is_ok_and(|p| p.starts_with(&app_root));
+            if !fix.unresolved.is_empty() || fix.lines.is_empty() || !inside {
                 refused.push(fix.error.clone());
             }
-            if fix.lines.is_empty() {
+            if fix.lines.is_empty() || !inside {
                 continue;
             }
             let before =

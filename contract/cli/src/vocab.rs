@@ -203,7 +203,10 @@ fn entry(name: &str) -> Option<Entry> {
             && recipe.is_none()
             && pattern.is_none()
     });
-    let command = HOST_COMMANDS.contains(&name).then(|| command_text(name));
+    let command = match name {
+        "exactMIDI" => Some(MIDI_SOURCE.to_string()),
+        _ => HOST_COMMANDS.contains(&name).then(|| command_text(name)),
+    };
     let function = functions::function(name);
     let part = part(name);
     let known = tag.is_some()
@@ -709,11 +712,15 @@ fn function_text(f: &Function) -> String {
     out
 }
 
+/// `exactMIDI()`, a reserved source (LLP 1125 D6), and what `sent` leaves
+/// out: the euxy port expected its notes with no output connected.
+const MIDI_SOURCE: &str = "reserved source, `resource midi = exactMIDI() as shape MIDI`: `state`, `inputs` and `outputs` by Web MIDI's names, and `sent`, the last 128 messages that went out ({output, data, timeStamp}) by the runner's clock. A message to an output that is not connected, or before access is granted, goes nowhere: `sendMIDI` and a sequence's notes drop it, the journal (`logs`) says so, and `sent` never lists it, since nothing was sent. A log of what the app means to send is the app's own, written where it sends (LLP 1125 D6, D7; apps/metronome)";
+
 /// A host command: an action statement, never a value.
 fn command_text(name: &str) -> String {
     let what = match name {
         "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
-        "requestMIDIAccess" | "sendMIDI" => "; MIDI answers only under the grant `device.midi purpose.midi` (a line of app.ts's `export const grants`), whose second word is a strings key: `\"purpose.midi\": \"…\"` in strings/en.json, the text the person is shown when asked (apps/metronome)",
+        "requestMIDIAccess" | "sendMIDI" => "; `sendMIDI` to an output that is not connected drops the message (`contract vocab exactMIDI`); MIDI answers only under the grant `device.midi purpose.midi` (a line of app.ts's `export const grants`), whose second word is a strings key: `\"purpose.midi\": \"…\"` in strings/en.json, the text the person is shown when asked (apps/metronome)",
         "setRangeText" =>"; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement, and on web/macOS/iOS the Markdown editor's, over its source; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText); no undo step on a plain field, one undo step each on the Markdown editor (LLP 1045 D1). Markdown on Linux, Windows, Android and terminal are not supported yet (LLP 1069.001)",
         "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
         "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
@@ -772,6 +779,10 @@ const DETENT: &str = "on a sheet route (`navigationPresentation=\"modal\"`), its
 /// LLP 1116.020 D3: round 18's builders drew search as a field and a Search
 /// button in the content; the bar's search field is one attribute away.
 const SEARCH_TYPE: &str = "on an `input`, HTML's (`number`, `date`, `checkbox`, …); `type=\"search\"` in a route's `header` is the bar's search field, filtering as you type (iOS: UIKit's search controller; `contract vocab search`)";
+/// `contract vocab color-scheme` (LLP 1034 §8): what it fixes, and the
+/// app's own scheme, which is `setScheme`'s (the euxy port's Theme row
+/// guessed at `prefersColorScheme`).
+const COLOR_SCHEME: &str = "`light` or `dark` fixes the node and its subtree in that scheme (`light-dark()`, platform colours, glass); left off, it follows the surrounding scheme. `normal`, `light dark` and `only` are refused, written or as a branch of a computed value. A Theme setting of Auto, Light and Dark is the app's own scheme: `setScheme(\"system\" | \"light\" | \"dark\")` in the action that chooses it (and a `mount` task, for a kept choice), which the bars, sheets and windows follow. `exactViewport().prefersColorScheme` is the system's scheme beneath `setScheme` and any subtree's, a fact to read, not one to paint by (`lower-scheme-color`)";
 const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the authored bar; on a header button it keeps only that button authored in place while the rest of the header projects. A title button keeps its contents; an authored Back replaces UIKit Back. Search or a header tablist can opt out on that element; a tab button alone keeps its parent segmented. Tabs retain their panels and navigation stacks. Auto restores platform projection.";
 
 /// Where an attribute is admitted, if not on every tag.
@@ -879,6 +890,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "appearance" {
         doc["note"] = APPEARANCE.into();
+    }
+    if name == "color-scheme" {
+        doc["note"] = COLOR_SCHEME.into();
     }
     if name == "navigationDetent" {
         doc["note"] = DETENT.into();
@@ -990,6 +1004,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "appearance" {
                 lines.push(APPEARANCE.into());
+            }
+            if name == "color-scheme" {
+                lines.push(COLOR_SCHEME.into());
             }
             if name == "border-radius" {
                 lines.push(SHEET_RADIUS.into());

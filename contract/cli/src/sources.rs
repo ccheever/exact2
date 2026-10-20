@@ -474,63 +474,7 @@ pub fn code_beside(root: &Path) -> bool {
     })
 }
 
-/// The `use` lines each file of the program rooted at `path` lacks (LLP
-/// 1091 D1), for `contract fmt --uses`; the loader's other refusals as
-/// they are.
-pub(crate) fn use_fixes(
-    path: &Path,
-    src: &str,
-    app_root: &Path,
-) -> Result<Vec<uses::UseFix>, Vec<CompileError>> {
-    let root_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let mut loader = Loader {
-        app_root,
-        sources: Sources {
-            paths: vec![root_key.clone()],
-            origins: vec![Origin::App],
-            digests: vec![digest(src)],
-            homes: Vec::new(),
-            texts: vec![src.into()],
-            imports: Vec::new(),
-            packages: Vec::new(),
-            consulted: Vec::new(),
-            motion: Vec::new(),
-        },
-        active: vec![root_key.clone()],
-        units: Vec::new(),
-        cache: HashMap::new(),
-        fixes: Vec::new(),
-        proposed: Vec::new(),
-        declared: Vec::new(),
-        motion: Vec::new(),
-        refused: Refused::default(),
-    };
-    let resolve = |sources: &Sources, all: Vec<CompileError>| {
-        all.into_iter()
-            .map(|e| sources.resolve(e))
-            .collect::<Vec<_>>()
-    };
-    let loaded = loader.load_source(&root_key, src, 0);
-    if !loader.refused.errors.is_empty() {
-        return Err(std::mem::take(&mut loader.refused.errors));
-    }
-    if let Err(all) = loaded {
-        return Err(resolve(&loader.sources, all));
-    }
-    match loader.scope() {
-        Ok(_) => Ok(Vec::new()),
-        Err(_) if !loader.fixes.is_empty() => Ok(std::mem::take(&mut loader.fixes)
-            .into_iter()
-            .map(|mut fix| {
-                fix.error = loader.sources.resolve(fix.error);
-                fix
-            })
-            .collect()),
-        Err(all) => Err(resolve(&loader.sources, all)),
-    }
-}
-
-pub(crate) use uses::apply as apply_uses;
+pub(crate) use uses::{apply as apply_uses, unreached, use_fixes};
 
 /// One source a compilation reads (LLP 1091 D10).
 #[derive(Debug, Clone, PartialEq, Eq)]
