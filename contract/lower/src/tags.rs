@@ -486,9 +486,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // declares it hears each message from an input its `midiinputs` lists.
         "midimessage" => AttrTarget::Handler("midimessage"),
         "midiinputs" => AttrTarget::Prop(p("midiInputs")),
-        // DOM's `wheel` (studio diary R3) and `drop` of files (R19).
+        // DOM's `wheel` (studio diary R3), `drop` of files (R19), and the
+        // `dragenter` and `dragleave` of a file drag over the node.
         "wheel" => AttrTarget::Handler("wheel"),
         "drop" => AttrTarget::Handler("drop"),
+        "dragenter" => AttrTarget::Handler("dragenter"),
+        "dragleave" => AttrTarget::Handler("dragleave"),
         "copy" => AttrTarget::Handler("copy"),
         "cut" => AttrTarget::Handler("cut"),
         "paste" => AttrTarget::Handler("paste"),

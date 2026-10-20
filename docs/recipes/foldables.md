@@ -33,9 +33,12 @@ component Note
 - **This recipe puts one pane on the trailing segment by default** (segment 1, left to
   right), as [Apple's adaptive-layout talk](https://developer.apple.com/videos/play/tech-talks/111463/)
   moves an alert there, so it stays under the outer display as the device closes. Exact
-  moves no pane by itself, and on the iOS 27.1 simulator UIKit's own alerts and sheets
-  take the left segment of a book fold in a left-to-right layout. The side is yours:
-  segment 0 keeps the pane leading.
+  moves no pane by itself; UIKit puts its sheets on the left segment (below). The side
+  is yours: segment 0 keeps the pane leading.
+- On a book fold UIKit moves neither its bar nor a list (iOS 27.1 simulator). A route
+  that is itself the moved pane keeps its title with
+  `navigationBar=(book ? "none" : "auto")`: folded, its first-child `header` paints in
+  it as written, with its own Back if pushed; flat, it is UIKit's bar.
 - Two panes go in reading order: the starting one on the leading segment, the next on
   the trailing one. Segments count from the left, so in a right-to-left language the
   leading segment is 1.
@@ -45,8 +48,8 @@ component Note
   rides above it, so leave its header room as well.
 - Change the values on one node, as above, so a fold keeps the field and its text. UIKit
   itself can still end the editing when the device switches panels.
-- On the iOS 27.1 simulator, UIKit moves an alert clear of a book fold by itself, and a
-  page or form sheet to the left segment, its right edge about 12 points into the band
-  between the segments. On a laptop fold, a page or form sheet spans the fold. The tab
-  bar stays clear of the fold. Apple's talk says menus and popovers move
-  clear as well; that is not measured here.
+- On the iOS 27.1 simulator, UIKit moves an alert clear of a book fold, and a page or
+  form sheet to the left segment (in left-to-right text), its right edge about 12 points
+  into the band. On a laptop fold, a page or form sheet spans the fold. The tab bar stays
+  clear of the fold. Apple's talk says menus and popovers move clear too (not measured
+  here).

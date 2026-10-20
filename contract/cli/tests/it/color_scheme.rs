@@ -62,6 +62,16 @@ fn only_light_and_dark_are_written() {
         let src = format!("component App\n  view\n    column color-scheme=\"{value}\"\n");
         contract::compile(&src).unwrap();
     }
+    // A Theme row's Auto as a branch (the euxy port, 2026-10-20): the
+    // refusal names the app's own scheme, `setScheme`.
+    for auto in ["light dark", "normal", "unset", ""] {
+        let src = format!("component App\n  state t = \"auto\"\n  view\n    column color-scheme=(t == \"auto\" ? \"{auto}\" : t)\n");
+        let error = contract::compile(&src).unwrap_err().to_string();
+        assert!(
+            error.contains("`setScheme(\"system\" | \"light\" | \"dark\")` in the action"),
+            "{auto}: {error}"
+        );
+    }
 }
 
 /// A bound `normal` unsets the row, so the subtree follows the surrounding

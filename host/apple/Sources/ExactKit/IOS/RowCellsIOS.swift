@@ -140,9 +140,7 @@ final class RowCells {
     /// A separator's thickness: a point, as measured on iOS 27 (earlier
     /// systems drew a hairline).
     static let thickness: CGFloat = 1
-    /// How far short of the trailing edge a separator ends, and where one
-    /// starts in a row with no text: a cell's layout margin at an iPhone's
-    /// width (an iPad's wider margin was not measured).
+    /// A cell's layout margin before a list reports its own (`margins`).
     static let margin: CGFloat = 16
     /// The ground of a highlighted or selected cell of a plain list. (tvOS
     /// has no such grey and draws no row of this: its focus is the feedback.)
@@ -160,6 +158,10 @@ final class RowCells {
 
     private weak var presenter: Presenter?
     private var lines: [UInt32: RowLinesView] = [:]
+    /// The margins each list's rows were last sampled at (LLP 1138), which
+    /// its separators follow, and those the kernel was last sent.
+    private var told: [UInt32: [CGFloat]] = [:]
+    private var sent: [UInt32: [CGFloat]] = [:]
     /// The row whose ground shows, its list, and whether it is selected (a
     /// tap landed on it) or only held down.
     private var shown: (row: NodeView, list: UInt32, ground: RowGroundView, selected: Bool, since: CFTimeInterval)?
@@ -170,6 +172,8 @@ final class RowCells {
     func reset() {
         for view in lines.values { view.removeFromSuperview() }
         lines.removeAll()
+        told.removeAll()
+        sent.removeAll()
         shown?.ground.removeFromSuperview()
         shown = nil
     }
@@ -186,8 +190,57 @@ final class RowCells {
             lines[id] = nil
         }
         if let held = shown, presenter.views[held.row.id] !== held.row || held.row.window == nil { drop() } else if let held = shown { held.ground.frame = held.row.frame }
-        for (id, list) in presenter.listViews where list.hasRowCells && (changed?.contains(id) != false || lines[id] == nil) { draw(list) }
+        // The margins first, so a list's separators end at the one it now has.
+        let moved = tell()
+        for (id, list) in presenter.listViews where list.hasRowCells && (changed?.contains(id) != false || lines[id] == nil || moved.contains(id)) { draw(list) }
         #endif
+    }
+
+    /// @ref LLP 1138 — the margin UIKit's cell gives a plain list's rows: its
+    /// view controller's system minimum layout margins (16 on an iPhone
+    /// upright, 20 in landscape and on the Duo; measured on iOS 27 beside a
+    /// `UICollectionView` plain list), at its left and right. Exact's layout
+    /// already clears the safe area.
+    private func margins(_ list: NodeView) -> [CGFloat] {
+        guard let controller = sequence(first: list as UIResponder, next: \.next).first(where: { $0 is UIViewController }) as? UIViewController else {
+            return [Self.margin, Self.margin]
+        }
+        let m = controller.systemMinimumLayoutMargins
+        return list.effectiveUserInterfaceLayoutDirection == .rightToLeft ? [m.trailing, m.leading] : [m.leading, m.trailing]
+    }
+
+    /// Each cells list's margins to the kernel when they change, which lays
+    /// its rows out again; a list gone is forgotten. The lists whose margins
+    /// changed.
+    private func tell() -> Set<UInt32> {
+        guard let presenter else { return [] }
+        var changes: [(UInt32, [CGFloat]?)] = []
+        for (id, list) in presenter.listViews where list.hasRowCells && list.window != nil {
+            let m = margins(list)
+            if told[id] != m { told[id] = m; changes.append((id, m)) }
+        }
+        for id in Array(told.keys) where presenter.listViews[id]?.hasRowCells != true {
+            told[id] = nil
+            if presenter.views[id] != nil { changes.append((id, nil)) }
+        }
+        guard !changes.isEmpty else { return [] }
+        presenter.afterBatch { [weak self] in
+            guard let session = self?.presenter?.session else { return }
+            session.whenIdle { [weak self] in self?.send() }
+        }
+        return Set(changes.map(\.0))
+    }
+
+    /// The latest sample's changes to the kernel. A send queued behind a fill
+    /// can run after a later one, so each sends what the latest sample says
+    /// rather than what its own did.
+    private func send() {
+        guard let presenter, let session = presenter.session else { return }
+        var changes: [(UInt32, [CGFloat]?)] = told.filter { sent[$0.key] != $0.value }.map { ($0.key, $0.value) }
+        for id in sent.keys where told[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
+        sent = told
+        guard !changes.isEmpty else { return }
+        session.apply(session.runtime.listMargins(changes))
     }
 
     private func isSpacer(_ row: NodeView) -> Bool { row.props["accessibilityElementsHidden"] == "true" }
@@ -214,6 +267,7 @@ final class RowCells {
         let rows = rows(of: list)
         let lit = shown.flatMap { $0.list == list.id && !fading ? $0.row : nil }
         let path = CGMutablePath()
+        let inset = told[list.id] ?? margins(list)
         /// A line at a height of `row`'s box, from where its text starts.
         func line(_ row: NodeView, at y: CGFloat) {
             let frame = row.frame
@@ -221,8 +275,8 @@ final class RowCells {
             // leading edge and not under a leading image: where the text's
             // glyphs start, inside any padding of its own (a row that is
             // itself a padded text). A row with no text, from the cell's margin.
-            let lead = row.firstText.map { row.convert(CGPoint(x: $0.contentBox().minX, y: 0), from: $0).x } ?? Self.margin
-            let from = frame.minX + max(0, min(lead, frame.width)), to = frame.maxX - Self.margin
+            let lead = row.firstText.map { row.convert(CGPoint(x: $0.contentBox().minX, y: 0), from: $0).x } ?? inset[0]
+            let from = frame.minX + max(0, min(lead, frame.width)), to = frame.maxX - inset[1]
             if to > from { path.addRect(CGRect(x: from, y: y, width: to - from, height: Self.thickness)) }
         }
         for (index, row) in rows.enumerated() {

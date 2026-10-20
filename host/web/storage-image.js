@@ -1,9 +1,10 @@
 // `storage.fs.compressImage` on the web (LLP 1069.002 A1.3): the browser
-// decodes (`createImageBitmap`, orientation applied), a canvas scales onto
-// white, and `convertToBlob` encodes each quality trial. Loaded by
-// storage-fs.js on the first call, never before first pixel. The search is
-// Bluesky's (A1.2), the same trials as `exact_data::image::search`
-// (scripts/fixtures/picker/compress-trials.json).
+// decodes (`createImageBitmap`, orientation applied), a canvas scales (onto
+// white for a JPEG, clear for a PNG, A1.11), and `convertToBlob` encodes each
+// trial. Loaded by storage-fs.js on the first call, never before first
+// pixel. A JPEG's search is Bluesky's (A1.2), the same trials as
+// `exact_data::image::search` (scripts/fixtures/picker/compress-trials.json);
+// a PNG's only shrinks, as `exact_data::image::search_lossless` does.
 
 // The platform's clock as storage-environment.js captured it, before a
 // worker realm refuses ambient time to app code (LLP 1027.002 D2).
@@ -31,7 +32,9 @@ export function limits(options) {
     throw new TypeError(`${api}: maxDimension must be an integer from 1 to ${MAX_DIMENSION}`);
   if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_BYTES)
     throw new TypeError(`${api}: maxBytes must be an integer from 1 to ${MAX_BYTES}`);
-  return { maxDimension, maxBytes };
+  const type = options.type === undefined ? 'image/jpeg' : options.type;
+  if (type !== 'image/jpeg' && type !== 'image/png') throw new TypeError(`${api}: type must be "image/jpeg" or "image/png"`);
+  return { maxDimension, maxBytes, type };
 }
 
 /** `containImageRes`: never larger than itself, each side floored, at least 1. */
@@ -59,6 +62,20 @@ export async function search(width, height, maxDimension, maxBytes, encode) {
     else hi = quality;
   }
   return best;
+}
+
+/** A PNG's search (A1.11): the fitted size, then each 0.8 shrink, at most
+ * four of them. `encode(w, h)` resolves `{size, value}`. */
+export async function searchLossless(width, height, maxDimension, maxBytes, encode) {
+  let dimension = maxDimension;
+  for (let shrinks = 0; shrinks <= MAX_SHRINKS; shrinks++) {
+    const [w, h] = contain(width, height, dimension);
+    const { size, value } = await encode(w, h);
+    if (size <= maxBytes) return { value, width: w, height: h };
+    if (dimension === 1) break;
+    dimension = Math.max(1, Math.floor(dimension * 0.8));
+  }
+  return null;
 }
 
 // The pixel size from the header, read before anything is decoded (A1.5),
@@ -148,23 +165,25 @@ async function decode(blob) {
   }
 }
 
-function surface(w, h) {
+function surface(w, h, type) {
+  const alpha = type === 'image/png';
   if (typeof OffscreenCanvas === 'function') {
     const canvas = new OffscreenCanvas(w, h);
-    return { context: canvas.getContext('2d', { alpha: false }), encode: quality => canvas.convertToBlob({ type: 'image/jpeg', quality }) };
+    return { context: canvas.getContext('2d', { alpha }), encode: quality => canvas.convertToBlob({ type, quality }) };
   }
   if (typeof document === 'object' && document?.createElement) {
     const canvas = document.createElement('canvas');
     canvas.width = w; canvas.height = h;
-    return { context: canvas.getContext('2d', { alpha: false }), encode: quality => new Promise((resolve, reject) =>
-      canvas.toBlob(blob => blob ? resolve(blob) : reject(failure('unsupported', 'the canvas encoded nothing')), 'image/jpeg', quality)) };
+    return { context: canvas.getContext('2d', { alpha }), encode: quality => new Promise((resolve, reject) =>
+      canvas.toBlob(blob => blob ? resolve(blob) : reject(failure('unsupported', 'the canvas encoded nothing')), type, quality)) };
   }
   throw failure('unsupported', 'no canvas in this realm');
 }
 
-/** `blob` as a JPEG within the budget: `{bytes: ArrayBuffer, width, height}`.
- * Nothing is decoded or tried at or after `deadline`. */
-export async function compress(blob, maxDimension, maxBytes, deadline = now() + DEADLINE_MS) {
+/** `blob` as a JPEG, or a PNG (`type`), within the budget: `{bytes:
+ * ArrayBuffer, width, height}`. Nothing is decoded or tried at or after
+ * `deadline`. */
+export async function compress(blob, maxDimension, maxBytes, deadline = now() + DEADLINE_MS, type = 'image/jpeg') {
   const late = () => { if (now() >= deadline) throw failure('timeout', `the search ran past ${DEADLINE_MS / 1000} s`); };
   if (blob.size > MAX_BYTES) throw failure('too-large', `${blob.size} bytes is over ${MAX_BYTES}`);
   const stored = await headerSize(blob);
@@ -178,24 +197,30 @@ export async function compress(blob, maxDimension, maxBytes, deadline = now() + 
     // Again after decoding: the header may not be the frame the browser drew.
     if (width * height > MAX_SOURCE_PIXELS) throw failure('too-large', `${width}×${height} pixels is over ${MAX_SOURCE_PIXELS}`);
     let drawn = null;
-    const best = await search(width, height, maxDimension, maxBytes, async (w, h, quality) => {
+    const name = type === 'image/png' ? 'PNG' : 'JPEG';
+    const trial = async (w, h, quality) => {
       late();
       if (!drawn || drawn.w !== w || drawn.h !== h) {
         drawn = null; // the last size's canvas goes before the next is made
-        const { context, encode } = surface(w, h);
+        const { context, encode } = surface(w, h, type);
         if (!context) throw failure('unsupported', 'no 2D canvas context');
-        context.fillStyle = '#fff';
-        context.fillRect(0, 0, w, h);
+        if (type === 'image/jpeg') {
+          context.fillStyle = '#fff';
+          context.fillRect(0, 0, w, h);
+        }
         context.imageSmoothingEnabled = true;
         context.imageSmoothingQuality = 'high';
         context.drawImage(bitmap, 0, 0, w, h);
         drawn = { w, h, encode };
       }
-      const out = await drawn.encode(quality / 100);
-      if (out.type !== 'image/jpeg') throw failure('unsupported', `this browser encodes ${out.type || 'nothing'}, not image/jpeg`);
+      const out = await drawn.encode(quality === undefined ? undefined : quality / 100);
+      if (out.type !== type) throw failure('unsupported', `this browser encodes ${out.type || 'nothing'}, not ${type}`);
       return { size: out.size, value: out };
-    });
-    if (!best) throw failure('unfit', `no JPEG of this image fits ${maxBytes} bytes`);
+    };
+    const best = type === 'image/png'
+      ? await searchLossless(width, height, maxDimension, maxBytes, (w, h) => trial(w, h))
+      : await search(width, height, maxDimension, maxBytes, trial);
+    if (!best) throw failure('unfit', `no ${name} of this image fits ${maxBytes} bytes`);
     return { bytes: await best.value.arrayBuffer(), width: best.width, height: best.height };
   } finally {
     bitmap.close?.();

@@ -282,6 +282,7 @@ export const WEB_STD = ['-Zbuild-std=std,panic_abort', '-Zbuild-std-features=opt
 // Deprecation is stable's to judge (the six checks' clippy): the nightly
 // deprecates names, like `fetch_update`, before stable has their successors.
 const WEB_RUSTFLAGS = ['-Zunstable-options', '-Cpanic=immediate-abort', '-Zlocation-detail=none', '-Adeprecated'];
+export const WEB_SIZE = [...WEB_STD, ...WEB_RUSTFLAGS].join(' ');
 /** The environment for a web build, refusing a machine without the toolchain
  * or its std sources (Cargo builds offline, so std's dependencies too). */
 export function webToolchainEnv(env) {
@@ -304,7 +305,7 @@ export function webToolchainEnv(env) {
     }
     if (ready) try { writeFileSync(marker, ''); } catch { /* a read-only toolchain checks again next time */ }
   }
-  return cargoEnvironment({ ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN, EXACT_WEB_SIZE: [...WEB_STD, ...WEB_RUSTFLAGS].join(' ') });
+  return cargoEnvironment({ ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN, EXACT_WEB_SIZE: WEB_SIZE });
 }
 
 // A Bun older than package.json's pin is refused before anything builds.
@@ -331,12 +332,24 @@ const WEB_HOST_GROUPS = {
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
   rust: ['rust-glue.js'],
-  gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js'],
+  gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js', 'gpu-tier.js', 'gpu-refusal.js'],
   gpuModules: ['gpu-modules.js'],
   native: ['native-glue.js'],
   // A development page's frame sampler (LLP 1079 D3); a production build ships none.
   development: ['frames.js'],
 };
+
+/** A game's world surfaces by name, as its last GPU build declared them (`.shells/surfaces.json`); none before one. */
+export function worldSurfaces(dir) {
+  try { return Object.keys(JSON.parse(readFileSync(resolve(dir, '.shells/surfaces.json'), 'utf8'))); } catch { return []; }
+}
+
+/** The shell page with its world surfaces on its root (`<html data-exact-worlds="world …">`, LLP 1139.003 D1),
+ * inserted into the `<html>` tag whatever its other attributes (the manifest's `lang`). */
+export function markWorlds(html, names) {
+  const value = names.join(' ').replace(/[&"<>]/g, c => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' })[c]);
+  return names.length ? html.replace(/<html\b/, `<html data-exact-worlds="${value}"`) : html;
+}
 
 /** The AT Protocol client-metadata documents an app with auth sessions
  * serves beside its callback page (LLP 1069.006 D6; after review, item 3):
@@ -665,8 +678,33 @@ function documentTypeProblems(manifest) {
       : ![extensions].flat().some((e) => /^\.[^./]+$/.test(e)) ? [`file_handlers[${i}].accept: ${mime}, the app's own type, names no extension (".board")`]
       : []));
 }
-function protocolHandlerProblems({ protocol_handlers = [] }) {
-  return protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]);
+/** Whether a `protocol_handlers` scheme is the web's own: `http` and
+ * `https` make a native app a web browser (LLP 1030 D2, 2026-10-20), and
+ * no browser registers them (WHATWG HTML's protocol handler safelist). */
+export const isWebScheme = (protocol) => ['http', 'https'].includes(protocol.toLowerCase());
+function protocolHandlerProblems({ protocol_handlers = [], host }) {
+  const web = protocol_handlers.filter((h) => isWebScheme(h.protocol));
+  const pair = web.length && (new Set(web.map((h) => h.protocol.toLowerCase())).size !== 2 || web.some((h) => h.url !== web[0].url || !h.distribution_only !== !web[0].distribution_only));
+  const claimed = ['ios', 'macos'].flatMap((platform) => (host?.[platform]?.urlSchemes ?? []).filter(isWebScheme).map((s) => `host.${platform}.urlSchemes: ${s} is the web's own scheme; declare http and https together in protocol_handlers`));
+  return [...claimed, ...protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]),
+    ...(pair ? ['protocol_handlers: http and https come together, with one url and one distribution_only: a web browser claims both'] : [])];
+}
+/** The W3C keys of `app.json`, as the web builds write `manifest.json`
+ * (LLP 1030 D2/D10; 1030.000 D7). A browser opens files only, so
+ * `inode/directory` (the Apple bake's word for a folder) goes, and it
+ * registers neither `http` nor `https`, so those handlers go too. */
+export function webAppManifest(manifest, name) {
+  const keys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler'];
+  const web = Object.fromEntries(keys.filter((k) => manifest[k] !== undefined).map((k) => [k, manifest[k]]));
+  if (web.file_handlers) web.file_handlers = web.file_handlers.filter((h) => !Object.keys(h.accept ?? {}).includes('inode/directory'));
+  if (web.protocol_handlers) web.protocol_handlers = web.protocol_handlers.filter((h) => !isWebScheme(h.protocol));
+  for (const key of ['file_handlers', 'protocol_handlers']) if (!web[key]?.length) delete web[key];
+  web.name ??= name;
+  web.start_url ??= '/';
+  // The document's language (`<html lang>`, WCAG 3.1.1). Every app here is in
+  // English, so an app that declares none is `en`.
+  web.lang ??= 'en';
+  return web;
 }
 export function nativeManifestMetadata(manifest, platform) { return {app:manifest.app,host:manifest.host?.[platform]??{},icons:manifest.icons??[],...(['macos','ios'].includes(platform) && manifest.protocol_handlers?.length ? {protocol_handlers:manifest.protocol_handlers} : {}),...(['ios','android'].includes(platform) && manifest.orientation ? {orientation:manifest.orientation} : {})}; }
 let cachedSchema = null;

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { warmGameInputs, warmGameEnvironment, publishWarmGame } from '../web-js/module.mjs';
 // Build the web app (LLP 1071): the JS target, `host/web-js/build.mjs`, the
 // plan compiled to one ES module over a small runtime, into the same dist;
 // what it refuses (a capability the runtime lacks, named) fails the build.
@@ -27,9 +28,9 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { compilerWarnings, webInputDigests } from '../../scripts/agent-launch.mjs';
-import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webGpuArtifacts, webHostFiles } from '../../scripts/app.mjs';
+import { authClientMetadata, checkModuleRoster, gpuModules, markWorlds, rustPolicy, webGpuArtifacts, webHostFiles, worldSurfaces } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
-import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { webAppManifest, webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { buildEditor, buildFlow } from '../web-js/module.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
@@ -116,6 +117,11 @@ if (!existsSync(dist) && existsSync(previous)) renameSync(previous, dist);
 else if (existsSync(dist) && existsSync(previous)) rmSync(previous, { recursive: true, force: true });
 const buildEnv = developmentBuildEnv();
 buildEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, buildEnv);
+// Proofs select the requested game profile under either trust mode; ordinary builds ship web.
+const proofProfile = game ? process.env.EXACT_GAME_PROOF_PROFILE : undefined;
+if (proofProfile && !['gpu-dev', 'release'].includes(proofProfile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
+const gpuProfile = proofProfile === 'gpu-dev' ? 'gpu-dev' : 'web';
+if (proofProfile === 'gpu-dev') Object.assign(buildEnv, warmGameEnvironment(buildEnv));
 // `EXACT_WEB_NAMES=1` keeps the wasm's name section for attribution (LLP 1047
 // D9, metrics.mjs --long): rustc strips only DWARF, which would stop binaryen's
 // duplicate-function elimination, and wasm-opt keeps names. The code is the
@@ -125,12 +131,9 @@ const keepNames = process.env.EXACT_WEB_NAMES === '1';
 // (LLP 1047.000 §9), which needs the names too; they are stripped after the
 // split. The dev loop's `EXACT_WEB_LINK=all` build and the names build stay
 // whole, as does a machine whose binaryen isn't the pinned one.
-const unsplit = keepNames || process.env.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
+const unsplit = keepNames || buildEnv.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
 if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
-// Proofs select the requested game profile under either trust mode; ordinary builds ship web.
-const proofProfile = game ? process.env.EXACT_GAME_PROOF_PROFILE : undefined;
-if (proofProfile && !['gpu-dev', 'release'].includes(proofProfile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
-const gpuProfile = proofProfile === 'gpu-dev' ? 'gpu-dev' : 'web';
+const warmInputs = !bakeOnly ? warmGameInputs(app, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile}) : null;
 const buildReceipt = contractLast(() => buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly, gpuProfile}));
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
@@ -301,17 +304,7 @@ writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app,
 // name as the title, and its first icon as the favicon. An installed PWA's
 // icon and name are the browser's cached copies of these — the origin's
 // carrier, at its real strength.
-const webKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler'];
-const webManifest = Object.fromEntries(webKeys.filter((k) => app.manifest[k] !== undefined).map((k) => [k, app.manifest[k]]));
-// `inode/directory` is the Apple bake's word for a folder; a browser's
-// file handler opens files only (LLP 1069.010 slice 4).
-if (webManifest.file_handlers) webManifest.file_handlers = webManifest.file_handlers.filter((h) => !Object.keys(h.accept ?? {}).includes('inode/directory'));
-if (!webManifest.file_handlers?.length) delete webManifest.file_handlers;
-webManifest.name ??= app.displayName;
-webManifest.start_url ??= '/';
-// The document's language (`<html lang>`, WCAG 3.1.1). Every app here is in
-// English, so an app that declares none is `en`.
-webManifest.lang ??= 'en';
+const webManifest = webAppManifest(app.manifest, app.displayName);
 writeFileSync(resolve(stage, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
 const sourceRevision = spawnSync('git', ['rev-parse', '--short=10', 'HEAD'], {cwd:app.dir,encoding:'utf8'});
 const sourceChanges = spawnSync('git', ['status', '--porcelain'], {cwd:app.dir,encoding:'utf8'});
@@ -474,6 +467,9 @@ if (gpu.built) {
   copyHostFiles('gpu');
   if (gpuModules(app.manifest).length) copyHostFiles('gpuModules');
   gpuNote += ', on demand';
+  // A game's world surfaces, by name, as its GPU build declared them (`.shells/surfaces.json`): a browser without
+  // WebGPU shows the refusal page over these and no other canvas (gpu-refusal.js, LLP 1139.003 D1).
+  if (game) writeFileSync(resolve(stage, 'index.html'), markWorlds(readFileSync(resolve(stage, 'index.html'), 'utf8'), worldSurfaces(app.dir)));
 }
 // @ref LLP 1024 D3/D5 — the app's module table, beside the page only when the
 // app has modules (the GPU gate): its web executor under `modules/`, fetched
@@ -500,7 +496,7 @@ writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   inputs: webInputDigests(app, false),
 }) + '\n');
 // In place in one step where the system has one (serve.mjs `replaceBuild`).
-replaceBuild(stage, dist);
+publishWarmGame(app, stage, dist, warmInputs, buildReceipt, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile});
 stage = null;
 if (bakeOnly) { console.log(`${relative(process.cwd(), dist) || "."}: the bake (no wasm): app.plan ${kib(planBytes.length)}, exact.json, index.html; documents: ${documentNote}${authNote}; modules: ${moduleNote}`); process.exit(0); }
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));

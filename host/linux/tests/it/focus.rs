@@ -334,3 +334,68 @@ fn detached_focusout_survives_autofocus_during_blur_commit() {
     assert_eq!(log(&p), "focus;wrapper;");
     assert_eq!(p.focus(), Some(id(&p, "c")));
 }
+
+/// DOM's order when a pointer takes the focus from an edited field: its down
+/// blurs the field, whose `change` runs then, and the press comes on the
+/// release. So `change` is no "submit on Return": a form that submits on it
+/// submits when the field loses focus (the Bluesky clone's sign-in did), and
+/// a `change` that removes the button the pointer went down on leaves no
+/// press to dispatch.
+#[test]
+fn an_edited_fields_change_runs_on_the_pointers_down_and_the_press_on_its_release() {
+    let boot = |source: &str| {
+        let (p, error) = Presenter::boot_with(
+            &contract::compile(source).unwrap().encode(),
+            (),
+            (400., 400.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p
+    };
+    let centre = |p: &Presenter<()>, name: &str| {
+        let k = p.host().kernel();
+        let f = k.node_by_key(k.find_by_test_id(name)[0]).unwrap().frame;
+        (f.x + f.width / 2., f.y + f.height / 2.)
+    };
+    let journal = |p: &Presenter<()>| p.host().runner().journal().collect::<Vec<_>>().join("\n");
+    let source = r#"component App
+  state log = ""
+  state shown = true
+  action committed(v: string)
+    log = `${log}change:${v};`
+  action gone(v: string)
+    log = `${log}change:${v};`
+    shown = false
+  action pressed
+    log = `${log}press;`
+  view
+    column width=200
+      input testId="f" change=committed height=32
+      input testId="g" change=gone height=32
+      if shown
+        button "Go" press=pressed testId="go" height=32
+      text log testId="log"
+"#;
+    let mut p = boot(source);
+    p.type_text(id(&p, "f"), "typed").unwrap();
+    let (x, y) = centre(&p, "go");
+    p.pointer_down(x, y, 0.).unwrap();
+    assert_eq!(log(&p), "change:typed;");
+    p.pointer_up(x, y, 50.).unwrap();
+    assert_eq!(log(&p), "change:typed;press;");
+    assert!(journal(&p).contains("pressed"), "{}", journal(&p));
+    // The change removes the button the pointer went down on: no press.
+    let mut p = boot(source);
+    p.type_text(id(&p, "g"), "typed").unwrap();
+    let (x, y) = centre(&p, "go");
+    p.pointer_down(x, y, 0.).unwrap();
+    assert_eq!(log(&p), "change:typed;");
+    assert!(p.host().kernel().find_by_test_id("go").is_empty());
+    let _ = p.pointer_up(x, y, 50.);
+    assert_eq!(log(&p), "change:typed;");
+    assert!(!journal(&p).contains("pressed"), "{}", journal(&p));
+}

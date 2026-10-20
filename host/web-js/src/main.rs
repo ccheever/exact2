@@ -562,8 +562,12 @@ fn main() -> ExitCode {
             if let Some(meta) = &out_files.viewport {
                 let _ = std::fs::write(dir.join("viewport.txt"), meta);
             }
-            for w in &warned {
+            let (web, rest): (Vec<_>, Vec<_>) = warned.iter().partition(|w| contract::web_only(w));
+            for w in rest {
                 eprintln!("{w}");
+            }
+            if let Some(first) = web.first() {
+                eprintln!("{}", contract::web_only_line(&first.to_string(), web.len()));
             }
             for w in &out_files.warnings {
                 eprintln!("warning: {w}");

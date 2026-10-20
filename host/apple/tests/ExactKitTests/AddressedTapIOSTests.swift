@@ -211,6 +211,224 @@ final class AddressedTapIOSTests: XCTestCase {
         override func location(in view: UIView?) -> CGPoint { target.convert(point, to: view) }
     }
 
+    private func heldPressPage() -> (Presenter, Agent) {
+        let session = ExactApp.shared.makeSession(label: "held-in-page-press")
+        self.session = session
+        let p = session.presenter
+        // This wire tree has no runner plan; layout and focus callbacks must not apply one.
+        p.session = nil
+        p.onIntrinsic = nil; p.onCovers = nil; p.onClipboard = nil; p.onClose = nil
+        p.onPress = nil; p.onFocus = nil; p.onBlur = nil; p.onFocusEvent = nil; p.onKey = nil
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        self.window = window
+        p.viewport.frame = window.bounds
+        window.rootViewController?.view.addSubview(p.viewport)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["press", "focus"]],
+            ["op": "create", "id": 3, "kind": "view"],
+            // Text, not empty views: a childless view with no handlers is a flat leaf, no NodeView.
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Inner"]],
+            ["op": "create", "id": 5, "kind": "view", "handlers": ["focus"]],
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "create", "id": 7, "kind": "text", "props": ["text": "Elsewhere"]],
+            ["op": "children", "id": 6, "ids": [7]],
+            ["op": "children", "id": 1, "ids": [2, 5, 6]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 800],
+            ["op": "frame", "id": 2, "x": 20, "y": 60, "w": 240, "h": 120],
+            ["op": "frame", "id": 3, "x": 20, "y": 20, "w": 180, "h": 80],
+            ["op": "frame", "id": 4, "x": 20, "y": 20, "w": 120, "h": 40],
+            ["op": "frame", "id": 5, "x": 20, "y": 300, "w": 100, "h": 40],
+            ["op": "frame", "id": 6, "x": 20, "y": 500, "w": 300, "h": 200],
+            ["op": "frame", "id": 7, "x": 10, "y": 10, "w": 100, "h": 30],
+        ]))
+        p.viewport.layoutIfNeeded()
+        return (p, Agent(session: session))
+    }
+
+    /// A real touch's contact begins after `pointerdown`: a target its own
+    /// handler disables and restores there still presses, held or tapped.
+    func testAPointerdownThatDisablesAndRestoresTheTargetStillPresses() throws {
+        let (p, agent) = heldPressPage()
+        let target = try XCTUnwrap(p.views[2])
+        target.handlers = ["press", "focus", "pointerdown"]
+        let local = CGPoint(x: 10, y: 10), at = p.client(target.convert(local, to: nil))
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { id, phase, _ in
+            guard id == target.id, phase == .down else { return }
+            p.apply(wireBatch([["op": "props", "id": target.id, "set": ["disabled": "true"]]]))
+            p.apply(wireBatch([["op": "props", "id": target.id, "clear": ["disabled"]]]))
+        }
+        let tap = agent.tap(["id": Int(target.id), "x": Double(at.x), "y": Double(at.y)])
+        XCTAssertEqual(tap["pressed"] as? Int, Int(target.id), "\(tap)")
+        let down = agent.tap(["id": Int(target.id), "phase": "down", "x": Double(at.x), "y": Double(at.y)])
+        XCTAssertNil(down["error"], "\(down)")
+        let up = agent.tap(["phase": "up"])
+        XCTAssertEqual(up["pressed"] as? Int, Int(target.id), "\(up)")
+        XCTAssertEqual(presses, [target.id, target.id])
+    }
+
+    /// A target its `pointerdown` leaves disabled is cancelled for good, as a
+    /// contact that begins on a disabled node is: restored before the up, it
+    /// still does not press.
+    func testAPointerdownThatLeavesTheTargetDisabledCancelsThePress() throws {
+        let (p, agent) = heldPressPage()
+        let target = try XCTUnwrap(p.views[2])
+        target.handlers = ["press", "focus", "pointerdown"]
+        let at = p.client(target.convert(CGPoint(x: 10, y: 10), to: nil))
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { id, phase, _ in
+            guard id == target.id, phase == .down else { return }
+            p.apply(wireBatch([["op": "props", "id": target.id, "set": ["disabled": "true"]]]))
+        }
+        let down = agent.tap(["id": Int(target.id), "phase": "down", "x": Double(at.x), "y": Double(at.y)])
+        XCTAssertNil(down["error"], "\(down)")
+        p.apply(wireBatch([["op": "props", "id": target.id, "clear": ["disabled"]]]))
+        let up = agent.tap(["phase": "up"])
+        XCTAssertTrue(up["pressed"] is NSNull, "\(up)")
+        XCTAssertEqual(presses, [])
+    }
+
+    private func heldPressRestored(_ property: String?, onAncestor: Bool = false,
+                                  file: StaticString = #filePath, line: UInt = #line) throws {
+        let (p, agent) = heldPressPage()
+        let target = try XCTUnwrap(p.views[2]), keeper = try XCTUnwrap(p.views[5])
+        let source = try XCTUnwrap(p.views[onAncestor ? 4 : 2])
+        let changed = try XCTUnwrap(p.views[onAncestor ? 3 : 2])
+        let local = CGPoint(x: 10, y: 10), point = source.convert(local, to: nil), at = p.client(point)
+        let expected: [UInt32] = property == nil ? [target.id] : []
+        var presses: [UInt32] = [], focuses: [UInt32] = [], touchPresses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onFocus = { focuses.append($0) }
+        for synthetic in [false, true] {
+            let label = synthetic ? "agent" : "touch"
+            XCTAssertTrue(keeper.becomeFirstResponder(), label, file: file, line: line)
+            presses = []; focuses = []
+            XCTAssertTrue(window?.hitTest(point, with: nil) === source, label, file: file, line: line)
+            let touch = PaddingTouch(source, at: local)
+            if synthetic {
+                let down = agent.tap(["id": Int(source.id), "phase": "down", "x": Double(at.x), "y": Double(at.y)])
+                XCTAssertNil(down["error"], "\(down)", file: file, line: line)
+                XCTAssertEqual(down["phase"] as? String, "down", file: file, line: line)
+                XCTAssertEqual(down["delivery"] as? String, "recognized", file: file, line: line)
+                XCTAssertTrue(agent.panContact?.reach?.action?.node === target, file: file, line: line)
+            } else {
+                source.touchesBegan([touch], with: nil)
+            }
+            XCTAssertTrue(target.pressed, label, file: file, line: line)
+            XCTAssertEqual(presses, [], "down presses nothing: \(label)", file: file, line: line)
+            XCTAssertEqual(focuses, [], "down moves no focus: \(label)", file: file, line: line)
+            if let property {
+                p.apply(wireBatch([["op": "props", "id": changed.id, "set": [property: "true"]]]))
+                p.apply(wireBatch([["op": "props", "id": changed.id, "clear": [property]]]))
+                XCTAssertNil(changed.props[property], file: file, line: line)
+            }
+            if synthetic {
+                let up = agent.tap(["phase": "up"])
+                XCTAssertNil(up["error"], "\(up)", file: file, line: line)
+                XCTAssertEqual(up["phase"] as? String, "up", file: file, line: line)
+                XCTAssertEqual(up["delivery"] as? String, "recognized", file: file, line: line)
+                if property == nil {
+                    XCTAssertEqual(up["pressed"] as? Int, Int(target.id), "\(up)", file: file, line: line)
+                } else {
+                    XCTAssertTrue(up["pressed"] is NSNull, "\(up)", file: file, line: line)
+                }
+                XCTAssertNil(agent.panContact, file: file, line: line)
+            } else {
+                source.touchesEnded([touch], with: nil)
+                touchPresses = presses
+            }
+            XCTAssertEqual(presses, expected, label, file: file, line: line)
+            XCTAssertEqual(focuses, expected, label, file: file, line: line)
+            XCTAssertTrue((property == nil ? target : keeper).isFirstResponder, label, file: file, line: line)
+            XCTAssertFalse(target.pressed, label, file: file, line: line)
+            if synthetic { XCTAssertEqual(presses, touchPresses, "agent and touch agree", file: file, line: line) }
+        }
+    }
+
+    func testAHeldInPagePressStaysCancelledAfterTheTargetIsDisabledAndRestored() throws {
+        try heldPressRestored("disabled")
+    }
+
+    func testAHeldInPagePressStaysCancelledAfterAnAncestorIsDisabledAndRestored() throws {
+        try heldPressRestored("disabled", onAncestor: true)
+    }
+
+    func testAHeldInPagePressStaysCancelledAfterTheTargetIsInertAndRestored() throws {
+        try heldPressRestored("inert")
+    }
+
+    func testAHeldInPagePressStaysCancelledAfterAnAncestorIsInertAndRestored() throws {
+        try heldPressRestored("inert", onAncestor: true)
+    }
+
+    func testAHeldInPagePressWithoutChangesPressesOnce() throws {
+        try heldPressRestored(nil)
+    }
+
+    func testAHeldInPagePressSurvivesReparentingByItsOwnFocus() throws {
+        let (p, agent) = heldPressPage()
+        let target = try XCTUnwrap(p.views[2]), keeper = try XCTUnwrap(p.views[5])
+        let destination = try XCTUnwrap(p.views[6]), original = try XCTUnwrap(target.superview)
+        var presses: [UInt32] = [], focuses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onFocus = { id in
+            focuses.append(id)
+            if id == target.id { destination.addSubview(target) }
+        }
+        for source in [target, try XCTUnwrap(p.views[4])] {
+            var touchPresses: [UInt32] = []
+            for synthetic in [false, true] {
+                XCTAssertTrue(keeper.becomeFirstResponder())
+                original.addSubview(target)
+                presses = []; focuses = []
+                let local = CGPoint(x: 10, y: 10), point = source.convert(local, to: nil), at = p.client(point)
+                XCTAssertTrue(window?.hitTest(point, with: nil) === source)
+                let touch = PaddingTouch(source, at: local)
+                if synthetic {
+                    let down = agent.tap(["id": Int(source.id), "phase": "down", "x": Double(at.x), "y": Double(at.y)])
+                    XCTAssertNil(down["error"], "\(down)")
+                    XCTAssertEqual(down["delivery"] as? String, "recognized", "\(down)")
+                    XCTAssertTrue(agent.panContact?.reach?.action?.node === target)
+                } else {
+                    source.touchesBegan([touch], with: nil)
+                }
+                XCTAssertTrue(target.pressed)
+                XCTAssertEqual(presses, [])
+                XCTAssertEqual(focuses, [])
+                XCTAssertTrue(target.superview === original)
+                let epoch = target.pressEpoch
+                if synthetic {
+                    let up = agent.tap(["phase": "up"])
+                    XCTAssertNil(up["error"], "\(up)")
+                    XCTAssertEqual(up["phase"] as? String, "up", "\(up)")
+                    XCTAssertEqual(up["delivery"] as? String, "recognized", "\(up)")
+                    XCTAssertEqual(up["pressed"] as? Int, Int(target.id), "\(up)")
+                    XCTAssertNil(agent.panContact)
+                } else {
+                    source.touchesEnded([touch], with: nil)
+                    touchPresses = presses
+                }
+                XCTAssertEqual(focuses, [target.id])
+                XCTAssertTrue(target.superview === destination, "the press's focus moved its target")
+                XCTAssertNotEqual(target.pressEpoch, epoch, "the move invalidated the captured epoch")
+                XCTAssertFalse(target.pressInside(at: point), "the original hit owns the lift after focus moves the target")
+                XCTAssertEqual(presses, [target.id])
+                XCTAssertFalse(target.pressed)
+                if synthetic { XCTAssertEqual(presses, touchPresses, "agent and touch agree") }
+            }
+        }
+    }
+
     func testAControlWithItsOwnPressTakesItBeforeConsumingTheTap() throws {
         let (session, agent, presses) = rows(), p = session.presenter
         p.apply(wireBatch([

@@ -20,8 +20,7 @@ A limit gets exceptions. A trade doesn't: it forces someone to name what matters
 ## Loop shape
 
 - **Every check reports all failures in one run.** Fail-fast is banned. A check that
-  surfaces one defect per run turns N bugs into N x runtime — that pattern alone cost
-  the old repo 89 hours on a single work package. **[check]**
+  surfaces one defect per run turns N bugs into N x runtime. **[check]**
 - **Nothing blocks on anything slower than 60 seconds.** Slow verification runs
   asynchronously, per-commit, on fleet hardware, attributed to the breaking commit.
   Run everything; block on almost nothing. **[review]**
@@ -54,7 +53,7 @@ Tracked every commit. A regression is a P0 with a name on it.
 - **The boot path executes and compiles nothing.** No app JS before first pixel; modules
   ship as bytecode, never source strings transpiled per module at boot. Startup is
   emergent and cannot be retrofitted, so the boot graph is budgeted from commit one —
-  counted, not timed. The old repo transpiles 5.47MB of ESM on every launch. **[check]**
+  counted, not timed. Every launch pays for boot. **[check]**
 - **A spec needs an implementer and a date, or it isn't written.** Specifying something
   you are about to build is transcription and costs nothing. Specifying something nobody
   is assigned to build is how a corpus reaches 8.2M words. **[review]**
@@ -64,7 +63,9 @@ Tracked every commit. A regression is a P0 with a name on it.
 - **Agents remove apparatus freely and add none.** An agent PR that adds a check,
   script, registry, config file, or design doc needs explicit human approval saying so.
   This asymmetry is the whole game: agents produce governance faster than humans can
-  read it. 675 checks and 450 scripts got there one reasonable addition at a time. **[review]**
+  read it. Governance accretes one reasonable addition at a time. **[review]**
+- **Prose follows `AGENTS.md` "Writing".** Before opening a PR or pushing to main,
+  do an editing pass on the prose you added or changed. **[review]**
 - **The old repo is research, never authority.** Cite it for how something worked.
   Never to block. **[review]**
 
