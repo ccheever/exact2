@@ -470,6 +470,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// right: over the window's side safe area where the list's edge meets
     /// it, as a hand-built list spans the screen (iPhone landscape).
     private var reach: (left: CGFloat, right: CGFloat) = (0, 0)
+    /// Of `reach`, what is a fold's half band: UIKit counts it as safe area
+    /// but sets no margin past it there, where a hand-built split view's
+    /// card has its 20 (`section`).
+    private var foldReach: (left: CGFloat, right: CGFloat) = (0, 0)
     /// Only the host-hidden bit: CSS display remains authoritative.
     private var hiddenRoots: [UInt32: (node: NodeView, hidden: Bool)] = [:]
     /// The list's padding and final footer space, independent of other insets.
@@ -605,6 +609,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // the web's space, all of it above the later section; a footer's
             // bottom inset is its own gap under the rows, and stays.
             var insets = section.contentInsets
+            // A fold's half band, as a hand-built split view's card stands clear of it.
+            let rtl = self.collection.effectiveUserInterfaceLayoutDirection == .rightToLeft
+            insets.leading += rtl ? self.foldReach.right : self.foldReach.left
+            insets.trailing += rtl ? self.foldReach.left : self.foldReach.right
             if let space, s?.header == nil { insets.top = space }
             if s?.footer == nil {
                 if index + 1 < model.sections.count { if self.section(at: index + 1)?.spaceAbove != nil { insets.bottom = 0 } }
@@ -903,22 +911,34 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     }
 
     #if os(iOS)
-    /// The window's side safe area at each side the list's edge meets,
-    /// where nothing between the list and the window transforms or clips it
-    /// away: Exact's layout keeps a route's content inside it (LLP 1123),
-    /// where UIKit puts an inset-grouped list's cards 20 in, and 16 past it
-    /// when the list spans the screen, as a hand-built one does.
+    /// How far past each side the list's edge meets the collection reaches,
+    /// a safe area there, where nothing between the list and the window
+    /// transforms or clips it away. The window's side safe area: Exact's
+    /// layout keeps a route's content inside it (LLP 1123), where UIKit puts
+    /// an inset-grouped list's cards 20 in, and 16 past it when the list
+    /// spans the screen, as a hand-built one does. Half a fold's band (LLP
+    /// 1078): a hand-built split view's column reaches the band's middle,
+    /// that half its safe area, and its card ends 20 short of the band, where
+    /// a list ending at the band has its card run into it (iPhone Duo, iOS
+    /// 27.1, `~/audits/exact2-no-tells-2026-10-11/duo-fold-probe/`).
     private func sideReach() -> (left: CGFloat, right: CGFloat) {
+        foldReach = (0, 0)
         guard let window = owner.window else { return (0, 0) }
         let safe = window.safeAreaInsets, r = owner.convert(owner.bounds, to: window)
         let meets = { (inset: CGFloat, edge: CGFloat) in inset > 0 && abs(edge - inset) < 0.5 ? inset : 0 }
-        let reach = (left: meets(safe.left, r.minX), right: meets(safe.right, window.bounds.width - r.maxX))
+        var reach = (left: meets(safe.left, r.minX), right: meets(safe.right, window.bounds.width - r.maxX))
+        for band in (ReservedRegions.divisions(of: window) ?? []).filter(\.active).map(\.frame) where band.height > band.width {
+            if abs(r.maxX - band.minX) < 0.5 { reach.right = band.width / 2; foldReach.right = reach.right }
+            if abs(r.minX - band.maxX) < 0.5 { reach.left = band.width / 2; foldReach.left = reach.left }
+        }
         guard reach.left > 0 || reach.right > 0 else { return reach }
         let reached = r.inset(by: UIEdgeInsets(top: 0, left: -reach.left, bottom: 0, right: -reach.right))
         var at: UIView? = owner.superview
         while let v = at, v !== window {
-            if !v.transform.isIdentity { return (0, 0) }
-            if v.clipsToBounds, !v.convert(v.bounds, to: window).insetBy(dx: -0.5, dy: -0.5).contains(reached) { return (0, 0) }
+            if !v.transform.isIdentity || v.clipsToBounds && !v.convert(v.bounds, to: window).insetBy(dx: -0.5, dy: -0.5).contains(reached) {
+                foldReach = (0, 0)
+                return (0, 0)
+            }
             at = v.superview
         }
         return reach
@@ -1363,9 +1383,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
 /// A grouped list's collection view, by type, for the agent's wheel.
 final class GroupedCollectionView: UICollectionView, GroupedScroller {
-    /// The window's safe area at the sides the collection reaches over
-    /// (`sideReach`), which the host keeps from the views it lays out
-    /// (LLP 1123): UIKit insets the cards from it, as in a hand-built list.
+    /// The safe area at the sides the collection reaches over (`sideReach`):
+    /// the window's, which the host keeps from the views it lays out (LLP
+    /// 1123), or a fold's half band. UIKit insets the cards from it, as in a
+    /// hand-built list.
     var sideSafeArea: (left: CGFloat, right: CGFloat) = (0, 0) {
         didSet {
             guard sideSafeArea != oldValue else { return }
