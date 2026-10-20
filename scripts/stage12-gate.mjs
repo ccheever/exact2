@@ -280,11 +280,15 @@ export function consumerPixels(opts) {
 export const SLOT_HOSTS = ['web', 'linux', 'macos', 'ios', 'android', 'terminal'];
 const LIBRARY_GATE = join(ROOT, 'apps/library-gate');
 
-/** apps/library-gate's plan, compiled here. */
+/** apps/library-gate's plan, compiled from a copy without its app.json (a
+ * host takes a plan of its own app's id, or of none), inside the checkout so
+ * `@exact/*` resolves through its node_modules, as stage 11's gate does. */
 function libraryPlan(dir) {
-  mkdirSync(dir, { recursive: true });
+  const app = join(dir, 'app');
+  mkdirSync(app, { recursive: true });
+  for (const f of ['app.contract', 'app.tamber']) writeFileSync(join(app, f), readFileSync(join(LIBRARY_GATE, f)));
   const plan = join(dir, 'library-gate.plan');
-  const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(LIBRARY_GATE, 'app.contract'), '-o', plan]);
+  const r = run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', join(app, 'app.contract'), '-o', plan]);
   return r.ok ? plan : null;
 }
 
