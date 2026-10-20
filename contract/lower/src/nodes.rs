@@ -744,10 +744,16 @@ impl Lowerer<'_> {
         // @ref LLP 1121 D8 — its host-known states' looks, each row lowered
         // as the node's own literal rows are (before the node is made: a
         // refusal leaves no node behind).
-        let mut look_rows = Vec::new();
+        let (mut look_rows, mut look_sites) = (Vec::new(), Vec::new());
         for (state, attrs) in states.as_ref().map_or(&[][..], |s| s.looks.as_slice()) {
             let mut bindings = Vec::new();
-            for a in attrs {
+            // Each row's origin, for the map: its part's place, the class's or the node's.
+            let mut origins = Vec::new();
+            let named = match state.as_str() {
+                "hover" => "hover",
+                _ => "focus-visible",
+            };
+            for (a, class) in attrs {
                 let (mut handlers, mut surface) = (Vec::new(), None);
                 self.attr(
                     tag,
@@ -760,6 +766,21 @@ impl Lowerer<'_> {
                     &mut surface,
                     &font,
                 )?;
+                let of = match (class, &class_label) {
+                    (true, Some(label)) => Origin::Class(label.clone(), None),
+                    _ => Origin::Own(None),
+                };
+                origins.resize(
+                    bindings.len(),
+                    Origin::State {
+                        of: Box::new(of),
+                        state: named,
+                        span: a.span,
+                    },
+                );
+            }
+            if self.sites.is_some() {
+                look_sites.push((named, sites::style_rows(&bindings, &origins)));
             }
             let state = match state.as_str() {
                 "hover" => 1,
@@ -787,6 +808,7 @@ impl Lowerer<'_> {
                 button,
                 &bindings,
                 origins.as_deref().expect("site origins"),
+                look_sites,
             ));
         }
         let children = if let Some(sections) = sections {

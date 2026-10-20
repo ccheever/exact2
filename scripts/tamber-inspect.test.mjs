@@ -79,7 +79,7 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
     writeFileSync(app, text);
     const part = { file: app, line: 9, col: 9, end_col: 25 };
     const map = { digest: 'p1', sources: [{ file: app, sha256: sha(text) }], nodes: [
-      { file: app, line: 7, col: 5, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'press_background_color', origin: 'own', state: 'active', at: part }, { row: 'press_color', origin: 'own', state: 'active', at: { ...part, line: 10 } }] },
+      { file: app, line: 7, col: 5, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'press_background_color', states: [{ state: 'active', origin: 'own', at: part }] }, { row: 'press_color', states: [{ state: 'active', origin: 'own', at: { ...part, line: 10 } }] }] },
     ] };
     const selected = { node: 1, site: 0, instance: [], rows: [
       { name: 'press_background_color', value: '#00f', source: 'authored', token: { names: ['accent.soft'], text: 'accent.soft', modes: '', implied: false } },
@@ -214,12 +214,12 @@ test('a style\'s state part row joins on the state rung for set-state, the defau
     // The compiler renamed this file's `style Card` (another file has one): the map says Card__post.
     const map = { digest: 'p1', sources: [{ file: post, sha256: sha(text) }, { file: pkg, sha256: sha('pkg') }], nodes: [
       { file: post, line: 3, col: 5, end_col: 11, component: 'X', chain: [], bindings: [
-        { row: 'press_background_color', origin: 'class:Card__post', state: 'active', at: at(8, 'background-color="primary_600"') },
-        { row: 'press_opacity_to', origin: 'class:Card__post', state: 'active', at: at(9, 'opacity=0.8') },
-        { row: 'press_color', origin: 'class:A/B', state: 'active', at: at(10, 'color="red"') },
-        { row: 'press_scale', origin: 'class:Pkg', state: 'active', at: { file: pkg, line: 3, col: 5, end_col: 9 } },
+        { row: 'press_background_color', states: [{ state: 'active', origin: 'class:Card__post', at: at(8, 'background-color="primary_600"') }] },
+        { row: 'press_opacity_to', states: [{ state: 'active', origin: 'class:Card__post', at: at(9, 'opacity=0.8') }] },
+        { row: 'press_color', states: [{ state: 'active', origin: 'class:A/B', at: at(10, 'color="red"') }] },
+        { row: 'press_scale', states: [{ state: 'active', origin: 'class:Pkg', at: { file: pkg, line: 3, col: 5, end_col: 9 } }] },
       ] },
-      { file: post, line: 1, col: 1, end_col: 2, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', origin: 'class:Card__post', state: 'active', at: at(9, 'opacity=0.8') }] },
+      { file: post, line: 1, col: 1, end_col: 2, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', states: [{ state: 'active', origin: 'class:Card__post', at: at(9, 'opacity=0.8') }] }] },
     ] };
     const selected = { node: 1, site: 0, instance: [], rows: [
       { name: 'press_background_color', value: '#00f', source: 'authored', token: { names: ['primary_600'], text: 'primary_600', modes: '', implied: false } },
@@ -245,7 +245,7 @@ test('a style\'s state part row joins on the state rung for set-state, the defau
     // The held node's part in another file, moved since: nothing offered, the selected node's files unmoved.
     const styles = joinPath(dir, 'styles.contract'), was = 'style Press\n  :active\n    opacity=0.5\n';
     writeFileSync(styles, was);
-    const two = { ...map, sources: [...map.sources, { file: styles, sha256: sha(was) }], nodes: [...map.nodes, { file: post, line: 2, col: 3, end_col: 7, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', origin: 'class:Press', state: 'active', at: { file: styles, line: 3, col: 5, end_col: 12 } }] }] };
+    const two = { ...map, sources: [...map.sources, { file: styles, sha256: sha(was) }], nodes: [...map.nodes, { file: post, line: 2, col: 3, end_col: 7, component: 'X', chain: [], bindings: [{ row: 'press_opacity_to', states: [{ state: 'active', origin: 'class:Press', at: { file: styles, line: 3, col: 5, end_col: 12 } }] }] }] };
     const heldTwo = { ...selected, held: { state: 'active', site: 2, rows: heldAt.rows } };
     expect(join({ id: 'web-1' }, heldTwo, two, { app: dir }).held.rows[0].editable).toEqual({ ...state, style: 'Press', file: 'styles.contract', row: 'opacity', text: '0.5' });
     writeFileSync(styles, `style Other\n${was}`);

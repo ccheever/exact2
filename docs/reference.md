@@ -191,9 +191,12 @@ same array, one per TypeScript diagnostic (`id` `typescript-TS<n>`). Exit codes 
 
 `build --map -o <file.plan>` also writes `<file.plan>.map.json`, keyed by
 SHA-256 of the plan bytes. Each plan node has its original file and range,
-component call-site chain, and the winning style row's origin (`own`,
-`class:<Name>`, or `tag`); a row an `:active` part lowered to the press paint
-also has `"state": "active"` and `at`, where that row is written (LLP 1121 D8). Slots, derives and actions retain their declarations,
+component call-site chain, and one binding per style row: its base value's
+origin (`own`, `class:<Name>`, or `tag`) and, where an author wrote it, `at`
+and `attr`; and `states`, one `{state, origin, at}` per state part that
+writes the row: `:active`'s (on the press paint row it lowers to), `:hover`'s
+and `:focus-visible`'s (LLP 1121 D8, LLP 1122). A row only a state part
+writes, a press row among them, has no base fields. Slots, derives and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside

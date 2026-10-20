@@ -389,15 +389,18 @@ pub fn sites(
             });
             // A state part's row lowered onto the node is read where it is
             // written (LLP 1121 D8: `:active`'s press paint).
+            // The map keys a part by (row, state): the row's `states`.
             let bound = site["bindings"].as_array().into_iter().flatten();
-            if let Some(b) = bound
-                .filter(|b| b["row"] == row.name())
-                .find(|b| b.get("state").is_some())
-            {
+            if let Some(part) = bound.filter(|b| b["row"] == row.name()).find_map(|b| {
+                b["states"]
+                    .as_array()?
+                    .iter()
+                    .find(|p| p["state"] == "active")
+            }) {
                 for key in ["file", "line", "col", "end_col"] {
-                    at[key] = b["at"][key].clone();
+                    at[key] = part["at"][key].clone();
                 }
-                at["state"] = b["state"].clone();
+                at["state"] = part["state"].clone();
             }
             if !via.is_null() {
                 at["via"] = via;

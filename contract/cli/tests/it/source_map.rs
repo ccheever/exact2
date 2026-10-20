@@ -447,19 +447,125 @@ component App
             .find(|r| r["row"] == name)
             .unwrap_or_else(|| panic!("{name}: {rows:?}"))
     };
+    // Each press row is its `:active` part's alone (theme2's 02:46 and
+    // 03:18 rulings): no base value, so no base `origin`, `at` or `attr`.
     for (name, line, origin) in [
         ("press_background_color", 11, "own"),
         ("press_opacity_to", 12, "own"),
         ("press_color", 3, "class:Card"),
     ] {
-        assert_eq!(row(name)["state"], "active", "{name}");
-        assert_eq!(row(name)["at"]["line"], line, "{name}");
-        assert_eq!(row(name)["origin"], origin, "{name}");
+        let parts = row(name)["states"].as_array().expect(name);
+        assert_eq!(parts.len(), 1, "{name}");
+        assert_eq!(parts[0]["state"], "active", "{name}");
+        assert_eq!(parts[0]["at"]["line"], line, "{name}");
+        assert_eq!(parts[0]["origin"], origin, "{name}");
+        for base in ["origin", "at", "attr", "state"] {
+            assert!(row(name).get(base).is_none(), "{name}: {base}");
+        }
     }
-    assert!(row("display").get("state").is_none());
-    // A state part's row says its place as `at` with its state, not as the
-    // node's own attribute (no `attr`, D1).
-    assert!(row("press_color").get("attr").is_none());
+    assert!(row("display").get("states").is_none());
+}
+
+/// LLP 1122 queue item (1), theme2's 02:46 ruling: a `:hover` or
+/// `:focus-visible` row is its row's, keyed by (row, state): beside the
+/// base value's place, never in it (review2's 02:46: no collision), and
+/// a border colour's four sides each say the part's `border-color` line.
+#[test]
+fn a_look_row_is_its_rows_part_beside_the_base() {
+    let app = App::new("looks-map");
+    app.write(
+        "app.contract",
+        r##"style Card
+  background-color = "#eeeeee"
+  :hover
+    background-color = "#dddddd"
+component App
+  view
+    column class=Card testId="card" opacity=0.5
+      :hover
+        border-color = "#111111"
+      :focus-visible
+        opacity = 1
+      text "c"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = at(&runner, &map, "card")["bindings"].as_array().unwrap();
+    let row = |name: &str| {
+        rows.iter()
+            .find(|r| r["row"] == name)
+            .unwrap_or_else(|| panic!("{name}: {rows:?}"))
+    };
+    let once = |name: &str| {
+        assert_eq!(
+            rows.iter().filter(|r| r["row"] == name).count(),
+            1,
+            "{name}"
+        )
+    };
+    // The base value at its own line, the hover's at the part's.
+    let bg = row("background_color");
+    once("background_color");
+    assert_eq!(
+        (bg["origin"].as_str(), bg["at"]["line"].as_u64()),
+        (Some("class:Card"), Some(2)),
+        "{bg}"
+    );
+    let parts = bg["states"].as_array().expect("its hover");
+    assert_eq!(parts.len(), 1, "{bg}");
+    assert_eq!(
+        (
+            parts[0]["state"].as_str(),
+            parts[0]["origin"].as_str(),
+            parts[0]["at"]["line"].as_u64()
+        ),
+        (Some("hover"), Some("class:Card"), Some(4))
+    );
+    let opacity = row("opacity");
+    assert_eq!(
+        (opacity["origin"].as_str(), opacity["attr"].as_str()),
+        (Some("own"), Some("opacity"))
+    );
+    assert_eq!(opacity["states"][0]["state"], "focus-visible");
+    assert_eq!(opacity["states"][0]["at"]["line"], 11);
+    for side in ["top", "right", "bottom", "left"] {
+        let name = format!("border_color_{side}");
+        once(&name);
+        assert_eq!(row(&name)["states"][0]["at"]["line"], 9, "{name}");
+        assert_eq!(row(&name)["states"][0]["origin"], "own", "{name}");
+    }
+}
+
+/// theme2's 03:18 ruling: a row only a state part writes (a `:hover`
+/// background on a node with none) has no base: no `origin`, `at` or
+/// `attr` of the part's borrowed, only its part in `states`.
+#[test]
+fn a_row_only_a_look_writes_has_no_base() {
+    let app = App::new("looks-no-base");
+    app.write(
+        "app.contract",
+        r##"component App
+  view
+    column testId="card"
+      :hover
+        background-color = "#dddddd"
+      text "c"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = at(&runner, &map, "card")["bindings"].as_array().unwrap();
+    let bg = rows
+        .iter()
+        .find(|r| r["row"] == "background_color")
+        .unwrap_or_else(|| panic!("{rows:?}"));
+    for base in ["origin", "at", "attr", "layout"] {
+        assert!(bg.get(base).is_none(), "{base}: {bg}");
+    }
+    assert_eq!(bg["states"][0]["state"], "hover");
+    assert_eq!(bg["states"][0]["origin"], "own");
+    assert_eq!(bg["states"][0]["at"]["line"], 5);
 }
 
 /// LLP 1122 D6: a row an author wrote says where (`set-row`'s address):
