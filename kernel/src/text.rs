@@ -100,6 +100,8 @@ pub struct TextStyle {
     pub font_weight: u16,
     /// Normal or italic.
     pub font_style: FontStyle,
+    /// CSS `font-stretch`, percent of normal width (100).
+    pub font_stretch: f32,
     /// Index into the host's font registry (0 = system default).
     pub font_family: u16,
     /// Resolved logical length, or natural metrics. Zero remains explicit.
@@ -116,10 +118,11 @@ pub struct TextStyle {
 
 impl TextStyle {
     /// The rows [`TextStyle::from_style`] reads.
-    pub const ROWS: [StyleId; 7] = [
+    pub const ROWS: [StyleId; 8] = [
         StyleId::FontSize,
         StyleId::FontWeight,
         StyleId::FontStyle,
+        StyleId::FontStretch,
         StyleId::FontFamily,
         StyleId::LineHeight,
         StyleId::LetterSpacing,
@@ -157,6 +160,7 @@ impl TextStyle {
             font_size: s.font_size,
             font_weight: s.font_weight,
             font_style: s.font_style,
+            font_stretch: s.font_stretch,
             font_family: s.font_family,
             line_height: s.line_height.resolve(s.font_size),
             letter_spacing: s.letter_spacing,
@@ -930,6 +934,7 @@ struct TextRows {
     font_size: f32,
     font_weight: u16,
     font_style: crate::FontStyle,
+    font_stretch: f32,
     font_family: u16,
     line_height: crate::LineHeight,
     letter_spacing: f32,
@@ -942,6 +947,7 @@ impl TextRows {
             font_size: s.font_size,
             font_weight: s.font_weight,
             font_style: s.font_style,
+            font_stretch: s.font_stretch,
             font_family: s.font_family,
             line_height: s.line_height,
             letter_spacing: s.letter_spacing,
@@ -957,6 +963,9 @@ impl TextRows {
         }
         if mask.has(StyleId::FontStyle) {
             self.font_style = s.font_style;
+        }
+        if mask.has(StyleId::FontStretch) {
+            self.font_stretch = s.font_stretch;
         }
         if mask.has(StyleId::FontFamily) {
             self.font_family = s.font_family;
@@ -976,6 +985,7 @@ impl TextRows {
             font_size: self.font_size,
             font_weight: self.font_weight,
             font_style: self.font_style,
+            font_stretch: self.font_stretch,
             font_family: self.font_family,
             line_height: self.line_height.resolve(self.font_size),
             letter_spacing: self.letter_spacing,
@@ -1148,6 +1158,7 @@ mod tests {
             font_size,
             font_weight: 400,
             font_style: FontStyle::Normal,
+            font_stretch: 100.0,
             font_family: 0,
             line_height: None,
             letter_spacing: 0.0,

@@ -253,6 +253,24 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(editors[1].returnKeyType, .default)
     }
 
+    /// HTML's `enterkeyhint` labels a `textarea`'s key too. Unsaid, its
+    /// Return inserts a line break, so it keeps UIKit's plain label.
+    func testATextareaLabelsItsReturnKeyFromEnterKeyHint() throws {
+        let p = Presenter()
+        kept = p
+        let node = NodeView(id: 1, kind: "textarea", presenter: p)
+        node.frame = CGRect(x: 0, y: 0, width: 300, height: 88)
+        node.applyProps(set: ["value": ""], clear: [])
+        let editor = try XCTUnwrap(node.textArea)
+        XCTAssertEqual(editor.returnKeyType, .default)
+        node.applyProps(set: ["enterKeyHint": "next"], clear: [])
+        XCTAssertEqual(editor.returnKeyType, .next)
+        node.applyProps(set: ["enterKeyHint": "send"], clear: [])
+        XCTAssertEqual(editor.returnKeyType, .send)
+        node.applyProps(set: [:], clear: ["enterKeyHint"])
+        XCTAssertEqual(editor.returnKeyType, .default, "the word taken away: the plain key again")
+    }
+
     /// D9.2: a field's `submit` runs before the keyboard goes, and the field
     /// keeps the keyboard only when that action focused it again: an "add
     /// another" field stays up and never loses the focus on the way (no

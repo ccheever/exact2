@@ -40,7 +40,7 @@ final class TextBoxTests: XCTestCase {
                     }
                 }
                 var run = ExactTextRun()
-                run.font_size = 16; run.font_weight = 400
+                run.font_size = 16; run.font_weight = 400; run.font_stretch = 100
                 run.has_line_height = lineHeight == nil ? 0 : 1
                 run.line_height = Float(lineHeight ?? 0)
                 for count in 0...2 {

@@ -98,3 +98,27 @@ fn off_a_route_the_attribute_is_refused_naming_where_it_belongs() {
         .unwrap_err();
     assert_eq!(error.id, "lower-route-bar", "{error}");
 }
+
+/// A button that presses nothing and opens no popover is no item of the iOS
+/// bar and is hidden with the header (euxy port 14's "● Clock" readout):
+/// the warning says so and names a readout's `role="status"`.
+#[test]
+fn a_header_button_that_presses_nothing_is_named() {
+    let header = "header\n            text \"Log\" role=\"heading\" aria-level=2\n            button aria-label=\"Clock\"\n              text \"● Clock\"";
+    let src = stack("", "", "").replace("column \n", &format!("{header}\n          column\n"));
+    let (result, warnings) = contract::compile_warned(&src);
+    result.unwrap();
+    let ids: Vec<_> = warnings
+        .iter()
+        .map(|w| (w.id.as_str(), w.span.line))
+        .collect();
+    assert_eq!(ids, [("lower-header-unplaced", 11)], "{src}");
+    let says = &warnings[0].message;
+    assert!(
+        says.starts_with(
+            "a `button` that presses nothing in this route's `header` is not shown on iOS"
+        ),
+        "{says}"
+    );
+    assert!(says.contains("give it `role=\"status\"`"), "{says}");
+}

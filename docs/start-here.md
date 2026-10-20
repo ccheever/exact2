@@ -11,8 +11,8 @@ The only required reading; the rest is lookup.
    are a `list`'s rows: its children are rows, so draw no separator and no press. A
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
    <exact2>/scripts/no-tells.mjs .` lists literals). Leave the accent unsaid: it is the
-   platform's blue, and a filled button keeps its white label (`check` reports a pale
-   accent's low contrast). A brand is an `app.tamber`; a colour names a role or
+   platform's blue, and a filled button keeps its white label (a pale accent under
+   it is warned, `tamber-contrast`). A brand is an `app.tamber`; a colour names a role or
    one of its tokens (`recipes/tamber.md`). A card is `-exact-secondary-background`
    (`-exact-secondary-grouped-background` on a grouped page).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
@@ -90,6 +90,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |Not in a pattern|Look up|
 |---|---|
 |an entry or settings form|`grouped-form`|
+|a sheet that edits the row tapped, filled with its values|`edit-sheet`|
 |rows added and removed in a form|`editable-rows`|
 |a write that may be refused|`after-a-write`|
 |a failure the person must acknowledge (an alert with OK)|`error-alert`|
@@ -104,6 +105,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
+|a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|
 |transitions, keyframes, exit and layout animation|`motion`|
 |brand colours, light and dark, icon tokens|`theme`, `tamber`|
 |a module in Swift that `app.ts` asks; launch arguments|`native-module`|

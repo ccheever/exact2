@@ -912,7 +912,7 @@ async function prepareFonts(faces, assets) {
     try {
       const url = new URL(localAssetURL(face.source, assets), document.baseURI).href;
       row.loaded = await new FontFace(face.family, `url(${JSON.stringify(url)})`, {
-        weight: String(face.weight),
+        weight: face.weight, stretch: face.stretch,
         style: face.style,
       }).load();
       row.state = "loaded";

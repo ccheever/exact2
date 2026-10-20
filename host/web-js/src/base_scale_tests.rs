@@ -495,3 +495,109 @@ fn the_grid_track_check_names_the_scale() {
     let pattern = format!("--exact-(?:{})", alternatives.join("|"));
     assert!(grid.contains(&pattern), "grid.js should admit {pattern}");
 }
+
+/// Stage 12 B2: a length token over base names the design leaves unset is a
+/// `calc()` over their properties, which the browser folds, so the sheet
+/// declares the scale although only the expression names it; a release's
+/// static row is the build's column's px, as the kernel folds it; an SVG
+/// attribute, which reads no property, that px too.
+#[test]
+fn an_expression_over_base_names_is_a_calc_over_their_properties() {
+    use exact_kernel::style::theme::Kind;
+    let expr = "calc(space.md * 2 + 4px)";
+    assert_eq!(
+        crate::measures::css(Kind::Length, expr),
+        "calc(var(--exact-space-md) * 2 + 4px)"
+    );
+    assert_eq!(
+        crate::measures::css(Kind::Length, "min(space.lg, space.sm * 3)"),
+        "min(var(--exact-space-lg), var(--exact-space-sm) * 3)"
+    );
+    let px = format!("{}px", scale::evaluate(expr, metrics::column()).unwrap());
+    assert_eq!(crate::base_scale::folded(expr), Some(px.clone()));
+    assert_eq!(crate::base_scale::folded("12px"), None);
+    let dir = std::env::temp_dir().join(format!("exact-web-js-expr-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("tamber t\n\ntheme\n  card.pad: length = {expr}\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  state size = \"card.pad\"\n  view\n    column padding=\"card.pad\"\n      svg viewBox=\"0 0 24 24\" width=24 height=24\n        pattern id=\"p\" width=size height=\"card.pad\"\n          path d=\"M0 0L4 4\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    for dev in [false, true] {
+        let out = crate::emit::emit(&plan, false, dev).unwrap();
+        // The nine, declared once.
+        assert!(
+            out.css
+                .contains(&format!("--exact-space-md:{};", kernel("space.md"))),
+            "dev {dev}: {}",
+            out.css
+        );
+        assert!(!out.css.contains("space.md *"), "dev {dev}: {}", out.css);
+        // The SVG attribute: the build's column's px, bound and static.
+        let map = out
+            .js
+            .split("const $tla=")
+            .nth(1)
+            .and_then(|m| m.split(';').next())
+            .unwrap_or_default();
+        assert!(
+            map.contains(&format!("\"card.pad\":\"{px}\"")),
+            "dev {dev}: {map}"
+        );
+        assert!(
+            out.js
+                .contains(&format!("\"height\":\"{}\"", px.trim_end_matches("px"))),
+            "dev {dev}: {}",
+            out.js
+        );
+    }
+    // A release: the static row is the column's px.
+    let release = crate::emit::emit(&plan, false, false).unwrap();
+    assert!(
+        release.css.contains(&format!("padding-top:{px}")),
+        "{}",
+        release.css
+    );
+    // A development build: the token's property is the calc() over the
+    // base's, so a live edit of a base moves it (a token no SVG attribute
+    // names, which is written inline).
+    let dir = std::env::temp_dir().join(format!("exact-web-js-expr-dev-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("tamber t\n\ntheme\n  card.pad: length = {expr}\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column padding=\"card.pad\"\n      text \"a\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let design = {
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)
+    };
+    let token = design["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "card.pad")
+        .unwrap()
+        .clone();
+    assert_eq!(
+        token["css"],
+        serde_json::json!(["calc(var(--exact-space-md) * 2 + 4px)"]),
+        "{token}"
+    );
+}

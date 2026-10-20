@@ -56,6 +56,12 @@ fn length(l: &Length, vocab: &Vocab) -> (Json, Option<String>) {
             dimension(named_px(name, vocab).unwrap_or(1.0), "px"),
             Some(name.clone()),
         ),
+        // Over base names (stage 12 B2): folded with each base's px, as a
+        // bare one is.
+        Length::Base(r) => (
+            dimension(r.fold(&|n| named_px(n, vocab)).unwrap_or(1.0), "px"),
+            Some(r.css()),
+        ),
     }
 }
 

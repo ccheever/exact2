@@ -5,7 +5,9 @@
     "": {
       "name": "exact2",
       "dependencies": {
+        "@exact/cards": "workspace:*",
         "@exact/geolocation": "workspace:*",
+        "@exact/notes": "workspace:*",
         "@exact/reading": "workspace:*",
       },
       "devDependencies": {
@@ -16,9 +18,17 @@
         "typescript": "7.0.2",
       },
     },
+    "packages/cards": {
+      "name": "@exact/cards",
+      "version": "0.1.0",
+    },
     "packages/geolocation": {
       "name": "@exact/geolocation",
       "version": "1.0.0",
+    },
+    "packages/notes": {
+      "name": "@exact/notes",
+      "version": "0.1.0",
     },
     "packages/reading": {
       "name": "@exact/reading",
@@ -26,7 +36,11 @@
     },
   },
   "packages": {
+    "@exact/cards": ["@exact/cards@workspace:packages/cards"],
+
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
+
+    "@exact/notes": ["@exact/notes@workspace:packages/notes"],
 
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
 

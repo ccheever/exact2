@@ -1,5 +1,5 @@
-//! LLP 1019 D1–D3/§5: declared static fonts lower to plan identity, and
-//! every portable refusal happens before a host can substitute a font.
+//! LLP 1019 D1–D3/§5: declared fonts lower to plan identity, and every
+//! portable refusal happens before a host can substitute a font.
 
 use exact_kernel::{FontStyle, Kernel};
 use exact_plan::Value;
@@ -45,6 +45,12 @@ impl AppDir {
             )
             .unwrap();
         }
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../host/apple/tests/fonts/InterVariable.ttf"),
+            dir.join("assets/InterVariable.ttf"),
+        )
+        .unwrap();
         std::fs::write(dir.join("app.contract"), source).unwrap();
         AppDir(dir)
     }
@@ -97,8 +103,48 @@ fn shorthand_declares_one_400_normal_face() {
     );
     let plan = app.compile().unwrap();
     assert_eq!(plan.faces.len(), 1);
-    assert_eq!(plan.faces[0].weight, 400);
+    assert_eq!((plan.faces[0].weight, plan.faces[0].weight_max), (400, 400));
+    assert_eq!(
+        (plan.faces[0].stretch_min, plan.faces[0].stretch_max),
+        (1000, 1000)
+    );
     assert!(!plan.faces[0].italic);
+}
+
+/// LLP 1019 D2: a variable face's range is its `@font-face` descriptor,
+/// read from the file's `wght` axis when the declaration leaves it unsaid.
+#[test]
+fn a_variable_face_declares_its_file_range_or_the_written_one() {
+    let app = AppDir::new(
+        "font \"Inter\" = \"assets/InterVariable.ttf\"\nfont \"Pinned\"\n  600 = \"assets/InterVariable.ttf\"\nfont \"Ranged\"\n  300 700 = \"assets/InterVariable.ttf\"\ncomponent App\n  view\n    text \"hello\" font-family=\"Inter\" font-weight=650 font-stretch=\"condensed\" testId=\"label\"\n",
+    );
+    let plan = app.compile().unwrap();
+    let weights: Vec<_> = plan
+        .faces
+        .iter()
+        .map(|f| (f.weight, f.weight_max))
+        .collect();
+    assert_eq!(weights, [(100, 900), (600, 600), (300, 700)]);
+    // Inter has no `wdth` axis: each face is normal width.
+    assert!(plan
+        .faces
+        .iter()
+        .all(|f| (f.stretch_min, f.stretch_max) == (1000, 1000)));
+
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let node = kernel
+        .node_by_key(kernel.find_by_test_id("label")[0])
+        .unwrap();
+    assert_eq!(node.style.font_weight, 650);
+    assert_eq!(node.style.font_stretch, 75.0);
 }
 
 fn refusal(source: &str, id: &str) {
