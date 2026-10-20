@@ -2,12 +2,12 @@
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let last = null, refused = new WeakMap();
 // The tabpanels each root last hid or showed (one it stops naming shows again); the keys of the stack it last showed.
-let managed = new WeakMap(), shown = new WeakMap();
+let managed = new WeakMap(), shown = new WeakMap(), placed = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
 let echo = null, pop = null, draining = false;
 const queue = [], waiters = new Set();
 let root, navigate, log, hostBack, hostGo, routeMatches = () => false;
-const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
+const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey")); const setInert = (el, on) => { if (el.inert !== on) el.inert = on; }; // a projection writes only what changed
 // @ref LLP 1075.003 §3.7 — tabs name their kept panels with aria-controls; each panel holds a route stack.
 // Attribute and parent walks also work in the server renderer's DOM, which has no selector engine.
 const tabsOf = nav => {
@@ -365,10 +365,10 @@ export const navigation = {
     if (activationRequired.has(root) && !activated.has(root)) return;
     for (const nav of root.querySelectorAll("[navigationBack]")) {
       let key = nav.getAttribute("navigationKey"), [list, panels] = tabsOf(nav);
-      nav.removeAttribute("data-exact-sidebar"); // Read authored placement, including changes on retained nodes.
-      nav.toggleAttribute("data-exact-sidebar", wide() && unsaidBar(nav, list));
+      // The authored placement is read with the sidebar's own rules lifted, which restyles the page (an embedded frame re-centres), so only when what places the bar may have changed: the wide breakpoint, the bar's parent or orientation, or the root's or the bar's class or inline display, flex direction, position or appearance (their class rules and inline style are what place them).
+      const isWide = wide(), said = [isWide, list?.parentElement === nav && list.getAttribute("aria-orientation"), ...[nav, list].map(el => el && [el.className, el.style.display, el.style.flexDirection, el.style.position, el.style.appearance].join("|"))].join("/"); if (placed.get(nav) !== said) { nav.removeAttribute("data-exact-sidebar"); nav.toggleAttribute("data-exact-sidebar", isWide && unsaidBar(nav, list)); placed.set(nav, said); }
       for (const panel of managed.get(nav) ?? []) {
-        if (!panels.includes(panel)) { panel.style.visibility = ""; panel.inert = !!panel.authoredInert; }
+        if (!panels.includes(panel)) { panel.style.visibility = ""; setInert(panel, !!panel.authoredInert); }
       }
       managed.set(nav, panels);
       const stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
@@ -386,7 +386,7 @@ export const navigation = {
         const active = index === at;
         if (!active && panel.contains(document.activeElement)) document.activeElement.blur();
         panel.style.visibility = active ? "" : "hidden";
-        panel.inert = !active || !!panel.authoredInert;
+        setInert(panel, !active || !!panel.authoredInert);
       }
       for (const [stack, routes] of stacks.entries()) {
         // The selected stack shows the route the root names; another keeps its top laid out.
@@ -395,7 +395,7 @@ export const navigation = {
         const found = splitOf(routes), split = found.width, live = split && !sheet(routes[selected]);
         const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
         detailRows(routes, found);
-        if (stack === at && list) list.inert = sheet(routes[selected]) || !!list.authoredInert; // a sheet is modal: the root's tab bar is inert beneath it, as the route it covers is (LLP 1115.000 D4.5)
+        if (stack === at && list) setInert(list, sheet(routes[selected]) || !!list.authoredInert); // a sheet is modal: the root's tab bar is inert beneath it, as the route it covers is (LLP 1115.000 D4.5)
         // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or pushed a route beneath it in its column.
         const detail = split ? routes.findLastIndex((r, i) => i > 0 && i <= selected && !sheet(r)) : -1;
         for (const [index, route] of routes.entries()) {
@@ -404,7 +404,7 @@ export const navigation = {
           const covered = modal && (index === selected - 1 || (split > 0 && index === 0));
           route.style.visibility = active || covered ? "" : "hidden";
           route.toggleAttribute("data-exact-covered", covered);
-          route.inert = !active || !!route.authoredInert;
+          setInert(route, !active || !!route.authoredInert);
           const column = !split ? null : index === 0 ? "list" : sheet(route) ? null : "detail";
           if (route.getAttribute("data-exact-split") !== column) column ? route.setAttribute("data-exact-split", column) : route.removeAttribute("data-exact-split");
           route.style.setProperty("--exact-split", column ? `${split}px` : "");
@@ -412,7 +412,7 @@ export const navigation = {
         }
         let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;
         for (const el of routes[0]?.querySelectorAll("[data-exact-split-row]") ?? []) if (el !== row) el.removeAttribute("data-exact-split-row");
-        row?.setAttribute("data-exact-split-row", "");
+        row?.toggleAttribute("data-exact-split-row", true);
         // @ref LLP 1116.006 D2 — a split showing no detail fills the detail pane, as an iPad's split view does: the platform's placeholder (the shell draws `data-exact-split-empty`), or the author's, a box of the root route marked `navigationSplit="placeholder"` (which the lowerer hides everywhere else), at the pane's width.
         const empty = split > 0 && detail < 0, own = routes[0]?.querySelector('[navigationSplit="placeholder"]'), box = routes[0]?.parentElement;
         own?.toggleAttribute("data-exact-split-placeholder", empty); box?.toggleAttribute("data-exact-split-empty", empty && !own);
