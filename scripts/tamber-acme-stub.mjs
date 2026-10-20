@@ -25,7 +25,9 @@ const pem = der => `-----BEGIN CERTIFICATE-----\n${der.toString('base64').match(
 
 /** The ACME stand-in: an issuing CA of its own, `dns` the TXT records its
  * DNS-01 check reads (`record → [values]`), every order counted. */
-export function fakeAcme({ dns, now = () => Date.now(), days = 90, badNonceOnce = false } = {}) {
+export function fakeAcme({ dns, now = () => Date.now(), days = 90, badNonceOnce = false, lie = {} } = {}) {
+  // `lie`: what a hostile or broken server does instead: `authz` (an authorization for another name), `origin` (an
+  // authorization URL on another origin), `leafNames` (a certificate for other names), `leafKey` (for another key).
   const ca = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const nonces = new Set(), accounts = new Map(), orders = [], authzs = [];
   let refusedOnce = !badNonceOnce;
@@ -47,6 +49,8 @@ export function fakeAcme({ dns, now = () => Date.now(), days = 90, badNonceOnce 
     if (!nonces.delete(head.nonce)) return problem('badNonce', 'no such nonce');
     if (!refusedOnce) { refusedOnce = true; return problem('badNonce', 'try another'); }
     if (head.url !== url) return problem('unauthorized', 'url');
+    // (a `jwk` only to make the account, a `kid` after: RFC 8555 §6.2)
+    if (path === '/acct' ? !head.jwk || head.kid : !head.kid || head.jwk) return problem('malformed', 'jwk for newAccount, kid after');
     const jwk = head.jwk ?? accounts.get(head.kid);
     if (!jwk) return problem('accountDoesNotExist', 'no account');
     if (!verify('sha256', Buffer.from(`${jws.protected}.${jws.payload}`), { key: createPublicKey({ key: jwk, format: 'jwk' }), dsaEncoding: 'ieee-p1363' }, Buffer.from(jws.signature, 'base64url'))) return problem('unauthorized', 'bad signature');
@@ -57,10 +61,10 @@ export function fakeAcme({ dns, now = () => Date.now(), days = 90, badNonceOnce 
       const o = { names: payload.identifiers.map(i => i.value), status: 'pending', authz: [] };
       for (const value of o.names) { authzs.push({ value, status: 'pending', token: randomBytes(16).toString('base64url'), thumb }); o.authz.push(authzs.length - 1); }
       orders.push(o);
-      return reply(201, { status: 'pending', authorizations: o.authz.map(i => `${origin}/authz/${i}`), finalize: `${origin}/finalize/${orders.length - 1}` }, { location: `${origin}/order/${orders.length - 1}` });
+      return reply(201, { status: 'pending', authorizations: o.authz.map(i => `${lie.origin ?? origin}/authz/${i}`), finalize: `${origin}/finalize/${orders.length - 1}` }, { location: `${origin}/order/${orders.length - 1}` });
     }
     let m;
-    if ((m = /^\/authz\/(\d+)$/.exec(path))) { const a = authzs[m[1]]; return reply(200, { status: a.status, identifier: { type: 'dns', value: a.value }, challenges: [{ type: 'dns-01', url: `${origin}/chal/${m[1]}`, token: a.token, ...(a.error ? { error: { detail: a.error } } : {}) }] }); }
+    if ((m = /^\/authz\/(\d+)$/.exec(path))) { const a = authzs[m[1]]; return reply(200, { status: a.status, identifier: { type: 'dns', value: lie.authz ?? a.value.replace(/^\*\./, '') }, ...(a.value.startsWith('*.') && !lie.authz ? { wildcard: true } : {}), challenges: [{ type: 'dns-01', url: `${origin}/chal/${m[1]}`, token: a.token, ...(a.error ? { error: { detail: a.error } } : {}) }] }); }
     if ((m = /^\/chal\/(\d+)$/.exec(path))) {
       const a = authzs[m[1]], record = `_acme-challenge.${a.value.replace(/^\*\./, '')}`;
       const want = Buffer.from(createHash('sha256').update(`${a.token}.${a.thumb}`).digest()).toString('base64url');
@@ -78,7 +82,7 @@ export function fakeAcme({ dns, now = () => Date.now(), days = 90, badNonceOnce 
       const spkiEl = read(der, at), spki = der.subarray(at, spkiEl.end);
       const sig = read(der, read(der, info.end).end);
       if (!verify('sha256', der.subarray(outer.start, info.end), createPublicKey({ key: spki, format: 'der', type: 'spki' }), der.subarray(sig.start + 1, sig.end))) return problem('badCSR', 'bad signature');
-      o.cert = issue(spki, o.names);
+      o.cert = issue(lie.leafKey ?? spki, lie.leafNames ?? o.names);
       o.status = 'valid';
       return reply(200, { status: 'processing' });
     }

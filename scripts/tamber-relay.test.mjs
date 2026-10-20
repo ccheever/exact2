@@ -46,11 +46,13 @@ async function fakeRelay({ refuse = null, greet = `READY ${TOOL} ${CANVAS}\n`, l
       if (refuse) { conn.end(`REFUSED ${refuse}\n`); return; }
       if (!head.startsWith('EXACT-RELAY/1 acct\r\n') || !head.includes(`authorization: Bearer ${token}\r\n`)) { conn.end('REFUSED no such account\n'); return; }
       // A TXT record for ACME (R2): only under the account's own names (R3's rule), kept in `seen.txt`.
-      const txt = /\r\ntxt: (\S+) (\S+)\r\n/.exec(head), clear = /\r\ntxt-clear: (\S+)\r\n/.exec(head);
+      const txt = /\r\ntxt: (\S+) (\S+)\r\n/.exec(head), clear = /\r\ntxt-clear: (\S+) (\S+)\r\n/.exec(head);
       if (txt || clear) {
         const record = (txt ?? clear)[1];
         if (!record.endsWith('.acct.relay.test')) { conn.end('REFUSED not your account\'s name\n'); return; }
-        if (txt) seen.txt.set(record, [...(seen.txt.get(record) ?? []), txt[2]]); else seen.txt.delete(record);
+        // (a clear takes down only its own value: another order's stays)
+        if (txt) seen.txt.set(record, [...(seen.txt.get(record) ?? []), txt[2]]);
+        else { const left = (seen.txt.get(record) ?? []).filter(v => v !== clear[2]); if (left.length) seen.txt.set(record, left); else seen.txt.delete(record); }
         conn.end('TXT-OK\n');
         return;
       }
@@ -121,7 +123,7 @@ test('a relayed client reaches the wire as a remote request, its peer the relay\
   const relay = await fakeRelay(), w = wire(), said = [];
   const doors = await openRemote(w, { relay: relayOf(relay.control) }, { connect: toRelay(relay.control), say: l => said.push(l), warn: () => {} });
   closing.push(() => doors.close());
-  await until(() => relay.idle.length === POOL);
+  await until(() => relay.idle.length === POOL && doors.relay() !== null);
   expect(doors.list()).toEqual([{ origin: `https://${TOOL}`, fingerprint: devCert.fingerprint, spki: devSpki, relay: true }]);
   expect(said.some(l => l.includes('same-site'))).toBe(true);
   const secret = 'paired-token-that-the-relay-must-not-see';
@@ -718,7 +720,13 @@ test('R2: with no certificate of its own, the session\'s wildcard is got by ACME
 
 test('R2: the relay refuses a TXT record outside the account\'s names; names of the developer\'s own go through their DNS command, never the relay', async () => {
   const relay = await fakeRelay();
-  await expect(relayTxt({ host: 'relay.test', port: relay.control, account: 'acct', token: TOKEN }, '_acme-challenge.other.relay.test', 'x', { connect: toRelay(relay.control) })).rejects.toThrow("the relay refused the TXT record: not your account's name");
+  await expect(relayTxt({ host: 'relay.test', port: relay.control, account: 'acct', token: TOKEN }, '_acme-challenge.other.relay.test', 'A'.repeat(43), { connect: toRelay(relay.control) })).rejects.toThrow("the relay refused the TXT record: not your account's name");
+  // A record or value of no ACME shape (a newline a server slipped in) never leaves: refused before the token goes.
+  const hellos = relay.seen.hellos.length;
+  await expect(relayTxt({ host: 'relay.test', port: relay.control, account: 'acct', token: TOKEN }, '_acme-challenge.acct.relay.test\r\ntxt: x y', 'A'.repeat(43), { connect: toRelay(relay.control) })).rejects.toThrow('no ACME TXT record of that shape');
+  // An untrusted relay is never sent the token for a record either.
+  await expect(relayTxt({ host: 'relay.test', port: relay.control, account: 'acct', token: TOKEN }, '_acme-challenge.acct.relay.test', 'A'.repeat(43), { connect: toRelay(relay.control, false) })).rejects.toThrow();
+  expect(relay.seen.hellos.length).toBe(hellos);
   // BYO: the hook writes the record to a file the ACME stand-in reads as DNS.
   const home = mkdtempSync(join(tmpdir(), 'exact-relay-byo-'));
   closing.push(() => rmSync(home, { recursive: true, force: true }));
@@ -736,4 +744,26 @@ test('R2: the relay refuses a TXT record outside the account\'s names; names of 
   expect(acme.orders.map(o => o.names)).toEqual([['*.example.com']]);
   expect([...relayBYO.seen.txt.keys()]).toEqual([]); // (nothing of the developer's domain through the relay)
   expect(readFileSync(zone, 'utf8')).toContain('_acme-challenge.example.com ');
+});
+
+test('R2 round 1: the DNS hook gets the record and its value to clear as to publish, never the relay\'s token, and a timeout stops all it started', async () => {
+  const { dnsHook } = await import('./tamber-relay.mjs');
+  const home = mkdtempSync(join(tmpdir(), 'exact-relay-hook-'));
+  closing.push(() => rmSync(home, { recursive: true, force: true }));
+  const log = join(home, 'log');
+  const was = process.env.EXACT_RELAY_TOKEN;
+  process.env.EXACT_RELAY_TOKEN = TOKEN;
+  try {
+    const hook = `echo "$EXACT_ACME_ACTION $EXACT_ACME_RECORD $EXACT_ACME_VALUE \${EXACT_RELAY_TOKEN:-none}" >> ${log}`;
+    await dnsHook(hook, '_acme-challenge.example.com', 'B'.repeat(43));
+    await dnsHook(hook, '_acme-challenge.example.com', 'B'.repeat(43), { clear: true });
+    expect(readFileSync(log, 'utf8')).toBe(`publish _acme-challenge.example.com ${'B'.repeat(43)} none\nclear _acme-challenge.example.com ${'B'.repeat(43)} none\n`);
+  } finally { if (was === undefined) delete process.env.EXACT_RELAY_TOKEN; else process.env.EXACT_RELAY_TOKEN = was; }
+  // A record of no ACME shape: never run.
+  await expect(dnsHook(`touch ${join(home, 'ran')}`, '_acme-challenge.example.com; touch x', 'B'.repeat(43))).rejects.toThrow('no ACME TXT record of that shape');
+  // A hook that outlives its time: its whole group stopped (the sleep it started too).
+  const marker = join(home, 'late');
+  await expect(dnsHook(`(sleep 1; touch ${marker}) & sleep 5`, '_acme-challenge.example.com', 'B'.repeat(43), { ms: 200 })).rejects.toThrow('took more than');
+  await new Promise(ok => setTimeout(ok, 1500));
+  expect(() => readFileSync(marker)).toThrow();
 });

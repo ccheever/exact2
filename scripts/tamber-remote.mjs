@@ -28,7 +28,7 @@ function hold(cert, key) {
     context: createSecureContext({ cert, key, minVersion: 'TLSv1.2' }),
     fingerprint: x.fingerprint256,
     spki: createHash('sha256').update(x.publicKey.export({ type: 'spki', format: 'der' })).digest('base64'),
-    covers: n => !!x.checkHost(n.tool) && !!x.checkHost(n.canvas),
+    covers: n => [n.tool, n.canvas].every(h => !!x.checkHost(h, { partialWildcards: false })),
   };
 }
 
@@ -386,14 +386,16 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       // (and the session told at once, so the relay canvas is in place before a client greeted in the same write is routed)
       // (by ACME, names of one parent, which one wildcard of its own certifies)
       named: served => {
-        if (held ? !held.covers(served) : parentOf(served.tool) !== parentOf(served.canvas)) return false;
+        // (by ACME: two names of one parent, the account's own under the relay's domain, or the developer's
+        // own flag's; never a parent the relay alone chose for another account or a domain of its liking)
+        if (held ? !held.covers(served) : parentOf(served.tool) !== parentOf(served.canvas) || (!relay.hook && !parentOf(served.tool).startsWith(`${relay.account}.`))) return false;
         names ??= served;
         session = { ...names };
         for (const f of waiting.splice(0)) f(session);
         if (!held) certify();
         return true;
       },
-      ended: () => { relayed = null; clearInterval(renewal); },
+      ended: () => { relayed = null; clearInterval(renewal); renewal = null; },
       client: (sni, address, stream, settled) => {
         // The SNI decides the server: the tool's, or the canvas's once it has a gateway; nothing else.
         // (none until there is a certificate to end its TLS on)
@@ -435,15 +437,29 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     let renewal = null;
     const certify = () => {
       const wildcard = `*.${parentOf(names.tool)}`;
-      const publish = relay.hook ? (r, v) => dnsHook(relay.hook, r, v) : (r, v) => relayTxt(relay, r, v, connect ? { connect } : {});
-      const unpublish = relay.hook ? r => dnsHook(relay.hook, r, '', { clear: true }) : r => relayTxt(relay, r, '', { clear: true, ...(connect ? { connect } : {}) });
-      const get = () => relayCertificate(relay.dir, [wildcard], { directory: relay.acme, publish, unpublish, ...(acme ?? {}) }, acmeOptions);
-      const take = got => { if (connector.closed) return; held = hold(got.cert, got.key); announce(); };
+      const via = connect ? { connect } : {};
+      const publish = relay.hook ? (r, v) => dnsHook(relay.hook, r, v) : (r, v) => relayTxt(relay, r, v, via);
+      const unpublish = relay.hook ? (r, v) => dnsHook(relay.hook, r, v, { clear: true }) : (r, v) => relayTxt(relay, r, v, { clear: true, ...via });
+      // With names of their own, the CAA record that keeps the relay's operator from getting one by
+      // another method (TLS-ALPN-01 or HTTP-01 at the relay's own port): said with the account it names.
+      const account = uri => { if (relay.hook) say(`  for names of your own, set this CAA record on ${parentOf(names.tool)} so only this account, by DNS-01, can get them: 0 issuewild "letsencrypt.org; validationmethods=dns-01; accounturi=${uri}"`); };
+      const get = () => relayCertificate(relay.dir, [wildcard], { directory: relay.acme, publish, unpublish, warn, account, ...(acme ?? {}) }, acmeOptions);
+      // A certificate taken only while the connector runs, for these names; a process that renewed it
+      // (another app on this account) changes it too: adopted by its fingerprint, not by who renewed it.
+      const take = got => {
+        if (connector.closed) return false;
+        const next = hold(got.cert, got.key);
+        if (!next.covers(names)) { warn('tamber: the relay certificate does not name this session\'s names'); connector.close(); return false; }
+        const changed = !held || held.fingerprint !== next.fingerprint;
+        held = next;
+        announce();
+        return changed;
+      };
       get().then(got => {
-        take(got);
-        renewal = setInterval(() => get().then(g => { if (g.renewed) { take(g); say(`  relay certificate got again (SHA-256 ${g.fingerprint})`); } }, e => warn(`tamber: the relay certificate could not be got again: ${e.message}`)), DAY);
+        if (!take(got) || connector.closed) return;
+        renewal = setInterval(() => get().then(g => { if (take(g)) say(`  relay certificate got again (SHA-256 ${g.fingerprint})`); }, e => warn(`tamber: the relay certificate could not be got again: ${e.message}`)), DAY);
         renewal.unref?.();
-      }, e => { warn(`tamber: the relay certificate could not be got: ${e.message}`); connector.close(); });
+      }).catch(e => { warn(`tamber: the relay certificate could not be got: ${e.message}`); connector.close(); });
     };
   }
   const shut = close;

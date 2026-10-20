@@ -50,7 +50,7 @@ export function relayArgs(argv, { env = process.env, home = homedir() } = {}) {
   const cert = value('--relay-cert'), key = value('--relay-key');
   if (!cert !== !key) throw new Error('--relay-cert and --relay-key go together: PEM files for the relay\'s names');
   const i = argv.indexOf('--relay-name'), names = i < 0 ? null : { tool: (argv[i + 1] ?? '').toLowerCase(), canvas: (argv[i + 2] ?? '').toLowerCase() };
-  if (names && ![names.tool, names.canvas].every(n => /^[a-z0-9.-]+$/i.test(n) && n.includes('.'))) throw new Error('--relay-name takes two names of your own domain, the tool\'s and the canvas\'s');
+  if (names && (![names.tool, names.canvas].every(n => NAME.test(n)) || names.tool === names.canvas)) throw new Error('--relay-name takes two names of your own domain, the tool\'s and the canvas\'s');
   const hook = value('--relay-dns-hook');
   if (names && !cert && !hook) throw new Error('--relay-name needs --relay-dns-hook (a command that puts the ACME TXT record up in your DNS), or --relay-cert and --relay-key');
   if (hook !== null && (!names || cert)) throw new Error('--relay-dns-hook is for --relay-name\'s names of your own, got by ACME');
@@ -84,13 +84,15 @@ export const parentOf = name => name.slice(name.indexOf('.') + 1);
  * relay's certificate verified by WebPKI before the token goes, as a
  * pooled connection's. */
 export function relayTxt({ host, port, account, token }, record, value, { clear = false, connect = connectTLS, ms = 30_000 } = {}) {
+  // (a record and a value of ACME's own shape: nothing a server gave can add a line)
+  if (!RECORD.test(record) || !/^[A-Za-z0-9_-]{43}$/.test(value)) return Promise.reject(new Error('no ACME TXT record of that shape'));
   return new Promise((ok, fail) => {
     const conn = connect({ host, port, servername: host, minVersion: 'TLSv1.2', rejectUnauthorized: true });
     let buf = '';
     const done = setTimeout(() => { conn.destroy(); fail(new Error('the relay did not answer the TXT record in time')); }, ms);
     conn.once('secureConnect', () => {
       if (!conn.authorized) { clearTimeout(done); conn.destroy(); return fail(new Error(`the relay's certificate did not verify: ${conn.authorizationError ?? 'unknown'}`)); }
-      conn.write(`EXACT-RELAY/1 ${account}\r\nauthorization: Bearer ${token}\r\n${clear ? `txt-clear: ${record}` : `txt: ${record} ${value}`}\r\n\r\n`);
+      conn.write(`EXACT-RELAY/1 ${account}\r\nauthorization: Bearer ${token}\r\n${clear ? 'txt-clear' : 'txt'}: ${record} ${value}\r\n\r\n`);
     });
     conn.on('data', d => {
       buf += d.toString('latin1');
@@ -112,13 +114,19 @@ export function relayTxt({ host, port, account, token }, record, value, { clear 
  * `EXACT_ACME_VALUE`; its output is never logged (it may name their DNS
  * account), only its exit. */
 export function dnsHook(command, record, value, { clear = false, ms = 300_000 } = {}) {
+  if (!RECORD.test(record) || !/^[A-Za-z0-9_-]{43}$/.test(value)) return Promise.reject(new Error('no ACME TXT record of that shape'));
   return new Promise((ok, fail) => {
-    const child = spawn('sh', ['-c', command], { stdio: 'ignore', env: { ...process.env, EXACT_ACME_ACTION: clear ? 'clear' : 'publish', EXACT_ACME_RECORD: record, EXACT_ACME_VALUE: value } });
-    const done = setTimeout(() => { child.kill('SIGKILL'); fail(new Error(`--relay-dns-hook took more than ${ms / 1000} s`)); }, ms);
+    // (never the relay's token in its environment; its own process group, so a timeout stops all it started)
+    const { EXACT_RELAY_TOKEN: _token, ...env } = process.env;
+    const child = spawn('sh', ['-c', command], { stdio: 'ignore', detached: true, env: { ...env, EXACT_ACME_ACTION: clear ? 'clear' : 'publish', EXACT_ACME_RECORD: record, EXACT_ACME_VALUE: value } });
+    const done = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); } fail(new Error(`--relay-dns-hook took more than ${ms / 1000} s`)); }, ms);
     child.on('exit', code => { clearTimeout(done); code === 0 ? ok() : fail(new Error(`--relay-dns-hook exited ${code} for ${clear ? 'clearing' : 'publishing'} ${record}`)); });
     child.on('error', e => { clearTimeout(done); fail(new Error(`--relay-dns-hook: ${e.code ?? e.message}`)); });
   });
 }
+
+/** An ACME DNS-01 record's name. */
+const RECORD = /^_acme-challenge\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
 /** A relayed client's stream as a Duplex of its own: the bytes after the
  * header first, then the relay connection's, each way, read as the TLS

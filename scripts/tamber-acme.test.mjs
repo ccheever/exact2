@@ -73,3 +73,41 @@ test('the request names every name and is signed by the certificate\'s key', () 
   expect(der.includes(Buffer.from('*.acct.relay.test'))).toBe(true);
   expect(der.includes(Buffer.from('acct.relay.test'))).toBe(true);
 });
+
+test('round 1: an authorization for a name not asked for, a URL on another origin, a certificate for one host or another key: each refused, no record put up for a stranger', async () => {
+  const run = async lie => {
+    const dns = new Map(), up = [];
+    const acme = fakeAcme({ dns, lie });
+    const got = acmeCertificate({ ...quick, directory: acme.directory, fetch: acme.fetch, names: ['*.acct.relay.test'], accountKey: keyPem(), key: keyPem(),
+      publish: async (r, v) => { up.push(r); dns.set(r, [v]); }, unpublish: async r => { dns.delete(r); } });
+    return { error: await got.then(() => null, e => e.message), up };
+  };
+  // A name not asked for: refused before its record goes anywhere.
+  expect(await run({ authz: 'victim.example.com' })).toEqual({ error: 'ACME: an authorization for a name not asked for (victim.example.com)', up: [] });
+  // An authorization URL on another origin: refused before it is fetched.
+  expect(await run({ origin: 'http://169.254.169.254' })).toEqual({ error: 'ACME: the server named another origin (http://169.254.169.254)', up: [] });
+  // A certificate for one host under the wildcard, not the wildcard itself.
+  expect((await run({ leafNames: ['x.acct.relay.test'] })).error).toBe('ACME: the certificate does not name *.acct.relay.test itself, or is not valid now');
+  // A certificate for another key.
+  const other = createPublicKey(keyPem()).export({ type: 'spki', format: 'der' });
+  expect((await run({ leafKey: other })).error).toBe('ACME: the certificate is not for this key');
+});
+
+test('round 1: a kept key that is a link is refused, and two processes at once get one certificate between them', async () => {
+  const { symlinkSync, writeFileSync } = await import('node:fs');
+  const home = mkdtempSync(join(tmpdir(), 'exact-acme-link-'));
+  closing.push(() => rmSync(home, { recursive: true, force: true }));
+  const dns = new Map(), acme = fakeAcme({ dns });
+  const options = { ...quick, directory: acme.directory, fetch: acme.fetch, publish: async (r, v) => { dns.set(r, [...(dns.get(r) ?? []), v]); }, unpublish: async (r, v) => { dns.set(r, (dns.get(r) ?? []).filter(x => x !== v)); } };
+  const linked = join(home, 'linked');
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(linked, { mode: 0o700 });
+  const outside = join(home, 'outside.pem');
+  writeFileSync(outside, keyPem(), { mode: 0o600 });
+  symlinkSync(outside, join(linked, 'key.pem'));
+  await expect(relayCertificate(linked, ['*.acct.relay.test'], options)).rejects.toThrow('not a regular file');
+  // Two at once on one account: one order, the second finding the first's certificate.
+  const dir = join(home, 'relay', 'acct');
+  const [a, b] = await Promise.all([relayCertificate(dir, ['*.acct.relay.test'], options, { wait: ms => new Promise(ok => setTimeout(ok, 20)) }), relayCertificate(dir, ['*.acct.relay.test'], options, { wait: ms => new Promise(ok => setTimeout(ok, 20)) })]);
+  expect([acme.orders.length, a.fingerprint === b.fingerprint, [a.renewed, b.renewed].sort()]).toEqual([1, true, [false, true]]);
+});

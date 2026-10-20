@@ -250,11 +250,18 @@ statuses:
   DNS-01, its record put up by the relay (which serves only names under the connector's own
   account) and taken down after; its key made here, kept with the ACME account's key and the
   certificate under `~/.exact/relay/<label>/` (0600 in a 0700 directory), never sent anywhere; got
-  again 30 days before it ends (checked daily). With `--relay-name <tool> <canvas>` (names of the
+  again 30 days before it ends (checked daily; one process at a time, by a lock file, and a process
+  sharing the account adopts one another renewed). Every URL the ACME server gives must be https on
+  its directory's origin, with a deadline and a size bound; an authorization must be for a name
+  asked for, checked before its record goes anywhere; the certificate must be for this key and
+  name the wildcard itself. With `--relay-name <tool> <canvas>` (names of the
   developer's own domain, one parent), the record is put up by `--relay-dns-hook <command>`, run
   here with `EXACT_ACME_ACTION` (`publish`|`clear`), `EXACT_ACME_RECORD` and `EXACT_ACME_VALUE`,
-  its output never logged: their DNS credentials never pass through the relay, and the relay
-  operator can't get a certificate for those names. `--relay-cert`/`--relay-key` (PEM files) give
+  its output never logged (and never given the relay's token): their DNS credentials never pass
+  through the relay. The relay operator, whose port those names reach, could still get a
+  certificate for them by TLS-ALPN-01 or HTTP-01; the CAA record printed at start (`issuewild`
+  limited to this ACME account, by DNS-01) closes that, and until the developer sets it that
+  residual stands, as with the relay's own domain. `--relay-cert`/`--relay-key` (PEM files) give
   one of the developer's own instead. The account's token is `EXACT_RELAY_TOKEN` or `~/.exact/relay/<label>/token` (refused
   unless only its owner may read it), never logged, never in a URL. A relay whose own certificate
   fails WebPKI is never sent it, and no flag turns that check off. The session's names are the
