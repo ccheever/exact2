@@ -87,7 +87,7 @@ export function createStorageRequests(appId, admitted) {
               if(typeof args.destination!=='string'||!args.destination.startsWith('app:/'))throw new Error('portable storage needs an app:/ destination');
               value=await fs[op.slice(3)](args.path,args.destination);break;
             case 'fs.compressImage':
-              value=await fs.compressImage(args.path,args.destination,{maxDimension:args.maxDimension,maxBytes:args.maxBytes});break;
+              value=await fs.compressImage(args.path,args.destination,{maxDimension:args.maxDimension,maxBytes:args.maxBytes,...(args.type===undefined?{}:{type:args.type})});break;
             case 'fs.mkdir':case 'fs.rm':case 'fs.readdir':case 'fs.realpath':case 'fs.stat':value=await fs[op.slice(3)](args.path);break;
             default:throw new Error('unsupported storage operation '+op);
           }

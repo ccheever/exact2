@@ -284,7 +284,9 @@ function storageOf(grants) {
     if (!options || typeof options !== 'object') return Promise.reject(new TypeError(`${api}: options must be {maxDimension, maxBytes}`));
     if (!Number.isInteger(d) || d < 1 || d > 8192) return Promise.reject(new TypeError(`${api}: maxDimension must be an integer from 1 to 8192`));
     if (!Number.isInteger(b) || b < 1 || b > 67108864) return Promise.reject(new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`));
-    const limits = { maxDimension: d, maxBytes: b };
+    const type = options.type === undefined ? 'image/jpeg' : options.type;
+    if (type !== 'image/jpeg' && type !== 'image/png') return Promise.reject(new TypeError(`${api}: type must be "image/jpeg" or "image/png"`));
+    const limits = { maxDimension: d, maxBytes: b, type };
     return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(refused);
   };
   // `fs.watch(path, {recursive})` (LLP 1069.010.000 D1): the answer depends

@@ -149,7 +149,14 @@ fn check(engine: &str, report: &serde_json::Value) {
             "{engine} {realm}: {}",
             r["clear"]
         );
+        assert_eq!(
+            r["png"],
+            serde_json::json!({"type": "image/png", "size": [8, 8], "left": 0, "right": 255}),
+            "{engine} {realm}: a PNG lost its alpha"
+        );
+        assert_eq!(r["badType"], "TypeError", "{engine} {realm}");
     }
+    assert_eq!(report["rustPng"], "image/png", "{engine}: {report}");
     assert_eq!(
         report["rust"],
         serde_json::json!({"path":"app:/data/rust.jpg","type":"image/jpeg","width":24,"height":32,"sized":true}),
@@ -277,6 +284,15 @@ const checks = async (origin, sets, app) => {
   const white = new OffscreenCanvas(8, 8).getContext('2d');
   white.drawImage(await createImageBitmap(new Blob([await fs.readFile('app:/tmp/clear.jpg')], { type: 'image/jpeg' })), 0, 0);
   report.clear = [...white.getImageData(0, 0, 1, 1).data].slice(0, 3);
+  // `type: "image/png"` (A1.11): clear on the left half, red on the right, kept.
+  const half = new OffscreenCanvas(16, 16), halfContext = half.getContext('2d');
+  halfContext.fillStyle = '#f00'; halfContext.fillRect(8, 0, 8, 16);
+  await fs.writeFile('app:/tmp/half.png', await (await half.convertToBlob({ type: 'image/png' })).arrayBuffer());
+  const png = await fs.compressImage('app:/tmp/half.png', 'app:/tmp/half-out.png', { maxDimension: 8, maxBytes: 100000, type: 'image/png' });
+  const alpha = new OffscreenCanvas(8, 8).getContext('2d');
+  alpha.drawImage(await createImageBitmap(new Blob([await fs.readFile('app:/tmp/half-out.png')], { type: 'image/png' })), 0, 0);
+  report.png = { type: png.type, size: [png.width, png.height], left: alpha.getImageData(0, 0, 1, 1).data[3], right: alpha.getImageData(7, 0, 1, 1).data[3] };
+  report.badType = await code(fs.compressImage('app:/tmp/half.png', 'app:/tmp/x.webp', { maxDimension: 8, maxBytes: 100, type: 'image/webp' }));
   fs.dispose();
   return report;
 };
@@ -304,9 +320,10 @@ const expression = `(async () => {
     const ask = (destination, scope) => requests.run(JSON.stringify({ version: 1, op: 'fs.compressImage', args: { path: 'app:/tmp/in.jpg', destination, maxDimension: 32, maxBytes: 2000000 } }), scope);
     const rust = decode(await ask('app:/data/rust.jpg'));
     const rustDenied = decode(await ask('app:/data/denied.jpg', createGrantSet(sets[keys[1]])));
+    const rustPng = decode(await requests.run(JSON.stringify({ version: 1, op: 'fs.compressImage', args: { path: 'app:/tmp/in.jpg', destination: 'app:/data/rust.png', maxDimension: 32, maxBytes: 2000000, type: 'image/png' } })));
     const rustDoc = decode(await requests.run(JSON.stringify({ version: 1, op: 'fs.compressImage', args: { path: 'doc:/1/in.jpg', destination: 'app:/data/x.jpg', maxDimension: 32, maxBytes: 2000000 } })));
     requests.dispose();
-    return JSON.stringify({ page, worker: reply.ok, rust: rust.error ? rust : { path: rust.path, type: rust.type, width: rust.width, height: rust.height, sized: rust.size > 0 }, rustDenied: rustDenied.error, rustDoc: rustDoc.error });
+    return JSON.stringify({ page, worker: reply.ok, rust: rust.error ? rust : { path: rust.path, type: rust.type, width: rust.width, height: rust.height, sized: rust.size > 0 }, rustDenied: rustDenied.error, rustDoc: rustDoc.error, rustPng: rustPng.error ?? rustPng.type });
   })()`;
 const reports = {};
 try {
