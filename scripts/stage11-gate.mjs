@@ -460,10 +460,12 @@ export function lines(opts) {
     }],
     ['live', 'Live: set-token space.md on the running gate app moves both packages with no reload (web); remove-token returns them to the base', () => live()],
     ['tool', 'The design tool shows base and package tokens and writes the app\'s override (dtool2\'s D)', () => {
-      // dtool2's stage 11 tests: in the tool's own test file (against its stub
-      // server), and any in scripts/design-tool.test.mjs (the real server).
+      // dtool2's stage 11 tests: any in the tool's own test file (against its
+      // stub server), and those against the real server, in
+      // scripts/design-tool.test.mjs or design-tool-scale.test.mjs.
       const own = [...readFileSync(join(ROOT, 'apps/design-tool/app.test.contract'), 'utf8').matchAll(/^test "(stage 11[^"]*)"/gm)].map(m => m[1]);
-      const real = [...readFileSync(join(ROOT, 'scripts/design-tool.test.mjs'), 'utf8').matchAll(/^test\('((?:[^'\\]|\\.)*)'/gm)].map(m => m[1].replace(/\\(.)/g, '$1')).filter(n => /stage 11/i.test(n));
+      const real = ['scripts/design-tool.test.mjs', 'scripts/design-tool-scale.test.mjs'].filter(f => existsSync(join(ROOT, f))).flatMap(f =>
+        [...readFileSync(join(ROOT, f), 'utf8').matchAll(/^test\('((?:[^'\\]|\\.)*)'/gm)].map(m => [f, m[1].replace(/\\(.)/g, '$1')]).filter(([, n]) => /stage 11/i.test(n)));
       if (!own.length && !real.length) return waits('dtool2\'s D (the tool half): no design-tool test says stage 11 yet');
       const evidence = [], bad = [];
       if (own.length) {
@@ -480,10 +482,10 @@ export function lines(opts) {
           if (!passed) bad.push(name);
         }
       }
-      for (const name of real) {
-        const r = run('bun', ['test', 'scripts/design-tool.test.mjs', '-t', name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')]);
+      for (const [file, name] of real) {
+        const r = run('bun', ['test', file, '-t', name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')]);
         const passed = r.ok && Number(/(\d+) pass/.exec(r.out)?.[1] ?? 0) === 1;
-        evidence.push(`design-tool.test.mjs "${name}": ${passed ? 'pass' : 'FAIL'}`);
+        evidence.push(`${file} "${name.slice(0, 160)}": ${passed ? 'pass (a real tamber serve)' : `FAIL (${r.out.trim().split('\n').slice(-3).join(' / ').slice(0, 200)})`}`);
         if (!passed) bad.push(name);
       }
       if (bad.length) return fail(...evidence);
