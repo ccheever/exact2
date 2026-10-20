@@ -140,6 +140,8 @@ extension Spec {
             value.runs[i].fixedInk = false
             value.runs[i].color = nil
             value.runs[i].decoration = ""
+            value.runs[i].underlineColor = nil
+            value.runs[i].strikeColor = nil
             value.runs[i].href = ""
             value.runs[i].background = nil
             value.runs[i].backgroundBox = 0
@@ -164,6 +166,8 @@ package struct TextPaint: Hashable {
         let fixedInk: Bool
         let color: [Double]?
         let decoration: String
+        let underlineColor: [Double]?
+        let strikeColor: [Double]?
         let href: String
         let background: [Double]?
         let backgroundBox: UInt32
@@ -177,7 +181,8 @@ package struct TextPaint: Hashable {
     package init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
-        runs = spec.runs.map { Inline(hidden: $0.hidden, fixedInk: $0.fixedInk, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
+        runs = spec.runs.map { Inline(hidden: $0.hidden, fixedInk: $0.fixedInk, color: $0.color, decoration: $0.decoration,
+                                      underlineColor: $0.underlineColor, strikeColor: $0.strikeColor, href: $0.href, background: $0.background,
                                       backgroundBox: $0.backgroundBox, backgroundRadii: $0.backgroundRadii,
                                       shadow: $0.shadow, stroke: $0.stroke) }
     }
@@ -190,6 +195,8 @@ package struct TextPaint: Hashable {
             spec.runs[i].fixedInk = runs[i].fixedInk
             spec.runs[i].color = runs[i].color
             spec.runs[i].decoration = runs[i].decoration
+            spec.runs[i].underlineColor = runs[i].underlineColor
+            spec.runs[i].strikeColor = runs[i].strikeColor
             spec.runs[i].href = runs[i].href
             spec.runs[i].background = runs[i].background
             spec.runs[i].backgroundBox = runs[i].backgroundBox
@@ -271,7 +278,8 @@ package final class TextShape {
         (lineBreakBoundaries?.count ?? 0) * MemoryLayout<Int>.stride
             + (flow?.ownedBytes ?? 0) + spec.runs.count * MemoryLayout<Run>.stride
             + key.paint.color.count * MemoryLayout<Double>.stride + key.paint.runs.reduce(0) {
-            $0 + MemoryLayout<TextPaint.Inline>.stride + ($1.color?.count ?? 0) * MemoryLayout<Double>.stride
+            $0 + MemoryLayout<TextPaint.Inline>.stride
+                + (($1.color?.count ?? 0) + ($1.underlineColor?.count ?? 0) + ($1.strikeColor?.count ?? 0)) * MemoryLayout<Double>.stride
                 + $1.decoration.utf8.count + $1.href.utf8.count
         }
     }
