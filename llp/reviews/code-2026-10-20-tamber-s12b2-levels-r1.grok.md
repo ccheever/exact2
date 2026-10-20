@@ -1,0 +1,13 @@
+# Review round 1, LLP 1121 stage 12 B2-levels, Grok (grok 4.7, xhigh)
+
+**RIGHT WITH CHANGES.**
+
+The shape matches the approval. One walker supplies `resolve`'s per-tuple `level` and `name`, and `explain` and `resolve` add `levels` only when the default is a bare reference. `describe` adds `reaches` and neither payload grows a `winning` array. The new fields sit on the existing `tamber/1.15` bullet. Touched sources are under the 1,499-line cap. Tuple indexing and `when` specificity match the checker. An app token beats a package token of the same name, and an app-set base name is taken as that token before `base`.
+
+`default` is the right sixth level. A literal or expression default is the param's own line, and `app-param` would mean the app set it. `levels.base` from tuple 0 only is the right reading of one string: each tuple already carries its own winner, and tuple 0 is the checker's first combination.
+
+1. **BLOCKING** — Role overrides use one spelling, so the winner disagrees with the fold. `contract/cli/src/tamber_levels.rs:102` and `:174`. `app_token` matches a role only when the token's name equals the reference, ignoring case. The checker (`tamber/src/check.rs:390`, `role_key`) treats the row spelling and the schema name as one token: `-exact-secondary-label` and `secondary-label`, `AccentColor` and `accentcolor`. A package value `-exact-secondary-label` with an app token `secondary-label = #112233` stops at `role` while the fold uses the app color. The `name` returned is the reference text, not the row spelling the fold publishes, so it can disagree with that tuple's `value`. Mirror `role_key`, and when the walk stops on a role or on the app token that overrides one, set `name` to that row spelling. Add both spellings as a test.
+
+2. **SHOULD-FIX** — `levels.token` does not walk. `contract/cli/src/tamber_levels.rs:203`. `token` is defined as the first token the default names, at most 8 hops. `levels` looks up `p.param.default` once. A default of another param (`chain: color = param.pin`, rewritten to `param.f….pin`) yields `token: null` and `reaches.token: null`. The tuple walk already follows that param and ends at `reading.pin`. Follow the default only, not the app's `params` line, through param token names for at most 8 hops, and record the first app or package token.
+
+3. **NIT** — The three tests would stay green for several wrong walks. `contract/cli/tests/it/tamber_levels.rs:156`. Nothing asserts `reaches.app_set: true`, that a chain's `levels.token` is the first token (`reading.chain`, not `reading.pin`), or that an app-set base name (`space.md = 10px`) wins as `app-token` rather than `base`. Add those assertions.

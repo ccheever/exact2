@@ -254,6 +254,23 @@ impl Server {
         Ok(out)
     }
 
+    /// A param's additions (stage 12 B2-levels, *1.15*) to `out`, from the
+    /// one walker over `file`'s `text`; nothing for a token that is no
+    /// param's.
+    fn levelled(
+        &self,
+        app: &contract::tamber_params::AppParams,
+        file: &str,
+        text: Option<&str>,
+        name: &str,
+        out: &mut Value,
+    ) {
+        if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
+            let designs = contract::tamber_levels::Designs::read(file, text, app, &self.vocab);
+            designs.annotate(p, out);
+        }
+    }
+
     /// A token's stored value per tuple and scheme; a host value (a role, a
     /// platform colour) is a residual, labelled so, with its fallback.
     pub(super) fn resolve(&self, request: &Value) -> Result<Value, Value> {
@@ -269,12 +286,23 @@ impl Server {
                 return Ok(json!({"name": name, "base": base, "files": files_json(&snap)}));
             }
         }
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        let text = snap
+            .iter()
+            .find(|(f, ..)| *f == file)
+            .map(|(_, t, _)| t.to_string());
+        // A param's (stage 12 B2-levels, *1.15*): each tuple's winning level
+        // and the name there, and its levels, from the one walker.
+        let app = self.app_params();
+        let levelled = |out: &mut Value| self.levelled(&app, &file, text.as_deref(), &name, out);
         // An icon (D10): its sources, the same in every tuple.
         if let Some(icon) = folding.icons.iter().find(|i| i.name == name) {
             let tuples: Vec<Value> = (0..folding.tuples)
                 .map(|t| json!({"modes": modes_of(&folding.design.axes, t), "kind": "icon", "sf": icon.sf, "material": icon.material, "svg": icon.svg}))
                 .collect();
-            return Ok(json!({"token": name, "tuples": tuples, "files": files_json(&snap)}));
+            let mut out = json!({"token": name, "tuples": tuples, "files": files_json(&snap)});
+            levelled(&mut out);
+            return Ok(out);
         }
         let token = folding
             .tokens
@@ -359,34 +387,12 @@ impl Server {
             .collect();
         // The digests it read, so a client reading several tokens can tell
         // one revision from two.
-        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
-        // A param's (stage 12 B2-levels, *1.15*): each tuple's winning level
-        // and the name there, and its levels when its default is a bare
-        // reference, from the one walker.
-        let app = self.app_params();
-        let mut tuples = tuples;
-        let mut levels = None;
-        if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
-            let text = snap
-                .iter()
-                .find(|(f, ..)| *f == file)
-                .map(|(_, t, _)| t.as_str());
-            let designs = contract::tamber_levels::Designs::read(&file, text, &app, &self.vocab);
-            for (tuple, row) in tuples.iter_mut().enumerate() {
-                let step = designs.walk(p, tuple);
-                row["level"] = json!(step.level);
-                row["name"] = json!(step.name);
-            }
-            levels = designs.levels(p);
-        }
         let mut out = json!({"token": name, "tuples": tuples, "files": files_json(&snap)});
-        if let Some(levels) = levels {
-            out["levels"] = levels;
-        }
+        levelled(&mut out);
         if let Some(base) = base {
             out["base"] = base;
         }
-        crate::tamber_packages::fields(&self.app_params(), &snap, &file, &name, &mut out, false);
+        crate::tamber_packages::fields(&app, &snap, &file, &name, &mut out, false);
         Ok(out)
     }
 
@@ -398,9 +404,14 @@ impl Server {
         let app = self.app_params();
         // The design asked about (`file`), whose lines set the app's values.
         let design = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
-        if let Some(icon) =
+        let text = snap
+            .iter()
+            .find(|(f, ..)| *f == design)
+            .map(|(_, t, _)| t.to_string());
+        if let Some(mut icon) =
             crate::tamber_explain::icon(&self.dir, &design, &app, &snap, &folding, &name)
         {
+            self.levelled(&app, &design, text.as_deref(), &name, &mut icon);
             return Ok(icon);
         }
         // A base name (*1.14*), not a param named like one: its row, with
@@ -462,16 +473,9 @@ impl Server {
         // the design's line that sets the app's value, *1.12*.
         if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
             out["param"] = crate::tamber_explain::param(&self.dir, &design, p, &app, &snap);
-            // Its levels (stage 12 B2-levels, *1.15*), a bare reference's default only.
-            let text = snap
-                .iter()
-                .find(|(f, ..)| *f == design)
-                .map(|(_, t, _)| t.as_str());
-            let designs = contract::tamber_levels::Designs::read(&design, text, &app, &self.vocab);
-            if let Some(levels) = designs.levels(p) {
-                out["levels"] = levels;
-            }
         }
+        // Its levels (stage 12 B2-levels, *1.15*).
+        self.levelled(&app, &design, text.as_deref(), &name, &mut out);
         crate::tamber_packages::fields(&app, &snap, &design, &name, &mut out, true);
         Ok(with(out))
     }

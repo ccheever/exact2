@@ -37,7 +37,8 @@ pub struct Designs<'a> {
     pub packages: Vec<(&'a contract_syntax::DesignSource, exact_tamber::Design)>,
     /// The app's params and components.
     pub app_params: &'a AppParams,
-    /// The roles' names, lowercased, as the checker matches a role's spelling.
+    /// Each role's row spelling (`AccentColor`, `-exact-secondary-label`),
+    /// as the checker keys a role.
     pub roles: Vec<String>,
 }
 
@@ -61,7 +62,10 @@ impl<'a> Designs<'a> {
             roles: vocab
                 .roles
                 .iter()
-                .map(|r| r.name.to_ascii_lowercase())
+                .map(|r| match r.system {
+                    true => r.name.clone(),
+                    false => format!("-exact-{}", r.name),
+                })
                 .collect(),
         }
     }
@@ -93,28 +97,70 @@ impl<'a> Designs<'a> {
         })
     }
 
-    fn app_token(&self, name: &str) -> Option<&exact_tamber::Token> {
-        let role = self.is_role(name);
-        self.app
-            .as_ref()?
-            .tokens
-            .iter()
-            .find(|t| t.name.value == name || role && t.name.value.eq_ignore_ascii_case(name))
+    /// The role `key` names, by its row spelling, as the checker's
+    /// `role_key` reads it: the row spelling in any case
+    /// (`AccentColor`, `-exact-secondary-label`), or an Exact role's bare
+    /// name (`secondary-label`).
+    pub fn role(&self, key: &str) -> Option<&str> {
+        self.row(key).or_else(|| {
+            if key.starts_with("-exact-") {
+                return None;
+            }
+            self.row(&format!("-exact-{key}"))
+        })
     }
 
+    /// The role `name` is, when it is a role's row spelling in any case:
+    /// what a value names a role by, as the checker's fold reads it.
+    fn row(&self, name: &str) -> Option<&str> {
+        self.roles
+            .iter()
+            .find(|r| r.eq_ignore_ascii_case(name))
+            .map(String::as_str)
+    }
+
+    /// The app's line `name` reads (a token or an icon): by its name, else
+    /// a role's override in either spelling. With the name the fold
+    /// publishes it by (a role's row spelling).
+    fn app_token(&self, name: &str) -> Option<(String, &exact_tamber::Token)> {
+        let d = self.app.as_ref()?;
+        let lines = || d.tokens.iter().chain(&d.icons);
+        if let Some(t) = lines().find(|t| t.name.value == name) {
+            let shown = self.role(name).map_or(name, |r| r);
+            return Some((shown.to_string(), t));
+        }
+        let role = self.role(name)?;
+        let t = lines().find(|t| self.role(&t.name.value) == Some(role))?;
+        Some((role.to_string(), t))
+    }
+
+    /// A package's token `name` (a package's icons are not read yet).
     fn package_token(
         &self,
         name: &str,
     ) -> Option<(&contract_syntax::DesignSource, &exact_tamber::Token)> {
-        self.packages
-            .iter()
-            .find_map(|(s, d)| Some((*s, d.tokens.iter().find(|t| t.name.value == name)?)))
+        self.packages.iter().find_map(|(s, d)| {
+            let t = d.tokens.iter().find(|t| t.name.value == name)?;
+            Some((*s, t))
+        })
     }
 
-    fn is_role(&self, name: &str) -> bool {
-        let lower = name.to_ascii_lowercase();
-        let bare = lower.strip_prefix("-exact-").unwrap_or(&lower);
-        self.roles.iter().any(|r| r == bare)
+    /// The param whose IR token `name` is.
+    fn param(&self, name: &str) -> Option<&ParamToken> {
+        self.app_params.tokens.iter().find(|q| q.token == name)
+    }
+
+    /// Whether `text` is a reference a walk follows: a param, an app or a
+    /// package line, a base name or a role; not a literal (`transparent`,
+    /// `-1`, `#333333`) or an expression.
+    pub fn reference(&self, text: &str) -> bool {
+        let r = text.trim();
+        bare(r)
+            && (self.param(r).is_some()
+                || self.app_token(r).is_some()
+                || self.package_token(r).is_some()
+                || exact_kernel::style::scale::is_base(r)
+                || self.row(r).is_some())
     }
 
     /// A line's value in `tuple`: its `when` line's that holds most, else its own.
@@ -160,10 +206,10 @@ impl<'a> Designs<'a> {
             if !bare(&r) {
                 break;
             }
-            if let Some(q) = self.app_params.tokens.iter().find(|q| q.token == r) {
+            if let Some(q) = self.param(&r) {
                 (level, name, value) = start(q);
-            } else if let Some(t) = self.app_token(&r) {
-                (level, name, value) = ("app-token", r, self.value_in(t, tuple).to_string());
+            } else if let Some((shown, t)) = self.app_token(&r) {
+                (level, name, value) = ("app-token", shown, self.value_in(t, tuple).to_string());
             } else if let Some((_, t)) = self.package_token(&r) {
                 (level, name, value) = ("package", r, self.value_in(t, tuple).to_string());
             } else if exact_kernel::style::scale::is_base(&r) {
@@ -171,10 +217,10 @@ impl<'a> Designs<'a> {
                     level: "base",
                     name: r,
                 };
-            } else if self.is_role(&r) {
+            } else if let Some(role) = self.row(&r) {
                 return Step {
                     level: "role",
-                    name: r,
+                    name: role.to_string(),
                 };
             } else {
                 // A keyword (`transparent`, `auto`): the line it is on wins.
@@ -185,19 +231,29 @@ impl<'a> Designs<'a> {
     }
 
     /// `levels` of param `p` (`explain`, `resolve`): only when its default
-    /// is a bare reference, else none.
-    /// - `token`: the first token the default names, `{name, package?,
-    ///   file, line, value}` (a package's own line, with stage 11 A2's
-    ///   `package` and `file`; else the app's);
+    /// is a reference, else none (a literal or an expression).
+    /// - `token`: the first app or package line the default reaches through
+    ///   params' defaults (at most [`HOPS`]), `{name, package?, file, line,
+    ///   value}` (a package's own line, with stage 11 A2's `package` and
+    ///   `file`; else the app's);
     /// - `app`: the app's override of a package's token, `{file, line,
     ///   value}`, or null;
-    /// - `base`: the base name its first tuple's walk reaches, or null;
+    /// - `base`: the base name every tuple's walk reaches, or null when
+    ///   they differ or one reaches none;
     /// - `param`: the app's own value of the param, `{file, line, value}`,
     ///   or null.
     pub fn levels(&self, p: &ParamToken) -> Option<Value> {
-        let r = p.param.default.trim();
-        if !bare(r) {
+        if !self.reference(&p.param.default) {
             return None;
+        }
+        // Through params' defaults (never the app's `params` lines) to the
+        // first line that is no param's.
+        let mut r = p.param.default.trim();
+        for _ in 0..HOPS {
+            match self.param(r) {
+                Some(q) => r = q.param.default.trim(),
+                None => break,
+            }
         }
         let line = |file: &str, t: &exact_tamber::Token| json!({"file": file, "line": t.name.line, "value": t.value.value});
         let (token, app) = match (self.package_token(r), self.app_token(r)) {
@@ -206,24 +262,57 @@ impl<'a> Designs<'a> {
                 if s.package.is_none() {
                     row.as_object_mut().map(|o| o.remove("package"));
                 }
-                (row, over.map_or(Value::Null, |o| line(self.file, o)))
+                (row, over.map_or(Value::Null, |(_, o)| line(self.file, o)))
             }
-            (None, Some(t)) => {
+            (None, Some((shown, t))) => {
                 let mut row = line(self.file, t);
-                row["name"] = json!(r);
+                row["name"] = json!(shown);
                 (row, Value::Null)
             }
             (None, None) => (Value::Null, Value::Null),
         };
-        let reached = self.walk(p, 0);
-        let base = (reached.level == "base").then_some(reached.name);
+        let base = self.base(p);
         let param = self.set(p).map_or(Value::Null, |e| line(self.file, e));
         Some(json!({"token": token, "app": app, "base": base, "param": param}))
     }
 
+    /// Param `p`'s additions to a `resolve` or `explain` answer: each of
+    /// its tuples' `level` and `name`, and its `levels` (null for a
+    /// literal or an expression default).
+    pub fn annotate(&self, p: &ParamToken, out: &mut Value) {
+        if let Some(tuples) = out["tuples"].as_array_mut() {
+            for (tuple, row) in tuples.iter_mut().enumerate() {
+                let step = self.walk(p, tuple);
+                row["level"] = json!(step.level);
+                row["name"] = json!(step.name);
+            }
+        }
+        out["levels"] = self.levels(p).unwrap_or(Value::Null);
+    }
+
+    /// The tuples the app's axes make, one when it has none.
+    fn tuples(&self) -> usize {
+        self.axes().iter().map(|a| a.values.len().max(1)).product()
+    }
+
+    /// The base name every tuple's walk of `p` reaches, when they all
+    /// reach the same one; none when any reaches no base or another
+    /// (each tuple's own is on `resolve`'s tuples).
+    fn base(&self, p: &ParamToken) -> Option<String> {
+        let mut base = None;
+        for tuple in 0..self.tuples() {
+            let step = self.walk(p, tuple);
+            if step.level != "base" || base.as_ref().is_some_and(|b| *b != step.name) {
+                return None;
+            }
+            base = Some(step.name);
+        }
+        base
+    }
+
     /// `describe`'s compact `reaches` of param `p`, when its default is a
-    /// bare reference: the first token it names, the base name its first
-    /// tuple reaches, and whether the app sets that token.
+    /// reference: the first token it reaches, the base name every
+    /// tuple reaches (as `levels`), and whether the app sets that token.
     pub fn reaches(&self, p: &ParamToken) -> Option<Value> {
         let levels = self.levels(p)?;
         Some(json!({

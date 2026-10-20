@@ -5493,7 +5493,8 @@ Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels add
   most 8 hops (`HOPS`) and stops at a line whose value is no reference (a literal or an expression), at a base name or
   at a role. It answers `Step {level, name}`, the level that wins and the name there: `app-param`, `app-token`,
   `package`, `base`, `role`, or `default`. `default` is not in the plan's list: it is the param's own default being a
-  literal or an expression, the one case none of the five names. rt1's stage 12 D3 reads the same walker; its
+  literal or an expression, the one case none of the five names (theme2: it stays; a tool's word for it is "the
+  component's default"). rt1's stage 12 D3 reads the same walker; its
   signature was sent to rt1.
 - **`resolve` of a param**: each tuple adds `level` and `name`, from the walker.
 - **`explain` and `resolve` of a param**: `levels: {token, app, base, param}`, only when the default is a bare
@@ -5501,7 +5502,8 @@ Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels add
   - `token` is the first token the default names, `{name, package?, file, line, value}`: a package's own line with
     stage 11 A2's `package` and `file` exactly, else the app's.
   - `app` is the app's override of that package token, `{file, line, value}`, or null.
-  - `base` is the base name the first tuple reaches, as stage 11 D's `bases` names it, or null.
+  - `base` is the base name every tuple reaches, as stage 11 D's `bases` names it, or null when the tuples' walks
+    differ or one reaches none (theme2's ruling; each tuple's own is on `resolve`'s tuples).
   - `param` is the app's own value, `{file, line, value}`, or null; `param.set` stays.
 - **`describe`**: a param whose default is a bare reference adds `reaches: {token, base, app_set}`, compact.
 - **Tests** (`contract/cli/tests/it/tamber_levels.rs`, through the server, with `@acme/reading`'s Contract `Card`
@@ -5512,5 +5514,30 @@ Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels add
   - a base name (`Card.inset` through `reading.gap = space.md`), a role (`AccentColor`), and an expression (no
     `levels`, its tuples `default`);
   - `describe`'s `reaches`;
-  - levels differing by tuple (`reading.gap` 12px, `when mode=b: space.lg`): `app-token` then `base`;
+  - levels differing by tuple (`reading.gap` 12px, `when mode=b: space.lg`): `app-token` then `base`, and
+    `levels.base` null; then a `when` sending one tuple to another base (`space.md`, `when mode=b: space.lg`):
+    each tuple's base, and `levels.base` null; with no `when`, `space.md` in both and `levels.base` `space.md`;
   - a chain of ten app tokens stopping after eight (`c7`).
+
+**After review round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES):**
+- **Roles as the checker keys them** (Astra 1 = Grok 1). A role's override is found in either spelling and any case,
+  as `tamber/src/check.rs` `role_key` reads it: `Secondary-Label = …` or `-exact-Secondary-Label = …` overrides
+  `-exact-secondary-label`, and `accentcolor = …` overrides `AccentColor`. An app value written `secondary-label`
+  reaches the override too. A role or its override is named by the row spelling the fold publishes. Only a row
+  spelling stops the walk as a role, as the fold names a role.
+- **Icon params** (Astra 3). `resolve` and `explain` of an icon param returned before the additions; both return
+  paths now carry them (`Designs::annotate`, one call for every param). The walker reads the app's icon tokens. A
+  package's icons are not read yet (`tamber-package-block`), so a package icon param's default is a literal.
+- **`levels.token` walks** (Astra 4 = Grok 2). A default naming another param (`edge: color = param.pin` in a
+  `.tamber`, `edge: length = "param.inset"` in Contract) follows params' defaults, never the app's `params` lines, at
+  most 8 hops, to the first app or package token (`reading.pin`, `reading.gap`).
+- **References, not literals** (Astra 5). A reference is a bare name that is a param, an app token or icon, a package
+  token, a base name or a role's row spelling. `transparent` and `-1` are literals. A literal or an expression
+  default answers `levels: null`, explicitly. describe's `reaches` stays omitted there.
+- **`levels.base`** (Astra 2): every tuple's walk agreeing (folded in from theme2's ruling above).
+- **Tests** (Grok 3): `reaches.app_set` true under an override; a chain's `levels.token` is its first token
+  (`reading.chain`); an app-set `space.md = 10px` wins as `app-token`. Two new tests:
+  `a_roles_override_in_either_spelling_and_an_app_set_base_name` (both spellings, mixed case, the fold's value
+  agreeing) and `icon_params_param_aliases_and_literals` (a literal package icon param with `levels: null`, an app
+  component's icon param naming the app's icon, the app setting the package's icon param through its icon and as
+  written, both aliases, `transparent` and `-1`). Each fails on the commit before.

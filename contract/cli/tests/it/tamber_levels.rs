@@ -24,10 +24,10 @@ fn reading(tag: &str, design: &str) -> std::path::PathBuf {
         r#"{"name":"@acme/reading","version":"1.0.0","exports":{".":"./index.contract"}}"#,
     )
     .unwrap();
-    std::fs::write(at.join("index.contract"), "component Card\n  params\n    inset: length = \"reading.gap\"\n  view\n    column padding=\"param.inset\"\n      text \"c\"\n").unwrap();
+    std::fs::write(at.join("index.contract"), "component Card\n  params\n    inset: length = \"reading.gap\"\n    edge: length = \"param.inset\"\n  view\n    column padding=\"param.inset\" gap=\"param.edge\"\n      text \"c\"\n").unwrap();
     std::fs::write(
         at.join("reading.tamber"),
-        "tamber reading\n\ntheme\n  reading.gap: length = space.md\n  reading.pin = #333333\n  reading.chain = reading.pin\n  reading.ink = AccentColor\n\ncomponent Map\n  params\n    pin: color = reading.pin\n    chain: color = reading.chain\n    ink: color = reading.ink\n    mix: color = color-mix(in srgb, reading.pin 50%, white)\n",
+        "tamber reading\n\ntheme\n  reading.gap: length = space.md\n  reading.pin = #333333\n  reading.chain = reading.pin\n  reading.ink = AccentColor\n  reading.quiet = -exact-secondary-label\n\ncomponent Map\n  params\n    pin: color = reading.pin\n    chain: color = reading.chain\n    ink: color = reading.ink\n    mix: color = color-mix(in srgb, reading.pin 50%, white)\n    quiet: color = reading.quiet\n    edge: color = param.pin\n    clear: color = transparent\n    lift: number = -1\n    glyph: icon = icon(sf \"heart\")\n",
     )
     .unwrap();
     std::fs::write(
@@ -43,6 +43,19 @@ fn ask(s: &mut Serve, method: &str, token: &str) -> Value {
     let (r, _) = s.ask(json!({"method": method, "token": token}));
     assert!(r.get("ok").is_some(), "{method} {token}: {r}");
     r["ok"].clone()
+}
+
+/// describe's `reaches` of param `name`.
+fn reaches(s: &mut Serve, name: &str) -> Value {
+    let (described, _) = s.ask(json!({"method": "describe"}));
+    described["ok"]["ir"]["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|c| c["params"].as_array().unwrap().clone())
+        .find(|p| p["name"] == name)
+        .unwrap_or_else(|| panic!("{name}: {described}"))["reaches"]
+        .clone()
 }
 
 /// Each tuple's `[level, name]`.
@@ -83,11 +96,14 @@ fn a_package_default_an_app_token_and_an_app_param_each_win_in_turn() {
     );
     let e = ask(&mut s, "explain", &pin);
     assert_eq!(e["levels"], *levels, "explain's levels are resolve's");
-    // Through a chain of the package's tokens: the last line wins.
+    // Through a chain of the package's tokens: the last line wins; its
+    // levels' token is the first.
+    let chain = ask(&mut s, "resolve", &format!("{MAP}.chain"));
     assert_eq!(
-        steps(&ask(&mut s, "resolve", &format!("{MAP}.chain"))),
+        steps(&chain),
         [("package".to_string(), "reading.pin".to_string())]
     );
+    assert_eq!(chain["levels"]["token"]["name"], "reading.chain", "{chain}");
     drop(s);
     // The app overrides the token: the app's line wins.
     std::fs::write(
@@ -110,6 +126,7 @@ fn a_package_default_an_app_token_and_an_app_param_each_win_in_turn() {
         r["levels"]["token"]["value"], "#333333",
         "the package's own line"
     );
+    assert_eq!(reaches(&mut s, &pin)["app_set"], true);
     drop(s);
     // The app sets the param: its value wins, kept beside today's `set`.
     std::fs::write(dir.join("app.tamber"), "tamber t\n\ntheme\n  ink = #111111\n  reading.pin = #222222\n\nparams\n  Map.pin = #abcdef\n").unwrap();
@@ -158,11 +175,10 @@ fn a_base_a_role_and_an_expression() {
     );
     // An expression: no levels; the param's own default wins.
     let mix = ask(&mut s, "resolve", &format!("{MAP}.mix"));
-    assert!(mix.get("levels").is_none(), "{mix}");
+    assert_eq!(mix.get("levels"), Some(&Value::Null), "{mix}");
     assert_eq!(steps(&mix), [("default".to_string(), format!("{MAP}.mix"))]);
-    assert!(ask(&mut s, "explain", &format!("{MAP}.mix"))
-        .get("levels")
-        .is_none());
+    let e = ask(&mut s, "explain", &format!("{MAP}.mix"));
+    assert_eq!(e.get("levels"), Some(&Value::Null), "{e}");
     // describe: what each default reaches, compact.
     let (described, _) = s.ask(json!({"method": "describe"}));
     let params: Vec<Value> = described["ok"]["ir"]["components"]
@@ -205,6 +221,41 @@ fn levels_differ_by_tuple_and_a_chain_stops_after_eight_hops() {
         ]
     );
     assert_eq!(inset["tuples"][1]["modes"], json!({"mode": "b"}));
+    assert_eq!(
+        inset["levels"]["base"],
+        Value::Null,
+        "one tuple reaches no base"
+    );
+    drop(s);
+    // A `when` sends one tuple to another base: each tuple's own, no one `base`.
+    std::fs::write(dir.join("app.tamber"), "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink = #111111\n  reading.gap = space.md\n    when mode=b: space.lg\n").unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let inset = ask(&mut s, "resolve", &format!("{CARD}.inset"));
+    assert_eq!(
+        steps(&inset),
+        [
+            ("base".to_string(), "space.md".to_string()),
+            ("base".to_string(), "space.lg".to_string())
+        ]
+    );
+    assert_eq!(
+        inset["levels"]["base"],
+        Value::Null,
+        "the tuples differ: {inset}"
+    );
+    let e = ask(&mut s, "explain", &format!("{CARD}.inset"));
+    assert_eq!(e["levels"]["base"], Value::Null);
+    drop(s);
+    // Both tuples reach the package's `space.md`: that is `levels.base`.
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink = #111111\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let inset = ask(&mut s, "resolve", &format!("{CARD}.inset"));
+    assert_eq!(steps(&inset).len(), 2);
+    assert_eq!(inset["levels"]["base"], "space.md", "{inset}");
     drop(s);
     // Ten app tokens, each naming the next: the walk stops after eight.
     let chain: String = (0..10)
@@ -225,6 +276,150 @@ fn levels_differ_by_tuple_and_a_chain_stops_after_eight_hops() {
     assert_eq!(
         steps(&ask(&mut s, "resolve", &format!("{MAP}.pin"))),
         [("app-token".to_string(), "c7".to_string())]
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1 (Astra 1 = Grok 1): a role's override, in either spelling and any
+/// case, as the checker keys it, named by the row spelling the fold
+/// publishes; an app-set base name is the app's token (Grok 3).
+#[test]
+fn a_roles_override_in_either_spelling_and_an_app_set_base_name() {
+    let one = |s: &mut Serve, p: &str| steps(&ask(s, "resolve", &format!("{MAP}.{p}")));
+    let step = |l: &str, n: &str| vec![(l.to_string(), n.to_string())];
+    let dir = reading("levels-roles", "tamber t\n\ntheme\n  ink = #111111\n");
+    let mut s = Serve::start(&dir, &[]);
+    assert_eq!(one(&mut s, "quiet"), step("role", "-exact-secondary-label"));
+    assert_eq!(one(&mut s, "ink"), step("role", "AccentColor"));
+    drop(s);
+    for (app, quiet) in [
+        (
+            "  Secondary-Label = #123456\n  accentcolor = #654321\n",
+            "-exact-secondary-label",
+        ),
+        (
+            "  -exact-Secondary-Label = #123456\n  ACCENTCOLOR = #654321\n",
+            "-exact-secondary-label",
+        ),
+    ] {
+        let design = format!("tamber t\n\ntheme\n  ink = #111111\n{app}  space.md = 10px\n\nparams\n  Map.pin = secondary-label\n");
+        std::fs::write(dir.join("app.tamber"), design).unwrap();
+        let mut s = Serve::start(&dir, &[]);
+        assert_eq!(one(&mut s, "quiet"), step("app-token", quiet), "{app}");
+        // The app's value in the bare spelling reaches the override too.
+        assert_eq!(one(&mut s, "pin"), step("app-token", quiet), "{app}");
+        let pin = ask(&mut s, "resolve", &format!("{MAP}.pin"));
+        assert_eq!(pin["tuples"][0]["value"], "#123456ff", "{pin}");
+        let ink = ask(&mut s, "resolve", &format!("{MAP}.ink"));
+        assert_eq!(steps(&ink), step("app-token", "AccentColor"), "{app}");
+        assert_eq!(
+            ink["tuples"][0]["value"], "#654321ff",
+            "the fold agrees: {ink}"
+        );
+        // `space.md = 10px`: the app's token, not the base.
+        let inset = ask(&mut s, "resolve", &format!("{CARD}.inset"));
+        assert_eq!(steps(&inset), step("app-token", "space.md"));
+        assert_eq!(inset["levels"]["base"], Value::Null, "{inset}");
+        drop(s);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1 (Astra 3, 4, 5 = Grok 2): an icon param's tuples and levels; a
+/// default naming another param, in Contract and in a `.tamber`, reaches
+/// that param's token; a literal default (`transparent`) or an expression
+/// has `levels: null`.
+#[test]
+fn icon_params_param_aliases_and_literals() {
+    let dir = reading(
+        "levels-icons",
+        "tamber t\n\ntheme\n  ink = #111111\n\nicons\n  icon.app = icon(sf \"star\")\n",
+    );
+    let mut s = Serve::start(&dir, &[]);
+    // A literal package icon param: its own default, no levels.
+    let glyph = ask(&mut s, "resolve", &format!("{MAP}.glyph"));
+    assert_eq!(
+        steps(&glyph),
+        [("default".to_string(), format!("{MAP}.glyph"))]
+    );
+    assert_eq!(glyph.get("levels"), Some(&Value::Null), "{glyph}");
+    let e = ask(&mut s, "explain", &format!("{MAP}.glyph"));
+    assert_eq!(e.get("levels"), Some(&Value::Null), "{e}");
+    // Aliases: a `.tamber` param's `param.pin`, a Contract param's `param.inset`.
+    let edge = ask(&mut s, "resolve", &format!("{MAP}.edge"));
+    assert_eq!(
+        steps(&edge),
+        [("package".to_string(), "reading.pin".to_string())]
+    );
+    assert_eq!(edge["levels"]["token"]["name"], "reading.pin", "{edge}");
+    let edge = ask(&mut s, "explain", &format!("{CARD}.edge"));
+    assert_eq!(edge["levels"]["token"]["name"], "reading.gap", "{edge}");
+    assert_eq!(edge["levels"]["base"], "space.md");
+    assert_eq!(
+        reaches(&mut s, &format!("{CARD}.edge"))["token"],
+        "reading.gap"
+    );
+    // A literal colour keyword and a negative number: no reference, `levels: null`.
+    let clear = ask(&mut s, "resolve", &format!("{MAP}.clear"));
+    assert_eq!(
+        steps(&clear),
+        [("default".to_string(), format!("{MAP}.clear"))]
+    );
+    assert_eq!(clear.get("levels"), Some(&Value::Null), "{clear}");
+    let lift = ask(&mut s, "explain", &format!("{MAP}.lift"));
+    assert_eq!(lift.get("levels"), Some(&Value::Null), "{lift}");
+    drop(s);
+    // An app component's icon param naming the app's icon (a package's
+    // icons are not read yet).
+    std::fs::write(dir.join("app.contract"), "use Card from \"@acme/reading\"\ncomponent Badge\n  params\n    mark: icon = \"icon.app\"\n  view\n    image \"symbol:param.mark\"\ncomponent App\n  view\n    column\n      Card()\n      Badge()\n").unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let mark = ask(&mut s, "resolve", "app.contract#Badge.mark");
+    assert_eq!(
+        steps(&mark),
+        [("app-token".to_string(), "icon.app".to_string())]
+    );
+    assert_eq!(
+        mark["levels"]["token"],
+        json!({"name": "icon.app", "file": "app.tamber", "line": 7, "value": "icon(sf \"star\")"}),
+        "{mark}"
+    );
+    let e = ask(&mut s, "explain", "app.contract#Badge.mark");
+    assert_eq!(e["levels"], mark["levels"], "{e}");
+    drop(s);
+    // The app sets the package's icon param: its value wins, through its
+    // icon token, or as written.
+    let app =
+        "tamber t\n\ntheme\n  ink = #111111\n\nicons\n  icon.app = icon(sf \"star\")\n\nparams\n";
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("{app}  Map.glyph = icon.app\n"),
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let glyph = ask(&mut s, "resolve", &format!("{MAP}.glyph"));
+    assert_eq!(
+        steps(&glyph),
+        [("app-token".to_string(), "icon.app".to_string())]
+    );
+    assert_eq!(glyph["tuples"][0]["sf"], "star", "{glyph}");
+    drop(s);
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("{app}  Map.glyph = icon(sf \"bolt\")\n"),
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let glyph = ask(&mut s, "resolve", &format!("{MAP}.glyph"));
+    assert_eq!(
+        steps(&glyph),
+        [("app-param".to_string(), format!("{MAP}.glyph"))]
+    );
+    assert_eq!(glyph["tuples"][0]["sf"], "bolt", "{glyph}");
+    assert_eq!(
+        glyph.get("levels"),
+        Some(&Value::Null),
+        "a literal default: {glyph}"
     );
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);

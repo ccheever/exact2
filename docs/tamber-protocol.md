@@ -468,9 +468,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `{value, line, whens}` of its `params` line, or null; `pinned` names the tokens the default
     reads that a literal `set` no longer follows (D14's mark). Moving the declaring file is a new
     identity, so a value keyed by the old one no longer applies.
-    A param whose default is a bare reference adds `reaches: {token, base, app_set}` (*1.15*): the first
-    token its default names, the base name its first tuple reaches (or null), and whether the app
-    overrides that token (`explain`'s `levels`, compact).
+    A param whose default is a reference adds `reaches: {token, base, app_set}` (*1.15*): the first
+    token its default reaches, the base name every tuple reaches (or null), and whether the app
+    overrides that token (`explain`'s `levels`, compact; none where `levels` is null).
     A component that isn't Contract, declared in the design (`component MapCard` over
     `params`, stage 7 D), is listed the same way, its identity the design file and its name
     (`app.tamber#MapCard`).
@@ -561,19 +561,24 @@ tuple:
   value (`{file, line, value}`), or null.
 - **A param's levels** (*1.15*, stage 12 B2-levels), on `explain` and `resolve` of a param, from one
   walker. It starts at the app's own value of the param (its `params` line), else the param's default,
-  and follows each bare reference: another param, then the app's token (a role's spelling in any
-  case), then a package's token. It takes each line's value in the tuple and goes at most 8 hops. It
-  stops at a line whose value is no reference (a literal or an expression), at a base name or at a
-  role, and that place wins.
+  and follows each reference: another param, then the app's token or icon (a role's override in
+  either spelling, as the checker keys it: `secondary-label` or `-exact-secondary-label`, any case),
+  then a package's token. It takes each line's value in the tuple and goes at most 8 hops. It stops
+  at a line whose value is no reference (a literal such as `transparent` or `-1`, or an
+  expression), at a base name or at a role, and that place wins. An icon param answers the same.
   - Each of `resolve`'s tuples adds `level`, one of `app-param`, `app-token`, `package`, `base`,
-    `role` or `default` (the param's own default, a literal or an expression), and `name`, the name at
-    that level (a param's full name, a token's, a base name, a role's spelling).
-  - `levels: {token, app, base, param}`, present only when the param's default is a bare reference
-    (none for an expression):
-    - `token` is the first token the default names, `{name, package?, file, line, value}`: a package's
-      own line with stage 11 A2's `package` and `file` (`<package>/<file>`), else the app's line;
+    `role` or `default` (the param's own default, a literal or an expression: a tool's word for it is
+    "the component's default"), and `name`, the name at
+    that level (a param's full name, a token's, a base name; a role, or an override of one, by the row
+    spelling the fold publishes: `AccentColor`, `-exact-secondary-label`).
+  - `levels: {token, app, base, param}` when the param's default is a reference; `levels: null` for a
+    literal or an expression:
+    - `token` is the first token the default reaches through params' defaults (never the app's
+      `params` lines; at most 8 hops), `{name, package?, file, line, value}`: a package's own line
+      with stage 11 A2's `package` and `file` (`<package>/<file>`), else the app's line;
     - `app` is the app's override of that package token, `{file, line, value}`, or null;
-    - `base` is the base name the first tuple's walk reaches, or null;
+    - `base` is the base name every tuple's walk reaches, or null when they differ or one reaches
+      none (each tuple's own is on `resolve`'s tuples);
     - `param` is the app's own value of the param, `{file, line, value}`, or null (`param.set`
       stays).
 - **A base name** (*1.14*) answers `{kind: "base", name, base, files}`, its base row. One the app
