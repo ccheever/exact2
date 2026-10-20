@@ -74,7 +74,7 @@ fn kernel_kind(kind: tamber::Kind) -> Option<exact_kernel::style::theme::Kind> {
 
 /// A role's id, as a row writes it (`-exact-label`, `CanvasText`) or as a
 /// theme key may (LLP 1095 D4's bare `secondary-label`).
-fn role_named(name: &str) -> Option<(u8, String)> {
+pub(crate) fn role_named(name: &str) -> Option<(u8, String)> {
     let id = roles::role(name).or_else(|| {
         (!name.starts_with('-'))
             .then(|| roles::role(&format!("-exact-{name}")))
@@ -296,12 +296,13 @@ impl Lowerer<'_> {
                 }
             }
         }
-        for (line, col, e) in crate::params::entry_errors(&design, &kinded, &identities) {
-            let span = self.token_span(&origin, line, col);
-            self.push(LowerError { span, ..e });
-        }
-        for (line, col, e) in crate::params::written_ranges(&design, &kinded, &identities, &vocab())
-        {
+        // A library's names are its API (LLP 1139 D8), then the entries' and
+        // the written ranges', in that order.
+        let (d, k, i) = (&design, &kinded, &identities);
+        let mut lines = crate::anatomy::param_lines(d, k, i, file);
+        lines.extend(crate::params::entry_errors(d, k, i));
+        lines.extend(crate::params::written_ranges(d, k, i, &vocab()));
+        for (line, col, e) in lines {
             let span = self.token_span(&origin, line, col);
             self.push(LowerError { span, ..e });
         }

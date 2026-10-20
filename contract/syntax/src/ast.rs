@@ -58,6 +58,10 @@ pub struct File {
     /// each component a private package that ships a design declares in
     /// its entry, or re-exports there; set by the driver.
     pub library: Vec<String>,
+    /// The names of the app's library packages (LLP 1139 D0): each linked
+    /// package that is `"private": true` and ships a design; set by the
+    /// driver.
+    pub library_packages: Vec<String>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// Native modules' sources and sends, read from packages (LLP 1133.001).

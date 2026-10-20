@@ -21,6 +21,8 @@ pub(super) struct Library {
     pub components: Vec<String>,
     /// Each file read to find them: a build input.
     pub read: Vec<PathBuf>,
+    /// The library packages' names.
+    pub packages: Vec<String>,
 }
 
 /// The library of the packages `sources` links.
@@ -40,18 +42,22 @@ pub(super) fn read(sources: &Sources, app_root: &Path) -> Library {
         if json["private"] != serde_json::Value::Bool(true) || !ships {
             continue;
         }
+        // By its own name, as identities and designs name it, never the
+        // one a `use` reached it by (`books` installed as `@acme/reading`).
+        let name = json["name"].as_str().unwrap_or(&p.name).to_owned();
+        out.packages.push(name.clone());
         let root = real(&p.root);
         let written = p.root.join(package_entry(&json));
         out.read.push(written.clone());
         let entry = real(&written);
         let origin = Origin::Package {
-            name: p.name.clone(),
+            name: name.clone(),
             version: p.version.clone(),
             root: p.root.clone(),
             manifest: p.manifest.clone(),
         };
         let package = Package {
-            name: &p.name,
+            name: &name,
             root: &root,
             roots: &roots,
             manifest: &json,

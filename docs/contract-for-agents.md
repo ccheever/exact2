@@ -3574,7 +3574,9 @@ is its package's however a `use` reaches it). A param is a row's value in its
 component's own rows (a style, shorthand or motion row, an image's `symbol:`
 source): a string or a template, through `?:` branches, `match` arms and `+`,
 as a motion token is; and its defaults. Passed in a component's argument, it is
-the child's row's value. One in a `style`, a `keyframes` or a state's value,
+the child's row's value. One in a `style` that one component's view alone
+applies is that component's (LLP 1139 D3); one in a `style` another
+component applies too, a `keyframes` or a state's value,
 or in what a row computes (a function's argument, a condition, a comparison,
 a callback), or that a child reads otherwise than as a row's value, is refused
 (`tamber-param-scope`). A param no
@@ -3627,6 +3629,26 @@ a `calc()`, `min()`, `max()` or `clamp()` with px and numbers
 compiler checks every column, naming the one a row refuses (a padding that is
 negative on mac). A base name times a length, `rem`, `em` or `%` beside one,
 and a shadow over one are refused.
+A package that is `"private": true` and ships a design is a library (LLP
+1139): each component its entry declares or re-exports is held to its rules.
+Its spacing, corner and colour rows (a shorthand's each side; `border`'s
+colour), and its params' defaults of every kind, name a param, a token, a
+role or a base name, or compute over one (`color-mix`, `light-dark`,
+`calc`), never a literal (`0`/`0px` and CSS keywords such as `auto` and
+`transparent` excepted; `lower-library-literal`); a control's role is the native control's (`input`,
+`textarea`, `select`, `progress`, a native `button`) with what its platform
+needs (`checked` and `aria-label` or `aria-labelledby`, a range's
+`min`/`max`, …;
+`lower-library-control`); and nothing in the package reads the host it runs
+on (`exactDelivery`, `exactSurface`, `exactViewport().displayMode` read
+from the viewport wherever the package passes it: an alias, a `provide`, a
+`fn`; a prop's `displayMode` is the app's data; `lower-library-platform`). Not checked yet: an injected value whose
+provider is outside the package, and per-platform host entries (no syntax
+for them). Its names are its API: an app line or a Contract row naming a
+name under its namespace that it doesn't define, or a param line naming one
+it lacks, fails the build (`tamber-package-unknown`; the nine base names are
+no package's), and its params are named in full, a short name that names
+none too (`tamber-param-short-library`).
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into

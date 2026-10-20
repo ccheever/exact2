@@ -3264,7 +3264,10 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     value (a text, an attribute that is no row, a function's argument, a condition, a state, a
     derive, an action) is refused (`tamber-param-scope`), naming the param.
   - A param named where no component owns it is refused (`tamber-param-scope`): in a `style` or a
-    `keyframes`, which any component may apply; in a state's or a derive's value. So is one in
+    `keyframes`, which any component may apply; in a state's or a derive's value. *Amended
+    2026-10-20 (LLP 1139 D3, stage 12 C3; theme2's ruling, one rule for every component):* a
+    `style` one component's view alone applies is that component's, and its `param.*` are that
+    component's params; one another component applies too is no one's and stays refused. So is one in
     what a row computes (a function's argument, a condition, a comparison, a callback): what it
     computes is data the param's value never reaches, and a duration there would never be written
     in. A package's file is named by the package's declared name: the nearest directory above the

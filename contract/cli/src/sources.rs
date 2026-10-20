@@ -196,7 +196,9 @@ impl Loader<'_> {
         // Each component's `param.` names, as their tokens (LLP 1121 D15),
         // before anything reads a row.
         let mut params_refused: Vec<CompileError> = Vec::new();
+        let mut owned = Vec::new();
         for unit in &mut self.units {
+            owned.extend(contract_lower::params::owned(&unit.file));
             params_refused.extend(
                 contract_lower::params::rewrite(&mut unit.file)
                     .into_iter()
@@ -257,10 +259,16 @@ impl Loader<'_> {
             &params,
             &identities,
         );
-        let library = library::read(&self.sources, self.app_root).components;
+        let library = library::read(&self.sources, self.app_root);
         match self.scope() {
             Ok(mut file) => {
-                file.library = library;
+                let escaped = contract_lower::params::escaped(&file, &owned);
+                if !escaped.is_empty() {
+                    let all = escaped.into_iter().map(CompileError::from).collect();
+                    return Err(resolve(&self.sources, all));
+                }
+                file.library = library.components;
+                file.library_packages = library.packages;
                 file.design = design;
                 file.package_designs = package_designs;
                 crate::modules::desugar(&mut file).map_err(|all| resolve(&self.sources, all))?;
@@ -1313,6 +1321,7 @@ impl Loader<'_> {
             design: None,
             package_designs: Vec::new(),
             library: Vec::new(),
+            library_packages: Vec::new(),
             fns: all!(fns),
             modules: all!(modules),
             components: all!(components),

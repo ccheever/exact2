@@ -183,10 +183,10 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     if let Some(source) = &checked.file.design {
         if let Ok(design) = exact_tamber::parse(&source.text) {
             let params = crate::params::tokens(checked.file);
-            out.extend(crate::params::unknown(
+            out.extend(crate::anatomy::unknown_params(
                 &design,
                 &params,
-                &crate::params::identities(checked.file),
+                checked.file,
                 source.source_id,
             ));
         }

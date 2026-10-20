@@ -10,6 +10,8 @@
 //! They run on every component that says anything of parts; which
 //! components must have parts is the library rules' (C3).
 
+pub(crate) mod library;
+mod platform;
 pub mod slot;
 
 use crate::{tags, LowerError, Lowerer};
@@ -441,6 +443,96 @@ fn rows(c: &Component, file: &File, decl: &PartDecl, m: &Mark) -> Vec<LowerError
     out
 }
 
+/// Each line of the design's `params` block a library's names refuse (LLP
+/// 1139 D8), with its line and column: one naming a param under a library
+/// package that has none (not warned of, as an app's own is), and a
+/// library component's param by its short name.
+pub(crate) fn param_lines(
+    design: &exact_tamber::Design,
+    params: &[crate::params::ParamToken],
+    identities: &[String],
+    file: &File,
+) -> Vec<(u32, u32, LowerError)> {
+    let under_library = |name: &str| {
+        file.library_packages
+            .iter()
+            .any(|p| name.starts_with(&format!("{p}/")))
+    };
+    // A short name's component (`Card` of `Card.gap`).
+    let short = |name: &str| name.split_once('.').map_or(name, |(c, _)| c).to_string();
+    let exported = |name: &str| {
+        !name.contains('#')
+            && !name.contains('/')
+            && file
+                .library
+                .iter()
+                .any(|i| i.rsplit_once('#').is_some_and(|(_, c)| c == short(name)))
+    };
+    let mut out = Vec::new();
+    for entry in &design.params {
+        let name = &entry.name.value;
+        let error = match crate::params::resolve(params, identities, name) {
+            Err(e) if e.id == "tamber-param-unknown" && under_library(name) => LowerError {
+                id: "tamber-package-unknown",
+                message: format!("`{name}` in the design's `params` block names no param of the library: its names are its API, so a renamed or removed one fails the build (LLP 1139 D8)"),
+                span: Span::default(),
+            },
+            // Short, naming no param, as a library component's (`Card.gap`
+            // once `gap` is gone): a rename never falls back to the warning.
+            Err(e) if e.id == "tamber-param-unknown" && exported(name) => LowerError {
+                id: "tamber-param-short-library",
+                message: format!("`{name}` names no param, and `{}` is a library component: a library's params are named in full (`<package>/<file>#{}.<param>`), so a renamed or removed one fails the build (LLP 1139 D8)", short(name), short(name)),
+                span: Span::default(),
+            },
+            Ok(p) if !name.contains('#') && file.library.contains(&p.identity) => LowerError {
+                id: "tamber-param-short-library",
+                message: format!("`{name}` names a library component's param by its short name: write it in full, `{}` (LLP 1139 D8)", p.full),
+                span: Span::default(),
+            },
+            _ => continue,
+        };
+        out.push((entry.name.line, entry.name.col, error));
+    }
+    out
+}
+
+/// The design's `params` lines naming no param of the app
+/// (`tamber-param-unknown`, a warning), less those a library's names
+/// refuse ([`param_lines`]), never both.
+pub(crate) fn unknown_params(
+    design: &exact_tamber::Design,
+    params: &[crate::params::ParamToken],
+    file: &File,
+    source_id: u32,
+) -> Vec<LowerError> {
+    let identities = crate::params::identities(file);
+    let refused: Vec<(u32, u32)> = param_lines(design, params, &identities, file)
+        .into_iter()
+        .map(|(line, col, _)| (line, col))
+        .collect();
+    crate::params::unknown(design, params, &identities, source_id)
+        .into_iter()
+        .filter(|w| !refused.contains(&(w.span.line, w.span.col)))
+        .collect()
+}
+
+/// Each host read in a component of a library package (LLP 1139 D6).
+pub(crate) fn platform(file: &File) -> Vec<LowerError> {
+    let components: Vec<(&Component, &str)> = file
+        .components
+        .iter()
+        .filter_map(|c| {
+            let i = c.params.identity.as_ref()?;
+            let p = file
+                .library_packages
+                .iter()
+                .find(|p| i.starts_with(&format!("{p}/")))?;
+            Some((c, p.as_str()))
+        })
+        .collect();
+    platform::check(file, &components)
+}
+
 /// A `button` named as a part (LLP 1139 D6), which lowering judges where it
 /// decides whether the platform draws it.
 #[derive(Debug, Clone)]
@@ -463,6 +555,9 @@ impl Lowerer<'_> {
     /// `display: block`, a transition, the button's context), as it decides
     /// for that instance ([`Lowerer::bare_control`]).
     pub(crate) fn check_anatomy(&mut self, file: &File) {
+        for e in platform(file) {
+            self.push(e);
+        }
         for c in &file.components {
             // An exported library component's slot (LLP 1139 D0, D4).
             let library = c
@@ -477,6 +572,20 @@ impl Lowerer<'_> {
                 self.library_nodes
                     .extend(spans.into_iter().map(|s| (s, identity.clone())));
             }
+            // The library rules (LLP 1139 D1, D6): an exported component's
+            // knobs and controls; any component of a library package's host
+            // reads.
+            if library {
+                let controls = library::control(c);
+                for e in library::literal(c, file)
+                    .into_iter()
+                    .chain(controls.refused)
+                {
+                    self.push(e);
+                }
+                self.library_buttons.extend(controls.buttons);
+            }
+
             if library && c.slot {
                 // A token's values over the tuples (a param's is its
                 // token's, the rows already name it), each base name or
@@ -549,6 +658,13 @@ impl Lowerer<'_> {
     /// D6: the native button's part is the `control` group's alone, and a
     /// library control is refused where an app's button would be demoted).
     pub(crate) fn button_part(&mut self, node: Span, native: bool, reason: Option<&str>) {
+        // A library button with a control's role, drawn as a bare box (D6).
+        if !native {
+            if let Some(i) = self.library_buttons.iter().position(|e| e.span == node) {
+                let e = self.library_buttons.swap_remove(i);
+                self.push(e);
+            }
+        }
         let Some(p) = self.control_parts.iter().find(|p| p.node == node).cloned() else {
             return;
         };

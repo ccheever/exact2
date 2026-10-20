@@ -342,7 +342,7 @@ pub(crate) fn exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
 }
 
 /// Every expression an action's statements hold.
-fn stmts(body: &[Stmt], f: &mut dyn FnMut(&Expr)) {
+pub(crate) fn stmts(body: &[Stmt], f: &mut dyn FnMut(&Expr)) {
     for s in body {
         match s {
             Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => f(expr),

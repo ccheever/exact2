@@ -511,11 +511,47 @@ fn named_in(e: &mut Expr) -> Vec<(String, Span)> {
 /// (`tamber-param-scope`).
 pub fn rewrite(file: &mut File) -> Vec<LowerError> {
     let mut errors = Vec::new();
-    // A `style` or `keyframes` is any applying component's: no one's params.
+    // A `style` one component alone applies is that component's (LLP 1139
+    // D3): its `param.*` are its params. One any other applies, or none, is
+    // no one's, as a `keyframes` is.
+    let owners = owners(file);
     for s in &mut file.styles {
+        let owner = match owners.iter().find(|(name, _)| *name == s.name) {
+            Some((_, list)) if list.len() == 1 => Some(&file.components[list[0]]),
+            _ => None,
+        };
+        if let Some(c) = owner {
+            let identity = c.params.identity.clone().unwrap_or_else(|| c.name.clone());
+            let declared: Vec<String> = c.params.list.iter().map(|p| p.name.clone()).collect();
+            let named = |n: &str| {
+                declared
+                    .iter()
+                    .any(|d| d == n)
+                    .then(|| token_name(&identity, n))
+            };
+            let mut bad: Vec<(String, Span)> = Vec::new();
+            for a in &mut s.attrs {
+                texts(&mut a.value, true, &mut |text, at| {
+                    if at.quoted {
+                        return;
+                    }
+                    let mut found = Vec::new();
+                    *text = written(text, at, &named, &mut found);
+                    bad.extend(found.into_iter().map(|n| (n, at.span)));
+                });
+            }
+            for (name, span) in bad {
+                errors.push(LowerError {
+                    id: "tamber-param-unknown",
+                    message: format!("`param.{name}` in the style `{}`, which `{}` alone applies: `{}` declares no param `{name}`", s.name, c.name, c.name),
+                    span,
+                });
+            }
+            continue;
+        }
         for a in &mut s.attrs {
             for (n, span) in named_in(&mut a.value) {
-                errors.push(scoped(span, &n, format!("the style `{}`", s.name), "a style is shared by every component that applies it: write the row on the component's element"));
+                errors.push(scoped(span, &n, format!("the style `{}`", s.name), "a style is shared by every component that applies it: write the row on the component's element, or apply the style from one component alone, whose params it then reads (LLP 1139 D3)"));
             }
         }
     }
@@ -530,6 +566,122 @@ pub fn rewrite(file: &mut File) -> Vec<LowerError> {
         rewrite_component(c, &mut errors);
     }
     errors
+}
+
+/// A style one component alone applies in its own file, which names that
+/// component's params (LLP 1139 D3), as [`owned`] finds it before the
+/// rewrite.
+#[derive(Debug, Clone)]
+pub struct Owned {
+    style: Span,
+    name: String,
+    owner: Span,
+    owner_name: String,
+}
+
+/// Each style of `file` (one source, before [`rewrite`]) its one applying
+/// component owns and that names a `param.`: ownership is a file's, and a
+/// file that imports the style and applies it too is only seen once the
+/// sources are one ([`escaped`]).
+pub fn owned(file: &File) -> Vec<Owned> {
+    let owners = owners(file);
+    file.styles
+        .iter()
+        .filter_map(|s| {
+            let (_, list) = owners.iter().find(|(name, _)| *name == s.name)?;
+            let [i] = list[..] else { return None };
+            let mut attrs = s.attrs.clone();
+            let names = attrs.iter_mut().any(|a| !named_in(&mut a.value).is_empty());
+            names.then(|| Owned {
+                style: s.span,
+                name: s.name.clone(),
+                owner: file.components[i].span,
+                owner_name: file.components[i].name.clone(),
+            })
+        })
+        .collect()
+}
+
+/// Each [`Owned`] style a component of another source applies too, in the
+/// sources made one (`tamber-param-scope`): its `param.` names were its
+/// owner's, and a second applier would read them.
+pub fn escaped(file: &File, owned: &[Owned]) -> Vec<LowerError> {
+    let owners = owners(file);
+    let mut errors = Vec::new();
+    for o in owned {
+        let Some(s) = file.styles.iter().find(|s| s.span == o.style) else {
+            continue;
+        };
+        let Some((_, list)) = owners.iter().find(|(name, _)| *name == s.name) else {
+            continue;
+        };
+        for c in list.iter().map(|&i| &file.components[i]) {
+            if c.span != o.owner {
+                errors.push(LowerError {
+                    id: "tamber-param-scope",
+                    message: format!("the style `{}` names `{}`'s params, the one component in its file that applies it, but `{}` applies it too: a style is shared by every component that applies it; write the rows on `{}`'s element, or apply the style from it alone (LLP 1139 D3)", o.name, o.owner_name, c.name, o.owner_name),
+                    span: o.style,
+                });
+            }
+        }
+    }
+    errors
+}
+
+/// Each style a `class` names, with the components (by index) whose views
+/// name it there.
+fn owners(file: &File) -> Vec<(String, Vec<usize>)> {
+    fn classes(nodes: &[Node], out: &mut Vec<String>) {
+        for n in nodes {
+            match n {
+                Node::Element {
+                    attrs, children, ..
+                } => {
+                    if let Some(a) = attrs.iter().find(|a| a.name == "class") {
+                        fn names(e: &Expr, out: &mut Vec<String>) {
+                            match e {
+                                Expr::Ident(n, _) => out.push(n.clone()),
+                                Expr::Ternary(_, a, b, _) => {
+                                    names(a, out);
+                                    names(b, out);
+                                }
+                                _ => {}
+                            }
+                        }
+                        names(&a.value, out);
+                    }
+                    classes(children, out);
+                }
+                Node::Use { children, .. } | Node::Each { body: children, .. } => {
+                    classes(children, out)
+                }
+                Node::When {
+                    then, otherwise, ..
+                } => {
+                    classes(then, out);
+                    classes(otherwise, out);
+                }
+                Node::Match { some, none, .. } => {
+                    classes(&some.1, out);
+                    classes(none, out);
+                }
+                Node::Children { .. } => {}
+            }
+        }
+    }
+    let mut out: Vec<(String, Vec<usize>)> = Vec::new();
+    for (i, c) in file.components.iter().enumerate() {
+        let mut named = Vec::new();
+        classes(&c.view, &mut named);
+        for n in named {
+            match out.iter_mut().find(|(s, _)| *s == n) {
+                Some((_, list)) if !list.contains(&i) => list.push(i),
+                Some(_) => {}
+                None => out.push((n, vec![i])),
+            }
+        }
+    }
+    out
 }
 
 fn rewrite_component(c: &mut Component, errors: &mut Vec<LowerError>) {
@@ -616,12 +768,33 @@ fn read(c: &mut Component) -> Vec<String> {
 /// row is a row (D8, D15's `pressed`).
 pub fn unused(file: &File) -> Vec<LowerError> {
     let mut errors = Vec::new();
-    for c in &file.components {
+    let owners = owners(file);
+    for (i, c) in file.components.iter().enumerate() {
         if c.params.list.is_empty() {
             continue;
         }
         let identity = c.params.identity.clone().unwrap_or_else(|| c.name.clone());
         let mut reached = read(&mut c.clone());
+        // And the rows of each style it alone applies (LLP 1139 D3).
+        for style in file.styles.iter().filter(|s| {
+            owners
+                .iter()
+                .any(|(name, list)| *name == s.name && list.as_slice() == [i])
+        }) {
+            for a in &style.attrs {
+                texts(&mut a.value.clone(), true, &mut |text, at| {
+                    if !at.quoted {
+                        reached.extend(
+                            text.split(|c: char| {
+                                !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+                            })
+                            .filter(|w| w.starts_with(PREFIX))
+                            .map(str::to_string),
+                        );
+                    }
+                });
+            }
+        }
         let words = |text: &str| -> Vec<String> {
             text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
                 .filter(|w| w.starts_with(PREFIX))

@@ -505,6 +505,9 @@ pub fn lint(file: &File) -> Vec<LowerError> {
     for c in file.components.iter().filter(|c| !c.anatomy.is_empty()) {
         errors.extend(crate::anatomy::check(c, file));
     }
+    // A library package's host reads (LLP 1139 D6), said beside the type
+    // error a child's resource is.
+    errors.extend(crate::anatomy::platform(file));
     errors.truncate(MAX_REFUSALS);
     // A param by its full name, never its token's (LLP 1121 D15).
     let params = crate::params::tokens(file);

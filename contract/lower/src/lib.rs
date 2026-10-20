@@ -238,6 +238,9 @@ pub(crate) struct Lowerer<'a> {
     /// 1139 D6), by its node's span: one lowering draws as a bare box is
     /// refused where it is lowered, in its instance's context.
     pub(crate) control_parts: Vec<anatomy::ControlPart>,
+    /// Each library `button` with a control's role, refused where it is drawn
+    /// as a bare box (LLP 1139 D6).
+    pub(crate) library_buttons: Vec<LowerError>,
     /// Each node named as a part, by its span, with the part's name: the
     /// source map's (LLP 1139 D5).
     pub(crate) part_names: Vec<(Span, String)>,
@@ -409,6 +412,7 @@ fn lower_with_sites(
         texts_used: Default::default(),
         profile,
         control_parts: Vec::new(),
+        library_buttons: Vec::new(),
         part_names: Vec::new(),
         library_nodes: Vec::new(),
     };
