@@ -1126,10 +1126,12 @@ impl<'a> Checker<'a> {
         match folded {
             Ok(v) => {
                 // An unset base name it reads bare, noted on the token folding.
-                // And each an expression over base names reads (stage 12 B2).
+                // And each an expression over base names reads (stage 12 B2),
+                // and a shadow's lengths (B3).
                 let named: Vec<&str> = match &v {
                     Value::Length(Length::Named(n)) => vec![n],
                     Value::Length(Length::Base(r)) => r.bases(),
+                    Value::Shadow(s) => s.bases(),
                     Value::Type(t) => match &t.size {
                         Length::Named(n) => vec![n],
                         _ => Vec::new(),
@@ -1340,14 +1342,14 @@ impl Names for Scope<'_, '_> {
     }
 
     fn named(&mut self, name: &str) -> Result<Named, FoldError> {
-        // A base name the design leaves unset, read where no length's
-        // function keeps it (a bare one is a named length, and a length's
-        // `calc()` asks [`Names::base`] first): its length is each host's,
-        // so nothing folds it. One the design sets is its token.
+        // A base name the design leaves unset, read where no length keeps
+        // it (a bare one is a named length, and a length's `calc()` and a
+        // shadow's length ask [`Names::base`] first): its length is each
+        // host's, so nothing folds it. One the design sets is its token.
         if self.base(name) {
             return Err(FoldError {
                 id: "tamber-base-expression",
-                message: format!("`{name}` is a base length, each platform's own: a length names it (`card.pad = {name}`, `calc({name} * 2)`), but a shadow or any other value can't yet, unless the design sets it (QUEUE: shadows over base names)"),
+                message: format!("`{name}` is a base length, each platform's own: a length or a shadow's length names it (`card.pad = {name}`, `calc({name} * 2)`, `0 {name} 4px black`), but no other value can, unless the design sets it"),
             });
         }
         let c = &mut *self.checker;

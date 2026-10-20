@@ -3654,8 +3654,11 @@ A length token may name a base name bare (`card.pad: length = space.md`) or in
 a `calc()`, `min()`, `max()` or `clamp()` with px and numbers
 (`calc(space.md * 2 + 4px)`): each host reads it in its own column, and the
 compiler checks every column, naming the one a row refuses (a padding that is
-negative on mac). A base name times a length, `rem`, `em` or `%` beside one,
-and a shadow over one are refused.
+negative on mac). A shadow token's lengths may be any of these
+(`card.shadow: box-shadow = 0 space.md calc(space.sm * 2) black`), checked in
+every column the same way (a blur negative on mac is refused); a literal
+`box-shadow` row's lengths stay px, so name a shadow token there. A base name
+times a length, and `rem`, `em` or `%` beside one, are refused.
 A package that is `"private": true` and ships a design is a library (LLP
 1139): each component its entry declares or re-exports is held to its rules.
 Its spacing, corner and colour rows (a shorthand's each side; `border`'s

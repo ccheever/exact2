@@ -80,6 +80,9 @@ impl<D: DataSource> Runner<D> {
             .filter(|(view, r)| r.tokens & bits != 0 && kernel.node(*view).is_some())
             .collect();
         rows.sort_by_key(|(view, r)| (*view, r.style as u16));
+        // What each row reads as set again, kept beside what it read.
+        let mut reads = Vec::with_capacity(rows.len());
+        exact_kernel::style::theme::take_named();
         for (view, row) in rows {
             let at = match patches.last_mut() {
                 Some((v, p)) if *v == view => p,
@@ -96,8 +99,11 @@ impl<D: DataSource> Runner<D> {
                 }
                 set += 1;
             }
+            reads.push((view, row.style, exact_kernel::style::theme::take_named()));
         }
-        exact_kernel::style::theme::take_named();
+        for (view, style, tokens) in reads {
+            self.ids.theme.also_read(view, style, tokens);
+        }
         let mut ops: Vec<Op> = patches
             .into_iter()
             .map(|(id, patch)| Op::SetStyle { id, patch })

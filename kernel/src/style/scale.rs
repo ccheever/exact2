@@ -157,6 +157,42 @@ pub fn evaluate(expr: &str, column: Column) -> Option<f32> {
     fold(&substitute(expr, column)?)
 }
 
+/// A shadow's text with each length over base names folded to px (LLP 1121
+/// stage 12 B3): split at white space and commas outside parentheses, an
+/// item naming a base is substituted through `base` ([`substitute_with`])
+/// and folded by the kernel's `calc()` ([`fold`]) to `<px>px`; every other
+/// item (px, `inset`, a colour and its parentheses) and every separator is
+/// kept byte for byte, so the row's codec reads the text as a literal's.
+/// `None` when `base` gives none for a base, or an item doesn't fold.
+pub fn fold_lengths(text: &str, mut base: impl FnMut(&str) -> Option<String>) -> Option<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut item = |part: &str, out: &mut String| -> Option<()> {
+        if named_in(part).is_empty() {
+            out.push_str(part);
+            return Some(());
+        }
+        // A bare base name is no math function: `calc()` makes it one.
+        let px = fold(&format!("calc({})", substitute_with(part, &mut base)?))?;
+        out.push_str(&format!("{}px", exact_num::Shortest32(px)));
+        Some(())
+    };
+    let (mut depth, mut start) = (0u32, 0);
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ if depth == 0 && (c.is_whitespace() || c == ',') => {
+                item(&text[start..i], &mut out)?;
+                out.push(c);
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    item(&text[start..], &mut out)?;
+    Some(out)
+}
+
 /// The table's columns, by the name a reader of the table keys it by (stage
 /// 10 D's `describe`, `resolve` and `explain`). `Column::Web` reads the
 /// neutral one ([`cell`]).
@@ -539,6 +575,111 @@ mod tests {
             Some("calc((1px + 2px) * 2 + 4px)")
         );
         assert_eq!(substitute_with(expr, |_| None), None);
+    }
+
+    // Stage 12 B3: a shadow's lengths over base names, each folded to px
+    // in a column, every other item and separator kept byte for byte.
+    #[test]
+    fn a_shadows_lengths_fold_and_the_rest_is_kept() {
+        let mac = |text: &str| fold_lengths(text, |n| of(n, Column::Mac).map(css));
+        let px = |expr: &str| {
+            format!(
+                "{}px",
+                exact_num::Shortest32(evaluate(expr, Column::Mac).unwrap())
+            )
+        };
+        assert_eq!(
+            mac("0px space.md calc(space.sm * 2 + 1px) #00000040").unwrap(),
+            format!(
+                "0px {} {} #00000040",
+                px("calc(space.md)"),
+                px("calc(space.sm * 2 + 1px)")
+            )
+        );
+        // A list, `inset`, a colour's parentheses and spaces inside them,
+        // and a nested function: each kept or folded as one item.
+        let text = "inset 0 min(space.md, max(2px, space.xs)) 3px rgb(0 0 0 / 40%),  0px 1px space.lg light-dark(#fff, #000)";
+        assert_eq!(
+            mac(text).unwrap(),
+            format!(
+                "inset 0 {} 3px rgb(0 0 0 / 40%),  0px 1px {} light-dark(#fff, #000)",
+                px("min(space.md, max(2px, space.xs))"),
+                px("calc(space.lg)")
+            )
+        );
+        // Over no base name: the text itself.
+        assert_eq!(mac("0px 1px 3px #000").as_deref(), Some("0px 1px 3px #000"));
+        // The terminal's cells are px, as in a length's expression.
+        assert_eq!(
+            fold_lengths("0px space.md 1px #000", |n| of(n, Column::Terminal)
+                .map(css)),
+            Some(format!("0px {}px 1px #000", crate::style::cells::COLUMN))
+        );
+        // A base `base` gives none for, or one that doesn't fold: none.
+        assert_eq!(fold_lengths("0px space.md 1px #000", |_| None), None);
+        assert_eq!(
+            fold_lengths("0px space.md 1px #000", |_| Some("1rem".into())),
+            None
+        );
+    }
+
+    // Stage 12 B3: a shadow entry over base names reads each base as an
+    // alias does, the design's own first, every read recorded, and its
+    // lengths fold to px in the process's column; a row that may not take a
+    // varying token reads no varying base either.
+    #[test]
+    fn a_shadow_token_folds_its_lengths_in_the_process_column() {
+        use crate::style::theme::{self, Kind};
+        let shadow = |k: Kind, _| k == Kind::BoxShadow;
+        let read = |entries: &[(&str, &str, Kind, bool)], takes: &dyn Fn(Kind, bool) -> bool| {
+            let table = theme::kinded(
+                entries
+                    .iter()
+                    .map(|(n, v, k, varies)| (*n, *v, false, *k, *varies)),
+            );
+            let _scope = theme::bind(&table);
+            theme::recorded(|| theme::measure("card.shadow", takes).map(|(_, v)| v.to_string()))
+        };
+        let column = crate::style::metrics::column();
+        let px = |expr: &str| {
+            format!(
+                "{}px",
+                exact_num::Shortest32(evaluate(expr, column).unwrap())
+            )
+        };
+        const SHADOW: &str = "0px space.md calc(space.sm * 2) #000000ff";
+        let (value, names) = read(&[("card.shadow", SHADOW, Kind::BoxShadow, false)], &shadow);
+        assert_eq!(
+            value,
+            Some(format!(
+                "0px {} {} #000000ff",
+                px("calc(space.md)"),
+                px("calc(space.sm * 2)")
+            ))
+        );
+        assert_eq!(
+            names,
+            ["card.shadow", "space.md", "space.sm"].map(Box::<str>::from)
+        );
+        assert!(crate::style::BoxShadows::parse(value.as_deref().unwrap()).is_some());
+        // The design's own space.md first.
+        let own = [
+            ("card.shadow", SHADOW, Kind::BoxShadow, false),
+            ("space.md", "40px", Kind::Length, false),
+        ];
+        assert_eq!(
+            read(&own, &shadow).0,
+            Some(format!("0px 40px {} #000000ff", px("calc(space.sm * 2)")))
+        );
+        // A varying base, where the row reads no varying token: no value.
+        let varying = [
+            ("card.shadow", SHADOW, Kind::BoxShadow, false),
+            ("space.md", "40px", Kind::Length, true),
+        ];
+        assert_eq!(
+            read(&varying, &|k, varies| shadow(k, varies) && !varies).0,
+            None
+        );
     }
 
     #[test]

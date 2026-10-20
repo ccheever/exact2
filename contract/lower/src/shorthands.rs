@@ -184,6 +184,12 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
                     let edit = edit.shifted(text.find(word).unwrap_or(0));
                     return err("lower-css-shorthand", edit.lead(name, text), span);
                 }
+                // A dotted word no token has, in a colour row's words (LLP
+                // 1121 stage 12 B3, QUEUE's item).
+                use exact_kernel::style::theme;
+                if word.contains('.') && theme::bound() && !theme::names(word) {
+                    return err("tamber-unknown-token", format!("`{name}=\"{text}\"`: `{word}` is no token of this app's design and no role"), span);
+                }
                 return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths, `-exact-hairline` or thin/medium/thick"), span);
             }
             if color.replace(word.into()).is_some() {

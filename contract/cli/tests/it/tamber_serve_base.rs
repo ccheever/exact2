@@ -402,3 +402,29 @@ theme
     assert_eq!(wide["ok"]["tuples"][0]["value"], "40px");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Stage 12 B3 (*1.15*): a shadow token's lengths over base names are
+/// answered as written, a px one as its number, and its `bases` list them.
+#[test]
+fn a_shadow_over_base_names_answers_its_lengths_as_written() {
+    let dir = app(
+        "base-shadow",
+        "tamber t\n\ntheme\n  card.shadow: box-shadow = 0 space.md calc(space.sm * 2) #000\n",
+    );
+    let mut s = Serve::start(&dir, &[]);
+    let (resolved, _) = s.ask(json!({"method": "resolve", "token": "card.shadow"}));
+    let tuple = &resolved["ok"]["tuples"][0];
+    assert_eq!(
+        tuple["shadows"][0]["lengths"],
+        json!([0.0, "space.md", "calc(space.sm * 2)"]),
+        "{resolved}"
+    );
+    assert!(
+        tuple["value"]
+            .as_str()
+            .is_some_and(|v| v.starts_with("0px space.md calc(space.sm * 2) ")),
+        "{resolved}"
+    );
+    let (why, _) = s.ask(json!({"method": "explain", "token": "card.shadow"}));
+    assert_eq!(why["ok"]["bases"], json!(["space.md", "space.sm"]), "{why}");
+}

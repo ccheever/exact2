@@ -20,6 +20,11 @@ pub fn kind(row: &exact_plan::ThemeRow) -> Option<Kind> {
 /// literal on a row: a length's text, a text style as its `rem`, the
 /// hairline as the sheet's property; a number's text.
 pub fn css(kind: Kind, value: &str) -> String {
+    // A shadow over base names (stage 12 B3): each such length its
+    // property's, the browser folding it.
+    if let Some(css) = crate::base_scale::shadow(kind, value) {
+        return css;
+    }
     // A shadow is its row's CSS, as css.rs writes the literal's.
     match kind {
         Kind::BoxShadow => {

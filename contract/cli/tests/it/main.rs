@@ -150,6 +150,7 @@ mod symbols;
 mod tamber;
 mod tamber_base_expression;
 mod tamber_base_scale;
+mod tamber_base_shadow;
 mod tamber_binding;
 mod tamber_binding_kinds;
 mod tamber_cli;

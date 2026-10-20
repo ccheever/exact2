@@ -215,27 +215,18 @@ pub(crate) fn bind(
             });
             continue;
         }
-        // An expression over base names every host can fold (stage 12 B2).
-        if t.kind == tamber::Kind::Length {
-            let unfolded = std::iter::once(&value)
-                .chain(&slices)
-                .find_map(|v| crate::scale::unfolded(v).map(|c| (v.clone(), c)));
-            if let Some((v, column)) = unfolded {
-                let span = sink.span(origin, at.line, at.col);
-                // A ranged param's own check said it already, at its line.
-                let said = sink.said(span, "doesn't fold to a length");
-                if !said {
-                    sink.push(LowerError {
-                        id: "tamber-kind",
-                        message: format!(
-                            "`{name}` is `{v}`, which doesn't fold to a length on {column}: {}",
-                            crate::scale::UNFOLDED
-                        ),
-                        span,
-                    });
-                }
-                continue;
+        // An expression over base names every host can fold (stage 12
+        // B2), and a shadow over them every host can draw (B3).
+        let refused = std::iter::once(&value)
+            .chain(&slices)
+            .find_map(|v| crate::scale::refusal(t.kind, &name, v));
+        if let Some((id, message)) = refused {
+            let span = sink.span(origin, at.line, at.col);
+            // A ranged param's own check said it already, at its line.
+            if !sink.said(span, "doesn't fold to a length") {
+                sink.push(LowerError { id, message, span });
             }
+            continue;
         }
         if let Some((_, row)) = &role {
             let span = sink.span(origin, at.line, at.col);

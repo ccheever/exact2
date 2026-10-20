@@ -435,3 +435,47 @@ fn expressions<'t>(text: &'t str, is_token: &dyn Fn(&str) -> bool) -> Vec<&'t st
     }
     out
 }
+
+/// `tamber-unknown-token` or `tamber-kind` for a word inside a literal the
+/// kernel refused in a row that holds a colour among other words (a shadow,
+/// a border, a gradient; LLP 1121 stage 12 B3, QUEUE's item): a dotted word
+/// naming no token of the design and no role, in a colour row's words; in a
+/// shadow, a length token or a base name, which a literal's px lengths
+/// don't read, pointing to a shadow token. `None` otherwise: the kernel's
+/// refusal stands.
+pub(crate) fn literal_word(
+    attr: &str,
+    text: &str,
+    rows: &[StyleId],
+    span: Span,
+) -> Option<crate::LowerError> {
+    use exact_kernel::style::{scale, theme};
+    if !rows.iter().any(|r| colour_codec(*r)) {
+        return None;
+    }
+    let shadow = rows.iter().find_map(|r| match r.codec() {
+        StyleCodec::BoxShadow => Some("box-shadow"),
+        StyleCodec::TextShadow => Some("text-shadow"),
+        _ => None,
+    });
+    let words = text
+        .split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')' | '/'))
+        .filter(|w| w.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_'));
+    for word in words {
+        let length =
+            scale::is_base(word) || super::measure_named(word) == Some(exact_tamber::Kind::Length);
+        let (id, message) = match shadow {
+            Some(kind) if length => (
+                "tamber-kind",
+                format!("`{attr}=\"{text}\"`: a shadow row's lengths are px: name a shadow token (`x: {kind} = 0 {word} 4px black`) to read `{word}`"),
+            ),
+            _ if word.contains('.') && theme::bound() && !theme::names(word) && !length => (
+                "tamber-unknown-token",
+                format!("`{attr}=\"{text}\"`: `{word}` is no token of this app's design and no role"),
+            ),
+            _ => continue,
+        };
+        return Some(crate::LowerError { id, message, span });
+    }
+    None
+}
