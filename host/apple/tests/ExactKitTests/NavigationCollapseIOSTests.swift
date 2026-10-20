@@ -148,6 +148,59 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertEqual(sv.contentOffset.y, end, accuracy: 0.5, "at the end, not past it")
     }
 
+    /// The agent's wheel under a large title leaves the scroller and the bar
+    /// where a person's scroll by as much leaves a hand-built list's (measured
+    /// on iOS 27): the content moved by the wheel's distance exactly while the
+    /// title collapses, a wheel back to the top opening the title again, and
+    /// none resting with the content partway under the title, which eases to
+    /// the nearer of its open and closed rests.
+    func testTheWheelUnderALargeTitleRestsAsAPersonsScrollDoes() throws {
+        let session = try booted("EXACT_LARGE_TITLE_PLAN", label: "large-title-wheel", beforeItsWindow: true)
+        let home = try node(session, "home-scroll"), sv = try XCTUnwrap(home.scroll)
+        let top = try node(session, "home-top"), bar = try XCTUnwrap(session.presenter.navigation.primaryNavigation).navigationBar
+        let expanded = bar.frame.height, open = sv.contentOffset.y
+        let onScreen = { top.convert(top.bounds, to: nil).minY }, opened = onScreen()
+        Agent.scroll(from: sv, dx: 0, dy: 300)
+        XCTAssertLessThan(bar.frame.height, expanded, "the title collapsed")
+        XCTAssertEqual(onScreen(), opened - 300, accuracy: 0.5, "the content moved by the wheel's 300, not the title's height besides")
+        let closed = -sv.adjustedContentInset.top, band = closed - open
+        XCTAssertGreaterThan(band, 40, "the title's height")
+        Agent.scroll(from: sv, dx: 0, dy: -1_000)
+        XCTAssertEqual(bar.frame.height, expanded, accuracy: 0.5, "the title opened at the top")
+        XCTAssertEqual(sv.contentOffset.y, open, accuracy: 0.5, "at the top, not past it")
+        XCTAssertEqual(onScreen(), opened, accuracy: 0.5, "the content just below the title")
+        // A third of the title down eases back open; two thirds, closed
+        Agent.scroll(from: sv, dx: 0, dy: (band / 3).rounded())
+        XCTAssertEqual(sv.contentOffset.y, open, accuracy: 0.5, "a third of the way in eases back open")
+        XCTAssertEqual(bar.frame.height, expanded, accuracy: 0.5)
+        Agent.scroll(from: sv, dx: 0, dy: (band * 2 / 3).rounded())
+        XCTAssertEqual(sv.contentOffset.y, closed, accuracy: 0.5, "two thirds of the way in eases closed")
+        XCTAssertLessThan(bar.frame.height, expanded)
+        // From the closed title's top, the same up
+        Agent.scroll(from: sv, dx: 0, dy: -(band / 3).rounded())
+        XCTAssertEqual(sv.contentOffset.y, closed, accuracy: 0.5, "a third of a pull eases back closed")
+        Agent.scroll(from: sv, dx: 0, dy: -(band * 2 / 3).rounded())
+        XCTAssertEqual(sv.contentOffset.y, open, accuracy: 0.5, "two thirds of one opens it")
+        XCTAssertEqual(bar.frame.height, expanded, accuracy: 0.5)
+    }
+
+    /// The agent's drag past the top under a collapsed large title opens it,
+    /// as a finger's pull does, and rests at the top once the bounce settles.
+    func testAnAgentDragPastTheTopOpensACollapsedLargeTitle() throws {
+        let session = try booted("EXACT_LARGE_TITLE_PLAN", label: "large-title-pull", beforeItsWindow: true)
+        let home = try node(session, "home-scroll"), sv = try XCTUnwrap(home.scroll)
+        let bar = try XCTUnwrap(session.presenter.navigation.primaryNavigation).navigationBar
+        let expanded = bar.frame.height, start = sv.contentOffset.y
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.tap(["id": Int(home.id), "scrollDrag": [0.0, -300.0]])["error"])
+        XCTAssertLessThan(bar.frame.height, expanded, "the title collapsed")
+        let pull = agent.tap(["id": Int(home.id), "scrollDrag": [0.0, 1_000.0]])
+        XCTAssertNil(pull["error"], "\(pull)")
+        XCTAssertEqual(bar.frame.height, expanded, accuracy: 0.5, "the pull opened the title")
+        XCTAssertEqual(sv.contentOffset.y, start, accuracy: 0.5, "at the top")
+        XCTAssertEqual(try XCTUnwrap(pull["scrolledBy"] as? [Double])[1], -300, accuracy: 0.5, "the content moved back by the 300 it went")
+    }
+
     /// A diagonal agent drag moves a scroller along the axes it scrolls
     /// alone, though its content overflows the other (the page is 800 wide,
     /// the strip's row 100 tall), and reports the drag's own distance while

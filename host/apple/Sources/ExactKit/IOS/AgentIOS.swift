@@ -963,6 +963,8 @@ extension Agent {
     /// the rest is dropped; none other moves. One that can take none passes
     /// it on (`overscroll-behavior: auto`), unless the tick's axis is
     /// `contain` or `none` there, which keeps it. Whole points, bounded.
+    /// The one taking it is left as a person's scroll by that much leaves it
+    /// (`rest`).
     static func scroll(from hit: UIView, dx: CGFloat, dy: CGFloat) {
         let dx = min(max(dx.rounded(), -1_000_000), 1_000_000), dy = min(max(dy.rounded(), -1_000_000), 1_000_000)
         var v: UIView? = hit
@@ -982,17 +984,21 @@ extension Agent {
                 let o = sv.contentOffset
                 let takeX = scrollsX && dx != 0 && maxX > minX && ((dx > 0 && o.x < maxX) || (dx < 0 && o.x > minX))
                 let takeY = scrollsY && dy != 0 && maxY > minY && ((dy > 0 && o.y < maxY) || (dy < 0 && o.y > minY))
-                if takeX || takeY {
-                    let target = CGPoint(x: takeX ? min(max(o.x + dx, minX), maxX) : o.x, y: takeY ? min(max(o.y + dy, minY), maxY) : o.y)
+                // At its top, the scroller a navigation bar follows takes a tick up only if a title it opens moves it
+                let pull = !takeY && scrollsY && dy < 0 && o.y <= minY && Agent.bar(following: sv) != nil
+                if takeX || takeY || pull {
                     // A wheel interrupts a smooth correction as a drag does: a
                     // plain write sends no animation end (LLP 1070.000 §11).
                     if let list = sv.superview as? NodeView, let p = list.presenter, p.collections.animating.contains(list.id) {
                         p.collections.animationEnded(list.id, dragging: true)
                     }
-                    sv.setContentOffset(target, animated: false)
-                    // As a trackpad's scroll shows them, fading after.
-                    sv.flashScrollIndicators()
-                    return
+                    let before = (sv.contentOffset, sv.adjustedContentInset)
+                    Agent.rest(sv, at: CGPoint(x: o.x + (takeX ? dx : 0), y: o.y + (takeY || pull ? dy : 0)), x: takeX, y: takeY || pull)
+                    if takeX || takeY || sv.contentOffset != before.0 || sv.adjustedContentInset != before.1 {
+                        // As a trackpad's scroll shows them, fading after.
+                        sv.flashScrollIndicators()
+                        return
+                    }
                 }
                 if let owner = sv.superview as? NodeView,
                    (dx != 0 && owner.style["overscroll_behavior_x"]?.string ?? "auto" != "auto")
