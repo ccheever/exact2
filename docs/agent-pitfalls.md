@@ -548,9 +548,10 @@ screen, 2026-10-16.)
   ported padding adds to that. That inset is the platform's, as a hand-built table view in
   a sheet has it (LLP 1116 D2). Its size depends on how the screen is presented and which
   scroller is last, so measure it in your port rather than copy a number: two euxy ports
-  of the same sheet needed `margin-bottom=-10` and nothing. Scroll to the end, then
-  `layout <scroller>`: the inset is its frame's bottom less its `port`'s (the scrollport
-  ends where UIKit's inset begins). The original's gap is its padding, which `screenshot
+  of the same sheet needed `margin-bottom=-10` and nothing. `layout` (no target) gives
+  the scroller's line, `#465 [lane-form] ScrollView 0,214 402×660 … port 0,214 402×626`:
+  the inset is its frame's bottom less its `port`'s, 874 − 840 = 34 here (the
+  scrollport ends where UIKit's inset begins). The original's gap is its padding, which `screenshot
   … compare ref/x.png` measures as the last row's offset. Write `padding-bottom` = that
   gap less the inset; where that is negative, write `padding-bottom=0` and the rest as a
   negative `margin-bottom` on the scroller itself, which lowers its end into the inset:
