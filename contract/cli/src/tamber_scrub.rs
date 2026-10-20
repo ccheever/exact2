@@ -116,6 +116,14 @@ impl Server {
         };
         let verify = request["verify"] == json!(true);
         if verify {
+            // Verified against what it was planned on: Contract sources or
+            // package designs moved since the scrub opened (its params no
+            // longer the server's), a conflict the client opens it again on.
+            if !std::rc::Rc::ptr_eq(&base.params, &self.app_params()) {
+                return Err(
+                    json!({"conflict": true, "message": "the app's components or its packages' designs changed since the scrub opened: open it again", "files": files_json(&base.snap), "stale": []}),
+                );
+            }
             self.write_checks(&texts, &planned)?;
         }
         let mut out = json!({
@@ -192,12 +200,19 @@ impl Server {
         // The app's design as planned, folded as the build folds it with its
         // packages' designs (LLP 1121 D11): an edit that leaves a package
         // token naming what isn't its own (an override removed) is refused.
-        if !app.packages.is_empty() {
+        // (the fold kept for the slot check below: one fold a write)
+        let chains = self.slot_chains();
+        let mut folded = None;
+        if !app.packages.is_empty() || chains.is_some() {
             for (path, text, _) in planned.files.iter().filter(|(p, _, _)| *p == self.design) {
-                if let Err(all) = contract::tamber_params::fold_with(text, &app, &self.vocab) {
-                    return Err(
-                        json!({"message": "refused", "diagnostics": all.iter().map(|d| super::located(path, d, &app)).collect::<Vec<_>>()}),
-                    );
+                match contract::tamber_params::fold_with(text, &app, &self.vocab) {
+                    Ok((f, _)) => folded = Some((path.clone(), f)),
+                    Err(all) if !app.packages.is_empty() => {
+                        return Err(
+                            json!({"message": "refused", "diagnostics": all.iter().map(|d| super::located(path, d, &app)).collect::<Vec<_>>()}),
+                        );
+                    }
+                    Err(_) => {} // (no packages: the plan's own check said it)
                 }
             }
         }
@@ -205,22 +220,20 @@ impl Server {
         // fold, with its packages and params, checked by the compiler's own
         // checker, only on the chains the write's tokens reach (closed over
         // aliases and expressions by the checker), refused in its words.
-        if let Some(chains) = self.slot_chains() {
-            let touched: Vec<&str> = planned.changed.iter().map(|(_, t)| t.as_str()).collect();
-            for (path, text, _) in planned.files.iter().filter(|(p, _, _)| *p == self.design) {
-                if touched.is_empty() {
-                    break; // (nothing of the design's moved: no chain to check)
-                }
-                let Ok((folding, _)) = contract::tamber_params::fold_with(text, &app, &self.vocab)
-                else {
-                    continue; // (refused above, or by the plan: never here)
-                };
-                let all = contract_lower::anatomy::slot::check_slots(&folding, &chains, &touched);
-                if !all.is_empty() {
-                    return Err(
-                        json!({"message": "refused", "diagnostics": all.iter().map(|d| super::located(path, d, &app)).collect::<Vec<_>>()}),
-                    );
-                }
+        // (the app design's own changed tokens: one of another `.tamber` file is no name here)
+        let touched: Vec<&str> = planned
+            .changed
+            .iter()
+            .filter(|(f, _)| *f == self.design)
+            .map(|(_, t)| t.as_str())
+            .collect();
+        if let (Some(chains), Some((path, folding)), false) = (&chains, &folded, touched.is_empty())
+        {
+            let all = contract_lower::anatomy::slot::check_slots(folding, chains, &touched);
+            if !all.is_empty() {
+                return Err(
+                    json!({"message": "refused", "diagnostics": all.iter().map(|d| super::located(path, d, &app)).collect::<Vec<_>>()}),
+                );
             }
         }
         if !app.tokens.is_empty() {

@@ -107,6 +107,13 @@ fn a_write_to_a_base_name_a_chain_reaches_through_an_alias_is_checked_one_reachi
     // `space.md` 0: `lib.w` is `space.md`, the chain's width 0.
     let (base, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "set-token", "name": "space.md", "value": "0px"}]}));
     assert_eq!(refusals(&base).len(), 1, "{base}");
+    // (said at the chain's token's own line: `lib.w`'s, in the package's design)
+    let at = &base["error"]["diagnostics"][0];
+    assert_eq!(
+        (at["file"].as_str(), at["line"].as_u64()),
+        (Some("node_modules/@acme/lib/lib.tamber"), Some(5)),
+        "{base}"
+    );
     // A write no chain reaches is taken, even where a chain's own token is
     // already one the check refuses (the app's line for `lib.op` is 0).
     let bad = "tamber app\n\ntheme\n  other = 2px\n  lib.op = 0\n";
@@ -158,5 +165,26 @@ fn the_slot_check_is_cheap() {
         each < std::time::Duration::from_millis(25),
         "{each:?} a check"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_scrub_whose_package_design_moved_since_it_opened_is_a_conflict_at_its_verify() {
+    let dir = app("scrub-stale", DESIGN);
+    let mut s = Serve::start(&dir, &[]);
+    let files = || json!({"app.tamber": digest(&dir.join("app.tamber"))});
+    let op = json!([{"op": "set-token", "name": "other", "value": "4px"}]);
+    let (open, _) =
+        s.ask(json!({"method": "scrub-fold", "open": true, "files": files(), "ops": op}));
+    assert!(open["ok"].is_object(), "{open}");
+    // The package's default for `lib.op` moves to 0 under the open scrub.
+    std::fs::write(
+        dir.join("node_modules/@acme/lib/lib.tamber"),
+        "tamber lib\n\ntheme\n  lib.op = 0\n  lib.w = space.md\n",
+    )
+    .unwrap();
+    let (verify, _) =
+        s.ask(json!({"method": "scrub-fold", "verify": true, "files": files(), "ops": op}));
+    assert_eq!(verify["error"]["conflict"], true, "{verify}");
     let _ = std::fs::remove_dir_all(&dir);
 }

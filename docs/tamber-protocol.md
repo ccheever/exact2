@@ -880,8 +880,10 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
   preview), that would hide an exported library component's slot fill: a node of the slot's chain
   given `opacity` 0, a zero size, `display: none` and the rest of LLP 1139 D4's list, in any tuple
   or scale column, through a token, a base name a chain's token reaches, or a param
-  (`lower-anatomy-slot`, the compiler's own checker and words, at the design line that does it;
-  *1.15*, stage 12 D2). A write no chain's tokens reach isn't asked.
+  (`lower-anatomy-slot`, the compiler's own checker and words, at the line of the chain's token
+  it names, in the app's design or a package's; *1.15*, stage 12 D2). A write no chain's tokens
+  reach isn't asked. A scrub whose app components or package designs moved since it opened is a
+  conflict at its verify, opened again.
 - **An editor that ignores the lock** and saves between the server's last read and its rename is
   overwritten. The digests narrow that window but don't close it.
 
