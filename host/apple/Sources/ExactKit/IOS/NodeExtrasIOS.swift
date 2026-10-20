@@ -26,6 +26,8 @@ final class TextSpecs {
     var cached: Spec?
     var raster: CGImage?
     var rasterLayer: CALayer?
+    /// The view whose layer `rasterLayer` is when the ink is one colour.
+    var rasterTint: TintInk?
     var rasterFrame = CGRect.zero
     var rasterScale: CGFloat = 1
     var flowShapes: [TextFlowShape] = []
@@ -199,6 +201,7 @@ extension NodeView {
     var cachedTextSpec: Spec? { get { specs?.cached } set { if newValue != nil || specs != nil { textMore.cached = newValue } } }
     var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
     var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
+    var textRasterTint: TintInk? { get { specs?.rasterTint } set { if newValue != nil || specs != nil { textMore.rasterTint = newValue } } }
     var textRasterFrame: CGRect { get { specs?.rasterFrame ?? .zero } set { if newValue != .zero || specs != nil { textMore.rasterFrame = newValue } } }
     var textRasterScale: CGFloat { get { specs?.rasterScale ?? 1 } set { if newValue != 1 || specs != nil { textMore.rasterScale = newValue } } }
     var flowShapes: [TextFlowShape] { get { specs?.flowShapes ?? [] } set { if !newValue.isEmpty || specs != nil { textMore.flowShapes = newValue } } }
