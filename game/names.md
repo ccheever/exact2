@@ -42,4 +42,13 @@ let _actions = Actions::new().button("interact", &["KeyE"]);
 fn bundle(value: impl Bundle) -> impl Bundle { value }
 w.spawn(bundle((Transform::default(), Mesh::sphere(0.5), Material::default())));
 assert_eq!(w.count::<Mesh>(|_| true), 2);
+let fish = w.spawn((Transform::default(), Mesh::sphere(0.2)));
+let pose = *w.require::<Transform>(fish);
+let _seek: steer::Steer = steer::seek(&pose, Vec3::new(0., 0., -4.), 2., 3., w.dt());
+let _school = steer::school(&pose, w.near_xz::<Mesh>(fish, 3.).limit(7),
+    1., 0.5, 0.3, 2., 3., w.dt());
+let _drift: collect::Drift = collect::drift(Vec3::X, Vec3::ZERO, 2., 4., w.dt());
+w.spawn((Transform::default(), collect::Collectable));
+let mut drops = spawn::Spawner::every(120);
+assert_eq!(drops.due(120), Some(0));
 ```
