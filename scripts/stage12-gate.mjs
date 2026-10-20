@@ -103,8 +103,29 @@ export function screenOps(screen, scheme, png) {
   // A second of real time first: the web loads its font in real time, and a
   // header measured before it lands keeps that height (one run in thirteen
   // drew the profile's header 2 px short).
-  return ['clock +1000 real', 'clock settle', `prefer prefers-color-scheme ${scheme}`, ...settle, ...taps.flatMap(t => [t, ...settle]), `screenshot ${png}`, 'logs',
+  // Then the screen's layout whole (what it renders, by testId), and the
+  // allowlist's target's last.
+  return ['clock +1000 real', 'clock settle', `prefer prefers-color-scheme ${scheme}`, ...settle, ...taps.flatMap(t => [t, ...settle]), `screenshot ${png}`, 'logs', 'layout',
     ...(ALLOW[screen] ? [`layout ${ALLOW[screen].target}`] : [])];
+}
+
+/** The testIds only the packages' views give (none of the clone's own
+ * sources writes one): a node shown with one is a library component's,
+ * rendered. PostCard's content part, ActionRow's row, AtCard's visit part,
+ * PostButton's own (no id). */
+export const RENDERED = [
+  ['PostCard', id => id.startsWith('postcard-content-'), 'postcard-content-'],
+  ['ActionRow', id => id.startsWith('actions-'), '`actions-'],
+  ['AtCard', id => id.startsWith('atcard-visit-'), 'atcard-visit-'],
+  ['PostButton', id => id === 'compose-post', '"compose-post"'],
+];
+
+/** The RENDERED testIds a drive's whole layout shows. */
+export function renderedIds(out) {
+  const line = out.split('\n').find(l => l.startsWith('{') && l.includes('"nodes"'));
+  if (!line) return null;
+  const ids = JSON.parse(line).nodes.map(n => n.testId ?? n.props?.testId).filter(Boolean);
+  return [...new Set(ids.filter(id => RENDERED.some(([, is]) => is(id))))];
 }
 
 /** One host's drive of the copy: every screen, both schemes, each its own
@@ -138,7 +159,8 @@ function driveScreens(copy, host, dir, env) {
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], said: allow === null ? `no layout for ${ALLOW[screen].target}` : said });
+      const shown = r.ok ? renderedIds(r.out) : null;
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
@@ -316,13 +338,21 @@ export function consumerPixels(opts) {
   }
   const r = comparePixels(shots.before, shots.after);
   const bad = r.filter(x => !x.ok);
+  // Rendered: each library component shown on the screens shot (a testId
+  // only its package's view writes, which the copy's own sources don't),
+  // and none of PostCard's, ActionRow's or AtCard's before.
+  const own = run('git', ['grep', '-l', '-F', ...RENDERED.flatMap(([, , text]) => ['-e', text]), '--', '*.contract'], { cwd: opts.copy }).out.trim().split('\n').filter(Boolean);
+  const seen = side => new Set(shots[side].shots.flatMap(x => x.shown ?? []));
+  const unseen = RENDERED.filter(([, is]) => ![...seen('after')].some(is)).map(([name]) => name);
+  const early = RENDERED.filter(([name]) => name !== 'PostButton').filter(([, is]) => [...seen('before')].some(is)).map(([name]) => name);
   const p = shots.after.provenance;
   const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
     'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
-    `the adoption uses ${ADOPTED.length} of ${ADOPTED.length} library components (${ADOPTED.map(i => i.split('#')[1]).join(', ')}); before uses none`,
+    `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before none`,
+    `rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${early.length ? `; before already shows ${early.join(', ')}` : ''}`,
     `conform on the clone (its tools/check.sh: its build's diagnostics and its data tests): ${check.ok && checkSaid === 'ok' ? 'clean' : `NOT clean: ${check.out.trim().split('\n').slice(-3).join(' / ').slice(0, 300)}`}`];
-  return bad.length || !r.length || !check.ok || checkSaid !== 'ok' ? fail(...evidence) : pass(...evidence);
+  return bad.length || !r.length || !check.ok || checkSaid !== 'ok' || unseen.length || own.length || early.length ? fail(...evidence) : pass(...evidence);
 }
 
 /** The library lines' required hosts (LLP 1139 §5): the web's JS target

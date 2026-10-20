@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, beforeDrift, renderedIds, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -23,7 +23,7 @@ test('a screen is reached by its taps, each settled, the scheme first', () => {
   for (const [name, taps] of SCREENS) {
     const ops = screenOps(name, 'dark', '/s.png');
     expect(ops.slice(0, 3)).toEqual(['clock +1000 real', 'clock settle', 'prefer prefers-color-scheme dark']);
-    expect(ops.slice(ops.indexOf('screenshot /s.png'))).toEqual(['screenshot /s.png', 'logs', ...(name === 'composer' ? ['layout compose-text'] : [])]);
+    expect(ops.slice(ops.indexOf('screenshot /s.png'))).toEqual(['screenshot /s.png', 'logs', 'layout', ...(name === 'composer' ? ['layout compose-text'] : [])]);
     for (const t of taps) expect(ops[ops.indexOf(t) + 1]).toBe('clock settle');
   }
 });
@@ -145,4 +145,10 @@ test('release identity: every source compared and identical in every run, but li
   const ok = [row('apps/a/app.contract', 'identical'), row('apps/expose/app.contract', 'both failed')];
   expect(id(file(ok), sources, ['a..b', 'e..f']).evidence.join('\n')).toContain('RUN NOT COMPARED e..f');
   expect(id(file([{ ...ok[0], commits: [] }, ok[1]])).status).toBe('FAIL');
+});
+
+test('what a screen renders: the testIds only the packages write, from its whole layout', () => {
+  const out = ['screenshot x', JSON.stringify({ nodes: [{ testId: 'post-1' }, { testId: 'postcard-content-1' }, { props: { testId: 'actions-1' } }, { testId: 'compose-post' }, { testId: 'compose-post-2' }, { testId: 'atcard-visit-3' }] }), JSON.stringify({ node: { testId: 'compose-text' } })].join('\n');
+  expect(renderedIds(out).sort()).toEqual(['actions-1', 'atcard-visit-3', 'compose-post', 'postcard-content-1']);
+  expect(renderedIds('no layout')).toBe(null);
 });
