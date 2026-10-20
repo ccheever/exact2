@@ -46,7 +46,7 @@
     "js/bake/src/typescript.mjs": "ead3e87b1fd0cbf9ea4d9a1d735481d2bc0ea02dd266bb66146f923726223282",
     "host/web-js/agent.js": "d7676abb8a9016b03544a60eff681a6107dae901137e4d75446002d572c6869e",
     "scripts/agent-test.mjs": "6a0eb272f64f7ecb45f718cc892d663ae07bafd62fc058387dc30afec5c5f32c",
-    "scripts/agent.mjs": "bf3905adb546166b48aea31ad73b44129a4a898d6cd97c53abe3d54e22c3ee2a",
+    "scripts/agent.mjs": "b485bbbee3d4ce53e8d005997bb3ba7ab242443ddad760e58f1e480031535c89",
     "scripts/retest-snapback-readme.mjs": "a9c59fd5d5f1420d8da2f0bb549ed3bcc67f3b0de5ff252e1a43cc7971f660a6",
     "scripts/check-snapback-readme.mjs": "500c83789325bc6c50c60e67fad11433dabe132db582dd12776975e17a4cca21",
     "snapback4/Cargo.toml": "d35e7740b601d8ab100faafd79cab6b55de2aef53731b18a101e6b0c2490dbdf",
