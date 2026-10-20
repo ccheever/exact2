@@ -159,6 +159,7 @@ mod tamber_package_params;
 mod tamber_params;
 mod tamber_params_scope;
 mod tamber_params_tools;
+mod tamber_retention_reuse;
 mod tamber_scheme;
 mod tamber_scrub_fold;
 mod tamber_serve;

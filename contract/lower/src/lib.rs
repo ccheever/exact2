@@ -138,6 +138,7 @@ pub fn package_unband(message: &str) -> String {
     theme::packages::unband(message)
 }
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
+pub use theme::retained::retention_only;
 pub use theme::{retention, synthetic_candidates};
 pub use warnings::{warnings, MAX_WARNINGS};
 
@@ -450,6 +451,10 @@ fn lower_body(
         names_tokens_outside_views(file, root_types),
         asset_root,
     );
+    // The design server's build: what it reads is known (`retention_only`).
+    if theme::retained::stops_at_retention() {
+        return Err(Vec::new());
+    }
     l.declare_decorations(file)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {

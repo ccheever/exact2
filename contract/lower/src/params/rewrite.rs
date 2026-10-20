@@ -438,7 +438,9 @@ fn everything(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr, bool)) {
 /// argument, a condition), a state, a derive or an action. Refused
 /// (`tamber-param-scope`), naming the param in full.
 pub fn reached(root: &Component, params: &[ParamToken]) -> Vec<LowerError> {
-    if params.is_empty() {
+    // A refusal, which the design server's build, stopped at the design's
+    // retention, never says (`retention_only`).
+    if params.is_empty() || crate::theme::retained::stops_at_retention() {
         return Vec::new();
     }
     let mut found: Vec<(String, Span)> = Vec::new();

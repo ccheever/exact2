@@ -36,6 +36,8 @@ mod modules;
 pub mod native;
 pub mod picker;
 mod resolve;
+mod retained;
+pub use retained::{retention_build, Kept, Retained};
 mod rust;
 mod sources;
 mod strings;
@@ -975,8 +977,33 @@ fn compile_file_warned(
         all
     };
     contract_analyze::check_routes_root(file, true).map_err(CompileError::from)?;
-    let checked = contract_types::check_all(file, mapped, contract_lower::tags::style, strings)
-        .map_err(|all| with_lint(each(all, hint)))?;
+    // The design server's retention build reuses the last types and
+    // expansion when the program is what they were checked from
+    // (`retained`); any other build checks them.
+    let held = strings.clone();
+    let checked = match retained::reuse(file, &held, mapped) {
+        Some((types, expanded)) if !retained::verifying() => contract_types::Checked {
+            file,
+            types,
+            expanded,
+        },
+        reused => {
+            let fresh =
+                contract_types::check_all(file, mapped, contract_lower::tags::style, strings)
+                    .map_err(|all| {
+                        // Reused types where checking again refuses: stale.
+                        if reused.is_some() {
+                            retained::refused_fresh();
+                        }
+                        with_lint(each(all, hint))
+                    })?;
+            if let Some((types, expanded)) = &reused {
+                retained::verify((&fresh.types, &fresh.expanded), (types, expanded));
+            }
+            fresh
+        }
+    };
+    retained::keep(file, &held, mapped, &checked.types, &checked.expanded);
     let analysis = contract_analyze::check_all(&checked);
     let mut lower_warnings = Vec::new();
     let result = match analysis {

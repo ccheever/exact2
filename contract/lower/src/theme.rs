@@ -12,6 +12,7 @@
 //! design's `exports`.
 
 pub(crate) mod packages;
+pub(crate) mod retained;
 mod scan;
 mod scheme;
 pub(crate) use scheme::one_scheme_tokens;
@@ -352,6 +353,9 @@ impl Lowerer<'_> {
                 .map(|s| (s.expr.clone(), s.strict))
                 .collect();
         });
+        if retained::stops_at_retention() {
+            return exact_kernel::style::theme::declarations([]);
+        }
         let profiled = self.profiles(&mut design, &origin);
         // An expression over a profile's colour is not the build's to fold.
         said.synthetic.retain(|s| {

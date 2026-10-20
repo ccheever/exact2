@@ -203,6 +203,10 @@ struct Server {
     /// Contract sources they were read from, with the retention its plan
     /// keeps tokens by (D7), read by the same build.
     synthetic: Option<Synthetic>,
+    /// The last retention build's types and expansion, by the Contract
+    /// sources' key: a build the design alone moved reuses them where the
+    /// program loads as it did (`contract::retention_build`).
+    kept: Option<(String, contract::Kept)>,
     /// The app's components' params (LLP 1121 D15), by the Contract
     /// sources' key ([`Server::sources_key`]): every read and write asks
     /// them, and loading them parses the app (~200 ms on the clone).
@@ -349,6 +353,7 @@ impl Server {
             next: 0,
             client: None,
             synthetic: None,
+            kept: None,
             params: Default::default(),
             graph: Default::default(),
             asked: Default::default(),
@@ -395,26 +400,36 @@ impl Server {
                 return Some(exprs.clone());
             }
         }
-        let _ = contract_lower::synthetic_candidates();
-        let _ = contract_lower::retention();
-        // A test reads how often they are built (`EXACT_TAMBER_RETENTION_LOG`, a line each).
+        // Built as far as the design's retention and no further, reusing
+        // the last build's types and expansion where its Contract loads as
+        // it did (theme2's 11:32 ruling). A build that fails after the
+        // design still says them; that it fails is the whole build's to say.
+        let sources = self.sources_key();
+        let kept = self
+            .kept
+            .take()
+            .filter(|(k, _)| *k == sources)
+            .map(|(_, kept)| kept);
+        let built = contract::retention_build(&root, kept);
+        // A test reads how often they are built, and how (`EXACT_TAMBER_RETENTION_LOG`, a line each).
         if let Some(log) = std::env::var_os("EXACT_TAMBER_RETENTION_LOG") {
             use std::io::Write;
             let file = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(log);
-            let _ = file.and_then(|mut f| f.write_all(b"built\n"));
+            let line = match (built.reused, built.stale) {
+                (_, true) => "built stale\n",
+                (true, false) => "built reused\n",
+                (false, false) => "built\n",
+            };
+            let _ = file.and_then(|mut f| f.write_all(line.as_bytes()));
         }
-        let built = contract::compile_path_all(&root, false);
-        let exprs = contract_lower::synthetic_candidates();
-        let retention = contract_lower::retention();
+        self.kept = built.kept.map(|kept| (sources, kept));
         // A build that stopped before the design says nothing of them.
-        let reached = built.is_ok() || !exprs.is_empty();
-        reached.then(|| {
-            self.synthetic = Some((key, exprs.clone(), retention));
-            exprs
-        })
+        let retention = built.retention?;
+        self.synthetic = Some((key, built.candidates.clone(), Some(retention)));
+        Some(built.candidates)
     }
 
     fn state(&self) -> PathBuf {
