@@ -546,13 +546,16 @@ screen, 2026-10-16.)
   inset by UIKit as a hand-built one is (`automatic`: the home indicator's 34 points, and
   the tab bar's height on a tab; a dialog sheet's outer scroller is `always`), and the
   ported padding adds to that. That inset is the platform's, as a hand-built table view in
-  a sheet has it (LLP 1116 D2). To match the original's picture anyway, subtract the inset
-  from the ported padding, and where the padding is the smaller (24 here, under 34), write
-  `padding-bottom=0` and the rest as a negative `margin-bottom` on the scroller itself
-  (`margin-bottom=-10` here), which lowers its end into the inset: padding cannot go below
-  zero, and a negative margin on the last child does not move it. Do not add
-  `env(safe-area-inset-bottom)`. (Verified on the euxy port's Edit Lane sheet,
-  2026-10-20: 0 left Delete lane 10 points high, -10 matched the reference.)
+  a sheet has it (LLP 1116 D2). Its size depends on how the screen is presented and which
+  scroller is last, so measure it in your port rather than copy a number: two euxy ports
+  of the same sheet needed `margin-bottom=-10` and nothing. Scroll to the end, then
+  `layout <scroller>`: the inset is its frame's bottom less its `port`'s (the scrollport
+  ends where UIKit's inset begins). The original's gap is its padding, which `screenshot
+  … compare ref/x.png` measures as the last row's offset. Write `padding-bottom` = that
+  gap less the inset; where that is negative, write `padding-bottom=0` and the rest as a
+  negative `margin-bottom` on the scroller itself, which lowers its end into the inset:
+  padding cannot go below zero, and a negative margin on the last child does not move
+  it. Do not add `env(safe-area-inset-bottom)`.
 
 - **Rows with a `minHeight`, or boxes with a `height` and padding, come out taller.**
   `padding="13px 16px" min-height=24` made
