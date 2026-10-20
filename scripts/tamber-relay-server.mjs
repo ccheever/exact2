@@ -34,7 +34,7 @@ export const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 /** A TLS record's body, at most (RFC 8446 §5.1). */
 const RECORD_MAX = 16_384;
 /** What a session's limits are when the config says none. */
-export const LIMITS = { pendingPerIp: 32, pendingTotal: 4096, perIpPerSession: 30, streamsPerSession: 64, idlePerSession: 8, sessionsPerAccount: 4, txtPerAccount: 10, greetingsPerIp: 10, waitMs: 2000, graceMs: 60_000, helloMs: 10_000 };
+export const LIMITS = { txtInFlight: 2, pendingPerIp: 32, pendingTotal: 4096, perIpPerSession: 30, streamsPerSession: 64, idlePerSession: 8, sessionsPerAccount: 4, txtPerAccount: 10, greetingsPerIp: 10, waitMs: 2000, graceMs: 60_000, helloMs: 10_000 };
 const MINUTE = 60_000;
 
 /** The server name a client's first TLS record asks for. `buf` is what has
@@ -116,7 +116,7 @@ export function loadAccounts(path, domain) {
     const names = a.names ?? [];
     for (const p of names) {
       if (!NAME.test(p)) throw new Error(`${label}: ${JSON.stringify(p).slice(0, 70)} is no name`);
-      if (p === domain || p.endsWith(`.${domain}`)) throw new Error(`${label}: ${p} is under the relay's own domain`);
+      if (p === domain || p.endsWith(`.${domain}`) || domain.endsWith(`.${p}`)) throw new Error(`${label}: ${p} is the relay's own domain, under it or over it`);
       const clash = parents.find(q => q.label !== label && (q.p === p || q.p.endsWith(`.${p}`) || p.endsWith(`.${q.p}`)));
       if (clash) throw new Error(`${p} (${label}) and ${clash.p} (${clash.label}): one account's names may not be, or be under or over, another's`);
       parents.push({ p, label });
@@ -160,6 +160,12 @@ function perMinute(limit, now) {
 }
 
 /** An address as a log shows it: an IPv4's first three parts, an IPv6's first four groups. */
+/** An address as the limits count it: an IPv4 (mapped or not) whole, an IPv6 by its /64 (one host's
+ * rotating addresses one key). */
+export const keyOf = address => {
+  const m = masked(address);
+  return m.endsWith('.x') ? String(address).replace(/^::ffff:/i, '') : m;
+};
 export const masked = address => {
   const ip = String(address).replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, '');
   if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return ip.replace(/\.\d+$/, '.x');
@@ -196,7 +202,7 @@ export function relayServer(config, { log = line => console.log(line), now = () 
   const accountsPath = resolve(config.accounts);
   let { accounts, revoked } = loadAccounts(accountsPath, domain);
   /** Each label's pending DNS work, stopped when the label is cut. */
-  const stops = new Map();
+  const stops = new Map(), inFlight = new Map();
   const stopOf = label => { let c = stops.get(label); if (!c || c.signal.aborted) { c = new AbortController(); stops.set(label, c); } return c.signal; };
   const dns = config.dns?.command
     ? { publish: (r, v, signal) => dnsHook(config.dns.command, r, v, { signal }), clear: (r, v, signal) => dnsHook(config.dns.command, r, v, { clear: true, signal }) }
@@ -232,7 +238,7 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     socket.once('close', () => live.delete(socket));
     socket.on('error', () => socket.destroy());
     // (not yet a session's or an authenticated connector's: at most `pendingPerIp` from one address, `pendingTotal` in all)
-    const ip = socket.remoteAddress ?? 'unknown';
+    const ip = keyOf(socket.remoteAddress ?? 'unknown');
     if (pending.size >= limits.pendingTotal || (pendingPerIp.get(ip) ?? 0) >= limits.pendingPerIp) return socket.destroy();
     hold(socket, ip);
     // The chunks as they came, kept to be handed on whole; the parser given only the first record's bytes (the
@@ -274,7 +280,7 @@ export function relayServer(config, { log = line => console.log(line), now = () 
    * together at most `streamsPerSession`. */
   function hand(session, name, socket, first) {
     const ip = socket.remoteAddress ?? 'unknown';
-    if (!clientsPerIp.take(`${session.key} ${ip}`)) { log(`relay: ${session.label} ${session.id}: ${masked(ip)} over ${limits.perIpPerSession} a minute`); return socket.destroy(); }
+    if (!clientsPerIp.take(`${session.key} ${keyOf(ip)}`)) { log(`relay: ${session.label} ${session.id}: ${masked(ip)} over ${limits.perIpPerSession} a minute`); return socket.destroy(); }
     if (session.carried.size + session.waiting.size >= limits.streamsPerSession) return socket.destroy();
     const give = conn => {
       conn.off('data', quietOf.get(conn));
@@ -296,7 +302,7 @@ export function relayServer(config, { log = line => console.log(line), now = () 
 
   /** A connector's or a TXT request's greeting, on the control endpoint. */
   function greet(conn) {
-    const ip = conn.remoteAddress ?? 'unknown';
+    const ip = keyOf(conn.remoteAddress ?? 'unknown');
     conn.on('error', () => conn.destroy());
     let head = '';
     const late = setTimeout(() => conn.destroy(), limits.helloMs);
@@ -320,6 +326,8 @@ export function relayServer(config, { log = line => console.log(line), now = () 
       const account = magic === 'EXACT-RELAY/1' && LABEL.test(label ?? '') ? accounts.get(label) : undefined;
       const said = typeof bearer === 'string' && bearer.startsWith('Bearer ') ? bearer.slice(7) : '';
       if (!holds(account, said)) return refuse('no such account');
+      // (refusals of an authenticated connection, its own account's limits, never count to its address's silence)
+      const answer = why => { log(`relay: ${label}: refused: ${why}`); finish(conn, `REFUSED ${why}\n`); };
       // (every authenticated connection the account's, cut with it; no longer pending)
       settle(controlRaw.get(`${conn.remoteAddress} ${conn.remotePort}`));
       const mine = conns.get(label) ?? new Set();
@@ -327,11 +335,11 @@ export function relayServer(config, { log = line => console.log(line), now = () 
       mine.add(conn);
       conn.once('close', () => mine.delete(conn));
       const txt = field('txt'), clear = field('txt-clear');
-      if (txt !== null || clear !== null) return record(conn, label, txt ?? clear, clear !== null && txt === null, refuse);
+      if (txt !== null || clear !== null) return record(conn, label, txt ?? clear, clear !== null && txt === null, answer);
       const run = field('run'), names = field('names');
-      if (typeof run !== 'string' || !/^[0-9a-f]{32}$/.test(run)) return refuse('a connector says its run');
-      if (names === undefined) return refuse('one names line');
-      connector(conn, label, run, names, refuse);
+      if (typeof run !== 'string' || !/^[0-9a-f]{32}$/.test(run)) return answer('a connector says its run');
+      if (names === undefined || (names !== null && names.split(' ').length !== 2)) return answer('one names line, of two names');
+      connector(conn, label, run, names, answer);
     };
     conn.on('data', onData);
   }
@@ -343,12 +351,17 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     if (!txts.take(label)) return refuse(`more than ${limits.txtPerAccount} TXT requests a minute`);
     if (more !== undefined || !RECORD.test(record ?? '') || !/^[A-Za-z0-9_-]{43}$/.test(value ?? '')) return refuse('no ACME TXT record of that shape');
     if (record !== `_acme-challenge.${label}.${domain}`) return refuse('not your account\'s name');
+    // (at most `txtInFlight` an account at once: its DNS work never piles up)
+    if ((inFlight.get(label) ?? 0) >= limits.txtInFlight) return refuse(`more than ${limits.txtInFlight} TXT requests at once`);
+    inFlight.set(label, (inFlight.get(label) ?? 0) + 1);
     // (stopped when the account is cut: no record put up for a revoked account)
     const signal = stopOf(label);
+    const did = clearing ? 'taken down' : 'put up';
     try {
       await (clearing ? dns.clear(record, value, signal) : dns.publish(record, value, signal));
       finish(conn, 'TXT-OK\n');
-    } catch (e) { log(`relay: ${label}: the TXT record could not be ${clearing ? 'taken down' : 'put up'}: ${String(e?.message ?? e).slice(0, 120)}`); finish(conn, 'REFUSED the record could not be put up\n'); }
+    } catch (e) { log(`relay: ${label}: the TXT record could not be ${did}: ${String(e?.message ?? e).slice(0, 120)}`); finish(conn, `REFUSED the record could not be ${did}\n`); }
+    finally { const n = inFlight.get(label) - 1; if (n > 0) inFlight.set(label, n); else inFlight.delete(label); }
   }
 
   /** A run's id: of its label and run id, so a run's names are its own whatever the relay remembers (after a
@@ -379,6 +392,12 @@ export function relayServer(config, { log = line => console.log(line), now = () 
       } else {
         const id = idOf(label, run);
         said = { tool: `${id}-tool.${label}.${domain}`, canvas: `${id}-canvas.${label}.${domain}`, id };
+      }
+      // (names a session of this account holds with no connection left, in its grace: a restarted server, a new
+      // run, takes them over; a live session's are refused, and another account's never reach here)
+      for (const n of [said.tool, said.canvas]) {
+        const held = byName.get(n);
+        if (held && held.label === label && !held.idle.length && !held.carried.size && !held.waiting.size) drop(held, 'taken over by a new run');
       }
       if (byName.has(said.tool) || byName.has(said.canvas)) return refuse('names in use by another session');
       session = { key, label, run, ...said, idle: [], carried: new Set(), waiting: new Set(), grace: null };
@@ -483,6 +502,7 @@ export const CONFIG_HELP = [
   ['limits.idlePerSession', `a session's idle connector connections at once (${LIMITS.idlePerSession})`],
   ['limits.sessionsPerAccount', `sessions one account holds at once (${LIMITS.sessionsPerAccount})`],
   ['limits.txtPerAccount', `TXT requests a minute from one account (${LIMITS.txtPerAccount})`],
+  ['limits.txtInFlight', `TXT requests one account has under way at once (${LIMITS.txtInFlight})`],
   ['limits.greetingsPerIp', `refused greetings a minute from one address before it is answered nothing (${LIMITS.greetingsPerIp})`],
   ['limits.waitMs, limits.graceMs, limits.helloMs', `a client's wait for an idle connection (${LIMITS.waitMs}), a session's life after its last connection (${LIMITS.graceMs}), a hello's or greeting's time (${LIMITS.helloMs})`],
 ];

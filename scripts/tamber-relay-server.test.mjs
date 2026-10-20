@@ -11,7 +11,7 @@ import { connect as connectTCP, createServer as createTCP } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connect as connectTLS } from 'node:tls';
-import { helloName, loadAccounts, masked, relayServer } from './tamber-relay-server.mjs';
+import { helloName, keyOf, loadAccounts, masked, relayServer } from './tamber-relay-server.mjs';
 import { relayTxt } from './tamber-relay.mjs';
 import { openRemote, selfSignedCertificate } from './tamber-remote.mjs';
 import { fakeAcme } from './tamber-acme-stub.mjs';
@@ -121,7 +121,7 @@ test('the accounts: a label never given out again, nor one account\'s names anot
     write({ accounts: { a: { token_sha256: t, names: ['example.com'] }, b: { token_sha256: t, names: ['tamber.example.com'] } }, revoked: ['old'] });
     expect(() => loadAccounts(path, DOMAIN)).toThrow('one account\'s names may not be, or be under or over, another\'s');
     write({ accounts: { a: { token_sha256: t }, b: { token_sha256: t, names: ['x.relay.test'] } }, revoked: ['old'] });
-    expect(() => loadAccounts(path, DOMAIN)).toThrow('under the relay\'s own domain');
+    expect(() => loadAccounts(path, DOMAIN)).toThrow('is the relay\'s own domain, under it or over it');
     write({ accounts: { a: { token_sha256: 'nope' }, b: { token_sha256: t } }, revoked: ['old'] });
     expect(() => loadAccounts(path, DOMAIN)).toThrow('token_sha256 is not 64 hex digits');
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -305,8 +305,8 @@ test('accounts add prints a token once and keeps its hash; revoke is for good; -
   const { readdirSync } = await import('node:fs');
   expect(readdirSync(dir).filter(f => f.endsWith('.tmp') || f.endsWith('.lock'))).toEqual([]);
   const help = spawnSync('bun', [join(import.meta.dir, 'tamber-relay-server.mjs'), '--help'], { encoding: 'utf8' }).stdout;
-  for (const key of ['domain', 'listen', 'tls.cert', 'tls.key', 'accounts', 'dns.command', 'perIpPerSession', 'streamsPerSession', 'idlePerSession', 'sessionsPerAccount', 'txtPerAccount', 'greetingsPerIp', 'waitMs', 'graceMs', 'helloMs']) expect(help).toContain(key);
-  expect(CONFIG_HELP.length).toBe(13);
+  for (const key of ['domain', 'listen', 'tls.cert', 'tls.key', 'accounts', 'dns.command', 'perIpPerSession', 'streamsPerSession', 'idlePerSession', 'sessionsPerAccount', 'txtPerAccount', 'txtInFlight', 'pendingPerIp', 'pendingTotal', 'greetingsPerIp', 'waitMs', 'graceMs', 'helloMs']) expect(help).toContain(key);
+  expect(CONFIG_HELP.length).toBe(14);
 });
 
 test('R4\'s lines on loopback (scripts/tamber-relay-gate.mjs): every one met', async () => {
@@ -465,4 +465,40 @@ test('round 3: a label ends in a letter or digit, and its sessions\' names must 
     writeFileSync(path, JSON.stringify({ accounts: { ['a'.repeat(63)]: { token_sha256: hash('x') } }, revoked: [] }));
     expect(() => loadAccounts(path, `${'d'.repeat(60)}.${'e'.repeat(60)}.${'f'.repeat(60)}.test`)).toThrow('would be too long');
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('round 3 (Grok): a restarted server (a new run) takes its own names back from its lapsed session at once; a live one keeps them', async () => {
+  const { port } = await startRelay({ limits: { graceMs: 60_000 } });
+  const byo = 'names: tool.tamber.example.com canvas.tamber.example.com';
+  const first = await greet(port, hello('other', TOKENS.other, [`run: ${RUN}`, byo]));
+  expect(first.line).toBe('READY tool.tamber.example.com canvas.tamber.example.com');
+  // Live: another run is refused.
+  expect((await greet(port, hello('other', TOKENS.other, [`run: ${'b'.repeat(32)}`, byo]))).line).toBe('REFUSED names in use by another session');
+  // The first run's process gone (its connections closed), within the grace: the new run gets them.
+  first.conn.destroy();
+  await new Promise(ok => setTimeout(ok, 100));
+  expect((await greet(port, hello('other', TOKENS.other, [`run: ${'c'.repeat(32)}`, byo]))).line).toBe('READY tool.tamber.example.com canvas.tamber.example.com');
+});
+
+test('round 3 (Grok): an account\'s TXT requests under way at once are capped; an authenticated refusal never silences its address; limits count an IPv6 /64 as one', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-relay-inflight-'));
+  closing.push(() => rmSync(dir, { recursive: true, force: true }));
+  const accounts = join(dir, 'accounts.json');
+  writeFileSync(accounts, JSON.stringify({ accounts: { acct: { token_sha256: hash(TOKENS.acct) } }, revoked: [] }));
+  const hang = [];
+  const slow = relayServer({ domain: DOMAIN, listen: '127.0.0.1:0', tls: relayCert, accounts, limits: { txtInFlight: 1, greetingsPerIp: 2 }, dns: { publish: () => new Promise(ok => hang.push(ok)), clear: async () => {} } }, { log: () => {} });
+  const port = await slow.listen();
+  closing.push(() => slow.close());
+  const as = { host: DOMAIN, port, account: 'acct', token: TOKENS.acct };
+  const via = { connect: toRelay(port) };
+  const first = relayTxt(as, '_acme-challenge.acct.relay.test', 'A'.repeat(43), via);
+  await until(() => hang.length === 1);
+  await expect(relayTxt(as, '_acme-challenge.acct.relay.test', 'B'.repeat(43), via)).rejects.toThrow('more than 1 TXT requests at once');
+  await expect(relayTxt(as, '_acme-challenge.acct.relay.test', 'C'.repeat(43), via)).rejects.toThrow('more than 1 TXT requests at once');
+  // (two authenticated refusals, past greetingsPerIp: the address still answered)
+  expect((await greet(port, hello('acct', TOKENS.acct, [`run: ${RUN}`]))).line).toMatch(/^READY /);
+  hang[0]();
+  await first;
+  expect(keyOf('2001:db8::1')).toBe(keyOf('2001:db8:0:0:ffff::2'));
+  expect(keyOf('::ffff:203.0.113.9')).toBe('203.0.113.9');
 });
