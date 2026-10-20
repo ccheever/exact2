@@ -70,7 +70,13 @@ extension Presenter {
         let storage = field.textStorage
         #endif
         let length = storage.length
-        let fallback = field.font ?? field.typingAttributes[.font] as? PlatformFont ?? PlatformFont.systemFont(ofSize: PlatformFont.systemFontSize)
+        #if os(tvOS)
+        // tvOS has no `systemFontSize`; its body style is the system's text size there.
+        let systemSize = PlatformFont.preferredFont(forTextStyle: .body).pointSize
+        #else
+        let systemSize = PlatformFont.systemFontSize
+        #endif
+        let fallback = field.font ?? field.typingAttributes[.font] as? PlatformFont ?? PlatformFont.systemFont(ofSize: systemSize)
         // A face's content area around `baseline` (its `baselineOffset`
         // raising it), as this host's CSS line box rounds it.
         func area(_ face: PlatformFont, offset: CGFloat, baseline: CGFloat) -> (CGFloat, CGFloat) {
