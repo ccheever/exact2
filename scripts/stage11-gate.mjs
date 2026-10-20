@@ -10,7 +10,8 @@
 //
 // Hosts default to all six: web, linux, macos, ios, the Android reader (--app,
 // an app with no data: unsaid; the base values only) and the terminal. The
-// fixtures: packages/cards, packages/notes and apps/scale-gate (its design
+// fixtures: packages/scale-fixture-cards, packages/scale-fixture-notes and
+// apps/scale-gate (its design
 // sets space.md = 20px; base/ has none). Each host's build must be fresh (a
 // stale one's drive says how to build it: host/web/build.mjs caltrain-web,
 // host/apple/build.mjs caltrain-apple [--ios --sim], cargo build --profile
@@ -30,6 +31,10 @@ const WORK = join(ROOT, 'target/stage11-gate');
 export const HOSTS = ['web', 'linux', 'macos', 'ios', 'android', 'terminal'];
 // The Android reader runs an app's APK, which reads no package design.
 const PACKAGE_HOSTS = HOSTS.filter(h => h !== 'android');
+// The fixture packages (stage 12 E's rename, theme2 06:46: a library may
+// want the short names): their names, their designs' and their tokens'.
+const [CARDS, NOTES] = ['scale-fixture-cards', 'scale-fixture-notes'];
+const FIXTURES = [CARDS, NOTES];
 
 /** A line's result: its status, and the evidence it rests on, a line each. */
 const pass = (...evidence) => ({ status: 'PASS', evidence });
@@ -155,14 +160,14 @@ async function serve() {
 
 /** The two package designs' bytes, and whether git sees them as committed. */
 function packageFiles() {
-  const bytes = ['cards', 'notes'].map(p => readFileSync(join(ROOT, `packages/${p}/${p}.tamber`), 'utf8'));
-  const clean = run('git', ['diff', '--quiet', '--', 'packages/cards/cards.tamber', 'packages/notes/notes.tamber']).ok;
+  const bytes = FIXTURES.map(p => readFileSync(join(ROOT, `packages/${p}/${p}.tamber`), 'utf8'));
+  const clean = run('git', ['diff', '--quiet', '--', ...FIXTURES.map(p => `packages/${p}/${p}.tamber`)]).ok;
   return { bytes, clean };
 }
 
 /** Whether A2 part 2 is in: describe carries a package token's package. */
 function a2In(described) {
-  return /"package":\s*"@exact\/cards"/.test(JSON.stringify(described ?? {}));
+  return JSON.stringify(described ?? {}).includes(`"package":"@exact/${CARDS}"`);
 }
 
 /** The object describe gives a package token's row in, wherever it sits. */
@@ -406,17 +411,17 @@ export function lines(opts) {
         const why = await s.ask({ method: 'explain', token: 'space.md' });
         evidence.push(`explain space.md: kind ${why.ok?.kind}, value ${why.ok?.value}`);
         if (why.ok?.kind !== 'base' || why.ok?.value !== '20px') bad.push('explain space.md: the base, at the app\'s 20px');
-        const via = await s.ask({ method: 'explain', token: 'cards.pad' });
-        evidence.push(`explain cards.pad: bases ${JSON.stringify(via.ok?.bases ?? null)}`);
-        if (!(via.ok?.bases ?? []).includes('space.md')) bad.push('explain cards.pad: reaches space.md');
-        const rule = await s.ask({ method: 'explain', token: 'notes.rule' });
-        evidence.push(`explain notes.rule: value ${rule.ok?.value} (the app's, by its full name)`);
-        if (!/^#00ff00/i.test(rule.ok?.value ?? '')) bad.push('explain notes.rule: the app\'s #00ff00');
+        const via = await s.ask({ method: 'explain', token: `${CARDS}.pad` });
+        evidence.push(`explain ${CARDS}.pad: bases ${JSON.stringify(via.ok?.bases ?? null)}`);
+        if (!(via.ok?.bases ?? []).includes('space.md')) bad.push(`explain ${CARDS}.pad: reaches space.md`);
+        const rule = await s.ask({ method: 'explain', token: `${NOTES}.rule` });
+        evidence.push(`explain ${NOTES}.rule: value ${rule.ok?.value} (the app's, by its full name)`);
+        if (!/^#00ff00/i.test(rule.ok?.value ?? '')) bad.push(`explain ${NOTES}.rule: the app's #00ff00`);
         // A2 part 2's: package tokens on describe, with their package and file.
-        const pad = packageRow(described.ok, 'cards.pad');
+        const pad = packageRow(described.ok, `${CARDS}.pad`);
         const packaged = a2In(described.ok);
-        evidence.push(`describe: cards.pad ${pad ? `package ${JSON.stringify(pad.package ?? null)}, file ${JSON.stringify(pad.file ?? null)}` : 'with no package row'}`);
-        if (packaged && (pad?.package !== '@exact/cards' || !/(^|\/)cards\.tamber$/.test(String(pad?.file ?? '')))) bad.push('describe: cards.pad is @exact/cards\'s, from its cards.tamber');
+        evidence.push(`describe: ${CARDS}.pad ${pad ? `package ${JSON.stringify(pad.package ?? null)}, file ${JSON.stringify(pad.file ?? null)}` : 'with no package row'}`);
+        if (packaged && (pad?.package !== `@exact/${CARDS}` || !String(pad?.file ?? '').endsWith(`${CARDS}.tamber`))) bad.push('describe: cards.pad is @exact/cards\'s, from its cards.tamber');
         if (bad.length) return fail(...evidence, ...bad);
         return packaged ? pass(...evidence) : waits('A2 part 2 (package rows on describe)', ...evidence);
       } finally { await s.stop(); }
@@ -436,26 +441,26 @@ export function lines(opts) {
         // A2 part 2's: present once describe carries package rows.
         const described = (await s.ask({ method: 'describe' })).ok;
         const a2 = a2In(described);
-        const pkg = await write({ op: 'set-token', name: 'cards.fill', value: '#00ff00' });
-        const wrote = /^\s*cards\.fill = #00ff00/m.test(design());
-        evidence.push(`set-token cards.fill: ${pkg.ok ? (wrote ? 'the app\'s override line' : 'ok, no app line') : `refused (${pkg.error?.message ?? ''})`}; package files ${untouched() ? 'untouched' : 'CHANGED'}`);
+        const pkg = await write({ op: 'set-token', name: `${CARDS}.fill`, value: '#00ff00' });
+        const wrote = new RegExp(`^\\s*${CARDS}\\.fill = #00ff00`, 'm').test(design());
+        evidence.push(`set-token ${CARDS}.fill: ${pkg.ok ? (wrote ? 'the app\'s override line' : 'ok, no app line') : `refused (${pkg.error?.message ?? ''})`}; package files ${untouched() ? 'untouched' : 'CHANGED'}`);
         const add = await write({ op: 'add-token', name: 'space.lg', value: '30px' });
         const pointed = !add.ok && /set-token/.test(JSON.stringify(add.error?.diagnostics ?? add.error?.message ?? ''));
         evidence.push(`add-token space.lg: ${add.ok ? 'taken' : `refused: ${JSON.stringify(add.error?.diagnostics?.[0]?.message ?? add.error?.message ?? '')}`}; package files ${untouched() ? 'untouched' : 'CHANGED'}`);
         // The package file as the server names it (A2 part 2's `packages`,
         // `<package>/<file>`), else no probe: a path it doesn't know is
         // refused as no file of the design, which proves nothing of the guard.
-        const packageFile = (described?.packages ?? []).map(p => p.file).find(f => /(^|\/)cards\.tamber$/.test(String(f)));
+        const packageFile = (described?.packages ?? []).map(p => p.file).find(f => String(f).endsWith(`/${CARDS}.tamber`));
         let refusedOutside = false;
         if (packageFile) {
-          const outside = await write({ op: 'set-token', file: packageFile, name: 'cards.fill', value: '#123456' });
+          const outside = await write({ op: 'set-token', file: packageFile, name: `${CARDS}.fill`, value: '#123456' });
           const said = JSON.stringify(outside.error ?? '');
           refusedOutside = !outside.ok && !/is no file of this design/.test(said);
           evidence.push(`set-token naming ${packageFile}: ${outside.ok ? 'taken' : `refused: ${said.slice(0, 160)}`}; package files ${untouched() ? 'untouched' : 'CHANGED'}`);
         } else evidence.push('the server names no package file yet: the guard not probed');
         if (!untouched()) {
           bad.push('a package file changed (tracked bytes): put back');
-          ['cards', 'notes'].forEach((p, i) => writeFileSync(join(ROOT, `packages/${p}/${p}.tamber`), before.bytes[i]));
+          FIXTURES.forEach((p, i) => writeFileSync(join(ROOT, `packages/${p}/${p}.tamber`), before.bytes[i]));
         }
         if (bad.length) return fail(...evidence, ...bad);
         const pending = [!(pkg.ok && wrote) && 'set-token on a package name writes the app\'s override', !pointed && 'add-token of a base name refused for set-token', !refusedOutside && 'an op naming a package file refused'].filter(Boolean);
@@ -465,7 +470,7 @@ export function lines(opts) {
     }],
     ['private', 'The fixture packages are private, and nothing publishes them', () => {
       const evidence = [], bad = [];
-      for (const p of ['cards', 'notes']) {
+      for (const p of FIXTURES) {
         const manifest = JSON.parse(readFileSync(join(ROOT, `packages/${p}/package.json`), 'utf8'));
         evidence.push(`@exact/${p}: private ${manifest.private === true}`);
         if (manifest.private !== true || manifest.name !== `@exact/${p}`) bad.push(`@exact/${p} is not private`);
