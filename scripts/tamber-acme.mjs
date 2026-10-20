@@ -107,7 +107,8 @@ export async function acmeCertificate({ directory, names, accountKey, key, publi
   };
   const created = await post(dir.newAccount, { termsOfServiceAgreed: true });
   kid = ours(created.headers.get('location'));
-  told(kid);
+  // (before any order: a caller may refuse to go on, `--require-caa` without the record)
+  await told(kid);
   const ordered = await post(dir.newOrder, { identifiers: names.map(value => ({ type: 'dns', value })) });
   const orderUrl = ours(ordered.headers.get('location'));
   let order = ordered.json();
@@ -219,14 +220,49 @@ export async function relayCertificate(dir, names, acme, { now = Date.now(), get
         return x.publicKey.equals(createPublicKey(key)) && certifies(x, names, now) && Date.parse(x.validTo) - now > RENEW_MS;
       } catch { return false; }
     };
+    // The ACME account's URL, kept beside its key (a CAA record names it).
+    const uriPath = join(dir, 'account-uri');
+    let accountUri = regular(uriPath)?.trim() ?? null;
     let cert = regular(certPath), renewed = false;
     if (!cert || !fits(cert)) {
-      cert = await get({ ...acme, names, accountKey: keyAt(join(dir, 'account-key.pem')), key, now });
+      const told = acme.account ?? (() => {});
+      cert = await get({ ...acme, names, accountKey: keyAt(join(dir, 'account-key.pem')), key, now, account: async uri => { if (uri !== accountUri) { keep(uriPath, uri); accountUri = uri; } await told(uri); } });
       keep(certPath, cert);
       renewed = true;
     }
     const x = new X509Certificate(cert);
     const spki = createHash('sha256').update(x.publicKey.export({ type: 'spki', format: 'der' })).digest('base64');
-    return { cert, key, fingerprint: x.fingerprint256, spki, renewed };
+    return { cert, key, fingerprint: x.fingerprint256, spki, renewed, accountUri };
   }, wait ? { wait } : {});
 }
+
+/** Whether the CAA records that govern `name` (the nearest set up the
+ * tree, as a CA reads them, RFC 8659) let only this ACME account, by
+ * DNS-01, get a certificate for it: every `issuewild` record (else every
+ * `issue`, for a wildcard; `issue` for a host) names `accounturi=<uri>`
+ * and `validationmethods=dns-01` alone, or forbids issuance (`;`). Read
+ * through the system resolver, no DNSSEC validation. `{pinned, at}`. */
+export async function caaPinned(name, accountUri, { resolveCaa } = {}) {
+  const resolve = resolveCaa ?? (await import('node:dns')).promises.resolveCaa;
+  const wild = name.startsWith('*.');
+  let domain = name.replace(/^\*\./, '');
+  for (;;) {
+    let records = [];
+    try { records = await resolve(domain); } catch (e) { if (!['ENODATA', 'ENOTFOUND', 'ENOENT'].includes(e.code)) throw e; }
+    if (records.length) {
+      const tagged = tag => records.filter(r => r[tag] !== undefined).map(r => String(r[tag]));
+      const rules = wild && tagged('issuewild').length ? tagged('issuewild') : tagged('issue');
+      const pinned = rules.length > 0 && rules.every(v => {
+        const [issuer, ...params] = v.split(';').map(p => p.trim());
+        if (!issuer && params.every(p => !p)) return true; // (";": no CA may issue)
+        const kv = Object.fromEntries(params.filter(Boolean).map(p => { const i = p.indexOf('='); return [p.slice(0, i).trim().toLowerCase(), p.slice(i + 1).trim()]; }));
+        return kv.accounturi === accountUri && kv.validationmethods === 'dns-01';
+      });
+      return { pinned, at: domain };
+    }
+    const dot = domain.indexOf('.');
+    if (dot < 0 || !domain.slice(dot + 1).includes('.')) return { pinned: false, at: null };
+    domain = domain.slice(dot + 1);
+  }
+}
+

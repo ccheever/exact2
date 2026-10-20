@@ -54,6 +54,8 @@ export function relayArgs(argv, { env = process.env, home = homedir() } = {}) {
   const hook = value('--relay-dns-hook');
   if (names && !cert && !hook) throw new Error('--relay-name needs --relay-dns-hook (a command that puts the ACME TXT record up in your DNS), or --relay-cert and --relay-key');
   if (hook !== null && (!names || cert)) throw new Error('--relay-dns-hook is for --relay-name\'s names of your own, got by ACME');
+  const requireCaa = argv.includes('--require-caa');
+  if (requireCaa && hook === null) throw new Error('--require-caa is for --relay-dns-hook\'s names of your own');
   if (names && parentOf(names.tool) !== parentOf(names.canvas)) throw new Error('--relay-name\'s two names share one parent domain (one wildcard certifies both)');
   const acme = value('--relay-acme') ?? ACME;
   if (!/^https:\/\//.test(acme)) throw new Error('--relay-acme takes an ACME directory\'s https URL');
@@ -68,7 +70,7 @@ export function relayArgs(argv, { env = process.env, home = homedir() } = {}) {
   // (the key only its owner may read, as the token)
   if (key && statSync(key).mode & 0o077) throw new Error(`--relay-key ${key} may be read by others: chmod 600 it`);
   return { host: m[1].toLowerCase(), port: Number(m[2] ?? 443), account, token, names,
-    ...(cert ? { cert: readFileSync(cert, 'utf8'), key: readFileSync(key, 'utf8') } : { acme, hook, dir: join(home, '.exact', 'relay', account) }) };
+    ...(cert ? { cert: readFileSync(cert, 'utf8'), key: readFileSync(key, 'utf8') } : { acme, hook, requireCaa, dir: join(home, '.exact', 'relay', account) }) };
 }
 
 /** Let's Encrypt's directory, the certificate's issuer by default. */

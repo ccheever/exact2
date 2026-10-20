@@ -260,8 +260,14 @@ statuses:
   its output never logged (and never given the relay's token): their DNS credentials never pass
   through the relay. The relay operator, whose port those names reach, could still get a
   certificate for them by TLS-ALPN-01 or HTTP-01; the CAA record printed at start (`issuewild`
-  limited to this ACME account, by DNS-01) closes that, and until the developer sets it that
-  residual stands, as with the relay's own domain. `--relay-cert`/`--relay-key` (PEM files) give
+  limited to this ACME account, by DNS-01) closes that. It is checked at start and before each
+  renewal (the nearest CAA set up the tree, as a CA reads it, every rule pinning this account and
+  `validationmethods=dns-01`, or forbidding issuance): until it is set, the start-up line says
+  plainly "not zero-trust" and `pair-code`'s relay entry carries `caa: false` (*1.15*; `caa: true`
+  once it is), and with `--require-caa` no order runs at all until it is. The check reads the
+  system resolver without DNSSEC validation, and CAA binds the CAs that honour it, which every
+  public CA must (RFC 8659, the Baseline Requirements). The relay's own domain keeps its residual:
+  its operator controls its CAA. `--relay-cert`/`--relay-key` (PEM files) give
   one of the developer's own instead. The account's token is `EXACT_RELAY_TOKEN` or `~/.exact/relay/<label>/token` (refused
   unless only its owner may read it), never logged, never in a URL. A relay whose own certificate
   fails WebPKI is never sent it, and no flag turns that check off. The session's names are the
@@ -304,7 +310,7 @@ statuses:
   remote?}`. `remote` lists the remote doors open (stage 10 B), for the tool to show beside the
   code: `{origin, fingerprint}` for the TLS listener, whose certificate's SHA-256 the other machine
   checks before it pairs (the lead's ruling 2), and `{origin, tunnel: true}` for a trusted tunnel's
-  local end, and `{origin, fingerprint, spki, relay: true}` for a relay's session (*1.14*; `spki`,
+  local end, and `{origin, fingerprint, spki, relay: true, caa?}` for a relay's session (*1.14*; `caa` with names of the developer's own, above; `spki`,
   the base64 SHA-256 of its certificate's public key, the same across renewals with the account's
   one key, a non-browser client's pin, *1.15*). It is absent when none is open. `bun exact.mjs tamber pair <url> --scope
   read|propose|write [--name <name>]` mints one from this machine and prints them. A code is 50 random bits, written `XXXXX-XXXXX` in Crockford base32 (case, hyphens, `I`,

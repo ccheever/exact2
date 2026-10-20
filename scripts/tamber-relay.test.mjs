@@ -198,6 +198,8 @@ test('the token is read from the environment or a file only its owner may read; 
     expect(relayArgs([...bare, '--relay-name', 'tool.example.com', 'canvas.example.com', '--relay-dns-hook', 'true'], env)).toMatchObject({ hook: 'true' });
     expect(() => relayArgs([...bare, '--relay-dns-hook', 'true'], env)).toThrow('--relay-dns-hook is for --relay-name');
     expect(() => relayArgs([...bare, '--relay-name', 'tool.example.com', 'canvas.other.org', '--relay-dns-hook', 'true'], env)).toThrow('one parent domain');
+    expect(relayArgs([...bare, '--relay-name', 'tool.example.com', 'canvas.example.com', '--relay-dns-hook', 'true', '--require-caa'], env).requireCaa).toBe(true);
+    expect(() => relayArgs([...bare, '--require-caa'], env)).toThrow("--require-caa is for --relay-dns-hook's names");
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
@@ -738,10 +740,14 @@ test('R2: the relay refuses a TXT record outside the account\'s names; names of 
   const relayBYO = await fakeRelay({ greet: `READY ${byo.tool} ${byo.canvas}\n` });
   const hook = `if [ "$EXACT_ACME_ACTION" = publish ]; then echo "$EXACT_ACME_RECORD $EXACT_ACME_VALUE" >> ${zone}; fi`;
   const args = { host: 'relay.test', port: relayBYO.control, account: 'acct', token: TOKEN, names: byo, acme: acme.directory, hook, dir: join(home, '.exact', 'relay', 'acct') };
-  const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relayBYO.control), say: () => {}, warn: () => {}, acme: { fetch: acme.fetch, wait: async () => {} } });
+  const warned = [];
+  const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relayBYO.control), say: () => {}, warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa: async () => [] } });
   closing.push(() => doors.close());
   await until(() => doors.relay() !== null, 10_000);
   expect(acme.orders.map(o => o.names)).toEqual([['*.example.com']]);
+  // No CAA record pinning this account: said plainly, and shown beside the fingerprint (*1.15*).
+  expect(doors.relay().caa).toBe(false);
+  expect(warned.some(l => l.startsWith('tamber: not zero-trust: the relay could obtain a certificate for *.example.com'))).toBe(true);
   expect([...relayBYO.seen.txt.keys()]).toEqual([]); // (nothing of the developer's domain through the relay)
   expect(readFileSync(zone, 'utf8')).toContain('_acme-challenge.example.com ');
 });
@@ -766,4 +772,52 @@ test('R2 round 1: the DNS hook gets the record and its value to clear as to publ
   await expect(dnsHook(`(sleep 1; touch ${marker}) & sleep 5`, '_acme-challenge.example.com', 'B'.repeat(43), { ms: 200 })).rejects.toThrow('took more than');
   await new Promise(ok => setTimeout(ok, 1500));
   expect(() => readFileSync(marker)).toThrow();
+});
+
+test('R2 (theme2 09:57): a CAA record pinning this account and DNS-01 makes it zero-trust (caa: true); --require-caa without one refuses before any order', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'exact-relay-caa-'));
+  closing.push(() => rmSync(home, { recursive: true, force: true }));
+  const zone = join(home, 'zone');
+  writeFileSync(zone, '');
+  const dns = record => readFileSync(zone, 'utf8').split('\n').filter(l => l.startsWith(`${record} `)).map(l => l.split(' ')[1]);
+  const byo = { tool: 'tool.example.com', canvas: 'canvas.example.com' };
+  const hook = `if [ "$EXACT_ACME_ACTION" = publish ]; then echo "$EXACT_ACME_RECORD $EXACT_ACME_VALUE" >> ${zone}; fi`;
+  const run = async (resolveCaa, requireCaa, tag) => {
+    const acme = fakeAcme({ dns });
+    const relay = await fakeRelay({ greet: `READY ${byo.tool} ${byo.canvas}\n` });
+    const warned = [];
+    const args = { host: 'relay.test', port: relay.control, account: 'acct', token: TOKEN, names: byo, acme: acme.directory, hook, requireCaa, dir: join(home, tag) };
+    const doors = await openRemote(wire(), { relay: args }, { connect: toRelay(relay.control), say: () => {}, warn: l => warned.push(l), acme: { fetch: acme.fetch, wait: async () => {} }, acmeOptions: { resolveCaa } });
+    closing.push(() => doors.close());
+    return { acme, doors, warned };
+  };
+  // Pinned (the account the stand-in gives first is /acct/1):
+  const pinned = async () => [{ critical: 0, issuewild: 'letsencrypt.org; validationmethods=dns-01; accounturi=https://acme.test/acct/1' }];
+  const ok = await run(pinned, false, 'a');
+  await until(() => ok.doors.relay() !== null, 10_000);
+  expect(ok.doors.relay().caa).toBe(true);
+  expect(ok.warned).toEqual([]);
+  // Required and missing: refused before any order, the relay door closed.
+  const refused = await run(async () => [], true, 'b');
+  await until(() => refused.warned.some(l => l.includes('--require-caa')), 10_000);
+  expect(refused.acme.orders.length).toBe(0);
+  expect(refused.doors.relay()).toBeNull();
+});
+
+test('R2 (theme2 09:57): the CAA that governs a name is the nearest set up the tree; every rule must pin, `;` forbids', async () => {
+  const { caaPinned } = await import('./tamber-acme.mjs');
+  const uri = 'https://acme.test/acct/1', ok = `letsencrypt.org; validationmethods=dns-01; accounturi=${uri}`;
+  const zone = recs => async d => recs[d] ?? [];
+  expect(await caaPinned('*.a.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issuewild: ok }] }) })).toEqual({ pinned: true, at: 'example.com' });
+  // The nearest set wins: a.example.com's own, unpinned, though example.com is pinned.
+  expect((await caaPinned('*.a.example.com', uri, { resolveCaa: zone({ 'a.example.com': [{ issue: 'letsencrypt.org' }], 'example.com': [{ issuewild: ok }] }) })).pinned).toBe(false);
+  // Every rule must pin: one open issuer is a way in.
+  expect((await caaPinned('*.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issuewild: ok }, { issuewild: 'pki.goog' }] }) })).pinned).toBe(false);
+  // Another account, or another method, is not this one.
+  expect((await caaPinned('*.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issuewild: ok.replace('acct/1', 'acct/2') }] }) })).pinned).toBe(false);
+  expect((await caaPinned('*.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issuewild: ok.replace('dns-01', 'tls-alpn-01') }] }) })).pinned).toBe(false);
+  // No issuewild: the issue rules govern a wildcard; `;` forbids, which pins nothing open.
+  expect((await caaPinned('*.example.com', uri, { resolveCaa: zone({ 'example.com': [{ issue: ok }, { issue: ';' }] }) })).pinned).toBe(true);
+  // None at all, up to the top: not pinned.
+  expect(await caaPinned('*.example.com', uri, { resolveCaa: zone({}) })).toEqual({ pinned: false, at: null });
 });

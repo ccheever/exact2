@@ -15,7 +15,7 @@ import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { allowHostArgs } from './install-page.mjs';
 import { connectRelay, dnsHook, parentOf, relayArgs, relayTxt } from './tamber-relay.mjs';
-import { relayCertificate } from './tamber-acme.mjs';
+import { caaPinned, relayCertificate } from './tamber-acme.mjs';
 import { serveToolFiles, TOOL_DIST } from './tamber-tool-files.mjs';
 
 const DAY = 86_400_000;
@@ -421,11 +421,11 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
     // Shown once the session is named and its certificate held: the origin,
     // the certificate's fingerprint, and its key's SPKI pin (*1.15*), which
     // stays the same across renewals with the account's one key.
-    let ready = false;
+    let ready = false, caa = null;
     const announce = () => {
       if (!ready || !held || connector.closed) return;
       const first = !relayed;
-      relayed = { origin: `https://${names.tool}`, fingerprint: held.fingerprint, spki: held.spki, relay: true };
+      relayed = { origin: `https://${names.tool}`, fingerprint: held.fingerprint, spki: held.spki, relay: true, ...(relay.hook ? { caa: caa === true } : {}) };
       if (!first) return;
       say(`  relay ${relay.host}: ${relayed.origin}, its clients' TLS ending here (certificate SHA-256 ${held.fingerprint}, key pin ${held.spki})`);
       say('  until the relay\'s domain is a public suffix, another account\'s names there are same-site to yours: nothing here trusts that');
@@ -441,9 +441,22 @@ export async function openRemote(wire, { remote, tunnel = null, plugin = false, 
       const publish = relay.hook ? (r, v) => dnsHook(relay.hook, r, v) : (r, v) => relayTxt(relay, r, v, via);
       const unpublish = relay.hook ? (r, v) => dnsHook(relay.hook, r, v, { clear: true }) : (r, v) => relayTxt(relay, r, v, { clear: true, ...via });
       // With names of their own, the CAA record that keeps the relay's operator from getting one by
-      // another method (TLS-ALPN-01 or HTTP-01 at the relay's own port): said with the account it names.
-      const account = uri => { if (relay.hook) say(`  for names of your own, set this CAA record on ${parentOf(names.tool)} so only this account, by DNS-01, can get them: 0 issuewild "letsencrypt.org; validationmethods=dns-01; accounturi=${uri}"`); };
-      const get = () => relayCertificate(relay.dir, [wildcard], { directory: relay.acme, publish, unpublish, warn, account, ...(acme ?? {}) }, acmeOptions);
+      // another method (TLS-ALPN-01 or HTTP-01 at the relay's own port): said with the account it names,
+      // and checked at start and before each renewal (theme2's 09:57): not set, said plainly and shown
+      // beside the fingerprint (`caa: false`), or, with --require-caa, refused before any order.
+      const parent = parentOf(names.tool);
+      const checkCaa = async uri => {
+        if (!relay.hook || !uri) return;
+        if (caa === null) say(`  for names of your own, set this CAA record on ${parent} so only this account, by DNS-01, can get them: 0 issuewild "letsencrypt.org; validationmethods=dns-01; accounturi=${uri}"`);
+        const c = await caaPinned(`*.${parent}`, uri, acmeOptions.resolveCaa ? { resolveCaa: acmeOptions.resolveCaa } : {}).catch(() => ({ pinned: false }));
+        if (!c.pinned) warn(`tamber: not zero-trust: the relay could obtain a certificate for *.${parent} until you set the CAA record above`);
+        caa = c.pinned;
+        if (!c.pinned && relay.requireCaa) throw new Error(`--require-caa: no CAA record on ${parent} pins this account and DNS-01`);
+      };
+      const account = uri => checkCaa(uri);
+      // (a certificate kept from before is checked too: no order runs to check it there)
+      const get = () => relayCertificate(relay.dir, [wildcard], { directory: relay.acme, publish, unpublish, warn, account, ...(acme ?? {}) }, acmeOptions)
+        .then(async got => { if (!got.renewed) await checkCaa(got.accountUri); return got; });
       // A certificate taken only while the connector runs, for these names; a process that renewed it
       // (another app on this account) changes it too: adopted by its fingerprint, not by who renewed it.
       const take = got => {
