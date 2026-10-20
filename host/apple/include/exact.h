@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 15
+#define EXACT_ABI_VERSION 16
 
 #ifdef __cplusplus
 extern "C" {
@@ -487,8 +487,10 @@ const uint8_t *exact_field_decorations(const uint8_t *input, size_t len, size_t 
  * Structural reads use their actual presentation. `modal` is the index of
  * the first view of the frontmost modal presentation, or UINT32_MAX while
  * none is open: it and the views after it are live, and the views before it
- * and the page are inert behind it. */
-void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, uint32_t count, uint32_t modal);
+ * and the page are inert behind it. `clips` is null or four viewport
+ * x/y/width/height doubles per id; NaN at x means no clip for that entry.
+ * A clip bounds hits and visibility without changing the frame's mapping. */
+void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, const double *clips, uint32_t count, uint32_t modal);
 /* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in

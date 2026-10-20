@@ -116,6 +116,142 @@ final class PopoverSheetIOSTests: XCTestCase {
         XCTAssertTrue(hit.isDescendant(of: popover), "the window reaches popover content, got \(type(of: hit))", file: file, line: line)
     }
 
+    func testSheetReportsItsScrolledBorderBoxAndSeparateClipUntilClosing() throws {
+        guard hasScene else { throw missing("scene", "the dialog must be presented in a sheet") }
+        let p = try page(), dialog = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 0, "y": 200, "w": 300, "h": 1800]]))
+        let sheet = try show(in: p)
+        p.viewport.contentOffset = CGPoint(x: 11, y: 37)
+        let open = p.openTopLayer
+        XCTAssertEqual(open.frames.map { $0.0 }, [2])
+        XCTAssertEqual(open.modal, 0)
+        let entry = try XCTUnwrap(open.frames.first), clip = try XCTUnwrap(entry.2)
+        XCTAssertEqual(entry.1, p.viewportPoints(dialog.convert(dialog.bounds, to: p.viewport)))
+        XCTAssertEqual(entry.1.height, 1800, accuracy: 0.5)
+        XCTAssertGreaterThan(entry.1.height, clip.height, "the card clips; it must not shorten the reported box")
+        XCTAssertEqual(clip, p.viewportPoints(sheet.scroller.convert(sheet.scroller.bounds, to: p.viewport)))
+        let offset = sheet.scroller.contentOffset
+        sheet.scroller.setContentOffset(CGPoint(x: offset.x, y: offset.y + 120), animated: false)
+        let scrolled = try XCTUnwrap(p.openTopLayer.frames.first)
+        XCTAssertEqual(scrolled.1.minY, entry.1.minY - 120, accuracy: 0.5)
+        XCTAssertEqual(scrolled.1.size, entry.1.size)
+        XCTAssertEqual(scrolled.2, clip, "scrolling moves the border box, not the card's clip")
+
+        p.menus.sheets.close(dialog, animated: true)
+        XCTAssertTrue(p.menus.sheets.owns(dialog), "UIKit still holds the closing sheet")
+        XCTAssertFalse(p.menus.sheets.isOpen(dialog))
+        XCTAssertTrue(p.openTopLayer.frames.isEmpty)
+        XCTAssertNil(p.openTopLayer.modal)
+        settle { !p.menus.inTransition && self.window?.rootViewController?.presentedViewController == nil }
+        XCTAssertFalse(p.menus.sheets.owns(dialog))
+        XCTAssertTrue(p.openTopLayer.frames.isEmpty)
+        XCTAssertNil(p.openTopLayer.modal)
+    }
+
+    func testSheetContentIsReadThroughTheRuntimeWithItsClip() throws {
+        guard hasScene else { throw missing("scene", "the runner reads content in a presented sheet") }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_DIALOG_SHEET_READS_PLAN"])))
+        let session = ExactApp.shared.makeSession(label: "dialog-sheet-reads")
+        self.session = session
+        let p = session.presenter, view = ExactView(session: session), host = UIViewController()
+        kept = p
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.screen.bounds
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        self.window = window
+        host.view.addSubview(view)
+        XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
+        view.frame = host.view.bounds
+        view.layoutIfNeeded()
+        session.firstDrawMs = ExactEnv.wall()
+        let sheet = try show(in: p)
+        func named(_ id: String) throws -> NodeView {
+            try XCTUnwrap(p.views.values.first { $0.props["id"] == id }, id)
+        }
+        let dialog = try named("form"), content = try named("content"), clipped = try named("clipped")
+        let clip = try XCTUnwrap(p.openTopLayer.frames.first { $0.0 == dialog.id }?.2)
+        func point(_ node: NodeView) -> CGPoint {
+            let frame = p.viewportPoints(node.convert(node.bounds, to: p.viewport))
+            return CGPoint(x: frame.midX, y: frame.midY)
+        }
+        func read(_ at: CGPoint) throws -> [String: Any] {
+            let sample = PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "mouse", id: 1,
+                                       clientX: Double(at.x), clientY: Double(at.y))
+            let batch = session.runtime.pointer(dialog.id, .move, sample, now: session.now())
+            XCTAssertNil(batch.error)
+            session.apply(batch)
+            let state = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(session.runtime.agent("{\"op\":\"state\"}").utf8)) as? [String: Any])
+            return try XCTUnwrap(state["slots"] as? [String: Any])
+        }
+        XCTAssertTrue(clip.contains(point(content)))
+        XCTAssertFalse(clip.contains(point(clipped)))
+        let inside = try read(point(content))
+        XCTAssertEqual(inside["hit"] as? String, "content")
+        XCTAssertEqual(inside["hits"] as? String, "content,form")
+        let outside = try read(point(clipped))
+        XCTAssertEqual(outside["hit"] as? String, "none")
+        XCTAssertEqual(outside["hits"] as? String, "")
+        XCTAssertTrue(content.isDescendant(of: sheet.scroller))
+    }
+
+    /// A route presentation whose routes show no box yet (not in the window
+    /// while UIKit presents it) still begins the modal boundary.
+    func testARoutePresentationWithNoBoxYetKeepsTheModalBoundary() throws {
+        guard hasScene else { throw missing("scene", "a route presentation on its way to the window") }
+        let p = try page()
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "view", "props": ["navigationPresentation": "modal"]],
+            ["op": "frame", "id": 30, "x": 0, "y": 0, "w": 300, "h": 600],
+            ["op": "children", "id": 30, "ids": [20]],
+            ["op": "children", "id": 1, "ids": [2, 30]],
+        ]))
+        let route = try XCTUnwrap(p.views[30]), owner = try XCTUnwrap(window?.rootViewController)
+        let navigation = UINavigationController(rootViewController: RouteController(route))
+        p.modals.present(route, navigation: navigation, from: owner, preceding: nil, owner: owner)
+        XCTAssertNil(navigation.view.window, "UIKit has not put it in the window yet")
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [])
+        XCTAssertEqual(p.openTopLayer.modal, 0, "the page is inert behind it already")
+        settle { !p.modals.inTransition }
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [30])
+        XCTAssertEqual(p.openTopLayer.modal, 0)
+        p.modals.closeTop(animated: false)
+        settle { !p.modals.inTransition }
+    }
+
+    func testRouteDialogAndPopoverReportTheirUIKitStackOrder() throws {
+        guard hasScene else { throw missing("scene", "the dialog must be above a presented route") }
+        let p = try page()
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "view", "props": ["navigationPresentation": "modal"]],
+            ["op": "frame", "id": 30, "x": 0, "y": 0, "w": 300, "h": 600],
+            ["op": "children", "id": 30, "ids": [2, 20]],
+            ["op": "children", "id": 1, "ids": [30]],
+        ]))
+        let route = try XCTUnwrap(p.views[30]), owner = try XCTUnwrap(window?.rootViewController)
+        let navigation = UINavigationController(rootViewController: RouteController(route))
+        p.modals.present(route, navigation: navigation, from: owner, preceding: nil, owner: owner)
+        settle { !p.modals.inTransition }
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [30])
+        XCTAssertEqual(p.openTopLayer.modal, 0)
+        let sheet = try show(in: p)
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [30, 2])
+        XCTAssertEqual(p.openTopLayer.modal, 1)
+        p.menus.action("showPopover", ["choices", "opener"])
+        try assertAbove(try XCTUnwrap(p.views[5]), sheet)
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [30, 2, 5])
+        XCTAssertEqual(p.openTopLayer.modal, 1)
+        p.menus.action("hidePopover", ["choices"])
+        p.menus.sheets.close(try XCTUnwrap(p.views[2]), animated: false)
+        settle { !p.menus.inTransition && sheet.presentingViewController == nil }
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [30])
+        XCTAssertEqual(p.openTopLayer.modal, 0)
+        p.modals.closeTop(animated: true)
+        XCTAssertNil(p.openTopLayer.modal, "a retiring route no longer owns the modal boundary")
+        settle { !p.modals.inTransition }
+    }
+
     func testPopoverAboveSheetKeepsItsAnchorAndReportedFrame() throws {
         guard hasScene else { throw missing("scene", "stacking and hit testing need a presented sheet") }
         let session = ExactApp.shared.makeSession(label: "popover-sheet")
@@ -127,6 +263,10 @@ final class PopoverSheetIOSTests: XCTestCase {
         let anchor = opener.convert(opener.bounds, to: window), drawn = pop.convert(pop.bounds, to: window)
         XCTAssertEqual(drawn.midX, anchor.midX, accuracy: 0.5)
         XCTAssertEqual(drawn.minY, anchor.maxY, accuracy: 0.5)
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [2, 5])
+        XCTAssertEqual(p.openTopLayer.modal, 0)
+        XCTAssertNotNil(p.openTopLayer.frames.first?.2)
+        XCTAssertNil(p.openTopLayer.frames.last?.2)
         let reported = try XCTUnwrap(p.openTopLayerFrames.first { $0.0 == pop.id }?.1)
         let expected = p.viewportPoints(pop.convert(pop.bounds, to: p.viewport))
         XCTAssertEqual(reported.minX, expected.minX, accuracy: 0.5)
@@ -143,6 +283,8 @@ final class PopoverSheetIOSTests: XCTestCase {
         let siblings = try XCTUnwrap(parentLayer.superview).subviews
         XCTAssertGreaterThan(try XCTUnwrap(siblings.firstIndex(of: subLayer)), try XCTUnwrap(siblings.firstIndex(of: parentLayer)))
         try assertAbove(sub, sheet)
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [2, 5, 8])
+        XCTAssertEqual(p.openTopLayer.modal, 0)
     }
 
     func testOpeningOrderSurvivesSyncAndReopeningMovesAboveSheet() throws {
@@ -153,6 +295,8 @@ final class PopoverSheetIOSTests: XCTestCase {
         let sheet = try show(in: p)
         p.menus.sync(); p.menus.sync()
         XCTAssertTrue(layer.superview === host)
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [5, 2])
+        XCTAssertEqual(p.openTopLayer.modal, 1)
         XCTAssertTrue(pop.isDescendant(of: p.viewport), "authorship inside the dialog must not choose its later sheet")
         XCTAssertTrue(p.listenerParent(of: try XCTUnwrap(p.views[3])) === dialog)
         let point = pop.convert(CGPoint(x: pop.bounds.midX, y: pop.bounds.midY), to: window)
@@ -160,6 +304,8 @@ final class PopoverSheetIOSTests: XCTestCase {
         p.menus.action("hidePopover", ["choices"])
         p.menus.action("showPopover", ["choices", "opener"])
         try assertAbove(pop, sheet)
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [2, 5])
+        XCTAssertEqual(p.openTopLayer.modal, 0)
     }
 
     func testAccessibilityKeepsTheLiftedButtonInsideItsModalUntilALaterSheetOpens() throws {
@@ -206,12 +352,16 @@ final class PopoverSheetIOSTests: XCTestCase {
         let upper = try show("second", in: p)
         p.menus.sync()
         XCTAssertTrue(PopoverLayer.containing(button)?.sheet === sheet)
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [2, 5, 20])
+        XCTAssertEqual(p.openTopLayer.modal, 2)
         let covered = p.axElements(roots: p.accessibilitySurfaces)
         XCTAssertNil((covered["elements"] as? [[String: Any]])?.first { $0["testId"] as? String == "choice" }, "hidden under the later sheet, as its card is")
         p.menus.sheets.close(try XCTUnwrap(p.views[20]), animated: false)
         settle { sheet.presentedViewController == nil && !p.menus.inTransition }
         XCTAssertNil(upper.view.window)
         XCTAssertEqual(try choice(modal: 2)["outsideModal"] as? Bool, false, "exposed again once the later sheet closes")
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [2, 5])
+        XCTAssertEqual(p.openTopLayer.modal, 0)
     }
 
     func testRetiringRouteModalMovesExistingAndNewPopoversToTheViewport() throws {
@@ -397,6 +547,8 @@ final class PopoverSheetIOSTests: XCTestCase {
         p.menus.sync()
         XCTAssertTrue(p.menus.isOpen(pop))
         XCTAssertTrue(pop.isDescendant(of: p.viewport), "hosted where a popover outside the modal opens")
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [5, 2])
+        XCTAssertEqual(p.openTopLayer.modal, 1)
         let point = pop.convert(CGPoint(x: pop.bounds.midX, y: pop.bounds.midY), to: window)
         XCTAssertFalse(try XCTUnwrap(window?.hitTest(point, with: nil)).isDescendant(of: pop), "under the sheet, which takes the touch")
     }
@@ -529,6 +681,8 @@ final class PopoverSheetIOSTests: XCTestCase {
         let pop = try XCTUnwrap(p.views[30])
         XCTAssertTrue(p.menus.isOpen(pop))
         XCTAssertTrue(pop.isDescendant(of: p.viewport), "hosted where it was before the sheet")
+        XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, [30, 2])
+        XCTAssertEqual(p.openTopLayer.modal, 1)
         let point = pop.convert(CGPoint(x: pop.bounds.midX, y: pop.bounds.midY), to: window)
         XCTAssertFalse(try XCTUnwrap(window?.hitTest(point, with: nil)).isDescendant(of: pop))
     }

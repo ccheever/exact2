@@ -218,6 +218,23 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
                                   kind: .dialog, owned: [entry.controller.scroller])
         }
     }
+    /// The laid-out dialog moves with the sheet's scroller; its visible
+    /// card clips it without rescaling its descendants (LLP 1051.000 D1).
+    var presented: [TopLayerBox] {
+        guard let presenter else { return [] }
+        return entries.compactMap { entry in
+            let controller = entry.controller
+            guard !entry.closing, !controller.isBeingDismissed,
+                  let view = controller.viewIfLoaded, view.window != nil else { return nil }
+            let scroller = controller.scroller
+            let clip = scroller.convert(scroller.bounds, to: presenter.viewport)
+                .intersection(view.convert(view.bounds, to: presenter.viewport))
+            return TopLayerBox(view: entry.dialog,
+                               frame: (entry.dialog.id, entry.dialog.topLayerFrame(in: presenter.viewport), presenter.viewportPoints(clip)),
+                               modal: controller)
+        }
+    }
+
     /// Whether `view` is in one of the sheets: a real touch there is this
     /// session's, though the sheet is not under the session's view.
     func shows(_ view: UIView) -> Bool {
