@@ -120,7 +120,8 @@ on macOS and Linux.
   length tokens and base names, those over unset base names kept as written: in `resolve`'s shadows such a length is null among `lengths`, and
   `length_texts` (only then) gives every length's text, with the base names they read in `bases`
   (stage 12 B3); a param's levels (stage 12 B2-levels):
-  `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name`, and
+  `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name` per
+  side (`{light, dark}`: a correction within the window, which first gave one of each), and
   `describe`'s param rows' `reaches`; `describe`'s library components' `parts`, `variants` and
   `library` (stage 12 D3; a param's winning level per tuple is `resolve`'s, B2-levels); a relay session's `spki` with its
   certificate got by ACME (stage 10c R2); and names this machine's files in no answer:
@@ -574,12 +575,13 @@ tuple:
   either spelling, as the checker keys it: `secondary-label` or `-exact-secondary-label`, any case),
   then a package's token. It takes each line's value in the tuple and goes at most 8 hops. It stops
   at a line whose value is no reference (a literal such as `transparent` or `-1`, or an
-  expression), at a base name or at a role, and that place wins. A `when` naming an axis `under
-  scheme=dark` is a colour's light/dark pair: the walk follows neither side, and its line wins. An icon
-  param answers the same.
-  - Each of `resolve`'s tuples adds `level`, one of `app-param`, `app-token`, `package`, `base`,
-    `role` or `default` (the param's own default, a literal or an expression: a tool's word for it is
-    "the component's default"), and `name`, the name at
+  expression), at a base name or at a role, and that place wins. Each side of a tuple is walked on
+  its own: a `when` naming an axis `under scheme=dark` holds on the dark side alone, the light side
+  taking the line's own value (as the fold does). An icon param answers the same.
+  - Each of `resolve`'s tuples adds `level` and `name`, each `{light, dark}` as its value's sides
+    (the same on both where the scheme decides nothing). A level is one of `app-param`, `app-token`,
+    `package`, `base`, `role` or `default` (the param's own default, a literal or an expression: a tool's word for it is
+    "the component's default"); a name is the name at
     that level (a param's full name, a token's, a base name; a role, or an override of one, by the row
     spelling the fold publishes: `AccentColor`, `-exact-secondary-label`).
   - `levels: {token, app, base, param}` when the param's default is a reference; `levels: null` for a
@@ -588,7 +590,7 @@ tuple:
       `params` lines; at most 8 hops), `{name, package?, file, line, value}`: a package's own line
       with stage 11 A2's `package` and `file` (`<package>/<file>`), else the app's line;
     - `app` is the app's override of that package token, `{file, line, value}`, or null;
-    - `base` is the base name every tuple's walk reaches, or null when they differ or one reaches
+    - `base` is the base name every tuple's walk reaches on both sides, or null when they differ or one reaches
       none (each tuple's own is on `resolve`'s tuples);
     - `param` is the app's own value of the param, `{file, line, value}`, or null (`param.set`
       stays).
