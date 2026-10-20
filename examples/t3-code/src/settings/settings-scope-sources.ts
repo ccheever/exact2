@@ -10,6 +10,7 @@ import { bridgeReply, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { fleet as appFleet, EnvironmentFleet, environmentKey, type FleetEntry } from '../connections/settings-b-fleet';
 import { machineKind } from '../connections/connections';
+import { catalogOrder } from '../connections/local-primary';
 import { groupLabel, repositoryGroupingKey } from '../sidebar/project-groups';
 import type { ScopeGroup, ScopeMember } from './settings-scope';
 import type { ScopedSettingsEnvironment } from './scoped-settings-plan';
@@ -29,7 +30,7 @@ const hostOf = (origin: string) => { try { return new URL(origin).host || origin
 const configOf = (config: Obj, connected: boolean) => connected && config.settings !== undefined
   ? { settings: obj(config.settings), environment: { capabilities: { projectSettingsOverrides: obj(obj(config.environment).capabilities).projectSettingsOverrides === true } } } : null;
 
-/** Every environment the scope menu lists: the focused one first, then each switched-on background one. */
+/** Every environment the scope menu lists, in the catalog's order (catalogOrder): the primary first, then the saved ones. */
 export function scopeEnvironments(client: Focused, source: EnvironmentFleet = appFleet): ScopeEnvironment[] {
   const list: ScopeEnvironment[] = [];
   const focusedKey = client.environmentId && client.origin ? environmentKey(client.origin, client.environmentId) : '';
@@ -46,7 +47,7 @@ export function scopeEnvironments(client: Focused, source: EnvironmentFleet = ap
       kind: machineKind(entry.config, str(saved?.machine)), scopes: entry.scopes, connection: { phase: synchronized ? 'connected' : entry.phase === 'connected' ? 'connecting' : entry.phase },
       serverConfig: configOf(entry.config, synchronized), fleetKey: entry.key });
   }
-  return list;
+  return catalogOrder(list, source.catalogIds());
 }
 
 const projectPath = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
@@ -73,7 +74,9 @@ export function scopeProjectGroups(client: Focused, source: EnvironmentFleet = a
       groups.set(key, group);
     }
   }
-  return [...groups].map(([projectKey, group]) => ({ projectKey, displayName: group.name || groupLabel(group.projects), memberProjects: group.members }));
+  // The label reads every environment's members (deriveProjectGroupLabel), and the menu lists groups by it (useSettingsProjectGroups).
+  return [...groups].map(([projectKey, group]) => ({ projectKey, displayName: groupLabel(group.projects) || group.name, memberProjects: group.members }))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
 const entryOf = (source: EnvironmentFleet, key: string): FleetEntry | undefined => source.entries.get(key);

@@ -90,6 +90,9 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
     row(settings, projectId, environmentLabel, 'defaultAutoPull', { kind: 'switch', title: 'Automatically pull', control: 'Default automatic pull', resetLabel: 'default automatic pull', first: true, checked: value.defaultAutoPull === true, disabled: !writable,
       description: project ? "Keeps this project's default branch current when the checkout has no local changes or commits." : 'Keeps the default branch current when the checkout has no local changes or commits. Projects can override it.',
       reset: resetFor('defaultAutoPull', value.defaultAutoPull === true) }),
+    row(settings, projectId, environmentLabel, 'removeAgentCreditsOnMerge', { title: 'Remove agent credits when merging', resetLabel: 'agent credit removal', checked: value.removeAgentCreditsOnMerge === true, disabled: !writable,
+      description: 'Remove recognized agent credit lines from GitHub merge and squash messages, keeping human co-authors. Includes auto-merge. Excludes merge queues, stack merges, and existing commits.',
+      reset: resetFor('removeAgentCreditsOnMerge', value.removeAgentCreditsOnMerge === true) }),
     row(settings, projectId, environmentLabel, 'pullRequestMergeMethod', { kind: 'select', title: 'Default merge method', control: 'Default pull request merge method', resetLabel: 'default merge method', value: merge, valueLabel: merge === 'last' ? 'Last selected' : MERGE_LABELS[merge] || merge, disabled: !writable,
       description: project ? 'Pull requests in this project start with this method.' : 'Pull requests start with this method. Last selected reuses whatever you chose most recently on this device.',
       options: [['last', 'Last selected'], ['merge', 'Merge'], ['squash', 'Squash and merge'], ['rebase', 'Rebase and merge']].map(([v, l]) => ({ value: v, label: l, selected: v === merge })),
@@ -123,10 +126,8 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
       reset: project ? (overridden('sourceControlWritingStyle') ? 'key=sourceControlWritingStyle&value=__inherit__' : '') : (writing !== 'repo_conventions' || str(style.customInstructions) !== '' ? 'key=sourceControlWritingStyle&value=__default__' : '') }),
     row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { key: 'sourceControlWritingStyle.followChangeRequestTemplates', kind: 'switch', title: 'Follow change request templates', resetLabel: 'change request templates', checked: style.followChangeRequestTemplates !== false, disabled: !writable,
       description: "Use the repository's template for change request descriptions when available.", reset: project ? '' : style.followChangeRequestTemplates === false ? 'key=sourceControlWritingStyle.followChangeRequestTemplates&value=__default__' : '' }),
-    row(settings, projectId, environmentLabel, 'removeAgentCreditsOnMerge', { title: 'Remove agent credits on merge', checked: value.removeAgentCreditsOnMerge === true, disabled: !writable,
-      description: 'Omit agent credits from generated merge messages.', reset: resetFor('removeAgentCreditsOnMerge', value.removeAgentCreditsOnMerge === true) }),
     modelRow('sourceControlWriterModelSelection', 'Source control writer model', "Model for source control text and branch or bookmark names. Off uses the environment's text generation model."),
-    row(settings, projectId, environmentLabel, 'reviewGuidesEnabled', { title: 'Review guides', checked: settings.reviewGuidesEnabled === true, disabled: project || !writable,
+    row(settings, projectId, environmentLabel, 'reviewGuidesEnabled', { title: 'Review guides (beta)', control: 'Review guides', checked: settings.reviewGuidesEnabled === true, disabled: project || !writable,
       description: 'Adds a Guide tab to pull requests: an agent writes a tour of the change, stop by stop, with the calls a maintainer should make.' }),
     ...(settings.reviewGuidesEnabled === true ? [modelRow('reviewGuideModelSelection', 'Review guide model',
       'Model that reads a pull request to write its review guide. It reads the change itself over many steps, so a stronger model helps. Off uses the source control writer model.'),
@@ -261,7 +262,7 @@ function scopeError(client: T3Client, native: Native | null | undefined, environ
 function environmentLabel(client: T3Client): string { return str(obj(client.config.environment).label, 'Environment'); }
 
 export async function sourceControlPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, rescan: number, machine = '', projectKey = '', checkout = '') {
-  const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, repositories: [] as ScopedRow[], text: [] as ScopedRow[],
+  const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, repositories: [] as ScopedRow[], text: [] as ScopedRow[], vcsTitle: 'Version Control',
     scanned: false, scanError: '', vcs: [] as ReturnType<typeof discoveryRows>['vcs'], providers: [] as ReturnType<typeof discoveryRows>['providers'], fetches: [fetchInterval({})], hostCredentials: [] as HostCredentials[] };
   if (!active) return empty;
   if (!native?.available) return { ...empty, error: 'Connect an environment to inspect its version control tools and hosting integrations.' };
@@ -298,7 +299,10 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
       owned.set(owner.environmentId, cached);
     }
     const found = discoveryRows(cached.value);
-    return { ...empty, project: Boolean(selectedProjectId), available: true, ...rows, scanned: true, scanError: cached.error, ...found, fetches: [fetchInterval(settings)],
+    // Across several connected environments the discovery heading names the one it scanned.
+    const connected = scope.selected.filter(environment => environment.connection.phase === 'connected' && environment.serverConfig !== null);
+    const vcsTitle = scope.resolved.environmentIds.length !== 1 && connected.length > 1 ? `Version Control · ${representative.label}` : 'Version Control';
+    return { ...empty, project: Boolean(selectedProjectId), available: true, ...rows, vcsTitle, scanned: true, scanError: cached.error, ...found, fetches: [fetchInterval(settings)],
       hostCredentials: hostCredentials(obj(owner.config.settings), cached.value, owner.environmentId, rescan, can(owner, 'settings:write') && scope.kind !== 'project' && scope.kind !== 'checkout' && !projectId) };
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }
