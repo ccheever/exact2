@@ -71,6 +71,11 @@ shape PrHost
   label: string
   selected: bool
   unavailable: string
+shape PrServer
+  value: string
+  label: string
+  icon: string
+  selected: bool
 shape PrProject
   id: string
   name: string
@@ -131,6 +136,11 @@ shape PrListView
   projectLabel: string
   projectId: string
   hosts: PrHost[]
+  // The Server filter: its rows (All servers first) and the chosen one; a row only with two or more servers.
+  server: string
+  serverLabel: string
+  serverIcon: string
+  servers: PrServer[]
   projects: PrProject[]
   authors: PrAuthor[]
   labelFacets: PrLabelFacet[]
@@ -491,7 +501,7 @@ component PrFiltersMenu
   // → , Enter or Space on a row opens its submenu with the focus on the submenu's first row, ← closes it
   // and gives the focus back to the row.
   state subKeyed = 0
-  derive subItems = sub == "state" ? [KmItem(id="pr-state-all", label="All"), KmItem(id="pr-state-open", label="Open"), KmItem(id="pr-state-closed", label="Closed"), KmItem(id="pr-state-merged", label="Merged")] : (sub == "involvement" ? [KmItem(id="pr-involvement-all", label="All"), KmItem(id="pr-involvement-reviewing", label="Reviewing"), KmItem(id="pr-involvement-authored", label="Authored")] : (sub == "draft" ? [KmItem(id="pr-draft-all", label="All"), KmItem(id="pr-draft-only", label="Drafts only"), KmItem(id="pr-draft-hide", label="Hide drafts")] : (sub == "review" ? [KmItem(id="pr-review-all", label="All"), KmItem(id="pr-review-approved", label="Approved"), KmItem(id="pr-review-changes", label="Changes requested"), KmItem(id="pr-review-required", label="Review required"), KmItem(id="pr-review-none", label="No reviews")] : (sub == "checks" ? [KmItem(id="pr-checks-all", label="All"), KmItem(id="pr-checks-passing", label="Passing"), KmItem(id="pr-checks-failing", label="Failing")] : (sub == "project" ? [KmItem(id="pr-project-all", label="All projects")].concat(page.projects.filter((project) => project.unavailable == "").map((project) => KmItem(id=`pr-project-${project.id}`, label=project.name))) : (sub == "author" ? [KmItem(id="pr-author-anyone", label="Anyone")].concat(authors.map((person) => KmItem(id=`pr-author-${person.key}`, label=person.login))) : page.labelFacets.map((label) => KmItem(id=`pr-label-${label.key}`, label=label.name))))))))
+  derive subItems = sub == "server" ? page.servers.map((server) => KmItem(id=`pr-server-${server.value == "" ? "all" : server.value}`, label=server.label)) : sub == "state" ? [KmItem(id="pr-state-all", label="All"), KmItem(id="pr-state-open", label="Open"), KmItem(id="pr-state-closed", label="Closed"), KmItem(id="pr-state-merged", label="Merged")] : (sub == "involvement" ? [KmItem(id="pr-involvement-all", label="All"), KmItem(id="pr-involvement-reviewing", label="Reviewing"), KmItem(id="pr-involvement-authored", label="Authored")] : (sub == "draft" ? [KmItem(id="pr-draft-all", label="All"), KmItem(id="pr-draft-only", label="Drafts only"), KmItem(id="pr-draft-hide", label="Hide drafts")] : (sub == "review" ? [KmItem(id="pr-review-all", label="All"), KmItem(id="pr-review-approved", label="Approved"), KmItem(id="pr-review-changes", label="Changes requested"), KmItem(id="pr-review-required", label="Review required"), KmItem(id="pr-review-none", label="No reviews")] : (sub == "checks" ? [KmItem(id="pr-checks-all", label="All"), KmItem(id="pr-checks-passing", label="Passing"), KmItem(id="pr-checks-failing", label="Failing")] : (sub == "project" ? [KmItem(id="pr-project-all", label="All projects")].concat(page.projects.filter((project) => project.unavailable == "").map((project) => KmItem(id=`pr-project-${project.id}`, label=project.name))) : (sub == "author" ? [KmItem(id="pr-author-anyone", label="Anyone")].concat(authors.map((person) => KmItem(id=`pr-author-${person.key}`, label=person.login))) : page.labelFacets.map((label) => KmItem(id=`pr-label-${label.key}`, label=label.name))))))))
   action triggerKey(k: string, e: KeyboardEvent)
     if kmTriggerKey(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
       preventDefault()
@@ -502,7 +512,9 @@ component PrFiltersMenu
         let target = kmTriggerTarget(filterItems, k)
         if target != ""
           focus(target)
-  derive filterItems = [KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"), KmItem(id="pr-filter-draft", label="Draft"), KmItem(id="pr-filter-review", label="Review"), KmItem(id="pr-filter-checks", label="Checks"), KmItem(id="pr-filter-project", label="Project")]
+  // PullRequestListFilters: the Server submenu only when there is a choice (`serverOptions.length > 2`).
+  derive serverShown = page.servers.length > 2
+  derive filterItems = [KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"), KmItem(id="pr-filter-draft", label="Draft"), KmItem(id="pr-filter-review", label="Review"), KmItem(id="pr-filter-checks", label="Checks")].concat(serverShown ? [KmItem(id="pr-filter-server", label="Server")] : []).concat([KmItem(id="pr-filter-project", label="Project")])
   action subKey(name: string, k: string, e: KeyboardEvent)
     if k == "ArrowRight" or kmOpenKey(k)
       preventDefault()
@@ -552,8 +564,8 @@ component PrFiltersMenu
   action menuChanged(e: ToggleEvent)
     if e.newState == "closed"
       focus("pull-requests-filters")
-  derive subWidth = sub == "" ? 0 : (sub == "author" or sub == "labels" or sub == "project" ? 232 : 168)
-  derive subTop = sub == "involvement" ? 28 : sub == "author" ? 65 : sub == "labels" ? 93 : sub == "draft" ? 121 : sub == "review" ? 149 : sub == "checks" ? 177 : sub == "project" ? 214 : 0
+  derive subWidth = sub == "" ? 0 : (sub == "author" or sub == "labels" or sub == "project" or sub == "server" ? 232 : 168)
+  derive subTop = sub == "involvement" ? 28 : sub == "author" ? 65 : sub == "labels" ? 93 : sub == "draft" ? 121 : sub == "review" ? 149 : sub == "checks" ? 177 : sub == "server" ? 214 : sub == "project" ? (serverShown ? 251 : 214) : 0
   view
     column position="relative" flex-shrink=0
       button id="pull-requests-filters" popovertarget="pr-filters-menu" press=openMenu key=triggerKey aria-label="Filters" testId="pull-requests-filters" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
@@ -578,6 +590,9 @@ component PrFiltersMenu
               PrSubTrigger(keysId="pr-filters-keys", icon=page.draftIcon, label="Draft", value=page.draftLabel, open=(sub == "draft"), press=open("draft"), keys=subKey("draft"), leave=rowLeft("draft"), testId="pr-filter-draft")
               PrSubTrigger(keysId="pr-filters-keys", icon=page.reviewIcon, label="Review", value=page.reviewLabel, open=(sub == "review"), press=open("review"), keys=subKey("review"), leave=rowLeft("review"), testId="pr-filter-review")
               PrSubTrigger(keysId="pr-filters-keys", icon=page.checksIcon, label="Checks", value=page.checksLabel, open=(sub == "checks"), press=open("checks"), keys=subKey("checks"), leave=rowLeft("checks"), testId="pr-filter-checks")
+              if serverShown
+                box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+                PrSubTrigger(keysId="pr-filters-keys", icon=page.serverIcon, label="Server", value=page.serverLabel, open=(sub == "server"), press=open("server"), keys=subKey("server"), leave=rowLeft("server"), testId="pr-filter-server")
               box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
               PrSubTrigger(keysId="pr-filters-keys", icon="layers", label="Project", value=page.projectLabel, open=(sub == "project"), press=open("project"), keys=subKey("project"), leave=rowLeft("project"), testId="pr-filter-project")
 
@@ -638,7 +653,7 @@ component PrFilterSub
   view
     column width="100%"
       if sub != "author" and sub != "labels"
-        text (sub == "state" ? "State" : sub == "involvement" ? "Involvement" : sub == "draft" ? "Draft" : sub == "review" ? "Review" : sub == "checks" ? "Checks" : "Project") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+        text (sub == "state" ? "State" : sub == "involvement" ? "Involvement" : sub == "draft" ? "Draft" : sub == "review" ? "Review" : sub == "checks" ? "Checks" : sub == "server" ? "Server" : "Project") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
       if sub == "state"
         PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="All", detail="", selected=(page.state == "all"), tick=true, disabled=false, press=control("state", "all"), testId="pr-state-all")
         PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="git-pull-request-arrow", label="Open", detail="", selected=(page.state == "open"), tick=true, disabled=false, press=control("state", "open"), testId="pr-state-open")
@@ -662,6 +677,9 @@ component PrFilterSub
         PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="All", detail="", selected=(page.checks == "all"), tick=true, disabled=false, press=control("checks", "all"), testId="pr-checks-all")
         PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="circle-check", label="Passing", detail="", selected=(page.checks == "passing"), tick=true, disabled=false, press=control("checks", "passing"), testId="pr-checks-passing")
         PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="circle-x", label="Failing", detail="", selected=(page.checks == "failing"), tick=true, disabled=false, press=control("checks", "failing"), testId="pr-checks-failing")
+      if sub == "server"
+        for server in page.servers key=server.value
+          PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon=server.icon, label=server.label, detail="", selected=server.selected, tick=true, disabled=false, press=control("server", server.value), testId=`pr-server-${server.value == "" ? "all" : server.value}`)
       if sub == "project"
         PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="All projects", detail="", selected=(page.projectId == ""), tick=true, disabled=false, press=control("project", ""), testId="pr-project-all")
         for project in page.projects key=project.id
