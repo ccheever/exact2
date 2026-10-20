@@ -150,15 +150,24 @@ extension Picker {
     }
 
     /// The manifest's `file_handlers`, as the bake wrote them into
-    /// `CFBundleDocumentTypes`: the only types a picker offers (D2).
+    /// `CFBundleDocumentTypes`. The web-page type a Mac browser declares
+    /// (`ExactWebPage`, LLP 1030 D2) is Launch Services' alone: an HTML file
+    /// it brings is a link (`isWebPageFile`), never a document.
+    static func declarations(in metadata: [String: Any] = ExactEnv.appMetadata) -> [[String: Any]] {
+        (metadata["CFBundleDocumentTypes"] as? [[String: Any]] ?? []).filter { $0["ExactWebPage"] as? Bool != true }
+    }
+
+    /// The declared types: the only ones a picker offers (D2).
     static var declaredTypes: [UTType] { documentTypes.filter { $0 != .folder } }
 
     /// Every declared type, and the type this device gives each declared
     /// extension: an app's own format whose extension another app's type
     /// already has (studio diary R13: Freeform has `.board`) is still offered,
     /// whichever type a file of it resolves to here.
-    static var documentTypes: [UTType] {
-        let declarations = ExactEnv.appMetadata["CFBundleDocumentTypes"] as? [[String: Any]] ?? []
+    static var documentTypes: [UTType] { types(in: ExactEnv.appMetadata) }
+
+    static func types(in metadata: [String: Any]) -> [UTType] {
+        let declarations = declarations(in: metadata)
         let declared = declarations.flatMap { $0["LSItemContentTypes"] as? [String] ?? [] }.compactMap { UTType($0) }
         let byExtension = declarations.flatMap { $0["CFBundleTypeExtensions"] as? [String] ?? [] }.compactMap { UTType(filenameExtension: $0) }
         return (declared + byExtension).reduce(into: []) { types, t in if !types.contains(t) { types.append(t) } }
