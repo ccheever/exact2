@@ -2818,6 +2818,23 @@ Under `--touch platform` a tap replies `viewGone: true` when its view left the
 window before the finger lifted, so that view had no lift (UIKit rebuilds a
 grouped row's detail button in the first seconds after the list appears).
 Read the state, and tap again if nothing changed.
+
+#### Drags on iOS
+
+A wheel (`tap <scroller> wheel 0 300`) and, without `--touch platform`, a drag on
+the scroll or list it starts on (`tap <scroller> drag 0 -300`, past the screen
+too) leave it as a person's scroll by that distance does, with no glide: the
+content moves that far, a large title collapses as it goes, and a scroll back to
+the top opens it again. As a person's, none stops with the content partway under
+a large title: it eases to the title's open or closed rest, whichever is nearer,
+so under one a wheel of 20 from the top moves nothing (with a search field in the
+bar it stays where it ends: not measured). Under `--touch platform` a drag whose ends
+are both on screen is a real one (`delivery: platform`): the content follows the
+finger once UIKit's pan begins, some 10 points in, and glides on after the lift;
+`clock settle` waits up to 4 s for it to stop (`reason: "scroll"` past that). A
+hold shorter than about a second still glides, since XCTest's finger sends
+nothing while it is still; `hold 1000` lifted with none where measured. A drag that ends past the
+screen is the agent's drag above, `delivery: recognized`.
 During a reorder `state.reorder` reads `{ item, from, to, before, phase,
 ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires

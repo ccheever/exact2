@@ -713,7 +713,7 @@ public final class Agent {
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
         #if os(iOS) || os(tvOS)
-        var wallDeadline: Date?
+        var wallDeadline: Date?, scrollDeadline: Date?
         #endif
         var world = WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
@@ -794,9 +794,20 @@ public final class Agent {
                 // The app's own native motion on the wall clock ends first,
                 // within 1.5 s for the whole call, or the call is not settled;
                 // what its completion starts is checked below.
-                let wallUntil = wallDeadline ?? Date(timeIntervalSinceNow: 1.5)
+                var wallUntil = wallDeadline ?? Date(timeIntervalSinceNow: 1.5)
                 wallDeadline = wallUntil
-                if !awaitWallMotion(until: wallUntil) { return reply(landed, false, reason: "motion") }
+                // …and a scroll view a finger left moving, within 4 s for the
+                // whole call; what its glide's end starts is the app's motion
+                // again, with its own 1.5 s.
+                let scrollUntil = scrollDeadline ?? Date(timeIntervalSinceNow: 4)
+                scrollDeadline = scrollUntil
+                while true {
+                    if !awaitWallMotion(until: wallUntil) { return reply(landed, false, reason: "motion") }
+                    guard let glided = awaitScrollRest(until: scrollUntil) else { return reply(landed, false, reason: "scroll") }
+                    if !glided { break }
+                    wallUntil = Date(timeIntervalSinceNow: 1.5)
+                    wallDeadline = wallUntil
+                }
                 #endif
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn
