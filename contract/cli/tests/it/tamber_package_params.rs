@@ -545,17 +545,37 @@ fn the_apps_design_whole_keys_what_its_params_keep() {
     assert_eq!(before["ok"]["class"], "rebuild", "{before}");
     let (moved, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [{"op": "set-token", "name": "reading.pin", "value": "reading.new"}]}));
     assert!(moved.get("ok").is_some(), "{moved}");
+    // The override's move alone: the chain now reaches `reading.new`, not
+    // `reading.old` (a fresh server's classes, held below too).
+    let (old, _) = s.ask(vary("reading.old"));
+    let (new, _) = s.ask(vary("reading.new"));
+    assert_eq!(
+        (&old["ok"]["class"], &new["ok"]["class"]),
+        (&json!("live"), &json!("rebuild")),
+        "{old} {new}"
+    );
     let (set, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [{"op": "set-param", "name": "Map.pin", "value": "ink2"}]}));
     assert!(set.get("ok").is_some(), "{set}");
     let ink2 = json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink2", "when": [{"axis": "mode", "value": "b"}], "value": "#444444"}]});
-    let primed = [s.ask(vary("reading.old")).0, s.ask(ink2.clone()).0];
+    let primed = [
+        s.ask(vary("reading.old")).0,
+        s.ask(vary("reading.new")).0,
+        s.ask(ink2.clone()).0,
+    ];
     drop(s);
     let mut fresh = Serve::start(&dir, &[]);
-    let expected = [fresh.ask(vary("reading.old")).0, fresh.ask(ink2).0];
+    let expected = [
+        fresh.ask(vary("reading.old")).0,
+        fresh.ask(vary("reading.new")).0,
+        fresh.ask(ink2).0,
+    ];
     for (p, e) in primed.iter().zip(&expected) {
         assert!(e.get("ok").is_some(), "{e}");
         assert_eq!(p["ok"]["class"], e["ok"]["class"], "{p} {e}");
     }
-    assert_eq!(expected[1]["ok"]["class"], "rebuild", "{}", expected[1]);
+    assert_eq!(expected[0]["ok"]["class"], "live", "{}", expected[0]);
+    // `Map.pin` now reads `ink2`: `reading.new` is no longer kept either.
+    assert_eq!(expected[1]["ok"]["class"], "live", "{}", expected[1]);
+    assert_eq!(expected[2]["ok"]["class"], "rebuild", "{}", expected[2]);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -366,10 +366,12 @@ impl Server {
 
     /// The app's synthetic tokens: every expression over tokens its rows
     /// write, folding or not, as the compiler finds them (the plan keeps
-    /// only those that fold). Read again when a Contract source, what
-    /// resolved its imports, or the design's token names change, which is
-    /// what decides them. None when the build stopped before the design:
-    /// not kept, and tried again.
+    /// only those that fold), and the plan's retention beside them. Read
+    /// again when a Contract source or what resolved its imports changes, or
+    /// the app's or a package's design text does (each design's digest is
+    /// in the key): a design edit builds them again on the next propose.
+    /// None when the build stopped before the design: not kept, and tried
+    /// again.
     fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
         let root = self.dir.join("app.contract");
         let mut key = self.sources_key();
