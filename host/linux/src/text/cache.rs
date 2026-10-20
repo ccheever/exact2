@@ -1032,6 +1032,7 @@ fn fingerprint(spec: &Spec) -> u64 {
         run.weight.hash(&mut h);
         run.family.hash(&mut h);
         run.italic.hash(&mut h);
+        run.stretch.to_bits().hash(&mut h);
         run.line_height.map(f32::to_bits).hash(&mut h);
         run.letter_spacing.to_bits().hash(&mut h);
         run.font_variant_numeric.hash(&mut h);
@@ -1061,6 +1062,7 @@ fn equal(a: &Spec, b: &Spec) -> bool {
                     && a.weight == b.weight
                     && a.family == b.family
                     && a.italic == b.italic
+                    && a.stretch.to_bits() == b.stretch.to_bits()
                     && a.line_height.map(f32::to_bits) == b.line_height.map(f32::to_bits)
                     && a.letter_spacing.to_bits() == b.letter_spacing.to_bits()
                     && a.font_variant_numeric == b.font_variant_numeric

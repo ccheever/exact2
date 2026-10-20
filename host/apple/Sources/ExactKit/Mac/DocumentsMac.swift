@@ -123,11 +123,12 @@ public enum ExactDocuments {
     /// The person closes `window` (⌘W, File ▸ Close Window, the red button):
     /// the only window of an app that keeps running is hidden rather than
     /// closed, with its session and view as they were, and nothing is asked
-    /// (`beforeunload`), as nothing unloads. Whether it was hidden, which
-    /// the window's `windowShouldClose` answers `false` for.
+    /// (`beforeunload`), as nothing unloads. The page reads
+    /// `visibilityState` `hidden` until the window shows again. Whether it
+    /// was hidden, which the window's `windowShouldClose` answers `false` for.
     public static func hidesOnClose(_ window: NSWindow, only: Bool, keepsRunning: Bool = keepsRunning()) -> Bool {
         guard keepsRunning, only else { return false }
-        window.orderOut(nil)
+        PageFacts.hideForClose(window)
         return true
     }
 

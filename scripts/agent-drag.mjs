@@ -54,6 +54,10 @@ async function reorderNotes(s, since) {
   return (Array.isArray(j?.lines) ? j.lines : []).map((l) => (typeof l === 'string' ? l : JSON.stringify(l)).replace(/^t=\S+ /, '')).filter((l) => l.startsWith('reorder: '));
 }
 const noted = (r, notes) => (notes.length ? { ...r, note: [r.note, ...notes].filter(Boolean).join('; ') } : r);
+/** A scroller's drag that moved nothing (euxy FRICTION 9: a sheet's scroller as tall as its form): what to look at. */
+const still = (r, target) => (Array.isArray(r.scrolledBy) && r.scrolledBy.every((v) => v === 0)
+  ? [`nothing scrolled: the scroller is at the end of its range, or its content fits it; if it should scroll, \`layout ${target}\` shows its height, and one as tall as its content is in a column that grows with it (\`min-height=0\` on that column, the compiler's \`lower-scroll-grows\`)`]
+  : []);
 
 export function dragArguments(opts) {
   const { dx, dy, from, press = 0, over = 250, hold = 0 } = opts, drag = { press, over, hold };
@@ -100,7 +104,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     if (r.error) throw new Error(r.error);
     // Landed as an input is (`s.landed`): what the scroll settled lands its `then`s before the reply, and a landing error is said.
     const real = carrier.touches ? ['past the screen a drag is the scroll view\'s own (recognized), not a real touch: one ends inside the screen'] : [];
-    return noted(await s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), [...real, ...await reorderNotes(s, mark)]);
+    return noted(await s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), [...real, ...still(r, target), ...await reorderNotes(s, mark)]);
   }
   // Each op runs with input refused; the runner path bounds each one by the gesture.
   const held = (op) => async () => { s.held = target; try { return await op(); } finally { s.held = null; } };
@@ -147,7 +151,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       if (during.length) throw new Error('drag: during needs the finger held down, which only --touch platform does on iOS (LLP 1080.000 §11)');
       const r = await carrier.ask({ op: 'tap', id: node.id, scrollDrag: [dx, dy], ...(from ? { from: start } : {}) });
       if (r.error) throw new Error(r.error);
-      return noted(await s.tagged({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), await reorderNotes(s, mark));
+      return noted(await s.tagged({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), [...(moves ? still(r, target) : []), ...await reorderNotes(s, mark)]);
     }
     if (down.delivery === 'unsupported') {
       const { phase: _, ...refused } = down;

@@ -275,7 +275,15 @@ have, sets `"keepRunning": true` in `app.json`'s `host.macos.window`. ⌘W,
 File ▸ Close Window and the red button then hide the window without asking
 `beforeunload`, and the app keeps running with its session and native module
 alive. A Dock click or `open -a` shows the window again as it was, and a
-document routed to the app shows it too. ⌘Q quits as before, and the app's own
+document routed to the app shows it too. While the window is hidden,
+`exactPage().visibilityState` is `hidden`, as for a minimized window, and it
+is `visible` again when the window shows. The close and the reopen are also the
+web's back/forward cache: `exactPage().persisted` is `true` from the close (a
+`pagehide` with `persisted`) until the reopen, and `exactPage().restores`
+counts the reopens (each a `pageshow` with `persisted`). A minimize, ⌘H, a
+covering window or a locked screen changes neither. So an app that opens
+something new on a reopen, as a Mac app makes a new window there, keys a task
+on the count: `task fresh when page.restores > 0 key=page.restores`. ⌘Q quits as before, and the app's own
 `close()` still closes the window and ends the app. A `navigate-new` app
 (`launch_handler`) already outlives its last window, and the key changes
 nothing there. The agent's `state.documents.windows[].visible` says whether

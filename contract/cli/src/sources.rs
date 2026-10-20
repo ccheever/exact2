@@ -216,10 +216,16 @@ impl Loader<'_> {
         let design = design(path, &mut self.sources).map_err(|e| vec![e])?;
         let package_designs =
             packages::designs(&mut self.sources, code_beside(path)).map_err(|e| vec![e])?;
-        // The design's components that aren't Contract, named and checked as
-        // Contract params are (D15).
-        if let Some(d) = &design {
-            let (designed, mut refused) = contract_lower::params::design_tokens(d);
+        // The design's components that aren't Contract, and its packages'
+        // designs' (stage 12 B1), named and checked as Contract params are
+        // (D15).
+        if design.is_some() || !package_designs.is_empty() {
+            let (mut designed, mut refused) = (Vec::new(), Vec::new());
+            for d in design.iter().chain(&package_designs) {
+                let (tokens, errors) = contract_lower::params::design_tokens(d);
+                designed.extend(tokens);
+                refused.extend(errors);
+            }
             let all: Vec<_> = params.iter().chain(&designed).cloned().collect();
             refused.extend(contract_lower::params::collisions(&all));
             if !refused.is_empty() {
@@ -572,10 +578,22 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     for unit in &mut loader.units {
         let _ = contract_lower::params::rewrite(&mut unit.file);
     }
+    // A package design's components' too (stage 12 B1 round 3): an icon
+    // param's SVG is read by the build as the app's own are.
+    let package_designs: Vec<_> = packages::read(&loader.sources, false)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(d, _)| d)
+        .collect();
     let params: Vec<_> = loader
         .units
         .iter()
         .flat_map(|u| contract_lower::params::tokens(&u.file))
+        .chain(
+            package_designs
+                .iter()
+                .flat_map(|d| contract_lower::params::design_tokens(d).0),
+        )
         .collect();
     let errors = match loaded {
         Err(all) => all,
@@ -608,11 +626,6 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         None => (!params.is_empty()).then(|| "tamber app\n".to_string()),
     };
     // With its packages' tokens, which an app token may name (D11).
-    let package_designs: Vec<_> = packages::read(&loader.sources, false)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(d, _)| d)
-        .collect();
     let icons: Vec<PathBuf> = text
         .and_then(|text| exact_tamber::parse(&text).ok())
         .and_then(|d| contract_lower::with_package_designs(Some(d), &package_designs))

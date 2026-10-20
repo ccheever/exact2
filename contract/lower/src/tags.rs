@@ -806,6 +806,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "size" | "fontSize" => "font-size",
         "weight" | "fontWeight" => "font-weight",
         "fontStyle" => "font-style",
+        "fontStretch" => "font-stretch",
         "fontFamily" => "font-family",
         "background" | "backgroundColor" => "background-color",
         "letterSpacing" => "letter-spacing",

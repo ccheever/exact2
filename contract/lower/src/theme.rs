@@ -224,6 +224,7 @@ impl Lowerer<'_> {
     ) -> exact_kernel::style::theme::ThemeScope {
         crate::icons::clear(asset_root);
         ROLES.with(|r| r.borrow_mut().clear());
+        crate::control_roles::note_accent(None);
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
         MEASURES.with(|m| m.borrow_mut().clear());
@@ -311,11 +312,13 @@ impl Lowerer<'_> {
         // A component that isn't Contract reads its params outside the views:
         // its declaration keeps each (D15), with every token its default
         // reads, through any chain.
+        // A package design's components too (stage 12 B1).
         let designed = file
             .design
-            .as_ref()
-            .map(|d| crate::params::design_tokens(d).0);
-        let mut kept: Vec<String> = designed.into_iter().flatten().map(|p| p.token).collect();
+            .iter()
+            .chain(&file.package_designs)
+            .flat_map(|d| crate::params::design_tokens(d).0);
+        let mut kept: Vec<String> = designed.map(|p| p.token).collect();
         let mut roots = std::collections::BTreeSet::new();
         while let Some(name) = kept.pop() {
             if !roots.insert(name.clone()) {
@@ -414,6 +417,7 @@ impl Lowerer<'_> {
         if self.package_references(&folding, file) {
             return exact_kernel::style::theme::declarations([]);
         }
+        crate::control_roles::note_accent(tamber::white_over(&folding.tokens, "AccentColor"));
         for e in crate::params::folded(&kinded, &folding, &overridden, None) {
             self.push(e);
         }
@@ -483,6 +487,31 @@ impl Lowerer<'_> {
                     span: self.token_span(&origin, at.line, at.col),
                 });
                 continue;
+            }
+            // An expression over base names every host can fold (stage 12 B2).
+            if t.kind == tamber::Kind::Length {
+                let unfolded = std::iter::once(&value)
+                    .chain(&slices)
+                    .find_map(|v| crate::scale::unfolded(v).map(|c| (v.clone(), c)));
+                if let Some((v, column)) = unfolded {
+                    let span = self.token_span(&origin, at.line, at.col);
+                    // A ranged param's own check said it already, at its line.
+                    let said = self
+                        .errors
+                        .iter()
+                        .any(|e| e.span == span && e.message.contains("doesn't fold to a length"));
+                    if !said {
+                        self.push(LowerError {
+                            id: "tamber-kind",
+                            message: format!(
+                                "`{name}` is `{v}`, which doesn't fold to a length on {column}: {}",
+                                crate::scale::UNFOLDED
+                            ),
+                            span,
+                        });
+                    }
+                    continue;
+                }
             }
             if let Some((_, row)) = &role {
                 let span = self.token_span(&origin, at.line, at.col);
@@ -1149,15 +1178,23 @@ pub(crate) fn stand_in_profiles(design: &mut tamber::Design) {
 /// lowered: its kind and its distinct values over the app's tuples.
 /// A base name the design leaves unset (LLP 1121 stage 11 B) is the
 /// scale's length, its values every column's that draws in px.
+/// An expression over base names it leaves unset (stage 12 B2) is each
+/// column's px.
 pub(crate) fn measure_values(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
-    MEASURES
-        .with(|m| {
-            m.borrow()
-                .iter()
-                .find(|(name, ..)| name == text.trim())
-                .map(|(_, kind, values)| (*kind, values.clone()))
-        })
+    measure_written(text)
+        .map(|(kind, values)| (kind, crate::scale::expanded(&values)))
         .or_else(|| crate::scale::values(text).map(|values| (tamber::Kind::Length, values)))
+}
+
+/// The design's length or number token `text` names: its kind and its
+/// distinct values over the app's tuples, as the plan carries them.
+fn measure_written(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
+    MEASURES.with(|m| {
+        m.borrow()
+            .iter()
+            .find(|(name, ..)| name == text.trim())
+            .map(|(_, kind, values)| (*kind, values.clone()))
+    })
 }
 
 /// The design's length or number token `text` names, while its styles are
@@ -1347,12 +1384,17 @@ pub(crate) fn measure_row(
                         .message
                         .rsplit_once(": ")
                         .map_or(e.message.as_str(), |(_, why)| why);
-                    return refuse("tamber-kind", format!("`{}=\"{text}\"`: `{text}` is the {kind_name} `{value}` in some app mode, which `{}` does not take: {why}", a.name, a.name));
+                    // An expression over base names: the column it fails in.
+                    let place = measure_written(text)
+                        .and_then(|(_, written)| crate::scale::place(&written, value))
+                        .unwrap_or_else(|| "in some app mode".into());
+                    return refuse("tamber-kind", format!("`{}=\"{text}\"`: `{text}` is the {kind_name} `{value}` {place}, which `{}` does not take: {why}", a.name, a.name));
                 }
             }
-            if values.len() > 1
+            // By its tuples: a base, or an expression over one, varies by
+            // column, never by an app axis.
+            if measure_written(text).is_some_and(|(_, written)| written.len() > 1)
                 && rows.iter().any(|r| r.inherited())
-                && crate::scale::values(text).is_none()
             {
                 return refuse("tamber-inherited-axis", format!("`{}=\"{text}\"`: `{text}` varies by an app axis, and `{}` is inherited: only a colour is chosen again at a mode boundary, so an inherited row names a token with one value (LLP 1121 D7)", a.name, a.name));
             }

@@ -1,0 +1,10 @@
+// The design of @exact/cards (LLP 1121 D11): its tokens under its name, its
+// spacing and corner the base scale's, which the app may set for every
+// package at once.
+tamber cards
+
+theme
+  cards.pad = space.md
+  cards.corner = radius.md
+  cards.fill = #0000ff  scheme=fixed
+  cards.ink = #ffffff  scheme=fixed
