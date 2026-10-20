@@ -4,7 +4,7 @@
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { withLook } from '../look.mjs';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
@@ -49,7 +49,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // another look's own (Android's Material rows) and no sheet's here.
   const neutralCell = (row) => (row.length === 3 ? row[2] : row[5]);
   const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics
-    .filter((row) => row[1] !== 'style' && neutralCell(row) !== 'unset');
+    .filter((row) => !row[1].startsWith('style') && neutralCell(row) !== 'unset'); // `style` and `style length`: the grouped sheet's
   const value = new Map(rows.map((row) => [row[0], neutralCell(row)]));
   const length = (name) => { const v = value.get(name); return typeof v === 'number' ? `${v}px` : v.replace(/^0\./, '.'); };
   // The properties each length is written on.
@@ -189,7 +189,7 @@ const helpers = `
 `;
 const launch = async (engine) => {
   const playwright = await import('playwright-core');
-  return playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: browserPath().executable } : {}) });
+  return suiteBrowser(engine);
 };
 
 // One set of numbers for the three engines. A colour is what the engine paints: [r, g, b, alpha].

@@ -27,7 +27,7 @@ const BEFORE = 'This was made before the tool paired with another design server,
 export const NEEDS: Record<string, string> = {
   hello: 'read', describe: 'read', resolve: 'read', explain: 'read', uses: 'read', history: 'read', export: 'read', inspect: 'read', subscribe: 'read', events: 'read',
   propose: 'propose', import: 'propose', revert: 'propose', drop: 'propose',
-  transaction: 'write', undo: 'write', commit: 'write', accept: 'write', pin: 'write', preview: 'write', outline: 'write', hold: 'write', scrub: 'write', 'scrub-release': 'write', 'scrub-cancel': 'write',
+  transaction: 'write', undo: 'write', commit: 'write', accept: 'write', pin: 'write', preview: 'write', outline: 'write', hold: 'write', navigate: 'write', scrub: 'write', 'scrub-release': 'write', 'scrub-cancel': 'write',
   clients: 'local', revoke: 'local', 'pair-code': 'local',
   canvas: 'read',
 };

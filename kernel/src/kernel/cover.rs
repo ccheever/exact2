@@ -146,16 +146,20 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
         Some(HostCover::Whole) => s.display = taffy::style::Display::None,
         Some(HostCover::Edges(_)) => {
             let [top, right, bottom, left] = added_padding(arena, slot);
+            // The authored padding as layout reads it (whole cells under a
+            // terminal's space rule), plus the host's own inset.
+            let (down, across) = (crate::style::cells::ROW, crate::style::cells::COLUMN);
             s.padding = taffy::geometry::Rect {
-                top: style.padding_top.floor_lp(env, top),
-                right: style.padding_right.floor_lp(env, right),
-                bottom: style.padding_bottom.floor_lp(env, bottom),
-                left: style.padding_left.floor_lp(env, left),
+                top: style.padding_top.spaced(env, down).floor_lp(env, top),
+                right: style.padding_right.spaced(env, across).floor_lp(env, right),
+                bottom: style.padding_bottom.spaced(env, down).floor_lp(env, bottom),
+                left: style.padding_left.spaced(env, across).floor_lp(env, left),
             };
         }
         Some(HostCover::Inset(_)) => {
             let [_, _, bottom, _] = added_padding(arena, slot);
-            s.padding.bottom = style.padding_bottom.floor_lp(env, bottom);
+            let spaced = style.padding_bottom.spaced(env, crate::style::cells::ROW);
+            s.padding.bottom = spaced.floor_lp(env, bottom);
         }
         None => {}
     }
@@ -191,7 +195,8 @@ pub(crate) fn inset(arena: &NodeArena, slot: u32) -> bool {
 pub(crate) fn without_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     if inset(arena, slot) {
         let (style, env) = (arena.effective_style(slot), arena.env());
-        s.padding.bottom = style.padding_bottom.floor_lp(env, 0.0);
+        let spaced = style.padding_bottom.spaced(env, crate::style::cells::ROW);
+        s.padding.bottom = spaced.floor_lp(env, 0.0);
     }
 }
 

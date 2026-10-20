@@ -7,7 +7,8 @@
 // tool grant location, so there the suite checks what holds before a
 // person's grant and names what it skips.
 //
-// usage: bun packages/geolocation/test/apple.mjs [macos] [ios] [--sim <name|udid>]
+// usage: bun packages/geolocation/test/apple.mjs [macos] [ios] [--sim <name|udid>] [--ask]
+//   (--ask: on macOS, the request opens the system's dialog for a person to answer)
 import { readdirSync, rmSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { checker, makeFixture, root, run } from './fixture.mjs';
@@ -63,17 +64,26 @@ for (const host of hosts.length ? hosts : ['macos', 'ios']) {
     check(where, 'the synchronous form answers from the module', now === status?.split(' ')[1], `${now} beside ${status}`);
     const apple = (await s.state('status'))?.apple ?? JSON.parse(JSON.stringify(state.resources?.status ?? {})).apple;
     check(where, 'its apple record is Apple\'s words', WORDS.includes(apple?.authorizationStatus) && ['fullAccuracy', 'reducedAccuracy'].includes(apple?.accuracyAuthorization), JSON.stringify(apple));
-    if (!status?.startsWith('true granted')) {
-      console.log(`SKIP ${where} positions: location is ${status?.split(' ')[1]}, and only a person grants it here`);
+    // macOS lets no tool grant: with --ask, a person answers the system's dialog the request opens.
+    if (status?.startsWith('true prompt') && argv.includes('--ask')) {
+      console.log(`${where}: answer the location dialog (Allow), within two minutes`);
+      await s.tap('locate');
+      const asked = await until(s, 'status', (t) => !t?.startsWith('true prompt'), 120000);
+      check(where, 'the request asks, and the answer reaches the state', /^true (granted|denied)/.test(asked ?? ''), asked);
+    }
+    if (!(await texts(s)).status?.startsWith('true granted')) {
+      console.log(`SKIP ${where} positions: location is not granted, and only a person grants it here (--ask)`);
       continue;
     }
+    // The simulator is where `simctl location` put it; a Mac is wherever it is.
+    const here = udid ? /^48\.8566,2\.3522/ : /^-?\d+(\.\d+)?,-?\d+(\.\d+)?/;
     await s.tap('locate');
-    const once = await until(s, 'once', (t) => t?.startsWith('48.8566'));
-    check(where, 'getCurrentPosition answers the position', /^48\.8566,2\.3522,\d/.test(once ?? ''), once);
+    const once = await until(s, 'once', (t) => here.test(t ?? ''), 30000);
+    check(where, 'getCurrentPosition answers the position', here.test(once ?? ''), once);
 
     await s.tap('watch');
-    const spot = await until(s, 'spot', (t) => t === '48.8566,2.3522');
-    check(where, 'watchPosition in data code', spot === '48.8566,2.3522', spot);
+    const spot = await until(s, 'spot', (t) => here.test(t ?? ''), 30000);
+    check(where, 'watchPosition in data code', here.test(spot ?? ''), spot);
     if (udid) {
       run('xcrun', ['simctl', 'location', udid, 'set', '51.5074,-0.1278']);
       const moved = await until(s, 'spot', (t) => t === '51.5074,-0.1278');

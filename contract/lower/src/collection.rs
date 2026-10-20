@@ -300,7 +300,7 @@ impl Lowerer<'_> {
             })
         };
         for a in attrs.iter().filter(|a| main_axis(&a.name)) {
-            let main = match super::values::sides(&a.name, &a.value)? {
+            let main = match super::shorthands::sides(&a.name, &a.value)? {
                 Some(four) if !a.name.ends_with(ends[0]) && !a.name.ends_with(ends[1]) => {
                     sides.map(|i| four[i].clone()).to_vec()
                 }

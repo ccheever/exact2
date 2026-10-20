@@ -210,7 +210,7 @@ fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
 "##,
     )
     .unwrap();
-    let (host, first) = Host::boot(
+    let (mut host, first) = Host::boot(
         &plan.encode(),
         caltrain_data::Caltrain,
         Default::default(),
@@ -218,7 +218,7 @@ fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
     )
     .unwrap();
     let doc = host.document().unwrap().root;
-    let tree = host.runner().document_tree().unwrap();
+    let tree = host.runner_mut().document_tree().unwrap();
     let (detached, _) =
         exact_web::document::project_tree(&tree, host.runner(), Default::default()).unwrap();
     assert_eq!(detached.root, doc, "the kernel-free document agrees");

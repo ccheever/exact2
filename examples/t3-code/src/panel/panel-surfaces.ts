@@ -19,7 +19,7 @@ import { ClientError, type Files, type Native } from '../client/protocol';
 import { diffRequest, adoptDiff, diffNotGit } from '../diff/diff';
 import { fileIconToken } from '../shared/timeline-files';
 import { visiblePullRequests } from './shell-pr';
-import { filesView, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, type FilesView } from './files-surface';
+import { filesView, filesHidden, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, type FilesView } from './files-surface';
 import { readSpeedMode } from '../pull-requests/pages-pr-quick';
 import { prsView, prsLocal, prsCommand, emptyPrs, type PrsView } from './linked-prs';
 import { deviceView, deviceLocal, deviceCommand, deviceReady, watchDevice, emptyDevice, deviceHidden, deviceStateOf, type DeviceView } from '../device/device-surface';
@@ -41,7 +41,7 @@ import { letGo } from '../client/let-go';
 import { annotationDispatchView, annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from '../browser/browser-capture'; // The floating player's browser source, an annotation's send
 import { automationRecordingView, serveRecordingRequests, type AutomationRecordingView } from '../browser/browser-automation-recording';
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
-import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
+import { addBrowserSurface, browserLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
@@ -147,6 +147,13 @@ export function workspaceOf(client: T3Client): { cwd: string; projectName: strin
   return { cwd: str(thread?.worktreePath) || str(project?.workspaceRoot), projectName: str(project?.title) };
 }
 export function capabilities(client: T3Client): Obj { return obj(obj(obj(client.config).environment).capabilities); }
+/**
+ * ChatView's `activeProject !== null`: what keeps file tabs (reconcileFileSurfaces) and lets ⌘⇧T reopen one. It does not
+ * wait for the thread's stream, as `availability` does through `ready`: a thread just selected has file tabs too.
+ */
+export function workspaceAvailable(client: T3Client): boolean {
+  return client.shell.projects.some(entry => entry.id === client.projectId);
+}
 /** ChatView's availability flags for the launcher and the "+" menu. */
 export function availability(client: T3Client) {
   const thread = client.shell.threads.find(entry => entry.id === client.threadId);
@@ -292,6 +299,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   }
   if (op === 'setup-close') { surfaceStore(client).deviceSetup = ''; return ''; }
   if (op.startsWith('linked-')) return linkedLocal(client, native, state, op.slice(7), id, value); // pr-attachment-surfaces.ts
+  // PreviewView handleMoveTab: the page opens in the other runtime, then the old tab closes as its Close does.
+  if (op === 'browser-move') return await moveBrowserTab(client, native, state, id) ? surfaceLocal(client, native, 'close', browserSurfaceId(id), '') : '';
   if (op.startsWith('browser-')) return browserLocal(client, native, state, op.slice(8), id, value); // browser-surface.ts
   // A sheet's Files search Escape clears the search, then the dialog closes (app.contract chatLocal).
   if (op === 'files-search-key' && id === 'sheet' && value === 'Escape') { await filesLocal(client, native, 'search-key', id, value); return surfaceLocal(client, native, 'hide', '', ''); }
@@ -355,12 +364,12 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   const deviceSurface = state.surfaces.find(entry => entry.id === state.active && entry.kind === 'device');
   if (deviceSurface) selectDeviceTarget(client, panelKey(client), deviceSurface.device);
   syncDiff(client, state);
-  if (!availability(client).files) reconcileFiles(state);
+  if (!workspaceAvailable(client)) reconcileFiles(state);
   await browserPrepare(client, native, state); // The thread's sessions, the native web views, status reports
   const active = state.surfaces.find(entry => entry.id === state.active) ?? null;
   const open = state.visible && !!active && active.kind !== 'diff';
   const live = native?.available ? native : null;
-  const files = live && open && (active.kind === 'files' || active.kind === 'file') ? await filesView(client, live, active, now) : (crumbsHidden(client), emptyFiles());
+  const files = live && open && (active.kind === 'files' || active.kind === 'file') ? await filesView(client, live, active, now) : (crumbsHidden(client), filesHidden(client), emptyFiles());
   const deviceSetup = store.deviceSetup !== '' && store.deviceSetup === panelKey(client);
   const deviceShown = !!live && open && active.kind === 'device';
   if (!deviceShown) deviceHidden(client); // DevicePanel lists the devices each time it shows (device-surface.ts deviceView)

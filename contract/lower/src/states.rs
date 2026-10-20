@@ -98,8 +98,8 @@ fn longhands(row: &Attr) -> Result<Vec<(String, Expr)>, LowerError> {
     if row.name != "border-color" {
         return Ok(vec![(row.name.clone(), row.value.clone())]);
     }
-    let sides =
-        values::sides("border-color", &row.value)?.unwrap_or_else(|| vec![row.value.clone(); 4]);
+    let sides = shorthands::sides("border-color", &row.value)?
+        .unwrap_or_else(|| vec![row.value.clone(); 4]);
     Ok(SIDES
         .iter()
         .zip(sides)
@@ -123,7 +123,7 @@ fn base_of(base: &[Attr], l: &str) -> Result<Option<Expr>, LowerError> {
         let edge = ["border-top", "border-right", "border-bottom", "border-left"][side];
         match a.name.as_str() {
             "border-color" => {
-                let sides = values::sides("border-color", &a.value)?;
+                let sides = shorthands::sides("border-color", &a.value)?;
                 out = Some(sides.map_or_else(|| a.value.clone(), |s| s[side].clone()));
             }
             "border" | "border-top" | "border-right" | "border-bottom" | "border-left"
@@ -345,7 +345,7 @@ impl Lowerer<'_> {
             let host = !matches!(*state, "disabled" | "checked");
             if row.name == "border-color" {
                 let fns = &self.fns;
-                values::computed_list(&row.name, &row.value, &|f| fns.get(f).map(|(_, b)| *b))?;
+                shorthands::computed_list(&row.name, &row.value, &|f| fns.get(f).map(|(_, b)| *b))?;
             }
             if !admitted(&row.name, state) {
                 let rows: Vec<&str> = match *state {

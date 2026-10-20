@@ -450,9 +450,9 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'info', title: 'Annotation attached to draft' });
   });
 
-  it('an unavailable provider: the annotation stays in the draft with the info toast, not the send error', async () => {
+  it('no provider: the annotation stays in the draft with the info toast, not the send error', async () => {
     const { client, native, command } = await opened();
-    for (const entry of client.config.providers as Obj[]) entry.auth = { status: 'unauthenticated' };
+    for (const entry of client.config.providers as Obj[]) entry.enabled = false;
     const committed = native.committed.length;
     markAnnotationSend(client);
     const result = await command('send', '', 'Send this one too');

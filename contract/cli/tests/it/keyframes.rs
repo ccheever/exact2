@@ -505,7 +505,7 @@ fn a_bare_hex_color_is_its_quoted_string_and_another_hash_says_why() {
 /// percentages), interpolated componentwise as CSS interpolates `calc()`.
 #[test]
 fn translate_takes_percentages_of_the_box_everywhere_it_takes_lengths() {
-    let source = "keyframes slide\n  from translate=\"-50% 0\"\n  to translate=\"10px 25%\"\ncomponent App\n  state wide = false\n  action widen\n    wide = true\n  view\n    column\n      box testId=\"centred\" position=\"absolute\" left=\"50%\" top=\"50%\" width=120 height=40 translate=\"-50% -50%\"\n      box testId=\"bound\" width=80 height=10 translate=wide ? \"12px -100%\" : \"0\"\n      box testId=\"slides\" width=10 height=10 animation=\"slide 1s\"\n      button testId=\"widen\" press=widen\n        text \"w\"\n";
+    let source = "keyframes slide\n  from translate=\"-50% 0\"\n  to translate=\"10px 25%\"\ncomponent App\n  state wide = false\n  action widen\n    wide = true\n  view\n    column\n      box testId=\"centred\" position=\"absolute\" left=\"50%\" top=\"50%\" width=120 height=40 translate=\"-50% -50%\"\n      box testId=\"one\" position=\"absolute\" left=\"50%\" width=20 height=10 translate=\"-50%\"\n      box testId=\"bound\" width=80 height=10 translate=wide ? \"12px -100%\" : \"0\"\n      box testId=\"slides\" width=10 height=10 animation=\"slide 1s\"\n      button testId=\"widen\" press=widen\n        text \"w\"\n";
     let mut r = booted(source);
     let rows = |r: &Runner<NoData>, id: &str| {
         let k = r.kernel();
@@ -524,6 +524,8 @@ fn translate_takes_percentages_of_the_box_everywhere_it_takes_lengths() {
             Value::four(0.0, 0.0, -50.0, -50.0)
         )
     );
+    // One percentage is the x's, as CSS reads `translate: -50%`.
+    assert_eq!(rows(&r, "one").1, (-50.0, 0.0));
     assert_eq!(rows(&r, "bound").1, (0.0, 0.0));
     let k = r.kernel();
     let widen = k.node_by_key(k.find_by_test_id("widen")[0]).unwrap().id;

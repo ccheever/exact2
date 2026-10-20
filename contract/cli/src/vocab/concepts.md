@@ -1069,8 +1069,9 @@ names: haptic, vibrate, vibration, Haptics, impactAsync, selectionAsync, notific
 `-exact-press-haptic` plays at touch-down on what is pressed, with no round trip:
 `"selection"`, or `"impact-light"`, `-medium`, `-heavy`, `-soft`, `-rigid`. From an action,
 `haptic(kind)` plays one of those or `"success"`, `"warning"` or `"error"`, as when a drag
-crosses a threshold. iOS uses the feedback generators, the web vibrates where it can, Linux
-does nothing.
+crosses a threshold; an outcome is an action's, since a press has none at touch-down. A
+native button (one with `buttonStyle`) plays its haptic from its action.
+iOS uses the feedback generators, the web vibrates where it can, Linux does nothing.
 
 ```contract
 component App

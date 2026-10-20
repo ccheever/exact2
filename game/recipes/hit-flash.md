@@ -32,7 +32,7 @@ impl Game for Arena {
             if left > 0. { flashes.push((e, left)); }
         });
         for (e, left) in flashes {
-            p.insert(e, Tint { color: [1.; 4], emissive: [4. * left; 3] });
+            p.insert(e, Tint { color: [1.; 4].into(), emissive: [4. * left; 3] });
         }
     }
 }

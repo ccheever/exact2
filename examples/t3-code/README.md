@@ -70,7 +70,14 @@ reuses the cache in `.runtime-cache/`). The bundle carries that folder as
 `Contents/Resources/t3-runtime` (`app.json` `host.macos.resources`). At the first launch the app
 unpacks it into `<T3 home>/runtime/versions/<version>` and starts `t3 --bootstrap-fd 0` with the
 desktop envelope; it restarts the server with T3 Code's backoff, keeps its failure log in
-`<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. A development build
+`<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. Closing the window
+(⌘W, File › Close Window, the red button) does not quit: `app.json` sets
+`host.macos.window.keepRunning`, so the window hides and the app, its session and the server keep
+running, as the reference's (`DesktopLifecycle.ts`: `window-all-closed` quits only off macOS). The
+reopen event (a Dock click, `open -a`) and a `t3 app` request show the window again; with it
+hidden, ⌘Q quits at once, as the reference's menu Quit does with no page to hold it. The reference
+builds a new window on a new draft, its other threads' drafts kept; the clone's window comes back as
+it was, on the thread and draft it closed on. A development build
 starts it only with an isolated home and a lane port, never `~/.t3` or 3773:
 
 ```sh

@@ -6,6 +6,9 @@
 
 use std::path::PathBuf;
 
+/// The SVG every host but the web draws (`contract_lower`'s `icons::TEMPLATE`).
+const TEMPLATE: &str = "filled `<path>`s in one opaque colour under the `<svg>`'s viewBox, with no stroke, transform, opacity or other element";
+
 const REPLY: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24"><path d="M760-200v-160H200Z"/></svg>"#;
 const TWO: &str =
     r#"<svg viewBox="0 0 24 24"><path fill="red" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#;
@@ -55,10 +58,44 @@ fn a_shipped_target_without_a_source_is_refused() {
     );
     let e = contract::compile_path(&path).unwrap_err();
     assert_eq!(e.id, "tamber-icon-missing", "{e:?}");
+    // It names both forms that build: an SVG, or (the euxy port, Apple-only with none) a bare SF Symbol.
+    assert_eq!(
+        e.message,
+        format!("icon.share has no source for web, which draws an icon only from an `svg` source: add `svg \"icons/share.svg\"`, with `assets/icons/share.svg` drawn as {TEMPLATE} (a Material Symbols SVG is). With no SVG for it, declare no icon and write `symbol:sf/square.and.arrow.up.circle` where it is used: Apple draws it, and the web draws it blank, which the build says in one warning"),
+    );
+    let path = app(
+        "missing-linux",
+        "\"ios\": {}, \"linux\": {}, \"web\": {}",
+        "  icon.share = icon(sf \"square.and.arrow.up.circle\")\n",
+        &view("symbol:icon.share"),
+    );
+    let Err(all) = contract::compile_path_all(&path, false) else {
+        panic!("compiled")
+    };
     assert!(
-        e.message.contains("icon.share has no source for web"),
+        all.iter().any(|e| e.message.contains("linux and the web draw it blank, with a warning at each use. Not shipping linux? `bun exact.mjs update --without linux` removes it")),
+        "{all:?}"
+    );
+    // An SF Symbol that is a role's Apple name is that role, drawn everywhere: no "blank" advice.
+    let path = app(
+        "missing-role",
+        "\"ios\": {}, \"web\": {}",
+        "  icon.play = icon(sf \"play.fill\")\n",
+        &view("symbol:icon.play"),
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert!(
+        e.message.ends_with("declare no icon and write `symbol:play-fill`, the role Apple draws as `play.fill`, which every host draws")
+            && !e.message.contains("blank"),
         "{e:?}"
     );
+    let advised = app(
+        "advised-role",
+        "\"ios\": {}, \"web\": {}",
+        "",
+        &view("symbol:play-fill"),
+    );
+    contract::compile_path(&advised).unwrap_or_else(|e| panic!("{e:?}"));
     // Several colours: the web alone draws it as the file.
     let design = "  icon.two = icon(svg \"icons/two.svg\")\n";
     let path = app(
@@ -530,4 +567,112 @@ fn warnings_that_change_the_native_app_come_first_and_web_only_symbols_are_one_l
     );
     let (_, warnings) = contract::compile_path_all_warned(&path, false);
     assert!(!warnings.iter().any(contract::web_only), "{warnings:#?}");
+}
+
+/// `contract tamber check` and `eval` read a design's icon SVGs under its
+/// app's `assets/`, as its build does, whatever directory they are run from
+/// and however the design is named: a design with no params is admitted by
+/// compiling a copy, which sees the app's own assets.
+#[test]
+fn the_tamber_verbs_read_icon_svgs_under_the_apps_assets() {
+    let path = app(
+        "verbs",
+        "\"ios\": {}, \"web\": {}",
+        "  icon.reply = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n",
+        &view("symbol:icon.reply"),
+    );
+    let dir = path.parent().unwrap();
+    for (cwd, design) in [
+        (std::env::temp_dir(), dir.join("app.tamber")),
+        (dir.to_path_buf(), PathBuf::from("app.tamber")),
+        (dir.to_path_buf(), PathBuf::from(".")),
+    ] {
+        for verb in ["check", "eval"] {
+            let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+                .args(["tamber", verb])
+                .arg(&design)
+                .current_dir(&cwd)
+                .output()
+                .unwrap();
+            let said = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                out.status.success(),
+                "{verb} {} from {}: {said}",
+                design.display(),
+                cwd.display()
+            );
+            assert!(!said.contains("tamber-icon-svg"), "{said}");
+        }
+    }
+    // A design app.json names in another directory: the app's assets, not
+    // the design's directory's.
+    std::fs::create_dir_all(dir.join("design")).unwrap();
+    std::fs::rename(dir.join("app.tamber"), dir.join("design/theme.tamber")).unwrap();
+    let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
+    std::fs::write(
+        dir.join("app.json"),
+        manifest.replacen('{', "{\"tamber\": \"design/theme.tamber\", ", 1),
+    )
+    .unwrap();
+    for input in [
+        dir.to_path_buf(),
+        dir.join("app.contract"),
+        dir.join("design/theme.tamber"),
+    ] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(["tamber", "check"])
+            .arg(&input)
+            .current_dir(std::env::temp_dir())
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}: {}",
+            input.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    std::fs::rename(dir.join("design/theme.tamber"), dir.join("app.tamber")).unwrap();
+    std::fs::write(dir.join("app.json"), manifest).unwrap();
+    // The SVG is the app's still, its bytes as they were (copied, never
+    // moved or linked).
+    assert_eq!(
+        std::fs::read_to_string(dir.join("assets/icons/reply.svg")).unwrap(),
+        REPLY
+    );
+    // A read-only SVG two icons share is read once into the copy.
+    let svg = dir.join("assets/icons/reply.svg");
+    let mut perms = std::fs::metadata(&svg).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&svg, perms.clone()).unwrap();
+    let design = std::fs::read_to_string(dir.join("app.tamber")).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("{design}  icon.again = icon(sf \"star\", svg \"icons/reply.svg\")\n"),
+    )
+    .unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "check"])
+        .arg(dir.join("app.tamber"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    std::fs::set_permissions(&svg, perms).unwrap();
+    // An SVG the app lacks is still refused.
+    std::fs::remove_file(dir.join("assets/icons/reply.svg")).unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "eval"])
+        .arg(dir.join("app.tamber"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("tamber-icon-svg"));
+    let _ = std::fs::remove_dir_all(dir);
 }

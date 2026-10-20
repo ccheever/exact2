@@ -131,6 +131,31 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertTrue(tabs.viewControllers?[0] === stacks[0])
     }
 
+    /// The runtime covers the root tablist the bar replaces before the first
+    /// layout, and the presenter holds that cover from its first batch; a
+    /// restart's boot covers it again, and its first batch looks for it again.
+    func testTheBootsTablistCoverIsThePresentersAtEveryBoot() throws {
+        let session = try fixture("boot-tablist")
+        let navigation = session.presenter.navigation
+        let covered = { () throws -> Bool in
+            let root = try XCTUnwrap(session.presenter.root.subviews.first as? NodeView)
+            return try XCTUnwrap(session.runtime.rootTabs(root.id)).covered
+        }
+        var list = try node(session, "tabs")
+        XCTAssertTrue(try covered())
+        XCTAssertEqual(navigation.delivered[list.id], .whole)
+        XCTAssertTrue(navigation.bootCoverSeen)
+        session.presenter.reset()
+        XCTAssertFalse(navigation.bootCoverSeen, "a restart's first batch looks again")
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"])))
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        spin(0.3)
+        list = try node(session, "tabs")
+        XCTAssertTrue(try covered())
+        XCTAssertTrue(navigation.bootCoverSeen)
+        XCTAssertEqual(navigation.delivered[list.id], .whole)
+    }
+
     /// A style that drops the tablist's `accent-color` (here one sent by
     /// hand, which replaces the whole style) as the bar hides: the bar's
     /// tint, whose fallback was the bar's own tint, recursed until the
@@ -708,6 +733,10 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Second selected") { tabs.selectedIndex == 1 }
         spin(0.3)
         let nav = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
+        // UIKit shows no large title where it places a vertical bar: the iPhone Duo upright or closed
+        // holds a 28-point title in a fixed 58-point bar
+        var large = true
+        if #available(iOS 27.1, *) { large = nav.traitCollection.verticalBarEdge == .unspecified }
         let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
         let css = { sv.contentOffset.y + sv.adjustedContentInset.top }
         let expanded = nav.navigationBar.frame.height
@@ -715,7 +744,11 @@ final class NavigationTabsIOSTests: XCTestCase {
         list.applyPendingScroll()
         spin(0.3)
         XCTAssertEqual(css(), 600, accuracy: 0.5, "scrolled down")
-        XCTAssertLessThan(nav.navigationBar.frame.height, expanded, "the large title collapsed")
+        if large {
+            XCTAssertLessThan(nav.navigationBar.frame.height, expanded, "the large title collapsed")
+        } else {
+            XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, "the bar kept its height")
+        }
         // The other tab, then back: selecting a tab keeps its scroll.
         tapTab(tabs, 0)
         until("Home selected") { tabs.selectedIndex == 0 }
@@ -728,7 +761,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("its content scrolled to the top") { abs(css()) < 0.5 && !sv.isDecelerating }
         spin(0.5)
         XCTAssertEqual(css(), 0, accuracy: 0.5)
-        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, "and the large title expanded")
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, large ? "and the large title expanded" : "and the bar kept its height")
         XCTAssertEqual(nav.viewControllers.count, 1)
     }
 

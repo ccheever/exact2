@@ -509,11 +509,15 @@ test('a development server answers only to its printed names; its token and phon
   assert.deepEqual(local.check(request('rebound.example:8879','127.0.0.1')),{allowed:false,local:false});
   assert.deepEqual(local.check(request('192.168.1.20:8879','127.0.0.1')),{allowed:false,local:false});
   assert.deepEqual(local.check(request(undefined,'127.0.0.1')),{allowed:false,local:false});
+  // The design tool's live copies (LLP 1122 T7): exact-copy-<n>.localhost at this port, admitted, never local; no other name under localhost.
+  assert.deepEqual(local.check(request('exact-copy-3.localhost:8879','127.0.0.1')),{allowed:true,local:false});
+  for (const host of ['exact-copy-0.localhost:8879','exact-copy-100.localhost:8879','exact-copy-3.localhost:8880','evil.localhost:8879','exact-copy-3.localhost.example:8879']) assert.deepEqual(local.check(request(host,'127.0.0.1')),{allowed:false,local:false},host);
   assert.deepEqual(shared.check(request('192.168.1.20:8879','192.168.1.33')),{allowed:true,local:false});
   // A peer naming the loopback host is still not local.
   assert.deepEqual(shared.check(request('127.0.0.1:8879','192.168.1.33')),{allowed:true,local:false});
   assert.deepEqual(shared.loopbackOrigins,['http://127.0.0.1:8879','http://localhost:8879']);
   assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('127.0.0.1','127.0.0.1')).allowed,true);
+  assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('exact-copy-2.localhost','127.0.0.1')).allowed,true);
   assert.equal(localInstallURL('simulator',lan,8879),'http://127.0.0.1:8879/');
   assert.equal(localInstallURL('device',lan,8879),'http://192.168.1.20:8879/');
   assert.throws(()=>localInstallURL('device',loopback,8879),/--lan/);

@@ -184,6 +184,7 @@ test('an absent assets tree the build would create does not throw once the proof
   mkdirSync(bin);
   writeFileSync(resolve(bin, 'cargo'), `#!${process.execPath}
 import {mkdirSync, writeFileSync} from 'node:fs'; import {resolve} from 'node:path'; import {createHash} from 'node:crypto';
+if (process.argv[2] === 'metadata') { console.log('{"packages":[]}'); process.exit(0); }
 const game = process.argv.at(-1);
 mkdirSync(resolve(game, 'assets'), {recursive:true});
 writeFileSync(resolve(game, 'assets/crate.model'), ${JSON.stringify(baked)});
@@ -270,14 +271,15 @@ test('E11 receipts and proof provenance bind post-bake generated assets', async 
     expect(before.all).not.toBe(after.all);
     expect({gpu:gpuReceipt.inputs,host:hostReceipt.inputs,summary}).toEqual({gpu:inputHash(after.gpu),host:inputHash(after.host+surface()),summary:after.all});
     expect(builds.splice(0)).toEqual(['gpu','host']);await run();expect(builds.splice(0)).toEqual([]);
-    rmSync(resolve(app,'.shells'),{recursive:true});rmSync(resolve(app,'assets'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));await run();expect(builds.splice(0)).toEqual([]);expect(surface()).toBe('surface');
+    rmSync(resolve(app,'.shells'),{recursive:true});rmSync(resolve(app,'assets'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));
+    generated('linux-simd'); // The proof bakes art before restoring cached declarations.
+    await run();expect(builds.splice(0)).toEqual([]);expect(surface()).toBe('surface');
     write('artifacts/linux/build-linux-surfaces.json','corrupt');await run();expect(builds.splice(0)).toEqual(['gpu']);
     write('game/games/sample/art/crate.gltf','changed');await run();expect(builds.splice(0)).toEqual(['gpu']);
     write('game/games/sample/logic/src/lib.rs','surface with added argument');await run();expect(builds.splice(0)).toEqual(['gpu','host']);
     write('game/games/sample/app.contract','changed');await run();expect(builds.splice(0)).toEqual(['host']);gpu=null;await run();expect(builds.splice(0)).toEqual(['gpu']);
-    // An author's file where the cache would put a generated one is refused by name and left alone;
-    // a generated file the manifest owns is restored over.
-    rmSync(resolve(app,'art'),{recursive:true});rmSync(resolve(app,'.baked-assets.json'));write('game/games/sample/assets/textures/crate.astc.tex','authored replacement');spawnSync('git',['add','-f','game/games/sample/assets/textures/crate.astc.tex'],{cwd:dir});
+    // A matching manifest cannot authorize overwriting bytes it no longer owns.
+    write('game/games/sample/assets/textures/crate.astc.tex','authored replacement');spawnSync('git',['add','-f','game/games/sample/assets/textures/crate.astc.tex'],{cwd:dir});
     await expect(run()).rejects.toThrow('would overwrite a file the bake does not own');
     expect(readFileSync(resolve(app,'assets/textures/crate.astc.tex'),'utf8')).toBe('authored replacement');
   } finally {rmSync(dir,{recursive:true,force:true});}
@@ -651,3 +653,87 @@ test('unchanged proof directories keep their identity when locale collation chan
     expect(()=>read()).not.toThrow();
   } finally {String.prototype.localeCompare=collate;rmSync(root,{recursive:true,force:true});}
 });
+
+test('a previous GPU asset cache cannot replace the current bake manifest', async () => {
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(),'proof-current-art-'))), app = resolve(root,'app'), out = resolve(root,'receipts');
+  const surface = resolve(app,'.shells/surfaces.json'), manifest = resolve(app,'.baked-assets.json');
+  const hash = text => createHash('sha256').update(text).digest('hex');
+  let names = ['crate.model'], gpu = 'old', host = 'host', builds = 0;
+  const bake = () => {
+    for (const name of names) writeFixtureFile(app,'assets/'+name,name);
+    writeFixtureFile(app,'.baked-assets.json',JSON.stringify(Object.fromEntries(names.map(name=>[name,hash(name)]))));
+  };
+  const run = () => ensureLinuxReceipts({directory:out,app,surface,
+    gpuInputs:()=>names.join(','),hostInputs:()=>'host',gpuArtifact:()=>gpu,hostArtifact:()=>host,
+    build:async part=>{
+      if (part !== 'gpu') return;
+      builds++;
+      // This is what the real baker needs to recognize existing generated files.
+      expect(Object.keys(existsSync(manifest) ? JSON.parse(readFileSync(manifest,'utf8')) : {})).toEqual(names);
+      gpu = 'gpu:' + names.join(','); writeFixtureFile(app,'.shells/surfaces.json','{}');
+    }});
+  try {
+    mkdirSync(out,{recursive:true});
+    bake(); await run(); expect(builds).toBe(1);
+    names.push('angelfish.model'); bake();
+    const current = readFileSync(manifest,'utf8');
+    await run();
+    expect(builds).toBe(2);
+    expect(readFileSync(manifest,'utf8')).toBe(current);
+    await run(); expect(builds).toBe(2);
+    names.pop(); rmSync(resolve(app,'assets/angelfish.model')); bake();
+    await run(); expect(builds).toBe(3);
+    expect(existsSync(resolve(app,'assets/angelfish.model'))).toBe(false);
+    // Ordinary pruning relinquishes ownership before an author reuses the name.
+    names = []; rmSync(resolve(app,'assets/crate.model')); bake();
+    writeFileSync(resolve(app,'assets/crate.model'),'authored replacement');
+    await run(); expect(builds).toBe(4);
+    expect(readFileSync(resolve(app,'assets/crate.model'),'utf8')).toBe('authored replacement');
+    await run(); expect(builds).toBe(4);
+    rmSync(manifest); await run(); expect(builds).toBe(5);
+    expect(existsSync(manifest)).toBe(false);
+    await run(); expect(builds).toBe(5);
+    bake(); await run(); expect(builds).toBe(6);
+    expect(readFileSync(resolve(app,'assets/crate.model'),'utf8')).toBe('authored replacement');
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('typed tuning and nested level carriers exist before the first proof inventory', () => {
+  const {createGame} = require('./new.mjs');
+  const {prepareProofTree} = require('./app/shells.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-carriers-'))), app = resolve(dir, 'carriers');
+  try {
+    createGame(app);
+    writeFileSync(resolve(app,'logic/src/lib.rs'), `use exact_game::*;
+#[derive(Default, Data)] pub struct Settings { pub speed: f32 }
+pub struct Carriers;
+impl Game for Carriers {
+    const ID: &'static str = "carriers";
+    const TABLES: &'static [asset::Table] = &[asset::Table::of::<Settings>("tuning.json")];
+    const LEVEL: Option<asset::Level> = Some(asset::Level::of::<Settings>("levels/start.level.json"));
+    type Args = ();
+    fn setup(_: &mut World, _: &()) {}
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+`);
+    writeFixtureFile(app, 'tuning.json', '{"speed":4}');
+    writeFixtureFile(app, 'levels/start.level.json', '{"speed":8}');
+    const env = {...process.env, CARGO_TARGET_DIR:resolve(app,'target'), CARGO_BUILD_BUILD_DIR:resolve(app,'target')};
+    prepareProofTree(app, env);
+    expect(readFileSync(resolve(app,'assets/levels/start.level.json'),'utf8')).toBe('{"speed":8}');
+    const assets = require('node:fs').readdirSync(resolve(app,'assets'));
+    expect(assets.length).toBe(2);
+    const table = assets.find(name => name !== 'levels');
+    expect(JSON.parse(readFileSync(resolve(app,'assets',table),'utf8'))).toEqual({'tuning.json':'{"speed":4}'});
+    const read = proofInputReader(resolve(import.meta.dir,'..'), app);
+    read(); prepareProofTree(app, env);
+    expect(() => read()).not.toThrow();
+    // A real source edit rebakes carriers before the next watch starts.
+    writeFileSync(resolve(app,'tuning.json'), '{"speed":5}');
+    writeFileSync(resolve(app,'levels/start.level.json'), '{"speed":9}');
+    prepareProofTree(app, env);
+    expect(readFileSync(resolve(app,'assets/levels/start.level.json'),'utf8')).toBe('{"speed":9}');
+    expect(JSON.parse(readFileSync(resolve(app,'assets',table),'utf8'))).toEqual({'tuning.json':'{"speed":5}'});
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 120000);

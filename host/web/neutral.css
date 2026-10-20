@@ -55,6 +55,8 @@
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"])[data-destructive="true"] { color: var(--exact-accent); }
   #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); }
   @supports (color: lab(from red l a b)) {
+    /* `AccentColorText` is this ink on each element's own accent. */
+    #exact-root, #exact-root * { --exact-accent-text: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
   }
   /* Hover and pressed: a wash of the button's own ink over its fill, as an image, so the fill beneath is whatever

@@ -75,5 +75,5 @@ test "a sent message lands; the composer clears"
 
 - Bubbles are not cells (`appearance="none"`); `scroll-start="end"` opens at the newest;
   `interactive-widget` keeps the composer over the keyboard; Send keeps it up.
-- Yours: the solid accent under `AccentColorText` (white on iOS; 3:1 in `check`), no name;
+- Yours: the solid accent under `AccentColorText` (a filled button's ink; 3:1 `check`), no name;
   a group names others'.

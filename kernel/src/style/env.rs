@@ -301,6 +301,11 @@ pub struct Env {
     /// side occupies one cell. Set by the terminal host on its own kernel;
     /// no other host sees it.
     pub cell_borders: bool,
+    /// A terminal's space rule (LLP 1101 §4, LLP 1121 stage 11 (c)): a
+    /// padding, margin or gap in points resolves to whole cells on its axis,
+    /// rows down and columns across, to the nearest with a tie toward zero.
+    /// Set by the terminal host on its own kernel; no other host sees it.
+    pub cell_spaces: bool,
     /// Platform control fonts (LLP 1104 D4). None preserves page inheritance.
     pub control_text_styles: Option<crate::ControlTextStyles>,
     /// Optional per-size button fonts. Separate from `ControlTextStyles` so
@@ -346,6 +351,7 @@ impl Env {
             viewport_width: 0.0,
             viewport_height: 0.0,
             cell_borders: false,
+            cell_spaces: false,
             control_text_styles: None,
             button_fonts: None,
             screen: None,
@@ -429,6 +435,14 @@ impl Env {
     pub fn with_cell_borders(&self, on: bool) -> Env {
         Env {
             cell_borders: on,
+            ..self.clone()
+        }
+    }
+
+    /// This environment with the terminal's space rule on or off.
+    pub fn with_cell_spaces(&self, on: bool) -> Env {
+        Env {
+            cell_spaces: on,
             ..self.clone()
         }
     }

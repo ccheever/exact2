@@ -1454,8 +1454,8 @@ component T3Code
           format("composer", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
     else if not composing and k == "Tab" and e.shiftKey and data.composer.planVisible and not composerInCode
       // ⇧⇥ toggles Build/Plan where plan mode is available (onComposerCommandKey), in a list or with a menu open too.
-      // A code block outdents first (ComposerPromptEditorTiptap); without the toggle a list outdents and other text
-      // gives the focus back (TextAreaMac.insertBacktab).
+      // A code block outdents first (ComposerPromptEditorTiptap); without the toggle the key gives the focus back
+      // (TextAreaMac.insertBacktab), in a list too.
       preventDefault()
       stopPropagation()
       if data.connected
@@ -1473,7 +1473,8 @@ component T3Code
           preventDefault()
           stopPropagation()
           editorOp("history", k == "ArrowUp" ? "previous" : "next", "")
-      if k == "Enter" or (k == "Tab" and not heldCommand and (composerInCode or composerInList)) or (k == "Backspace" and not heldCommand and composerCodeStart)
+      // Tab indents a list item; ⇧Tab outdents only code (listIndentForTab runs without Shift).
+      if k == "Enter" or (k == "Tab" and not heldCommand and (composerInCode or (composerInList and not e.shiftKey))) or (k == "Backspace" and not heldCommand and composerCodeStart)
         preventDefault()
         stopPropagation()
         if k != "Enter" or not e.repeat

@@ -2,8 +2,7 @@
 import { afterAll, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import * as playwright from 'playwright-core';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { chromium, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { buildEditor } from '../../web-js/module.mjs';
@@ -47,7 +46,7 @@ const missing = Object.fromEntries(await Promise.all(engines.map(async engine =>
 const wasm = missing.chromium ? null : readFileSync(await buildEditor());
 const browsers = new Map();
 async function browser(engine) {
-  if (!browsers.has(engine)) browsers.set(engine, playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: chromium().executable } : {}) }));
+  if (!browsers.has(engine)) browsers.set(engine, suiteBrowser(engine));
   return browsers.get(engine);
 }
 afterAll(async () => { await Promise.all([...browsers.values()].map(async value => (await value).close())); }, 30000);

@@ -265,6 +265,18 @@ A standalone macOS app treats `kill -TERM <pid>` as an orderly quit: its
 hold, and each session's native module is destroyed before exit. Repeated SIGTERM
 requests share that hold's original deadline. SIGKILL cannot run this cleanup.
 
+A one-window Mac app ends when its window closes. An app with work the person
+expects to go on without the window (a server, a sync), as Mail and Messages
+have, sets `"keepRunning": true` in `app.json`'s `host.macos.window`. ⌘W,
+File ▸ Close Window and the red button then hide the window without asking
+`beforeunload`, and the app keeps running with its session and native module
+alive. A Dock click or `open -a` shows the window again as it was, and a
+document routed to the app shows it too. ⌘Q quits as before, and the app's own
+`close()` still closes the window and ends the app. A `navigate-new` app
+(`launch_handler`) already outlives its last window, and the key changes
+nothing there. The agent's `state.documents.windows[].visible` says whether
+the window is showing.
+
 A native module whose work must finish before the app exits (a child process
 to stop, a socket to flush) overrides `willQuit(done:)`. On every orderly
 quit (⌘Q, the app menu, an Apple Event, SIGTERM, the last window closing),
@@ -405,6 +417,34 @@ installed profiles by its id. An archive (`--archive`) matches the extension's
 profile to the named one's method, and an Ad Hoc pair must cover the same
 devices.
 
+On macOS, `bun host/apple/build.mjs --run` packages the app's widgets in
+`Contents/PlugIns`. The Mac keeps `systemSmall`, `systemMedium`, `systemLarge`
+and `systemExtraLarge`; if no families remain it builds no extension. Live
+Activities do not create a Mac extension. The extension uses the same runtime
+framework and snapshot driver, in its own sandbox with outbound network access.
+The app keeps its existing sandbox policy and loads the reload arm on demand.
+
+Development Mac widgets need an Apple Development identity (`EXACT_IDENTITY`
+can name its SHA-1 or full certificate name). Without one, the build prints a
+notice and builds the ordinary app ad hoc, with no extension; agent drives,
+smokes and metrics remain available. Selecting a Developer ID identity for a
+development build takes the same ad hoc path. Distribution widgets use the
+Developer ID Application identity selected for release.
+Their container is `<TEAMID>.<app id>.widgets`, separate from iOS's group.
+Shared secrets additionally need matching macOS profiles for the app and
+`<app id>.widgets`, granting that container (or `<TEAMID>.*`) and the restricted
+Keychain group `<prefix>.<app id>` (or `<prefix>.*`). `EXACT_PROFILE` can name
+the app's profile; an iOS profile is ignored with a notice. Both are embedded
+when available. Without them, entries marked `"requiresSecrets": true` show
+the “Open app” placeholder;
+set this on each refresh that reads account data, leaving public entries false.
+Those entries neither read the app's login Keychain nor reuse cached account content.
+The first provisioned app launch moves its login-Keychain items to the shared
+data-protection Keychain, deleting each old item only after the copy succeeds.
+The move is one-way: an unprovisioned build cannot read the moved items.
+Unreadable items remain for the next launch; a migration error leaves I/O bound.
+Caltrain and Shelf need no shared secrets. See LLP 1126.001 WP16 and §5 Q5.
+
 The render's props slot is named `snapshot_props`; find it by name, since a
 `path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
 The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
@@ -443,6 +483,14 @@ region's size; no app-visible slot selector is injected. The other slots' frames
 are not a shared surface layout. Rendering remains read-only, with the same
 clock, request, input and handler refusals as widgets. `time` and `progress`
 remain platform live views.
+
+A development build with `--widget-gallery` also answers activity addresses:
+`bun scripts/agent.mjs ios activity departure --placement expanded --state '<json>' tree "screenshot activity.png" state`.
+The same command works on `macos`. Placements are `lockScreen`, `compactLeading`,
+`compactTrailing`, `minimal` and `expanded` (all four expanded regions together).
+Omit `--state` to use the entry's preview; `--scheme light|dark` selects its scheme.
+`clock` advances the app's agent clock and the next read renders at that time.
+These are gallery renders; the async simulator test checks the system's archive.
 
 The extension renders every activity through one `ActivityConfiguration` for
 the envelope type (`host/apple/widget/Activity.swift`, LLP 1126.001 WP10), a
@@ -893,7 +941,8 @@ A native one is kept between drives until a drive passes `--reset-storage`, whic
 empties all of it (`app:/` files, SQLite, kept state, secrets) at the app's boot
 and refuses a store reached through a symbolic link; one drive holds a native store
 at a time. On the web it is Chrome's profile for the name and its page's origin,
-empty each drive unless `--keep-storage` (a Firefox or WebKit drive's is its own); an authored test gets a fresh
+empty each drive unless `--keep-storage` (a Firefox or WebKit drive's is its own). A drive that compares with a
+reference starts empty on every host unless `--keep-storage`. An authored test gets a fresh
 one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
 web profile. Apple native modules receive the same named data, cache and temporary
@@ -1573,8 +1622,9 @@ For a module client's `build.rs`, depend on `exact-js-bake` and call
 paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
 `REVISION`) into `OUT_DIR`, and on Apple `host.rs`, the host entry its `deploy.store`
 names, which includes `baked.rs`: `exact_plan()` and `exact_compat()`. An Apple build
-(`host/apple/build.mjs`) bakes before Cargo and links the plan and `compat.json` into
-the executable, so an edit that changes only the plan compiles no Rust. With a store (`"A"`), a signed update carries the module pair under
+(`host/apple/build.mjs`) bakes before Cargo and links the plan, `compat.json` and the
+module's bytecode into the executable, so an edit to the Contract or the TypeScript alone
+compiles no Rust; there `module.rs` has no `REVISION`. With a store (`"A"`), a signed update carries the module pair under
 `typescript/` (`app.module.json`, `app.hbc`); it needs the binary's TypeScript runtime
 and exactly its grants. An app with both a TypeScript and a Rust module still sets its
 `deploy.store` entries to `"0"`: signed delivery of both is not implemented.

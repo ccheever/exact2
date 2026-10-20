@@ -350,6 +350,25 @@ fn each_importer_maps_what_the_source_means_or_reports_it() {
     )];
     let i = dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap();
     assert!(accepted(&i).contains("  ds.f: family = \"Acme, Display\"\n"));
+    // A name with a quote in it: reported, never written as a broken line.
+    let files = vec![(
+        "t.json".to_string(),
+        r#"{"f": {"$type": "fontFamily", "$value": ["Say \"hi\"", "serif"]}}"#.to_string(),
+    )];
+    let i = dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap();
+    assert!(!accepted(&i).contains("ds.f"), "{}", accepted(&i));
+    assert!(
+        i.unmapped.iter().any(|u| u.why.contains("quote")),
+        "{:?}",
+        i.unmapped
+    );
+    // Tokens Studio's stack keeps its own quotes.
+    let files = vec![(
+        "t.json".to_string(),
+        r#"{"f": {"type": "fontFamilies", "value": "\"A  B\", serif"}}"#.to_string(),
+    )];
+    let i = dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap();
+    assert!(accepted(&i).contains("ds.f"), "{:?}", i.unmapped);
 }
 
 /// Review round 1 (Grok): chains of references, a leading over a token, and
@@ -748,4 +767,70 @@ fn the_landing_check_keeps_what_holds_and_refuses_axes_that_do_not() {
     .unwrap();
     assert_eq!(names(&i), ["tw.radius.md"], "{:?}", i.unmapped);
     lands(design, &i);
+}
+
+/// Stage 10b round 4: a small document that multiplies is refused quickly,
+/// whatever shape multiplies it (each charged against one import's work).
+#[test]
+fn a_document_that_multiplies_is_refused_whatever_its_shape() {
+    use serde_json::json;
+    let refused = |files: Vec<(String, String)>| {
+        let started = std::time::Instant::now();
+        let got = dtcg::import(&files, "ds", &parse(EMPTY).unwrap());
+        assert!(
+            started.elapsed().as_secs() < 10,
+            "took {:?}",
+            started.elapsed()
+        );
+        match got {
+            Err(all) => assert!(
+                all.iter().any(|d| d.message.contains("expands past")),
+                "{all:?}"
+            ),
+            Ok(i) => assert!(
+                i.unmapped.iter().any(|u| u.why.contains("expands past")),
+                "{:?}",
+                i.unmapped
+            ),
+        }
+    };
+    // A resolver document whose sets refer eight times to the next, ten deep.
+    let mut sets = serde_json::Map::new();
+    for level in 0..10 {
+        let next = if level == 9 {
+            json!([{"x": {"$type": "number", "$value": 1}}])
+        } else {
+            json!(vec![json!({"$ref": format!("#/sets/l{}", level + 1)}); 8])
+        };
+        sets.insert(format!("l{level}"), json!({ "sources": next }));
+    }
+    let doc = json!({"sets": sets, "resolutionOrder": [{"$ref": "#/sets/l0"}]});
+    refused(vec![("r.json".into(), doc.to_string())]);
+    // Groups that each extend and refer to the next, thirty deep.
+    let mut tree = serde_json::Map::new();
+    for level in 0..30 {
+        let next = format!("{{g{}}}", level + 1);
+        tree.insert(format!("g{level}"), json!({"$extends": next, "$ref": next}));
+    }
+    tree.insert("g30".into(), json!({"t": {"$type": "number", "$value": 1}}));
+    refused(vec![(
+        "t.json".into(),
+        json!({ "a": {"$extends": "{g0}"}, "groups": tree })
+            .to_string()
+            .replace("{g", "{groups.g"),
+    )]);
+    // A family alias named twice in a list, thirty deep.
+    let mut fam = serde_json::Map::new();
+    for level in 0..30 {
+        let next = format!("{{f.f{}}}", level + 1);
+        fam.insert(
+            format!("f{level}"),
+            json!({"$type": "fontFamily", "$value": [next, next]}),
+        );
+    }
+    fam.insert(
+        "f30".into(),
+        json!({"$type": "fontFamily", "$value": "Inter"}),
+    );
+    refused(vec![("f.json".into(), json!({ "f": fam }).to_string())]);
 }

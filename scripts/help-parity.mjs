@@ -37,7 +37,7 @@ export function scriptFlags(root) {
   const apple = parsed(read('host/apple/build.mjs'), read('host/apple/devices.mjs'), read('host/apple/link.mjs'), read('host/apple/bundle.mjs'));
   const agent = parsed(read('scripts/agent-launch.mjs'), read('scripts/agent-widget.mjs'));
   return [
-    ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'), read('scripts/tamber-remote.mjs'), pairTtl, readiness)],
+    ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'), read('scripts/tamber-remote.mjs'), read('scripts/tamber-relay.mjs'), pairTtl, readiness)],
     ['web-build', parsed(read('host/web/build.mjs'))],
     ['agent', agent], ['test', agent], ['verify', parsed(read('scripts/verify.mjs'))],
     ['ios', apple], ['mac', apple],

@@ -58,6 +58,30 @@ shape Canvas
   // The gateway's own page, without the grant.
   root: string
 
+shape CanvasIn
+  entered: bool
+
+// One live copy of several (LLP 1122 T7): its frame's name, what it shows
+// (a mode and text size, or a state), the page it frames, the build its
+// page said it is, that build's facts as it reports them, and what is
+// wrong, if anything.
+shape GridTile
+  name: string
+  label: string
+  src: string
+  build: string
+  ready: bool
+  facts: string
+  note: string
+  // What the app asked that the copy's pin holds over (theme2's F2 ruling), or "".
+  app: string
+
+shape Grid
+  ok: bool
+  error: string
+  note: string
+  tiles: GridTile[]
+
 shape Client
   client: string
   name: string
@@ -380,11 +404,35 @@ shape Cell
   scheme: string
   pairs: PairBadge[]
 
+// A base scale value on one platform (LLP 1121 stage 11): its value, its
+// source (a metric, a measurement, a guideline), whether it is a stretch, and
+// whether this app's targets draw it.
+shape BaseColumn
+  name: string
+  label: string
+  value: string
+  from: string
+  stretch: bool
+  ships: bool
+
 shape TokenRow
   name: string
   kind: string
   follows: string
   cells: Cell[]
+  // The value "Set for this app" starts from: a base row's first column's (the app ships it first), else its first cell's;
+  // and, for a base row, that column in words ("iOS's 16px").
+  start: string
+  startFrom: string
+  // Where its value comes from (stage 11 D): "app", "base" (Exact's scale)
+  // or "package" (read-only; the app overrides it in its own file); for an
+  // app line over a base or package name, what it replaces and the way back.
+  source: string
+  package: string
+  of: string
+  over: string
+  back: string
+  columns: BaseColumn[]
 
 // The tokens changed since the last highlight faded, each by its latest
 // client and in that client's colour (LLP 1122 D10).
@@ -459,6 +507,8 @@ shape Branch
   // A component's param (LLP 1122 T3), its full name in `token`: its edit
   // is `set-param`, and it has no rename or remove.
   param: bool
+  // Why it is not edited here (a base or package value, stage 11), or "".
+  readOnly: string
   // The design read it is of.
   answer: number
 
@@ -675,17 +725,44 @@ component DesignTool
   // Its canvas, read once a server run, and again when it is opened again
   // or asked for again (a grant enters once).
   state canvasTick = 0
-  resource canvasAt = loadCanvas(hello.local, hello.client, hello.epoch, canvasTick) as shape Canvas else empty(ok=true)
+  // Its entry page's word that it entered (C2), asked each second while the
+  // frame's URL holds the grant: then the canvas comes back as its gateway
+  // page, the grant gone from the frame and this state.
+  state canvasPoll = 0
+  // (Asked for the grant's 30 s life, and a little more, each canvas: an
+  // entry page that never says so is not asked for ever.)
+  derive canvasKey = `${hello.client}|${hello.epoch}|${canvasTick}`
+  state canvasPolled = ""
+  state canvasPollsLeft = 40
+  resource canvasIn = canvasEntered(hello.client, hello.epoch, canvasTick, canvasPoll) as shape CanvasIn else empty()
+  resource canvasAt = loadCanvas(hello.local, hello.client, hello.epoch, canvasTick, canvasIn.entered) as shape Canvas else empty(ok=true)
   // A pin's modes are the running app's: its own design's axes, whichever
   // file is open (the last read of it).
   resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
   derive pinAxes = file == "" ? design.axes : appAxes.axes
   derive pinFontOk = pinFont == 0 or (pinFont >= 4 and pinFont <= 64)
   resource changes = waitChanges(since, epoch, asks, client) as shape Changes else empty(ok=true)
+  // Several live copies (LLP 1122 T7): one copy, a grid of modes, or the
+  // selected view's states side by side; the axis the grid's dark copies
+  // vary, its larger text size, how many copies, and whether a copy moved
+  // leads the others. The copies frame the dev loop's page (paired: the
+  // gateway's, once entered), and are read each second while shown.
+  state canvasView = "one"
+  state gridAxis = ""
+  state gridLarge = 22 persist
+  state gridCap = 6 persist
+  state gridMirror = true
+  state gridPoll = 0
+  derive gridPage = hello.local ? hello.frame : (canvasAt.frame != "" and canvasAt.frame.indexOf("#g=") < 0 ? canvasAt.frame : "")
+  resource gridAt = loadGrid(client, canvasView, gridAxis, gridLarge, gridCap, gridPage, gridMirror, canWrite, hello.epoch, hello.local, gridPoll, changes.answer) as shape Grid else empty(ok=true)
   // The design file shown ("": the app's own), a group's "more" opened,
   // and the two tokens whose contrast is shown.
   state file = ""
   state opened: string[] = []
+  // Base rows whose other platforms are shown; what a base value set for this app starts from, and its name.
+  state openedBase: string[] = []
+  state setForAppNote = ""
+  state setForAppName = ""
   state pickA = ""
   state pickB = ""
   resource design = loadDesign(file, filesAt, epoch) as shape Design else empty(ok=true)
@@ -781,7 +858,7 @@ component DesignTool
   derive shownValue = editKind == branchOp and draftFor != "" and editTarget == branch.token and not draftStale ? editValue : branch.value
   // The branch by what it is, not which read: a read that gives the same
   // value back (after a scrub cancelled, an undo elsewhere) keeps the cut.
-  derive branchKey = `${branch.token}␟${branch.column}␟${branch.when}␟${branch.value}`
+  derive branchKey = `${branch.token}␟${branch.column}␟${branch.when}␟${branch.value}␟${branch.readOnly}`
   derive partsBase = rawFor == branchKey and editKind == branchOp and editTarget == branch.token ? rawBase : branch.value
   resource typed = loadParts(branch.kind, partsBase, design.answer) as shape Typed else empty(ok=false)
   // The cut by its value and its parts (a reread that reads a name as
@@ -809,6 +886,10 @@ component DesignTool
     after(3000, advance)
   // A clients read refused while the poll goes on is asked again, each 3 s
   // (its own count: the poll's answers would put it off for ever).
+  task watchCanvas when canvasAt.frame.indexOf("#g=") >= 0 and (canvasPolled != canvasKey or canvasPollsLeft > 0) and not pending(canvasIn) and not pending(canvasAt) key=canvasPoll
+    after(1000, pollCanvas)
+  task watchGrid when canvasView != "one" and gridPage != "" and not pending(gridAt) key=gridPoll
+    after(1000, pollGrid)
   task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
     after(3000, reloadClients)
 
@@ -834,8 +915,24 @@ component DesignTool
     if not pending(pairedWith) and remoteAt.trim() != "" and remoteCode.trim() != ""
       send pairedWith = pairRemote(remoteAt, remoteCode, person)
       remoteCode = ""
+  action pollCanvas
+    canvasPoll = canvasPoll + 1
+    canvasPollsLeft = (canvasPolled == canvasKey ? canvasPollsLeft : 40) - 1
+    canvasPolled = canvasKey
   action reloadCanvas
     canvasTick = canvasTick + 1
+  action pollGrid
+    gridPoll = gridPoll + 1
+  action chooseCanvasView(v: string)
+    canvasView = v
+  action chooseGridAxis(v: string)
+    gridAxis = v
+  action chooseGridLarge(v: string)
+    gridLarge = match parseNumber(v) { case some(n) => n, case none => 0 }
+  action chooseGridCap(v: string)
+    gridCap = match parseNumber(v) { case some(n) => n, case none => 6 }
+  action toggleGridMirror(checked: bool)
+    gridMirror = checked
   action reloadClients
     clientsTries = clientsTries + 1
     refresh clients
@@ -1114,6 +1211,42 @@ component DesignTool
       editTarget = newName.trim()
       editWhen = ""
       editValue = newValue.trim()
+  // Stage 11: a base or package value set for this app (its override line: set-token, theme2's 17:09Z
+  // ruling, one op for both), or the app's line over one of theirs taken away (remove-token), each
+  // reviewed and applied as any edit.
+  action setForApp(name: string, value: string, from: string)
+    // (The override is the app's line: written in the app's design, whichever file is open.)
+    file = ""
+    newName = name
+    newValue = value
+    // (One platform's value becomes the app's on every platform: said beside the proposal.)
+    setForAppNote = from != "" ? `${name} for this app starts from ${from}, and the app's value is every platform's.` : ""
+    setForAppName = name
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = "set-token"
+    editTarget = name
+    editWhen = ""
+    editValue = value
+    // (A panel edit: no branch draft, no mode scope.)
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
+  action backToBase(name: string)
+    file = ""
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = "remove-token"
+    editTarget = name
+    editWhen = ""
+    editValue = ""
+  action openBase(name: string)
+    openedBase = openedBase.concat([name])
   action editRename(v: string)
     renameTo = v
   action renameToken
@@ -1380,6 +1513,10 @@ component DesignTool
             column gap=8 testId="canvas"
               row gap=8 align-items="center"
                 text "Canvas" role="heading" aria-level=2 flex=1
+                select value=canvasView change=chooseCanvasView aria-label="Copies shown" testId="canvas-view"
+                  option "One copy" value="one"
+                  option "Grid of modes" value="grid"
+                  option "States side by side" value="states"
                 select value=canvasSize change=chooseCanvasSize aria-label="Canvas size" testId="canvas-size"
                   option "Phone" value="phone"
                   option "Tablet" value="tablet"
@@ -1392,8 +1529,11 @@ component DesignTool
                 if canvasAt.frame != ""
                   button press=reloadCanvas disabled=pending(canvasAt) buttonStyle="bordered" testId="canvas-reload"
                     text "Reload Canvas"
-                if canvasAt.frame != "" and not pending(canvasAt)
+                // (Several copies once the one entry frame has entered: they load the gateway's pages on its session.)
+                if canvasAt.frame != "" and not pending(canvasAt) and (canvasView == "one" or canvasAt.frame.indexOf("#g=") >= 0)
                   iframe src=canvasAt.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+                else if canvasAt.frame != "" and not pending(canvasAt)
+                  text "" display="none"
                 else
                   row gap=8 align-items="center" flex-wrap="wrap"
                     text (canvasAt.error != "" ? canvasAt.error : "The canvas comes through the design server's gateway.") color="-exact-secondary-label" flex=1 testId="canvas-remote-none"
@@ -1401,11 +1541,47 @@ component DesignTool
                       button press=reloadCanvas disabled=pending(canvasAt) buttonStyle="bordered" testId="canvas-retry"
                         text "Try Again"
               else if hello.page != ""
-                iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+                if canvasView == "one"
+                  iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
               else
                 column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
                   text "No app running" role="heading" aria-level=3
                   text "The canvas shows the app from its dev loop. Start one (bun exact.mjs web, in the app's directory), then open the tool through it: bun exact.mjs tamber tool --via <its URL>. Stop this tool first: it holds the design server, and --via refuses while it runs." color="-exact-secondary-label" testId="no-app-how"
+              // Several live copies (LLP 1122 T7), each its own build: pinned to its
+              // mode and text size, or holding the selected view's state.
+              if canvasView != "one"
+                column gap=8 testId="grid-section"
+                  if canvasView == "grid"
+                    row gap=8 align-items="center" flex-wrap="wrap" testId="grid-controls"
+                      select value=gridAxis change=chooseGridAxis aria-label="Dark copies vary" testId="grid-axis"
+                        option "The first axis" value=""
+                        for a in pinAxes key = a.name
+                          option a.name value=a.name
+                      input type="number" min=4 max=64 value=(gridLarge > 0 ? `${gridLarge}` : "") placeholder="px" change=chooseGridLarge aria-label="Larger text size" width=80 testId="grid-large"
+                      select value=`${gridCap}` change=chooseGridCap aria-label="How many copies" testId="grid-cap"
+                        option "4 copies" value="4"
+                        option "6 copies" value="6"
+                        option "8 copies" value="8"
+                      row gap=4 align-items="center"
+                        input type="checkbox" checked=gridMirror change=toggleGridMirror aria-label="Mirror navigation" testId="grid-mirror"
+                        text "Mirror navigation"
+                  text (hello.local ? "Each copy is its own origin, with its own storage: each starts with its own data. Mirrored navigation replays no actions." : "Copies through the gateway share its storage: what one writes, the others may read. Mirrored navigation replays no actions.") color="-exact-secondary-label" font="-exact-footnote" testId="grid-shared"
+                  if not canWrite
+                    text "Pins and holds need write scope: each copy shows the app's own mode." color="-exact-secondary-label" font="-exact-footnote" testId="grid-scope"
+                  if gridPage == ""
+                    text (hello.local ? "No app running: the copies frame its dev loop's page." : "The copies come through the gateway once the canvas has entered.") color="-exact-secondary-label" testId="grid-none"
+                  if gridAt.note != ""
+                    text gridAt.note color="-exact-secondary-label" testId="grid-note"
+                  if gridAt.error != ""
+                    text gridAt.error color="-exact-system-red" testId="grid-error"
+                  row gap=12 flex-wrap="wrap" align-items="flex-start" testId="grid"
+                    for t in gridAt.tiles key = t.name
+                      column gap=4 testId=`grid-tile-${t.name}`
+                        text t.label font="-exact-headline" testId=`grid-label-${t.name}`
+                        iframe name=t.name src=t.src width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId=`grid-frame-${t.name}`
+                        text (t.note != "" ? t.note : t.facts) color=(t.note != "" ? "-exact-system-orange" : "-exact-secondary-label") font="-exact-caption1" max-width=390 testId=`grid-note-${t.name}`
+                        if t.app != ""
+                          text t.app color="-exact-secondary-label" font="-exact-caption1" max-width=390 testId=`grid-app-${t.name}`
             // The builds (LLP 1122 D4): every running copy, its effective
             // facts from its own report, and pins, which last while the tool
             // runs (its long poll names it) and are handed back when it stops.
@@ -1643,6 +1819,23 @@ component DesignTool
                         row gap=8 align-items="center" testId=`token-${t.name}`
                           column width=200 flex-shrink=0
                             text t.name
+                            // (Stage 11: the base's and a package's values are read-only; the app sets its own.)
+                            if t.source == "base"
+                              text "Exact's base, per platform" font="-exact-caption1" color="-exact-secondary-label" testId=`token-source-${t.name}`
+                            else if t.source == "package"
+                              text `From the ${t.package} package` font="-exact-caption1" color="-exact-secondary-label" testId=`token-source-${t.name}`
+                            for c in t.columns.filter(c => c.ships or openedBase.includes(t.name)) key=c.name
+                              text `${c.label} ${c.value}${c.stretch ? " (a stretch)" : ""} · ${c.from}` font="-exact-caption2" color="-exact-secondary-label" testId=`token-base-${t.name}-${c.name}`
+                            if t.columns.filter(c => not c.ships).length > 0 and not openedBase.includes(t.name)
+                              button press=openBase(t.name) testId=`token-base-more-${t.name}`
+                                text "Other platforms"
+                            if t.source != "app"
+                              button press=setForApp(t.name, t.start, t.startFrom) disabled=(not canPropose) testId=`set-for-app-${t.name}`
+                                text "Set for this app"
+                            if t.over != ""
+                              text t.over font="-exact-caption1" color="-exact-secondary-label" testId=`token-over-${t.name}`
+                              button press=backToBase(t.name) disabled=(not canPropose) testId=`back-${t.name}`
+                                text t.back
                             if lit.names.includes(t.name)
                               text `changed by ${lit.whos.filter((w, i) => lit.names.indexOf(t.name) == i).join("")}` font="-exact-caption1" color=lit.tints.filter((c, i) => lit.names.indexOf(t.name) == i).join("") testId=`changed-by-${t.name}`
                             if t.follows != ""
@@ -1677,6 +1870,8 @@ component DesignTool
               if selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and (selPlace == "" or branch.place == selPlace)
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
                   text (scopeOwn ? `${branch.token} · ${branch.own} (only this mode)` : branch.label) role="heading" aria-level=3 testId="branch-label"
+                  if branch.readOnly != ""
+                    text branch.readOnly color="-exact-secondary-label" font="-exact-footnote" testId="branch-readonly"
                   if branch.kind == "duration" or branch.kind == "easing"
                     text "Rebuilds: an edit to a motion token rebuilds the app, so Apply writes it, with no scrub." font="-exact-footnote" color="-exact-secondary-label" testId="branch-rebuilds"
                   if branch.expression and not pinning and not typed.ok
@@ -1692,7 +1887,7 @@ component DesignTool
                           text `${d.name} (dial)`
                     for r in branch.roles key=r
                       text `${r}: ${branch.kind == "color" ? "a platform colour" : "a platform value"}, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
-                    button press=pin disabled=(not canPropose) buttonStyle="bordered" testId="pin"
+                    button press=pin disabled=(not canPropose or branch.readOnly != "") buttonStyle="bordered" testId="pin"
                       text "Pin a value"
                   else
                     if branch.expression and typed.ok
@@ -1712,36 +1907,36 @@ component DesignTool
                           row gap=8 align-items="center" testId=`part-${p.key}`
                             text p.label width="7rem" color="-exact-secondary-label" font="-exact-footnote"
                             if p.control == "number"
-                              input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                              input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
                             else if p.control == "select"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                 for o in p.options key=o
                                   option (o == "" ? "none" : o) value=o
                             else if p.control == "inset"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                 option "outside" value=""
                                 option "inset" value="inset"
                             else if p.control == "style"
-                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
                                 option "unsaid" value=""
                                 option "italic" value="italic"
                             else
-                              input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose) placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                              input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
                         if partMissing != ""
                           text `Give ${partMissing} a value: emptied, the part after it would be read in its place.` color="-exact-system-orange" font="-exact-footnote" testId="typed-missing"
-                    input value=shownValue change=cellText disabled=(not canPropose) aria-label=`${branch.token} value` testId="branch-value"
+                    input value=shownValue change=cellText disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} value` testId="branch-value"
                   if not branch.exact
-                    button press=onlyThisMode disabled=(not canPropose) testId="only-this-mode"
+                    button press=onlyThisMode disabled=(not canPropose or branch.readOnly != "") testId="only-this-mode"
                       text "Only this mode"
                   if not branch.param
                     row gap=8
-                      input value=renameTo input=editRename submit=renameToken disabled=(not canPropose) placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
-                      button press=renameToken disabled=(renameTo.trim() == "" or not canPropose) testId="rename"
+                      input value=renameTo input=editRename submit=renameToken disabled=(not canPropose or branch.readOnly != "") placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
+                      button press=renameToken disabled=(renameTo.trim() == "" or not canPropose or branch.readOnly != "") testId="rename"
                         text "Rename"
-                      button commandfor="confirm-remove" command="show-modal" disabled=(not canPropose) destructive=true testId="remove"
+                      button commandfor="confirm-remove" command="show-modal" disabled=(not canPropose or branch.readOnly != "") destructive=true testId="remove"
                         text "Remove"
                   dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
-                    button press=removeToken disabled=(not canPropose) destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
+                    button press=removeToken disabled=(not canPropose or branch.readOnly != "") destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
                       text "Remove"
                     button commandfor="confirm-remove" command="close"
                       text "Cancel"
@@ -1775,6 +1970,8 @@ component DesignTool
                   input value=editValue input=stateValue disabled=(not canPropose) aria-label=(editKind == "set-row" ? "The row's value" : "The state part's value") testId="state-value"
               if editKind != ""
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
+                  if editKind == "set-token" and editTarget == setForAppName and setForAppNote != ""
+                    text setForAppNote font="-exact-footnote" color="-exact-secondary-label" testId="set-for-app-note"
                   if draftStale or partsStale
                     text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"
                   if not proposal.ok
@@ -1797,10 +1994,10 @@ component DesignTool
                           text "Cancel scrub"
                   else
                     row gap=8
-                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written) or not canPropose) buttonStyle="filled" testId="apply"
+                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or stateStale or pending(written) or not canPropose or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp)) buttonStyle="filled" testId="apply"
                         text (canWrite ? "Apply" : "Propose for review")
                       if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
-                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written) or not canWrite) testId="scrub-start"
+                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written) or not canWrite or (branch.readOnly != "" and editTarget == branch.token and editKind == branchOp)) testId="scrub-start"
                           text "Scrub live"
                       button press=cancelEdit testId="cancel-edit"
                         text "Cancel"

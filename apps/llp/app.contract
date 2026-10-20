@@ -148,7 +148,7 @@ component Llp
     main testId="llp-main" width="100%" height="100%" background-color="page"
       head title=title
       column width="100%" height="100%"
-        header width="100%" padding=10 gap=8 background-color="chrome" border-bottom-style="solid" border-bottom-width=1 border-color="edge" box-sizing="border-box"
+        header width="100%" padding=10 background-color="chrome" border-bottom-style="solid" border-bottom-width=1 border-color="edge" box-sizing="border-box"
           row gap=8 align-items="center" width="100%"
             Chip(label="Files", on=showIndex, press=toggleIndex, testId="index-toggle")
             // The node every open route ends at: ⌘O, a Finder double-click,

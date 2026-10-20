@@ -3,18 +3,17 @@
 // and dark, at a phone's width and a desktop's. `appearance="none"` stays the author's bare box: no line, no corners,
 // its text's height. The app is compiled from Contract and built for the JS target, as `exact` builds one.
 import { test, expect } from 'bun:test';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { serveBuildTree } from '../serve.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 const FORM = `component Form
@@ -52,12 +51,9 @@ async function inChrome(test) {
   if (build.status !== 0) throw new Error(build.stderr);
   const server = createServer((request, response) => serveBuildTree(dist, request, response));
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=1400,900', `--user-data-dir=${join(dir, 'profile')}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const suite = await cdpBrowser({ args: ['--window-size=1400,900'] }), { cdp } = suite;
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     const call = (method, params) => cdp.send(method, params, sessionId);
     const evaluate = async (expression) => {
       const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -73,7 +69,7 @@ async function inChrome(test) {
     await frames();
     await test(evaluate, size, scheme);
   } finally {
-    child.kill();
+    await suite.close();
     server.close();
     rmSync(dir, { recursive: true, force: true });
   }

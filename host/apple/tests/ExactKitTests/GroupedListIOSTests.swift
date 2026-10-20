@@ -900,7 +900,12 @@ final class GroupedListIOSTests: GroupedListFixture {
         let l = try list(p)
         l.collection.layoutIfNeeded()
         let shown = l.collection.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: 0)) as? UICollectionViewListCell
-        XCTAssertEqual((shown?.contentConfiguration as? UIListContentConfiguration)?.text, "Profile")
+        let text = (shown?.contentConfiguration as? UIListContentConfiguration)?.attributedText
+        XCTAssertEqual(text?.string, "Profile")
+        // A grouped table's header hyphenates as UITableView's does, not as
+        // the collection view list's (1, which drew "Reading to-gether").
+        let paragraph = text?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        XCTAssertEqual(paragraph?.hyphenationFactor, 0.45)
     }
 
     /// LLP 1116.003 (r5 password generator: `tap history-0` refused, a

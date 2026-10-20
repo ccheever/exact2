@@ -43,6 +43,8 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
     /// One-shots waiting on a fix, each with its deadline's token.
     private var oneShots: [(id: Int, reply: ([String: Any]) -> Void)] = []
     private var nextShot = 0
+    /// One-shots asked again after a transient `locationUnknown`.
+    private var unknown = 0
     private var watching = false
     private var last: [String: Any]?
     private var watchers: [([String: Any]) -> Void] = []
@@ -248,6 +250,7 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
 
     public func locationManager(_ m: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         checkOwned()
+        unknown = 0
         if let fix = locations.last {
             let p = position(fix)
             let shots = oneShots
@@ -265,17 +268,37 @@ public final class GeolocationModule: NSObject, CLLocationManagerDelegate {
     }
 
     public func locationManager(_ m: CLLocationManager, didFailWithError error: Error) {
-        let code = (error as? CLError)?.code == .denied ? "PERMISSION_DENIED" : "POSITION_UNAVAILABLE"
-        // `locationUnknown` is transient: a watch keeps trying.
-        if (error as? CLError)?.code != .locationUnknown || !oneShots.isEmpty {
-            let shots = oneShots
+        let cl = (error as? CLError)?.code
+        // `locationUnknown` is transient: CoreLocation has no fix yet, as
+        // right after a grant. A watch keeps trying, and a one-shot asks
+        // again, a few times, before it fails.
+        if cl == .locationUnknown {
+            if !oneShots.isEmpty && !watching {
+                if unknown < 3 {
+                    unknown += 1
+                    manager.requestLocation()
+                } else {
+                    fail(shots: true, watch: false, "POSITION_UNAVAILABLE")
+                }
+            }
+        } else {
+            fail(shots: true, watch: true, cl == .denied ? "PERMISSION_DENIED" : "POSITION_UNAVAILABLE")
+        }
+        forward?.locationManager?(m, didFailWithError: error)
+    }
+
+    private func fail(shots: Bool, watch: Bool, _ code: String) {
+        unknown = 0
+        if shots {
+            let waiting = oneShots
             oneShots = []
-            shots.forEach { $0.reply(["error": code]) }
+            waiting.forEach { $0.reply(["error": code]) }
+        }
+        if watch {
             let waiting = watchers
             watchers = []
             waiting.forEach { $0(["error": code]) }
         }
-        forward?.locationManager?(m, didFailWithError: error)
     }
 
     /// A fix in the interface's `GeolocationPosition` (D1): the ellipsoidal

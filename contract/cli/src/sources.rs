@@ -1,7 +1,7 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
-mod packages;
+pub(crate) mod packages;
 mod refused;
 mod uses;
 
