@@ -79,7 +79,7 @@ fn drawn_pose_primes_survive_dirty_feed_and_last_two_observer_ticks() {
                     "replacement" => {
                         let mut model = crate::test_model::posable_model();
                         model.nodes[0].transform[12] = 2.;
-                        s.asset("actor.model", Ok(&exact_game::bin::to_vec(&model)));
+                        s.asset("actor.model", Ok(&exact_game::asset::encode_model(&model)));
                     }
                     "first pose" => {
                         let w = s.sim.as_mut().unwrap().world_mut();

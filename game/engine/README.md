@@ -327,7 +327,10 @@ See [toon rendering and parity options](../render/README.md#toon-models) for
 `MeshData.outline`, `MaterialData.rim` and their glTF import names.
 `MaterialData.name` is the glTF material's name, empty when it has none; names may
 repeat, and the mesh's `material` index is what selects one
-([Blender export](../recipes/blender-export.md)).
+([Blender export](../recipes/blender-export.md)). A baked `.model` file is
+`asset::MODEL_RECORD` (2, material names); a file of an older bake or another record
+fails its asset by name (``baked before model records``), and baking `art/` again
+replaces it.
 
 ## Saves and assets
 

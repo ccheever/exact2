@@ -6,9 +6,6 @@
 use proc_macro::{Delimiter, Spacing, TokenStream, TokenTree};
 
 /// Implement the streaming data contract for a nongeneric struct or enum.
-/// A field's `#[data(skip)]` leaves it out of saves, hashes and edits;
-/// `#[data(omit_default)]` on a named field writes it only when it differs
-/// from its type's default, so adding one keeps existing values' bytes.
 #[proc_macro_derive(Data, attributes(data))]
 pub fn data(input: TokenStream) -> TokenStream {
     derive(input, None)
@@ -78,16 +75,6 @@ pub fn event(input: TokenStream) -> TokenStream {
 struct Field {
     name: String,
     skip: bool,
-    /// `data(omit_default)`: written only when it differs from its default,
-    /// so a field added this way leaves existing values' bytes and hashes as
-    /// they were. Readers take its default when it is absent.
-    omit: bool,
-}
-#[derive(Clone, Copy, PartialEq)]
-enum FieldData {
-    Written,
-    Skip,
-    OmitDefault,
 }
 struct Body {
     fields: Vec<Field>,
@@ -113,9 +100,9 @@ fn derive(input: TokenStream, marker: Option<&str>) -> TokenStream {
 fn punct(t: &TokenTree, c: char) -> bool {
     matches!(t, TokenTree::Punct(p) if p.as_char() == c)
 }
-fn strip(tokens: &[TokenTree], field: bool) -> Result<(&[TokenTree], FieldData), String> {
+fn strip(tokens: &[TokenTree], field: bool) -> Result<(&[TokenTree], bool), String> {
     let mut i = 0;
-    let mut data = FieldData::Written;
+    let mut skip = false;
     while i + 1 < tokens.len() && punct(&tokens[i], '#') {
         if let TokenTree::Group(g) = &tokens[i + 1] {
             let a: Vec<_> = g.stream().into_iter().collect();
@@ -129,16 +116,13 @@ fn strip(tokens: &[TokenTree], field: bool) -> Result<(&[TokenTree], FieldData),
                 if !field {
                     return Err("data attribute is only meaningful on a field".into());
                 }
-                data = match &a[1..] {
-                    [TokenTree::Group(g)] if g.delimiter() == Delimiter::Parenthesis => {
-                        match g.stream().to_string().as_str() {
-                            "skip" => FieldData::Skip,
-                            "omit_default" => FieldData::OmitDefault,
-                            _ => return Err(UNKNOWN_DATA.into()),
-                        }
-                    }
-                    _ => return Err(UNKNOWN_DATA.into()),
-                };
+                if a.len() != 2
+                    || !matches!(&a[1], TokenTree::Group(g)
+                    if g.delimiter() == Delimiter::Parenthesis && g.stream().to_string() == "skip")
+                {
+                    return Err("unknown data attribute; expected data(skip)".into());
+                }
+                skip = true;
             }
         }
         i += 2;
@@ -150,9 +134,8 @@ fn strip(tokens: &[TokenTree], field: bool) -> Result<(&[TokenTree], FieldData),
             i += 1;
         }
     }
-    Ok((&tokens[i..], data))
+    Ok((&tokens[i..], skip))
 }
-const UNKNOWN_DATA: &str = "unknown data attribute; expected data(skip) or data(omit_default)";
 fn split(stream: TokenStream) -> Result<Vec<Vec<TokenTree>>, String> {
     let tokens: Vec<_> = stream.into_iter().collect();
     let mut out = Vec::new();
@@ -202,10 +185,7 @@ fn body(group: Option<&TokenTree>) -> Result<Body, String> {
     };
     let mut fields = Vec::new();
     for (i, f) in split(g.stream())?.iter().enumerate() {
-        let (f, data) = strip(f, true)?;
-        if data == FieldData::OmitDefault && shape != Shape::Named {
-            return Err("data(omit_default) is only meaningful on a named field".into());
-        }
+        let (f, skip) = strip(f, true)?;
         let name = if shape == Shape::Named {
             if !matches!(f.first(), Some(TokenTree::Ident(_)))
                 || !f.get(1).is_some_and(|t| punct(t, ':'))
@@ -216,11 +196,7 @@ fn body(group: Option<&TokenTree>) -> Result<Body, String> {
         } else {
             i.to_string()
         };
-        fields.push(Field {
-            name,
-            skip: data == FieldData::Skip,
-            omit: data == FieldData::OmitDefault,
-        });
+        fields.push(Field { name, skip });
     }
     Ok(Body { fields, shape })
 }
@@ -400,19 +376,12 @@ fn write_body(b: &Body, access: &[String]) -> String {
         )
     };
     for (f, a) in b.fields.iter().zip(access).filter(|(f, _)| !f.skip) {
-        let write = format!(
-            "{}::exact_game::Data::write(&{a}, w);",
-            if named {
-                format!("w.field({:?});", clean(&f.name))
-            } else {
-                "w.item();".into()
-            }
-        );
-        s += &if f.omit {
-            format!("if !::exact_game::data::is_default(&{a}) {{ {write} }}")
+        if named {
+            s += &format!("w.field({:?});", clean(&f.name));
         } else {
-            write
-        };
+            s += "w.item();";
+        }
+        s += &format!("::exact_game::Data::write(&{a}, w);");
     }
     s += if named {
         "w.end_struct();"
@@ -472,9 +441,6 @@ fn read_body(b: &Body, access: &[String]) -> String {
     s += "}";
     if named {
         for (index, f) in b.fields.iter().filter(|f| !f.skip).enumerate() {
-            if f.omit {
-                continue;
-            }
             s += &format!("if r.complete() && !seen[{index}] {{ return ::core::result::Result::Err(::exact_game::DataError::new(\"missing field\").at({:?})); }}", clean(&f.name));
         }
     }

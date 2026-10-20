@@ -734,7 +734,7 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         * glam::Mat4::from_cols_array(&mirrored.transform))
     .to_cols_array();
     model.nodes.push(mirrored);
-    let bytes = exact_game::bin::to_vec(&model);
+    let bytes = exact_game::asset::encode_model(&model);
     let fresh = || {
         let mut s = WorldSurface::<Art, crate::ModelExecutor, true>::default();
         s.device_ready(exact_gpu::wgpu::Features::empty());

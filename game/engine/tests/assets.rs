@@ -15,7 +15,7 @@ impl Game for Loading {
 }
 #[test]
 fn declared_models_gate_setup_and_ticks_and_survive_restore() {
-    let bytes = bin::to_vec(&asset::Model::default());
+    let bytes = asset::encode_model(&asset::Model::default());
     let mut a = Sim::<Loading>::new(()).unwrap();
     let mut b = Sim::<Loading>::new(()).unwrap();
     assert_eq!(a.take_assets(), ["crate.model"]);
@@ -69,8 +69,11 @@ fn skinned_bounds_follow_delivery_pose_and_restore_without_changing_saved_state(
         ..Default::default()
     };
     let mut sim = Sim::<Scene>::new(()).unwrap();
-    sim.asset("rig.model", Some(&bin::to_vec(&model(8.))))
-        .unwrap();
+    sim.asset(
+        "rig.model",
+        Some(&exact_game::asset::encode_model(&model(8.))),
+    )
+    .unwrap();
     sim.viewport(800., 600.);
     let entity = sim.world().named("rig").unwrap();
     let center = Vec2::new(400., 300.);
@@ -85,8 +88,11 @@ fn skinned_bounds_follow_delivery_pose_and_restore_without_changing_saved_state(
     assert_eq!(sim.save().unwrap(), before);
     sim.restore(&before).unwrap();
     assert_eq!(sim.layout(entity).unwrap().screen, layout);
-    sim.asset("rig.model", Some(&bin::to_vec(&model(12.))))
-        .unwrap();
+    sim.asset(
+        "rig.model",
+        Some(&exact_game::asset::encode_model(&model(12.))),
+    )
+    .unwrap();
     assert!((sim.pick(center).unwrap().distance - 27.).abs() < 1e-5);
     assert_ne!(sim.layout(entity).unwrap().screen, layout);
     let bind = animation::bind_pose(sim.world().model("rig.model").unwrap());
@@ -134,7 +140,8 @@ fn undeclared_arrival_cannot_change_simulation_reads_or_layout() {
         bounds: [-2., -2., -2., 2., 2., 2.],
         ..Default::default()
     };
-    sim.asset("late.model", Some(&bin::to_vec(&model))).unwrap();
+    sim.asset("late.model", Some(&exact_game::asset::encode_model(&model)))
+        .unwrap();
     assert!(sim.world().model("late.model").is_none());
     assert_eq!(sim.agent(r#"{"op":"layout","entity":"late"}"#), before);
 }
@@ -151,6 +158,16 @@ fn failures_are_named_in_state_and_refused_clock() {
     );
 }
 #[test]
+fn a_stale_bake_fails_its_asset_by_name() {
+    let mut sim = Sim::<Loading>::new(()).unwrap();
+    let _ = sim.asset("crate.model", Some(&bin::to_vec(&asset::Model::default())));
+    let clock = sim.agent(r#"{"op":"clock","now":1000}"#);
+    assert!(
+        clock.contains("crate.model") && clock.contains("baked before model records"),
+        "{clock}"
+    );
+}
+#[test]
 fn loading_save_refuses_and_clock_does_not_establish_an_epoch() {
     let mut sim = Sim::<Loading>::new(()).unwrap();
     let error = sim.save().unwrap_err().to_string();
@@ -159,8 +176,11 @@ fn loading_save_refuses_and_clock_does_not_establish_an_epoch() {
         "{error}"
     );
     sim.advance(5000., Clock::Seekable);
-    sim.asset("crate.model", Some(&bin::to_vec(&asset::Model::default())))
-        .unwrap();
+    sim.asset(
+        "crate.model",
+        Some(&exact_game::asset::encode_model(&asset::Model::default())),
+    )
+    .unwrap();
     assert_eq!(sim.advance(9000., Clock::Seekable), 0);
     assert_eq!(sim.advance(9500., Clock::Seekable), 30);
 }
@@ -199,7 +219,7 @@ impl Game for BoundedCosmetic {
 fn authored_cosmetic_bounds_survive_arrival_and_save() {
     let mut sim = Sim::<BoundedCosmetic>::new(()).unwrap();
     let layout = sim.agent(r#"{"op":"layout","entity":"late"}"#);
-    let bytes = bin::to_vec(&asset::Model {
+    let bytes = asset::encode_model(&asset::Model {
         bounds: [-9., -9., -9., 9., 9., 9.],
         ..Default::default()
     });
@@ -411,7 +431,7 @@ fn headless_loader_drains_dependencies_and_reports_failures_without_panicking() 
     let mut names = Vec::new();
     sim.load_assets(|name| {
         names.push(name.to_owned());
-        Ok::<_, String>(bin::to_vec(&asset::Model::default()))
+        Ok::<_, String>(asset::encode_model(&asset::Model::default()))
     })
     .unwrap();
     assert_eq!(names, ["crate.model"]);
@@ -437,8 +457,11 @@ fn headless_loader_drains_dependencies_and_reports_failures_without_panicking() 
 fn cosmetic_names_retire_and_respawn_requests_again() {
     let mut sim = Sim::<Cosmetic>::new(()).unwrap();
     assert_eq!(sim.take_assets(), ["late.model"]);
-    sim.asset("late.model", Some(&bin::to_vec(&asset::Model::default())))
-        .unwrap();
+    sim.asset(
+        "late.model",
+        Some(&exact_game::asset::encode_model(&asset::Model::default())),
+    )
+    .unwrap();
     let entity = sim.world().resolve("late").unwrap();
     sim.world_mut().despawn(entity);
     assert!(sim.take_assets().is_empty());
@@ -471,8 +494,11 @@ fn asset_requests_support_more_than_256_names() {
 #[test]
 fn a_publication_only_tick_names_the_changing_key() {
     let mut sim = Sim::<Loading>::new(()).unwrap();
-    sim.asset("crate.model", Some(&bin::to_vec(&asset::Model::default())))
-        .unwrap();
+    sim.asset(
+        "crate.model",
+        Some(&exact_game::asset::encode_model(&asset::Model::default())),
+    )
+    .unwrap();
     sim.run(1000.);
     let clock = sim.agent(r#"{"op":"clock"}"#);
     assert!(
@@ -484,8 +510,11 @@ fn a_publication_only_tick_names_the_changing_key() {
 #[test]
 fn declared_assets_stay_loaded_when_nothing_shows_them() {
     let mut sim = Sim::<Loading>::new(()).unwrap();
-    sim.asset("crate.model", Some(&bin::to_vec(&asset::Model::default())))
-        .unwrap();
+    sim.asset(
+        "crate.model",
+        Some(&exact_game::asset::encode_model(&asset::Model::default())),
+    )
+    .unwrap();
     let entity = sim.world().resolve("crate").unwrap();
     sim.world_mut().despawn(entity);
     sim.take_assets();
@@ -532,7 +561,8 @@ fn failed_cosmetic_dependencies_do_not_gate_a_save() {
         bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model")).unwrap();
     model.textures.push("still-pending.tex".into());
     model.materials[0].normal_texture = Some(1);
-    sim.asset("late.model", Some(&bin::to_vec(&model))).unwrap();
+    sim.asset("late.model", Some(&exact_game::asset::encode_model(&model)))
+        .unwrap();
     sim.asset_failed(&model.textures[0], "cosmetic missing");
     assert!(
         sim.save().is_ok(),
@@ -608,7 +638,11 @@ fn rearming_texture_delivery_invalidates_the_hosts_answered_name_each_time() {
         bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model")).unwrap();
     let tex = include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex");
     s.take_assets();
-    s.asset("crate.model", Some(&bin::to_vec(&model))).unwrap();
+    s.asset(
+        "crate.model",
+        Some(&exact_game::asset::encode_model(&model)),
+    )
+    .unwrap();
     for _ in 0..3 {
         s.take_assets();
         s.asset(&model.textures[0], Some(tex)).unwrap();
@@ -744,8 +778,11 @@ fn a_model_first_requested_mid_game_does_not_break_a_paranoid_save() {
             "{samples:?}"
         );
         assert_eq!(sim.take_assets(), ["rocket.model"]);
-        sim.asset("rocket.model", Some(&bin::to_vec(&asset::Model::default())))
-            .unwrap();
+        sim.asset(
+            "rocket.model",
+            Some(&exact_game::asset::encode_model(&asset::Model::default())),
+        )
+        .unwrap();
         sim.run(100.);
         // The next tick took the owed sample.
         let after = sim.paranoid_samples();
@@ -774,7 +811,7 @@ fn streamed_assets_load_after_setup_without_reaching_the_simulation() {
         }
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
-    let model = bin::to_vec(&asset::Model::default());
+    let model = asset::encode_model(&asset::Model::default());
     let mut sim = Sim::<Streaming>::new(()).unwrap();
     assert!(sim.is_loading());
     // What setup waits for is asked first; streamed names follow.
