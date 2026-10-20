@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 import { helpParity } from './help-parity.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const READ = ['scripts/exact.mjs', 'scripts/app-cli.mjs', 'scripts/tamber-pairing.mjs', 'host/apple/build.mjs', 'host/apple/devices.mjs', 'host/apple/link.mjs', 'host/apple/bundle.mjs', 'host/web/dev.mjs', 'scripts/install-page.mjs', 'scripts/tamber-remote.mjs', 'host/web/build.mjs', 'scripts/agent-launch.mjs', 'scripts/agent-widget.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/feedback.mjs'];
+const READ = ['scripts/exact.mjs', 'scripts/app-cli.mjs', 'scripts/tamber-pairing.mjs', 'host/apple/build.mjs', 'host/apple/devices.mjs', 'host/apple/link.mjs', 'host/apple/bundle.mjs', 'host/web/dev.mjs', 'scripts/install-page.mjs', 'scripts/tamber-remote.mjs', 'scripts/tamber-relay.mjs', 'host/web/build.mjs', 'scripts/agent-launch.mjs', 'scripts/agent-widget.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/feedback.mjs'];
 
 /** helpParity over a copy of the scripts it reads, `edit` applied to the copy first. */
 function over(edit) {
