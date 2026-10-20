@@ -70,7 +70,10 @@ const sha = buf => createHash('sha256').update(buf).digest('hex');
 export function screenOps(screen, scheme, png) {
   const [, taps] = SCREENS.find(([n]) => n === screen);
   const settle = ['clock settle', 'clock +1000', 'clock settle'];
-  return ['clock settle', `prefer prefers-color-scheme ${scheme}`, ...settle, ...taps.flatMap(t => [t, ...settle]), `screenshot ${png}`, 'logs'];
+  // A second of real time first: the web loads its font in real time, and a
+  // header measured before it lands keeps that height (one run in thirteen
+  // drew the profile's header 2 px short).
+  return ['clock +1000 real', 'clock settle', `prefer prefers-color-scheme ${scheme}`, ...settle, ...taps.flatMap(t => [t, ...settle]), `screenshot ${png}`, 'logs'];
 }
 
 /** One host's drive of the copy: every screen, both schemes, each its own
