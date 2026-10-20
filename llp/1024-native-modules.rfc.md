@@ -731,8 +731,13 @@ and puts it in the iOS bundle’s `Frameworks`, where the embedded-dylib loop
 signs it (so the simulator run traverses `codesign`). It reads the
 artifact’s roster from its table (`bun:ffi`; for an iOS build, the same
 sources run as a Mac Catalyst executable, else as an iOS simulator one under
-`simctl spawn` on a booted simulator (with none booted, the build boots one
-and shuts it down, about 7 s), else as a macOS slice); `host/web/build.mjs`
+`simctl spawn` on the simulator `--sim` or `EXACT_SIM` names, else a booted one
+(with none booted, the build boots one and shuts it down, about 7 s), else as a
+macOS slice). A roster read is kept beside the probe's cached build, whose key
+is every input it compiles from, so a build whose probe is unchanged reads it
+there and runs no probe (the simulator route: 8.6–9.0 s a build against
+2.2–3.9 s, `apps/native-fixture` with an iOS-only dependency, 2026-10-20);
+`host/web/build.mjs`
 reads the web module’s `roster` export. A roster tag the artifact lacks fails
 a production build, named, and warns in development; so does a roster no
 route can read, naming each route's cause.
