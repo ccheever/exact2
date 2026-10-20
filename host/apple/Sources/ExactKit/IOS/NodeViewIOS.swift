@@ -1258,6 +1258,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         applyFieldStyle()
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
+        decorationChanged(from: old)
         setNeedsDisplay()
     }
 

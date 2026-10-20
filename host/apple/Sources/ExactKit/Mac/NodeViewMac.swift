@@ -1037,6 +1037,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if old["accent_color"] != s["accent_color"] { accentChanged() }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
+        decorationChanged(from: old)
         syncDynamicRange(from: old)
         let uniformBorder = number("border_width")
         hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
