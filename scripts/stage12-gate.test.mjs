@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, BASELINE_TAG, comparePixels, lines, parse, pixelDiff, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, barTop, beforeDrift, BASELINE_TAG, comparePixels, lines, parse, pixelDiff, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -85,4 +85,14 @@ test('the before differs from the baseline\'s tag only in its lock', () => {
   expect(beforeDrift(dir)).toEqual([]);
   writeFileSync(join(dir, 'app.contract'), 'b'); git('commit', '-qam', 'more');
   expect(beforeDrift(dir)).toEqual(['app.contract']);
+});
+
+test('a shot with bars above its viewport: the offset that lines up every marker', () => {
+  // A 10x14 shot of a 10x10 viewport, 3 rows of bars on top: two markers
+  // whose pixels differ between the shots, 3 rows below their layout rects.
+  const img = (on) => { const data = new Uint8Array(10 * 14 * 4).fill(255); for (const [x, y] of on) data.set([0, 0, 0, 255], (y * 10 + x) * 4); return { width: 10, height: 14, data }; };
+  const A = img([]), B = img([[1, 4], [6, 9]]);
+  const layout = { viewport: { w: 10, h: 10 }, nodes: [{ testId: 'marker-a', x: 0, y: 1, w: 2, h: 2 }, { testId: 'marker-b', x: 5, y: 6, w: 2, h: 2 }] };
+  expect(barTop(A, B, layout, ['a', 'b'])).toBe(3);
+  expect(barTop(A, B, { ...layout, viewport: { w: 10, h: 14 } }, ['a', 'b'])).toBe(0);
 });

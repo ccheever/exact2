@@ -295,13 +295,14 @@ function libraryPlan(dir) {
 /** The ids of library-gate's slotted cells (each a marker): its PostCards'. */
 export const markerIds = () => placements(readFileSync(join(LIBRARY_GATE, 'app.contract'), 'utf8'), ['PostCard']).map(p => p.id);
 
-/** Differing pixels inside `rect` (layout points, scaled to the shots). */
-export function rectDiffers(a, b, rect, viewportW) {
-  const A = decodePng(a), B = decodePng(b);
+/** Differing pixels inside `rect` (layout points, scaled to the shots, `top`
+ * pixels down: a host's bars above the viewport). */
+export function rectDiffers(a, b, rect, viewportW, top = 0) {
+  const A = typeof a.width === 'number' ? a : decodePng(a), B = typeof b.width === 'number' ? b : decodePng(b);
   if (A.width !== B.width || A.height !== B.height) return -1;
   const k = A.width / viewportW;
   let n = 0;
-  for (let y = Math.floor(rect.y * k); y < Math.ceil((rect.y + rect.h) * k); y++) {
+  for (let y = Math.max(0, Math.floor(rect.y * k) + top); y < Math.min(A.height, Math.ceil((rect.y + rect.h) * k) + top); y++) {
     for (let x = Math.floor(rect.x * k); x < Math.ceil((rect.x + rect.w) * k); x++) {
       const i = (y * A.width + x) * 4;
       if (A.data[i] !== B.data[i] || A.data[i + 1] !== B.data[i + 1] || A.data[i + 2] !== B.data[i + 2]) n++;
@@ -318,6 +319,24 @@ export const whyOf = e => {
 
 /** A rect laid out, non-zero and inside the viewport. */
 const shown = (n, v) => n && n.w > 0 && n.h > 0 && n.x >= 0 && n.y >= 0 && n.x + n.w <= v.w + 0.5 && n.y + n.h <= v.h + 0.5;
+
+/** Where the viewport starts in a shot that holds a host's bars too (the
+ * Android reader's status bar, which the layout's insets don't name): of
+ * the rows the shot has beyond the viewport, the offset at which the most
+ * shown markers differ between the two shots (every marker toggles at once,
+ * so only the true offset lines them all up); 0 for a shot of the viewport. */
+export function barTop(A, B, layout, ids) {
+  const k = A.width / layout.viewport.w;
+  const slack = Math.round(A.height - layout.viewport.h * k);
+  if (slack <= 1) return 0;
+  const rects = ids.map(id => layout.nodes.find(n => n.testId === `marker-${id}`)).filter(n => shown(n, layout.viewport));
+  let best = 0, most = -1;
+  for (let top = 0; top <= slack; top++) {
+    const hit = rects.filter(r => rectDiffers(A, B, r, layout.viewport.w, top) > 0).length;
+    if (hit > most) { most = hit; best = top; }
+  }
+  return best;
+}
 
 /** The slot rendered, on `host`: every marker shown with each glyph, its
  * rect laid out inside the viewport, and the two shots apart inside it (the
@@ -343,7 +362,8 @@ export function slotOn(host, plan, dir, app = 'unsaid') {
     try { layout = drivePlan(host, plan, b, [`tap marker-${id}`, `screenshot ${a}`, `tap marker-${id}`], app); } catch (e) { return { host, id, ok: false, why: whyOf(e) }; }
     const n = layout.nodes.find(x => x.testId === `marker-${id}`);
     if (!shown(n, layout.viewport)) return { host, id, ok: false, why: `not laid out inside the viewport (${JSON.stringify(n && { x: n.x, y: n.y, w: n.w, h: n.h })})` };
-    const d = rectDiffers(readFileSync(a), readFileSync(b), n, layout.viewport.w);
+    const [A, B] = [a, b].map(f => decodePng(readFileSync(f)));
+    const d = rectDiffers(A, B, n, layout.viewport.w, barTop(A, B, layout, ids));
     return { host, id, ok: d > 0, why: d > 0 ? '' : d < 0 ? 'the two shots differ in size' : 'its pixels are the same with both glyphs', px: d };
   });
 }
