@@ -830,17 +830,17 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
     if (selectText && document.activeElement === el) el.select();
   }
 }
-const opened = new WeakMap(), opening = [];
+const opening = []; // an open dialog's or popover's `exactOpened` is when it opened, so the greatest is on top (input-glue.js's menu)
 let order = 0;
-// Stamp the inner opening, then its still-dispatching callers, innermost first.
-// An outer target already open aborts its opening, so keeps its existing stamp.
+// Stamp the inner opening, then its still-dispatching callers, innermost first; an outer target already open keeps its
+// stamp. Only the first copy stamps: the JS target's agent runs a second (agent-navigation.js), its count begun later.
 globalThis.addEventListener?.('beforetoggle', e => {
   for (let i = opening.length - 1; i >= 0; i--) if (opening[i].eventPhase === Event.NONE) opening.splice(i, 1);
-  if (e.newState !== 'open' || (e.target.localName !== 'dialog' && !e.target.hasAttribute('popover'))) return;
-  opened.set(e.target, ++order);
+  if (e.exactStamped || e.newState !== 'open' || (e.target.localName !== 'dialog' && !e.target.hasAttribute('popover'))) return;
+  e.exactStamped = true; e.target.exactOpened = ++order;
   for (let i = opening.length - 1; i >= 0; i--) {
     const target = opening[i].target;
-    if (!target.matches('dialog:modal,:popover-open')) opened.set(target, ++order);
+    if (!target.matches('dialog:modal,:popover-open')) target.exactOpened = ++order;
   }
   opening.push(e);
 }, true);
@@ -848,8 +848,8 @@ globalThis.addEventListener?.('beforetoggle', e => {
 export function modalLayers() {
   const top = [...document.querySelectorAll('dialog:modal,:popover-open')];
   const modals = top.filter(el => el.matches('dialog:modal'));
-  const front = Math.max(0, ...modals.map(el => opened.get(el) ?? 0));
-  return modals.length ? top.filter(el => (opened.get(el) ?? 0) >= front) : null;
+  const front = Math.max(0, ...modals.map(el => el.exactOpened ?? 0));
+  return modals.length ? top.filter(el => (el.exactOpened ?? 0) >= front) : null;
 }
 // The nearest inert ancestor (a modal dialog ends the search: its subtree is live).
 export function inertAncestor(el) {
@@ -1490,7 +1490,7 @@ export function popoverCommand(method, id, source, say) {
 }
 const popoverSources = new WeakMap();
 globalThis.document?.addEventListener?.("beforetoggle", e => {
-  if (e.target.hasAttribute("popover") && e.newState === "open") popoverSources.set(e.target, e.source ?? null);
+  if (e.target.hasAttribute("popover") && e.newState === "open") { popoverSources.set(e.target, e.source ?? null); e.target.toggleAttribute("data-exact-chooser", !!e.source?.checkVisibility() && e.target.getAttribute("role") === "alertdialog" && !e.target.querySelector(":scope > [data-exact-text], input")); } // a chooser (LLP 1021) its invoker opened, the invoker still shown: neutral.css draws it there, as a menu
 }, true);
 function popoverObservation(root) {
   const pop = [...root.querySelectorAll("[popover]:popover-open")].at(-1), source = pop && popoverSources.get(pop);

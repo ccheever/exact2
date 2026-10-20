@@ -158,7 +158,7 @@ const fixture = `
     <div role="tablist" id="tabs" style="display:flex"><button type="button" role="tab" aria-controls="p1" aria-selected="true" data-native data-button-style="bordered" id="tab" style="display:grid;flex:1"><span data-exact-text>Inbox</span></button></div>
   </main>
   <div id="said" style="color:rgb(255, 0, 0)">
-    <div style="display:flex;justify-content:space-between"><button type="button" data-native data-button-style="bordered" popovertarget="menu" id="invoker" style="display:grid"><span data-exact-text>Menu</span></button><button type="button" data-native data-button-style="bordered" popovertarget="menu" id="invoker-end" style="display:grid"><span data-exact-text>More</span></button></div>
+    <div style="display:flex;justify-content:space-between"><button type="button" data-native data-button-style="bordered" popovertarget="menu" id="invoker" style="display:grid"><span data-exact-text>Menu</span></button><button type="button" data-native data-button-style="bordered" popovertarget="chooser" id="chooser-invoker" style="display:grid"><span data-exact-text>Open in</span></button><button type="button" data-native data-button-style="bordered" commandfor="chooser" command="show-popover" id="chooser-command" style="display:grid"><span data-exact-text>Open with</span></button><button type="button" data-native data-button-style="bordered" popovertarget="asked" id="asked-invoker" style="display:grid"><span data-exact-text>Remove</span></button><button type="button" data-native data-button-style="bordered" popovertarget="named" id="named-invoker" style="display:grid"><span data-exact-text>Rename</span></button><button type="button" data-native data-button-style="bordered" popovertarget="kept" id="kept-invoker" style="display:grid"><span data-exact-text>Share</span></button><button type="button" data-native data-button-style="bordered" popovertarget="menu" id="invoker-end" style="display:grid"><span data-exact-text>More</span></button></div>
     <div id="held" style="height:40px"></div>
     <button type="button" data-native data-button-style="bordered" id="bordered" style="display:grid"><span data-exact-text>Button</span></button>
     <button type="button" data-native data-button-style="filled" id="filled" style="display:grid"><span data-exact-text>Button</span></button>
@@ -181,6 +181,10 @@ const fixture = `
     <div role="list" data-listrows="true" id="windowed" style="width:300px"><div aria-hidden="true" id="spacer" style="height:10px"></div><div role="listitem" data-listitemkey="a" id="cell-a"><div style="height:44px">A</div></div><div role="listitem" data-listitemkey="b" id="cell-b"><div data-exact-said="border-bottom" style="height:44px;border-bottom:1px solid red">B</div></div><div role="listitem" data-listitemkey="c" id="cell-c"><div style="height:44px">C</div></div></div>
     <div role="list" id="rows-none" style="width:300px"><div id="none-1" data-exact-on="press" style="height:44px">The author's</div><div style="height:44px">rows</div></div>
   </div>
+  <div popover="auto" role="alertdialog" aria-label="Open in" id="chooser" style="display:flex;flex-direction:column"><button type="button" data-native data-button-style="bordered" data-exact-on="press" popovertarget="chooser" popovertargetaction="hide" id="choice" style="display:grid"><span data-exact-text>Maps</span></button><button type="button" data-native data-button-style="bordered" data-exact-on="press" popovertarget="chooser" popovertargetaction="hide" id="choice-2" style="display:grid"><span data-exact-text>Google Maps</span></button><button type="button" data-native data-button-style="bordered" popovertarget="chooser" popovertargetaction="hide" id="choice-cancel" style="display:grid"><span data-exact-text>Cancel</span></button></div>
+  <div popover="auto" role="alertdialog" aria-label="Remove?" id="asked" style="display:flex;flex-direction:column"><div data-exact-text>It cannot be undone.</div><button type="button" data-native data-button-style="bordered" data-exact-on="press" popovertarget="asked" popovertargetaction="hide" id="asked-remove" style="display:grid"><span data-exact-text>Remove</span></button><button type="button" data-native data-button-style="bordered" popovertarget="asked" popovertargetaction="hide" id="asked-cancel" style="display:grid"><span data-exact-text>Cancel</span></button></div>
+  <div popover="manual" role="alertdialog" aria-label="Share" id="kept" style="display:flex;flex-direction:column"><button type="button" data-native data-button-style="bordered" data-exact-on="press" popovertarget="kept" popovertargetaction="hide" id="kept-mail" style="display:grid"><span data-exact-text>Mail</span></button><button type="button" data-native data-button-style="bordered" popovertarget="kept" popovertargetaction="hide" id="kept-cancel" style="display:grid"><span data-exact-text>Cancel</span></button></div>
+  <div popover="auto" role="alertdialog" aria-label="Rename" id="named" style="display:flex;flex-direction:column"><input data-native id="name"><button type="button" data-native data-button-style="bordered" data-exact-on="press" popovertarget="named" popovertargetaction="hide" id="named-save" style="display:grid"><span data-exact-text>Save</span></button></div>
   <div popover="auto" role="menu" id="menu" style="display:flex;flex-direction:column"><button type="button" data-native data-button-style="bordered" id="item" style="display:grid"><span data-exact-text>Rename</span></button><button type="button" data-native data-button-style="bordered" data-destructive="true" id="item-delete" style="display:grid"><span data-exact-text>Delete</span></button></div>
   <dialog id="alert" role="alertdialog" aria-label="Sure?"><div data-exact-text>It cannot be undone.</div><button type="button" data-native data-button-style="bordered" data-destructive="true" id="delete" style="display:grid"><span data-exact-text>Delete</span></button><button type="button" data-native data-button-style="bordered" id="cancel" style="display:grid"><span data-exact-text>Cancel</span></button></dialog>
 </div>`;
@@ -347,6 +351,30 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       [menu, invoker] = await page.evaluate(() => [box('menu'), box('invoker-end')]);
       expect([at('menu at the end'), Math.abs(menu[0] + menu[2] - invoker[0] - invoker[2]) <= 1, menu[1] - invoker[1] - invoker[3]]).toEqual([at('menu at the end'), true, 4]);
       await page.keyboard.press('Escape');
+      // A chooser its invoker opens (an `alertdialog` popover of actions and no text) is drawn at it, as a menu headed
+      // by its name (which it already says to assistive technology, so the heading is silent) and with no row for its
+      // cancel; one with no invoker, or whose invoker is no longer shown, and an alert with text or a field, stay centred.
+      await page.click('#chooser-invoker');
+      const [chooser, opener] = await page.evaluate(() => [box('chooser'), box('chooser-invoker')]);
+      expect([at('chooser'), Math.abs(chooser[0] - opener[0]) <= 1, chooser[1] - opener[1] - opener[3], await page.evaluate(() => [css('choice', 'borderTopStyle'), css('chooser', 'content', '::before'), document.getElementById('choice-cancel').getClientRects().length])])
+        .toEqual([at('chooser'), true, 4, ['none', '"Open in" / ""', 0]]);
+      await page.keyboard.press('Escape');
+      // Popover `id` opened by clicking `by`, or by its `showPopover` with `by` as the source (after `by`'s menu closed,
+      // for 'closed-menu'): whether it is marked, and whether it stands at `under`, else centred.
+      const opened = (id, how, by, under) => page.evaluate(([id, how, by, under]) => {
+        const c = document.getElementById(id), source = by ? document.getElementById(by) : undefined;
+        if (how === 'click') source.click();
+        else if (how === 'closed-menu') { source.parentElement.showPopover(); source.parentElement.hidePopover(); c.showPopover({ source }); }
+        else c.showPopover(source && { source });
+        const r = box(id), u = under && box(under), shown = [c.hasAttribute('data-exact-chooser'), u ? Math.abs(r[0] - u[0]) <= 1 && Math.round(r[1] - u[1] - u[3]) === 4 : Math.abs(r[0] + r[2] / 2 - innerWidth / 2) <= 1];
+        c.hidePopover(); return shown;
+      }, [id, how, by, under]);
+      // A `manual` chooser ends by neither Escape nor a click outside, so it keeps its cancel's row.
+      await page.click('#kept-invoker');
+      expect([at('manual chooser'), await page.evaluate(() => { const c = document.getElementById('kept'), shown = [c.hasAttribute('data-exact-chooser'), document.getElementById('kept-cancel').getClientRects().length]; c.hidePopover(); return shown; })])
+        .toEqual([at('manual chooser'), [true, 1]]);
+      expect([at('chooser ways'), await opened('chooser', 'show'), await opened('chooser', 'show', 'bordered', 'bordered'), await opened('chooser', 'closed-menu', 'item'), await opened('asked', 'click', 'asked-invoker'), await opened('named', 'click', 'named-invoker'), await opened('chooser', 'click', 'chooser-command', 'chooser-command')])
+        .toEqual([at('chooser ways'), [false, true], [true, true], [false, true], [false, true], [false, true], [true, true]]);
       // A context menu opens at the pointer, in every engine (the release of the button that asked no longer
       // dismisses it), and in a corner it opens the other way, inside the window.
       await page.evaluate(() => document.getElementById('held').addEventListener('contextmenu', (event) => { event.preventDefault(); contextAt(event, () => [document.getElementById('menu'), event.currentTarget ?? document.getElementById('held')]); }));

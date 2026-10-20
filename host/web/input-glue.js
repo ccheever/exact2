@@ -54,14 +54,18 @@ function radioArrow(root, event) {
   if (next !== el) { rove(all, next); next.focus(); next.click(); }
   return true;
 }
-/** @ref LLP 1115.000 D4.5 — a `tablist`'s tabs and a `menu`'s items move by the arrow keys, as WAI-ARIA's patterns give
- * the roles and a web developer expects of them: Left and Right along a tablist (Up and Down when it is vertical: its
- * `aria-orientation`, or a root tab bar the shell draws as a sidebar), Up and Down in a menu (and into an open one from
- * outside it), Home and End to the ends, wrapping, past disabled ones. The focus moves and nothing is pressed: a tab's
- * press is the app's action (a fetch, in Shelf's Discover), so Enter or Space chooses, as a `<button>` takes them. A
- * tablist is one Tab stop: its selected tab, or the tab the arrows left the focus on. */
-const ROVES = '[role="tablist"], [role="menu"]';
-const roversOf = group => [...group.querySelectorAll(group.getAttribute("role") === "menu" ? 'button, a[href], [role^="menuitem"]' : '[role="tab"]')].filter(el => el.closest(ROVES) === group);
+/** @ref LLP 1115.000 D4.5 — a `tablist`'s tabs and a `menu`'s items (a chooser's too, drawn as a menu) move by the
+ * arrow keys, as WAI-ARIA's patterns give the roles and a web developer expects of them: Left and Right along a tablist
+ * (Up and Down when it is vertical: its `aria-orientation`, or a root tab bar the shell draws as a sidebar), Up and Down
+ * in a menu, Home and End to its ends (into the one on top: Up and Down from outside, all four from a menu beneath),
+ * wrapping, past disabled ones. The focus moves and nothing is pressed: a tab's press is the app's action (a fetch, in
+ * Shelf's Discover), so Enter or Space chooses, as a `<button>` takes them. A tablist is one Tab stop: its selected tab,
+ * or the tab the arrows left the focus on. */
+const MENUS = '[role="menu"], [data-exact-chooser]', ROVES = `[role="tablist"], ${MENUS}`;
+const roversOf = group => [...group.querySelectorAll(group.matches(MENUS) ? 'button, a[href], [role^="menuitem"]' : '[role="tab"]')].filter(el => el.closest(ROVES) === group);
+// The open menu on top: the last to open (navigation.js stamps `exactOpened`), which is the top layer's order and not
+// the document's (a chooser a menu's row opens stands over the menu, wherever each is written).
+const topMenu = root => [...root.querySelectorAll(`:is(${MENUS}):popover-open`)].sort((a, b) => (a.exactOpened ?? 0) - (b.exactOpened ?? 0)).at(-1);
 function tabStops(root) {
   for (const list of root.querySelectorAll('[role="tablist"]')) {
     const all = roversOf(list), at = document.activeElement;
@@ -72,14 +76,15 @@ function tabStops(root) {
 function roveArrow(root, event) {
   const el = event.target, key = event.key, within = el?.closest?.(ROVES);
   if (!el || !(root.contains(el) || el === document.body)) return false;
-  const open = !within && /^Arrow(Up|Down)$/.test(key) && !el?.matches?.("input, textarea, select, [contenteditable]") ? root.querySelector('[role="menu"]:popover-open') : null;
+  const top = /^(Arrow(Up|Down)|Home|End)$/.test(key) && !el?.matches?.("input, textarea, select, [contenteditable]") ? topMenu(root) : null;
+  const open = top && !top.contains(el) && (within ? within.matches(MENUS) : /^Arrow/.test(key)) ? top : null; // from a menu beneath it, or by an arrow from outside
   const group = open ?? within;
   if (!group || !root.contains(group)) return false;
-  const menu = group.getAttribute("role") === "menu", all = roversOf(group), live = all.filter(item => item === el || radioUsable(item));
+  const menu = group.matches(MENUS), all = roversOf(group), live = all.filter(item => item === el || radioUsable(item));
   if (!open && !all.includes(el)) return false;
   const vertical = menu || group.getAttribute("aria-orientation") === "vertical" || group.parentElement?.hasAttribute("data-exact-sidebar"), rtl = getComputedStyle(group).direction === "rtl";
   const step = (vertical ? { ArrowDown: 1, ArrowUp: -1 } : { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1 })[key];
-  const next = open ? live.at(key === "ArrowDown" ? 0 : -1) : step ? live[(live.indexOf(el) + step + live.length) % live.length] : key === "Home" ? live[0] : key === "End" ? live.at(-1) : null;
+  const next = open ? live.at(key === "ArrowDown" || key === "Home" ? 0 : -1) : step ? live[(live.indexOf(el) + step + live.length) % live.length] : key === "Home" ? live[0] : key === "End" ? live.at(-1) : null;
   if (!next) return false;
   event.preventDefault();
   if (next !== el) { if (!menu) rove(all, next); next.focus(); }
