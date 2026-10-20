@@ -106,7 +106,7 @@ let liveTable = false;
  * the files' digests again after them; if a write landed between, the
  * replies may be of two revisions, so it reads again. `wanted`: false once
  * a newer read overtakes it, which then asks for nothing more. */
-type Level = { level: string; name: string; varies: boolean; at: string };
+type Level = { level: string; name: string; varies: boolean; at: string; self: boolean };
 async function readDesign(file: string, wanted: () => boolean): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown; base?: any[]; targets?: unknown; levels?: Map<string, Level> }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3 && wanted(); attempt++) {
@@ -118,7 +118,7 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
     // and the other reads; each waits behind the others at the one design
     // server, so the wait is the whole read's, not one request's.
     // And, in the app's design, each package component's param (an icon's has no level), for its winning level per tuple.
-    const owned = new Set(Object.keys(described.reply.ok?.files ?? {})), listed = !file && [...owned].some(f => f.endsWith('.contract'));
+    const owned = new Set(Object.keys(described.reply.ok?.files ?? {})), listed = (!file || file === designFile) && [...owned].some(f => f.endsWith('.contract'));
     const params: string[] = listed ? (ir.components ?? []).filter((c: { identity: string }) => { const home = c.identity.split('#')[0]; return !owned.has(home) && home !== designFile; }).flatMap((c: { params?: { name: string; kind: string }[] }) => (c.params ?? []).filter(p => p.kind !== 'icon').map(p => p.name)) : [];
     const asks = [...ir.tokens.map((t: { name: string }) => t.name), ...params];
     const resolved: Awaited<ReturnType<typeof call>>[] = [];
@@ -147,9 +147,9 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
       return !col || ir.axes.every((a: Axis, k: number) => t.modes?.[a.name] === col.values[k]);
     }));
     if (same && placed) {
-      // Each param's winner at its first tuple (by its column's label) and whether any tuple's differs.
+      // Each param's winner at its first tuple (its column's label), any differing, `self` (its own line wins in every tuple); no level said so.
       const first = tuples.find(c => c.tuple === 0)?.label ?? '', levels = new Map<string, Level>();
-      params.forEach((name, k) => { const t = (resolved[ir.tokens.length + k].reply.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[]; if (t.length && typeof t[0].level === 'string') levels.set(name, { level: t[0].level, name: String(t[0].name ?? ''), varies: t.some(x => x.level !== t[0].level || x.name !== t[0].name), at: first }); });
+      params.forEach((name, k) => { const t = (resolved[ir.tokens.length + k].reply.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[]; levels.set(name, t.length && typeof t[0].level === 'string' ? { level: t[0].level, name: String(t[0].name ?? ''), varies: t.some(x => x.level !== t[0].level || x.name !== t[0].name), at: first, self: t.every(x => x.level === 'app-param' && x.name === name) } : { level: '', name: '', varies: false, at: '', self: false }); });
       return { error: '', ir, resolved: resolved.slice(0, ir.tokens.length).map(r => r.reply.ok), files: before, pairs, base: Array.isArray(described.reply.ok?.base) ? described.reply.ok.base : [], targets: described.reply.ok?.targets, levels };
     }
   }

@@ -99,8 +99,8 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
     packageToken: '',
     appSet: false,
     whens: p.set?.whens ?? 0,
-    // Its winning level for the first tuple (that column's label), in words and raw, whether that is its own app
-    // line (so its own value wins there), and whether the tuples differ (`resolve`'s).
+    // Its winning level for the first tuple (that column's label), in words and raw, whether its own app line wins in
+    // every tuple (the one case its own value wins whatever the scheme), and whether the tuples differ (`resolve`'s).
     level: '',
     levelWords: '',
     levelAt: '',
@@ -121,7 +121,7 @@ const iconText = (v: unknown) => {
  * component (its identity's file none of the app's own, `own`, describe's
  * `files`) says so: "Set for this app" writes the app's line, the package's
  * own files read only (LLP 1139 D5). */
-export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set(), levels: ReadonlyMap<string, { level: string; name: string; varies: boolean; at: string }> = new Map()): Design['components'] {
+export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set(), levels: ReadonlyMap<string, { level: string; name: string; varies: boolean; at: string; self: boolean }> = new Map()): Design['components'] {
   return (list ?? []).filter(c => c.params?.length).map(c => {
     const groups = new Map<string, Row[]>();
     // (A listing with none of the app's Contract sources, an older server's, says nothing of packages.)
@@ -133,8 +133,8 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       const reached = p.reaches?.token ?? '', won = levels.get(p.name);
       const row = { ...found, package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '', tokenBase: !!token && bases.has(token),
         packageToken: fromPackage && reached && packageOf.has(reached) ? reached : '', appSet: !!p.reaches?.app_set,
-        level: won?.level ?? '', levelWords: won ? levelWords(won.level, won.name, p.name) : '', levelAt: won?.at ?? '',
-        levelSelf: won?.level === 'app-param' && won.name === p.name, levelVaries: !!won?.varies };
+        level: won?.level ?? '', levelWords: !won ? '' : won.level ? levelWords(won.level, won.name, p.name) : 'not known (this server says no level)', levelAt: won?.at ?? '',
+        levelSelf: !!won?.self, levelVaries: !!won?.varies };
       const g = p.group ?? '';
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push(row);

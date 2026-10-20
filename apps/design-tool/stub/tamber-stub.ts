@@ -98,7 +98,7 @@ let copyDelays: Record<string, number> = {}, noNavigate: string[] = [], refuseLa
 let LIBRARY: Record<string, { name: string; parts: unknown[]; variants: unknown[] }> = {};
 // A package's component with params on describe, and the app's own Contract sources in its files (a server lists
 // them since 1.11), as a test turns them on (`/__stub/package-component`).
-let PACKAGED: { components: Record<string, unknown>[]; files: Record<string, string>; tokens?: Record<string, string>; base?: Record<string, unknown>[]; resolve?: Record<string, unknown[]> } | null = null, filesBefore: Record<string, string> | null = null;
+let PACKAGED: { components: Record<string, unknown>[]; files: Record<string, string>; tokens?: Record<string, string>; base?: Record<string, unknown>[]; resolve?: Record<string, unknown[]>; refuse?: string[] } | null = null, filesBefore: Record<string, string> | null = null;
 const navs: { client: string; build: string; location: string }[] = [];
 const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(async () => {
   const r = await fetch('/__stub/copy', { method: 'POST', body: JSON.stringify({ name: window.name, location: location.pathname + location.search }) });
@@ -317,6 +317,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // A package param's resolve, its tuples' winning level and name (stage 12 B2-levels), as the test gives them.
       // (Each of the design's tuples, by its modes as a token's resolve gives them, its level the test's in turn.)
       const packagedParam = PACKAGED?.components.some(c => ((c.params ?? []) as { name: string }[]).some(p => p.name === request.token));
+      if (request.method === 'resolve' && packagedParam && PACKAGED!.refuse?.includes(request.token)) return send({ error: { message: `the server could not resolve ${request.token}` } }, 400);
       if (request.method === 'resolve' && packagedParam) { const given = (PACKAGED!.resolve?.[request.token] ?? [{ level: 'default', name: request.token }]) as Record<string, unknown>[]; return send({ ok: { token: request.token, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>, i: number) => ({ modes: u.modes, ...given[i % given.length] }))) } }); }
       // surface.card's dark side moves once app.tamber does (an event's
       // `files`), so a change to it has cells that moved.
