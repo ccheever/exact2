@@ -66,6 +66,9 @@ shape BrowserPanel
   recents: BrowserRecent[]
   servers: BrowserServer[]
   capture: BrowserCapture
+  // PreviewView's move between this computer and the environment's browser: "desktop", "server" or "" (none)
+  moveTarget: string
+  moveLabel: string
 
 // The chrome row's Annotate, Capture and Float preview, and the separate window
 // (browser-capture.ts `BrowserCaptureView`).

@@ -2,7 +2,8 @@ import { can, requirePermission } from '../connections/command-permissions';
 // The right panel's Browser tabs over a native WKWebView (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/components/preview/{addBrowserSurface,openPreviewSession,closePreviewSession,usePreviewBridge,
 // PreviewView}.ts(x), apps/web/src/rightPanelStore.ts `openBrowser`/`reconcileBrowserSurfaces`,
-// apps/web/src/components/RightPanelTabs.tsx `surfaceTitle`/`SurfaceIcon`, apps/web/src/browser/ElectronBrowserHost.tsx).
+// apps/web/src/components/RightPanelTabs.tsx `surfaceTitle`/`SurfaceIcon`, apps/web/src/browser/ElectronBrowserHost.tsx;
+// at 9c161462c9, apps/web/src/browser/previewRuntime.ts `alternatePreviewRuntime` and PreviewView `handleMoveTab`).
 //
 // A tab is a server preview session (`preview.open`, `.close`, `.list`, `.reportStatus`): the server
 // issues its id and keeps it across a hidden panel and a thread switch. The page itself is the clone
@@ -34,7 +35,9 @@ import { resolveBrowserOpenDefaults } from './browser-defaults';
 // History, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
 import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, readTabNavigation, showPreview, type BrowserNavigationView } from './browser-navigation';
 import { browserHistory } from './browser-history';
-import { environmentHostname } from './browser-targets';
+import { environmentHostname, preparedConnection, resolveDiscoveredServerUrl } from './browser-targets';
+import { fleet } from '../connections/settings-b-fleet';
+import { pushToast } from '../shell/toast';
 import { miniStoreOf, deviceThreadId } from '../device/device-session';
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { primaryEnvironmentId } from '../connections/local-primary';
@@ -177,6 +180,51 @@ export async function addBrowserSurface(client: T3Client, native: Native, state:
   openBrowserIn(state, snapshot.tabId, scopedThreadKey(ref));
   await syncNativeSessions(client, native); // the new page starts at the default zoom and appearance there
   return '';
+}
+
+/** The environment's own config: the focused client's, else its background fleet entry's. */
+function environmentConfig(client: T3Client, environmentId: string): Obj {
+  if (environmentId === client.environmentId) return client.config;
+  return [...fleet.entries.values()].find(entry => entry.environmentId === environmentId)?.config ?? {};
+}
+/** alternatePreviewRuntime: a tab of an environment other than this computer's, which runs a browser of its own,
+ *  moves between this computer and that environment. This app always has its own web views. */
+export function alternatePreviewRuntime(environmentId: string, primaryId: string | null, serverBrowser: boolean, snapshot: Pick<PreviewSessionSnapshot, 'runtime'> | null): 'desktop' | 'server' | null {
+  if (!snapshot || !serverBrowser || environmentId === primaryId) return null;
+  return snapshot.runtime === 'server' ? 'desktop' : 'server';
+}
+/** PreviewView's move row: its target and label ("" when the tab cannot move). */
+function previewMove(client: T3Client, ref: ScopedThreadRef, snapshot: PreviewSessionSnapshot | null): { moveTarget: '' | 'desktop' | 'server'; moveLabel: string } {
+  const environment = obj(environmentConfig(client, ref.environmentId).environment);
+  const target = client.available === true ? alternatePreviewRuntime(ref.environmentId, primaryEnvironmentId(), obj(environment.capabilities).serverBrowser === true, snapshot) : null;
+  if (!target) return { moveTarget: '', moveLabel: '' };
+  return { moveTarget: target, moveLabel: target === 'server' ? `Open in ${str(environment.label) || 'the environment'}'s browser` : 'Open on this computer' };
+}
+/** handleMoveTab: the tab's page opens in the other runtime at the same URL, viewport and profile, and becomes the
+ *  active tab. True when it opened; the caller then closes the old tab as the tab menu's Close does. */
+export async function moveBrowserTab(client: T3Client, native: Native, state: PanelState, tabId: string): Promise<boolean> {
+  requirePermission(client.scopes, 'preview:operate');
+  const surface = state.surfaces.find(entry => entry.id === browserSurfaceId(tabId) && entry.kind === 'browser');
+  const ref = surface?.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
+  if (!ref) return false;
+  const { nav, snapshot } = effectiveNav(client, ref, tabId), { moveTarget } = previewMove(client, ref, snapshot);
+  if (!moveTarget || !snapshot) return false;
+  const url = nav._tag === 'Idle' ? '' : nav.url;
+  let opened: PreviewSessionSnapshot;
+  try {
+    opened = await openPreviewSession(rpcOf(client, native), browserHost(client).store, ref, {
+      ...(url ? { url: moveTarget === 'desktop' ? resolveDiscoveredServerUrl(ref.environmentId, url, preparedConnection(client)) : url } : {}),
+      viewport: snapshot.viewport ?? DEFAULT_OPEN_VIEWPORT, ...(snapshot.profileId === undefined ? {} : { profileId: snapshot.profileId }),
+      ...(moveTarget === 'server' ? { runtime: 'server' as const } : {}),
+    }, () => resolveBrowserOpenDefaults(client));
+  } catch (error) {
+    if (letGo(error)) throw error;
+    pushToast(client, { kind: 'error', title: 'Unable to move the browser tab', description: error instanceof Error && error.message ? error.message : 'An error occurred.' });
+    return false;
+  }
+  client.diffOpen = false;
+  openBrowserIn(state, opened.tabId, scopedThreadKey(ref));
+  return true;
 }
 
 /** Closing a tab closes its session (closePreviewSession) and drops its web view. Registered again by every answer
@@ -354,12 +402,14 @@ export type BrowserView = {
   profiles: BrowserProfileChoice[];
   /** Part 3: Annotate, Capture, Float preview and the separate window (browser-capture.ts). */
   capture: BrowserCaptureView;
+  /** The More menu's move row and the load-failed page's move button: the other runtime ('' = none) and its label. */
+  moveTarget: '' | 'desktop' | 'server'; moveLabel: string;
 } & BrowserNavigationView;
 /** Part 4: the profile lists are the client's (Default, Incognito and the named ones); without a client, the built-ins. */
 export const emptyBrowserView = (client?: T3Client): BrowserView => ({
   tabId: '', runtimeId: '', server: false, streamUrl: '', environment: '', profileId: DEFAULT_BROWSER_PROFILE_ID, profileName: 'Default', showProfile: false, url: '', loading: false, canGoBack: false, canGoForward: false,
   refreshDisabled: true, hasWebContents: false, empty: true, failed: false, failHost: '', failMessage: '', failLabel: '', live: false,
-  profiles: browserProfileChoices(client), capture: emptyCaptureView(), ...emptyNavigationView(),
+  profiles: browserProfileChoices(client), capture: emptyCaptureView(), moveTarget: '', moveLabel: '', ...emptyNavigationView(),
 });
 
 /** PreviewView's chrome and body for the active Browser tab. */
@@ -374,7 +424,7 @@ export function browserView(client: T3Client, surface: Surface | null, now = 0):
     canGoForward: snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled ? false : tab?.canGoForward ?? snapshot?.canGoForward ?? false, refreshDisabled: nav._tag === 'Idle' || (snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled), hasWebContents: !!tab || snapshot?.runtime === 'server',
     empty, failed, failHost: failed ? previewHost(nav.url) : '', failMessage: failed ? describePreviewError(nav.description).replace(/\.+$/, '') : '',
     failLabel: failed ? previewErrorLabel(nav.code, nav.description) : '', live: !!snapshot && !empty && !failed,
-    profiles: browserProfileChoices(client), ...navigationView(client, ref, runtimeId, tab, snapshot, empty, now),
+    profiles: browserProfileChoices(client), ...previewMove(client, ref, snapshot), ...navigationView(client, ref, runtimeId, tab, snapshot, empty, now),
     capture: snapshot?.runtime === 'server' ? { ...browserCaptureView(client, ref, surface.browser.tabId, runtimeId, true, failed), pickDisabled: true, captureDisabled: true } : browserCaptureView(client, ref, surface.browser.tabId, runtimeId, !!tab, failed),
   };
 }
