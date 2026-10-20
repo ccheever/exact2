@@ -175,6 +175,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let particles = self.probe.is_some() && self.quads.particles_drawn();
         let counting = particles && !needs.contains(crate::Needs::SCENE_COPY);
         let direct = self.direct_frame::<H>(frame, soft);
+        let shafts = crate::water::shafts(frame, self.water_effects);
         // A direct frame leaves the HDR attachments as they are, unused.
         let scene_copy = if direct {
             self.prepare_direct(target.texture().size(), counting);
@@ -183,9 +184,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.prepare_targets(
                 size,
                 needs,
-                frame.ambient_occlusion.is_some() || self.soft_retained || counting,
+                frame.ambient_occlusion.is_some() || self.soft_retained || counting || shafts,
             )
         };
+        self.water.prepare(
+            &self.device,
+            &self.pipelines,
+            &self.uniform,
+            &self.targets,
+            frame.water.is_some(),
+            shafts,
+        );
         let cascades = self.prepare_effects(frame);
         let map = frame.environment_map.and_then(|m| {
             let texture = self.models.textures.get(m.texture).filter(|t| t.active)?;
@@ -229,8 +238,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         );
         // An authored map's intensity scales its filtered light at sample time.
         uniform[31] *= self.environment.ambient_scale();
+        crate::water::write(&mut uniform, frame, self.water_effects);
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
         self.prepare_cull(frame, cascades.as_ref(), hooks.materials(), size);
+        if frame.water.is_some() {
+            let split = [self.depth_split()];
+            let at = (crate::water::SPLIT * 4) as u64;
+            self.queue.write_buffer(&self.uniform, at, bytes(&split));
+        }
         self.probe_size();
         // Soft particles after `prepare_cull`, then the look frame's counting,
         // which picks its soft probe variants by `soft_active`.
@@ -272,7 +287,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 || needs.contains(crate::Needs::FINAL_DEPTH)
                 || frame.ambient_occlusion.is_some()
                 || soft
-                || counting,
+                || counting
+                || shafts,
             variant: usize::from(self.shadows.is_some())
                 + 2 * usize::from(frame.environment.fog.is_some())
                 + crate::pipeline::PCF_SOFT
@@ -386,6 +402,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         } else {
             self.ssao = None;
         }
+        if shafts {
+            self.probe_note(|| super::probe::Drew::Summary("water shafts"));
+            self.water
+                .encode_shafts(encoder, &self.targets.resolved, size);
+            state.draws += 1;
+        }
         if !state.direct {
             self.encode_post(encoder, target, &mut state, frame, hooks, &view)?;
         }
@@ -395,7 +417,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
 
     /// Whether this frame draws straight into the target, with no HDR image (README
     /// "Direct frames"): nothing after the forward pass reads one (no hook, bloom,
-    /// SSAO or soft particle), and whatever blends, blends as it would into one. A
+    /// SSAO, water or soft particle), and whatever blends, blends as it would into one. A
     /// blend is linear in its inputs, so it commutes with exposure, all the tone
     /// curve `ToneMapping::None` applies, and an sRGB target blends in linear
     /// light; under ACES, or into a target the shader encodes, it would mix other
@@ -409,6 +431,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             && !H::ENABLED
             && frame.environment.bloom.is_none()
             && frame.ambient_occlusion.is_none()
+            && frame.water.is_none()
             && !soft
             && (!blends
                 || (frame.environment.tone_mapping == exact_game::ToneMapping::None
@@ -592,6 +615,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             );
             self.bloom = None;
             self.ssao = None;
+            self.water.targets_replaced();
             self.targets = Targets::with_retention(
                 &self.device,
                 capacity,

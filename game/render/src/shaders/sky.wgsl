@@ -22,10 +22,9 @@ struct SkyVarying {
     let p = vec2(f32((i << 1u) & 2u), f32(i & 2u)) * 2.0 - 1.0;
     return SkyVarying(vec4(p, 1.0, 1.0), p);
 }
-@fragment fn sky_fs(input: SkyVarying) -> @location(0) vec4<f32> {
-    let a = frame.inverse_view_proj * vec4(input.ndc, 0.0, 1.0);
-    let b = frame.inverse_view_proj * vec4(input.ndc, 0.5, 1.0);
-    let direction = normalize(b.xyz / b.w - a.xyz / a.w);
+// The sky's radiance along a direction, before fog: the gradient or a visible
+// map, and the sun's disc. The water's surface shows it too (water.wgsl).
+fn sky_radiance(direction: vec3<f32>) -> vec3<f32> {
     var color = environment(direction.y);
     if frame.sky.x > 0.0 { color = sky_texel(direction); }
     if frame.horizon_disc.w > 0.0 && frame.sun_direction_illuminance.w > 0.0 {
@@ -36,6 +35,17 @@ struct SkyVarying {
         let glow = exp(-angle / (radius * 6.0)) * 0.12;
         color += frame.sun_color_count.xyz * frame.sun_direction_illuminance.w * (disc + glow);
     }
+    return color;
+}
+// A fragment's view direction through its NDC position.
+fn view_ray(ndc: vec2<f32>) -> vec3<f32> {
+    let a = frame.inverse_view_proj * vec4(ndc, 0.0, 1.0);
+    let b = frame.inverse_view_proj * vec4(ndc, 0.5, 1.0);
+    return normalize(b.xyz / b.w - a.xyz / a.w);
+}
+@fragment fn sky_fs(input: SkyVarying) -> @location(0) vec4<f32> {
+    let direction = view_ray(input.ndc);
+    var color = sky_radiance(direction);
     if frame.toon.y <= frame.toon.x && frame.fog_color_density.w > 0.0 {
         color = height_fog(color, frame.camera_alpha.xyz + direction * 10000.0);
     }

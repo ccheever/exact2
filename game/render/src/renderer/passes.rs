@@ -479,6 +479,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
             state.times[3] = start.map(|s| s.elapsed());
         }
+        if frame.water.is_some() {
+            self.water
+                .draw_surface(&mut pass, &self.scene_binds[self.current]);
+            self.probe_note(|| Drew::Fixed("water surface"));
+            state.draws += 1;
+        }
         if !state.scene_copy && !split {
             timing::pass_stamp(
                 &self.device,

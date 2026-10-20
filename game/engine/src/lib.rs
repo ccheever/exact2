@@ -47,8 +47,8 @@ pub use color::Color;
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use emitter::Emitter;
 pub use environment::{
-    AmbientOcclusion, AoQuality, Bloom, Environment, EnvironmentMap, Fog, SceneSamples, ShadowBox,
-    ShadowFilter, Shadows, ToneMapping,
+    AmbientOcclusion, AoQuality, Bloom, Caustics, Environment, EnvironmentMap, Fog, SceneSamples,
+    ShadowBox, ShadowFilter, Shadows, Shafts, ToneMapping, Water, Waves,
 };
 pub use exact_game_derive::{Args, Component, Data, Event, Presentation, Resource};
 pub use exact_motion::spring::SpringConfig;

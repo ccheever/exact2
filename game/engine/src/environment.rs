@@ -131,6 +131,106 @@ impl Default for AmbientOcclusion {
         }
     }
 }
+/// Water with a flat surface at `height`, an optional effect: inserting this
+/// resource draws the surface and confines `Environment`'s exponential fog to
+/// the part of each view ray below it. From below, the surface shows the sky
+/// through Snell's window and reflects the depths outside it; from above, it
+/// reflects the sky over what lies beneath. `caustics` and `shafts` add the
+/// sun's light through the moving surface. Saved and hashed like any resource;
+/// the wave phase and every GPU product derive from the displayed time.
+#[derive(Clone, Copy, Debug, PartialEq, Resource)]
+pub struct Water {
+    /// The surface's world Y, in metres.
+    pub height: f32,
+    /// Linear colour of the water seen from above where the floor is not.
+    pub color: [f32; 3],
+    /// From above, the share of what lies beneath that shows through, 0–1.
+    pub clarity: f32,
+    /// The surface's two summed waves, which bend its normals (the plane stays flat).
+    pub waves: Waves,
+    /// The sun's light focused by the waves onto lit surfaces below the height.
+    pub caustics: Option<Caustics>,
+    /// Sunlight scattered in the water: shafts seen from below the surface.
+    pub shafts: Option<Shafts>,
+}
+impl Water {
+    /// A surface at `height` metres, clear blue-green, with gentle waves,
+    /// caustics and shafts.
+    pub fn at(height: f32) -> Self {
+        assert!(height.is_finite(), "a water height in metres");
+        Self {
+            height,
+            color: [0.02, 0.12, 0.15],
+            clarity: 0.8,
+            waves: Waves::default(),
+            caustics: Some(Caustics::default()),
+            shafts: Some(Shafts::default()),
+        }
+    }
+}
+/// The codec's default (`Data` needs one): a surface at Y = 0. A game names
+/// its height with [`Water::at`].
+impl Default for Water {
+    fn default() -> Self {
+        Self::at(0.)
+    }
+}
+/// Two waves summed across the surface: the second at 0.61 of the wavelength,
+/// crossing the first at about 70°.
+#[derive(Clone, Copy, Debug, PartialEq, Data)]
+pub struct Waves {
+    /// Height of each wave, in metres.
+    pub amplitude: f32,
+    /// Crest to crest of the longer wave, in metres.
+    pub wavelength: f32,
+    /// Speed of the longer wave, in metres a second.
+    pub speed: f32,
+}
+impl Default for Waves {
+    fn default() -> Self {
+        Self {
+            amplitude: 0.02,
+            wavelength: 2.,
+            speed: 0.6,
+        }
+    }
+}
+/// A moving net of focused light on surfaces under the water, multiplied into
+/// the sun's direct light, so a surface in the sun's shadow shows none.
+#[derive(Clone, Copy, Debug, PartialEq, Data)]
+pub struct Caustics {
+    /// 0 leaves the sunlight even; 1 concentrates it wholly into the net.
+    pub strength: f32,
+    /// Width of one cell of the net, in metres.
+    pub scale: f32,
+}
+impl Default for Caustics {
+    fn default() -> Self {
+        Self {
+            strength: 0.6,
+            scale: 1.5,
+        }
+    }
+}
+/// Sunlight scattered by the water between the camera and what it sees, in
+/// streaks from the surface towards the sun. The scattering is the
+/// `Environment`'s fog: without fog there are no shafts.
+#[derive(Clone, Copy, Debug, PartialEq, Data)]
+pub struct Shafts {
+    /// Brightness of fully scattered light looking towards the sun, as a share
+    /// of the sun's.
+    pub intensity: f32,
+    /// How far each streak reaches across the frame, as a share of its height.
+    pub length: f32,
+}
+impl Default for Shafts {
+    fn default() -> Self {
+        Self {
+            intensity: 1.,
+            length: 0.6,
+        }
+    }
+}
 /// How `AmbientOcclusion` trades GPU time for detail. Every level upsamples
 /// with a depth-aware blur, so edges stay crisp at half resolution.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]

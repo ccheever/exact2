@@ -35,6 +35,17 @@ struct Frame {
     toon: vec4<f32>,
     // Filter, normalized depth bias, normal bias in texels, shadow strength.
     shadow_filter: vec4<f32>,
+    // Water (water.rs): the surface's height, flags (1 water, 2 caustics, 4
+    // shafts; zero without water), clarity, the world layer's depth split.
+    water: vec4<f32>,
+    // Linear colour; wave amplitude in metres.
+    water_color: vec4<f32>,
+    // Wavelength in metres, the two waves' phases in radians, caustic strength.
+    water_waves: vec4<f32>,
+    // Caustic cell in metres, shaft intensity, shaft length.
+    water_light: vec4<f32>,
+    // The two caustic layers' offsets, in cells.
+    water_scroll: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> frame: Frame;
 fn environment(y: f32) -> vec3<f32> {
@@ -68,14 +79,25 @@ fn shaded_fog(color: vec3<shading>, end: vec3<f32>) -> vec3<shading> {
 }
 // Analytic integral of exponential height density along the eye-to-end segment.
 // Shared by surfaces and sky; the near-horizontal limit avoids cancellation.
+// With water, the fog is the water's: only the ray's submerged part counts.
 fn fog_transmission(end: vec3<f32>) -> f32 {
+    var start = frame.camera_alpha.xyz;
+    var stop = end;
+    if frame.water.y > 0.0 {
+        let height = frame.water.x;
+        if start.y > height && stop.y > height { return 1.0; }
+        if (start.y > height) != (stop.y > height) {
+            let crossing = mix(start, stop, (height - start.y) / (stop.y - start.y));
+            if start.y > height { start = crossing; } else { stop = crossing; }
+        }
+    }
     let falloff = frame.height_bloom.x;
-    let a = -falloff * frame.camera_alpha.y;
-    let difference = -falloff * (end.y - frame.camera_alpha.y);
-    let b = -falloff * end.y;
+    let a = -falloff * start.y;
+    let difference = -falloff * (stop.y - start.y);
+    let b = -falloff * stop.y;
     let start_density = exp(clamp(a, -40.0, 40.0));
     let end_density = exp(clamp(b, -40.0, 40.0));
     var average = start_density;
     if abs(difference) > 0.001 { average = (end_density - start_density) / difference; }
-    return exp(-frame.fog_color_density.w * distance(end, frame.camera_alpha.xyz) * average);
+    return exp(-frame.fog_color_density.w * distance(stop, start) * average);
 }
