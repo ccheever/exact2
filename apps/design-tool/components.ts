@@ -40,13 +40,15 @@ export const levelWords = (level: string, name: string, self = '') => {
 
 /** Each package param's winning level (stage 12 B2-levels' `resolve` tuples), read after the design shows, a few at a
  * time: one that fails or does not fit the design's read (`fits`) has no row, so no words; a reply with no level says
- * so. The walk takes every `when` branch, so with an axis the dark scheme's only, a level is the dark side's (`at`). */
+ * so. One with no answer at all (its wait out) takes no more: the server answers in turn, so each would queue behind it.
+ * The walk takes every `when` branch, so with an axis the dark scheme's only, a level is the dark side's (`at`). */
 export async function levelsOf(names: string[], ask: (name: string) => Promise<{ error: string; reply: any }>, still: () => boolean, fits: (ok: any) => boolean, at: string) {
   const rows: { name: string; level: string; words: string; varies: boolean; at: string }[] = [];
-  let next = 0;
+  let next = 0, stalled = false;
   await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {
-    while (next < names.length && still()) {
+    while (next < names.length && still() && !stalled) {
       const name = names[next++], r = await ask(name), t = (r.reply?.ok?.tuples ?? []) as { level?: unknown; name?: unknown }[];
+      if (r.error && !r.reply?.error) stalled = true;
       if (r.error || !fits(r.reply.ok)) continue;
       rows.push(t.length && typeof t[0].level === 'string'
         ? { name, level: t[0].level, words: levelWords(t[0].level, String(t[0].name ?? ''), name), varies: t.some(x => x.level !== t[0].level || x.name !== t[0].name), at }
