@@ -36,7 +36,7 @@ export function presentGuideDiff(ctx: { client: T3Client; reference: GuideRefere
     const parsed = source && (full || sliced.length) ? full ? { kind: 'files' as const, files: [source] } : renderablePatch(rowsToPatch(path, source.previous || path, sliced), false) : null;
     const id = `${guide.headSha}:${guideProgress(client, entry).position}:${full ? 'file' : 'excerpt'}:${index}`, file = parsed?.kind === 'files' ? parsed.files[0] : undefined;
     const card: GuideDiffCard = { id, path, caption, range: !full && excerpt ? `${excerpt.start}–${excerpt.end}` : '', removed: !full && excerpt?.side === 'old', missing: !file, full, note,
-      open: !full || state.open.has(path), expandable: !full && new Set(sliced.map(row => row.hunk)).size === 1, shown: sliced.filter(row => row.kind !== 'context').length, total: rows.filter(row => row.kind !== 'context').length, items: [], rowNotes: [] };
+      open: !full || state.open.has(path), expandable: !full && new Set(sliced.map(row => row.hunk)).size === 1, shown: sliced.length, total: rows.length, items: [], rowNotes: [] };
     if (file && card.open) {
       const rawContents = code.contents[contentsKey(entry, path)];
       const oldContents = !full && rawContents?.state === 'loaded' ? excerptExpansionOldContents(rawContents.newContents, sliced) : null;

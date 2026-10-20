@@ -105,6 +105,7 @@ test('Guide excerpts and full files emit the strict diff segment shape without a
   await guideDiffLocal(ctx, entry, 'file-toggle', 'src/a.ts');
   const cards = presentGuideDiff(ctx, entry).cards;
   expect(cards.map(card => ({ missing: card.missing, full: card.full }))).toEqual([{ missing: false, full: false }, { missing: false, full: false }, { missing: false, full: true }]);
+  expect(cards.map(card => [card.shown, card.total])).toEqual([[2, 4], [2, 4], [4, 4]]);
   const contract = await Bun.file(appPath('diff-find.contract')).text();
   const fields = contract.match(/shape FindDiffSegment\n([\s\S]*?)(?=\nshape )/)?.[1];
   expect(fields).toBeDefined();
@@ -118,6 +119,7 @@ test('Guide excerpts and full files emit the strict diff segment shape without a
     }
     expect(card.items.filter(item => item.tone === 'deletion').map(item => item.segments.map(segment => segment.text).join(''))).toContain('old contract');
     expect(card.items.filter(item => item.tone === 'addition').map(item => item.segments.map(segment => segment.text).join(''))).toContain('new contract');
+    expect(card.items.some(item => item.segments.some(segment => segment.mark))).toBe(true);
   }
   expect(cards[0].items.find(item => item.id === cards[0].rowNotes[0]?.row)).toMatchObject({ tone: 'deletion', line: 2 });
   expect(cards[2].items.filter(item => item.tone === 'context').map(item => item.segments.map(segment => segment.text).join(''))).toEqual(['before', 'after']);

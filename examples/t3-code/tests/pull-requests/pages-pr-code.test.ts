@@ -14,6 +14,7 @@ import { toasts } from '../../src/shell/toast';
 import { renderablePatch } from '../../src/pull-requests/pages-pr-code-logic';
 import { composerReplyEvent } from '../../src/composer/composer-replies';
 import { presentTimeline } from '../../src/pull-requests/pages-pr-timeline';
+import { codeRows, type RowsInput } from '../../src/pull-requests/pages-pr-code-rows';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
@@ -407,7 +408,7 @@ describe('conversations (ReviewThreadCard, the list off the diff)', () => {
     await f.press('fold', 'src/catalog.js');
     view = await f.settle();
     const rows = view.codeTab.items.filter(item => item.path === 'src/catalog.js').map(item => (item.kind === 'line' ? `${item.side}:${item.line}` : item.kind === 'pr-thread' ? `thread ${item.entry}` : item.kind));
-    expect(rows).toEqual(['pr-file', 'additions:1', 'deletions:2', 'thread t-resolved', 'additions:2', 'thread t-open', 'additions:3', 'thread t-long', 'additions:4', 'pad']);
+    expect(rows).toEqual(['pr-file', 'additions:1', 'deletions:2', 'thread t-resolved', 'additions:2', 'thread t-open', 'additions:3', 'thread t-long', 'additions:4', 'gap', 'pad']);
     const cards = new Map(view.codeTab.threads.map(card => [card.id, card]));
     expect([cards.get('t-open')?.countLabel, cards.get('t-resolved')?.countLabel, cards.get('t-outdated')?.outdated, cards.get('t-long')?.countLabel, cards.get('t-long')?.more]).toEqual([
       'Open · 1 comment', 'Resolved · 1 comment', true, 'Open · 12 comments', true]);
@@ -450,6 +451,29 @@ describe('conversations (ReviewThreadCard, the list off the diff)', () => {
 });
 
 describe('hidden lines (createPullRequestDiffFileContentsLoader)', () => {
+  test('changed words survive stacked and split rows; trailing context stays actionable until loaded or failed', () => {
+    const parsed = renderablePatch('diff --git a/math.rs b/math.rs\n--- a/math.rs\n+++ b/math.rs\n@@ -1 +1 @@\n-return x;\n+return x + 0;\n', false);
+    if (parsed?.kind !== 'files') throw new Error('Expected a parsed patch.');
+    const input: RowsInput = { files: parsed.files, layout: 'stacked', foldOverride: 'expanded', toggled: new Set(), viewedMark: () => '', omitted: new Map(),
+      annotations: () => ({ threads: [], pending: [], draft: null }), selection: null, contents: {}, contentsKey: path => path, expansions: {} };
+    const rows = () => codeRows(input).items;
+    const marked = (segments: { text: string; mark: boolean }[]) => segments.filter(segment => segment.mark).map(segment => segment.text).join('');
+    expect(marked(rows().find(item => item.tone === 'addition')!.segments)).toBe(' + 0');
+    expect(rows().find(item => item.kind === 'gap')).toMatchObject({ line: 1, expandable: true, label: 'More unchanged context may be available' });
+    input.layout = 'split';
+    expect(marked(rows().find(item => item.kind === 'split')!.rightSegments)).toBe(' + 0');
+    input.contents['math.rs'] = { state: 'loaded', oldContents: 'return x;\nend\n', newContents: 'return x + 0;\nend\n', error: '' };
+    expect(rows().find(item => item.kind === 'gap')).toMatchObject({ expandable: true, label: '1 unmodified line' });
+    input.expansions['math.rs::1'] = { fromStart: 1, fromEnd: 0 };
+    expect(rows().filter(item => item.kind === 'split').at(-1)?.rightSegments.map(segment => segment.text).join('')).toBe('end');
+    expect(rows().some(item => item.kind === 'gap')).toBe(false);
+    input.contents['math.rs'] = { state: 'error', oldContents: '', newContents: '', error: 'File unavailable' };
+    expect(rows().find(item => item.kind === 'gap')).toMatchObject({ expandable: false, label: 'File unavailable' });
+    for (const status of ['added', 'deleted']) {
+      input.files = [{ ...parsed.files[0]!, status }];
+      expect(rows().some(item => item.kind === 'gap')).toBe(false);
+    }
+  });
   test('keeps concurrent diff file reads on different hosts separate', () => {
     const parsed = renderablePatch(sourcePatch, false), file = parsed?.kind === 'files' ? parsed.files.find(entry => entry.path === 'src/strings.js')! : null;
     const one = diffFileContentsInput({ ...reference, host: 'github.com' }, null, file!), other = diffFileContentsInput({ ...reference, host: 'github.example.com' }, null, file!);
