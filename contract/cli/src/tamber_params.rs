@@ -487,6 +487,17 @@ pub fn components(
                 if let Some(reaches) = designs.reaches(q) {
                     row["reaches"] = reaches;
                 }
+                // Each tuple's winning level and the name there (LLP 1139 D5,
+                // stage 12 D3, *1.15*): B2-levels' one walker, as `resolve`'s
+                // tuples say it, beside `values`.
+                if let Some(f) = folding.as_ref() {
+                    row["winning"] = json!((0..f.tuples)
+                        .map(|t| {
+                            let step = designs.walk(q, t);
+                            json!({"level": step.level, "name": step.name})
+                        })
+                        .collect::<Vec<_>>());
+                }
                 row
             })
             .collect();
@@ -495,6 +506,29 @@ pub fn components(
             .rsplit_once('#')
             .map_or(p.identity.as_str(), |(_, c)| c);
         out.push(json!({"identity": p.identity, "name": name, "params": list}));
+    }
+    // An exported library component's parts and variant props (LLP 1139 D5,
+    // stage 12 D3, *1.15*), from C's IR, with params or without (one with
+    // none listed with `params: []`).
+    for (identity, name, d) in app.library.iter().filter(|(_, _, d)| d.library) {
+        let at = match out.iter().position(|c| c["identity"] == identity.as_str()) {
+            Some(i) => i,
+            None => {
+                out.push(json!({"identity": identity, "name": name, "params": []}));
+                out.len() - 1
+            }
+        };
+        out[at]["library"] = json!(true);
+        out[at]["parts"] = json!(d
+            .parts
+            .iter()
+            .map(|(n, g, slot)| json!({"name": n, "groups": g, "slot": slot}))
+            .collect::<Vec<_>>());
+        out[at]["variants"] = json!(d
+            .variants
+            .iter()
+            .map(|(p, o)| json!({"prop": p, "options": o}))
+            .collect::<Vec<_>>());
     }
     Value::Array(out)
 }

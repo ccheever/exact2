@@ -180,7 +180,7 @@ impl Server {
         let (snap, folding, design) = self.design_with(request, &app)?;
         let mut ir: Value =
             serde_json::from_str(&folding.ir()).map_err(|e| json!({"message": e.to_string()}))?;
-        if !all.is_empty() {
+        if !all.is_empty() || app.library.iter().any(|(_, _, d)| d.library) {
             contract::tamber_params::hide(&mut ir);
             ir["components"] =
                 contract::tamber_params::components(&app, Some(&design), &self.vocab);
