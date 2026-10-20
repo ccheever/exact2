@@ -280,7 +280,7 @@ component QuestionActions
         // Attach files sits outside the pending actions (gap-2), which space their own buttons 6pt apart.
         if data.composer.attach
           box display="flex" margin-right="0.125rem" flex-shrink=0
-            AttachButton(disabled=(busy or q.responding), press=command("cclocal:attach", "", "", 0))
+            AttachButton(disabled=(busy or q.responding))
         if data.canStop
           button press=command("stop", "", "", 0) disabled=busy testId="stop" aria-label="Stop generation" width="1.75rem" height="1.75rem" padding=0 border-radius="0.875rem" border-width=0 background-color="light-dark(#fb2c36e6, #fc414ae6)" box-shadow="0 1px 2px 0 #fb2c363d, inset 0 1px 0 0 #ffffff29" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
             svg width="0.75rem" height="0.75rem" viewBox="0 0 12 12" fill="#ffffff" aria-hidden=true

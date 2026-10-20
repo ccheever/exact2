@@ -357,16 +357,18 @@ component SendGlyph
             CcIcon(name=icon, size=16, color="#ffffff", weight=2)
 
 // ChatComposer's Attach files (ghost icon-sm, 28pt): picked images join the shelf.
+// ChatComposer's Attach files: the hidden file input's picker (app-main.contract ChatColumn, app.contract chooseAttachments).
 component AttachButton
+  inject
+    chooseAttachments: action
   props
     disabled: bool
-    press: action
   state over = false
   action hover(value: bool)
     over = value
   view
     box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0
-      button press=press hover=hover disabled=disabled testId="attach-files" aria-label="Attach files" opacity=(disabled ? 0.64 : 1) width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+      button press=chooseAttachments hover=hover disabled=disabled testId="attach-files" aria-label="Attach files" opacity=(disabled ? 0.64 : 1) width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         CcIcon(name="paperclip", size=16, color="light-dark(#71717a, #818181)", weight=2)
       TipBubble(label="Attach files", side="top", align="center", offset=32, inset=0, shown=over)
 
@@ -403,7 +405,7 @@ component PrimaryActions
   view
     row gap="0.5rem" align-items="center" flex-shrink=0 hatch="t3-anchor" data-anchor="actions"
       if data.composer.attach
-        AttachButton(disabled=(busy or not data.connected), press=command("cclocal:attach", "", "", 0))
+        AttachButton(disabled=(busy or not data.connected))
       // ContextWindowMeter (Settings › Context window indicator): a usage ring
       // whose details open above it (a PopoverTrigger: `aria-haspopup="dialog"`).
       if data.composer.contextShow

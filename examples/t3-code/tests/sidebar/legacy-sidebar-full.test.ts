@@ -1,7 +1,7 @@
 // The legacy sidebar's remaining reference behaviour (T3 Code 1e2ecbd975, MIT, see
 // LICENSE-T3): a row's pull request link (handlePrClick, useOpenPrLink), the discovered-port button
 // (useThreadDiscoveredPorts, openDiscoveredPort), files dropped on a row (sidebarPendingFileDropStore and
-// ChatView's consumePendingFileDrop), Archive and New thread in the tab order (group-focus-within),
+// ChatView's consumePendingFileDrop; the files' bytes held in memory, app-files-fixture.ts), Archive and New thread in the tab order (group-focus-within),
 // "New thread on <branch>" (handleNewThread with the branch), a background environment's project and thread
 // actions and environmentGrouping.test.ts's physical dedupe cases.
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -20,7 +20,9 @@ import { draftFiles } from '../../src/composer/composer-editor-files';
 import { browserHistory } from '../../src/browser/browser-history';
 import { legacyGroups, legacySession, legacySidebarSnapshot } from '../../src/sidebar/legacy-sidebar-view';
 import { fleetPortsEvent, fleetPortsPass, openPendingPort, portLabels, rowPorts, watchRowPorts } from '../../src/sidebar/legacy-sidebar-ports';
-import { clearRowDrops, takeRowDrops } from '../../src/sidebar/legacy-sidebar-drop';
+import { clearRowDrops, queueRowDrop, rowDropKeys, takeRowDrops } from '../../src/sidebar/legacy-sidebar-drop';
+import { memoryFiles, png, text } from '../support/app-files-fixture';
+import { STAGED } from '../../src/composer/composer-attach-stage';
 import { threadOps } from '../../src/client/client-ops-threads';
 import type { OpOut } from '../../src/client/client-ops';
 import { terminalUiStore } from '../../src/terminal/terminal-ui-state';
@@ -88,6 +90,9 @@ function rig(options: { threads?: Obj[]; projects?: Obj[]; threadId?: string; se
   return { client, native, ops, rpcs, opened, drafts };
 }
 const opsOf = (ops: Obj[], name: string) => ops.filter(op => op.op === name);
+/** A row's drop (legacy-sidebar.contract filesDropped): `files` are the drop's `doc:` handles, which the app's storage holds. */
+const dropOn = (client: T3Client, key: string, files: string[], thread = key.split(':').at(-1)!, open = false) =>
+  queueRowDrop(client, `${open ? '1' : '0'}\t${thread}\t${key}`, { files, picked: [], asText: false, target: '' });
 const fleetRequests = (ops: Obj[]) => ops.filter(op => op.fleet === 'remote' && op.op === 'request').map(op => ({ method: op.method, payload: obj(op.payload) }));
 
 /** A background environment the fleet keeps connected: Studio, with the shared repository and a solo project. */
@@ -322,25 +327,34 @@ describe('list motion and the destructive "Delete anyway"', () => {
 });
 
 describe('files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () => {
+  test('a drop opens a row that is not the open thread\'s; folders alone queue nothing', async () => {
+    const { client } = rig({ threadId: 'thread-1' });
+    memoryFiles({ 'doc:/1/notes.txt': text('notes'), 'doc:/2/src': 'folder' });
+    expect(await dropOn(client, 'fleet:local:thread-2', ['doc:/2/src'])).toBe('');
+    expect(await dropOn(client, 'fleet:local:thread-2', ['doc:/1/notes.txt', 'doc:/2/src'])).toBe('open:thread-2');
+    expect(await dropOn(client, 'fleet:local:thread-1', ['doc:/1/notes.txt'], 'thread-1', true)).toBe('');
+    expect(rowDropKeys(client)).toEqual(['fleet:local:thread-2', 'fleet:local:thread-1']);
+  });
   test('once the dropped-on thread is open, its queued files join its composer: images to the shelf, files as chips', async () => {
-    const queued = { rowDrops: ['fleet:local:thread-9', 'fleet:local:thread-2'] };
-    const { client, native, ops } = rig({ threadId: 'thread-2', presentation: queued, editorApplies: true });
+    const { client, native, ops } = rig({ threadId: 'thread-2', editorApplies: true });
     observeComposer(client, '');
-    const staged = [{ kind: 'file', id: '11111111-1111-4111-8111-111111111111', name: 'notes.txt', sizeBytes: 5, mimeType: 'text/plain' },
-      { kind: 'image', id: '22222222-2222-4222-8222-222222222222', name: 'shot.png', sizeBytes: 64 }, { kind: 'unsupported-image', name: 'raw.tiff', sizeBytes: 9 }];
-    native.later = (original => async (request: unknown) => obj(request).op === 'rowDropTake' ? (ops.push(obj(request)), { ok: true, generation: Number(obj(request).generation ?? 0), value: { files: staged } }) : original(request))(native.later.bind(native));
+    memoryFiles({ 'doc:/1/notes.txt': text('notes'), 'doc:/2/shot.png': png(4, 3), 'doc:/3/raw.tiff': text('II*') });
+    await dropOn(client, 'fleet:local:thread-9', ['doc:/1/notes.txt']);
+    await dropOn(client, 'fleet:local:thread-2', ['doc:/1/notes.txt', 'doc:/2/shot.png', 'doc:/3/raw.tiff']);
     expect(await takeRowDrops(client, native)).toBe(true);
-    expect(opsOf(ops, 'rowDropTake')[0]).toMatchObject({ keys: ['fleet:local:thread-2'], imageMaxEdge: 2000 });
     expect(draftFiles(client.local).map(file => [file.name, file.draftKey])).toEqual([['notes.txt', 'local:thread-2']]);
     expect(client.local.snapshotDrafts['local:thread-2']?.map(image => image.name)).toEqual(['shot.png']);
     expect(opsOf(ops, 'editorInsert')[0]).toMatchObject({ owner: client.snapshotOwner });
     expect(client.local.drafts['local:thread-2']).toContain('notes.txt');
     expect(client.error).toBe("'raw.tiff' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
+    expect(rowDropKeys(client)).toEqual(['fleet:local:thread-9']);
   });
-  test('nothing queued for the open thread asks the module nothing', async () => {
-    const { client, native, ops } = rig({ threadId: 'thread-1', presentation: { rowDrops: ['fleet:local:thread-2'] } });
+  test('nothing queued for the open thread stages nothing', async () => {
+    const { client, native } = rig({ threadId: 'thread-1' });
+    const { store } = memoryFiles({ 'doc:/1/notes.txt': text('notes') });
+    await dropOn(client, 'fleet:local:thread-2', ['doc:/1/notes.txt']);
     expect(await takeRowDrops(client, native)).toBe(false);
-    expect(opsOf(ops, 'rowDropTake')).toEqual([]);
+    expect([...store.keys()].filter(path => path.startsWith(STAGED))).toEqual([]);
   });
 });
 
@@ -657,24 +671,28 @@ describe('the pull request glyph on a background environment\'s row', () => {
 
 describe('drops and port opens whose thread did not open (handleThreadFileDrop, handleOpenDiscoveredPort)', () => {
   test('a drop queued for a thread that is not open goes once another thread opens; one whose thread opens is taken', async () => {
-    const { client, native, ops } = rig({ threadId: 'thread-1', presentation: { rowDrops: ['fleet:local:thread-3'] } });
-    expect(await takeRowDrops(client, native)).toBe(false); // its press is still on the way
-    expect(opsOf(ops, 'rowDropClear')).toEqual([]);
-    client.threadId = 'thread-2'; // the press found the app busy, or another thread opened first
+    const { client, native } = rig({ threadId: 'thread-1' });
+    memoryFiles({ 'doc:/1/notes.txt': text('notes') });
+    await dropOn(client, 'fleet:local:thread-3', ['doc:/1/notes.txt']);
+    expect(await takeRowDrops(client, native)).toBe(false); // its open is still on the way
+    expect(rowDropKeys(client)).toEqual(['fleet:local:thread-3']);
+    client.threadId = 'thread-2'; // the open found the app busy, or another thread opened first
     expect(await takeRowDrops(client, native)).toBe(false);
-    expect(opsOf(ops, 'rowDropClear').map(op => op.keys)).toEqual([['fleet:local:thread-3']]);
-    const landed = rig({ threadId: 'thread-1', presentation: { rowDrops: ['fleet:local:thread-3'] } });
+    expect(rowDropKeys(client)).toEqual([]);
+    const landed = rig({ threadId: 'thread-1' });
+    await dropOn(landed.client, 'fleet:local:thread-3', ['doc:/1/notes.txt']);
     await takeRowDrops(landed.client, landed.native);
     landed.client.threadId = 'thread-3';
-    await takeRowDrops(landed.client, landed.native);
-    expect(opsOf(landed.ops, 'rowDropClear')).toEqual([]);
-    expect(opsOf(landed.ops, 'rowDropTake').map(op => op.keys)).toEqual([['fleet:local:thread-3']]);
+    expect(await takeRowDrops(landed.client, landed.native)).toBe(true);
+    expect(draftFiles(landed.client.local).map(file => file.name)).toEqual(['notes.txt']);
   });
   test('a press whose thread fails to open lets the row\'s drop go', async () => {
-    const { client, native, ops } = rig({ presentation: { rowDrops: ['fleet:env-gone:t1'] } });
+    const { client, native } = rig();
+    memoryFiles({ 'doc:/1/notes.txt': text('notes') });
+    await dropOn(client, 'fleet:env-gone:t1', ['doc:/1/notes.txt']);
     const out = { message: '', id: '', value: '' } as OpOut;
     await expect(threadOps.call(client, 'select-thread', 'fleet:env-gone:t1', 'click', 0, native, files, out)).rejects.toThrow('That environment is no longer connected.');
-    expect(opsOf(ops, 'rowDropClear').map(op => op.keys)).toEqual([['fleet:env-gone:t1']]);
+    expect(rowDropKeys(client)).toEqual([]);
   });
 
   test('a port whose environment fails to become the focus is not opened later', async () => {
@@ -778,20 +796,14 @@ describe('Mark unread uses the reference silent failure policy', () => {
 
 describe('row drop ownership during an environment handoff', () => {
   test('a queued background drop waits for synchronization and attaches once in the destination, preserving file order', async () => {
-    const { client, native, ops } = rig({ presentation: { rowDrops: ['fleet:env-remote:thread-1'] } });
-    const staged = ['notes.txt', 'other.txt'].map((name, i) => ({ kind: 'file', name, id: `11111111-1111-4111-8111-11111111111${i}`, sizeBytes: 5, mimeType: 'text/plain' }));
-    const original = native.later.bind(native);
-    native.later = async request => {
-      if (obj(request).op !== 'rowDropTake') return original(request);
-      ops.push(obj(request)); client.presentation = { rowDrops: [] };
-      return { ok: true, generation: client.generation, value: { files: staged } };
-    };
+    const { client, native, ops } = rig();
+    memoryFiles({ 'doc:/1/notes.txt': text('notes'), 'doc:/2/other.txt': text('other') });
+    await dropOn(client, 'fleet:env-remote:thread-1', ['doc:/1/notes.txt', 'doc:/2/other.txt']);
     expect(await takeRowDrops(client, native)).toBe(false); // same raw thread ID on the current environment
     T3Client.prototype.adoptStatus.call(client, { state: 'connected', origin: 'http://studio.local:3773', environmentId: 'env-remote', message: '', presentation: client.presentation }, 1);
     client.threadId = 'thread-1'; client.projectId = 'r1';
     expect(await takeRowDrops(client, native)).toBe(false); // selected, but shell/thread/config not ready
-    expect(opsOf(ops, 'rowDropTake')).toEqual([]);
-    expect(opsOf(ops, 'rowDropClear')).toEqual([]);
+    expect(rowDropKeys(client)).toEqual(['fleet:env-remote:thread-1']);
     Object.assign(client, { configLive: true, shellLive: true, threadLive: true });
     const owner = client.snapshotOwner;
     expect(await takeRowDrops(client, native)).toBe(true);
@@ -799,61 +811,42 @@ describe('row drop ownership during an environment handoff', () => {
     expect(opsOf(ops, 'editorInsert')[0]?.owner).toBe(owner);
     expect(client.local.drafts['local:thread-1']).toBeUndefined();
     expect(await takeRowDrops(client, native)).toBe(false);
-    expect(opsOf(ops, 'rowDropTake')).toHaveLength(1);
   });
-  test('a failed row press clears its queue even before the next status snapshot reports it', async () => {
-    const { client, native, ops } = rig();
+  test('a failed row press clears its queue', async () => {
+    const { client, native } = rig();
+    memoryFiles({ 'doc:/1/notes.txt': text('notes') });
+    await dropOn(client, 'fleet:env-remote:gone', ['doc:/1/notes.txt']);
     await clearRowDrops(client, native, ['fleet:env-remote:gone']);
-    expect(opsOf(ops, 'rowDropClear').map(op => op.keys)).toEqual([['fleet:env-remote:gone']]);
+    expect(rowDropKeys(client)).toEqual([]);
   });
-  test('navigation while rowDropTake replies releases the staged files instead of attaching to the new draft', async () => {
-    const { client, native, ops } = rig({ presentation: { rowDrops: ['fleet:local:thread-1'] } });
-    const original = native.later.bind(native);
-    native.later = async request => {
-      if (obj(request).op !== 'rowDropTake') return original(request);
-      client.threadId = 'thread-2';
-      return { ok: true, generation: client.generation, value: { files: [{ kind: 'file', name: 'notes.txt', id: '11111111-1111-4111-8111-111111111111', sizeBytes: 5 }] } };
-    };
+  test('navigation while the files are staged releases them instead of attaching to the new draft', async () => {
+    const { client, native, ops } = rig();
+    const { fs } = memoryFiles({ 'doc:/1/notes.txt': text('notes') });
+    await dropOn(client, 'fleet:local:thread-1', ['doc:/1/notes.txt'], 'thread-1', true);
+    const stat = fs.stat;
+    fs.stat = async (path: string) => { client.threadId = 'thread-2'; return stat(path); };
     expect(await takeRowDrops(client, native)).toBe(false);
     expect(draftFiles(client.local)).toEqual([]);
     expect(opsOf(ops, 'editorInsert')).toEqual([]);
     expect(opsOf(ops, 'composerAttachRemove')).toHaveLength(1);
   });
-  test('navigation while clearing an abandoned drop cannot attach it on a later destination revisit', async () => {
-    const { client, native, ops } = rig({ presentation: { rowDrops: ['fleet:local:abandoned'] } });
+  test('a drop abandoned for another thread cannot attach on a later visit to it', async () => {
+    const { client, native } = rig();
+    memoryFiles({ 'doc:/1/abandoned.txt': text('gone'), 'doc:/2/kept.txt': text('kept') });
+    await dropOn(client, 'fleet:local:abandoned', ['doc:/1/abandoned.txt']);
     await takeRowDrops(client, native);
-    client.threadId = 'thread-2'; client.presentation = { rowDrops: ['fleet:local:abandoned', 'fleet:local:thread-2'] };
-    const original = native.later.bind(native), queued = new Set(['fleet:local:abandoned', 'fleet:local:thread-2']);
-    let release: (() => void) | undefined;
-    native.later = async request => {
-      const op = obj(request);
-      if (op.op === 'rowDropClear') {
-        if (!release) await new Promise<void>(resolve => { release = resolve; });
-        for (const key of op.keys as string[]) queued.delete(key);
-      }
-      if (op.op === 'rowDropTake') {
-        ops.push(op);
-        const files = (op.keys as string[]).some(key => queued.delete(key)) ? [{ kind: 'file', name: 'abandoned.txt', id: '11111111-1111-4111-8111-111111111111', sizeBytes: 5 }] : [];
-        return { ok: true, generation: client.generation, value: { files } };
-      }
-      return original(request);
-    };
-    const taking = takeRowDrops(client, native);
-    expect(release).toBeDefined();
-    client.threadId = 'thread-3';
-    release!();
-    expect(await taking).toBe(false);
-    client.presentation = { rowDrops: [...queued] };
+    await dropOn(client, 'fleet:local:thread-2', ['doc:/2/kept.txt']);
+    client.threadId = 'thread-2';
+    expect(await takeRowDrops(client, native)).toBe(true);
+    client.threadId = 'abandoned';
     expect(await takeRowDrops(client, native)).toBe(false);
-    client.threadId = 'thread-2'; client.presentation = { rowDrops: [...queued] };
-    expect(await takeRowDrops(client, native)).toBe(false);
-    expect([...queued]).toEqual([]);
-    expect(opsOf(ops, 'rowDropTake')).toEqual([]);
-    expect(opsOf(ops, 'rowDropClear').map(op => op.keys)).toEqual([['fleet:local:abandoned'], ['fleet:local:thread-2']]);
-    expect(draftFiles(client.local)).toEqual([]);
+    expect(rowDropKeys(client)).toEqual([]);
+    expect(draftFiles(client.local).map(file => file.name)).toEqual(['kept.txt']);
   });
   test('an image-only drop preserves its original source and shelf after editor navigation refuses insertion', async () => {
-    const { client, native, ops } = rig({ presentation: { rowDrops: ['fleet:local:thread-1'] } });
+    const { client, native, ops } = rig();
+    memoryFiles({ 'doc:/1/shot.png': png(4, 3) });
+    await dropOn(client, 'fleet:local:thread-1', ['doc:/1/shot.png'], 'thread-1', true);
     client.local.drafts['local:thread-1'] = 'Keep this image here';
     const original = native.later.bind(native), owner = client.snapshotOwner;
     let release: (() => void) | undefined;
@@ -861,7 +854,6 @@ describe('row drop ownership during an environment handoff', () => {
     const inserting = new Promise<void>(resolve => { entered = resolve; });
     native.later = async request => {
       const op = obj(request);
-      if (op.op === 'rowDropTake') return { ok: true, generation: client.generation, value: { files: [{ kind: 'image', name: 'shot.png', id: '11111111-1111-4111-8111-111111111111', sizeBytes: 64 }] } };
       if (op.op === 'editorInsert') await new Promise<void>(resolve => { release = resolve; entered!(); });
       return original(request);
     };

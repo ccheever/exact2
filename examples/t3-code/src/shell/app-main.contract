@@ -65,6 +65,8 @@ component ChatColumn
     restGesture: action
     // The timeline's scroll hides the window's Cite (observeSelectionActions' scroll).
     citeScrolled: action
+    // Files dropped here or picked with Attach files (app.contract attachFiles, composer-controls-attach.ts).
+    attachFiles: action
   props
     pageCover: bool
     viewport: Viewport
@@ -143,6 +145,20 @@ component ChatColumn
   provide
     tipEpoch
     tipArm
+  // ChatView's makeWorkspaceFileDropHandlers (workspaceFileDrop.ts): a drag of files over the column, its header too,
+  // shows the drop overlay; a drop hides it and adds the files to the composer (addDroppedFiles, addDroppedFolders). A
+  // drag over the prompt is the column's, so the field inserts no path text (exact2 #845).
+  state fileDrag = false
+  action fileDragEntered
+    fileDrag = true
+  action fileDragLeft
+    fileDrag = false
+  action filesDropped(e: DragEvent)
+    fileDrag = false
+    attachFiles("drop", e.files, [], false, "")
+  // ChatComposer's hidden file input for Attach files (AttachButton's press opens its picker).
+  action filesPicked(files: Picked[])
+    attachFiles("pick", [], files, false, "")
   // The transcript's hovered row (message.hoverKey) and its hovered tooltip part.
   state dismissedProviderBanner = "" // moved from app.contract: only the chat column reads or writes it
   action dismissProviderBanner
@@ -265,7 +281,8 @@ component ChatColumn
   // details popover (below), and any other popup that overflows the column's foot, runs over an open drawer as the
   // reference's portaled popups do.
   view
-    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover pointerdown=chatLocal("find-focus", "", "") hatch="t3-frame" data-frame="chat"
+    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover pointerdown=chatLocal("find-focus", "", "") dragenter=fileDragEntered dragleave=fileDragLeft drop=filesDropped hatch="t3-frame" data-frame="chat"
+      input type="file" id="composer-attach-input" multiple=true display="none" change=filesPicked
       ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panel=panelUi, details=detailsAct, title=titleUi, command=command)
       if threadFind.open
         box position="absolute" top=64 right=12 width=min(280, max(0, conversationWidth - 24)) z-index=39
@@ -350,6 +367,14 @@ component ChatColumn
       // popover when no readable height (160pt) is left; its rows fold to the canvas's density (ThreadDetailsCard).
       if details.inline and canvas.cardShown
         ThreadDetailsInline(details=details, density=canvas.density, maxHeight=max(0, (canvas.ready ? canvas.cardHeight : viewport.height - 76) - (threadFind.open ? 48 : 0)), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
+      // data-chat-workspace-drop-overlay: inset 8pt in the area under the 52pt header, over the transcript and the composer
+      // (z-40), border-2 border-dashed border-primary/60 bg-primary/[0.035], its pill bg-background/95 with border-primary/25.
+      if fileDrag
+        column position="absolute" top=60 left=8 right=8 bottom=8 z-index=40 pointer-events="none" border-radius="1rem" border-width=2 border-style="dashed" border-color="light-dark(#1b4ed899, #346bf199)" background-color="light-dark(#1b4ed809, #346bf109)" align-items="center" justify-content="center" box-sizing="border-box" testId="chat-drop-overlay"
+          row role="status" gap="0.5rem" align-items="center" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-radius="9999px" border-width=1 border-style="solid" border-color="light-dark(#1b4ed840, #346bf140)" background-color="light-dark(#fcfcfcf2, #0a0a0af2)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a"
+            svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#1b4ed8, #346bf1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+              path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"
+            text "Drop files to attach" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels

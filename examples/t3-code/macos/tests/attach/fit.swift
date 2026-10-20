@@ -3,7 +3,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import XCTest
 
-// T3ImageFit and the attach staging over it: images longer than the client's edge
+// T3ImageFit, which fits SnapShot's draft images: images longer than the client's edge
 // (IMAGE_ATTACHMENT_MAX_EDGE, 2000) are scaled to it as T3 Code's imageCompression.ts
 // fitImageToMaxEdge scales them (its "attachment max edge" tests).
 final class ImageFitTests: XCTestCase {
@@ -28,23 +28,13 @@ final class ImageFitTests: XCTestCase {
         return url
     }
 
-    private func pick(_ request: [String: Any]) -> [[String: Any]] {
-        let attach = T3ComposerAttach(dataRoot: root, agent: true)
-        let done = expectation(description: "reply")
-        var files: [[String: Any]] = []
-        attach.pick(request) { reply in
-            files = (reply["value"] as? [String: Any])?["files"] as? [[String: Any]] ?? []
-            done.fulfill()
-        }
-        wait(for: [done], timeout: 60)
-        return files
-    }
-
-    private func draft(_ file: [String: Any]) throws -> (data: Data, width: Int, height: Int) {
-        let id = try XCTUnwrap(file["id"] as? String)
-        let data = try Data(contentsOf: root.appendingPathComponent("snapshots/drafts/\(id).png"))
-        let rep = try XCTUnwrap(NSBitmapImageRep(data: data))
-        return (data, rep.pixelsWide, rep.pixelsHigh)
+    /// T3ImageFit.fit over the file at `url`: the PNG it writes and its size, or nil when it keeps the original.
+    private func fit(_ url: URL, _ maxEdge: Int) throws -> (data: Data, width: Int, height: Int)? {
+        guard let fitted = T3ImageFit.fit(try Data(contentsOf: url), maxEdge: maxEdge) else { return nil }
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: fitted.data))
+        XCTAssertEqual([rep.pixelsWide, rep.pixelsHigh], [fitted.width, fitted.height])
+        XCTAssertTrue(fitted.data.starts(with: [0x89, 0x50, 0x4e, 0x47]))
+        return (fitted.data, rep.pixelsWide, rep.pixelsHigh)
     }
 
     func testFittedSizeKeepsTheAspectRatioAndRoundsAsMathRound() {
@@ -56,48 +46,25 @@ final class ImageFitTests: XCTestCase {
         XCTAssertNil(T3ImageFit.fittedSize(width: 3000, height: 1000, maxEdge: 0))
     }
 
-    func testPickScalesALargePngScreenshotAndKeepsAnImageAtTheEdgeByteForByte() throws {
-        _ = try write("a-shot.png", .png, width: 3024, height: 1964)
-        let exact = try write("b-edge.png", .png, width: 2000, height: 1200)
-        let original = try Data(contentsOf: exact)
-        let files = pick(["generation": 1, "imageMaxEdge": 2000])
-        XCTAssertEqual(files.map { $0["kind"] as? String }, ["image", "image"])
-        let shot = try draft(files[0])
+    func testALargePngScreenshotScalesAndAnImageAtTheEdgeIsKept() throws {
+        let shot = try XCTUnwrap(try fit(try write("a-shot.png", .png, width: 3024, height: 1964), 2000))
         XCTAssertEqual([shot.width, shot.height], [2000, 1299])
-        XCTAssertEqual(files[0]["name"] as? String, "a-shot.png")
-        XCTAssertEqual(files[0]["sizeBytes"] as? Int, shot.data.count)
-        XCTAssertEqual(try draft(files[1]).data, original)
+        XCTAssertNil(try fit(try write("b-edge.png", .png, width: 2000, height: 1200), 2000))
     }
 
     func testAJpegScalesByItsDisplayedSize() throws {
         // Stored landscape, displayed portrait after the EXIF rotation (orientation 6).
-        _ = try write("photo.jpg", .jpeg, width: 400, height: 300, orientation: 6)
-        let files = pick(["generation": 1, "imageMaxEdge": 200])
-        let photo = try draft(try XCTUnwrap(files.first))
+        let photo = try XCTUnwrap(try fit(try write("photo.jpg", .jpeg, width: 400, height: 300, orientation: 6), 200))
         XCTAssertEqual([photo.width, photo.height], [150, 200])
-        XCTAssertEqual(files.first?["name"] as? String, "photo.png")
     }
 
     func testAGifAndARequestWithoutAnEdgeKeepTheirSize() throws {
-        _ = try write("anim.gif", .gif, width: 300, height: 104)
-        _ = try write("wide.png", .png, width: 300, height: 104)
-        let gif = pick(["generation": 1, "imageMaxEdge": 200])
-        XCTAssertEqual(try draft(gif[0]).width, 300)
-        XCTAssertEqual(gif[0]["downscalable"] as? Bool, false)
-        XCTAssertEqual(try draft(gif[1]).width, 200)
-        XCTAssertEqual(gif[1]["downscalable"] as? Bool, true)
-        _ = try write("wide.png", .png, width: 300, height: 104)
-        XCTAssertEqual(try draft(pick(["generation": 2])[0]).width, 300)
-    }
-
-    func testAPngOverTheByteLimitIsAcceptedOnceScaled() throws {
-        // 1800 x 1800 noise is about 13 MB as a PNG: over the 10 MB image limit until it is scaled.
-        let url = try write("noise.png", .png, width: 1800, height: 1800, noise: true)
-        XCTAssertGreaterThan(try Data(contentsOf: url).count, T3ComposerAttach.maxImageBytes)
-        let files = pick(["generation": 1, "imageMaxEdge": 900])
-        XCTAssertEqual(files.first?["kind"] as? String, "image")
-        XCTAssertEqual(try draft(try XCTUnwrap(files.first)).width, 900)
-        _ = try write("noise.png", .png, width: 1800, height: 1800, noise: true)
-        XCTAssertEqual(pick(["generation": 2]).first?["kind"] as? String, "too-large")
+        let gif = try write("anim.gif", .gif, width: 300, height: 104)
+        XCTAssertNil(try fit(gif, 200))
+        XCTAssertFalse(T3ImageFit.downscalable(try Data(contentsOf: gif)))
+        let wide = try write("wide.png", .png, width: 300, height: 104)
+        XCTAssertEqual(try fit(wide, 200)?.width, 200)
+        XCTAssertTrue(T3ImageFit.downscalable(try Data(contentsOf: wide)))
+        XCTAssertNil(try fit(wide, 0))
     }
 }

@@ -1,19 +1,21 @@
-// The composer's Attach files button, adapted from
-// T3 Code (MIT); see LICENSE-T3. Sources: chat/ChatComposer.tsx
-// (showComposerAttachAction, addComposerAttachments), chat/composerAttachmentFiles.ts
-// (fileAttachmentStagingLimit) and packages/contracts/src/chatAttachment.ts.
-// Picked images join the draft's image shelf (the SnapShot drafts, uploaded as
-// `image` attachments on send); other files become inline file chips
+// The composer's attachments from a drop, a paste and Attach files, adapted from
+// T3 Code 9c161462c9 (MIT); see LICENSE-T3. Sources: chat/ChatComposer.tsx
+// (showComposerAttachAction, addComposerAttachments, onComposerPaste, addDroppedFiles,
+// addDroppedFolders), chat/workspaceFileDrop.ts (splitDroppedItems),
+// chat/composerAttachmentFiles.ts (fileAttachmentStagingLimit) and
+// packages/contracts/src/chatAttachment.ts. All three stage their files the same way
+// (composer-attach-stage.ts): images join the draft's image shelf (the SnapShot drafts,
+// uploaded as `image` attachments on send); other files become inline file chips
 // (composer-editor-attach.ts), and what cannot be attached is named in the error.
-// A PNG, JPEG or HEIC image longer than IMAGE_ATTACHMENT_MAX_EDGE is scaled to it as
-// it is staged (lib/imageCompression.ts prepareImageForAttachment, 9c161462c9).
-import { arr, obj, str, num, type Obj } from '../client/domain';
+import { obj, str, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
+import { folderDropTarget, primary } from '../connections/local-primary';
+import { pushToast } from '../shell/toast';
 import { acceptAttachedFile, attachStagingLimit, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments } from './composer-editor-attach';
 import { holdDraftFiles, type DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
-import { IMAGE_ATTACHMENT_MAX_EDGE } from './image-attachment-size';
+import { handleSource, stageAttachment, type AttachSource } from './composer-attach-stage';
 import { composerFieldOwner } from './auto-balance-owner';
 
 export const MAX_ATTACHMENTS = 100; // PROVIDER_SEND_TURN_MAX_ATTACHMENTS
@@ -27,46 +29,56 @@ export function attachOffered(client: T3Client, question: { customAllowed: boole
   return !question || (capabilities.questionAttachments === true && question.customAllowed);
 }
 
-/** addComposerAttachments for the picked files: images join the shelf; the rest are named in one error, as the reference does. */
-export async function attachFiles(client: T3Client, native: Native): Promise<string> {
-  if (!client.projectId) throw new ClientError('Choose a project first.');
-  const key = client.draftKey, imageChips = imagesGetChips(client);
-  const reply = await client.restAccess(native).call({ op: 'composerAttachPick', fileLimit: attachStagingLimit(client), imageMaxEdge: IMAGE_ATTACHMENT_MAX_EDGE });
-  if (key !== client.draftKey) throw new ClientError('The draft changed while files were being chosen.');
-  await addAttachedFiles(client, native, arr(reply.files), imageChips);
-  return '';
-}
+/** What the window hands over (app.contract attachFiles): its `doc:` handles, or Attach files' picked copies. */
+export type IncomingFiles = { files: string[]; picked: Obj[]; asText: boolean; target: string };
+
+/** A picked file (Contract's `Picked`): its copy under app:/tmp/picked/, its name and the type the picker read. */
+const pickedSource = (file: Obj): AttachSource => ({ path: str(file.path), name: str(file.name, 'file'), type: str(file.type) });
 
 /**
- * onComposerPaste's addComposerAttachments: the files a paste took from the pasteboard (T3ComposerEditor.swift's
- * `pastedFiles`), staged as Attach stages picked ones and added the same way. `key`: the draft the editor reported
- * them for; once another draft is open they are let go. Files Paste as Text took (`asText`) give their images no
- * inline chip (`skipImageInlineChip`); a take holding both kinds of paste follows Paste as Text.
+ * The files a drop, a paste or Attach files brings (`origin` "drop", "paste" or "pick"). A drop's folders are
+ * addDroppedFolders': a dropped folder is a handle with no path (LLP 1069.010 D1), so each is the reference's own
+ * refusal for a folder whose path it cannot get. Paste as Text (`asText`) gives images no inline chip
+ * (skipImageInlineChip). The answer's "focus:composer" focuses the prompt, as the reference's drop and Attach do.
  */
-export async function takePastedFiles(client: T3Client, native: Native, key = client.draftKey,
-  identity = { snapshotOwner: client.snapshotOwner, fieldOwner: composerFieldOwner(client) }): Promise<void> {
-  const generation = client.generation;
-  if (key !== client.draftKey || identity.snapshotOwner !== client.snapshotOwner || identity.fieldOwner !== composerFieldOwner(client)) return;
-  const prose = imagesGetChips(client);
-  const files = arr(obj(await client.restAccess(native).call({ op: 'composerPasteTake', ...identity, fileLimit: attachStagingLimit(client), imageMaxEdge: IMAGE_ATTACHMENT_MAX_EDGE })).files);
-  const imageChips = prose && !files.some(file => file.asText === true);
-  if (!files.length) return;
-  if (generation !== client.generation || key !== client.draftKey || identity.snapshotOwner !== client.snapshotOwner || identity.fieldOwner !== composerFieldOwner(client) || !client.projectId) {
-    for (const file of files) {
-      if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id));
-      await releaseStagedFile(native, file);
-    }
-    // Attach files says the same; the reference claims no paste without a thread.
-    if (key === client.draftKey) client.error = 'Choose a project first.';
-    return;
+export async function attachIncoming(client: T3Client, native: Native, origin: string, incoming: IncomingFiles): Promise<string> {
+  const sources = [...incoming.files.map(handleSource), ...incoming.picked.map(pickedSource)];
+  if (!sources.length) return '';
+  const imageChips = imagesGetChips(client) && !(origin === 'paste' && incoming.asText);
+  const staged = await stageFiles(client, native, sources);
+  // A pasted or picked folder is the reference's empty File.
+  const folders = origin === 'drop' ? staged.filter(file => file.kind === 'folder') : [];
+  const others = staged.filter(file => !folders.includes(file)).map(file => file.kind === 'folder' ? { kind: 'unreadable', name: file.name, sizeBytes: 0 } : file);
+  if (others.length) await addAttachedFiles(client, native, others, imageChips);
+  if (folders.length) {
+    const remote = folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'remote';
+    if (remote) pushToast(client, { kind: 'error', title: "Folders can't be dropped into remote environments" });
+    else for (const folder of folders) pushToast(client, { kind: 'error', title: `Couldn't get the path of "${str(folder.name)}"`, description: 'Type the folder path with @ instead.' });
   }
-  await addAttachedFiles(client, native, files, imageChips);
+  return origin === 'paste' ? '' : 'focus:composer';
+}
+
+/** Each file staged as addAttachedFiles takes it, at most MAX_ATTACHMENTS; a draft that changes meanwhile lets them go. */
+export async function stageFiles(client: T3Client, native: Native, sources: AttachSource[]): Promise<Obj[]> {
+  if (!client.projectId) throw new ClientError('Choose a project first.');
+  const key = client.draftKey, limit = attachStagingLimit(client), staged: Obj[] = [];
+  for (const source of sources.slice(0, MAX_ATTACHMENTS)) staged.push(await stageAttachment(native, source, limit));
+  return key === client.draftKey ? staged : (await releaseStaged(client, native, staged), []);
+}
+
+/** Staged files nothing will reference: a shelf image's draft and a file's copy go. */
+export async function releaseStaged(client: T3Client, native: Native, files: Obj[]): Promise<void> {
+  for (const file of files) {
+    if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id));
+    await releaseStagedFile(native, file);
+  }
 }
 
 /**
- * addComposerFiles over staged files (the picker's, or the sidebar row drop's, legacy-sidebar-drop.ts): images join the
- * shelf; other files become chips; what cannot be attached is named in one error. `owner`: the composer the chips go into
- * at its caret (`editorInsert` refuses another thread's editor; then they join the end of the stored draft).
+ * addComposerFiles over staged files (a drop, a paste, Attach files, or the sidebar row drop's, legacy-sidebar-drop.ts):
+ * images join the shelf; other files become chips; what cannot be attached is named in one error. `owner`: the composer
+ * the chips go into at its caret (`editorInsert` refuses another thread's editor; then they join the end of the stored
+ * draft).
  */
 export async function addAttachedFiles(client: T3Client, native: Native, files: Obj[], imageChips = imagesGetChips(client), owner = ''): Promise<void> {
   const key = client.draftKey;
@@ -78,20 +90,16 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
   const release = holdDraftFiles(client.local, key);
   try {
     for (const file of files) {
-      if (!current()) {
-        if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id));
-        await releaseStagedFile(native, file);
-        continue;
-      }
+      if (!current()) { await releaseStaged(client, native, [file]); continue; }
       const name = str(file.name, 'file');
       if (reserved >= MAX_ATTACHMENTS) {
-        if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id)); // staged bytes nothing will reference
-        await releaseStagedFile(native, file);
+        await releaseStaged(client, native, [file]); // staged bytes nothing will reference
         error = `You can attach up to ${MAX_ATTACHMENTS} files per message.`; continue;
       }
       if (file.kind === 'unsupported-image') { error = `'${name}' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.`; continue; }
       if (file.kind === 'unreadable') { error = `'${name}' is empty or could not be read.`; continue; }
-      if (file.kind === 'too-large') { error = `'${name}' is too large to attach. Images can be up to 10 MB.`; continue; }
+      if (file.kind === 'image-unreadable') { error = `'${name}' could not be read as an image.`; continue; }
+      if (file.kind === 'image-too-large') { error = `'${name}' is too large to attach, even after compression.`; continue; }
       if (file.kind === 'file') { const staged = acceptAttachedFile(client, file); if (staged.file) { chips.push(staged.file); reserved += 1; rememberVideoFrame(client, file); } else error = staged.error; continue; }
       if (file.kind !== 'image' || !/^[a-f0-9-]{36}$/i.test(str(file.id))) { error = `'${name}' can't be attached here: this app attaches images only.`; continue; }
       accepted.push({ id: str(file.id), name, mimeType: 'image/png', sizeBytes: num(file.sizeBytes),

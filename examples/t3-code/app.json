@@ -41,8 +41,7 @@
     "t3-file-editor",
     "t3-media",
     "t3-launcher",
-    "t3-tool-icon",
-    "t3-row-drop"
+    "t3-tool-icon"
   ],
   "rust": {
     "placement": "worker"
@@ -88,8 +87,6 @@
     "tool-icon-light",
     "tool-icon-dark",
     "tool-icon-muted",
-    "thread-key",
-    "thread-open",
     "paint",
     "pick",
     "dialog-focus",
