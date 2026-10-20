@@ -143,9 +143,9 @@ export function baseline(copy, out, hosts = CLONE_HOSTS) {
 }
 
 /** Pixels differing between two screenshots outside `allow` (rectangles
- * [x, y, w, h], each with a reason): {differ, total, size}. A size change is
- * every pixel. */
-export function pixelDiff(a, b, allow = []) {
+ * [x, y, w, h], each with a reason) by more than `floor` in any channel:
+ * {differ, total, size}. A size change is every pixel. */
+export function pixelDiff(a, b, allow = [], floor = 0) {
   const A = decodePng(a), B = decodePng(b);
   if (A.width !== B.width || A.height !== B.height) return { differ: A.width * A.height, total: A.width * A.height, size: [A.width, A.height, B.width, B.height] };
   const inside = (x, y) => allow.some(([rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh);
@@ -153,7 +153,8 @@ export function pixelDiff(a, b, allow = []) {
   for (let y = 0; y < A.height; y++) {
     for (let x = 0; x < A.width; x++) {
       const i = (y * A.width + x) * 4;
-      if ((A.data[i] !== B.data[i] || A.data[i + 1] !== B.data[i + 1] || A.data[i + 2] !== B.data[i + 2] || A.data[i + 3] !== B.data[i + 3]) && !inside(x, y)) differ++;
+      const d = Math.max(Math.abs(A.data[i] - B.data[i]), Math.abs(A.data[i + 1] - B.data[i + 1]), Math.abs(A.data[i + 2] - B.data[i + 2]), Math.abs(A.data[i + 3] - B.data[i + 3]));
+      if (d > floor && !inside(x, y)) differ++;
     }
   }
   return { differ, total: A.width * A.height };
