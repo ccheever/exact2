@@ -237,6 +237,31 @@ fn a_removed_override_is_checked_when_the_design_it_replaces_did_not_fold() {
 }
 
 #[test]
+fn removing_an_app_only_token_a_library_row_names_is_refused_as_the_build_refuses_it() {
+    // The chain's width `cards.pad`, which only the app defines: removed, the row reads a name the fold lacks.
+    let dir = app(
+        "app-only",
+        "tamber app\n\ntheme\n  other = 2px\n  cards.pad = 16px\n",
+    );
+    std::fs::write(
+        dir.join("node_modules/@acme/lib/index.contract"),
+        "component Card\n  slot\n  view\n    column width=\"cards.pad\"\n      children\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let files = || json!({"app.tamber": digest(&dir.join("app.tamber"))});
+    let (removed, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "remove-token", "name": "cards.pad"}]}));
+    assert_eq!(refusals(&removed).len(), 1, "{removed}");
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber app\n\ntheme\n  other = 2px\n",
+    )
+    .unwrap();
+    assert_eq!(compiled(&dir), refusals(&removed));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_package_default_the_app_replaced_selects_no_chain() {
     // The app's own `lib.w` (8px) replaces the package's `space.md`; `lib.op` is already 0.
     let dir = app(
