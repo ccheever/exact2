@@ -126,6 +126,70 @@ test('folder reads require live filesystem permission, and explicit empty permis
   expect(f.calls.some(call => call.method === 'filesystem.browse' || call.method === 'projects.mutate')).toBe(false);
 });
 
+for (const scenario of [
+  { title: 'Local folder', route: 'addProjectLocal', query: '?environmentId=a', initial: '/work/', selected: '/work/repo/' },
+  { title: 'pinned Clone destination', route: 'addProjectDestination', query: '?environmentId=a&remoteUrl=https://host.test/planned.git&repositoryName=planned', initial: '/work/planned', selected: '/work/repo/planned' },
+]) test(`${scenario.title} commits an offered folder and its failed listing without old rows or automatic retry`, async () => {
+  const gate = deferred<unknown>(), started = deferred<void>(); let hold = false;
+  const f = fixture({ hook: request => { if (hold && request.method === 'filesystem.browse') { started.resolve(); return gate.promise; } } });
+  const page = await f.open(scenario.route, scenario.query), folder = f.view().folders.find(row => row.name === 'repo')!;
+  expect({ input: f.view().input, canRead: f.view().canRead, offered: folder?.name }).toEqual({ input: scenario.initial, canRead: true, offered: 'repo' });
+  hold = true; f.calls.length = 0;
+  const operation = mobileAddProjectBrowse(f.owner, page.id, folder.directory, folder.name, f.native);
+  try {
+    expect(await Promise.race([started.promise.then(() => 'listing'), operation.then(() => 'completed')])).toBe('listing');
+    expect({ input: f.view().input, browsing: f.view().browsing }).toEqual({ input: scenario.initial, browsing: true });
+    gate.resolve({ ok: false, generation: 31, error: { kind: 'filesystem', message: 'Folder listing failed', uncertain: false } });
+    await operation;
+    expect({ input: f.view().input, browseDirectory: f.view().browseDirectory, error: f.view().browseError, folders: f.view().folders,
+      browsing: f.view().browsing, loading: f.view().browseLoading, canRead: f.view().canRead,
+      calls: f.calls.map(call => str(call.method) || str(call.path) || str(call.op)), navigation: mobileAddProjectSnapshot().navigation.kind })
+      .toEqual({ input: scenario.selected, browseDirectory: '/work/repo/', error: 'Folder listing failed', folders: [], browsing: false,
+        loading: false, canRead: true, calls: ['environments', '/api/auth/session', 'filesystem.browse'], navigation: '' });
+    await mobileAddProjectPrepare(f.owner, page.id, f.native);
+    expect({ input: f.view().input, error: f.view().browseError, folders: f.view().folders,
+      calls: f.calls.map(call => str(call.method) || str(call.path) || str(call.op)), navigation: mobileAddProjectSnapshot().navigation.kind })
+      .toEqual({ input: scenario.selected, error: 'Folder listing failed', folders: [],
+        calls: ['environments', '/api/auth/session', 'filesystem.browse', 'environments', '/api/auth/session'], navigation: '' });
+  } finally {
+    gate.resolve({ ok: true, generation: 31, value: { entries: [] } });
+    await operation;
+  }
+});
+
+test('folder selection does not commit when its fresh filesystem grant is refused', async () => {
+  let deny = false;
+  const f = fixture({ hook: request => deny && request.path === '/api/auth/session'
+    ? { ok: true, generation: 31, value: { authenticated: true, permissions: [] } } : undefined });
+  const page = await f.open('addProjectLocal'), folder = f.view().folders.find(row => row.name === 'repo')!;
+  deny = true; f.calls.length = 0;
+  await mobileAddProjectBrowse(f.owner, page.id, folder.directory, folder.name, f.native);
+  expect({ input: f.view().input, canRead: f.view().canRead, error: f.view().browseError, browsing: f.view().browsing,
+    calls: f.calls.map(call => str(call.method) || str(call.path) || str(call.op)) })
+    .toEqual({ input: '/work/', canRead: false, error: 'This connection cannot browse host folders.', browsing: false,
+      calls: ['environments', '/api/auth/session'] });
+});
+
+test('an ordinary listing failure from an obsolete generation does not commit the offered folder', async () => {
+  const gate = deferred<unknown>(), started = deferred<void>(); let hold = false;
+  const f = fixture({ hook: request => { if (hold && request.method === 'filesystem.browse') { started.resolve(); return gate.promise; } } });
+  const page = await f.open('addProjectLocal'), folder = f.view().folders.find(row => row.name === 'repo')!;
+  hold = true; f.calls.length = 0;
+  const operation = mobileAddProjectBrowse(f.owner, page.id, folder.directory, folder.name, f.native);
+  try {
+    expect(await Promise.race([started.promise.then(() => 'listing'), operation.then(() => 'completed')])).toBe('listing');
+    mobileClient.generation++;
+    gate.resolve({ ok: false, generation: 31, error: { kind: 'filesystem', message: 'Folder listing failed', uncertain: false } });
+    await operation;
+    expect({ input: f.view().input, browsing: f.view().browsing, error: f.view().browseError,
+      calls: f.calls.map(call => str(call.method) || str(call.path) || str(call.op)), navigation: mobileAddProjectSnapshot().navigation.kind })
+      .toEqual({ input: '/work/', browsing: false, error: 'Folder listing failed', calls: ['environments', '/api/auth/session', 'filesystem.browse'], navigation: '' });
+  } finally {
+    gate.resolve({ ok: true, generation: 31, value: { entries: [] } });
+    await operation;
+  }
+});
+
 test('typing during preload invalidates the folder answer without replacing the typed path', async () => {
   const gate = deferred<unknown>(), started = deferred<void>(); let hold = false;
   const f = fixture({ hook: request => { if (hold && request.method === 'filesystem.browse') { started.resolve(); return gate.promise; } } });
