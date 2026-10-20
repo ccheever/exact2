@@ -107,9 +107,18 @@ fn a_write_to_a_base_name_a_chain_reaches_through_an_alias_is_checked_one_reachi
     // `space.md` 0: `lib.w` is `space.md`, the chain's width 0.
     let (base, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "set-token", "name": "space.md", "value": "0px"}]}));
     assert_eq!(refusals(&base).len(), 1, "{base}");
-    // (said in the app's design, never a package's: reload1's 64d8760971 places a refusal only at an app line)
+    // (said in the app's design, never a package's, at the line the write gives `space.md`: reload1's 7dbd6b76ae)
     let at = &base["error"]["diagnostics"][0];
-    assert_eq!(at["file"].as_str(), Some("app.tamber"), "{base}");
+    let line = std::fs::read_to_string(dir.join("app.tamber"))
+        .unwrap()
+        .lines()
+        .count() as u64
+        + 1;
+    assert_eq!(
+        (at["file"].as_str(), at["line"].as_u64()),
+        (Some("app.tamber"), Some(line)),
+        "{base}"
+    );
     // A write no chain reaches is taken, even where a chain's own token is
     // already one the check refuses (the app's line for `lib.op` is 0).
     let bad = "tamber app\n\ntheme\n  other = 2px\n  lib.op = 0\n";
