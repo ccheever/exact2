@@ -187,7 +187,7 @@ export function networkProjection(input: NetworkInput): NetworkView {
     tailscaleDescription: tailscale ? (tailscale.status === 'available' ? tailscale.httpBaseUrl : 'Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL.')
       : 'Start Tailscale to set up HTTPS access through MagicDNS.',
     tailscaleUrl: tailscale?.httpBaseUrl ?? '', tailscaleHost, servePort: state?.tailscaleServePort ?? 443,
-    clientsVisible: reachable, summary: summarizeAuthorizedClients(sessions, links),
+    clientsVisible: true, summary: summarizeAuthorizedClients(sessions, links),
     accessError: networkUi.accessError || input.access.error, accessLoading: !input.access.loaded,
     pairings: links.map(link => pairingRow(link, input, visibleAll, defaultKey)), clients: sessions.map(session => clientRow(session, input.now)),
     empty: input.access.loaded && links.length === 0 && sessions.length === 0,

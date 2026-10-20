@@ -64,7 +64,7 @@ describe('source control host settings', () => {
     expect(scopedPatch({}, '', 'branchNamePrefix', '__default__')).toEqual({ branchNamePrefix: 't3' });
     expect(scopedPatch({ projectSettingsOverrides: { p: { branchNamePrefix: 'custom' } } }, 'p', 'removeAgentCreditsOnMerge', 'true'))
       .toEqual({ projectSettingsOverrides: { p: { branchNamePrefix: 'custom', removeAgentCreditsOnMerge: true } } });
-    expect(sourceControlRows({ removeAgentCreditsOnMerge: true }, '', 'Local', [], true).text.find(row => row.key === 'removeAgentCreditsOnMerge')?.checked).toBe(true);
+    expect(sourceControlRows({ removeAgentCreditsOnMerge: true }, '', 'Local', [], true).repositories.find(row => row.key === 'removeAgentCreditsOnMerge')?.checked).toBe(true);
   });
 });
 

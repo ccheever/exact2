@@ -25,6 +25,7 @@ import type { DiffState } from '../diff/diff';
 import { notificationPermission, notificationPermissionMessage } from '../shell/shell-notify';
 import { type QrMark } from './settings-mobile-beta';
 import { CLIENT_VERSION } from '../connections/connections';
+import { primaryEnvironmentId } from '../connections/local-primary';
 import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels,
   settingsScopeProjectMachines, type ResolvedSettingsScope, type ScopeGroup } from './settings-scope';
 import { persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettingsClear, planScopedSettingsPatch, resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource,
@@ -192,7 +193,7 @@ export function resolveScope(client: T3Client, machine: string, projectKey: stri
   const axis = environmentAxisValue(search, resolved.kind === 'checkout' ? resolved.environmentId : null);
   const current = environments.find(environment => environment.environmentId === axis);
   const group = groups.find(candidate => candidate.projectKey === projectKey);
-  const { environments: selected, connectedEnvironments } = selectScopedSettingsEnvironments(resolved, environments, client.environmentId || null);
+  const { environments: selected, connectedEnvironments } = selectScopedSettingsEnvironments(resolved, environments, primaryEnvironmentId());
   // EnvironmentScopeMenu and ProjectScopeMenu's options: the line under a name is the address (an environment) or the
   // checkout path, and the machines when another project has the same name.
   const environmentChoices: ScopeChoice[] = [{ id: '', label: 'All environments', secondary: '', mark: '', ink: '', surface: '', member: '', selected: axis === ALL_ENVIRONMENTS_VALUE, offline: false },
@@ -207,15 +208,17 @@ export function resolveScope(client: T3Client, machine: string, projectKey: stri
       const sameName = projects.filter(other => other.group.projectKey !== candidate.projectKey && other.group.displayName === candidate.displayName);
       const root = str(candidate.memberProjects[0]?.workspaceRoot);
       const secondary = sameName.length === 0 ? (environments.length > 1 ? root : '') : sameName.some(other => other.machines === machines) ? `${machines} · ${root}` : machines;
-      return { id: candidate.projectKey, label: candidate.displayName, secondary, ...markOf(candidate.displayName), member: str(candidate.memberProjects[0]?.id), selected: candidate.projectKey === projectKey, offline: false };
+      return { id: candidate.projectKey, label: candidate.displayName, secondary, ...markOf(groupMarkName(candidate)), member: str(candidate.memberProjects[0]?.id), selected: candidate.projectKey === projectKey, offline: false };
     })];
-  const marks = group ? markOf(group.displayName) : { mark: '', ink: '', surface: '' };
+  const marks = group ? markOf(groupMarkName(group)) : { mark: '', ink: '', surface: '' };
   return { kind: resolved.kind, message: resolved.kind === 'unavailable' ? resolved.message : '', members: resolved.members.map(member => member as unknown as Obj),
     environmentLabel: current ? settingsScopeEnvironmentLabel(current, environments) : axis !== ALL_ENVIRONMENTS_VALUE ? 'Unavailable environment' : 'All environments',
     projectLabel: projectKey ? (group ? group.displayName : 'Unavailable project') : 'All projects', projectMark: marks.mark, projectInk: marks.ink, projectSurface: marks.surface,
     connective: machine || resolved.kind === 'checkout' ? 'on' : 'across', connected: connectedEnvironments.length > 0, environmentChoices, projectChoices,
     resolved, environments, selected, environmentIcon: current?.kind ?? '', groups };
 }
+/** ProjectFavicon draws the group's representative project, so its monogram is that project's title, not the group label. */
+const groupMarkName = (group: ScopeGroup) => str((group.memberProjects[0] as Obj | undefined)?.title) || group.displayName;
 function markOf(name: string) { const identity = projectIdentity(name); return { mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface }; }
 
 // ── Server rows ───────────────────────────────────────────────────────────
@@ -489,7 +492,7 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
     deviceRow('followUpBehavior', 'follow-up-behavior', 'Follow-up behavior', 'Queue follow-ups while the agent runs or steer the current run. ' + (device.sendShortcut === 'mod-enter-multiline'
       ? `Press ${mod} + Enter for single-line prompts or ${mod} + Shift + Enter for multiline prompts to do the opposite for one message.`
       : `Press ${mod}${device.sendShortcut === 'mod-enter' ? ' + Shift' : ''} + Enter to do the opposite for one message.`), 'select', { ...select(prefs.followUpBehavior, [['queue', 'Queue'], ['steer', 'Steer']]), width: 0 }),
-    serverRow(context, 'enableProviderUpdateChecks', 'provider-update-checks', 'Provider update checks', 'Check installed provider CLIs for newer available versions.', 'switch'),
+    serverRow(context, 'enableProviderUpdateChecks', 'provider-update-checks', 'Provider update checks', 'Check installed provider CLIs for newer available versions and fetch model catalog updates. When off, new models may not appear.', 'switch'),
     serverRow(context, 'continueThreadsAfterServerUpdate', 'continue-threads-after-server-update', 'Continue threads after restarts', 'Automatically resume interrupted threads after an update, crash, or machine restart on the selected environments.', 'switch',
       { status: restart || !scope.connected ? '' : 'All selected connected environments must support restart continuation.', disabled: !restart, resetLabel: 'continue threads after restarts' }, restart && settings.continueThreadsAfterServerUpdate === true),
     serverRow(context, 'backgroundActivity', 'background-activity', 'Background activity', profile === 'advanced' ? `Uses custom intervals. Shared policy: ${(BACKGROUND[baseProfile(background)] ?? BACKGROUND.balanced!)[0]}.` : (BACKGROUND[profile] ?? BACKGROUND.balanced!)[1], 'select',
@@ -540,12 +543,12 @@ export async function memberFiles(client: T3Client, native: Native | null | unde
 }
 /** The scope's connected environments with every value a control reads filled (the reference decodes ServerSettings defaults). */
 function connectedOf(client: T3Client, scope: CoreScope, settings?: Obj): ScopedSettingsEnvironment[] {
-  return selectScopedSettingsEnvironments(scope.resolved, scope.environments, client.environmentId || null).connectedEnvironments.map(environment => ({
+  return selectScopedSettingsEnvironments(scope.resolved, scope.environments, primaryEnvironmentId()).connectedEnvironments.map(environment => ({
     ...environment, serverConfig: { ...environment.serverConfig!, settings: { ...SERVER_DEFAULTS, projectSettingsOverrides: {},
       ...(settings && environment.environmentId === client.environmentId && !(environment as ScopeEnvironment).fleetKey ? settings : environment.serverConfig!.settings) } } }));
 }
 export function serverContext(client: T3Client, scope: CoreScope, files: Map<string, Obj | null>, settings?: Obj): ServerContext {
-  const { environment: representative } = selectScopedSettingsEnvironments(scope.resolved, scope.environments, client.environmentId || null);
+  const { environment: representative } = selectScopedSettingsEnvironments(scope.resolved, scope.environments, primaryEnvironmentId());
   const focused = !representative || (representative.environmentId === client.environmentId && !representative.fleetKey);
   const config = focused ? client.config : obj(fleetConfig(representative!.fleetKey));
   const environment = obj(config.environment);
@@ -590,8 +593,9 @@ export function settingsModelTarget(client: T3Client, id: string) {
   const [instanceId = '', model = ''] = str(control.value).split('|');
   // Text generation offers only the providers that support it (textGenerationProviders).
   const providers = context.providers.filter(provider => !textGeneration || provider.supportsTextGeneration !== false);
-  const { environment: representative } = selectScopedSettingsEnvironments(scope.resolved, scope.environments, client.environmentId || null);
-  const config = !representative || representative.environmentId === client.environmentId ? client.config : obj(representative.serverConfig);
+  const { environment: representative } = selectScopedSettingsEnvironments(scope.resolved, scope.environments, primaryEnvironmentId());
+  // The representative's whole config (serverContext's): a background environment's comes from the fleet.
+  const config = !representative || (representative.environmentId === client.environmentId && !representative.fleetKey) ? client.config : obj(fleetConfig(representative.fleetKey));
   return { context, config, providers, instanceId, model };
 }
 const fleetConfig = (key: string) => fleet.entries.get(key)?.config ?? {};
@@ -721,7 +725,7 @@ export function restoreLabels(local: LocalPrefs, settings: Obj | null): string[]
 /** SettingsScopeContext's `target`: the representative target supplies display values, the member on the scope's environment in a
  *  project scope, as environments prefer theirs (useResolvedSettingsScope); null when no selected environment is connected. */
 export function scopeTarget(client: T3Client, context: ServerContext): ScopedSettingsTarget | null {
-  const { environment } = selectScopedSettingsEnvironments(context.scope.resolved, context.scope.environments, client.environmentId || null);
+  const { environment } = selectScopedSettingsEnvironments(context.scope.resolved, context.scope.environments, primaryEnvironmentId());
   return context.targets.find(target => target.environmentId === environment?.environmentId) ?? context.targets[0] ?? null;
 }
 
