@@ -136,24 +136,15 @@ fn report_all(
 }
 
 /// The warnings as text, in their rank's order (`contract::warning_rank`),
-/// with the SF Symbols only the web draws blank one line at the first's
-/// place: the euxy port's 21 of them buried the warnings above them.
-/// `--json` lists each.
+/// with the SF Symbols only the web draws blank in one line
+/// (`contract::web_only_line`).
 fn print_warnings(warnings: &[contract::CompileError]) {
     let (web, rest): (Vec<_>, Vec<_>) = warnings.iter().partition(|w| contract::web_only(w));
     for warning in rest {
         eprintln!("{warning}{}", contract::excerpt(warning));
     }
     if let Some(first) = web.first() {
-        let said = first.to_string();
-        let at = said.split_once(" warning [").map_or("", |(at, _)| at);
-        eprintln!(
-            "{at} warning [{}] {} SF Symbol use{} draw{} blank on the web, here first: an icon token or a role draws on every host (`contract build --json` says each, and how)",
-            first.id,
-            web.len(),
-            if web.len() == 1 { "" } else { "s" },
-            if web.len() == 1 { "s" } else { "" },
-        );
+        eprintln!("{}", contract::web_only_line(&first.to_string(), web.len()));
     }
 }
 

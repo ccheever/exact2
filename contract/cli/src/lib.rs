@@ -723,6 +723,27 @@ pub fn web_only(warning: &CompileError) -> bool {
     contract_lower::warning_rank::web_only(&warning.id, &warning.message)
 }
 
+/// [`web_only`] for a warning as it is said (`file:line:col warning [id] message`).
+pub fn web_only_said(said: &str) -> bool {
+    said.split_once(" warning [")
+        .and_then(|(_, rest)| rest.split_once("] "))
+        .is_some_and(|(id, message)| contract_lower::warning_rank::web_only(id, message))
+}
+
+/// The one line a build's text says for its [`web_only`] warnings, the
+/// first as said and their number, at the first's place: the euxy port's
+/// 21 of them buried the warnings above them. `contract build --json`
+/// lists each.
+pub fn web_only_line(first: &str, count: usize) -> String {
+    let at = first.split_once(" warning [").map_or("", |(at, _)| at);
+    let one = count == 1;
+    format!(
+        "{at} warning [lower-symbol-platform] {count} SF Symbol use{} draw{} blank on the web, here first: an icon token or a role draws on every host (`contract build --json` says each, and how)",
+        if one { "" } else { "s" },
+        if one { "s" } else { "" },
+    )
+}
+
 pub(crate) fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
     let source_root = path
         .parent()

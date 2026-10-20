@@ -150,6 +150,7 @@ pub(crate) fn unreachable(view: &[Node], styles: &[StyleDecl], out: &mut Vec<Low
         else {
             continue;
         };
+        let mut found: Vec<Found> = Vec::new();
         for row in CONTROLS {
             let control = match row.state {
                 Some(state) => format!("{}:{state}", row.control),
@@ -187,19 +188,53 @@ pub(crate) fn unreachable(view: &[Node], styles: &[StyleDecl], out: &mut Vec<Low
                 continue;
             }
             said.push(key);
+            // A control and its state that the host leaves alike (a range
+            // and a disabled range) are one line.
+            match found
+                .iter_mut()
+                .find(|f| f.parameter == row.parameter && f.why == why)
+            {
+                Some(f) => f.controls.push(plural(&control)),
+                None => found.push(Found {
+                    parameter: row.parameter,
+                    why,
+                    controls: vec![plural(&control)],
+                    line: first.line,
+                    span: set,
+                }),
+            }
+        }
+        // An app made by `exact new` ships the Mac without asking for it,
+        // so the line says what ships it and how to stop.
+        let stop = crate::icons::without(&target.name)
+            .map(|step| format!("{step} removes it"))
+            .unwrap_or_else(|| "delete those keys".into());
+        for f in found {
             out.push(LowerError {
                 id: "tamber-unreachable",
                 message: format!(
-                    "{} on {} {}: {why} (the first at line {}; LLP 1121 D9)",
-                    row.parameter,
+                    "{} on {} {}: {} (the first at line {}; LLP 1121 D9). The app ships {}; not shipping it? {stop}",
+                    f.parameter,
                     host_name(&target.name),
-                    plural(&control),
-                    first.line
+                    f.controls.join(" and "),
+                    f.why,
+                    f.line,
+                    target.described()
                 ),
-                span: set,
+                span: f.span,
             });
         }
     }
+}
+
+/// One line of `unreachable`: a parameter a host does not honour, for the
+/// controls that reach it for the same reason.
+struct Found {
+    parameter: &'static str,
+    why: &'static str,
+    controls: Vec<String>,
+    line: u32,
+    span: Span,
 }
 
 /// A node's rows as they may hold: its own, and each set of classes it

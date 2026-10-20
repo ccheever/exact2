@@ -6,6 +6,10 @@ changed after the first build makes the next build cold (46 s in the euxy port) 
 app installed under the old id, to delete by hand. Changing one later means app.json's `app.id`
 and app.ts's `appId` together. A new app ships Linux as well; a port of an iPhone app runs
 `bun exact.mjs update --without linux` next, or each `symbol:sf/…` warns that Linux draws it blank.
+It ships the Mac too, so a `tamber-unreachable` warning names a Mac control that ignores the
+design (NSSlider's accent); an app that ships no Mac deletes app.json's `host.macos` and
+`deploy.store.macos`, which `update --without` does not take. The SF Symbols the web draws blank
+are one warning line.
 
 **Comparing a port with the original.** `agent ios --touch platform` makes each tap a real touch,
 which opens UIKit's menus and reaches a native module's own controls: drive with it to compare a
