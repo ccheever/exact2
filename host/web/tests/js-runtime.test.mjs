@@ -171,7 +171,7 @@ test('collection normal fast path retains noise, revives zeros and discards old-
     expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
   }
 });
-const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js'];
+const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js', 'regions.js'];
 for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
@@ -1262,8 +1262,8 @@ test('presence reports follow the actual held tail and discard refused or poison
     tailB(); const drained = [...presenceReports]; presenceReports.length = 0;
 
     const gate = sig(0), valid = memo(() => gate() ? NaN : 0, 'n'); valid();
-    act(() => { W(gate, 1); W(a, false); })(); heldTail();
-    const refused = { value: a(), css: first.style.getPropertyValue('--exact-layout-transition'), reports: [...presenceReports] };
+    const refusedResult = act(() => { W(gate, 1); W(a, false); })();
+    const refused = { result: refusedResult, value: a(), css: first.style.getPropertyValue('--exact-layout-transition'), reports: [...presenceReports] };
     presenceReports.length = 0;
     const boom = sig(false);
     S(first, 'top', 'px', () => boom() ? 10 : 0);
@@ -1278,7 +1278,7 @@ test('presence reports follow the actual held tail and discard refused or poison
       landed: [{ phase: 'before', ops: [{ op: 'style', name: 'first' }, { op: 'style', name: 'second' }] },
         { phase: 'after', ops: [{ op: 'style', name: 'first' }, { op: 'style', name: 'second' }] }],
       drained: [{ phase: 'before', ops: [] }, { phase: 'after', ops: [] }], calls: [3, 2],
-      refused: { value: true, css: '1000 0 linear', reports: [{ phase: 'before', ops: [{ op: 'style', name: 'first' }] }, { phase: 'after', ops: [] }] },
+      refused: { result: false, value: true, css: '1000 0 linear', reports: [{ phase: 'before', ops: [{ op: 'style', name: 'first' }] }, { phase: 'after', ops: [] }] },
       poisoned: false, poisonReports: [{ phase: 'before', ops: [] }], afterPoison: [], poisonNamed: true,
     });
   } finally {
