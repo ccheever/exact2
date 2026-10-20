@@ -210,6 +210,7 @@ final class RouteSheetMacTests: XCTestCase {
         let f = try make(), p = f.presenter
         let home = try f.node("home"), pageFrames = try ["home", "page-field", "status"].map { try f.node($0).frame }
         XCTAssertNil(f.window.attachedSheet)
+        XCTAssertNil(p.openTopLayer.modal)
 
         try f.press("open-add")
         let route = try f.node("add"), header = try f.node("add-header")
@@ -217,6 +218,9 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertTrue(window is SheetWindow && f.window.attachedSheet === window)
         XCTAssertTrue(route.window === window, "the route's own subtree is in the sheet")
         XCTAssertTrue(p.dialogs.active === route && p.dialogs.routeActive)
+        let open = p.openTopLayer
+        XCTAssertEqual(open.modal, open.frames.firstIndex { $0.0 == route.id }, "the runner's modal boundary begins at the route")
+        XCTAssertNotNil(open.modal)
         XCTAssertNil(p.dialogs.observation, "it is no dialog to the app")
         XCTAssertEqual(p.dialogs.routeObservation?["presentation"] as? String, "sheet")
         XCTAssertFalse(route.isHidden)
@@ -269,6 +273,7 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertTrue(f.status.contains("saved 1 cancelled 0"), f.status)
         XCTAssertNil(f.window.attachedSheet)
         XCTAssertNil(p.dialogs.active)
+        XCTAssertNil(p.openTopLayer.modal)
         XCTAssertNil(p.views[route.id], "the app took the route away")
         XCTAssertTrue(chrome.subviews.contains { $0 is NSImageView }, "the leaving sheet kept its picture")
         XCTAssertEqual(p.covers.delivered, [:])

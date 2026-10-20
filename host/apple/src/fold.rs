@@ -1,11 +1,16 @@
 //! The page's environment as the host sets it (LLP 1001 §2; LLP 1078 D4):
-//! the safe-area insets and the viewport segments a fold makes, each a call
+//! the safe-area insets, the layout regions, the title-bar area and the
+//! viewport segments a fold makes, each a call
 //! that re-sends the dictionaries of the nodes whose style reads the
 //! environment and lays out again.
 
 use super::{Batch, Host, Timed};
 use exact_kernel::Env;
 use exact_runner::DataSource;
+
+#[cfg(test)]
+#[path = "regions_tests.rs"]
+mod regions_tests;
 
 impl<D: DataSource> Host<D> {
     /// The safe-area insets changed (a boot under `viewport-fit=cover`, a
@@ -22,6 +27,42 @@ impl<D: DataSource> Host<D> {
         self.set_environment(env)
     }
 
+    /// The layout regions' insets (LLP 1123 D10), five regions of four
+    /// edges each, top right bottom left, in [`exact_kernel::style::Region`]'s
+    /// order; `None`: every region is the safe area. As for the insets, every
+    /// node whose style reads the environment is re-sent and laid out again.
+    pub fn set_regions(&mut self, regions: Option<[[f32; 4]; 5]>) -> String {
+        let env = self.runner.kernel().env().with_regions(regions);
+        self.set_environment(env)
+    }
+
+    /// The layout regions from the ABI's flat list (`exact_regions`): twenty
+    /// values, region by region, each top right bottom left; anything else
+    /// is none, when every region is the safe area.
+    pub fn regions_from(insets: &[f32]) -> Option<[[f32; 4]; 5]> {
+        (insets.len() == 20)
+            .then(|| std::array::from_fn(|r| std::array::from_fn(|e| insets[r * 4 + e])))
+    }
+
+    /// The title-bar area beside the window's controls (Window Controls
+    /// Overlay), what `env(titlebar-area-*)` reads: `None` where the window
+    /// gives none, so each is undefined and its fallback applies. As for
+    /// the insets, every node whose style reads the environment is re-sent
+    /// and laid out again.
+    pub fn set_titlebar_area(&mut self, area: Option<exact_kernel::Rect>) -> String {
+        let env = self.runner.kernel().env().with_titlebar_area(area);
+        self.set_environment(env)
+    }
+
+    /// The title-bar area from the ABI's flat list (`exact_titlebar_area`):
+    /// x, y, width, height; anything else is none.
+    pub fn titlebar_area_from(rect: &[f32]) -> Option<exact_kernel::Rect> {
+        match *rect {
+            [x, y, width, height] => Some(exact_kernel::Rect::new(x, y, width, height)),
+            _ => None,
+        }
+    }
+
     /// The window's own size, whatever is presented in it (LLP 1075.003
     /// §9.11): what every viewport unit (`vw`, `vh`, `vmin`, `vmax` and kin) resolves
     /// against everywhere, root and every sheet, never a sheet's viewport,
@@ -33,19 +74,67 @@ impl<D: DataSource> Host<D> {
 
     pub(super) fn set_environment(&mut self, env: Env) -> String {
         let mut batch = Batch::new();
-        let error = match self.runner.kernel_mut().set_env(env) {
+        let error = match self.environment_into(env, &mut batch) {
             Ok(false) => None,
-            Ok(true) => {
-                self.height_targets_dirty = true;
-                for id in self.preorder() {
-                    self.update(id, &mut batch);
-                }
-                self.emit_paragraphs(&mut batch);
-                self.layout(&mut batch).err()
-            }
-            Err(e) => Some(format!("insets: {e:?}")),
+            Ok(true) => self.layout(&mut batch).err(),
+            Err(e) => Some(e),
         };
         self.finish(batch, error)
+    }
+
+    /// `env` set, and when it changed, what reads it re-sent into `batch`,
+    /// not yet laid out.
+    fn environment_into(&mut self, env: Env, batch: &mut Batch) -> Result<bool, String> {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
+        let changed = self
+            .runner
+            .kernel_mut()
+            .set_env(env)
+            .map_err(|e| format!("insets: {e:?}"))?;
+        if changed {
+            self.height_targets_dirty = true;
+            for id in self.preorder() {
+                self.update(id, batch);
+            }
+            self.emit_paragraphs(batch);
+        }
+        Ok(changed)
+    }
+
+    /// What changed of the view at once, each part only when given: the
+    /// window's size (`None` in it clears it), the safe-area insets, the
+    /// layout regions and the viewport, in one batch under one layout, as
+    /// the calls one by one would leave them. An iOS boot's view takes the
+    /// whole window as its tab bar comes (LLP 1123 D1), which changes all
+    /// four (`ExactView.fit`).
+    pub fn set_view(
+        &mut self,
+        screen: Option<Option<(f32, f32)>>,
+        insets: Option<[f32; 4]>,
+        regions: Option<Option<[[f32; 4]; 5]>>,
+        size: Option<(f32, f32)>,
+    ) -> String {
+        let mut env = self.runner.kernel().env();
+        if let Some(screen) = screen {
+            env = env.with_screen(screen);
+        }
+        if let Some([top, right, bottom, left]) = insets {
+            env = env.with_insets(top, right, bottom, left);
+        }
+        if let Some(regions) = regions {
+            env = env.with_regions(regions);
+        }
+        let mut batch = Batch::new();
+        let changed = self.environment_into(env, &mut batch);
+        let error = changed.as_ref().err().cloned();
+        match size {
+            Some((width, height)) => self.resize_inner(width, height, batch, error),
+            None if changed == Ok(true) => {
+                let laid_out = self.layout(&mut batch).err();
+                self.finish(batch, laid_out)
+            }
+            None => self.finish(batch, error),
+        }
     }
 
     /// The device's posture and the viewport segments a fold makes (LLP
@@ -62,6 +151,7 @@ impl<D: DataSource> Host<D> {
         rows: u32,
         rects: Vec<exact_kernel::Rect>,
     ) -> String {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let (Ok(c), Ok(r)) = (u8::try_from(cols), u8::try_from(rows)) else {
             return self.finish(
                 Batch::new(),

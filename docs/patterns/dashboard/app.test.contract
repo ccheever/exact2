@@ -1,12 +1,17 @@
 // A test that depends on the day pins `epoch` and `time-zone`; none waits in real time.
-test "an empty month says what to do; a Save with nothing entered says what is missing"
+test "an empty month says what to do; Save waits for a title and an amount, saying which"
   expect tree missing "by-category"
   tap "empty-add"
   clock settle
-  expect tree missing "title-error"
-  tap "save"
-  expect text "title-error" == "Enter a title."
-  expect text "amount-error" == "Enter an amount, like 12.50."
+  expect disabled "save"
+  expect text "save-hint" == "Enter a title."
+  type "title" "Noodle Bar"
+  expect text "save-hint" == "Enter an amount, like 12.50."
+  type "amount" "12.5.0"
+  expect disabled "save"
+  type "amount" "12.50"
+  expect enabled "save"
+  expect text "save-hint" == ""
 
 test "a saved expense is kept, with its day, across a relaunch"
   epoch "2026-03-14T18:00:00Z"

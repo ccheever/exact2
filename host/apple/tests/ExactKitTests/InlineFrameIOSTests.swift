@@ -22,6 +22,39 @@ final class InlineFrameIOSTests: XCTestCase {
         try InlineFrameFixture.check(name, session: session)
     }
 
+    func testAgentInlineContextRequestIgnoresDisabledOnTheParagraph() throws {
+        let session = ExactApp.shared.makeSession(label: "inline-context"), p = session.presenter
+        defer { session.destroy() }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["disabled": "true"], "handlers": ["contextmenu"], "style": ["font_size": 18.0]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 800],
+            ["op": "frame", "id": 2, "x": 20, "y": 100, "w": 300, "h": 28],
+        ]))
+        var style = InlineStyle()
+        try style.set("font_size", .number(18))
+        p.applyParagraph(2, [InlineText(id: 3, parent: 2, props: ["text": "Help", "href": "#help"], style: style, handlers: ["press"], paints: true)])
+        window.layoutIfNeeded()
+        let agent = Agent(session: session), id = NSNumber(value: 3)
+        var contexts: [UInt32] = [], presses: [UInt32] = []
+        p.onContextmenu = { contexts.append($0) }
+        p.onPress = { presses.append($0) }
+        let reply = agent.tap(["id": id, "contextmenu": true])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(contexts, [2])
+        XCTAssertNotNil(agent.tap(["id": id])["error"], "an ordinary press retains the raw disabled check")
+        XCTAssertEqual(presses, [])
+        p.views[2]?.props["inert"] = "true"
+        XCTAssertNotNil(agent.tap(["id": id, "contextmenu": true])["error"])
+        XCTAssertEqual(contexts, [2])
+    }
+
     func testLayoutListsTheWrappedRunUnionAfterScroll() throws {
         let session = ExactApp.shared.makeSession(label: "inline-frame-ios")
         defer { session.destroy() }

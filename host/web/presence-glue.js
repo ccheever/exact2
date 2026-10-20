@@ -257,6 +257,9 @@ function createPresence(root) {
 
   return {
     sync,
+    // Whether a view declares a layout transition: an agent's jump then
+    // applies each due time's commits as their own batch (glue.js `clock`).
+    tracking() { return tracked.size > 0; },
     // Agent state reads the painted surface, including unnamed exit ghosts.
     // The ordinary layout box still describes the content's final geometry.
     observation() {

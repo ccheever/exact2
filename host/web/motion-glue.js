@@ -915,7 +915,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
           if(Math.abs(dx)<=slop||Math.abs(dx)<=Math.abs(dy))return false;
           if(dx<0 && !(sample(el,'translate')?.[0]>0)){stop();return false;}
           const h=api.begin(id,'translate'); if(!h){stop();return false;}
-          contacts().set(e.pointerId,'claimed');
+          contacts().set(e.pointerId,'claimed'); globalThis.exact?.pressClaimed?.(e.pointerId);
           drag.holds=[h]; drag.origin=e.clientX; drag.base=[...h.value]; drag.raw=inverse(h.value[0]);
           // One authored companion, at most two additional property holds.
           const indicator=[...el.children].find(n=>n.getAttribute('swipeIndicator')==='true');
@@ -1138,7 +1138,7 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
       if(current&&op.runtime===current.binding.runtime&&op.token===current.token){current.frame=op.frame;current.terminal=op.terminal;}},
     commit() {
       group?.commit();
-      if(busy||collections.reporting()||!current)return;const d=current;busy=true;let invalid=false;
+      if(busy||!current||collections.reporting())return;const d=current;busy=true;let invalid=false;
       try{if(d.phase==='active'){
         const m=d.terminal?null:mapping(d.binding,d.y);invalid=m===null;
         if(m&&['raw','portWidth','portHeight','rowWidth','scrollSequence'].some(k=>m[k]!==d.map[k]))sampleMove(d,d.x,d.y);

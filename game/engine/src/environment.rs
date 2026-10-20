@@ -1,11 +1,12 @@
-use crate::{Data, Resource};
+use crate::{Color, Data, Resource};
 
 /// Linear sky colours and optional atmospheric/post-processing effects.
 /// Absence of this resource has the same presentation as its default.
 #[derive(Clone, Copy, Debug, PartialEq, Resource)]
 pub struct Environment {
-    /// Optional flat background, independent of ambient illumination.
-    pub background: Option<[f32; 3]>,
+    /// Optional flat background, independent of ambient illumination:
+    /// `Some(Color::hex("#7daba3"))`.
+    pub background: Option<Color<3>>,
     /// Overhead sky radiance.
     pub zenith: [f32; 3],
     /// Horizon sky radiance and default fog colour.
@@ -18,6 +19,8 @@ pub struct Environment {
     pub sun_disc: f32,
     /// Linear exposure before tonemapping.
     pub exposure: f32,
+    /// Output curve; `None` preserves linear radiance before the output transfer.
+    pub tone_mapping: ToneMapping,
     /// Gentle horizon fog by default; None disables it.
     pub fog: Option<Fog>,
     /// Gentle HDR bloom by default; None disables its passes.
@@ -33,11 +36,47 @@ impl Default for Environment {
             ambient: 0.5,
             sun_disc: 0.00465,
             exposure: 1.0,
+            tone_mapping: ToneMapping::Aces,
             fog: Some(Fog::default()),
             bloom: Some(Bloom::default()),
         }
     }
 }
+impl Environment {
+    /// Clear water seen from inside it: a tank or a shallow sea. The whole frame
+    /// sits in one medium, so the sky is the water's colour and fog is uniform.
+    /// Pair it with a sun of about 6,000 lux from above and no opaque surface
+    /// between the sun and the floor; [the underwater recipe](crate::recipes::underwater)
+    /// has the scene, its camera framing and the mean luminance it was measured at.
+    pub fn underwater() -> Self {
+        Self {
+            // The fog hides the whole sky, so a flat background would never show.
+            background: None,
+            // Light through the surface overhead: brighter, green-blue.
+            zenith: [0.3, 0.62, 0.7],
+            // The water's own colour, which the fog fades everything towards.
+            horizon: [0.03, 0.16, 0.2],
+            // Little light comes back up from below.
+            ground: [0.02, 0.05, 0.05],
+            ambient: 0.6,
+            // The sun is not seen as a disc through water.
+            sun_disc: 0.,
+            exposure: 0.9,
+            tone_mapping: ToneMapping::Aces,
+            // Uniform extinction (no height falloff): a surface 32.9 m away keeps
+            // 10% of its colour, ln 10 / 0.07.
+            fog: Some(Fog::new(0.07, 0.)),
+            // The default threshold on HDR brightness (the brightest channel,
+            // before exposure) at a weaker glow than the default 0.16.
+            bloom: Some(Bloom {
+                threshold: 1.,
+                intensity: 0.1,
+                radius: 1.5,
+            }),
+        }
+    }
+}
+
 /// An authored environment for image-based lighting: it replaces the procedural
 /// sky (`Environment`'s zenith, horizon and ground) as the source of ambient
 /// diffuse and specular light; the visible sky and background are unchanged.
@@ -115,17 +154,55 @@ impl AoQuality {
     }
 }
 
-/// Exponential fog, thinning with world height.
+/// The output curve applied after exposure and bloom.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
+pub enum ToneMapping {
+    /// ACES fitted curve (the default).
+    #[default]
+    Aces,
+    /// Linear output, encoded to sRGB by the target or the shader.
+    None,
+}
+/// Scene colour/depth sampling; selected once by `Game::SAMPLES`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneSamples {
+    /// One sample per pixel.
+    One,
+    /// Four-sample MSAA (the default).
+    #[default]
+    Four,
+}
+impl SceneSamples {
+    /// GPU attachment and pipeline sample count.
+    pub fn count(self) -> u32 {
+        match self {
+            Self::One => 1,
+            Self::Four => 4,
+        }
+    }
+}
+/// Height fog, or near/far fog along the camera's forward axis.
 #[derive(Clone, Copy, Debug, PartialEq, Data)]
 pub struct Fog {
-    /// Linear colour; None uses the horizon.
-    pub color: Option<[f32; 3]>,
+    /// Fog colour, `Some(Color::hex("#7daba3"))`; None uses the horizon.
+    pub color: Option<Color<3>>,
     /// Extinction per metre at Y=0.
     pub density: f32,
     /// Exponential height falloff per metre.
     pub height_falloff: f32,
+    /// Near/far view depths. When present, replaces height fog with smoothstep fog.
+    pub linear: Option<[f32; 2]>,
 }
 impl Fog {
+    /// Three.js Fog: smoothstep between near and far camera-space depths, in metres.
+    pub fn linear(near: f32, far: f32) -> Self {
+        assert!(near.is_finite() && far.is_finite() && near >= 0. && far > near);
+        Self {
+            linear: Some([near, far]),
+            density: 0.,
+            ..Self::default()
+        }
+    }
     /// Exponential extinction per metre and height falloff, not near/far planes.
     pub fn new(density: f32, height_falloff: f32) -> Self {
         assert!(density.is_finite() && density >= 0.0);
@@ -134,6 +211,7 @@ impl Fog {
             color: None,
             density,
             height_falloff,
+            linear: None,
         }
     }
 }
@@ -143,6 +221,7 @@ impl Default for Fog {
             color: None,
             density: 0.012,
             height_falloff: 0.1,
+            linear: None,
         }
     }
 }
@@ -164,4 +243,87 @@ impl Default for Bloom {
             radius: 1.5,
         }
     }
+}
+
+/// A camera-independent, square sun projection, in light-space metres.
+#[derive(Debug, Clone, Copy, PartialEq, Data)]
+pub struct ShadowBox {
+    /// World-space centre of the box.
+    pub center: crate::Vec3,
+    /// Half of the width and height perpendicular to the sun direction.
+    pub half_width: f32,
+    /// Half of the extent along the sun direction.
+    pub half_depth: f32,
+}
+
+impl Default for ShadowBox {
+    fn default() -> Self {
+        Self {
+            center: crate::Vec3::ZERO,
+            half_width: 30.,
+            half_depth: 60.,
+        }
+    }
+}
+
+/// Sun shadow quality and reach. Up to three depth layers.
+#[derive(Debug, Clone, Copy, PartialEq, Resource)]
+pub struct Shadows {
+    /// One fixed sun box instead of camera-fitted cascades (default none).
+    pub fixed_box: Option<ShadowBox>,
+    /// Reuse unchanged opaque, unskinned model casters (default false).
+    /// Moving, fading, custom-shaded and primitive casters still draw each frame.
+    pub cache_static: bool,
+    /// Width and height of each depth layer, clamped to 128–4096 (default 2048).
+    pub resolution: u32,
+    /// Camera view depth reached by shadows, in metres (default 60).
+    pub distance: f32,
+    /// Number of cascades, clamped to 1–3 (default 3).
+    pub cascades: u32,
+    /// Receiver-plane PCF radius in shadow texels (default 1.5).
+    pub softness: f32,
+    /// Receiver-plane filtering by default.
+    pub filter: ShadowFilter,
+    /// Shadow darkness, clamped to 0–1 (default 1).
+    pub strength: f32,
+}
+impl Default for Shadows {
+    fn default() -> Self {
+        Self {
+            fixed_box: None,
+            cache_static: false,
+            resolution: 2048,
+            distance: 60.0,
+            cascades: 3,
+            softness: 1.5,
+            filter: ShadowFilter::default(),
+            strength: 1.,
+        }
+    }
+}
+
+/// Sun-shadow reconstruction. Receiver-plane filtering preserves steep contacts;
+/// PCF-soft uses a fixed three-texel box and explicit bias.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Data)]
+pub enum ShadowFilter {
+    /// Project the filter onto the receiver and correct each tap's depth.
+    #[default]
+    ReceiverPlane,
+    /// The PCF-soft weight pattern used by three.js, reconstructed with four
+    /// hardware bilinear comparisons. `Shadows::softness` does not affect it.
+    PcfSoft {
+        /// Subtracted from normalized shadow depth; positive values reduce acne.
+        depth_bias: f32,
+        /// Offset along the receiver normal in world metres, as in three.js normalBias.
+        /// Independent of cascade extent and shadow-map resolution.
+        normal_bias: f32,
+    },
+    /// One hardware bilinear comparison (four depth texels), with a narrower
+    /// footprint than PCF-soft. `Shadows::softness` does not affect it.
+    Bilinear {
+        /// Subtracted from normalized shadow depth; positive values reduce acne.
+        depth_bias: f32,
+        /// Offset along the receiver normal in world metres.
+        normal_bias: f32,
+    },
 }

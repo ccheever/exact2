@@ -19,10 +19,10 @@ fn main() {
     let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     std::fs::write(out.join("app.plan"), baked.encode()).unwrap();
     let manifest = contract::Manifest::read(&app).expect("app manifest");
-    // tvOS bakes the iOS host's plan.
+    // tvOS and watchOS reuse the manifest's iOS policy, including interpreted Rust updates.
     let platform = if matches!(
         std::env::var("CARGO_CFG_TARGET_OS").as_deref(),
-        Ok("ios" | "tvos")
+        Ok("ios" | "tvos" | "watchos")
     ) {
         "ios"
     } else {

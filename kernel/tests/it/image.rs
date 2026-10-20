@@ -459,6 +459,32 @@ fn a_projected_radio_group_reserves_its_native_height() {
         assert_eq!(measured.is_ok(), role == "radiogroup", "{role}");
     }
     assert_eq!(frame(&mut kernel, 1).1, 32.0);
+    // LLP 1116.019 D1: the control's height is its box's, so the radios it
+    // hides, grown with the text, do not make it taller; a tablist, which
+    // may be a tab bar, keeps the height as a minimum.
+    kernel
+        .apply(
+            3,
+            4,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(image_style(&[(StyleId::Height, 50.0)])),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 1).1, 32.0, "a radio group");
+    kernel
+        .apply(
+            4,
+            5,
+            &[Op::SetProp {
+                id: 1,
+                prop: PropId::AccessibilityRole,
+                value: PropValue::Str("tablist".into()),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 1).1, 50.0, "a tablist");
 }
 
 #[test]

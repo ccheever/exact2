@@ -76,6 +76,11 @@ inductive EvalR (env : Env) : Bool → Locals → Expr → Value → Prop
       MapR env inFn ls ps body xs 0 ys → EvalR env inFn ls (.call "map" [l, .arrow ps body]) (.list ys)
   | filter : env.prog.fns.find? (·.name == "filter") = .none → EvalR env inFn ls l (.list xs) →
       FilterR env inFn ls ps body xs 0 ys → EvalR env inFn ls (.call "filter" [l, .arrow ps body]) (.list ys)
+  /-- `sortBy` (LLP 1116.016 §5): the keys by `map`'s callback, then the
+  roster's sort of the items by them. -/
+  | sortBy : env.prog.fns.find? (·.name == "sortBy") = .none → EvalR env inFn ls l (.list xs) →
+      MapR env inFn ls ps body xs 0 ks → sortDir dir = .ok d → sortByKeys xs ks d = .ok v →
+      EvalR env inFn ls (.call "sortBy" (l :: .arrow ps body :: dir)) v
   /-- `pending(r)` of a settled resource, or of a name that is not one. -/
   | pendingSettled : env.prog.fns.find? (·.name == "pending") = .none →
       env.prog.resources.any (·.name == x) = true → (lookup x env.resources).isSome →
@@ -302,6 +307,10 @@ theorem sound_aux : ∀ n,
             obtain ⟨a, h1, xs, rfl, ys, h3, h4⟩ := h
             simp at h4; subst h4
             exact EvalR.filter hfd (ihE h1) (ihF h3)
+          next l ps body dir =>
+            simp only [Except.bind_ok_iff, Value.asList_ok] at h
+            obtain ⟨a, h1, xs, rfl, ks, h3, d, h4, h5⟩ := h
+            exact .sortBy hfd (ihE h1) (ihM h3) h4 h5
           next x =>
             split at h
             next hr =>
@@ -492,6 +501,10 @@ theorem mono_aux : ∀ n,
             simp only [Except.bind_ok_iff] at h ⊢
             obtain ⟨a, h1, xs, h2, ys, h3, h4⟩ := h
             exact ⟨a, ihE hm h1, xs, h2, ys, ihF hm h3, h4⟩
+          next l ps body dir =>
+            simp only [Except.bind_ok_iff] at h ⊢
+            obtain ⟨a, h1, xs, h2, ks, h3, h4⟩ := h
+            exact ⟨a, ihE hm h1, xs, h2, ks, ihM hm h3, h4⟩
           next => exact h
           next => exact h
           next => exact h
@@ -636,6 +649,19 @@ theorem eval_binop_intro {n env inFn ls a b va vb v} {op : BinOp}
     simp only [Except.bind_ok_iff]
     exact ⟨_, h1, _, h2, h3⟩
 
+/-- An argument list holding a callback has no values: an arrow is not one. -/
+theorem evalList_arrow {n env inFn ls l ps body rest vs} :
+    evalList n env inFn ls (l :: .arrow ps body :: rest) ≠ .ok vs := by
+  intro h
+  rcases n with _ | _ | n
+  · simp [evalList] at h
+  · simp only [evalList, Except.bind_ok_iff] at h
+    obtain ⟨_, -, _, h, -⟩ := h
+    simp at h
+  · simp only [evalList, Except.bind_ok_iff] at h
+    obtain ⟨_, -, _, ⟨_, h, -⟩, -⟩ := h
+    cases n <;> simp [eval] at h
+
 theorem eval_stdlib_intro {n env inFn ls name args vs v}
     (hfd : env.prog.fns.find? (·.name == name) = .none) (h1 : evalList n env inFn ls args = .ok vs)
     (h2 : stdlib env name vs = .ok v) : eval (n + 1) env inFn ls (.call name args) = .ok v := by
@@ -643,6 +669,7 @@ theorem eval_stdlib_intro {n env inFn ls name args vs v}
   split
   next => exact absurd h2 stdlib_map
   next => exact absurd h2 stdlib_filter
+  next => exact absurd h1 evalList_arrow
   next => exact absurd h2 stdlib_pending
   next => exact absurd h2 stdlib_failed
   next => exact absurd h2 stdlib_failure
@@ -688,6 +715,11 @@ theorem EvalR.complete {env inFn ls e v} :
     obtain ⟨n2, h2⟩ := h2.complete
     exact ⟨max n1 n2 + 1, by
       simp only [eval, hfd, Except.bind_ok_iff]; exact ⟨_, lift h1, _, rfl, _, lift h2, rfl⟩⟩
+  | .sortBy hfd h1 h2 h3 h4 => by
+    obtain ⟨n1, h1⟩ := h1.complete
+    obtain ⟨n2, h2⟩ := h2.complete
+    exact ⟨max n1 n2 + 1, by
+      simp only [eval, hfd, Except.bind_ok_iff]; exact ⟨_, lift h1, _, rfl, _, lift h2, _, h3, h4⟩⟩
   | .pendingSettled hfd hr hs => ⟨1, by simp [eval, hfd, hr, Option.elim_err_const, hs]⟩
   | .pendingOther hfd hr => ⟨1, by simp [eval, hfd, hr]⟩
   | .failedSettled hfd hr hs => ⟨1, by simp [eval, hfd, hr, Option.elim_err_const, hs]⟩

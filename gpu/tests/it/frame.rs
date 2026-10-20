@@ -83,11 +83,35 @@ impl Surface for Fails {
     }
 }
 
+struct Pending(Clear, bool);
+impl Surface for Pending {
+    fn bind(&mut self, values: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+        self.1 = matches!(values.first(), Some(Value::Bool(true)));
+        Ok(())
+    }
+    fn render(
+        &mut self,
+        frame: &Frame,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+    ) -> bool {
+        self.0.render(frame, device, queue, encoder, target, format);
+        false
+    }
+    fn frame_ready(&self) -> bool {
+        self.1
+    }
+}
+
 static REGISTRY: Registry = Registry {
     surfaces: &[
         ("a", 0, || Box::new(Clear("a"))),
         ("b", 0, || Box::new(Clear("b"))),
         ("f", 0, || Box::new(Fails(Clear("f"), false))),
+        ("p", 0, || Box::new(Pending(Clear("p"), false))),
     ],
     shaders: &[],
 };
@@ -328,4 +352,28 @@ fn a_canvas_is_seen_once_its_first_frame_is_scheduled() {
     assert!(m.seen(a));
     assert!(!m.seen(f), "a frame that failed was never shown");
     assert!(m.sync());
+}
+
+#[test]
+fn an_incomplete_frame_is_retried_without_revealing_the_target() {
+    let Some((mut m, [p, _], _layers)) = on_layers(["p", "a"]) else {
+        return;
+    };
+    for _ in 0..8 {
+        assert_eq!(m.render(p, &frame()), Some(true));
+        assert!(m.flush());
+        assert!(m.sync());
+        assert!(!m.seen(p));
+        let presented = counts(&m);
+        assert_eq!(
+            presented.presented_with_submit + presented.presented_alone,
+            0
+        );
+    }
+    assert!(m.dirty(p));
+    assert!(m.bind(p, &[Value::Bool(true)], None));
+    assert_eq!(m.render(p, &frame()), Some(false));
+    assert!(m.flush());
+    assert!(m.sync());
+    assert!(m.seen(p));
 }

@@ -15,6 +15,9 @@ use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
 use crate::style::{ColorValue, Env};
 
+mod separator;
+pub use separator::GroupedSeparator;
+
 /// A grouped list as a host draws it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GroupedList {
@@ -81,8 +84,12 @@ pub struct GroupedRow {
     pub view: ViewId,
     /// Whether its children are anything but a standard cell's parts.
     pub custom: bool,
-    /// The leading symbol's Apple name.
+    /// The leading symbol's Apple name ("" for an icon token with none).
     pub symbol: Option<String>,
+    /// The leading symbol's icon token form (after `symbol:`) when it has
+    /// no Apple name but a template path, which the host draws as the
+    /// cell's template image (LLP 1121 D10, stage 9 A2); `None` otherwise.
+    pub icon: Option<String>,
     /// The title.
     pub title: Option<String>,
     /// The second text: a value beside the title, or a subtitle under it.
@@ -93,6 +100,11 @@ pub struct GroupedRow {
     pub accessory: Accessory,
     /// Whether the row is a button, so a tap presses it.
     pub pressable: bool,
+    /// Whether it is an action cell: a `button` (no `href`) of a title, a
+    /// symbol before it at most, and nothing at its trailing edge, whose
+    /// title the platform's list draws in the tint (LLP 1116.019 D6), as
+    /// the sheet's `grouped-action-color` does (`contract/lower/src/grouped.rs`).
+    pub action: bool,
     /// `destructive`.
     pub destructive: bool,
     /// `disabled`.
@@ -101,6 +113,14 @@ pub struct GroupedRow {
     pub title_look: TextLook,
     /// How the second text is set where its author said so.
     pub secondary_look: TextLook,
+    /// Whether its author wrote the edge under it (its bottom edge or its
+    /// background image: `Kernel::grouped_separator`'s rule), so the
+    /// platform's separator gives way there, to the author's border or to
+    /// none.
+    pub authored_edge: bool,
+    /// Whether the next shown row's author wrote its top edge, which the
+    /// platform's separator above it gives way to.
+    pub next_authored_top: bool,
 }
 
 /// How a text the platform's list draws is set where its author said so
@@ -197,10 +217,28 @@ fn apple_symbol(node: &NodeRef<'_>) -> Option<String> {
         .props
         .str(PropId::ImageSource)?
         .strip_prefix("symbol:")?;
-    Some(match role.strip_prefix("sf/") {
-        Some(name) => name.to_owned(),
-        None => crate::generated::symbol(role)?.0.to_owned(),
-    })
+    // An icon token's SF Symbol too, or "" for one whose path the host
+    // draws (LLP 1121 D10); an empty name is no symbol, as an empty `sf/`
+    // one is (stage 9 H).
+    let name = crate::apple_symbol_name(role);
+    (!name.is_empty() || role.is_empty() || role.starts_with("sf/") || drawn_icon(role).is_some())
+        .then(|| name.to_owned())
+}
+
+/// The icon token form `role` is when it has no SF Symbol and a template
+/// path: the host draws that path where Apple has no symbol (stage 9 A2).
+fn drawn_icon(role: &str) -> Option<&str> {
+    let icon = crate::Icon::parse(role)?;
+    (icon.sf.is_empty() && !icon.path.is_empty()).then_some(role)
+}
+
+/// The icon token form a symbol image draws by its path (`drawn_icon`).
+fn icon_of(node: &NodeRef<'_>) -> Option<String> {
+    let role = node
+        .props
+        .str(PropId::ImageSource)?
+        .strip_prefix("symbol:")?;
+    drawn_icon(role).map(str::to_owned)
 }
 
 /// A text node's text, its white space collapsed as its `white-space` has
@@ -301,6 +339,8 @@ impl Kernel {
             pressable: row.node_type == NodeType::Pressable,
             destructive: row.props.bool(PropId::Destructive) == Some(true),
             disabled: row.props.bool(PropId::Disabled) == Some(true),
+            authored_edge: self.grouped_edge_owners(row).0,
+            next_authored_top: self.grouped_edge_owners(row).1,
             ..GroupedRow::default()
         };
         // A native button is the platform's control: its views, carried.
@@ -387,6 +427,7 @@ impl Kernel {
         if let Some((first, after)) = rest.split_first() {
             if let Some(symbol) = apple_symbol(first) {
                 out.symbol = Some(symbol);
+                out.icon = icon_of(first);
                 rest = after;
             }
         }
@@ -418,6 +459,12 @@ impl Kernel {
         if out.title.is_none() {
             out.custom = true;
         }
+        out.action = out.pressable
+            && row.props.str(PropId::Href).is_none()
+            && out.accessory == Accessory::None
+            && out.secondary.is_none()
+            && !out.subtitle
+            && !out.custom;
         if out.custom {
             // A custom row is its views, accessory and all.
             out = GroupedRow {
@@ -426,10 +473,178 @@ impl Kernel {
                 pressable: out.pressable,
                 destructive: out.destructive,
                 disabled: out.disabled,
+                authored_edge: out.authored_edge,
+                next_authored_top: out.next_authored_top,
                 ..GroupedRow::default()
             };
         }
         out
+    }
+}
+
+/// Where the platform's own list puts a grouped list's cards and their
+/// content, in points: each card's inset from the list's left and right
+/// edges, and each cell's layout margins, left and right. UIKit chooses
+/// them by the device, the list's width and what lies beside it (16 or 20
+/// points, and none beside the iPhone Duo's side strip), so the host reads
+/// them from its list (`GroupedListIOS.swift`) and the sheet's stand-ins
+/// (`grouped-card-inset`, `grouped-row-inset`, `grouped-row-padding-end`)
+/// give way to them: a custom row's content then starts where a standard
+/// row's text does, at the cell's margin, as UIKit's own content
+/// configurations put it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GroupedMargins {
+    /// The card's left and right insets in the list.
+    pub card: [f32; 2],
+    /// The cell's left and right layout margins.
+    pub cell: [f32; 2],
+}
+
+/// The margins of the list `slot` holds the rows of, when it is a section's
+/// group (not its `header` or `footer`) and the host gave the list some.
+fn group_margins(arena: &NodeArena, slot: u32) -> Option<GroupedMargins> {
+    let margins = arena.grouped_margins(arena.parent(arena.parent(slot)?)?)?;
+    (!is_label(arena, slot)).then_some(margins)
+}
+
+/// Whether a section's part is its `header` or `footer`.
+fn is_label(arena: &NodeArena, slot: u32) -> bool {
+    matches!(
+        arena.props(slot).str(PropId::SemanticTag),
+        Some("header" | "footer")
+    )
+}
+
+/// Whether the swipe `scroll` is a `delete=` row's, which spans the card and
+/// holds the row's insets in its content (`swipe_rows::grouped`): its left
+/// margin is the sheet's swipe margin and it has no padding. A swipe written
+/// by hand is styled as any row, its insets its scroll's padding.
+fn inset_inside(arena: &NodeArena, scroll: u32) -> bool {
+    let style = arena.style(scroll);
+    arena.props(scroll).str(PropId::SwipeContent).is_some()
+        && !style.mask.has(StyleId::PaddingLeft)
+        && !style.written.has(StyleId::MarginLeft)
+        && style.margin_left
+            == crate::style::Dimension::Points(sheet("-exact-grouped-swipe-margin"))
+}
+
+/// The platform's margins in a box's engine style: a group spans its card,
+/// and a row's unsaid inset at each end moves by what the platform's cell
+/// margin has over the sheet's stand-in, on the box the sheet wrote it on: a
+/// row's left and right paddings (after a leading symbol too), the row
+/// spanning its card; a `delete=` row's content's, its swipe spanning the
+/// card. A native button row is the platform's control: its left margin
+/// and its widest (the card less its insets) move, and it keeps its own
+/// padding. An end the author wrote stays the author's.
+pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    use taffy::style::{LengthPercentage as Lp, LengthPercentageAuto as Lpa};
+    use taffy::util::MaybeResolve;
+    if !arena.has_grouped_margins() {
+        return;
+    }
+    if let Some(m) = group_margins(arena, slot) {
+        s.margin.left = Lpa::length(m.card[0]);
+        s.margin.right = Lpa::length(m.card[1]);
+        return;
+    }
+    let Some(parent) = arena.parent(slot) else {
+        return;
+    };
+    let (m, content) = match group_margins(arena, parent) {
+        Some(_) if inset_inside(arena, slot) => return,
+        Some(m) => (m, false),
+        None if inset_inside(arena, parent) => {
+            let named =
+                arena.props(parent).str(PropId::SwipeContent) == arena.props(slot).str(PropId::Id);
+            match arena.parent(parent).and_then(|g| group_margins(arena, g)) {
+                Some(m) if named => (m, true),
+                _ => return,
+            }
+        }
+        None => return,
+    };
+    // A padding moves and stays at zero or more; a margin moves as it is.
+    let padded = |at: Option<f32>, by: f32| at.map(|v| (v + by).max(0.0));
+    let written = &arena.style(slot).written;
+    if content && !written.has(StyleId::PaddingLeft) {
+        let at = s
+            .padding
+            .left
+            .maybe_resolve(None, crate::style::resolve_calc);
+        let by = m.cell[0] - sheet("-exact-grouped-swipe-padding");
+        s.padding.left = padded(at, by).map_or(s.padding.left, Lp::length);
+    }
+    let control = ControlKind::of(arena.node_type(slot), arena.props(slot)).is_some();
+    let by = m.cell[0] - sheet("-exact-grouped-row-inset");
+    if !content && control && !written.has(StyleId::MarginLeft) {
+        let at: Option<f32> = s
+            .margin
+            .left
+            .maybe_resolve(None, crate::style::resolve_calc);
+        s.margin.left = at.map_or(s.margin.left, |v| Lpa::length(v + by));
+        // Its widest, the card less its insets, moves with its inset.
+        if let crate::style::Dimension::Calc(percent, points) = arena.style(slot).max_width {
+            if !written.has(StyleId::MaxWidth) {
+                s.max_size.width =
+                    crate::style::Dimension::Calc(percent, points - by).floor_lpa(arena.env());
+            }
+        }
+    } else if !content && !control && !written.has(StyleId::PaddingLeft) {
+        let at = s
+            .padding
+            .left
+            .maybe_resolve(None, crate::style::resolve_calc);
+        s.padding.left = padded(at, by).map_or(s.padding.left, Lp::length);
+    }
+    if !control && !written.has(StyleId::PaddingRight) && !written.has(StyleId::MarginRight) {
+        let at = s
+            .padding
+            .right
+            .maybe_resolve(None, crate::style::resolve_calc);
+        let by = m.cell[1] - sheet("-exact-grouped-row-padding-end");
+        s.padding.right = padded(at, by).map_or(s.padding.right, Lp::length);
+    }
+}
+
+/// Whether the margins of a grouped list reach `slot` where it stands: a
+/// list four boxes up at most has them (a `delete=` row's content is the
+/// deepest box `apply_margins` moves).
+pub(crate) fn reached(arena: &NodeArena, slot: u32) -> bool {
+    arena.has_grouped_margins()
+        && std::iter::successors(arena.parent(slot), |s| arena.parent(*s))
+            .take(4)
+            .any(|s| arena.grouped_margins(s).is_some())
+}
+
+/// Style `slot` and what it holds again, as deep as the margins reach from
+/// a section (a `delete=` row's content, three boxes down): what
+/// `apply_margins` gives a box depends on where it stands, and a box's style
+/// is otherwise derived only when its own rows change.
+pub(crate) fn restyle(arena: &NodeArena, layout: &mut dyn crate::layout::LayoutMirror, slot: u32) {
+    fn below(
+        arena: &NodeArena,
+        layout: &mut dyn crate::layout::LayoutMirror,
+        slot: u32,
+        depth: u8,
+    ) {
+        if let Some(node) = arena.taffy(slot) {
+            layout.restyle(arena, slot, node);
+        }
+        if depth > 0 {
+            for &child in arena.children(slot) {
+                below(arena, layout, child, depth - 1);
+            }
+        }
+    }
+    below(arena, layout, slot, 3);
+}
+
+/// A sheet metric's points in this process's column; 0 where it has none.
+fn sheet(name: &str) -> f32 {
+    use crate::style::metrics;
+    match metrics::named(name).map(|m| metrics::value(m, metrics::column())) {
+        Some(crate::generated::MetricValue::Number(n)) => n as f32,
+        _ => 0.0,
     }
 }
 

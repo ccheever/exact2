@@ -1,0 +1,4 @@
+component HeadlessHiddenMarkdown
+  view
+    column
+      text "**hidden**" markup="markdown" display="none" testId="hidden-markdown"

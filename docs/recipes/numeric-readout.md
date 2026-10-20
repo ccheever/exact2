@@ -1,9 +1,12 @@
 # Recipe: a numeric readout
 
-A timer's or a total's big number is deliberate design: it may set its size. Give it
-`font-variant-numeric="tabular-nums"`, so every digit is the same width and the number
-doesn't jitter as it changes, and `-exact-fit="shrink"` with `white-space="nowrap"`, so it
-stays on its line at the largest text sizes.
+Use tabular digits for numeric columns or values changing in place, including
+progress percentages. Use default spacing for prose, labels and static standalone
+statistics. See [tabular numbers](../contract-for-agents.md#tabular-numbers) for
+layout limits and host exceptions.
+
+A timer's or an updating total's big number is deliberate design: it may set its
+size. `-exact-fit="shrink"` with `white-space="nowrap"` keeps it on one line.
 
 ```contract
 component Water
@@ -32,7 +35,9 @@ test "the total grows"
 
 - A size in `rem` (`"4.5rem"`) follows the reader's text size (Dynamic Type on iOS); a
   bare number is fixed points. `bun <exact2>/scripts/no-tells.mjs` passes a size on a
-  node with `tabular-nums`, and flags one anywhere else.
+  node with `tabular-nums`, and flags one anywhere else. Do not add tabular digits
+  just to pass this check; a deliberate static display size can carry a
+  `// no-tells: <why>` annotation.
 - `-exact-fit="shrink"` draws a line too wide for its box smaller until it fits, as
   UIKit's readouts do (`adjustsFontSizeToFitWidth`): down to half its size, or a display
   size down to the reader's text size. Without it, a stopwatch's `00:48.12` at the
@@ -42,7 +47,7 @@ test "the total grows"
   (`color="AccentColor"`), never a hex, which stays the same in dark mode; its label
   stays the platform's (`color="-exact-secondary-label"`), and a title is a heading,
   never a big `font-size`.
-- Columns of numbers (laps, a ledger) take `tabular-nums` at body size too, so they
-  line up.
+- Tabular digits stabilize equal-length digit changes, not `99` → `100`; reserve
+  space for the formatted range when adjacent content must stay still.
 - Give the readout an `aria-label` that says what the number is; VoiceOver reads the
   label, not the digits alone.

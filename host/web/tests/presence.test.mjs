@@ -1,15 +1,13 @@
 // The production presence controller under Chrome's layout and animation
 // clocks, including the host's resize entry and child reconciliation.
 import { beforeAll, afterAll, test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { comparePresence } from '../parity.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 test('the timeline comparator rejects missing ghosts, drift, and invalid recordings', () => {
   const node = { x: 10, y: 20, w: 100, h: 40, opacity: .5, exiting: true };
@@ -32,7 +30,7 @@ test('the timeline comparator rejects missing ghosts, drift, and invalid recordi
 });
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 const glue = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
 const children = glue.slice(glue.indexOf('      case "children":'), glue.indexOf('      case "animate":'));
@@ -82,7 +80,7 @@ const page = `<style>
   window.ready = true;
 </script>`;
 
-let server, child, profile, evaluate;
+let server, suite, evaluate;
 beforeAll(async () => {
   if (unavailable) return;
   server = createServer((req, res) => {
@@ -96,27 +94,18 @@ beforeAll(async () => {
     res.end(req.url === '/' ? page : readFileSync(req.url.startsWith('/js/') && existsSync(js) ? js : resolve(WEB, path)));
   });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
-  profile = mkdtempSync(resolve(tmpdir(), 'exact-presence-'));
-  child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=500,500', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio:['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
-  const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-  const { targetId } = await cdp.send('Target.createTarget', { url:'about:blank' });
-  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten:true });
+  suite = await cdpBrowser({ args: ['--window-size=500,500'] });
+  const { cdp } = suite, { sessionId } = await suite.page();
   const call = (method, params) => cdp.send(method, params, sessionId);
   evaluate = async expression => {
     const reply = await call('Runtime.evaluate', { expression, returnByValue:true, awaitPromise:true });
     if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
     return reply.result.value;
   };
-  await call('Page.navigate', { url:`http://127.0.0.1:${server.address().port}/` });
-  for (let i = 0; !(await evaluate('window.ready === true')); i++) {
-    if (i > 2000) throw new Error('presence page never ready');
-    await Bun.sleep(5);
-  }
-});
-afterAll(() => {
-  child?.kill(); server?.close();
-  if (profile) rmSync(profile, { recursive:true, force:true });
+  await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
+}, 60000);
+afterAll(async () => {
+  await suite?.close(); server?.close();
 });
 
 const card = 'width:100px;height:40px;background:red;--exact-layout-transition:1000 0 linear';

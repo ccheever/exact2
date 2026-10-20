@@ -230,6 +230,9 @@ mod seams {
         fn take_error(&mut self) -> Option<SurfaceError> {
             self.1.take()
         }
+        fn opaque(&self) -> bool {
+            true
+        }
         fn wants_input(&self) -> bool {
             true
         }
@@ -311,6 +314,8 @@ mod seams {
         };
         assert_ne!(id, 0, "{}", exact_gpu::native::error());
         assert_eq!(gpu_wants_input(id), 1);
+        assert_eq!(gpu_presentation_flags(id), 3);
+        assert_eq!(gpu_presentation_flags(u32::MAX), 0);
         assert_eq!(exact_gpu::native::bind(id, "[]"), 0);
         assert_eq!(unsafe { gpu_bind_at(id, b"[]".as_ptr(), 2, 500.0) }, 0);
         BINDS.with(|b| assert_eq!(*b.borrow(), [None, Some(500.0)]));
@@ -628,6 +633,9 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
                 self.wanted.push("next.bin".into());
             }
         }
+        fn accepts_asset_update(&self, name: &str) -> bool {
+            name == "tables/lookup.bin"
+        }
         fn messages(&mut self) -> Vec<String> {
             std::mem::take(&mut self.delivered)
         }
@@ -673,6 +681,8 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
     );
     assert!(m.take_messages(id).is_empty());
     assert!(!m.asset(id, "next.bin", Err(exact_gpu::AssetError::Missing)));
+    assert!(m.asset(id, "tables/lookup.bin", Ok(&[4])));
+    assert_eq!(m.take_messages(id), ["tables/lookup.bin:Ok([4])"]);
 }
 
 #[test]
@@ -732,7 +742,7 @@ fn lifecycle_and_clock_reach_surfaces_without_a_device() {
     );
     m.set_seekable(false);
     assert!(m.agent(agent, "").unwrap().ends_with("clock:false"));
-    exact_gpu::native::load_headless(&REGISTRY);
+    exact_gpu::native::load_headless(&REGISTRY, "test-gpu");
     let id = exact_gpu::native::create_headless("probe");
     assert_eq!(exact_gpu::native::agent(id, ""), "clock:true");
     exact_gpu::native::unload();

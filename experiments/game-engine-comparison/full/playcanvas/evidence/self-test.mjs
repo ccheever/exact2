@@ -1,7 +1,8 @@
+import { homedir as browserHome } from 'node:os';
 import { chromium } from "/tmp/exact-engine-comparison-20260917/browser2d/node_modules/playwright/index.mjs";
 import { writeFileSync } from "node:fs";
 
-const executablePath = "/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome";
+const executablePath = (process.env.CHROME || browserHome() + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome");
 const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];

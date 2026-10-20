@@ -15,7 +15,12 @@ pub(crate) fn budget(input: usize) -> u64 {
     FUEL.saturating_add(FUEL_PER_BYTE.saturating_mul(input as u64))
 }
 struct Wasm {
-    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "android"
+    ))]
     stateless: bool,
     store: Store<StoreLimits>,
     memory: Memory,
@@ -69,7 +74,12 @@ pub(crate) fn load(bytes: &[u8]) -> Result<Box<dyn Executor>, String> {
     if version != ABI {
         return Err("Rust wasm export ABI differs".into());
     }
-    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "android"
+    ))]
     let stateless = match instance.get_typed_func::<(), u32>(&store, "exact_logic_stateless") {
         Ok(function) => function.call(&mut store, ()).map_err(err)? == 1,
         Err(_) => false,
@@ -83,7 +93,12 @@ pub(crate) fn load(bytes: &[u8]) -> Result<Box<dyn Executor>, String> {
         return Err("Rust wasm could not create session".into());
     }
     Ok(Box::new(Wasm {
-        #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "windows",
+            target_os = "android"
+        ))]
         stateless,
         memory,
         session,
@@ -118,7 +133,12 @@ impl Drop for Wasm {
     }
 }
 impl Executor for Wasm {
-    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "android"
+    ))]
     fn stateless(&self) -> bool {
         self.stateless
     }

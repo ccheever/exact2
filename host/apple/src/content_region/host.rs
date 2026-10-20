@@ -17,6 +17,7 @@ impl<D: DataSource> Host<D> {
             crate::host::PlanBytes::Copied(plan),
             data,
             measurer,
+            crate::host::LaunchLayout::NONE,
             exact_runner::Viewport::sized(width as f64, height as f64),
             None,
             Vec::new(),
@@ -188,6 +189,7 @@ impl<D: DataSource> Host<D> {
             crate::host::PlanBytes::Copied(plan),
             data,
             measurer,
+            crate::host::LaunchLayout::NONE,
             exact_runner::Viewport::sized(width as f64, height as f64),
             None,
             Vec::new(),
@@ -425,7 +427,7 @@ impl<D: DataSource> Host<D> {
                 },
                 mirror: Mirror {
                     props,
-                    style,
+                    style: self.style_texts.share(style),
                     children,
                     ..Default::default()
                 },
@@ -560,7 +562,7 @@ impl<D: DataSource> Host<D> {
                         && h.kind == n.header.kind
                         && h.inline_owner == n.header.inline_owner
                         && h.handlers == n.header.handlers
-                        && self.mirror.get(&h.id) == Some(&n.mirror)
+                        && self.mirror.get(&h.id).map(|m| &**m) == Some(&n.mirror)
                 })
             {
                 return Ok(());
@@ -741,7 +743,8 @@ impl<D: DataSource> Host<D> {
         }
         for node in candidate.nodes {
             headers.push(node.header);
-            self.mirror.insert(headers.last().unwrap().id, node.mirror);
+            self.mirror
+                .insert(headers.last().unwrap().id, Box::new(node.mirror));
         }
         self.mirror.entry(owner_id).or_default().children = owner_children;
         self.collections_json = collections_json;
@@ -1143,5 +1146,57 @@ mod selected_current_tests {
             revoked && outside_revoked,
             "public error batch omitted retained-state revocation: {failed}; outside: {outside}"
         );
+    }
+
+    #[test]
+    fn region_runs_carry_their_boxes_lines_in_the_boxes_colours() {
+        // CSS Text Decoration 3 §2.1: the paragraph's and the inline box's
+        // lines cross the leaves below them, each in its own box's colour,
+        // the nearest box's where both draw one.
+        let source = r##"component App
+  view
+    column width="100%" height="100%"
+      view id="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
+        view id="content" width="100%" height="100%"
+          text text-decoration="line-through" color="#ff0000" testId="body"
+            text "plain "
+            text text-decoration="underline line-through" color="#00ff00"
+              text "under" color="#0000ff"
+            text " own" text-decoration="line-through" color="#0000ff"
+        text "Preparing" id="pending"
+"##;
+        let plan = contract::compile(source).unwrap().encode();
+        let registration = ContentRegionRegistration {
+            activate: None,
+            owner: "owner",
+            content: "content",
+            pending: "pending",
+        };
+        let (host, _) = Host::boot_native_region(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            300.,
+            600.,
+            registration,
+            Default::default(),
+        )
+        .unwrap();
+        let (id, _) = host.pending_region_request().unwrap();
+        let wire: serde_json::Value =
+            serde_json::from_str(&host.region_request_json(id).unwrap()).unwrap();
+        let runs = wire["runs"].as_array().unwrap();
+        let row = |text: &str| runs.iter().find(|r| r["text"] == text).unwrap();
+        let red = serde_json::json!([255, 0, 0, 255]);
+        let green = serde_json::json!([0, 255, 0, 255]);
+        assert_eq!(row("plain ")["strikeColor"], red);
+        assert!(row("plain ")["underlineColor"].is_null());
+        assert_eq!(row("under")["strikeColor"], green);
+        assert_eq!(row("under")["underlineColor"], green);
+        assert_eq!(row("under")["decoration"], "");
+        // Its own line-through is its own and is drawn in its own colour
+        // (`RegionTextSource`); the wire still names its boxes'.
+        assert_eq!(row(" own")["decoration"], "line-through");
+        assert_eq!(row(" own")["strikeColor"], red);
     }
 }

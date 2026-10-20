@@ -221,6 +221,8 @@ impl<D: DataSource> Presenter<D> {
     ///
     /// A field the reader knew that a statement leaves out is gone.
     pub fn reader_fields(&mut self, scale: f32) -> Option<Vec<i32>> {
+        // The fields' colours resolve its session's roles (LLP 1121 stage 5).
+        let _roles = self.host.runner().bind_roles();
         let ids = self.hosted_ids();
         if ids.is_empty() {
             if !self.hosted.known.is_empty() {
@@ -381,16 +383,28 @@ impl<D: DataSource> Presenter<D> {
         let rgba = crate::paint::rgba;
         let _accent = crate::paint::accent_scope(&node);
         let role = |name: &str| roles::role(name).map(|r| rgba(ColorValue::Role(r).resolve(dark)));
-        let mut ink = rgba(node.text_color().resolve(dark));
-        if disabled
-            && node.style.appearance != exact_kernel::Appearance::None
-            && !node.style.mask.has(StyleId::TextColor)
-        {
-            ink = crate::paint::control::disabled_field_ink(ink, dark);
-        }
-        let hint = crate::paint::control::authored_placeholder(node.style, dark)
-            .or_else(|| role("-exact-placeholder"))
-            .unwrap_or([0x75, 0x75, 0x75, 0xff]);
+        // Material's field's text is `onSurface`, at 38 % disabled: an
+        // inherited `color` does not tint it (LLP 1115.001 D9), the node's own does.
+        let own = node.style.mask.has(StyleId::TextColor);
+        let native = node.style.appearance != exact_kernel::Appearance::None;
+        let ink = match (own, native, disabled) {
+            (true, _, _) | (false, false, _) => None,
+            (false, true, true) => role("GrayText"),
+            (false, true, false) => role("FieldText"),
+        };
+        let ink = ink.unwrap_or_else(|| rgba(node.text_color().resolve(dark)));
+        // Material's field paints its placeholder as its floating label
+        // (`paint/material.rs`): the field keeps it as its hint, for
+        // TalkBack, and draws it in no colour.
+        let floated = native
+            && !crate::paint::look::neutral()
+            && crate::paint::material::label(&node).is_some();
+        let hint = match floated {
+            true => [0; 4],
+            false => crate::paint::control::authored_placeholder(node.style, dark)
+                .or_else(|| role("-exact-placeholder"))
+                .unwrap_or([0x75, 0x75, 0x75, 0xff]),
+        };
         let authored = crate::paint::control::accent(&node, dark);
         let accent = crate::paint::control::accents(authored, dark).0;
         let caret = style.caret_color.map_or(accent, |c| rgba(c.resolve(dark)));
@@ -441,6 +455,9 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) {
             return;
         }
+        if focused {
+            self.hold_input(Some(id)); // a finger on the field lets a hold of it go (presenter/held.rs)
+        }
         // Under an open surface of the top layer the page is inert (LLP
         // 1115.001 D10): a field there is not given the focus, whatever
         // made its view take it (a hardware key ends touch mode, and the
@@ -464,6 +481,14 @@ impl<D: DataSource> Presenter<D> {
         self.queue_collections();
     }
 
+    /// The reader's field had real input that may change nothing it says
+    /// otherwise (a finger down in it, a key down): a hold of it lets go.
+    pub fn reader_field_input(&mut self, id: ViewId, generation: u32) {
+        if self.hosted_live(id, generation) {
+            self.hold_input(Some(id));
+        }
+    }
+
     /// The reader's field holds `value` after its edit number `seq`, with
     /// the selection at `start` to `end` (UTF-16 units): an edit of the
     /// person's, composing text included. It is the field's text from now
@@ -481,6 +506,7 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) {
             return;
         }
+        self.hold_input(Some(id)); // real input on the field lets a hold of it go (presenter/held.rs)
         if let Some(known) = self.hosted.known.get_mut(&id) {
             known.seq = seq;
         }
@@ -524,6 +550,7 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) {
             return;
         }
+        self.hold_input(Some(id)); // real input on the field lets a hold of it go (presenter/held.rs)
         if composing {
             self.hosted.composing.insert(id, value.to_owned());
         } else {
@@ -544,6 +571,7 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) {
             return;
         }
+        self.hold_input(Some(id)); // real input on the field lets a hold of it go (presenter/held.rs)
         let value = self.field_text(id);
         let selection = FieldSelection::clamped(
             start.into(),
@@ -559,7 +587,6 @@ impl<D: DataSource> Presenter<D> {
         if selection.start != selection.end {
             self.field_select(id, &value, selection, now_ms);
         }
-        self.drain_field_select_tasks();
     }
 
     /// The reader's field had its action key pressed, or Enter or Tab on a
@@ -577,6 +604,7 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) || !self.focusable(id) {
             return;
         }
+        self.hold_input(Some(id)); // real input on the field lets a hold of it go (presenter/held.rs)
         if self.focus != Some(id) {
             if let Some(e) = self.set_focus(Some(id), now_ms) {
                 eprintln!("exact: {e}");
@@ -613,7 +641,7 @@ impl<D: DataSource> Presenter<D> {
             eprintln!("exact: {e}");
         }
         if let Some(next) = next {
-            self.keep_in_view(next);
+            self.keep_in_view(next, reveal::Cause::FieldNavigation);
         }
         self.queue_collections();
     }
@@ -644,8 +672,10 @@ impl<D: DataSource> Presenter<D> {
     /// Views were renewed (LLP 1078: a list's row rebound to another
     /// item). A hosted field among them is another field from here on: its
     /// generation moves on, and nothing kept for the last item's text
-    /// (typed text, its selection, a `change` owed) stands.
+    /// (typed text, its selection, a `change` owed) stands. A picker the
+    /// shell has up for one answers nothing (`picks_renewed`).
     pub(super) fn hosted_renewed(&mut self, renewed: &[ViewId]) {
+        self.picks_renewed(renewed);
         if self.hosted.known.is_empty() {
             return;
         }

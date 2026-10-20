@@ -88,7 +88,7 @@ fn expose_dates_a_new_banner_now_even_when_the_previous_one_expired() {
 }
 
 #[test]
-fn video_seeks_on_the_sixth_quiet_tick() {
+fn video_seeks_on_the_first_tick_more_than_500_ms_after_the_last_press() {
     let mut r = boot("video-player", "", false);
     r.act("measured", vec![Value::Number(120.0)]).unwrap();
     r.act("forward", vec![]).unwrap();
@@ -96,7 +96,6 @@ fn video_seeks_on_the_sixth_quiet_tick() {
     assert_eq!(r.slot("pending"), Some(&Value::Bool(true)));
     assert_eq!(number(&r, "seekTo"), 0.0);
     r.advance(600.0).unwrap();
-    assert_eq!(number(&r, "quiet"), 6.0);
     assert_eq!(r.slot("pending"), Some(&Value::Bool(false)));
     assert_eq!(number(&r, "seekTo"), 10.0);
 }

@@ -1,9 +1,11 @@
 # Recipe: randomness and a shuffle
 
-The data module refuses `Math.random()`. Deal from `exactTime()`'s `seed`: a whole number
-below 2^32, new at each launch, fixed under the driver (`seed 2` in a test), with the round
-mixed in. A quiz shuffles its answers too and keeps the right one by identity (`correct`,
-set before the shuffle), never by index.
+Rolls in the view: [random-rolls](random-rolls.md). The data module refuses
+`Math.random()`. Deal from `exactTime()`'s `seed` (below 2^32, new each launch, `seed 2` in a
+test), a stream for each thing dealt: the questions' order from the game, each question's
+answers from the game and the round. One stream for both deals every question the
+same shuffle, its right answer in one place all game. Keep the right answer by identity
+(`correct`), never by index.
 
 ```contract
 shape Choice
@@ -19,37 +21,29 @@ shape Time
   seed: number
 
 component Quiz
+  state game = 0
   state round = 0
-  state picked = ""
   resource time = exactTime() as shape Time
-  resource q = deal(round, time.seed) as shape Question else empty()
+  resource q = deal(game, round, time.seed) as shape Question else empty()
   derive order = q.choices.map(c => c.text).join(" ")
-  action pick(id: string)
-    picked = id
   action next
     round = round + 1
-    picked = ""
   view
     list appearance="auto" listStyle="inset-grouped" height="100%"
       section
         header
           text q.text
         for c in q.choices key=c.id
-          button press=pick(c.id) testId=`choice-${c.id}`
-            text c.text flex=1
-            if picked != "" and c.correct
-              image "symbol:checkmark"
-      section
-        button press=next testId="next"
-          text "Next"
+          button press=next testId=`choice-${c.id}`
+            text c.text
 ```
 
 ```ts
 import type { Answer, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.quiz'; // exact new writes this line
+export const appId = 'com.example.quiz';
 export const grants = '';
-const QUESTIONS = [ // the right answer first; `correct` keeps it
+const QUESTIONS = [ // the right answer first
   ['Largest planet?', 'Jupiter', 'Mars', 'Venus', 'Mercury'],
   ['Capital of France?', 'Paris', 'Rome', 'Madrid', 'Berlin'],
 ];
@@ -59,14 +53,16 @@ const generator = (a: number) => () => {
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
+// Math.imul, not *: past 2^53 a double loses the keys.
+const stream = (seed: number, ...keys: number[]) =>
+  generator(keys.reduce((a, k) => Math.imul(a ^ (k + 1), 0x9e3779b1) >>> 0, seed >>> 0));
 const shuffled = <T,>(xs: T[], next: () => number) =>
   xs.map((x) => [next(), x] as const).sort((p, q) => p[0] - q[0]).map(([, x]) => x);
 const sources: Sources = {
-  deal: ([round, seed]) => {
-    const next = generator((seed + Math.imul(round, 0x9e3779b1)) >>> 0); // Math.imul, not *: past 2^53 a double loses the round
-    const [text, ...answers] = shuffled(QUESTIONS, next)[0];
+  deal: ([game, round, seed]) => {
+    const [text, ...answers] = shuffled(QUESTIONS, stream(seed, game))[round % QUESTIONS.length];
     const choices = answers.map((a, i) => ({ id: a, text: a, correct: i === 0 }));
-    return { text, choices: shuffled(choices, next) };
+    return { text, choices: shuffled(choices, stream(seed, game, round)) };
   },
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
@@ -75,17 +71,17 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 ```contract-test
 seed 2
 
-test "each round deals its order; the right answer moves with its text"
-  expect state order == "Paris Rome Berlin Madrid"
-  expect state q.choices.0.correct == true
-  tap "next"
+test "each question's answers in an order of their own"
+  expect state order == "Mars Jupiter Venus Mercury"
+  expect state q.choices.1.correct == true
+  tap "choice-Mars"
   clock data
-  expect state order == "Madrid Berlin Rome Paris"
-  expect state q.choices.3.correct == true
+  expect state order == "Rome Madrid Paris Berlin"
+  expect state q.choices.2.correct == true
   reload
-  expect state order == "Paris Rome Berlin Madrid"
+  expect state order == "Mars Jupiter Venus Mercury"
 ```
 
-- A source is asked again, so `round + 1` deals again.
+- A source is asked again, so `round + 1` deals again, `game + 1` a new game.
 - `crypto.getRandomValues(new Uint32Array(n))` in the source: a new order each ask (assert what
   holds for any); one pick per launch: `xs.at(time.seed % xs.length)`.

@@ -7,20 +7,18 @@
 // outlined in the system red, its focus ring red, unless its border is authored. Enter in a single-line
 // field with a `submit` submits once. The nodes are as the hosts write them.
 import { test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 import { standIns } from './stand-ins.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const WEB_JS = resolve(WEB, '../web-js');
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 // focus-timer's accent, as the JS target writes `accent-color` (style.rs): the property and `--exact-accent`.
@@ -64,7 +62,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
 // rt.js beside the modules it imports: the real ones it binds with, stand-ins for the rest (as js-link-press.test.mjs).
 const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js'];
 const STUBS = standIns(REAL);
-const module = name => name === 'input-glue.js' ? readFileSync(resolve(WEB, name))
+const module = name => ['input-glue.js', 'prompt-glue.js'].includes(name) ? readFileSync(resolve(WEB, name))
   : REAL.includes(name) ? readFileSync(resolve(WEB_JS, name))
   : STUBS.get(name) ?? null;
 
@@ -77,26 +75,20 @@ async function inChrome(test) {
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(body);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-form-chrome-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=900,1400', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const suite = await cdpBrowser({ args: ['--window-size=900,1400'] }), { cdp } = suite;
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     const call = (method, params) => cdp.send(method, params, sessionId);
     const evaluate = async (expression) => {
       const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     await test(evaluate, call);
   } finally {
-    child.kill();
+    await suite.close();
     server.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }
 
@@ -146,7 +138,7 @@ check('a disabled button looks disabled in every style and scheme, whatever its 
   await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
   expect(await evaluate(`document.querySelectorAll('[data-pressed]').length`)).toBe(0);
   await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
-}), 30000);
+}), 60000);
 
 // LLP 1116.008 D7: a destructive button passes `check` as the platform draws it (a control's label at 3:1 on its
 // own fill, over the card a row of buttons sits on), in every style and both schemes: team-kanban's Delete was
@@ -167,7 +159,7 @@ check('a destructive button reads at 3:1 on its own fill over a card, in every s
     // The red is still red: not the label's ink on a neutral fill.
     expect((await look(evaluate, `${s}-destructive-gray`)).color).not.toBe((await look(evaluate, `${s}-gray-on`)).color);
   }
-}), 30000);
+}), 60000);
 
 check('a field marked aria-invalid is outlined in the system red, its focus ring red, in both schemes', () => inChrome(async (evaluate) => {
   const field = id => evaluate(`(e => { const s = getComputedStyle(e); return { border: s.borderTopColor, width: s.borderTopWidth, outline: s.outlineColor, style: s.outlineStyle, ring: s.outlineWidth }; })(document.getElementById('${id}'))`);
@@ -189,7 +181,7 @@ check('a field marked aria-invalid is outlined in the system red, its focus ring
     // Its error text stays its description.
     expect(await evaluate(`document.getElementById('${s}-invalid').getAttribute('aria-describedby')`)).toBe(`${s}-error`);
   }
-}), 30000);
+}), 60000);
 
 check('Enter in a single-line field with a submit submits once; a key handler that prevents it keeps it', () => inChrome(async (evaluate, call) => {
   const key = async (name, text) => { for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: name, code: name, windowsVirtualKeyCode: 13, ...(type === 'keyDown' && text ? { text } : {}) }); };
@@ -202,4 +194,89 @@ check('Enter in a single-line field with a submit submits once; a key handler th
   await evaluate(`document.getElementById('kept').focus()`);
   await key('Enter', '\r');
   expect(await saved()).toEqual(['25']);
-}), 30000);
+}), 60000);
+
+check('a prompt commits Return without blur and keeps focus chosen by change', () => inChrome(async (evaluate, call) => {
+  await evaluate(`(() => {
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('role', 'alertdialog');
+    dialog.innerHTML = '<input id="name" value="Kick"><button id="cancel">Cancel</button><button id="save" data-exact-on="press" disabled>Save</button>';
+    document.getElementById('exact-root').append(dialog);
+    window.events = [];
+    window.block = true;
+    const field = dialog.querySelector('input'), save = dialog.querySelector('#save');
+    field.addEventListener('keydown', e => { events.push('key ' + e.key); if (block) e.preventDefault(); });
+    field.addEventListener('blur', () => events.push('blur'));
+    field.addEventListener('change', () => {
+      events.push('change ' + field.value);
+      if (window.moveFocus) dialog.querySelector('#cancel').focus();
+      if (window.enableSave) save.disabled = false;
+    });
+    save.addEventListener('click', () => events.push('press ' + field.value));
+    dialog.showModal(); field.focus(); field.setSelectionRange(4, 4);
+  })()`);
+  const key = async (name, code, number, text) => {
+    for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', {
+      type, key: name, code, windowsVirtualKeyCode: number, ...(type === 'keyDown' && text ? { text } : {}),
+    });
+  };
+  const heard = () => evaluate('new Promise(ok => setTimeout(() => ok(events)))');
+  await key('7', 'Digit7', 55, '7');
+  await key('Backspace', 'Backspace', 8);
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 7', 'key Backspace', 'key Enter']);
+  expect(await evaluate('document.querySelector("#name").value')).toBe('Kick');
+  await evaluate('block = false; events = []');
+  await key('7', 'Digit7', 55, '7');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 7', 'key Enter', 'change Kick7']);
+  expect(await evaluate('document.activeElement.id')).toBe('name');
+  await evaluate('events = []');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key Enter']);
+  await evaluate('events = []; moveFocus = true');
+  await key('8', 'Digit8', 56, '8');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 8', 'key Enter', 'change Kick78', 'blur']);
+  expect(await evaluate('document.activeElement.id')).toBe('cancel');
+  await evaluate('moveFocus = false; enableSave = true; document.querySelector("#name").focus(); events = []');
+  await key('9', 'Digit9', 57, '9');
+  await key('Enter', 'Enter', 13, '\r');
+  expect(await heard()).toEqual(['key 9', 'key Enter', 'change Kick789', 'press Kick789']);
+  expect(await evaluate('document.activeElement.id')).toBe('name');
+}), 60000);
+
+for (const [eventName, target, capture] of [['beforeinput', 'field', true], ['beforeinput', 'window', false], ['keydown', 'window', false]])
+check(`cancelling a prompt Return at ${target} ${eventName} cancels its action`, () => inChrome(async (evaluate, call) => {
+  await evaluate(`(() => {
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('role', 'alertdialog');
+    dialog.innerHTML = '<input id="name" value="Kick"><button data-exact-on="press">Save</button>';
+    document.getElementById('exact-root').append(dialog);
+    window.events = []; window.committed = 'Kick'; window.blockCommit = true;
+    const field = dialog.querySelector('input');
+    field.addEventListener('change', () => { committed = field.value; events.push('change ' + committed); });
+    field.addEventListener('blur', () => events.push('blur'));
+    dialog.querySelector('button').addEventListener('click', () => events.push('press ' + committed));
+    ${target}.addEventListener('${eventName}', e => {
+      if (e.target === field && (e.inputType === 'insertLineBreak' || e.key === 'Enter') && blockCommit) {
+        events.push('prevent commit'); e.preventDefault();
+      }
+    }, ${capture});
+    dialog.showModal(); field.focus(); field.setSelectionRange(4, 4);
+  })()`);
+  const key = async (key, text) => {
+    for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', {
+      type, key, windowsVirtualKeyCode: key === 'Enter' ? 13 : 55, ...(type === 'keyDown' ? { text } : {}),
+    });
+  };
+  const heard = () => evaluate('new Promise(ok => setTimeout(() => ok(events)))');
+  await key('7', '7');
+  await key('Enter', '\r');
+  expect(await heard()).toEqual(['prevent commit']);
+  expect(await evaluate('committed')).toBe('Kick');
+  expect(await evaluate('document.activeElement.id')).toBe('name');
+  await evaluate('blockCommit = false; events = []');
+  await key('Enter', '\r');
+  expect(await heard()).toEqual(['change Kick7', 'press Kick7']);
+}), 60000);

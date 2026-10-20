@@ -1,7 +1,10 @@
 //! Bounded immutable request and accepted frame wire; no live source at paint.
 use super::*;
 use crate::batch::quote;
-use exact_kernel::{motion::motion_node, AxisOffer, FontStyle, NodeType, StyleId, TextStyle};
+use exact_kernel::{
+    motion::motion_node, AxisOffer, FontStyle, NodeType, StyleId, TextDecorationLine, TextStyle,
+    ViewId,
+};
 use std::fmt::Write;
 fn axis(value: AxisOffer) -> f32 {
     match value {
@@ -31,6 +34,43 @@ fn colors(node: &exact_kernel::NodeRef<'_>, out: &mut String) {
             c.b(),
             c.a()
         );
+    }
+}
+/// The lines `leaf`'s decorating ancestors, up to the paragraph `owner`, draw
+/// through its text (CSS Text Decoration 3 §2.1), each in that box's colour:
+/// the nearest box's, as `Run.propagate` takes them, whatever the box's
+/// own visibility.
+fn propagated(kernel: &Kernel, leaf: &exact_kernel::NodeRef<'_>, owner: ViewId, out: &mut String) {
+    let (mut underline, mut strike) = (None, None);
+    let mut at = if leaf.id == owner { None } else { leaf.parent };
+    while let Some(node) = at.and_then(|id| kernel.node(id)) {
+        let (under, through) = match node.style.text_decoration_line {
+            TextDecorationLine::None => (false, false),
+            TextDecorationLine::Underline => (true, false),
+            TextDecorationLine::LineThrough => (false, true),
+            TextDecorationLine::UnderlineLineThrough => (true, true),
+        };
+        if under && underline.is_none() {
+            underline = Some(node.text_color());
+        }
+        if through && strike.is_none() {
+            strike = Some(node.text_color());
+        }
+        at = if node.id == owner { None } else { node.parent };
+    }
+    for (line, color) in [("underline", underline), ("strike", strike)] {
+        let Some(color) = color else { continue };
+        for (label, dark) in [("Color", false), ("DarkColor", true)] {
+            let c = color.resolve(dark);
+            let _ = write!(
+                out,
+                ",\"{line}{label}\":[{},{},{},{}]",
+                c.r(),
+                c.g(),
+                c.b(),
+                c.a()
+            );
+        }
     }
 }
 pub(super) fn request(kernel: &Kernel, p: &Pending, known: u64) -> Result<String, String> {
@@ -109,6 +149,7 @@ pub(super) fn request(kernel: &Kernel, p: &Pending, known: u64) -> Result<String
                     },
                     &mut out,
                 );
+                propagated(kernel, leaf, node.id, &mut out);
                 out.push_str(",\"href\":");
                 quote(leaf.props.link().unwrap_or(""), &mut out);
                 let _ = write!(out, ",\"key\":\"{}\"}}", motion_node(leaf.key));

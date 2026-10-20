@@ -133,7 +133,7 @@ final class NodePool {
             parked[shape] = kept.isEmpty ? nil : kept
         }
         // A reused view the batch gave no frame has a fresh view's.
-        for view in unframed.values where view.frame != .zero { view.frame = .zero }
+        for view in unframed.values { if view.frame != .zero { view.frame = .zero }; view.grid = nil }
         unframed.removeAll()
     }
     /// Reused views, until the batch frames them.
@@ -231,11 +231,13 @@ final class NodePool {
         #if os(tvOS)
         // tvOS has no refresh control.
         return !sv.isTracking && !sv.isDragging && !sv.isDecelerating && !presenter.collections.correcting
+            && presenter.elementScrolls.revealing(sv) == nil
             && sv.zoomScale == 1
             && list.pendingScrollTop == nil && list.pendingScrollLeft == nil
             && sv.layer.animationKeys()?.isEmpty ?? true
         #else
         return !sv.isTracking && !sv.isDragging && !sv.isDecelerating && !presenter.collections.correcting
+            && presenter.elementScrolls.revealing(sv) == nil
             && sv.refreshControl?.isRefreshing != true && sv.zoomScale == 1
             && list.pendingScrollTop == nil && list.pendingScrollLeft == nil
             && sv.layer.animationKeys()?.isEmpty ?? true
@@ -329,7 +331,7 @@ final class NodePool {
             && v.overlay == nil && v.canvasInput == nil
             && idle(v)
             && v.swipeHold == nil && v.heightHold == nil && v.reorderHold == nil && v.transformHold == nil
-            && !v.pressed && !v.hasPressContact && (v.gestureRecognizers ?? []).allSatisfy({ ($0 as? PointerRecognizer)?.idle == true || contextual($0, of: v) })
+            && !v.pressed && !v.hasPressContact && (v.gestureRecognizers ?? []).allSatisfy({ ($0 as? PointerRecognizer)?.idle == true || contextual($0, of: v) || lookAtRest($0, of: v) })
             && v.interactions.allSatisfy({ contextual($0, of: v) })
             && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
@@ -339,6 +341,18 @@ final class NodePool {
             // with interactions or gestures left on it. Its props and the mark
             // stay until it is forgotten, after its own destroy op.
             && unhatched(v)
+    }
+    /// A `:hover` look's recognizer with no pointer over it (LookHoverIOS.swift):
+    /// it follows the style, which the next row's create ops set again
+    /// (`rebind` drops the paint it shows).
+    private func lookAtRest(_ recognizer: UIGestureRecognizer, of v: NodeView) -> Bool {
+        #if os(iOS)
+        guard recognizer === v.lookHoverRecognizer, recognizer.state == .possible else { return false }
+        // (Not a hover held there: the hold's own recognizer goes with the hold.)
+        return MainActor.assumeIsolated { !(HeldState.view === v && HeldState.state == "hover") }
+        #else
+        return false
+        #endif
     }
     /// Not a hatched node, or one whose hatch undoes what it adds: a hatched
     /// heavy leaf is destroyed as any is, but its row stays out of the pool
@@ -483,6 +497,7 @@ extension NodeView {
     /// Parked (`NodePool`): what `forget` drops, except the view's presenter
     /// and its symbol glyph view, which the next row reuses.
     func recycle() {
+        holdGone() // a held state goes with its node, parked under its row (HeldState.swift)
         cancelPressContact()
         pressContact = nil
         scrollEnd?.reset()
@@ -522,6 +537,7 @@ extension NodeView {
         let delegate = sv.delegate
         sv.delegate = nil
         sv.setContentOffset(.zero, animated: false)
+        presenter?.elementScrolls.forget(sv)
         sv.contentSize = .zero
         sv.delegate = delegate
         content = .zero
@@ -541,11 +557,12 @@ extension NodeView {
         id = newID
         incarnation = NodePool.issue()
         scrollEnd?.reset()
-        focusedByTouch = false
+        focusedBySurfaceTouch = false
+        if presenter?.pressHandoff?.control === self { presenter?.pressHandoff = nil } // another node's view now
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
         if alpha != 1 { alpha = 1 }
-        translatePx = .zero; translatePercent = .zero; layoutOffset = .zero; layoutScale = CGPoint(x: 1, y: 1); endSurface(); scale = 1; rotate = 0; stopPressEase(); press = PressFeedback()
+        translatePx = .zero; translatePercent = .zero; layoutOffset = .zero; layoutScale = CGPoint(x: 1, y: 1); endSurface(); scale = 1; rotate = 0; stopPressEase(); press = PressFeedback(); dropPressPaint()
         if !transform.isIdentity { transform = .identity }
         if !isUserInteractionEnabled { isUserInteractionEnabled = true }
         if isAccessibilityElement { isAccessibilityElement = false }

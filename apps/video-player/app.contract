@@ -21,10 +21,11 @@ component VideoPlayer
   state position = 0
   state duration = 0
   // Back and Forward move a target; the seek waits until the presses stop
-  // (`quiet` ticks of 100 ms), so repeated presses are one seek.
+  // (more than 500 ms since the last, measured on the next 100 ms tick), so
+  // repeated presses are one seek.
   state target = 0
   state pending = false
-  state quiet = 0
+  state pressedAt = 0
   // The `currentTime` last sent. A seek to the same time is not a change,
   // so it is sent 1 ms later.
   state seekTo = 0
@@ -61,15 +62,13 @@ component VideoPlayer
   action back
     target = max(0, (pending ? target : position) - 10)
     pending = true
-    quiet = 0
+    pressedAt = performanceNow()
   action forward
     target = min(duration, (pending ? target : position) + 10)
     pending = true
-    quiet = 0
+    pressedAt = performanceNow()
   action settle
-    let nextQuiet = quiet + 1
-    quiet = nextQuiet
-    if pending and nextQuiet >= 6
+    if pending and performanceNow() - pressedAt > 500
       seekTo = (target == seekTo ? target + 0.001 : target)
       position = target
       pending = false

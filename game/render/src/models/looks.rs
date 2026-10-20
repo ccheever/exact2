@@ -11,7 +11,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         first: usize,
         records: &[DrawInstance],
         part_first: usize,
-        looks: &[[f32; 8]],
+        looks: &[super::PartLook],
     ) {
         let m = &mut self.models;
         let total = m.records.len();

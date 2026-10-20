@@ -435,6 +435,7 @@ fn run<D: DataSource + Default>(
     std::env::set_var("EXACT_SCALE", scale.to_string());
     let mut config = crate::app::Config::from_env_static(plan, compat);
     config.scale = scale;
+    config.clock_started = Some(started);
     let booted = trace(c"exact boot", || {
         crate::app::boot_presenter::<D>(&mut config, viewport)
     });
@@ -449,6 +450,8 @@ fn run<D: DataSource + Default>(
     if let Some(e) = error {
         log(&format!("exact: {e}"));
     }
+    // The device's clock owns time (the timers RFC, D1)
+    p.set_live_clock(Some(crate::presenter::wall_since(started)));
     if insets.iter().any(|i| *i != 0.0) {
         if let Some(e) = p.set_safe_area(insets.map(|i| i / scale)) {
             log(&format!("exact: {e}"));
@@ -553,8 +556,7 @@ fn run<D: DataSource + Default>(
                 log(&format!("exact: {e}"));
             }
         } else if p
-            .host()
-            .timer_due_ms()
+            .timer_or_scroll_due_ms()
             .is_some_and(|due| due <= now && now - last_tick >= frame_ms * 0.5)
         {
             last_tick = now;
@@ -635,7 +637,7 @@ fn run<D: DataSource + Default>(
                 )
             };
         }
-        let timeout = match p.host().timer_due_ms() {
+        let timeout = match p.timer_or_scroll_due_ms() {
             Some(due) => ((due - wall()).max(0.0).ceil() as c_int).min(1000),
             None => 1000,
         };

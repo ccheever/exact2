@@ -46,7 +46,7 @@ test "a fresh install starts from the declared values"
 
 Run it with `bun exact.mjs test web` (or `test ios`, `test linux`). To see it by
 hand, drive twice with the same store: `bun exact.mjs agent web --storage s1 "tap
-tip-20"`, then `bun exact.mjs agent web --storage s1 state` shows `tipPercent:
+tip-20"`, then `bun exact.mjs agent web --storage s1 --keep-storage state` shows `tipPercent:
 20`. A drive without `--storage` starts from the declared values and keeps nothing
 past the drive.
 

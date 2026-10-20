@@ -2,7 +2,7 @@
 //! and values conform to their shapes or are refused.
 
 use exact_plan::asm::Asm;
-use exact_plan::builder::PlanBuilder;
+use exact_plan::builder::{Face, PlanBuilder};
 use exact_plan::bytes::Reader;
 use exact_plan::{
     BindingKind, BindingsRow, Code, CodeError, EventKind, Opcode, Plan, PlanError, RegionKind,
@@ -130,14 +130,24 @@ fn a_static_plan_keeps_its_data_pool_in_place() {
     ));
 }
 
+/// A face at `weight` (one weight, or a range) of normal width.
+fn face(source: &str, weight: [u16; 2]) -> Face<'_> {
+    Face {
+        source,
+        weight,
+        stretch: [1000, 1000],
+        italic: false,
+    }
+}
+
 #[test]
 fn font_tables_round_trip_and_validate_their_identity_graph() {
     let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
     let family = b.font_family(
         "Fixture Sans",
         &[
-            ("assets/FixtureSans.ttf", 400, false),
-            ("assets/FixtureSans-Bold.ttf", 700, false),
+            face("assets/FixtureSans.ttf", [400, 400]),
+            face("assets/FixtureSans-Bold.ttf", [700, 700]),
         ],
     );
     let stack = b.font_stack(&[(StackMemberKind::Family, Some(family))]);
@@ -149,6 +159,7 @@ fn font_tables_round_trip_and_validate_their_identity_graph() {
 
     let mut duplicate_coordinate = plan.clone();
     duplicate_coordinate.faces[1].weight = 400;
+    duplicate_coordinate.faces[1].weight_max = 400;
     assert_eq!(
         duplicate_coordinate.validate(),
         Err(PlanError::DuplicateFace {
@@ -158,6 +169,27 @@ fn font_tables_round_trip_and_validate_their_identity_graph() {
             italic: false,
         })
     );
+
+    // A variable face's ranges: one face beside the static ones is not a
+    // duplicate, and a range that runs backwards is refused.
+    let mut ranged = plan.clone();
+    ranged.faces[1].weight = 100;
+    ranged.faces[1].weight_max = 900;
+    ranged.faces[1].stretch_min = 750;
+    ranged.faces[1].stretch_max = 1250;
+    assert_eq!(ranged.validate(), Ok(()));
+    let mut backwards = ranged.clone();
+    backwards.faces[1].weight_max = 99;
+    assert_eq!(
+        backwards.validate(),
+        Err(PlanError::FaceWeight {
+            face: 1,
+            weight: 100
+        })
+    );
+    let mut narrow = ranged;
+    narrow.faces[1].stretch_max = 700;
+    assert_eq!(narrow.validate(), Err(PlanError::FaceStretch { face: 1 }));
 
     let mut dangling = plan.clone();
     dangling.stack_members[8].family = Some(exact_plan::FamiliesId(99));
@@ -182,7 +214,7 @@ fn font_tables_round_trip_and_validate_their_identity_graph() {
 fn font_sources_are_portable_local_relative_paths() {
     let build = |source: &str| {
         let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
-        let family = b.font_family("Fixture Sans", &[(source, 400, false)]);
+        let family = b.font_family("Fixture Sans", &[face(source, [400, 400])]);
         b.font_stack(&[(StackMemberKind::Family, Some(family))]);
         b.finish()
     };
@@ -293,9 +325,14 @@ fn loading_is_a_validation_pass() {
     // A code body that indexes a missing slot is refused by pc and table.
     let mut bad_code = plan.clone();
     let start = bad_code.code.len() as u32;
-    bad_code
-        .code
-        .extend_from_slice(&[Opcode::LoadSlot as u8, 7, 0, 0, 0, Opcode::Return as u8]);
+    bad_code.code.to_mut().extend_from_slice(&[
+        Opcode::LoadSlot as u8,
+        7,
+        0,
+        0,
+        0,
+        Opcode::Return as u8,
+    ]);
     bad_code.derives[0].body = Code {
         offset: start,
         len: 6,
@@ -317,7 +354,7 @@ fn loading_is_a_validation_pass() {
     // A body without a terminating Return is refused.
     let mut no_return = plan.clone();
     let start = no_return.code.len() as u32;
-    no_return.code.push(Opcode::Unit as u8);
+    no_return.code.to_mut().push(Opcode::Unit as u8);
     no_return.derives[0].body = Code {
         offset: start,
         len: 1,
@@ -333,7 +370,10 @@ fn loading_is_a_validation_pass() {
     // An unknown opcode byte is refused.
     let mut unknown = plan.clone();
     let start = unknown.code.len() as u32;
-    unknown.code.extend_from_slice(&[250, Opcode::Return as u8]);
+    unknown
+        .code
+        .to_mut()
+        .extend_from_slice(&[250, Opcode::Return as u8]);
     unknown.derives[0].body = Code {
         offset: start,
         len: 2,
@@ -478,9 +518,14 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     // A backward jump (`Jump 0; Return`) would loop forever at boot.
     let mut looping = plan.clone();
     let start = looping.code.len() as u32;
-    looping
-        .code
-        .extend_from_slice(&[Opcode::Jump as u8, 0, 0, 0, 0, Opcode::Return as u8]);
+    looping.code.to_mut().extend_from_slice(&[
+        Opcode::Jump as u8,
+        0,
+        0,
+        0,
+        0,
+        Opcode::Return as u8,
+    ]);
     looping.slots[0].init = Code {
         offset: start,
         len: 6,
@@ -500,7 +545,7 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     body.extend_from_slice(&1.0f64.to_le_bytes());
     body.push(Opcode::Return as u8);
     let len = body.len() as u32;
-    misaligned.code.extend_from_slice(&body);
+    misaligned.code.to_mut().extend_from_slice(&body);
     misaligned.slots[0].init = Code { offset: start, len };
     assert!(matches!(
         misaligned.validate(),
@@ -513,6 +558,7 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     let mut fine = plan.clone();
     let start = fine.code.len() as u32;
     fine.code
+        .to_mut()
         .extend_from_slice(&[Opcode::Jump as u8, 5, 0, 0, 0, Opcode::Return as u8]);
     fine.slots[0].init = Code {
         offset: start,
@@ -572,8 +618,8 @@ fn a_huge_announced_count_reserves_little_before_it_is_refused() {
     // (count > remaining), and never reserved 16M entries first.
     let plan = sample();
     let mut bytes = plan.encode();
-    // strings count sits right after the 44-byte header.
-    bytes[44..48].copy_from_slice(&(1u32 << 24).to_le_bytes());
+    // strings count sits right after the 52-byte header.
+    bytes[52..56].copy_from_slice(&(1u32 << 24).to_le_bytes());
     assert!(matches!(Plan::decode(&bytes), Err(PlanError::BadCount(_))));
 }
 
@@ -749,7 +795,7 @@ fn a_callback_body_is_entered_and_left_only_at_its_ends() {
         let mut p = plan.clone();
         let start = p.code.len() as u32;
         let len = body.len() as u32;
-        p.code.extend_from_slice(&body);
+        p.code.to_mut().extend_from_slice(&body);
         p.slots[0].init = Code { offset: start, len };
         p.validate()
     };
@@ -832,4 +878,17 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     same.resources = plan.resources.clone();
     same.data = plan.data.clone();
     assert_eq!(same, plan);
+}
+
+/// LLP 1019 §13 gives each `faces` row its weight and width ranges, as
+/// `@font-face`'s descriptors. Every host needs a new binary for this plan
+/// format.
+/// The format digest is pinned: a change to `tables/format.json`, a comment
+/// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
+#[test]
+fn the_format_digest_is_pinned() {
+    assert_eq!(
+        FORMAT_DIGEST, 0x9d27_3fc6_f660_afb5,
+        "the plan format digest moved: if intended, name the break and the hosts that move"
+    );
 }

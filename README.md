@@ -59,6 +59,10 @@ in the UI, and no app JavaScript runs before the first pixel.
 > repository, `exact2`, is a rebuild of an earlier one ("exact1"). Its design documents
 > are imported under `llp/research/` as research, never as authority.
 
+Upgrade note (2026-10-16): Snapback mutation replies with `ok: false` now throw
+`refused(why)` and expose `failure(slot)`; see the
+[before/after and inherited-app commands](snapback4/README.md#updating-an-inherited-app).
+
 ## Contents
 
 - [Three principles](#three-principles)
@@ -744,3 +748,7 @@ install page, and the stress harnesses. They're in
 [`issues/`](issues) ([how that works](docs/issues.md)).
 
 The workspace is MIT-licensed (`Cargo.toml`).
+
+Exact’s Snapback4 adapter uses published **0.4.29** with the matching immutable
+Rust source revision `59fb4ead1ba18569369523bba55b56713cc275e9`.
+See [the adapter guide](snapback4/README.md) for wiring and device rebuilds.

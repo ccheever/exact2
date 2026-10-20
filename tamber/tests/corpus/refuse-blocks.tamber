@@ -3,6 +3,8 @@ tamber blocks
 icons
   icon.reply = icon(sf "bubble.left")
 
-component PostButton
-  params
-    fill: color = "accent.fill"
+icons garbage
+  icon.second = icon(sf "star")
+
+icons
+  icon.third = icon(sf "star")

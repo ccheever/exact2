@@ -51,6 +51,10 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.bcdec_rs]
 opt-level = 3
+# Build scripts and proc macros load as dylibs, which Xcode 27's strip leaves
+# unloadable ("mis-aligned LINKEDIT string pool"), as in ../Cargo.toml.
+[profile.release.build-override]
+strip = false
 
 [profile.web]
 inherits = "release"

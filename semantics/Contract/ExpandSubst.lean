@@ -14,7 +14,8 @@ captured by a child's binder, and a renamed binder never captures a name
 of the body: that is what the proof of `agree_enter` checks.
 
 The fragment (`Plain`): no `pending`/`failed`/`failure` (they read their argument's
-*name*, which substitution changes), callbacks of at most two parameters
+*name*, which substitution changes), no `sortBy` (not yet carried through these
+proofs; `difftest expansion` checks it), callbacks of at most two parameters
 (the ones `map` and `filter` bind), and no call head the substitution
 replaces (a call names a `fn` or a roster entry, never a prop).
 -/
@@ -105,6 +106,7 @@ theorem xferE {e₁ e₂ : Env} (hs : Same e₁ e₂) {inFn ls e v}
   | .fn hfd ha hb => .fn (hs.fns ▸ hfd) (xferL hs ha hf) (xferE hs hb rfl)
   | .map hfd hl hm => .map (hs.fns ▸ hfd) (xferE hs hl hf) (xferM hs hm hf)
   | .filter hfd hl hm => .filter (hs.fns ▸ hfd) (xferE hs hl hf) (xferF hs hm hf)
+  | .sortBy hfd hl hm hd hv => .sortBy (hs.fns ▸ hfd) (xferE hs hl hf) (xferM hs hm hf) hd hv
   | .pendingSettled hfd hr hv => .pendingSettled (hs.fns ▸ hfd) (hs.resources ▸ hr) (hs.resVals ▸ hv)
   | .pendingOther hfd hr => .pendingOther (hs.fns ▸ hfd) (hs.resources ▸ hr)
   | .failedSettled hfd hr hv => .failedSettled (hs.fns ▸ hfd) (hs.resources ▸ hr) (hs.resVals ▸ hv)
@@ -341,6 +343,11 @@ theorem wkE {env : Env} {inFn L L' e v} (h : EvalR env inFn L e v) (hs : Small e
     exact .filter hfd (wkE hl hs.1 (ha.sub fun y hy => by simp [freeNames, freeNamesList]; exact .inr (.inl hy)))
       (wkF hm hs.2.1.1 hs.2.1.2
         (ha.sub fun y hy => by simp [freeNames, freeNamesList]; exact .inr (.inr hy)))
+  | .sortBy hfd hl hm hd hv => by
+    simp only [Small, SmallList, Bool.and_eq_true, decide_eq_true_eq] at hs
+    exact .sortBy hfd (wkE hl hs.1 (ha.sub fun y hy => by simp [freeNames, freeNamesList] <;> grind))
+      (wkM hm hs.2.1.1 hs.2.1.2
+        (ha.sub fun y hy => by simp [freeNames, freeNamesList] <;> grind)) hd hv
   | .pendingSettled hfd hr hv => .pendingSettled hfd hr hv
   | .pendingOther hfd hr => .pendingOther hfd hr
   | .failedSettled hfd hr hv => .failedSettled hfd hr hv
@@ -663,11 +670,13 @@ def callHeadsFields : List (String × Expr) → List String
 end
 
 mutual
-/-- The fragment substitution is proved for: no `pending`/`failed`/`failure`, every
+/-- The fragment substitution is proved for: no `pending`/`failed`/`failure` or
+`sortBy`, every
 callback of at most two parameters, and no binder named like a call its
 scope makes. -/
 def Plain : Expr → Bool
-  | .call n args => n != "pending" && n != "failed" && n != "failure" && PlainList args
+  | .call n args =>
+    n != "pending" && n != "failed" && n != "failure" && n != "sortBy" && PlainList args
   | .arrow ps b =>
     decide (ps.length ≤ 2) && ps.all (fun p => !(callHeads b).contains p) && Plain b
   | .matchOpt s x a b => Plain s && !(callHeads a).contains x && Plain a && Plain b
@@ -987,7 +996,7 @@ theorem sfE {e₁ e₂ : Env} (hs : Same e₁ e₂) {inFn ls e v} (h : EvalR e�
           (fun y hy => hA y (by simp [fv, fvList] at hy ⊢; grind)) x i)
         hpb hhb)
   | .pendingSettled .. | .pendingOther .. | .failedSettled .. | .failedOther ..
-  | .failureSettled .. | .failureOther .. => by
+  | .failureSettled .. | .failureOther .. | .sortBy .. => by
     simp [Plain] at hp
   | .stdlib hfd ha hv => by
     rename_i name _ _

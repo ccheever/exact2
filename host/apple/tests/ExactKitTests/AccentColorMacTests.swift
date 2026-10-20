@@ -102,5 +102,29 @@ final class AccentColorMacTests: XCTestCase {
         p.apply(wireBatch([["op": "children", "id": 2, "ids": [3, 4, 5]], ["op": "children", "id": 6, "ids": [7, 8]]]))
         assertChannels(try channels(try XCTUnwrap(moved.symbolView?.contentTintColor), dark: false), system, "and back out")
     }
+
+    /// The theme's `AccentColor` (LLP 1095 D4) is the tint where no authored
+    /// accent is above, and a live edit of it (LLP 1121 stage 5) repaints
+    /// what names the tint, though each row's style is the same `@tint`.
+    func testALiveEditOfTheThemesAccentRepaintsWhatNamesTheTint() throws {
+        let p = presenter()
+        defer { ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]]), root: p.root) }
+        let roles = { (accent: [Int]) in
+            ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["AccentColor": accent]]]), root: p.root)
+            p.applyThemeTint()
+        }
+        // The fill as the layer holds it: nothing else asks AppKit to draw
+        // the node again, so the edit itself must set it.
+        let painted = { () throws -> [Double] in
+            let fill = try XCTUnwrap(p.views[7]?.layer?.backgroundColor.flatMap { NSColor(cgColor: $0) })
+            return try self.channels(fill, dark: false)
+        }
+        roles([255, 0, 0, 255])
+        assertChannels(try painted(), [255, 0, 0, 255], "the theme's accent")
+        roles([0, 0, 255, 255])
+        assertChannels(try painted(), [0, 0, 255, 255], "after a live edit")
+        // Under an authored accent, the author's still.
+        assertChannels(try XCTUnwrap(p.views[3]).channels("background_color"), [48, 176, 199, 255], "under the author's")
+    }
 }
 #endif

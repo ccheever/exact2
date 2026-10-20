@@ -1,5 +1,5 @@
 import type { Answer, Overlay, Storage } from './app.contract.d.ts';
-import { MODELS, blank, fixtures, presentation, time, type Thread, type Message } from './model';
+import { MODELS, blank, fixtures, presentation, type Thread, type Message } from './model';
 export const appId = 'com.exact.messages';
 export const grants = 'net.fetch http://127.0.0.1:4318\nfs.read app:/data/messages.json\nfs.write app:/data/messages.json';
 const SERVICE = 'http://127.0.0.1:4318';
@@ -37,17 +37,17 @@ function add(t: Thread, from: string, body: string, at: number, reply = ''): Mes
   const m: Message = { id: `m-${++serial}`, from, body, at, reply, status: '', reaction: '', fresh: true, edited: false };
   t.messages.push(m); return m;
 }
-function snapshot(query: string, id: string, at: number, offset = 0) {
+function snapshot(query: string, id: string) {
   const t = find(id) || threads[0] || fixtures()[0], q = query.toLowerCase();
   return {
     revision, connected, notice,
     threads: threads.filter(t => !q || `${t.name} ${t.messages.map(m => m.body).join(' ')}`.toLowerCase().includes(q)).map(t => ({
       id: t.id, name: t.name, initials: t.initials, color: t.color, model: t.model, unread: t.unread, muted: t.muted,
       preview: t.pending ? 'Typing…' : t.draft ? `Draft: ${t.draft}` : t.messages[t.messages.length - 1]?.body || 'Start a conversation',
-      time: t.messages.length ? time(t.messages[t.messages.length - 1]!.at, offset) : '', draft: t.draft,
+      at: t.messages[t.messages.length - 1]?.at ?? 0, draft: t.draft,
     })),
     id: t.id, name: t.name, initials: t.initials, color: t.color, model: t.model, draft: t.draft,
-    messages: presentation(t, at, offset), typing: t.pending && !t.messages.find(m => m.id === t.response)?.body,
+    messages: presentation(t), typing: t.pending && !t.messages.find(m => m.id === t.response)?.body,
     busy: t.pending, error: t.error, count: t.messages.length,
     latest: t.messages[t.messages.length - 1]?.id || '',
   };
@@ -131,9 +131,9 @@ type Snapshot = ReturnType<typeof snapshot>;
 // adds: from "me", with the sent text, at the send's time. One the service ignores (a blank text, or one sent
 // while a reply is coming) shows until its reply, which carries no id. The inbox previews it as the answer
 // will, "Typing…" when a model answers.
-export const overlay: Overlay = (source, args, answer, writes) => {
+export const overlay: Overlay = (source, _args, answer, writes) => {
   if (source !== 'snapshot') return undefined;
-  const shown = answer as Snapshot, [, , , clock, offset] = args as [string, string, number, number, number];
+  const shown = answer as Snapshot;
   const sent = writes.flatMap(w => {
     if (w.source !== 'sendMessage' || w.args[0] !== shown.id || w.reply?.id === '') return [];
     const body = w.args[1].trim(), at = w.args[3];
@@ -142,13 +142,13 @@ export const overlay: Overlay = (source, args, answer, writes) => {
     return [{ id: `sending-${w.id}`, from: 'me', body, at, reply: w.args[2], status: '', reaction: '', fresh: true, edited: false }];
   });
   if (!sent.length) return undefined;
-  const messages = presentation({ model: shown.model, messages: [...shown.messages, ...sent] } as Thread, clock, offset);
+  const messages = presentation({ model: shown.model, messages: [...shown.messages, ...sent] } as Thread);
   const last = sent[sent.length - 1]!;
   return { ...shown, messages, count: messages.length, latest: last.id, draft: '',
-    threads: shown.threads.map(t => t.id === shown.id ? { ...t, preview: shown.model ? 'Typing…' : last.body, time: time(last.at, offset), draft: '' } : t) } as never;
+    threads: shown.threads.map(t => t.id === shown.id ? { ...t, preview: shown.model ? 'Typing…' : last.body, at: last.at, draft: '' } : t) } as never;
 };
 export const answer: Answer = ((source: string, args: any[], _store: unknown, storage: Storage) => {
-  if (source === 'snapshot') return snapshot(args[0], args[1], args[3], args[4]);
+  if (source === 'snapshot') return snapshot(args[0], args[1]);
   if (source === 'pulse') return pulse(args[0], storage);
   if (source === 'command') return command(args[0], args[1], args[2], args[3], storage);
   if (source === 'sendMessage') return command('send', args[0], args[1], args[3], storage, args[2]);

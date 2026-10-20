@@ -1,0 +1,31 @@
+[package]
+name = "tamber-host-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Tamber binding host on the web (LLP 1121 D12): one wasm with the runner, the kernel and the baked plan, whose resident loop serves the native clients' live edits"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "tamber_host_web"
+crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "tamber-host-dev"
+path = "src/bin/tamber-host-dev.rs"
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+tamber-host-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+tamber-host-data = { path = "../data" }

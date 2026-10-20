@@ -7,6 +7,11 @@
 #![allow(unsafe_code)]
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::{
+    io::{Read as _, Write as _},
+    os::{fd::AsRawFd, unix::net::UnixStream},
+    sync::OnceLock,
+};
 
 /// The module's native library directory: `current_exe` is the zygote's.
 pub(super) fn library_dir() -> Option<PathBuf> {
@@ -17,6 +22,11 @@ pub(super) fn library_dir() -> Option<PathBuf> {
 pub(super) fn load(abi: &Abi) -> Result<(), String> {
     if unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_load")() } != 0 {
         return Err(abi.error().unwrap_or_else(|| "gpu_load failed".into()));
+    }
+    unsafe {
+        abi.symbol::<unsafe extern "C" fn(Option<extern "C" fn()>)>(b"gpu_on_acquire")(Some(
+            acquired,
+        ));
     }
     let root = std::env::var_os("EXACT_ASSETS")
         .map(PathBuf::from)
@@ -42,6 +52,54 @@ pub(super) fn load(abi: &Abi) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+static ACQUIRE: OnceLock<(UnixStream, UnixStream)> = OnceLock::new();
+
+pub(crate) fn acquire_fd() -> i32 {
+    ACQUIRE
+        .get_or_init(|| {
+            let pair = UnixStream::pair().expect("canvas acquire wake");
+            pair.0
+                .set_nonblocking(true)
+                .expect("nonblocking acquire reader");
+            pair.1
+                .set_nonblocking(true)
+                .expect("nonblocking acquire writer");
+            pair
+        })
+        .0
+        .as_raw_fd()
+}
+
+extern "C" fn acquired() {
+    if let Some(pair) = ACQUIRE.get() {
+        let mut writer = &pair.1;
+        let _ = writer.write(&[1]);
+    }
+}
+
+impl<D: DataSource> Presenter<D> {
+    pub(crate) fn has_window_canvases(&self) -> bool {
+        !self.surfaces.windows.is_empty()
+    }
+
+    pub(crate) fn begin_display_frame(&mut self) {
+        for window in self.surfaces.windows.values_mut() {
+            window.retry.begin();
+        }
+    }
+
+    pub(crate) fn render_starved(&mut self, running: bool) {
+        if let Some(pair) = ACQUIRE.get() {
+            let mut reader = &pair.0;
+            let mut bytes = [0; 128];
+            while reader.read(&mut bytes).is_ok_and(|n| n > 0) {}
+        }
+        if running {
+            self.render_windows(true);
+        }
+    }
 }
 
 /// Start making the app's primary GPU module's device, on threads of
@@ -117,6 +175,7 @@ pub(crate) struct Window {
     window: usize,
     size: (u32, u32),
     attached: bool,
+    retry: super::retry::Retry,
 }
 
 /// A canvas's newest finished frame, for a reader on another thread: the
@@ -143,6 +202,19 @@ extern "C" {
 /// the canvas a window instead).
 static FRAMES: std::sync::Mutex<BTreeMap<u32, Option<BufferFrame>>> =
     std::sync::Mutex::new(BTreeMap::new());
+
+static PRESENTED: std::sync::Mutex<BTreeMap<u32, i32>> = std::sync::Mutex::new(BTreeMap::new());
+
+/// A window target: -1 refused, 0 preparing, 2 complete frame submitted,
+/// 1 first frame handed to the compositor.
+pub fn window_ready(view: u32) -> i32 {
+    PRESENTED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&view)
+        .copied()
+        .unwrap_or(0)
+}
 
 fn frames() -> std::sync::MutexGuard<'static, BTreeMap<u32, Option<BufferFrame>>> {
     FRAMES.lock().unwrap_or_else(|e| e.into_inner())
@@ -199,15 +271,30 @@ impl Surfaces {
                 w.attached = true;
             } else {
                 self.error = abi.error();
+                PRESENTED
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(*view, -1);
             }
         }
     }
 
     /// Each buffered canvas's newest finished frame, where a reader on
     /// another thread finds it ([`buffer_frame`]).
-    fn publish_buffers(&mut self) {
+    fn publish_buffers(&mut self, only: Option<&BTreeSet<u32>>) {
         for (view, w) in &self.windows {
-            if w.window != 0 || !w.attached {
+            if !w.attached || only.is_some_and(|views| !views.contains(view)) {
+                continue;
+            }
+            if w.window != 0 {
+                if let Some(c) = self.canvases.get(view) {
+                    if unsafe { self.abis[&c.artifact].symbol::<Read>(b"gpu_seen")(c.id) } != 0 {
+                        PRESENTED
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(*view, 1);
+                    }
+                }
                 continue;
             }
             let Some(c) = self.canvases.get(view) else {
@@ -245,6 +332,10 @@ impl Surfaces {
 
     fn detach(&mut self, view: u32) {
         frames().remove(&view);
+        PRESENTED
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&view);
         if let (Some(w), Some(c)) = (self.windows.remove(&view), self.canvases.get(&view)) {
             if w.attached {
                 let abi = &self.abis[&c.artifact];
@@ -255,17 +346,42 @@ impl Surfaces {
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// The stream's decision uses the same fitted window and canvas instances
+    /// as this paint; the reader does no geometry or module queries.
+    pub(crate) fn direct_canvases(&mut self) {
+        let frame = self.chrome().frame;
+        let full = self
+            .window()
+            .is_some_and(|w| frame == [0.0, 0.0, w.size.0, w.size.1]);
+        let direct = self
+            .surfaces
+            .canvases
+            .keys()
+            .copied()
+            .filter(|id| full && self.surfaces.opaque(*id))
+            .collect();
+        if self.brush.direct_canvases != direct {
+            self.brush.direct_canvases = direct;
+            self.repaint();
+        }
+    }
+
     /// A reader's window for canvas `view` (an `ANativeWindow` of `size`
     /// pixels, alive until [`Presenter::detach_window`]). Whether the view is
     /// a GPU canvas (a 2D canvas's window is never used).
     pub(crate) fn attach_window(&mut self, view: u32, window: usize, size: (u32, u32)) -> bool {
         self.surfaces.detach(view);
+        PRESENTED
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(view, 0);
         self.surfaces.windows.insert(
             view,
             Window {
                 window,
                 size,
                 attached: false,
+                retry: Default::default(),
             },
         );
         self.surfaces.attach_windows();
@@ -281,8 +397,23 @@ impl<D: DataSource> Presenter<D> {
     /// wants another frame.
     pub(crate) fn render_surfaces(&mut self, now: f64) -> bool {
         let scale = self.brush.scale;
+        let views: Vec<_> = self.surfaces.windows.keys().copied().collect();
+        for view in views {
+            if let Some((_, _, w, h)) = self.rect_of(view) {
+                self.surfaces.windows.get_mut(&view).unwrap().retry.frame =
+                    Some((w, h, scale, now));
+            } else {
+                self.surfaces.windows.get_mut(&view).unwrap().retry.frame = None;
+            }
+        }
+        self.render_windows(false)
+    }
+
+    fn render_windows(&mut self, retry: bool) -> bool {
         let mut wants = false;
         let mut flush = BTreeSet::new();
+        let mut submitted = BTreeMap::<String, Vec<u32>>::new();
+        let mut recorded = BTreeSet::new();
         let views: Vec<(u32, bool)> = self
             .surfaces
             .windows
@@ -292,8 +423,28 @@ impl<D: DataSource> Presenter<D> {
             .collect();
         let (vw, vh) = self.viewport();
         for (view, buffered) in views {
-            let Some((x, y, w, h)) = self.rect_of(view) else {
+            let window = &self.surfaces.windows[&view];
+            let Some((w, h, scale, now)) = window.retry.frame else {
                 continue;
+            };
+            if retry {
+                let Some(c) = self.surfaces.canvases.get(&view) else {
+                    continue;
+                };
+                let abi = &self.surfaces.abis[&c.artifact];
+                let starved = unsafe { abi.symbol::<Read>(b"gpu_starved")(c.id) } != 0;
+                let landed = unsafe { abi.symbol::<Read>(b"gpu_landed")(c.id) } != 0;
+                if !window.retry.eligible(buffered, starved, landed) {
+                    continue;
+                }
+            }
+            let (x, y, _, _) = if retry {
+                (0., 0., w, h)
+            } else {
+                let Some(rect) = self.rect_of(view) else {
+                    continue;
+                };
+                rect
             };
             // A canvas with a window stops when its view is not drawn (the
             // compositor takes no frame, so none can be acquired). One with
@@ -312,10 +463,29 @@ impl<D: DataSource> Presenter<D> {
             let render = unsafe {
                 abi.symbol::<unsafe extern "C" fn(u32, f32, f32, f32, f64) -> u32>(b"gpu_render")
             };
-            match unsafe { render(c.id, w, h, scale, now) } {
+            let result = unsafe { render(c.id, w, h, scale, now) };
+            match result {
                 1 => wants = true,
                 2 => self.surfaces.error = abi.error(),
                 _ => {}
+            }
+            let starved = unsafe { abi.symbol::<Read>(b"gpu_starved")(c.id) } != 0;
+            self.surfaces
+                .windows
+                .get_mut(&view)
+                .unwrap()
+                .retry
+                .recorded((w, h, scale, now), starved);
+            if result != 2 && !starved {
+                recorded.insert(view);
+            }
+            // Dirty stays set when a complete image has not been recorded.
+            if result != 2
+                && !buffered
+                && !starved
+                && unsafe { abi.symbol::<Read>(b"gpu_dirty")(c.id) } == 0
+            {
+                submitted.entry(c.artifact.clone()).or_default().push(view);
             }
             flush.insert(c.artifact.clone());
         }
@@ -323,9 +493,16 @@ impl<D: DataSource> Presenter<D> {
             let abi = &self.surfaces.abis[&artifact];
             if unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_flush")() } != 0 {
                 self.surfaces.error = abi.error();
+            } else if let Some(views) = submitted.get(&artifact) {
+                let mut presented = PRESENTED.lock().unwrap_or_else(|e| e.into_inner());
+                for view in views {
+                    if presented.get(view) == Some(&0) {
+                        presented.insert(*view, 2);
+                    }
+                }
             }
         }
-        self.surfaces.publish_buffers();
+        self.surfaces.publish_buffers(retry.then_some(&recorded));
         wants
     }
 }

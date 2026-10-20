@@ -19,7 +19,8 @@ use std::path::Path;
 /// Compile one source text and emit `def <name> : Contract.Components.CProgram`.
 pub fn lean_components(src: &str, name: &str) -> Result<String, CompileError> {
     crate::compile(src)?;
-    let file = contract_syntax::parse(src)?;
+    let mut file = contract_syntax::parse(src)?;
+    crate::params(&mut file)?;
     emit_file(&file, name, None)
 }
 

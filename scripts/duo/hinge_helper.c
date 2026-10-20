@@ -1,6 +1,8 @@
-// hinge_helper.c — sets the iPhone Duo simulator's hinge angle from inside the
-// simulator (`xcrun simctl spawn <udid> hinge_helper set <degrees>`), by posting
-// the vendor-defined HID event the hidden hinge slider in Xcode's Device Hub sends.
+// hinge_helper.c — sets the iPhone Duo simulator's hinge angle and orientation
+// from inside the simulator (`xcrun simctl spawn <udid> hinge_helper set
+// <degrees>`, `… orient <orientation>`), by posting the vendor-defined HID
+// events the hidden hinge slider and the orientation picker in Xcode's Device
+// Hub send.
 // `bun scripts/smoke.mjs duo` compiles it per run with the selected Xcode's
 // simulator SDK (LLP 1078 D9).
 //
@@ -23,9 +25,13 @@
 
 // Runs inside the iOS Simulator (via `xcrun simctl spawn`) and posts the same
 // vendor-defined HID event that the hidden hinge slider in Xcode's Device Hub sends.
+// The orientation event is the same one with the orientation picker's source and
+// an enumerated value, as idb's FBSimulatorControl (MIT) sends it
+// (`SimulatorVendorHIDTransport`, `SimulatorHIDTypes`).
 //
 //   hinge_helper set <degrees>
 //   hinge_helper sweep <from> <to> <seconds>
+//   hinge_helper orient portrait|pud|landscape-left|landscape-right
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <mach/mach_time.h>
@@ -53,13 +59,10 @@ enum {
     kSweepHz = 60,
 };
 
-static void send_angle(IOHIDEventSystemClientRef client, double degrees) {
-    if (degrees < 0) degrees = 0;
-    if (degrees > 180) degrees = 180;
-
-    CFNumberRef value = CFNumberCreate(NULL, kCFNumberDoubleType, &degrees);
+// Posts one control's event: its source, its value's type and the value.
+static void send(IOHIDEventSystemClientRef client, CFStringRef source, CFStringRef type, CFTypeRef value) {
     const void *keys[] = {CFSTR("provider"), CFSTR("source"), CFSTR("type"), CFSTR("value")};
-    const void *values[] = {CFSTR("com.apple.Virtualization"), CFSTR("hinge-slider-control"), CFSTR("range"), value};
+    const void *values[] = {CFSTR("com.apple.Virtualization"), source, type, value};
     CFDictionaryRef payload = CFDictionaryCreate(NULL, keys, values, 4,
         &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFDataRef data = IOCFSerialize(payload, kSerializeBinary);
@@ -74,12 +77,33 @@ static void send_angle(IOHIDEventSystemClientRef client, double degrees) {
         CFRelease(data);
     }
     CFRelease(payload);
+}
+
+static void send_angle(IOHIDEventSystemClientRef client, double degrees) {
+    if (degrees < 0) degrees = 0;
+    if (degrees > 180) degrees = 180;
+
+    CFNumberRef value = CFNumberCreate(NULL, kCFNumberDoubleType, &degrees);
+    send(client, CFSTR("hinge-slider-control"), CFSTR("range"), value);
     CFRelease(value);
+}
+
+static int send_orientation(IOHIDEventSystemClientRef client, const char *name) {
+    static const char *const names[] = {"portrait", "pud", "landscape-left", "landscape-right"};
+    for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+        if (strcmp(name, names[i]) != 0) continue;
+        CFStringRef value = CFStringCreateWithCString(NULL, name, kCFStringEncodingUTF8);
+        send(client, CFSTR("orientation-picker-control"), CFSTR("enum"), value);
+        CFRelease(value);
+        return 0;
+    }
+    return 1;
 }
 
 static int usage(void) {
     fprintf(stderr, "usage: hinge_helper set <degrees>\n"
-                    "       hinge_helper sweep <from> <to> <seconds>\n");
+                    "       hinge_helper sweep <from> <to> <seconds>\n"
+                    "       hinge_helper orient portrait|pud|landscape-left|landscape-right\n");
     return 64;
 }
 
@@ -101,6 +125,8 @@ int main(int argc, char **argv) {
             send_angle(client, from + (to - from) * i / steps);
             if (i < steps) usleep((useconds_t)(seconds * 1e6 / steps));
         }
+    } else if (strcmp(argv[1], "orient") == 0 && argc == 3) {
+        if (send_orientation(client, argv[2]) != 0) return usage();
     } else {
         return usage();
     }

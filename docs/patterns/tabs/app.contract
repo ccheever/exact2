@@ -1,5 +1,8 @@
 // Starter: two tabs, each its own stack: a list that pushes a detail in each.
 // The root tablist is the iOS tab bar; a screen a tab pushed survives a visit to the other.
+// Each tab's list has the bar's search field, its own query (`contract vocab search`).
+use EmptyState from "exact:content"
+
 routes nav
   tab places "/"
     place "/place/:id"
@@ -13,45 +16,62 @@ shape Place
   about: string
 
 fn nameOf(places: Place[], id: string): string = match first(places.filter(p => p.id == id)) { case some(p) => p.name, case none => "" }
+fn matches(p: Place, q: string): bool = p.name.toLowerCase().includes(q.trim().toLowerCase()) or p.area.toLowerCase().includes(q.trim().toLowerCase())
 
 component App
   state saved = [] persist
+  state placesQuery = ""
+  state savedQuery = ""
   resource places = loadPlaces() as shape Place[] else empty()
+  derive placesShown = places.filter(p => matches(p, placesQuery))
+  derive savedShown = places.filter(p => saved.includes(p.id) and matches(p, savedQuery))
   action pick(name: string)
     nav = select(nav, name)
   // A row is a link to its place; the browser's Back, Forward and a deep link arrive here too.
   action follow(url: string)
     nav = go(nav, url)
+  action search(tab: string, v: string)
+    if tab == "saved"
+      savedQuery = v
+    else
+      placesQuery = v
   action toggle(id: string)
     saved = saved.includes(id) ? saved.filter(s => s != id) : saved.concat([id])
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
-      display="flex" flex-direction="column" accent-color="-exact-system-indigo"
+      display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
         for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key=e.id
               column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0
                 display="flex" flex-direction="column"
-                header display="flex" align-items="center" padding="8px 16px"
+                header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
                   text (e.name == "places" ? "Starter" : e.name == "saved" ? "Saved" : nameOf(places, e.params.id))
                     role="heading" aria-level=(e.name == "places" or e.name == "saved" ? 1 : 2) flex=1
                   if e.name == "place" or e.name == "savedPlace"
                     button press=toggle(e.params.id) aria-label=(saved.includes(e.params.id) ? "Remove from Saved" : "Save")
                       testId=`save-${t.name}`
                       image (saved.includes(e.params.id) ? "symbol:bookmark-fill" : "symbol:bookmark")
-                if e.name == "places" or e.name == "saved"
-                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-                    section
-                      for p in (e.name == "saved" ? places.filter(x => saved.includes(x.id)) : places) key=p.id
-                        link href=(e.name == "saved" ? path("savedPlace", p.id) : path("place", p.id)) testId=`${t.name}-${p.id}`
-                          column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
-                            text p.name
-                            text p.area font="-exact-subheadline" color="-exact-secondary-label"
-                          image "symbol:forward-chevron"
-                      footer
-                        text (e.name == "saved" and saved.length == 0 ? "Nothing saved yet. Open a place and tap the bookmark." : "")
-                          testId=`${t.name}-empty`
+                  if e.name == "places" or (e.name == "saved" and saved.length > 0)
+                    input type="search" value=(t.name == "saved" ? savedQuery : placesQuery) input=search(t.name)
+                      placeholder="Search" aria-label=(t.name == "saved" ? "Search Saved" : "Search Places")
+                      testId=`search-${t.name}` width="100%"
+                // An empty tab and a search with no match are each an `EmptyState` in the list's place.
+                if e.name == "saved" and saved.length == 0
+                  EmptyState(symbol="symbol:bookmark", title="No Saved Places", message="Open a place and tap the bookmark.")
+                else if e.name == "places" or e.name == "saved"
+                  if (t.name == "saved" ? savedShown : placesShown).length == 0 and not pending(places)
+                    EmptyState(symbol="symbol:search", title="No Results", message="Check the spelling or try a new search.")
+                  else
+                    list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                      section
+                        for p in (t.name == "saved" ? savedShown : placesShown) key=p.id
+                          link href=(e.name == "saved" ? path("savedPlace", p.id) : path("place", p.id)) testId=`${t.name}-${p.id}`
+                            column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
+                              text p.name
+                              text p.area font="-exact-subheadline" color="-exact-secondary-label"
+                            image "symbol:forward-chevron"
                 else
                   list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
                     for p in places.filter(x => x.id == e.params.id) key=p.id

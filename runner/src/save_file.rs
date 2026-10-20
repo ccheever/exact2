@@ -120,7 +120,7 @@ impl SaveFile {
 }
 
 /// `app:/<root>/<file…>` with no empty, `.` or `..` segment.
-fn plain_app_path(path: &str) -> bool {
+pub(crate) fn plain_app_path(path: &str) -> bool {
     let Some(rest) = path.strip_prefix("app:/") else {
         return false;
     };
@@ -131,24 +131,20 @@ fn plain_app_path(path: &str) -> bool {
             .all(|p| !p.is_empty() && *p != "." && *p != ".." && !p.contains('\0'))
 }
 
-/// Whether a `<capability> <prefix>` line of `grants` covers `path`, a
-/// component at a time, as `PathPrefix::covers` reads it (`app:/data`
-/// covers `app:/data/x`, never `app:/database`).
+/// Whether an `fs.read` or `fs.write` line of `grants` admits `path`, as
+/// the grant parser reads it (a quoted target such as `fs.read
+/// "app:/data/a b"` included) and `PathPrefix::covers` matches it, a
+/// component at a time (`app:/data` covers `app:/data/x`, never
+/// `app:/database`). A declaration with any line the parser refuses
+/// admits nothing, as the browser's grant set, the same parsed form, does.
 pub fn covered(grants: &str, capability: &str, path: &str) -> bool {
-    let components = |p: &str| -> Vec<String> {
-        let (ns, rest) = p.split_once(":/").unwrap_or(("", p));
-        std::iter::once(ns.to_owned())
-            .chain(rest.split('/').filter(|c| !c.is_empty()).map(str::to_owned))
-            .collect()
+    use exact_grants::{GrantSet, Operation};
+    let operation = match capability {
+        "fs.read" => Operation::FsRead { path: path.into() },
+        "fs.write" => Operation::FsWrite { path: path.into() },
+        _ => return false,
     };
-    let target = components(path);
-    grants.lines().any(|line| {
-        let mut words = line.split_whitespace();
-        words.next() == Some(capability)
-            && words
-                .next()
-                .is_some_and(|prefix| target.starts_with(&components(prefix)))
-    })
+    GrantSet::parse(&crate::io_grants(grants)).is_ok_and(|set| set.permits(&operation))
 }
 
 /// A host's `saveFile`: refuse bad data or an unknown element into the
@@ -261,6 +257,23 @@ mod tests {
         assert!(!covered(g, "fs.write", "app:/tmp/f"));
         assert!(covered("fs.read doc:/", "fs.read", "doc:/1/a.md"));
         assert!(!covered("fs.read doc:/", "fs.read", "app:/data/a"));
+        // A quoted target is one path, spaces and all (LLP 1125 D12 review),
+        // as the browser's grant set reads it (host/web-js/files.test.js).
+        let quoted = "fs.read \"app:/data/a b\"";
+        assert!(covered(quoted, "fs.read", "app:/data/a b/file.txt"));
+        assert!(!covered(quoted, "fs.read", "app:/data/a/file.txt"));
+        assert!(!covered(quoted, "fs.read", "app:/data/a bc/file.txt"));
+        // One malformed line refuses the whole declaration, in the browser too.
+        let broken = "fs.read \"app:/data/a b\"\nfs.write relative";
+        assert!(!covered(broken, "fs.read", "app:/data/a b/file.txt"));
+        assert_eq!(
+            crate::grants::normalized_json(broken),
+            r#"{"version":1,"entries":[[1,"fs.read \"app:/data/a b\"",["fs-read","app:","data","a b"],null],[2,"fs.write relative",null,"`relative` must be an absolute, resolved path"]],"error":"the app's grants did not parse: line 2: `relative` must be an absolute, resolved path","seal":"3f46888c301bd92e"}"#
+        );
+        assert_eq!(
+            crate::grants::normalized_json(quoted),
+            r#"{"version":1,"entries":[[1,"fs.read \"app:/data/a b\"",["fs-read","app:","data","a b"],null]],"error":null,"seal":"ed67c8ab1966767e"}"#
+        );
         assert!(plain_app_path("app:/data/backups/f.json"));
         assert!(!plain_app_path("app:/data/../x"));
         assert!(!plain_app_path("app:/data"));

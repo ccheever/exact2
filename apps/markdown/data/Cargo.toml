@@ -18,3 +18,7 @@ exact-plan = { path = "../../../plan" }
 exact-runner = { path = "../../../runner" }
 markdown-parse = { path = "../parse" }
 serde_json = "1.0"
+
+[dev-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-kernel = { path = "../../../kernel" }

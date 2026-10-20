@@ -41,6 +41,7 @@ extern "C" {
     fn ibex2_darwin_ws_send_binary(handle: *mut c_void, data: *const u8, len: usize) -> c_int;
     fn ibex2_darwin_ws_close(handle: *mut c_void, code: c_int, reason: *const u8, len: usize);
     fn ibex2_darwin_ws_buffered_amount(handle: *mut c_void) -> usize;
+    fn ibex2_darwin_ws_buffered_messages(handle: *mut c_void) -> usize;
     fn ibex2_darwin_ws_release(handle: *mut c_void);
     fn ibex2_darwin_ws_free(value: *mut c_void);
     #[cfg(test)]
@@ -58,6 +59,12 @@ extern "C" {
     fn ibex2_darwin_ws_test_resume_send(handle: *mut c_void);
     #[cfg(test)]
     fn ibex2_darwin_ws_test_send_submitted_after_close(handle: *mut c_void) -> c_int;
+    #[cfg(test)]
+    fn ibex2_darwin_ws_test_pause_next_completion(handle: *mut c_void);
+    #[cfg(test)]
+    fn ibex2_darwin_ws_test_wait_completion(handle: *mut c_void, timeout_seconds: f64) -> c_int;
+    #[cfg(test)]
+    fn ibex2_darwin_ws_test_resume_completion(handle: *mut c_void);
 }
 
 /// The platform socket on Apple platforms.
@@ -146,6 +153,11 @@ impl MessageSender for DarwinSender {
 
     fn buffered_amount(&self) -> usize {
         unsafe { ibex2_darwin_ws_buffered_amount(self.handle.pointer()) }
+    }
+
+    fn buffered_messages(&self) -> usize {
+        // SAFETY: a retained native socket; the count is read under its lock.
+        unsafe { ibex2_darwin_ws_buffered_messages(self.handle.pointer()) }
     }
 }
 
@@ -330,6 +342,51 @@ impl MessageSource for DarwinSocket {
 
 #[cfg(test)]
 mod tests {
+    struct CompletionResume(*mut std::ffi::c_void);
+
+    impl Drop for CompletionResume {
+        fn drop(&mut self) {
+            // SAFETY: each test guard is dropped before its concrete socket.
+            unsafe { super::ibex2_darwin_ws_test_resume_completion(self.0) };
+        }
+    }
+
+    #[test]
+    fn buffered_messages_observes_native_send_completion() {
+        use crate::stdlib::abort::AbortSignal;
+        use crate::stdlib::websocket::MessageSender;
+
+        let (port, seen) = super::super::websocket::tests::peer();
+        let url = url::Url::parse(&format!("ws://127.0.0.1:{port}/echo")).unwrap();
+        let socket = super::DarwinSocketTransport
+            .connect_impl(&url, 1024, &AbortSignal::default(), &[], None)
+            .unwrap();
+        let handle = socket.handle.pointer();
+        // Hold the actual NSURLSession completion after submission so the
+        // native pending-message state can be observed without a scheduler race.
+        unsafe { super::ibex2_darwin_ws_test_pause_next_completion(handle) };
+        let resume = CompletionResume(handle);
+        socket.sender.send_text("counted").unwrap();
+        assert_eq!(
+            unsafe { super::ibex2_darwin_ws_test_wait_completion(handle, 2.0) },
+            1,
+            "NSURLSession did not invoke the held send completion"
+        );
+        assert_eq!(socket.sender.buffered_messages(), 1);
+        drop(resume);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while socket.sender.buffered_messages() != 0 && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(socket.sender.buffered_messages(), 0);
+        assert_eq!(
+            seen.recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap(),
+            "/echo message 1 7"
+        );
+    }
+
     #[test]
     fn concurrent_send_and_close_submit_to_the_platform_in_admission_order() {
         use crate::stdlib::abort::AbortSignal;

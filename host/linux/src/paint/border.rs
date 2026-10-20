@@ -15,7 +15,21 @@
 
 use super::{Rect4, Shape};
 use exact_kernel::corner::CornerShape;
-use exact_kernel::BorderStyle;
+use exact_kernel::{BorderStyle, Dimension};
+
+pub(crate) fn resolve_radii(
+    radii: [Dimension; 4],
+    env: &exact_kernel::Env,
+    width: f32,
+    height: f32,
+) -> [(f32, f32); 4] {
+    radii.map(|d| {
+        (
+            d.at_basis(env, width).max(0.0),
+            d.at_basis(env, height).max(0.0),
+        )
+    })
+}
 
 /// One step of a path, in points.
 #[derive(Debug, Clone, Copy, PartialEq)]

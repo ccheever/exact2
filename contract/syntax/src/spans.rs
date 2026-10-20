@@ -1,6 +1,7 @@
 //! Exhaustive source-range traversal for compiler-owned AST transformations.
 
-use crate::{ast::*, Span};
+use crate::params::{ComponentParam, ParamAttr, ParamValue, Params};
+use crate::{ast::*, sequence::Sequence, ModuleDecl, ModuleKind, PlatformWords, Span};
 
 /// Visit every source range, without changing the AST's non-location fields.
 /// Destructuring is exhaustive so new syntax must account for its locations.
@@ -67,7 +68,10 @@ macro_rules! leaves {
         }
     )* };
 }
-leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind, TapForm);
+leaves!(
+    String, bool, f64, u16, [u16; 2], u32, usize, BinOp, UnOp, TaskKind, TapForm, ParamValue,
+    ModuleKind
+);
 
 macro_rules! structs {
     ($($ty:ident { $($field:ident),* $(,)? })*) => { $(
@@ -81,12 +85,12 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, keyframes, timelines, color_profiles, theme, design, fns, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, fns, modules, tests, launch, components }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
     ThemeDecl { entries, span }
-    DesignSource { path, text, source_id }
+    DesignSource { path, home, text, source_id, bindable, package }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
@@ -95,13 +99,19 @@ structs! {
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, steps, span }
     FnDecl { name, params, ret, body, span }
+    ModuleDecl { name, declared, package, extension, kind, options, words, answers, live, request, sync, substitute, span }
+    PlatformWords { platform, package, words }
     UseDecl { names, path, span }
     UseName { name, alias, span }
     StyleDecl { name, attrs, span }
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
-        mutations, actions, tasks, view, span }
+        mutations, actions, tasks, sequences, view, params, span }
+    Params { identity, list }
+    ComponentParam { name, kind, default, default_span, attrs, span }
+    ParamAttr { name, value, span }
+    Sequence { name, gate, key, tracks, options, ended, span }
     Persist { name, span }
     Binding { name, expr, span }
     ResourceDecl { name, source, args, identity, shape, placeholder, span }
@@ -128,13 +138,18 @@ record_variants! {
     Step {
         Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, during, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
-        Locale { tag, span }, Seed { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
+        Locale { tag, span }, Seed { seed, span }, Fresh { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
         Pick { target, paths, span }, Clipboard { target, edit, text, span },
-        Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
+        Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectRefusal { target, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
-        ExpectSound { src, present, at, gain, ends, by, span },
+        ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
+        Midi { step, span },
     }
+}
+// MIDI's test steps carry no spans of their own.
+impl VisitSpans for crate::MidiStep {
+    fn visit_spans(&mut self, _: &mut impl FnMut(&mut Span)) {}
 }
 record_variants! {
     Stmt {
@@ -155,7 +170,7 @@ record_variants! {
 impl VisitSpans for TypeExpr {
     fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
         match self {
-            Self::Named(_, span) => visit(span),
+            Self::Enum(_, span) | Self::Named(_, span) => visit(span),
             Self::Option(inner, span) | Self::List(inner, span) => {
                 inner.visit_spans(visit);
                 visit(span);
@@ -236,6 +251,45 @@ impl VisitSpans for Expr {
                 body.visit_spans(visit);
                 visit(span);
             }
+        }
+    }
+}
+
+impl Step {
+    /// Where: the step's line.
+    pub fn span(&self) -> Span {
+        match self {
+            Step::Tap { span, .. }
+            | Step::Drag { span, .. }
+            | Step::Size { span, .. }
+            | Step::Epoch { span, .. }
+            | Step::TimeZone { span, .. }
+            | Step::Locale { span, .. }
+            | Step::Seed { span, .. }
+            | Step::Fresh { span, .. }
+            | Step::BeforeData { span }
+            | Step::FailFetch { span, .. }
+            | Step::PassFetch { span, .. }
+            | Step::Request { span, .. }
+            | Step::Type { span, .. }
+            | Step::Key { span, .. }
+            | Step::Pick { span, .. }
+            | Step::Clipboard { span, .. }
+            | Step::Clock { span, .. }
+            | Step::Reload { span, .. }
+            | Step::Close { span }
+            | Step::Back { span }
+            | Step::Resize { span, .. }
+            | Step::Screenshot { span, .. }
+            | Step::ExpectRefusal { span, .. }
+            | Step::ExpectTree { span, .. }
+            | Step::ExpectDisabled { span, .. }
+            | Step::ExpectText { span, .. }
+            | Step::ExpectState { span, .. }
+            | Step::ExpectSound { span, .. }
+            | Step::Midi { span, .. }
+            | Step::ExpectMediaSession { span, .. }
+            | Step::ExpectMediaSessionAction { span, .. } => *span,
         }
     }
 }

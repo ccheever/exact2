@@ -15,7 +15,11 @@ import UIKit
 #if os(iOS)
 extension Presenter {
     func syncScrollsToTop() {
+        #if EXACT_INSPECT
+        let chosen = Inspect.on ? nil : scrollsToTopTarget() // (inspect mode: a status-bar tap scrolls nothing)
+        #else
         let chosen = scrollsToTopTarget()
+        #endif
         if viewport.scrollsToTop != (chosen === viewport) { viewport.scrollsToTop = chosen === viewport }
         for id in scrollers {
             guard let sv = views[id]?.scrollView else { continue }

@@ -2,6 +2,111 @@ use super::*;
 use exact_game::{SocketFollow, SpotLight};
 
 #[test]
+fn primitive_changes_preserve_model_records_but_model_changes_rebuild_them() {
+    let mut w = World::new(60, 0);
+    let model = w.spawn((Transform::default(), Mesh::asset("first.model")));
+    let mut f = Feed::default();
+    let mut r = Recording {
+        models: vec![(MeshId(99), crate::MaterialId(0), glam::Mat4::IDENTITY, None)],
+        ..Default::default()
+    };
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 1);
+    let effect = w.spawn((Transform::default(), Mesh::cube(1.)));
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 1);
+    assert!(r.slots.contains(&effect.index()));
+    assert!(r.batches.iter().any(|b| b.mesh == MeshId(99)));
+    let (mut model_batches, mut model_slots) = (Vec::new(), Vec::new());
+    f.assets
+        .batches(
+            &w,
+            &mut r,
+            &f.draw_entities,
+            &mut model_batches,
+            &mut model_slots,
+        )
+        .unwrap();
+    model_batches.clear();
+    model_slots.clear();
+    let count = allocations::count(|| {
+        f.assets
+            .batches(
+                &w,
+                &mut r,
+                &f.draw_entities,
+                &mut model_batches,
+                &mut model_slots,
+            )
+            .unwrap();
+    });
+    assert_eq!(count, 0, "unchanged models need no copied names or records");
+    w.insert(effect, Mesh::cube(2.));
+    f.feed_to(&w, &mut r).unwrap();
+    w.despawn(effect);
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 1);
+    w.insert(model, Mesh::asset("second.model"));
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 2);
+    w.insert(model, Visible(false));
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 3);
+    assert!(r.instances.is_empty());
+    w.remove::<Visible>(model);
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 4);
+    f.reset();
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.instance_writes, 5);
+    assert_eq!(r.instances.len(), 1, "reset must restore model records");
+}
+
+#[test]
+fn nondrawing_entities_and_unchanged_visibility_do_not_rebuild_draws() {
+    let mut w = World::new(60, 0);
+    let parent = w.spawn(Transform::default());
+    let cube = w.spawn((Transform::default(), Parent(parent), Mesh::cube(1.)));
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    w.propagate();
+    f.feed_to(&w, &mut r).unwrap();
+    r.calls.clear();
+    let helper = w.spawn(Transform::default());
+    w.insert(parent, Visible(true));
+    w.propagate();
+    f.feed_to(&w, &mut r).unwrap();
+    assert!(!r.calls.contains(&Call::Batches));
+    assert_eq!(r.slots, [cube.index()]);
+    w.despawn(helper);
+    w.remove::<Visible>(parent);
+    f.feed_to(&w, &mut r).unwrap();
+    assert!(!r.calls.contains(&Call::Batches));
+    // A disappearing non-drawable parent still hides its child, including
+    // before a propagation step removes the dangling descendant.
+    w.despawn(parent);
+    f.feed_to(&w, &mut r).unwrap();
+    assert!(r.calls.contains(&Call::Batches));
+    assert!(r.slots.is_empty());
+}
+
+#[test]
+fn a_hidden_mesh_gaining_a_transform_keeps_its_material_dimensions() {
+    let mut w = World::new(60, 0);
+    let cube = w.spawn((Mesh::cube(3.), Visible(false)));
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(&w, &mut r).unwrap();
+    w.insert(cube, Transform::default());
+    f.feed_to(&w, &mut r).unwrap();
+    w.insert(cube, Visible(true));
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.slots, [cube.index()]);
+    let at = cube.index() as usize * 12 + 9;
+    assert_eq!(&r.materials[at..at + 3], &[3.; 3]);
+}
+
+#[test]
 fn paused_reparenting_rebuilds_primitive_and_model_draw_and_shadow_batches() {
     let mut w = World::new(60, 0);
     let shown = w.spawn(Transform::default());
@@ -137,5 +242,48 @@ fn sun_fill_and_hook_frame_fallback_skip_hidden_ancestors_but_camera_does_not() 
     assert_eq!(
         frame.fill.unwrap().illuminance,
         200. * scene::PHOTOMETRIC_SCALE
+    );
+}
+
+#[test]
+fn sun_shadow_settings_survive_save_and_reach_the_renderer() {
+    let mut w = World::new(60, 0);
+    w.spawn((Transform::default(), DirectionalLight::default()));
+    let mut feed = Feed::default();
+    let mut recording = Recording::default();
+    feed.feed_to(&w, &mut recording).unwrap();
+    assert_eq!(
+        feed.frame(&w, 1., 1.)
+            .sun
+            .unwrap()
+            .shadows
+            .unwrap()
+            .cascades,
+        3
+    );
+    let settings = crate::Shadows {
+        fixed_box: Some(crate::ShadowBox {
+            center: Vec3::new(1., 2., 3.),
+            half_width: 40.,
+            half_depth: 80.,
+        }),
+        cache_static: true,
+        resolution: 1024,
+        cascades: 1,
+        distance: 40.,
+        softness: 2.,
+        filter: crate::ShadowFilter::PcfSoft {
+            depth_bias: 0.0004,
+            normal_bias: 0.6,
+        },
+        strength: 0.65,
+    };
+    w.insert_resource(settings);
+    let mut restored = World::new(60, 0);
+    restored.load(&w.save()).unwrap();
+    feed.feed_to(&restored, &mut recording).unwrap();
+    assert_eq!(
+        feed.frame(&restored, 1., 1.).sun.unwrap().shadows,
+        Some(settings)
     );
 }

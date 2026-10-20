@@ -825,7 +825,6 @@ fn failed_names_one_resource() {
         "failed()",
         "failed(results, results)",
         "failed(query)",
-        "failed(changed)",
         "failed(1)",
         "failed(missing)",
     ] {

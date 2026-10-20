@@ -21,20 +21,44 @@ pub static PAGE: GeometryLinks = GeometryLinks::new(
     page_point,
     page_points,
     page_shown,
-);
+)
+.with_range_frame(page_range_frame);
 
 #[cfg(target_arch = "wasm32")]
-fn page_shown(_: &Kernel, _: &Scrolled, view: ViewId) -> bool {
+fn page_range_frame(
+    _: &Kernel,
+    _: &Scrolled,
+    view: ViewId,
+    start: u32,
+    end: u32,
+) -> GeometryAnswer {
     #[link(wasm_import_module = "exact_geometry")]
     extern "C" {
-        fn shown(view: u32) -> u32;
+        fn range(view: u32, start: u32, end: u32, out: *mut f64) -> u32;
     }
-    // SAFETY: one view id in, one boolean out; the page calls nothing back.
-    unsafe { shown(view) != 0 }
+    let mut out = [0.0; 4];
+    // SAFETY: the synchronous page reader writes four f64 values to this buffer.
+    let flags = unsafe { range(view, start, end, out.as_mut_ptr()) };
+    answer(flags, out)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn page_shown(_: &Kernel, _: &Scrolled, _: ViewId) -> bool {
+fn page_range_frame(_: &Kernel, _: &Scrolled, _: ViewId, _: u32, _: u32) -> GeometryAnswer {
+    GeometryAnswer::UNAVAILABLE
+}
+
+#[cfg(target_arch = "wasm32")]
+fn page_shown(_: &Kernel, _: &Scrolled, view: ViewId, first: bool) -> bool {
+    #[link(wasm_import_module = "exact_geometry")]
+    extern "C" {
+        fn shown(view: u32, first: u32) -> u32;
+    }
+    // SAFETY: a view id and a boolean in, one boolean out; the page calls nothing back.
+    unsafe { shown(view, u32::from(first)) != 0 }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn page_shown(_: &Kernel, _: &Scrolled, _: ViewId, _: bool) -> bool {
     false
 }
 

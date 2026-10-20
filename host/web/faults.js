@@ -68,8 +68,8 @@ export const faultsJson = () => state().entries.map(({ prefix, times, left, hits
 export function faultOp(req) {
   const { entries } = state();
   if (req.fail !== undefined) {
-    if (typeof req.fail !== 'string' || !req.fail) return { error: 'fail fetch needs a URL prefix' };
-    if (req.times !== undefined && !(Number.isInteger(req.times) && req.times >= 1 && req.times <= 0xffffffff)) return { error: 'fail fetch: `times` is a positive integer' };
+    if (typeof req.fail !== 'string' || !req.fail) return { malformed: true, error: 'fail fetch needs a URL prefix' };
+    if (req.times !== undefined && !(Number.isInteger(req.times) && req.times >= 1 && req.times <= 0xffffffff)) return { malformed: true, error: 'fail fetch: `times` is a positive integer' };
     const at = entries.findIndex(f => f.prefix === req.fail);
     if (at >= 0) entries.splice(at, 1);
     const times = req.times ?? null;

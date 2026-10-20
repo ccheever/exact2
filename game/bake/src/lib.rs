@@ -5,10 +5,11 @@ pub mod compress;
 mod files;
 mod geometry;
 use files::write_changed;
-pub use files::{bake_game_level, check_size};
+pub use files::{bake_game_level, bake_game_tables, check_size};
 mod sound;
 pub use sound::sound;
 mod textures;
+mod toon;
 
 /// Import a model into plain Data, refusing unsupported features by name.
 pub fn model(path: impl AsRef<Path>) -> Result<Model, String> {
@@ -132,10 +133,20 @@ fn sources(path: &Path) -> Result<(Model, ModelSources), String> {
         }
         let mut parts: Vec<MeshData> = Vec::new();
         for primitive in mesh.primitives() {
-            let data = geometry::primitive(&primitive, &buffers, model.materials.len() as u32 - 1)?;
+            let data = geometry::primitive(&primitive, &buffers, model.materials.len() as u32 - 1)
+                .map_err(|e| {
+                    format!(
+                        "{}: mesh {} ({:?}), primitive {}: {e}",
+                        path.display(),
+                        mesh.index(),
+                        mesh.name(),
+                        primitive.index()
+                    )
+                })?;
             // Merge only primitives with identical material and vertex attribute presence.
             if let Some(old) = parts.iter_mut().find(|m| {
                 m.material == data.material
+                    && toon::same_outline(m.outline.as_ref(), data.outline.as_ref())
                     && m.joints.is_empty() == data.joints.is_empty()
                     && m.weights.is_empty() == data.weights.is_empty()
             }) {
@@ -155,6 +166,12 @@ fn sources(path: &Path) -> Result<(Model, ModelSources), String> {
         .filter(|n| reached.contains(&n.index()))
         .map(|n| Node {
             name: n.name().unwrap_or("").into(),
+            posable: n
+                .extras()
+                .as_ref()
+                .and_then(|e| serde_json::from_str::<serde_json::Value>(e.get()).ok())
+                .and_then(|e| e.get("posable").and_then(|v| v.as_bool()))
+                .unwrap_or(false),
             transform: n
                 .transform()
                 .matrix()
@@ -307,6 +324,12 @@ fn sources(path: &Path) -> Result<(Model, ModelSources), String> {
             return Err("metersPerUnit must be a positive finite number".into());
         }
         for mesh in &mut model.meshes {
+            if let Some(o) = &mut mesh.outline {
+                o.width *= scale;
+                for r in &mut o.reach {
+                    *r *= scale;
+                }
+            }
             for value in &mut mesh.positions {
                 *value *= scale;
             }
@@ -481,13 +504,43 @@ pub fn sprite(path: impl AsRef<Path>) -> Result<TextureData, String> {
     Ok(texture)
 }
 
-/// A generated GPU shell's build.rs calls this before host scripts copy assets/.
-/// glTF/GLB inputs become models; standalone PNG inputs become sprite textures;
-/// WAV and Ogg Vorbis inputs become `.sound` records.
-pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
-    let app = app.as_ref();
-    let art = app.join("art");
-    println!("cargo:rerun-if-changed={}", art.display());
+/// The game directory a test in it belongs to: the nearest ancestor of
+/// `manifest_dir` holding `logic/src/lib.rs`. A generated member
+/// (`.shells/logic`) and an authored `logic/Cargo.toml` both resolve to the game.
+pub fn game_dir(manifest_dir: impl AsRef<Path>) -> Result<std::path::PathBuf, String> {
+    let start = manifest_dir.as_ref();
+    start
+        .ancestors()
+        .find(|dir| dir.join("logic/src/lib.rs").is_file())
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            format!(
+                "{}: no ancestor holds logic/src/lib.rs, so this is not inside a game",
+                start.display()
+            )
+        })
+}
+
+/// Bake a game's `art/` in memory: the named payloads `bake_art` writes to
+/// `assets/`, byte for byte, with nothing written. A game without `art/` has none.
+pub fn art(game: impl AsRef<Path>) -> Result<std::collections::BTreeMap<String, Vec<u8>>, String> {
+    let art = game.as_ref().join("art");
+    if !art.exists() {
+        return Ok(Default::default());
+    }
+    art_outputs(&art)
+}
+
+/// The in-memory bake of the game around a test crate's `CARGO_MANIFEST_DIR`,
+/// what `exact_game::sim_with_art!` loads.
+pub fn game_art(
+    manifest_dir: impl AsRef<Path>,
+) -> Result<std::collections::BTreeMap<String, Vec<u8>>, String> {
+    let game = game_dir(manifest_dir)?;
+    art(&game).map_err(|e| format!("{}: {e}", game.join("art").display()))
+}
+
+fn art_outputs(art: &Path) -> Result<std::collections::BTreeMap<String, Vec<u8>>, String> {
     fn visit(dir: &Path, files: &mut Vec<std::path::PathBuf>) -> Result<(), String> {
         for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
             let path = entry.map_err(|e| e.to_string())?.path();
@@ -503,24 +556,8 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
         Ok(())
     }
     let mut files = Vec::new();
-    if art.exists() {
-        visit(&art, &mut files)?;
-    }
+    visit(art, &mut files)?;
     files.sort();
-    let manifest = app.join(".baked-assets.json");
-    if !art.exists() && !manifest.exists() {
-        return Ok(());
-    }
-    let previous: std::collections::BTreeMap<String, String> = match std::fs::read(&manifest) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| format!(
-            "generated-output manifest: {e}; regenerate by removing .baked-assets.json and its generated outputs, then bake art again"
-        ))?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Default::default(),
-        Err(e) => return Err(e.to_string()),
-    };
-    if previous.keys().any(|n| !asset_name(n)) {
-        return Err("invalid generated-output manifest".into());
-    }
     let mut outputs = std::collections::BTreeMap::new();
     for path in files {
         if matches!(
@@ -544,7 +581,7 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             if !asset_name(&name) {
                 return Err(format!("invalid sprite asset name `{name}`"));
             }
-            let variants = match PngKind::of(&art, &path) {
+            let variants = match PngKind::of(art, &path) {
                 PngKind::Sprite => sprite_variants(&name, &path)?,
                 kind => material_texture_variants(&name, &path, kind)?,
             };
@@ -577,6 +614,35 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             return Err(format!("duplicate art stem {name}"));
         }
     }
+    Ok(outputs)
+}
+
+/// A generated GPU shell's build.rs calls this before host scripts copy assets/.
+/// glTF/GLB inputs become models; standalone PNG inputs become sprite textures;
+/// WAV and Ogg Vorbis inputs become `.sound` records.
+pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
+    let app = app.as_ref();
+    let art = app.join("art");
+    println!("cargo:rerun-if-changed={}", art.display());
+    let manifest = app.join(".baked-assets.json");
+    if !art.exists() && !manifest.exists() {
+        return Ok(());
+    }
+    let previous: std::collections::BTreeMap<String, String> = match std::fs::read(&manifest) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| format!(
+            "generated-output manifest: {e}; regenerate by removing .baked-assets.json and its generated outputs, then bake art again"
+        ))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Default::default(),
+        Err(e) => return Err(e.to_string()),
+    };
+    if previous.keys().any(|n| !asset_name(n)) {
+        return Err("invalid generated-output manifest".into());
+    }
+    let outputs = if art.exists() {
+        art_outputs(&art)?
+    } else {
+        Default::default()
+    };
     let root = app.join("assets");
     // Validate every mutation before writing or pruning anything.
     for name in previous.keys().chain(outputs.keys()) {

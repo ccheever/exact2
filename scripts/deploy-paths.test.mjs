@@ -89,6 +89,7 @@ test('async compiles tvOS per commit with no simulator, and tier 2 installs it',
 
 test('tier 2 checks platform host and app crates for their actual target', () => {
   const checks = asyncLane.tierTwoChecks();
+  expect(checks.find(([name]) => name === 'watchos')).toEqual(['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']]);
   for (const name of ['linux', 'windows']) expect(checks.find(([step]) => step === name)?.[2]).toContain('CRATE_CC_NO_DEFAULTS=1');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('x86_64-unknown-linux-gnu');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('--keep-going');
@@ -120,8 +121,13 @@ test('async game step checks the separate workspace with its lockfile', () => {
   expect(steps.find(([name]) => name === 'game')).toEqual(['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']]);
 });
 
-test('async glue runs the capture fixtures', () => {
-  expect(glueTests(resolve(import.meta.dir, '..'))).toContain('./scripts/app-workspace.test.mjs');
+test('async glue runs the capture fixtures and the web JS target\'s tests, less those it leaves out', () => {
+  const glue = glueTests(resolve(import.meta.dir, '..'));
+  expect(glue).toContain('./scripts/app-workspace.test.mjs');
+  expect(glue).toContain('./host/web-js/conformance/net.test.mjs');
+  expect(glue).toContain('./host/web-js/live-clock.test.js');
+  expect(glue).not.toContain('./host/web-js/bundle-size.test.mjs');
+  expect(glue).not.toContain('./host/web-js/document-agent.test.mjs');
 });
 
 const parent = realpathSync.native(tmpdir());

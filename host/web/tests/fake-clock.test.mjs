@@ -11,8 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
-import * as playwright from 'playwright-core';
-import { chromium as installed } from '../../../scripts/agent-launch.mjs';
+import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
@@ -69,7 +68,7 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 
 async function open(fake) {
   served ??= serve();
-  browser ??= await playwright.chromium.launch({ executablePath: chrome.executable, headless: true });
+  browser ??= await suiteBrowser();
   const context = await browser.newContext({ timezoneId: 'UTC' }), page = await context.newPage(), errors = [];
   page.on('pageerror', error => errors.push(String(error)));
   await fake(page.clock);
@@ -95,8 +94,8 @@ check('the app starts under clock.install, and runFor and fastForward fire its t
     await page.clock.runFor(61_000);
     await until('ticks', '1');
     await until('day', '2026-10-09');
-    await page.clock.fastForward(120_000); // the runner catches up the two minutes it missed
-    await until('ticks', '3');
+    await page.clock.fastForward(120_000); // the minute repeat's two missed beats fire once
+    await until('ticks', '2');
     expect(errors).toEqual([]);
   } finally { await close(); }
 }, 60_000);
@@ -115,7 +114,7 @@ check('the app starts under setFixedTime', async () => {
 // too) guards the engine's DateTimeFormat, and puts it in place of the fake's,
 // whose `format()` would answer an omitted date from the fake clock.
 check("the module realm's prelude installs its guards under clock.install", async () => {
-  browser ??= await playwright.chromium.launch({ executablePath: chrome.executable, headless: true });
+  browser ??= await suiteBrowser();
   const context = await browser.newContext(), page = await context.newPage();
   try {
     await page.clock.install({ time: before });

@@ -82,6 +82,75 @@ final class ListRowsIOSTests: XCTestCase {
         }
     }
 
+    /// Whether a header button opens a popover is the header rule's to read
+    /// (`Invocation`), wherever the popover is: rows that create, rename or
+    /// drop what a header button names, a view or a paragraph's run, are no
+    /// rows-only batch.
+    func testWhatAHeaderButtonNamesIsReadInsideTheRows() throws {
+        let p = Presenter()
+        p.apply(wireBatch([
+            ["op": "collections", "items": [snapshot(4, revision: 1)]],
+            ["op": "create", "id": 1, "kind": "view", "props": ["navigationKey": "home"]],
+            ["op": "create", "id": 5, "kind": "view", "props": ["navigationKey": "home"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "header"]],
+            ["op": "create", "id": 3, "kind": "button", "props": ["popovertarget": "m"]],
+            ["op": "create", "id": 4, "kind": "list", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 40, "kind": "view"], ["op": "create", "id": 43, "kind": "view", "props": ["id": "m", "popover": "auto"]],
+            ["op": "create", "id": 44, "kind": "text"],
+            ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 4, "ids": [40, 43, 44]],
+            ["op": "children", "id": 5, "ids": [2, 4]], ["op": "children", "id": 1, "ids": [5]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+        ]))
+        XCTAssertTrue(p.onlyListRows(wireBatch([
+            ["op": "create", "id": 41, "kind": "view"], ["op": "children", "id": 4, "ids": [40, 41, 43, 44]],
+            ["op": "paragraph", "id": 44, "runs": [["id": 46, "parent": 44, "paint": true, "props": ["text": "plain"], "style": [:]]]],
+        ])), "a plain row and a plain run")
+        for ops: [[String: Any]] in [
+            [["op": "create", "id": 42, "kind": "view", "props": ["id": "m", "popover": "auto"]], ["op": "children", "id": 4, "ids": [40, 42, 43]]],
+            [["op": "props", "id": 40, "set": ["id": "m"]]],
+            [["op": "props", "id": 43, "set": ["id": "other"]]],
+            [["op": "destroy", "id": 43], ["op": "children", "id": 4, "ids": [40, 44]]],
+            [["op": "paragraph", "id": 44, "runs": [["id": 45, "parent": 44, "paint": true, "props": ["id": "m", "text": "m"], "style": [:]]]]],
+        ] {
+            XCTAssertFalse(p.onlyListRows(wireBatch(ops)), "\(ops)")
+        }
+        // A paragraph holding a run the header names, destroyed with that run.
+        p.apply(wireBatch([["op": "paragraph", "id": 44, "runs": [["id": 45, "parent": 44, "paint": true, "props": ["id": "m", "text": "m"], "style": [:]]]]]))
+        XCTAssertFalse(p.onlyListRows(wireBatch([["op": "destroy", "id": 45], ["op": "destroy", "id": 44], ["op": "children", "id": 4, "ids": [40, 43]]])))
+        XCTAssertFalse(p.onlyListRows(wireBatch([["op": "destroy", "id": 44], ["op": "children", "id": 4, "ids": [40, 43]]])))
+    }
+
+    /// A scroll view's content is rows too (a sequencer's step strips redraw
+    /// eight times a second), unless the projection reads it or into it.
+    func testAScrollViewsContentIsRows() {
+        let p = Presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "scroll"], ["op": "create", "id": 20, "kind": "view"], ["op": "create", "id": 21, "kind": "view"],
+            ["op": "create", "id": 3, "kind": "view", "props": ["semanticTag": "header"]],
+            ["op": "create", "id": 4, "kind": "scroll"], ["op": "create", "id": 40, "kind": "view"],
+            ["op": "create", "id": 5, "kind": "scroll"], ["op": "create", "id": 50, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "children", "id": 20, "ids": [21]], ["op": "children", "id": 2, "ids": [20]],
+            ["op": "children", "id": 4, "ids": [40]], ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 5, "ids": [50]],
+            ["op": "children", "id": 1, "ids": [3, 2, 5]], ["op": "roots", "ids": [1]],
+        ]))
+        XCTAssertTrue(p.onlyListRows(wireBatch([
+            ["op": "create", "id": 22, "kind": "view"], ["op": "children", "id": 20, "ids": [21, 22]],
+            ["op": "frame", "id": 22, "x": 0.0, "y": 0.0, "w": 6.0, "h": 6.0],
+            ["op": "style", "id": 21, "style": ["opacity": 0.4]],
+            ["op": "animations", "id": 21, "specs": []],
+            ["op": "destroy", "id": 22],
+        ])))
+        for ops: [[String: Any]] in [
+            [["op": "style", "id": 40, "style": ["opacity": 0.5]]],   // a scroll in a header
+            [["op": "style", "id": 50, "style": ["opacity": 0.5]]],   // a scroll holding a tablist
+            [["op": "animations", "id": 1, "specs": []]],            // outside every scroll
+        ] {
+            XCTAssertFalse(p.onlyListRows(wireBatch(ops)), "\(ops)")
+        }
+    }
+
     /// The gate itself: a rows batch asks no sync, anything else does.
     func testOnlyARowsBatchSkipsTheProjection() {
         let p = presenter()

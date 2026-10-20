@@ -1,4 +1,4 @@
-// The app's server: `bun server.ts` (bun:sqlite; a persona's token is its name). It listens where
+// The app's server: `bun server.ts` (bun:sqlite; a persona signs in with its token). It listens where
 // app.ts calls it, its API: the one place the address is. `test` and `verify` run it there
 // themselves on an empty database, its path in DB; the default keeps data.db beside it.
 import { Database } from 'bun:sqlite';
@@ -6,8 +6,8 @@ import { API } from './app.ts';
 
 const db = new Database(process.env.DB ?? 'data.db');
 db.run('CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, title TEXT NOT NULL, notes TEXT NOT NULL, by TEXT NOT NULL, locked INTEGER NOT NULL DEFAULT 0)');
-const PEOPLE: Record<string, string> = { ada: 'Ada', grace: 'Grace' };
-const person = (req: Request) => PEOPLE[req.headers.get('authorization')?.replace('Bearer ', '') ?? ''];
+const PEOPLE = new Set(['ada', 'grace']);
+const person = (req: Request) => { const token = req.headers.get('authorization')?.replace('Bearer ', '') ?? ''; return PEOPLE.has(token) ? token : undefined; };
 // The web app's page is another origin: every answer, and the preflight, allows it.
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, POST, PATCH, DELETE' };
 const send = (body: unknown, status = 200) => Response.json(body, { status, headers: CORS });

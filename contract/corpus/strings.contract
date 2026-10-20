@@ -1,5 +1,5 @@
 // Accept fixture: strings compare in UTF-16 code-unit order, and `slice`,
-// `replaceAll` and `toLowerCase` are the web's (LLP 1088 D1, D2). Calendar's
+// `replaceAll`, `toLowerCase` and `toUpperCase` are the web's (LLP 1088 D1, D2). Calendar's
 // end-after-start check and calc's Backspace and sign flip, written in the
 // view instead of the data module.
 component Strings
@@ -22,3 +22,4 @@ component Strings
       button "Backspace" press=backspace testId="back"
       button "Flip" press=flip testId="flip"
       text query.toLowerCase() testId="lower"
+      text query.toUpperCase() testId="upper"

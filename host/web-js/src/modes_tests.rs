@@ -306,3 +306,341 @@ fn a_pinned_accent_naming_its_token_declares_the_accent_where_the_token_is_a_col
         out.js
     );
 }
+
+/// LLP 1121 stage 4, commit 4: a development build makes every token a
+/// property, varying or not, so the live table can set it in place; its
+/// design names each one's CSS per tuple. A release build folds a token
+/// that does not vary inline, as before.
+#[test]
+fn a_development_build_makes_every_token_a_property() {
+    let view = "component App\n  view\n    column background-color=\"surface.card\"\n      text \"a\" color=\"brand\"\n";
+    let dir = std::env::temp_dir().join(format!("exact-web-js-modes-dev-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    std::fs::write(dir.join("app.contract"), view).unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let release = crate::emit::emit(&plan, false, false).unwrap();
+    let dev = crate::emit::emit(&plan, false, true).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!release.css.contains("--x-brand"), "{}", release.css);
+    assert!(dev.css.contains("color:var(--x-brand)"), "{}", dev.css);
+    let root = dev
+        .css
+        .find(":root,[data-x-modes=\"dark-style=black\"]{")
+        .expect(&dev.css);
+    assert!(
+        dev.css[root..].contains("--x-brand:#c8102eff;"),
+        "{}",
+        dev.css
+    );
+    // The page knows the design it was built with: a batch's base.
+    let digest = exact_runner::design::digest(&exact_runner::design::tokens(&plan));
+    let structure = exact_runner::design::shape(&plan);
+    assert!(
+        dev.js.contains(&format!(",\"{digest}\",\"{structure}\");")),
+        "{}",
+        dev.js
+    );
+    assert!(!release.js.contains(&digest));
+    let design = {
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)
+    };
+    assert_eq!(design["digest"], digest);
+    let brand = design["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "brand")
+        .unwrap();
+    assert_eq!(brand["prop"], "--x-brand");
+    assert_eq!(brand["css"], serde_json::json!(["#c8102eff", "#c8102eff"]));
+    assert_eq!(brand["accent"], serde_json::json!([false, false]));
+    let card = design["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "surface.card")
+        .unwrap();
+    assert_eq!(card["css"][1], "light-dark(#ffffffff, #15202bff)");
+}
+
+/// LLP 1121 stage 5, commit 2: a development build makes each role
+/// override live. A row naming an overridden role reads its sheet property
+/// (`--exact-canvas-text`), declared in the root's tuple rule after the
+/// theme's sheet; a role the kernel crosses reads it over its value; the
+/// tint's override is its `--exact-accent` in the design. A release build
+/// crosses the values, as before.
+#[test]
+fn a_development_build_makes_every_role_override_a_property() {
+    let view = "component App\n  view\n    column\n      text \"a\" color=\"CanvasText\"\n      text \"b\" color=\"-exact-label\"\n";
+    let dir = std::env::temp_dir().join(format!("exact-web-js-modes-roles-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n  CanvasText = ink\n  -exact-label = #222222\n  AccentColor = #0a7aff\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("app.contract"), view).unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let release = crate::emit::emit(&plan, false, false).unwrap();
+    let dev = crate::emit::emit(&plan, false, true).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        release.css.contains("color:rgba(17,17,17,1);"),
+        "{}",
+        release.css
+    );
+    let root = dev.css.find(":root,[data-x-modes=\"\"]{").expect(&dev.css);
+    let theme = dev
+        .css
+        .find("--exact-canvas-text:#111111ff")
+        .expect(&dev.css);
+    assert!(
+        theme < root,
+        "the tuple rule follows the theme's sheet: {}",
+        dev.css
+    );
+    assert!(
+        dev.css[root..].contains("--exact-canvas-text:#111111ff;"),
+        "{}",
+        dev.css
+    );
+    assert!(
+        dev.css.contains("color:var(--exact-canvas-text)"),
+        "{}",
+        dev.css
+    );
+    // A page rendered ahead drops its baked colour for the class's property.
+    assert!(dev.js.contains(r#"c2:["color"]"#), "{}", dev.js);
+    let design = {
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)
+    };
+    let row = |name: &str| {
+        design["tokens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(row("CanvasText")["prop"], "--exact-canvas-text");
+    assert_eq!(row("CanvasText")["css"], serde_json::json!(["#111111ff"]));
+    assert_eq!(row("AccentColor")["prop"], "--exact-accent");
+    assert_eq!(row("AccentColor")["css"], serde_json::json!(["#0a7affff"]));
+    assert_eq!(row("AccentColor")["root"], true);
+    assert_eq!(row("-exact-label")["prop"], "--exact-label");
+    assert!(dev.css.contains("color:var(--exact-label);"), "{}", dev.css);
+    assert!(
+        release.css.contains("color:rgba(34,34,34,1);"),
+        "{}",
+        release.css
+    );
+}
+
+/// The JS loop's design reader (`exact-web-js design`, a design text read
+/// with no build) says the plan's structure, which its fast path compares:
+/// it moves for what the plan keeps (theme2's ruling, LLP 1121 stage 5,
+/// D7's retention) and only that. With a data crate beside the app every
+/// token is kept, so an added one moves it; a first `when` on a kept token
+/// moves it; in a plain app an unnamed token's add does not.
+#[test]
+fn the_design_readers_structure_moves_for_what_the_plan_keeps() {
+    let design = "tamber t\n\naxes\n  tone = warm | cool\n\ntheme\n  ink = #111111\n";
+    let added = format!("{design}  spare = #222222\n");
+    let varies = design.replace(
+        "ink = #111111\n",
+        "ink = #111111\n    when tone=cool: #0a7aff\n",
+    );
+    let read = |dir: &std::path::Path, text: &str| {
+        let src = dir.join("app.contract");
+        let path = contract::design_path(&src).unwrap();
+        let (plan, _) = contract::with_design_text(&path, text.to_string(), || {
+            contract::compile_path_all(&src, false)
+        })
+        .unwrap();
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)["structure"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let app = |tag: &str, bound: bool| {
+        let dir =
+            std::env::temp_dir().join(format!("exact-web-js-reader-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("app.tamber"), design).unwrap();
+        std::fs::write(
+            dir.join("app.contract"),
+            "component App\n  view\n    text \"a\" color=\"ink\"\n",
+        )
+        .unwrap();
+        if bound {
+            std::fs::create_dir_all(dir.join("data")).unwrap();
+            std::fs::write(
+                dir.join("data/Cargo.toml"),
+                "[package]\nname = \"t-data\"\n",
+            )
+            .unwrap();
+        }
+        dir
+    };
+    let bound = app("bound", true);
+    let base = read(&bound, design);
+    assert_ne!(read(&bound, &added), base, "a kept token added");
+    assert_ne!(read(&bound, &varies), base, "a kept token starting to vary");
+    let plain = app("plain", false);
+    let base = read(&plain, design);
+    assert_eq!(
+        read(&plain, &added),
+        base,
+        "a token no view names is in no plan"
+    );
+    assert_ne!(read(&plain, &varies), base, "a kept token starting to vary");
+    let _ = std::fs::remove_dir_all(bound);
+    let _ = std::fs::remove_dir_all(plain);
+}
+
+/// @ref LLP 1121 D8 (stage 8 B): a node's `:hover` and `:focus-visible`
+/// looks are the sheet's rules for its set, with a varying token as its
+/// property; the node names its set; `:active` is the node's press paint, an
+/// absolute opacity included; a node without looks has neither.
+#[test]
+fn state_looks_are_sheet_rules_for_the_nodes_set() {
+    let part = ":active\n          background-color = \"surface.card\"\n          opacity = 0.6\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"brand\"\n        :focus-visible\n          background-color = \"surface.card\"\n";
+    let view = format!("component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"card\" press=go background-color=\"#ffffff\"\n        {part}        text \"c\"\n      column testId=\"same\" press=go\n        {part}        text \"d\"\n      column testId=\"plain\" press=go\n        text \"p\"\n      column testId=\"cleared\" press=go opacity=0.5\n        :hover\n          opacity = \"unset\"\n        text \"u\"\n");
+    let out = emitted("looks", DESIGN, &view);
+    assert_eq!(
+        out.js.matches("\"data-exact-looks\":\"1\"").count(),
+        2,
+        "one set for both: {}",
+        out.js
+    );
+    assert!(out.js.contains("--exact-press:0.95"), "{}", out.js);
+    assert!(
+        out.js.contains("--exact-press-opacity-to:0.6"),
+        "the press's absolute opacity: {}",
+        out.js
+    );
+    assert!(
+        out.js
+            .contains("--exact-press-background-color:var(--x-surface-card"),
+        "a varying token stays its property: {}",
+        out.js
+    );
+    let hover = out
+        .css
+        .find("[data-exact-looks=\"1\"]:hover")
+        .expect("a hover rule");
+    let focus = out
+        .css
+        .find("[data-exact-looks=\"1\"]:focus-visible")
+        .expect("a focus rule");
+    assert!(hover < focus, "{}", out.css);
+    assert!(
+        !out.css.contains("data-pressed"),
+        "`:active` is no look: {}",
+        out.css
+    );
+    assert!(
+        !out.css.contains("#exact-root [data-exact-looks"),
+        "a look sits under the shell's #exact-root press paint: {}",
+        out.css
+    );
+    assert!(out.css.contains("var(--x-surface-card"), "{}", out.css);
+    assert!(
+        out.css.contains("opacity:unset!important"),
+        "an explicit clear, as a static row's: {}",
+        out.css
+    );
+}
+
+/// LLP 1121 stage 9 B: under a written token colour, a mode boundary below
+/// writes the token again as its implied row, no author's, so the kernel's
+/// symbol under the boundary takes no written colour; one beside it does.
+/// So does one under a boundary whose own bound colour clears or is refused,
+/// step after step; a written value there is said. The JS target marks those under a boundary for
+/// symbols.js to decide by its implied row (`$xs`) and its binding
+/// (`$ink`), and the one beside as written.
+#[test]
+fn a_symbol_under_a_mode_boundary_is_decided_as_the_kernel_decides() {
+    let dir = std::env::temp_dir().join(format!("exact-web-js-modes-ink-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  state ink = \"inherit\"\n  action paint(v: string)\n    ink = v\n  view\n    column color=\"text.primary\"\n      for v in [\"inherit\", \"unset\", \"currentcolor\", \"nope\", \"nada\", \"#ff0000\"] key=v\n        button v press=paint(v) testId=v\n      image \"symbol:star\" testId=\"beside\"\n      column -exact-mode=\"dark-style=dim\" testId=\"boundary\"\n        image \"symbol:star\" testId=\"under\"\n      column -exact-mode=\"dark-style=dim\" color=ink testId=\"bound\"\n        image \"symbol:star\" testId=\"bound-under\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let (mut host, _) = exact_web::Host::boot(&plan.encode(), (), Default::default(), "/").unwrap();
+    let said = |host: &exact_web::Host<()>, id: &str| {
+        let kernel = host.runner().kernel();
+        let key = kernel.find_by_test_id(id)[0];
+        kernel.node_by_key(key).unwrap().symbol_color_said()
+    };
+    assert!(said(&host, "beside"));
+    assert!(
+        !said(&host, "under"),
+        "the boundary's implied row is no author's"
+    );
+    // A boundary whose own bound colour clears, or takes a value the row
+    // refuses, keeps its implied row, one clear after another included; a
+    // value its author wrote is said. The JS target's rule (symbols.js
+    // `inked`: the implied row first, then the binding) agrees at each step.
+    let js = |v: &str| !matches!(v, "inherit" | "unset" | "currentcolor" | "nope" | "nada");
+    let steps = [
+        "unset",
+        "currentcolor",
+        "nope",
+        "nada",
+        "#ff0000",
+        "inherit",
+        "#ff0000",
+        "unset",
+    ];
+    assert!(
+        !said(&host, "bound-under"),
+        "inherit at boot: its implied row"
+    );
+    for v in steps {
+        let button = {
+            let kernel = host.runner().kernel();
+            kernel.node_by_key(kernel.find_by_test_id(v)[0]).unwrap().id
+        };
+        host.dispatch(button, exact_runner::Event::Press);
+        assert_eq!(said(&host, "bound-under"), js(v), "after {v}");
+    }
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let props = |id: &str| {
+        let part = parts.iter().flatten();
+        let mut part = part.filter(|p| p.props.get("data-testid").is_some_and(|t| t == id));
+        part.next().unwrap().props.clone()
+    };
+    assert!(props("beside").contains_key("data-symbol-color"));
+    let under = props("under");
+    assert!(!under.contains_key("data-symbol-color"), "{under:?}");
+    assert_eq!(under.get("data-symbol-ink").map(String::as_str), Some("11"));
+    assert_eq!(
+        props("boundary").get("data-exact-ink").map(String::as_str),
+        Some("b")
+    );
+    let bound = props("bound-under");
+    assert_eq!(
+        bound.get("data-symbol-ink").map(String::as_str),
+        Some("11"),
+        "{bound:?}"
+    );
+    assert_eq!(
+        props("bound").get("data-exact-ink").map(String::as_str),
+        Some("1b")
+    );
+}

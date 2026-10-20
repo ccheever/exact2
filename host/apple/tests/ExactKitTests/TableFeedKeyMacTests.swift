@@ -567,6 +567,22 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertFalse(f.status.contains("press 4"), "an arrow selects a row whose press is an action, and presses nothing")
     }
 
+    func testNativeTableContextMenuIgnoresDisabledOnContainerRows() throws {
+        for kind in ["row", "button"] {
+            let source = Self.acting.replacingOccurrences(of: "row press=open(r)", with: "\(kind) disabled=true press=open(r)")
+            let f = try TableFixture(count: 20, source: source)
+            fixture = f
+            f.window.orderFrontRegardless()
+            let title = try f.node("title-5")
+            let point = title.convert(NSPoint(x: title.bounds.midX, y: title.bounds.midY), to: nil)
+            _ = f.table.menu(for: mouse(.rightMouseDown, point, f.window))
+            f.settle()
+            XCTAssertEqual(f.status, kind == "row" ? "log menu 5;" : "log ", "NSTableView asks for the row's menu without rightMouseDown")
+            f.close()
+            fixture = nil
+        }
+    }
+
     func testAContextClickAndADoubleClickOnARowAreTheRowsOwn() throws {
         let f = try keyed(count: 20, source: Self.acting)
         /// A press of a mouse button and its release in the middle of `view`, as `click` sends the left one.

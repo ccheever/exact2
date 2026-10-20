@@ -9,16 +9,27 @@
 //! completed the reader draws the buffer as a hardware bitmap in the pass it
 //! already runs, as it draws a decoded picture.
 //!
-//! The ring has four buffers: the one being rendered, the one waiting for
-//! the GPU, the one the reader shows and the one it showed a frame ago. A
-//! buffer is written again three frames after it was published.
+//! The ring has six buffers: up to [`IN_FLIGHT`] on the GPU, a finished one
+//! waiting to be shown, the one the reader shows and the one it showed a frame
+//! ago. Frames are published in the order they finish, one a call (`take`):
+//! when frames finish two in one display frame and none in the next, which a
+//! canvas rendered at the display's rate does, the newest alone would drop one
+//! and show another twice. No buffer in any of those states is rendered into
+//! again (`target`); past one waiting, the oldest is dropped. A canvas renders
+//! no new frame while [`IN_FLIGHT`] are on the GPU (`Module::render_to_buffer`;
+//! under the agent's clock the frame waits for the GPU instead): more only
+//! queue work the reader will drop. Fewer leave the GPU idle between
+//! frames, and Android's governor then lowers its clock (on a Pixel 5, 60 frames
+//! a second of 64,000 cubes at three, 52 at two and 20 at one).
 #![allow(unsafe_code)]
+use crate::ring_order::{Order, SLOTS};
 use crate::Gpu;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-const SLOTS: usize = 4;
+/// Frames a canvas keeps on the GPU at once (see the module's text).
+pub(crate) const IN_FLIGHT: usize = 3;
 /// `AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM`.
 const R8G8B8A8_UNORM: u32 = 1;
 /// `AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE | GPU_FRAMEBUFFER`.
@@ -61,15 +72,9 @@ impl Drop for Slot {
 /// A canvas's buffers.
 pub(crate) struct Ring {
     pub(crate) size: (u32, u32),
+    pub(crate) format: wgpu::TextureFormat,
     slots: Vec<Slot>,
-    /// The slot the next frame renders into.
-    next: usize,
-    /// Slots whose frames are submitted, with the GPU's word that each is done.
-    pending: Vec<(usize, Arc<AtomicBool>)>,
-    /// The newest complete frame's slot.
-    latest: Option<usize>,
-    /// Counts the frames published, so a reader knows a new one.
-    serial: u32,
+    order: Order,
     /// Distinguishes this ring's buffers from an earlier ring's.
     generation: u32,
 }
@@ -81,8 +86,18 @@ static GENERATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::
 impl Ring {
     /// Buffers of `width`×`height` imported as render targets, or `None`
     /// when the device cannot (the canvas then needs a window).
-    pub(crate) fn new(gpu: &Gpu, width: u32, height: u32) -> Option<Ring> {
+    pub(crate) fn new(
+        gpu: &Gpu,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> Option<Ring> {
         let (width, height) = (width.max(1), height.max(1));
+        let view_formats = if format == FORMAT {
+            vec![]
+        } else {
+            vec![format]
+        };
         let mut slots = Vec::with_capacity(SLOTS);
         for _ in 0..SLOTS {
             let desc = Desc {
@@ -123,7 +138,7 @@ impl Ring {
                             format: FORMAT,
                             usage: wgpu::TextureUses::COLOR_TARGET | wgpu::TextureUses::RESOURCE,
                             memory_flags: wgpu::hal::MemoryFlags::empty(),
-                            view_formats: Vec::new(),
+                            view_formats: view_formats.clone(),
                         },
                     )
                     .ok()
@@ -143,63 +158,72 @@ impl Ring {
                             dimension: wgpu::TextureDimension::D2,
                             format: FORMAT,
                             usage,
-                            view_formats: &[],
+                            view_formats: &view_formats,
                         },
                         wgpu::TextureUses::UNINITIALIZED,
                     )
             };
             slots.push(Slot {
                 buffer,
-                view: texture.create_view(&Default::default()),
+                view: texture.create_view(&wgpu::TextureViewDescriptor {
+                    format: Some(format),
+                    ..Default::default()
+                }),
                 _texture: texture,
             });
         }
         Some(Ring {
+            format,
             size: (width, height),
             slots,
-            next: 0,
-            pending: Vec::new(),
-            latest: None,
-            serial: 0,
+            order: Order::default(),
             generation: GENERATION.fetch_add(1, Ordering::Relaxed),
         })
     }
 
-    /// The slot this frame renders into and its view.
-    pub(crate) fn target(&mut self) -> (usize, wgpu::TextureView) {
-        let slot = self.next;
-        self.next = (slot + 1) % SLOTS;
-        (slot, self.slots[slot].view.clone())
+    /// The slot this frame renders into and its view ([`Order::target`]).
+    pub(crate) fn target(&mut self) -> Option<(usize, wgpu::TextureView)> {
+        let slot = self.order.target()?;
+        Some((slot, self.slots[slot].view.clone()))
     }
 
-    /// `slot`'s frame was submitted: it is published once the GPU has run it.
-    pub(crate) fn submitted(&mut self, slot: usize, queue: &wgpu::Queue) {
+    /// `slot`'s frame was submitted: busy until the GPU has run it, then
+    /// published if `publish`.
+    pub(crate) fn submitted(&mut self, slot: usize, publish: bool, queue: &wgpu::Queue) {
         let done = Arc::new(AtomicBool::new(false));
         let flag = done.clone();
         queue.on_submitted_work_done(move || flag.store(true, Ordering::Release));
-        self.pending.push((slot, done));
+        self.order.submitted(slot, done, publish);
     }
 
-    /// Take the frames the GPU has finished: the newest becomes the one a
-    /// reader draws.
+    /// Frames submitted that the GPU has not finished.
+    pub(crate) fn in_flight(&self) -> usize {
+        self.order.in_flight()
+    }
+
+    /// Take the frames the GPU has finished ([`Order::settle`]).
     pub(crate) fn settle(&mut self) {
-        while let Some((slot, done)) = self.pending.first() {
-            if !done.load(Ordering::Acquire) {
-                break;
-            }
-            self.latest = Some(*slot);
-            self.serial = self.serial.wrapping_add(1);
-            self.pending.remove(0);
-        }
+        self.order.settle();
+    }
+
+    /// Publish the oldest finished frame ([`Order::take`]) and return the
+    /// published frame (as [`Ring::latest`]).
+    pub(crate) fn take(&mut self) -> Option<([u32; 3], *mut c_void)> {
+        self.order.take();
+        self.latest()
     }
 
     /// The newest complete frame: `[generation, slot, serial]` and its
     /// buffer (an `AHardwareBuffer*`, alive while the ring is).
     pub(crate) fn latest(&self) -> Option<([u32; 3], *mut c_void)> {
-        let slot = self.latest?;
+        let (slot, serial) = self.order.latest()?;
         Some((
-            [self.generation, slot as u32, self.serial],
+            [self.generation, slot as u32, serial],
             self.slots[slot].buffer,
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "buffers_tests.rs"]
+mod tests;

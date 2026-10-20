@@ -17,6 +17,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 exact-grants = { path = "../grants" }
+exact-js-value = { path = "../js/value" }
 exact-canvas = { path = "../canvas" }
 exact-kernel = { path = "../kernel" }
 exact-motion = { path = "../motion" }
@@ -24,6 +25,7 @@ exact-num = { path = "../num" }
 exact-plan = { path = "../plan" }
 exact-route = { path = "../route" }
 sha2 = "0.10"
+serde_json = "1.0"
 
 [dev-dependencies]
 # Compiles every app's Contract source for the incremental-equals-full test.

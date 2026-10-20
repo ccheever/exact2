@@ -3,14 +3,15 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { pieces, pageHistory, Head, navigateRoot, Tasks, journal } from './rt.js';
+import { pieces, pageHistory, Head, navigateRoot, Tasks, journal, unopened } from './rt.js';
 import * as perf from './perf.js';
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
-import { displayMode, environment, navigation, unselected, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks, pageReporter } from './navigation.js';
+import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, typeControl, animationClocks, pageReporter } from './navigation.js';
+import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll, scrollRange } from './input-glue.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-controls', 'accessibilityControls'], ['id', 'id'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', AUDIO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 /** The view an operation names: its id, else the first node with that testId on an active screen, a covered
  * screen's or an unselected tab's copy only when no active one carries it, as the runner's `target`. */
@@ -18,7 +19,7 @@ const targetOf = (nodes, t) => { const named = nodes.filter(n => n.props.testId 
 export function install(exact) {
   const views = exact.views, id = exact.viewId;
   let page;
-  const ownPage = () => page ??= (f => ({ prefer: p => { f.prefer(p); return f.read(); } }))(pageReporter(true));
+  const ownPage = () => page ??= (f => ({ prefer: p => { f.prefer(p); return f.read(); }, read: () => f.read() }))(pageReporter(true));
   setFaultLog(line => journal.push(`t=${exact.clock.now} ${line}`)); // the runner's journal line for an injected failure (LLP 1103 D2)
   // A Markdown text's pieces are its content, not views.
   // A view leaving with its exit animation (presence-glue.js) is no view: the runner destroyed it.
@@ -42,6 +43,8 @@ export function install(exact) {
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
     // A paragraph of runs has no text of its own: its runs carry it.
     if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? (flowed(el) ? el.$flow.text : el.textContent);
+    // A formatted live time's text is the node before its hidden fallback children (live-time.js), as the runner's tree has it.
+    else if (el.localName === 'time' && el.hasAttribute('data-time-shown')) props.text = el.firstChild?.nodeType === Node.TEXT_NODE ? el.firstChild.data : '';
     // An option's, a checkbox's and a radio's value is its authored `value` (the DOM's falls back to its label, or `on`), as the runner's tree gives it.
     // A determinate progress's `value` and `max` as written (LLP 1116 D8): the DOM's `value` is a number.
     if (el.tagName === 'PROGRESS') { for (const k of ['value', 'max']) if (el.hasAttribute(k)) props[k] = el.getAttribute(k); }
@@ -58,7 +61,7 @@ export function install(exact) {
     if (el.hasAttribute('inert')) props.inert = true;
     // A disabled control, as the runner's tree gives its `disabled` prop (LLP 1116.010 D3: `expect disabled`, and a press refused the same on every host).
     // `aria-disabled` is its own prop, as the runner gives it: it reads as disabled, but a press still dispatches.
-    if (el.matches(':disabled')) props.disabled = true;
+    if (el.matches(':disabled, [disabled]')) props.disabled = true; // a box's own `disabled`, which `:disabled` does not match
     if (el.getAttribute('aria-disabled') === 'true') props.accessibilityDisabled = true;
     if (el.getAttribute('aria-hidden') === 'true') props.accessibilityElementsHidden = true;
     if (el.getAttribute('aria-modal') === 'true' && !sheet) props.accessibilityModal = true;
@@ -80,10 +83,11 @@ export function install(exact) {
     }
     return n;
   };
-  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16).
+  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16);
+  // `unopened`: a tab panel whose tab has never been selected, empty until it is (LLP 1075.003 §3.7).
   const all = () => {
     const out = [], root = document.getElementById('exact-root'), off = new Set([...root.querySelectorAll('[navigationBack]')].flatMap(nav => unselected(nav)));
-    const walk = (el, d, dead) => { const n = record(el, d); out.push(n); if ((dead ||= off.has(el))) n.inactive = true; n.children = kids(el).map(c => walk(c, d + 1, dead).id); return n; };
+    const walk = (el, d, dead) => { const n = record(el, d); out.push(n); if ((dead ||= off.has(el))) n.inactive = true; if (unopened(el)) n.unopened = true; n.children = kids(el).map(c => walk(c, d + 1, dead).id); return n; };
     kids(root).forEach(el => walk(el, 0, false));
     return out;
   };
@@ -153,14 +157,15 @@ export function install(exact) {
       if (aid == null) continue;
       parent ??= aid;
       const ac = getComputedStyle(a);
-      if (a.dataset.scroll === 'true') scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop) });
+      if (a.dataset.scroll === 'true') scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop), ...scrollRange(a) });
       for (const kind of (ac.overflowX !== 'visible' || ac.overflowY !== 'visible' ? ['overflow'] : []).concat(ac.clipPath !== 'none' ? ['clip-path'] : [])) {
         clip.unshift({ id: aid, kind });
         const c = a.getBoundingClientRect();
         if (r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) clipped = true;
       }
     }
-    if (scrollX || scrollY) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY) });
+    const page = scrollRange(document.scrollingElement ?? document.documentElement);
+    if (scrollX || scrollY || page.rx || page.ry) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY), ...page });
     const n = record(el, 0);
     return {
       ...tags(), id: nid, type: n.type, parent, props: n.props, style,
@@ -170,13 +175,15 @@ export function install(exact) {
       // A box a multi-column flow fragments: one rect per column (LLP 1093 D12).
       ...(el.getClientRects().length > 1 ? { column_fragments: [...el.getClientRects()].map(rect) } : {}),
       scroll, clip,
-      visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!el.closest('[inert]'), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
+      visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!inertAncestor(el), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
       native: { element: el.localName, ...(el.hasAttribute('data-symbol-source') ? { symbol: {
-        source: el.dataset.symbolSource, name: el.dataset.symbolSource.slice(el.dataset.symbolSource.startsWith('symbol:sf/') ? 10 : 7), found: !!el.dataset.symbolPath,
-        ...(!el.dataset.symbolPath ? { reason: el.dataset.symbolSource === 'symbol:sf/' ? 'empty' : el.dataset.symbolSource.startsWith('symbol:sf/') ? 'platform' : 'role' } : {}),
+        source: el.dataset.symbolSource, name: el.dataset.symbolSource.slice(el.dataset.symbolSource.startsWith('symbol:sf/') ? 10 : 7), found: !!el.dataset.symbolPath || el.hasAttribute('data-symbol-file'),
+        ...(!el.dataset.symbolPath && !el.hasAttribute('data-symbol-file') ? { reason: el.dataset.symbolSource === 'symbol:sf/' || el.dataset.symbolSource === 'symbol:' ? 'empty' : el.dataset.symbolSource.startsWith('symbol:sf/') ? 'platform' : 'role' } : {}),
       } } : {}) },
       browser: Object.fromEntries(Object.entries(INHERITED).map(([row, prop]) => [row, cs.getPropertyValue(prop)])),
       observed: { clock: exact.clock.now, wall: Date.now() },
+      // What is held on it (LLP 1122 D8): its state and the rows it shows.
+      ...((h) => { if (h?.held && h.held.node == null && h.held.el) h.held.node = id(h.held.el); return h ?? {}; })(exact.heldOf?.(el)),
     };
   };
   // presence-glue.js `observation`, by this runtime's view ids (its elements carry no `data-view`).
@@ -239,7 +246,7 @@ export function install(exact) {
   // commit's new animations here, and reconciles only when its clock moves.
   exact.After.push(() => seek(false));
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
-  const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? []];
+  const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? [], ...exact.extensions?.holds?.() ?? []];
   const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
   const gpuPendingReply = (req, pending) => {
     const names = pending.map(item => item.name ?? 'GPU work');
@@ -253,7 +260,7 @@ export function install(exact) {
     // A read presents this clock without standing in for a commit hook.
     seek(false);
     // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
-    if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
+    if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? exact.extensions?.answer?.(req) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
     switch (req.op) {
       case 'tree': {
         let nodes = all(), roots = nodes.filter(n => n.depth === 0).map(n => n.id);
@@ -269,6 +276,8 @@ export function install(exact) {
         return { nodes, roots, ...tags(), ...(req.plan && exact.plan ? { planDigest: exact.plan } : {}) };
       }
       case 'layout': {
+        // `picture`: the boxes where a screenshot shows them, a transition under way held at its end (`compare`).
+        if (req.picture) anim.hold();
         // Every view, a zero box too (an empty text, a closed popover), as
         // the wasm host's layout reports them.
         // The viewport, its safe-area environment and a port's scroll offsets, as glue.js's reply.
@@ -277,20 +286,29 @@ export function install(exact) {
           const el = views.get(n.id), b = viewBox(el);
           // An iframe says whether its centre hits it (glue.js).
           const hit = el instanceof HTMLIFrameElement ? { hit: document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el } : {};
-          return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...hit, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop) } : {}) };
+          return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...hit, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop), ...scrollRange(el) } : {}) };
         });
         const reply = { viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes, ...tags() };
         if (req.id != null) { const node = nodeDetail(req.id); if (node.error) return node; if (req.plan && exact.plan) node.planDigest = exact.plan; reply.node = node; }
         if (req.agree) return { viewport: reply.viewport, agreement: { unavailable: 'no independent model: the page is the tree' }, ...tags() }; else if (req.native && reply.node) { delete reply.nodes; reply.node.native = { ...reply.node.native, subviews: { unavailable: 'the DOM is the tree; layout <target> names the element' } }; } // @ref LLP 1080.001 D1, D2
         return reply;
       }
-      case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }
+      case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) await selectAll(el); return {}; }
       case 'tap':
         if (req.part != null) return partTap(req);
+        // A held state (LLP 1122 D8, `holdState`): the input glue's, as the real one (it loads after paint).
+        if (req.holdState !== undefined) {
+          if (!exact.hold) await import('./rt.js').then(rt => rt.pressFeedback?.()).catch(() => {});
+          for (let i = 0; i < 40 && !exact.hold; i++) await new Promise(ok => setTimeout(ok, 50));
+          if (!exact.hold) return { error: 'the input glue is not loaded' };
+          const r = exact.hold(views.get(req.id), req.holdState);
+          return r.error ? { error: r.error, ...(r.malformed ? { malformed: true } : {}) } : { tapped: req.id, holdState: r.held, delivery: 'recognized' };
+        }
         // A virtualized list's row brought into view by key (LLP 1070.000 §5; list.js).
         if (req.into) {
+          for (const a of [req.into.block === undefined ? 'start' : req.into.block, req.into.inline === undefined ? 'nearest' : req.into.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === 'string' ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true };
           if (!exact.lists) return { error: `view ${req.id} is not a mounted virtualized list` };
-          try { exact.lists.into(req.id, String(req.into.key ?? ''), req.into.block, req.into.inline); } catch (e) { return { error: e.message }; }
+          try { exact.lists.into(req.id, String(req.into.key ?? ''), req.into.block, req.into.inline); } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; }
           return { tapped: req.id, into: req.into };
         }
         // The agent's `back` from a route (LLP 1116.006 D4; the driver took an open dialog's first): the browser's Back.
@@ -299,14 +317,14 @@ export function install(exact) {
         if (req.history) { history.go(req.history); await new Promise(r => setTimeout(r, 300)); return { history: req.history, delivery: 'platform' }; }
         {
           const el = views.get(req.id);
-          if (el && (el.closest('[inert]') || ['hidden', 'collapse'].includes(getComputedStyle(el).visibility))) return { handled: true, error: `view ${req.id} is hidden or inert` };
+          if (el && (inertAncestor(el) || ['hidden', 'collapse'].includes(getComputedStyle(el).visibility))) return { handled: true, error: `view ${req.id} is hidden or inert` };
           // A tap addressed to an iframe enters its guest (glue.js, LLP 1020 D4).
           return el instanceof HTMLIFrameElement ? guestTap(el, req) : {};
         }
       // A control's value is set, not typed (LLP 1069.001 D9; navigation.js), as the web host's glue.js sets it.
       // A location typed into the navigation root is its `navigate` (LLP 1038 D11), as glue.js delivers it.
       case 'type': { const el = views.get(req.id); if (el?.hasAttribute('navigationBack') && req.key == null) return navigateRoot(req.text ?? '') ? { typed: req.id, delivery: 'recognized', handled: true } : { handled: true, error: 'the navigation root has no `navigate` handler' }; return typedControl(el) && req.key == null ? typeControl(el, req) : el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
-      case 'reveal': return { ...reveal(views.get(req.id), req.id), ...tags() }; // before a tap or a type
+      case 'reveal': return { ...reveal(views.get(req.id), req.id, inertAncestor), ...tags() }; // before a tap or a type
       case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
       case 'perf': {
@@ -448,7 +466,7 @@ export function install(exact) {
         // What is in flight: the network's by resource, then held device requests.
         // A stream is pending until its first message, then listed in `streams` (LLP 1016.000 D5).
         const pending = [...exact.resources.filter(r => r.ticket && !r.ticket.messages).map(r => ({ name: r.name, ticket: r.ticket.id })), ...holds()];
-        const streams = exact.resources.filter(r => r.ticket?.ctl).map(r => ({ name: r.name, ticket: r.ticket.id, messages: r.ticket.messages, coalesced: r.ticket.coalesced, ...(r.ticket.ctl.socket ? { readyState: r.ticket.ctl.socket.readyState, bufferedAmount: r.ticket.ctl.socket.bufferedAmount, sent: r.ticket.ctl.socket.sent } : {}) }));
+        const streams = exact.resources.filter(r => r.ticket?.ctl).map(r => ({ name: r.name, ticket: r.ticket.id, messages: r.ticket.messages, coalesced: r.ticket.coalesced, ...(r.ticket.ctl.grant ? { grant: r.ticket.ctl.grant } : {}), ...(r.ticket.ctl.socket ? { readyState: r.ticket.ctl.socket.readyState, bufferedAmount: r.ticket.ctl.socket.bufferedAmount, sent: r.ticket.ctl.socket.sent } : {}) }));
         // The painted surface of views with presence rows, exit ghosts included (glue.js `st.presence`).
         // Focus, the keyboard's overlap and the document's language, as glue.js's `state` adds them.
         const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null, activeId = active ? id(active) : null;
@@ -471,16 +489,19 @@ export function install(exact) {
         const faults = faultsJson();
         // Why each failed resource failed, as the runner's `state.failed` (app farm round 1).
         const failed = Object.fromEntries(exact.resources.filter(r => r.failed).map(r => [r.name, r.error ?? 'it failed']));
+        const mutationFailures = Object.fromEntries(exact.mutations.flatMap(m => { const failure = m.e(); return failure ? [[m.name, {code: failure[0], message: failure[1]}]] : []; }));
         // The writes shown over resources until they end or are answered (overlay.js), as the runner's `state.writes`.
         const writes = exact.writes?.() ?? [];
-        return { slots, derives, resources, device: { displayMode: displayMode() }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, streams, ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
+        return { slots, derives, resources, ...(Object.keys(mutationFailures).length ? {mutationFailures} : {}), mutationRequests: exact.mutations.reduce((n,m)=>n+m.requests,0), device: { displayMode: displayMode(), navigationType: ownPage().read()['navigation-type'] }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, streams, watches: exact.watchState?.() ?? [], ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), ...(exact.transport?.declared() ? { transport: exact.transport.state() } : {}), ...(exact.midi ? { midi: exact.midi.state(req.midi === 'all') } : {}), ...(exact.extensions ? { extensions: exact.extensions.state() } : {}), wakelock: exact.wakelock?.() ?? { held: false, by: [] }, head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js); else the drive's facts
       // held here, so `root-font-size` still sets the root element's size `rem` follows (D3), as glue.js does.
       // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the
       // substitute lands here for `layout.env`; without a fold group the fold stays as it is.
       // The driver's fetch faults (LLP 1103 D3), a form of `prefer`: the page's table, as glue.js answers it.
-      case 'prefer': { if (req.faults) return faultOp(req.faults); const pins = Object.entries(req.mode ?? {}), why = req.mode && (exact.modes ? exact.modes.check(pins) : pins.length > 0 && `${pins.map(([a, v]) => `\`${a}=${v}\``).join(" ")} names an axis or value the app's design lacks, or an axis twice`); if (why) return { error: `prefer mode: ${why}` }; try { const facts = (exact.page ?? ownPage()).prefer(req.page ?? {}), fold = !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null); if (req.mode) exact.modes?.set(pins); return { page: facts, fold, ...(req.mode ? { mode: exact.modes?.read() ?? {} } : {}) }; } catch (e) { return { error: e.message }; } } // @ref LLP 1121 D13 — the mode group: checked before any fact is set, set after the rest
+      // A new root font size is a resize to the page's fitted texts (navigation.js `refitTexts`, the entry's copy, not this one's).
+      case 'midi': return exact.midi ? exact.midi.tap(req) : { error: 'tap midi: this plan hears no MIDI (no midimessage handler)' }; // @ref LLP 1125 §4
+      case 'prefer': { if (req.faults) return faultOp(req.faults); if (req.extension || req.permission) return exact.extensions ? exact.extensions.prefer(req) : { error: 'prefer: this app reads no module' }; if (req.midi) return exact.midi ? exact.midi.prefer(req.midi) : { error: 'prefer midi: this plan keeps no MIDI queue' }; const pins = Object.entries(req.mode ?? {}), why = req.mode && (exact.modes ? exact.modes.check(pins) : pins.length > 0 && `${pins.map(([a, v]) => `\`${a}=${v}\``).join(" ")} names an axis or value the app's design lacks, or an axis twice`); if (why) return { error: `prefer mode: ${why}` }; try { const facts = (exact.page ?? ownPage()).prefer(req.page ?? {}); if (req.page?.['root-font-size'] !== undefined) dispatchEvent(new Event('resize')); const fold = !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null); if (req.mode) exact.modes?.set(pins); return { page: facts, fold, ...(req.mode ? { mode: exact.modes?.read() ?? {} } : {}) }; } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; } } // @ref LLP 1121 D13 — the mode group: checked before any fact is set, set after the rest
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };

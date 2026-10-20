@@ -38,6 +38,10 @@ extension Agent {
     /// dispatched, for a target that is not the owner or an action it does
     /// not offer; `delivery: substituted` (the platform did not press it).
     func mediaSessionTap(_ req: [String: Any], action: String) -> [String: Any] {
+        let seconds = (req["seconds"] as? NSNumber)?.doubleValue
+        if action == "seekto", seconds == nil || !seconds!.isFinite || seconds! < 0 {
+            return ["malformed": true, "error": "mediasession: seekto needs finite nonnegative seconds"]
+        }
         guard let v = view(req) else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let players = mediaPlayers()
         guard let owner = players.first(where: { $0.report["owner"] as? Bool == true }) else {
@@ -49,8 +53,6 @@ extension Agent {
         guard (owner.report["actions"] as? [String] ?? []).contains(action) else {
             return ["error": "mediasession: \(Self.named(v)) has no \(action)"]
         }
-        let seconds = (req["seconds"] as? NSNumber)?.doubleValue
-        if action == "seekto", seconds == nil { return ["error": "mediasession: seekto needs the seconds to seek to"] }
         guard let status = video.remote(action, seconds: seconds) else { return ["error": "mediasession: the video arm is not loaded"] }
         guard status == "success" else { return ["error": "mediasession: \(Self.named(v)) did not take \(action) (\(status))"] }
         presenter.settlePump()

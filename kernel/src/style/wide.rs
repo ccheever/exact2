@@ -3,7 +3,7 @@
 
 use super::{Color, ColorValue};
 use exact_color::{Space, Wide};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// One colour, or a `light-dark()` pair with at least one wide half.
 #[derive(Debug, PartialEq)]
@@ -40,8 +40,6 @@ impl WideValue {
     }
 }
 
-static WIDE: Mutex<Vec<Arc<WideValue>>> = Mutex::new(Vec::new());
-
 /// What this host can show, when not every colour (LLP 1100 D1): others
 /// are refused as invalid.
 static AVAILABLE: std::sync::OnceLock<fn(&Wide) -> bool> = std::sync::OnceLock::new();
@@ -60,9 +58,52 @@ pub fn limited() -> bool {
 /// Bounds colours a data source writes at run time.
 const WIDE_CAP: usize = 4096;
 
-/// An interned wide colour by id.
+/// An interned wide colour by id; `None` for an id whose slot was swept
+/// and reused (a stale id).
 pub fn wide(id: u16) -> Option<Arc<WideValue>> {
-    WIDE.lock().ok()?.get(usize::from(id)).cloned()
+    let found = table().ok()?.get(id);
+    if found.is_none() {
+        stale(id);
+    }
+    found
+}
+
+/// Where a reader finds a wide colour by id: the table ([`wide`]), or
+/// values captured with what holds the ids ([`Values::get`]).
+pub type Lookup<'a> = &'a dyn Fn(u16) -> Option<Arc<WideValue>>;
+
+/// The wide colours some ids named when captured, by value: what a host
+/// keeps beside paint it retains with ids in it (a gradient, whose ramp
+/// needs each stop's exact colour), so it holds no slot (LLP 1121 stage 4).
+/// After a sweep the ids mean nothing to the table; the paint reads its own
+/// stops through [`get`](Self::get) and nothing else.
+#[derive(Debug, Clone, Default)]
+pub struct Values(Box<[(u16, Arc<WideValue>)]>);
+
+impl Values {
+    /// The values of each wide colour among `colors`, as the table holds
+    /// them now.
+    pub fn of(colors: impl IntoIterator<Item = ColorValue>) -> Values {
+        let mut out: Vec<(u16, Arc<WideValue>)> = Vec::new();
+        for c in colors {
+            if let ColorValue::Wide(id) = c {
+                if !out.iter().any(|(i, _)| *i == id) {
+                    if let Some(v) = wide(id) {
+                        out.push((id, v));
+                    }
+                }
+            }
+        }
+        Values(out.into())
+    }
+
+    /// The value `id` named when captured.
+    pub fn get(&self, id: u16) -> Option<Arc<WideValue>> {
+        self.0
+            .iter()
+            .find(|(i, _)| *i == id)
+            .map(|(_, v)| v.clone())
+    }
 }
 
 /// One CSS colour as a half; legacy sRGB as `color(srgb …)`.
@@ -125,39 +166,15 @@ pub fn parse_wide(text: &str) -> Option<ColorValue> {
         text: canonical.into(),
         modern,
     };
-    intern(&mut *WIDE.lock().ok()?, value)
+    let mut table = table().ok()?;
+    let interned = table.intern(value);
+    drop(table);
+    interned.map(ColorValue::Wide)
 }
 
-fn intern(table: &mut Vec<Arc<WideValue>>, value: WideValue) -> Option<ColorValue> {
-    if let Some(i) = table.iter().position(|w| w.text == value.text) {
-        return Some(ColorValue::Wide(u16::try_from(i).ok()?));
-    }
-    if table.len() >= WIDE_CAP {
-        return None;
-    }
-    table.push(Arc::new(value));
-    Some(ColorValue::Wide(u16::try_from(table.len() - 1).ok()?))
-}
+pub use marks::{coloured, Colors, Settle};
+pub use reclaim::{refusals, used, Batch, Holder, Keep, WideMark, GRACE, SPAN};
+use reclaim::{stale, table};
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wide_table_overflow_refuses_without_clipping() {
-        let value = |text: &str| WideValue {
-            light: half("color(display-p3 1 0 0)").unwrap(),
-            dark: None,
-            text: text.into(),
-            modern: [true; 2],
-        };
-        let existing = Arc::new(value("existing"));
-        let mut table = vec![existing; WIDE_CAP];
-        assert_eq!(intern(&mut table, value("new")), None);
-        assert_eq!(
-            intern(&mut table, value("existing")),
-            Some(ColorValue::Wide(0))
-        );
-        assert_eq!(table.len(), WIDE_CAP);
-    }
-}
+mod marks;
+mod reclaim;

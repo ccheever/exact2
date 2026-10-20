@@ -36,6 +36,13 @@ platform's: a `color` a bar button only inherits from the page leaves UIKit's ti
 writing apps should therefore say less — structure (a header's heading and buttons, a
 `tablist`, an `alertdialog`) and leave colours, fonts and metrics to the platform.
 
+## Numeric typography
+
+On graphical hosts, use tabular digits for numeric columns and values that change
+in place. Use default spacing for prose, ordinary labels and static standalone
+statistics. Apply it to numeric text, keeping the platform font. See the
+[guidance and limits](docs/contract-for-agents.md#tabular-numbers).
+
 ## Writing
 
 For all prose: comments, commit messages, guides, LLPs, issues and PR text.
@@ -96,8 +103,10 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   the platforms that ride on another host's code: tvOS on the UIKit presenter
   (installed on an Apple TV simulator, which that machine must have),
   plus cross-target Cargo checks of the Linux host with every Linux app (`-p '*-linux'`)
-  and the Windows host with Windows Desk. Tier 2 needs both Rust cross targets,
-  Zig (C and C++) and the pinned Linux Hermes bundle on this Mac. These checks qualify
+  and the Windows host with Windows Desk, and Weatherlight's Android APK (its Rust
+  for `aarch64-linux-android` and the reader's and its module's Kotlin). Tier 2 needs both Rust cross targets,
+  Zig (C and C++) and the pinned Linux Hermes bundle on this Mac, and for Android the SDK
+  with platform 37.2, an NDK, a JDK 17 or newer and the `aarch64-linux-android` target and Hermes bundle. These checks qualify
   compilation, not native window, KMS, or input behavior. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple
@@ -179,7 +188,7 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   and `print`, `screenshot` read its screen (`print --all` the scrollback, `document`
   the whole laid-out document). Develop it in `host-dev`: a debug build lays out a long
   document hundreds of times slower. `exact-terminal` is in `default-members`
-  (`tests/screen.rs` drives inline mode through the emulator); `harness-data` is not,
+  (`tests/it/screen.rs` drives inline mode through the emulator); `harness-data` is not,
   so when you touch the harness run `cargo test -p harness-data`.
   `examples/replay.rs` replays a recorded session through the same emulator.
   The LLP reader is the other terminal app (LLP 1101.004): `cargo build --profile
@@ -194,6 +203,11 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   opens its update store at launch and checks after first pixel
   (`EXACT_UPDATE_ORIGIN=<url>` points a dev build at a directory `serve.mjs` serves;
   `state.delivery` shows what it did).
+  `bun scripts/push.mjs <app> [--watch]` publishes an edit to installed release binaries
+  as a signed update in about a second, from the stream a deploy or a production build
+  started; `deploy.activate: "immediate"` applies it while the app is open. A channel's
+  origin `"appdrop"` is AppDrop's, named after the signing key: no account, no server.
+  Moving a stream to a new origin, pass `--seq-above` the old origin's seq.
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something
   worth doing; delete it when it lands. It decides nothing.
 - Each worktree builds into its own `target/`: never symlink or share another
@@ -214,3 +228,7 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
 - Optional capability is a separate artifact loaded on demand (the GPU module) or another
   executor (the browser, for motion on the web) — never a cargo feature on a core crate.
   Each crate depends on strictly less than the one above it; there is no build matrix.
+
+Snapback4 consumers use published `snapback4@0.4.29` and the matching immutable
+Rust revision in `snapback4/Cargo.toml`; rebuild an app’s device with
+`bun exact.mjs snapback --rebuild` after changing these pins.

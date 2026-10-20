@@ -410,23 +410,28 @@ impl Swapchain for NativeSwapchain {
         // EXACT (EXACT-PATCHES.md, 6): the device is idle.
         device.shared.forget_surface_images(&self.identities);
 
+        // EXACT (EXACT-PATCHES.md, 12): semaphores a surface texture still
+        // holds are left to it, never destroyed. wgpu-core keeps an acquired
+        // texture through `unconfigure` only when its device is lost (its
+        // discard checks the device first); the texture's drop makes no
+        // Vulkan call.
+        let mut held = 0;
         // We cannot take this by value, as the function returns `self`.
         for semaphore in self.acquire_semaphores.drain(..) {
-            let arc_removed = Arc::into_inner(semaphore).expect(
-                "Trying to destroy a SwapchainAcquireSemaphore that is still in use by a SurfaceTexture",
-            );
-            let mutex_removed = arc_removed.into_inner();
-
-            unsafe { mutex_removed.destroy(&device.shared.raw) };
+            match Arc::into_inner(semaphore) {
+                Some(mutex) => unsafe { mutex.into_inner().destroy(&device.shared.raw) },
+                None => held += 1,
+            }
         }
 
         for semaphore in self.present_semaphores.drain(..) {
-            let arc_removed = Arc::into_inner(semaphore).expect(
-                "Trying to destroy a SwapchainPresentSemaphores that is still in use by a SurfaceTexture",
-            );
-            let mutex_removed = arc_removed.into_inner();
-
-            unsafe { mutex_removed.destroy(&device.shared.raw) };
+            match Arc::into_inner(semaphore) {
+                Some(mutex) => unsafe { mutex.into_inner().destroy(&device.shared.raw) },
+                None => held += 1,
+            }
+        }
+        if held > 0 {
+            log::warn!("{held} swapchain semaphore sets are left to surface textures still held");
         }
     }
 

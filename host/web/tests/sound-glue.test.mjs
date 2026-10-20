@@ -1,15 +1,17 @@
 // The web's output for the voice table (LLP 1096 D6, D7, §5), in Chrome,
 // Firefox and WebKit: sound-glue.js over an OfflineAudioContext at 48 kHz,
 // rendered and read back by frame, its runner time mapped through an output
-// timestamp the test supplies; the held voice of a `{0, 0}` timestamp; the
-// Audio Session API; and the drop before a user activation. Firefox and
-// WebKit come from Playwright (`bunx playwright@1.63.0 install firefox
-// webkit`), Chrome from the machine's; an engine that is missing is skipped.
+// timestamp the test supplies; a voice's playback rate and pan (LLP 1125
+// D10); a sequence's retraction before a voice starts, and its timed haptics
+// (LLP 1125 D3); the held voice of a `{0, 0}` timestamp; the Audio Session
+// API; and the drop before a user activation. Every engine comes from
+// Playwright (`bunx playwright@1.64.1 install chromium-headless-shell firefox
+// webkit`); an engine that is missing is skipped.
 import { afterAll, test, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
-import { chromium as installed } from '../../../scripts/agent-launch.mjs';
+import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
@@ -26,9 +28,9 @@ const page = session => `<!doctype html><meta charset="utf-8"><div id="exact-roo
     for (let i = 0; i < frames; i++) b.setInt16(44 + 2 * i, Math.round(value * 32767), true);
     return b.buffer;
   };
-  // An output over an OfflineAudioContext of \`seconds\`, its timestamp \`stamp()\`, runner time 0 at 1000 ms.
-  window.offline = (seconds, files, stamp = () => ({ contextTime: 0, performanceTime: 1000 }), now = () => 1000) => {
-    const context = new OfflineAudioContext({ numberOfChannels: 1, length: 48000 * seconds, sampleRate: 48000 }), lines = [];
+  // An output over an OfflineAudioContext of \`seconds\` and \`channels\`, its timestamp \`stamp()\`, runner time 0 at 1000 ms.
+  window.offline = (seconds, files, stamp = () => ({ contextTime: 0, performanceTime: 1000 }), now = () => 1000, channels = 1) => {
+    const context = new OfflineAudioContext({ numberOfChannels: channels, length: 48000 * seconds, sampleRate: 48000 }), lines = [];
     const out = globalThis.exact.installSound({ files: Object.keys(files), log: l => lines.push(l), origin: () => 1000, context, timestamp: stamp, now, activated: () => true, fetchFile: src => Promise.resolve(files[src]) });
     return { out, context, lines };
   };
@@ -70,12 +72,12 @@ const engineTest = Object.fromEntries(await Promise.all(engines.map(async e => [
 async function launch(name) {
   const playwright = await import('playwright-core');
   if (name === 'chromium') {
-    const { executable, unavailable } = installed();
+    const { unavailable } = installed();
     if (unavailable) return null;
-    return playwright.chromium.launch({ executablePath: executable, headless: true, args: ['--autoplay-policy=user-gesture-required'] });
+    return suiteBrowser('chromium', { args: ['--autoplay-policy=user-gesture-required'] });
   }
   if (!existsSync(playwright[name].executablePath())) return null;
-  return playwright[name].launch({ headless: true });
+  return suiteBrowser(name);
 }
 
 // One browser per engine for this file, and a context of its own for each
@@ -133,6 +135,77 @@ for (const engine of engines) {
       expect(got.late).toBe(0);
       expect(got.lateValue).toBeCloseTo(0.5, 3);
       expect(got.lateCount).toBe(1);
+      expect(got.lines).toEqual([]);
+    } finally { await b.close(); server.close(); }
+  }, 60_000);
+
+  engineTest[engine](`${engine}: a voice's playback rate shortens it and its pan places it`, async () => {
+    const b = await browser(engine);
+    if (!b) throw new Error(`${engine} did not launch`);
+    const server = await serve();
+    try {
+      const p = await b.newPage();
+      await p.goto(server.url);
+      await p.waitForFunction(() => window.ready);
+      const got = await p.evaluate(async () => {
+        const last = data => { for (let i = data.length - 1; i >= 0; i--) if (Math.abs(data[i]) > 1e-4) return i; return -1; };
+        // 4800 frames at twice the rate, from 250 ms: frames 12000 to 14400.
+        const r = offline(1, { 'assets/a.wav': wav(4800, 0.5) });
+        r.out.ops([{ op: 'play', id: 1, sound: 0, at: 250, gain: 1, playbackRate: 2 }]);
+        await decoded(r.out);
+        const rate = (await r.context.startRendering()).getChannelData(0);
+        // In stereo: hard left, half right (Web Audio's equal-power law for a mono input), and centred (no panner).
+        const s = offline(1, { 'assets/a.wav': wav(4800, 0.5) }, undefined, undefined, 2);
+        s.out.ops([{ op: 'play', id: 1, sound: 0, at: 100, gain: 1, pan: -1 }, { op: 'play', id: 2, sound: 0, at: 400, gain: 1, pan: 0.5 }, { op: 'play', id: 3, sound: 0, at: 700, gain: 1 }]);
+        await decoded(s.out);
+        const rendered = await s.context.startRendering(), left = rendered.getChannelData(0), right = rendered.getChannelData(1);
+        const frame = ms => 48 * ms + 100;
+        return { last: last(rate), first: rate.findIndex(x => Math.abs(x) > 1e-4), mid: rate[13000],
+          hardLeft: [left[frame(100)], right[frame(100)]], half: [left[frame(400)], right[frame(400)]], centre: [left[frame(700)], right[frame(700)]], lines: [...r.lines, ...s.lines] };
+      });
+      expect(got.first).toBe(12000);
+      expect(got.mid).toBeCloseTo(0.5, 3);
+      expect(Math.abs(got.last - 14399)).toBeLessThanOrEqual(2);
+      expect(got.hardLeft[0]).toBeCloseTo(0.5, 3);
+      expect(got.hardLeft[1]).toBeCloseTo(0, 3);
+      expect(got.half[0]).toBeCloseTo(0.5 * Math.cos(0.75 * Math.PI / 2), 3);
+      expect(got.half[1]).toBeCloseTo(0.5 * Math.sin(0.75 * Math.PI / 2), 3);
+      expect(got.centre).toEqual([expect.closeTo(0.5, 3), expect.closeTo(0.5, 3)]);
+      expect(got.lines).toEqual([]);
+    } finally { await b.close(); server.close(); }
+  }, 60_000);
+
+  engineTest[engine](`${engine}: a voice retracted before its start is silent and let go; a haptic plays at its time`, async () => {
+    const b = await browser(engine);
+    if (!b) throw new Error(`${engine} did not launch`);
+    const server = await serve();
+    try {
+      const p = await b.newPage();
+      await p.goto(server.url);
+      await p.waitForFunction(() => window.ready);
+      const got = await p.evaluate(async () => {
+        // A voice a second ahead, then an End at its start (an edit): no frame sounds, and the output keeps no voice.
+        const r = offline(1, { 'assets/a.wav': wav(4800, 0.5) });
+        await decoded(r.out);
+        r.out.ops([{ op: 'play', id: 1, sound: 0, at: 500, gain: 1 }]);
+        const held = r.out.state().voices;
+        r.out.ops([{ op: 'end', id: 1, at: 500 }]);
+        const let_go = r.out.state().voices;
+        const silent = (await r.context.startRendering()).getChannelData(0).every(x => x === 0);
+        // Haptics on the page's timer: one at 30 ms plays, one at 40 ms is retracted, one 50 ms past is late.
+        const vibes = [];
+        Object.defineProperty(navigator, 'vibrate', { value: k => (vibes.push(k), true), configurable: true });
+        const h = offline(1, {});
+        h.out.ops([{ op: 'haptic', id: 1, kind: 'impact-light', at: 30 }, { op: 'haptic', id: 2, kind: 'selection', at: 40 }]);
+        h.out.ops([{ op: 'unhaptic', id: 2 }, { op: 'haptic', id: 3, kind: 'selection', at: -50 }]);
+        await new Promise(r => setTimeout(r, 150));
+        return { held, let_go, silent, vibes, late: h.out.state().hapticsLate, lines: [...r.lines, ...h.lines] };
+      });
+      expect(got.held).toBe(1);
+      expect(got.let_go).toBe(0);
+      expect(got.silent).toBe(true);
+      expect(got.vibes.sort()).toEqual([12, 5].sort());
+      expect(got.late).toBe(1);
       expect(got.lines).toEqual([]);
     } finally { await b.close(); server.close(); }
   }, 60_000);

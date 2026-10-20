@@ -16,10 +16,11 @@ extension NodeView {
     package override var acceptsFirstResponder: Bool {
         if formDisabled || inert || isHiddenOrHasHiddenAncestor || cssVisibilityHidden { return false }
         if field != nil || textArea != nil || isNativeButton || nativeValueControl != nil { return false }
-        return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable || isRadio
+        return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable || isRadio || ariaRadioGroup != nil
     }
     var tabbable: Bool {
         if let index = explicitTabIndex { return index >= 0 }
+        if ariaRadioGroup != nil { return ariaRadioTabStop } // an authored radio group is one stop too
         return kind == "button" || isNativeButton || isDateOrSelect || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
             || reorderKeys || radioTabStop // a grouped grip takes the keys (LLP 1094 D9); a radio group one stop (x2apps survey #2)
     }
@@ -44,6 +45,22 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         presenter?.selection.focusEntered(self)
         presenter?.focus(id)
+        // A row of an open menu taking the focus is its highlight, which
+        // AppKit's menu tells as its selected child changing (Accessibility.swift).
+        if isMenuItem, let menu = owningMenu, let presenter, presenter.shownMenus.contains(where: { $0 === menu }) {
+            presenter.menusHeldFocus.add(menu)
+            NSAccessibility.post(element: menu, notification: .selectedChildrenChanged)
+        }
+    }
+    /// A shown `menu` the batch takes out of the window says it closed as it
+    /// goes, while it is still an element to post on: once out, a post on it
+    /// reaches no client (measured).
+    package override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil, window != nil, let presenter, let index = presenter.shownMenus.firstIndex(where: { $0 === self }) {
+            presenter.shownMenus.remove(at: index)
+            presenter.menuClosed(self)
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
     func focusLeft() {
         focusVisible = false
@@ -74,17 +91,19 @@ extension NodeView {
     }
     /// Whether a click here moves the focus to this node (LLP 1115.000
     /// D7.1). On the Mac a click on a button, a radio or a box that is only
-    /// pressable never does: the first responder stays where it is, as it
-    /// does for a clicked `NSButton`, and a field beside the button keeps its
-    /// caret. What `retainFocus` asked for is so the default. A box the
-    /// author made a taker of keys does take it, as AppKit focuses a clicked
-    /// custom view that accepts first responder (and Safari a `tabindex`
-    /// box): one with a `tabindex`, or a box that is no button with `focus`,
-    /// `blur` or `key` handlers, or a canvas that takes input. There
-    /// `retainFocus`, on it or above it, still keeps the focus where it was.
-    /// An `autofocus` and an action's `focus()` move it to any of them.
+    /// pressable never does, whatever its `tabindex`: the first responder
+    /// stays where it is, as it does for a clicked `NSButton`, and a field
+    /// beside the button keeps its caret. What `retainFocus` asked for is so
+    /// the default. A box the author made a taker of keys does take it, as
+    /// AppKit focuses a clicked custom view that accepts first responder
+    /// (and Safari a `tabindex` box): one that is no control with a
+    /// `tabindex`, or with `focus`, `blur` or `key` handlers, or a canvas
+    /// that takes input. There `retainFocus`, on it or above it, still keeps
+    /// the focus where it was. An `autofocus` and an action's `focus()` move
+    /// it to any of them.
     var takesClickFocus: Bool {
-        acceptsFirstResponder && !retainsFocus && (explicitTabIndex != nil || takesKeysOfItsOwn)
+        acceptsFirstResponder && !retainsFocus
+            && (explicitTabIndex != nil && !isButton && !isRadio && kind != "toggle" || takesKeysOfItsOwn)
     }
     /// How AppKit is told: before it hands a view the mouse-down, its window
     /// makes that view first responder when it accepts first responder and

@@ -1,0 +1,28 @@
+// MIDI's commands (LLP 1125 D7) are commands to the semantics: issued after
+// the commit, in statement order, with their arguments in the runner's
+// positions (`none` where `at=` is left to its default). The queue itself
+// (access, the hold, retractions) is the runner's, tested there.
+component App
+  state n = 0
+  state d = 1
+  action send
+    requestMIDIAccess()
+    sendMIDI("synth", [144, 60, 100])
+    sendMIDI("synth", [128, 60, 0], at=performanceNow() + 250)
+    n = n + 1
+  action broken
+    sendMIDI("synth", [144, 60, 100])
+    n = n / (d - 1)
+  view
+    column
+      text `${n}` testId="n"
+      button "send" press=send testId="send"
+      button "broken" press=broken testId="broken"
+
+test "MIDI commands are commands, in order"
+  tap "send"
+  expect state n == 1
+
+test "a refused action sends nothing"
+  tap "broken"
+  expect state n == 0

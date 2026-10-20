@@ -12,7 +12,9 @@
 // act after act, with the moments those commits cause, until nothing is
 // queued. So a callback sees its own instant's state, and `clock +1000` is
 // ten `clock +100`. Ticks and `after`s are not commits: 4,096 of them, and
-// 4,096 drained acts, are the most one agent command runs.
+// 4,096 drained acts, are the most one agent command runs. On the wall the
+// same 4,096 bound one presented frame's ticks and one timer's `after`s,
+// so an animation keeps ticking for as long as the app runs.
 //
 //   host table   64  frames(host, token, on)     a ticket begins or stops
 //                72  after(host, token, ms)      ms < 0 cancels
@@ -113,8 +115,13 @@ final class HatchClock {
     }
 
     /// A presented frame, after its tasks and timers: each ticket ticks.
-    func presented(_ now: Double) {
-        for token in tickets where tickets.contains(token) { _ = tick(0, token, at: now) }
+    /// Whether every one did.
+    @discardableResult
+    func presented(_ now: Double) -> Bool {
+        fires = 0
+        var all = true
+        for token in tickets where tickets.contains(token) { all = tick(0, token, at: now) && all }
+        return all
     }
 
     /// On the wall the next `after` is a timer; under the agent the seek fires it.
@@ -124,6 +131,7 @@ final class HatchClock {
         timer = Timer.scheduledTimer(withTimeInterval: max(0, (next - now) / 1000), repeats: false) { [weak self] _ in
             guard let self else { return }
             let now = self.now
+            self.fires = 0
             for token in self.dueAfters(at: now) { _ = self.tick(1, token, at: now) }
             self.rearm()
         }

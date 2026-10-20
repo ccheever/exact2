@@ -4,7 +4,8 @@
 // the root's is selected. With no router, the covered route is still hidden
 // and inert after every commit, as the web host projects after every batch:
 // the screenshot shows the detail alone (the home route's filled box gone),
-// and a tap on the covered route's control is refused.
+// and a tap on the covered route's control is refused. The detail's header
+// holds a readout (`role="status"`), drawn as authored.
 component NavRoot
   state depth = 1
   state count = 0
@@ -28,6 +29,12 @@ component NavRoot
             text "bump home"
         if depth == 2
           column navigationKey="2" testId="route-detail" padding=8 gap=4 background-color="#ffe4d6"
-            text "detail"
+            // A header-shaped route with a readout after its heading (LLP
+            // 1075.003 §9.15): the web draws it as authored, its count live.
+            header display="flex" align-items="center" gap=8 testId="detail-header"
+              text "detail" role="heading" aria-level=2
+              row role="status" aria-label=`${count} ${count == 1 ? "bump" : "bumps"}` display="flex" align-items="center" gap=6 testId="detail-readout"
+                column width=7 height=7 border-radius=3.5 background-color=(count > 0 ? "#1f8f84" : "#8e8e95")
+                text `${count}` font-family="Menlo" font-size=12 color="#8e8e95"
             button press=bump testId="bump-detail"
               text "bump detail"

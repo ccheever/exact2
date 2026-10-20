@@ -12,7 +12,7 @@ pub enum PainterChoice {
     /// tiny-skia.
     Cpu,
     /// Recorded for Android's Canvas (`canvas.rs`).
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", test))]
     Canvas,
     /// The painter an app registered with [`set_custom_painter`]
     /// (`EXACT_PAINTER=custom`): an experiment's backend kept out of this crate.
@@ -35,7 +35,7 @@ impl PainterChoice {
             Ok("gpu") => PainterChoice::Gpu,
             Ok("cpu") => PainterChoice::Cpu,
             Ok("custom") => PainterChoice::Custom,
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", test))]
             Ok("canvas") => PainterChoice::Canvas,
             _ => PainterChoice::Auto,
         }
@@ -102,7 +102,7 @@ impl PainterBoot {
     }
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 fn open_canvas(_: PainterChoice) -> OpenedPainter {
     Ok((
         Box::new(crate::canvas::Recorder::new()),
@@ -125,7 +125,7 @@ pub(super) fn open_backend(
                 .ok_or("EXACT_PAINTER=custom: no painter registered")?;
             Ok((make()?, PainterInfo { name, ..cpu_info() }))
         }
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", test))]
         PainterChoice::Canvas => open_canvas(choice),
         PainterChoice::Gpu | PainterChoice::Auto => match Gpu::new() {
             Ok(g) => {
@@ -229,34 +229,26 @@ mod tests {
         assert_eq!(OPENED.with(Cell::get), 1);
     }
 
+    /// A display whose clock started 15 s before the boot (a slow start):
+    /// the boot's clock begins at that reading, so its `after(10000)` is due
+    /// 10 s after the boot, not at the first frame; and the date at the
+    /// clock's zero is the display clock's start.
     #[test]
-    fn fetched_plan_refusal_keeps_the_carrier_constructor_for_the_baked_plan() {
-        OPENED.with(|n| n.set(0));
-        let mut config = crate::app::Config {
-            content_region: None,
-            launch: "/".into(),
-            plan: b"invalid plan"[..].to_vec().into(),
-            fallback_plan: Some(plan()),
-            assets: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
-            scale: 1.,
-            size: (8., 8.),
-            agent: false,
-            smoke: false,
-            shot: None,
-            dev_plan: None,
-            dev_url: None,
-            dev_identity: None,
-            card: String::new(),
-            vnc: None,
-            compat: "{}".into(),
-            explicit: true,
-            entry: None,
-            selected_assets: None,
-            module: Ok(None),
-            updates: None,
-            hatches: None,
-        };
-        let (mut presenter, error) = crate::app::boot_presenter_with_painter::<()>(
+    fn a_boot_on_the_display_clock_starts_where_it_reads() {
+        let timer = contract::compile(
+            "component App\n  state ticks = 0\n  task tick mount\n    after(10000, step)\n  action step\n    ticks = ticks + 1\n  view\n    box width=8 height=8\n",
+        )
+        .expect("fixture compiles")
+        .encode();
+        let started = std::time::Instant::now() - std::time::Duration::from_secs(15);
+        let mut config = crate::app::Config::from_env(&timer, "{}");
+        config.clock_started = Some(started);
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+            * 1000.0;
+        let (presenter, error) = crate::app::boot_presenter_with_painter::<()>(
             &mut config,
             (8., 8.),
             PainterBoot {
@@ -264,10 +256,94 @@ mod tests {
                 open: counted,
             },
         )
-        .expect("the baked plan uses the direct painter");
+        .expect("boots");
         assert!(error.is_none(), "{error:?}");
-        assert_eq!(presenter.painter.name, "carrier-cpu");
-        assert_eq!(&presenter.frame().data()[..4], &[0x22, 0x44, 0x66, 255]);
-        assert_eq!(OPENED.with(Cell::get), 1);
+        let runner = presenter.host.runner();
+        let due = runner.timer_due_ms().expect("the mount timer is armed");
+        let now = started.elapsed().as_secs_f64() * 1000.0;
+        assert!(
+            (25_000.0..=now + 10_000.0).contains(&due),
+            "due {due}, clock now {now}"
+        );
+        let zero = runner.wall_time().epoch_at_zero;
+        assert!(
+            (zero - (before - 15_000.0)).abs() < 1_000.0,
+            "zero {zero}, started {}",
+            before - 15_000.0
+        );
+        // A driver's launch (the Android reader's --agent too) is the runner's
+        // clock from zero whatever the display's reads: its boot arms at 10000.
+        let mut config = crate::app::Config::from_env(&timer, "{}");
+        (config.clock_started, config.agent) = (Some(started), true);
+        let (presenter, _) = crate::app::boot_presenter_with_painter::<()>(
+            &mut config,
+            (8., 8.),
+            PainterBoot {
+                choice: PainterChoice::Gpu,
+                open: counted,
+            },
+        )
+        .expect("boots");
+        assert_eq!(presenter.host.runner().timer_due_ms(), Some(10_000.0));
+    }
+
+    #[test]
+    fn boot_keeps_the_carrier_constructor_and_only_the_running_generation_identity() {
+        for (selected, development, identity) in [
+            (plan(), true, Some("A")),
+            (b"invalid plan".to_vec(), true, None),
+            (b"invalid plan".to_vec(), false, None),
+        ] {
+            OPENED.with(|n| n.set(0));
+            let mut config = crate::app::Config {
+                content_region: None,
+                launch: "/".into(),
+                plan: selected.into(),
+                fallback_plan: Some(plan()),
+                assets: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+                scale: 1.,
+                size: (8., 8.),
+                agent: false,
+                smoke: false,
+                shot: None,
+                dev_plan: None,
+                dev_url: development.then(|| "http://127.0.0.1:1/".into()),
+                dev_identity: development.then(|| "A".into()),
+                card: String::new(),
+                vnc: None,
+                compat: "{}".into(),
+                explicit: true,
+                entry: None,
+                selected_assets: None,
+                module: Ok(None),
+                updates: None,
+                hatches: None,
+                clock_started: None,
+            };
+            let (mut presenter, error) = crate::app::boot_presenter_with_painter::<()>(
+                &mut config,
+                (8., 8.),
+                PainterBoot {
+                    choice: PainterChoice::Gpu,
+                    open: counted,
+                },
+            )
+            .expect("the baked plan uses the direct painter");
+            assert!(error.is_none(), "{error:?}");
+            assert_eq!(presenter.painter.name, "carrier-cpu");
+            assert!(!presenter.painted);
+            if development {
+                let dev = presenter
+                    .dev
+                    .as_ref()
+                    .expect("fallback keeps polling the URL");
+                assert_eq!(dev.identity.as_deref(), identity);
+                assert_eq!(dev.link.as_ref().unwrap().plan.as_deref(), identity);
+            } else {
+                assert!(presenter.dev.is_none());
+            }
+            assert_eq!(&presenter.frame().data()[..4], &[0x22, 0x44, 0x66, 255]);
+            assert_eq!(OPENED.with(Cell::get), 1);
+        }
     }
 }

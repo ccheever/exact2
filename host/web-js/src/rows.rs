@@ -11,6 +11,58 @@ use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
 impl Em<'_> {
+    /// Clock ticks format cached instants without evaluating app code.
+    pub(super) fn live_time(
+        &mut self,
+        i: u32,
+        element: &str,
+        e: &str,
+        scope: &crate::code::Scope,
+    ) -> Result<(), String> {
+        let plan = self.plan;
+        let row = &plan.nodes[i as usize];
+        if element == "time"
+            || (element == "progress"
+                && row
+                    .bindings
+                    .iter()
+                    .any(|b| plan.binding(b).id == PropId::Start as u16))
+        {
+            let mut values = Vec::new();
+            for prop in [
+                PropId::Datetime,
+                PropId::TimeFormat,
+                PropId::Start,
+                PropId::End,
+            ] {
+                let value = row
+                    .bindings
+                    .iter()
+                    .map(|b| plan.binding(b))
+                    .find(|b| b.kind == BindingKind::Prop && b.id == prop as u16);
+                values.push(match value {
+                    Some(b) => format!("({})()", self.f(b.expr, scope)?),
+                    None => "null".into(),
+                });
+            }
+            let live = self.uses.rt("liveTime");
+            let inline = row
+                .parent
+                .is_some_and(|p| plan.nodes[p.0 as usize].node_type == NodeType::Text as u8);
+            let reserve = !inline
+                && !row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
+                    b.kind == BindingKind::Style
+                        && (b.id == StyleId::Width as u16 || b.id == StyleId::MaxWidth as u16)
+                });
+            let _ = write!(
+                self.out,
+                "{live}({e},()=>[{}],{reserve});",
+                values.join(",")
+            );
+        }
+        Ok(())
+    }
+
     /// Whether image `i` needs symbols.js — it draws a symbol, its source is
     /// bound, or its source is an `app:/` file, which symbols.js resolves
     /// (`data-app-src`, LLP 1069.002 D7) — and whether its source is bound.
@@ -118,13 +170,68 @@ impl Em<'_> {
         let clock = |s: &str| s.trim_start().starts_with("-exact-clock(");
         let timeline = binding(StyleId::AnimationTimeline)
             .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
+        let dynamic = |id: StyleId| {
+            binding(id).is_some_and(|b| style::literal(plan, plan.code(b.expr)).is_none())
+        };
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
         let kind = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
         // @ref LLP 1115.002 D6 — a metric the binding may name is its value
         // in the web's column before the row's own map sees it.
-        let metric =
-            style::metric_map(plan, plan.code(b.expr)).map(|m| format!("()=>({m})(({f})())"));
+        let metric = style::metric_map(plan, plan.code(b.expr))
+            .map(|m| format!("()=>{}(({f})())", self.uses.share('m', m)));
         let f = metric.as_deref().unwrap_or(f);
+        // @ref LLP 1121 D7 — a length or number token a bound value names is
+        // its CSS, or its property's `var()` where the page declares one.
+        let attribute = exact_web::host::template::attribute_rows(kind)
+            .iter()
+            .any(|(r, _)| *r == id);
+        // A node with children reads no varying type or family token: they
+        // would inherit it (the runner refuses it as an invalid value).
+        // (Asked only where one varies: a map's name stays as it was.)
+        let varying = plan.theme.iter().any(|r| {
+            r.slices.len > 0
+                && matches!(
+                    crate::measures::kind(r),
+                    Some(
+                        exact_kernel::style::theme::Kind::Type
+                            | exact_kernel::style::theme::Kind::Family
+                    )
+                )
+        });
+        let container = varying
+            && (plan
+                .nodes
+                .iter()
+                .any(|n| n.parent.is_some_and(|p| p.0 == i))
+                || plan
+                    .regions
+                    .iter()
+                    .any(|r| r.parent.is_some_and(|p| p.0 == i)));
+        let measure = crate::measures::row(id)
+            .then(|| {
+                let props = crate::modes::properties(plan);
+                crate::measures::map(plan, &props, id, attribute, container)
+            })
+            .flatten()
+            .map(|m| {
+                let bases = !crate::base_scale::named(plan).is_empty();
+                let name = crate::measures::map_name(id, attribute, container, bases);
+                let map = self.uses.constant(&name, || m);
+                format!("()=>{map}(({f})())")
+            });
+        let f = measure.as_deref().unwrap_or(f);
+        // A list on a corner is the elliptical radius no row holds, which
+        // the browser would draw: refused whole, as the kernel refuses it.
+        let corner = (exact_kernel::style::sides::FAMILIES[8].contains(&id)
+            && style::literal(plan, plan.code(b.expr)).is_none())
+        .then(|| {
+            self.uses.rt("say");
+            format!(
+                "()=>{}(({f})())",
+                self.uses.share('m', style::corner_list(id))
+            )
+        });
+        let f = corner.as_deref().unwrap_or(f);
         if let Some((_, name)) = exact_web::host::template::attribute_rows(kind)
             .iter()
             .find(|(attribute, _)| *attribute == id)
@@ -156,10 +263,58 @@ impl Em<'_> {
             let _ = write!(self.out, "{p}({e},\"data-x-pin\",{f});");
             return Ok(());
         }
+        // @ref LLP 1084 D7 — what the page's sheet reads to give a grouped
+        // row's separator way (index.html): a bound edge or background image
+        // its author wrote, while it holds a value, and a row's bound
+        // `display`, while it hides the row. A literal one is said by the
+        // element's own marks (`data-exact-said`, `data-exact-hidden`).
+        let mark = match id {
+            StyleId::BorderWidthTop if b.written => Some("data-exact-top-width"),
+            StyleId::BorderStyleTop if b.written => Some("data-exact-top-style"),
+            StyleId::BorderWidthBottom if b.written => Some("data-exact-bottom-width"),
+            StyleId::BorderStyleBottom if b.written => Some("data-exact-bottom-style"),
+            StyleId::BackgroundImage if b.written => Some("data-exact-background-image"),
+            StyleId::Display
+                if parts.props.contains_key("data-groupedrowseparator")
+                    || parts.props.contains_key("data-native") =>
+            {
+                Some("data-exact-hidden")
+            }
+            _ => None,
+        };
+        if let Some(name) = mark {
+            let p = self.uses.rt("P");
+            let when = if id == StyleId::Display {
+                "v===\"none\"?\"\":null"
+            } else {
+                "v==null||v===\"\"?null:\"\""
+            };
+            let _ = write!(
+                self.out,
+                "{p}({e},\"{name}\",()=>{{const v=({f})();return {when}}});"
+            );
+        }
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
+        // @ref LLP 1077 D13 — a bound colour may name a system colour, which
+        // the literal path resolved in the kernel. And a CSS-text row that
+        // may name one inside it. The plan's colour map: one module constant
+        // every such site shares.
+        use exact_kernel::StyleCodec as C;
+        let cm = matches!(
+            id.codec(),
+            C::ColorValue
+                | C::KeywordColor
+                | C::Paint
+                | C::BackgroundImage
+                | C::MaskImage
+                | C::BoxShadow
+                | C::TextShadow
+                | C::Filter
+        )
+        .then(|| self.uses.constant("$cm", || style::color_map(plan)));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
-        let writes: Vec<(String, String, Option<String>)> = match id {
+        let mut writes: Vec<(String, String, Option<String>)> = match id {
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
@@ -179,7 +334,7 @@ impl Em<'_> {
                 if id == StyleId::TextStrokeColor {
                     return Ok(());
                 }
-                one("-webkit-text-stroke", Some(style::color_map(plan)))
+                one("-webkit-text-stroke", Some(self.uses.constant("$cm", || style::color_map(plan))))
             }
             // @ref LLP 1077 D8 — 0 is `none`, as css.rs writes it.
             StyleId::Perspective => one(
@@ -240,6 +395,26 @@ impl Em<'_> {
                 let _ = write!(self.out, "{press}();");
                 one("--exact-press-haptic", Some("v=>v==null||v===\"none\"?null:v".into()))
             }
+            // @ref LLP 1061 D7 — the pressed paint: the custom properties
+            // input-glue.js reads from the element's own style (css.rs).
+            StyleId::PressOpacity
+            | StyleId::PressOpacityTo
+            | StyleId::PressBackgroundColor
+            | StyleId::PressColor => {
+                let press = self.uses.rt("pressFeedback");
+                let _ = write!(self.out, "{press}();");
+                let name = match id {
+                    StyleId::PressOpacity => "--exact-press-opacity",
+                    StyleId::PressOpacityTo => "--exact-press-opacity-to",
+                    StyleId::PressBackgroundColor => "--exact-press-background-color",
+                    _ => "--exact-press-color",
+                };
+                let none = "v==null||/^\\s*unset\\s*$/i.test(v)?null:";
+                one(name, Some(match &cm {
+                    Some(cm) => format!("v=>{none}{cm}(v)"),
+                    None => format!("v=>{none}v"),
+                }))
+            }
             // @ref LLP 1116.001 D1.4 — what navigation.js `fitText` reads, inline.
             StyleId::Fit => {
                 let fit = self.uses.rt("fitTexts");
@@ -265,6 +440,37 @@ impl Em<'_> {
                         Some("v=>v==null||v===1||/^\\s*unset\\s*$/i.test(v)?null:\"calc(var(--exact-scale,1) * var(--exact-press-factor,1))\"".into()),
                     ),
                 ]
+            }
+            // A bound `font` shorthand: its style's weight and leading with
+            // its size (LLP 1115.000 D12.2), as a literal one's are written.
+            // What the node writes statically it keeps. A bound longhand may
+            // be `none`, which leaves the style's: the style's goes to a
+            // custom property that binding falls back on (below).
+            StyleId::FontSize if parts.props.contains_key("data-fontshorthand") => {
+                let [weight, leading] = &*style::TEXT_STYLE_ROWS;
+                // A type token's size property stands for its text style
+                // here, as the literal's name would (`measures::size_styles`).
+                let styles = crate::measures::size_styles(plan, crate::modes::every_token());
+                let back = |map: &String| match styles.is_empty() {
+                    true => map.clone(),
+                    false => {
+                        let pairs: Vec<String> = styles.iter().map(|(v, s)| format!("{}:{}", serde_json::to_string(v).unwrap(), serde_json::to_string(s).unwrap())).collect();
+                        format!("(B=>v=>({map})(typeof v===\"string\"&&Object.hasOwn(B,v)?B[v]:v))({{{}}})", pairs.join(","))
+                    }
+                };
+                let (weight, leading) = (&back(weight), &back(leading));
+                let written = |name: &str| parts.css.split(';').any(|d| d.starts_with(&format!("{name}:")));
+                let mut w = vec![("font-size".into(), "px".into(), Some(style::TEXT_STYLE_MAP.to_string()))];
+                for (row, name, map) in [(StyleId::FontWeight, "font-weight", weight), (StyleId::LineHeight, "line-height", leading)] {
+                    if dynamic(row) {
+                        // `initial` where no style is named: one an ancestor
+                        // declared is not inherited here.
+                        w.push((style::style_fallback(name), String::new(), Some(format!("v=>({map})(v)??\"initial\""))));
+                    } else if binding(row).is_none() && !written(name) {
+                        w.push((name.into(), String::new(), Some(map.clone())));
+                    }
+                }
+                w
             }
             StyleId::FontSize | StyleId::FontWeight if parts.tag == "img" => {
                 let size = id == StyleId::FontSize;
@@ -306,19 +512,11 @@ impl Em<'_> {
                 .map_err(|x| format!("node {i}: {x}"))?
                 .into_iter()
                 .map(|w| {
-                    // @ref LLP 1077 D13 — a bound colour may name a system
-                    // colour, which the literal path resolved in the kernel.
-                    // And a CSS-text row that may name one inside it.
-                    use exact_kernel::StyleCodec as C;
-                    let colors = matches!(
-                        id.codec(),
-                        C::ColorValue | C::KeywordColor | C::Paint | C::BackgroundImage | C::MaskImage | C::BoxShadow | C::TextShadow | C::Filter
-                    );
                     // Composed with the row's own map (`accent-color` has one).
-                    let map = match w.map {
-                        Some(m) if colors => Some(format!("v=>({m})(({})(v))", style::color_map(plan))),
-                        Some(m) => Some(m.to_string()),
-                        None => colors.then(|| style::color_map(plan)),
+                    let map = match (w.map, &cm) {
+                        (Some(m), Some(cm)) => Some(format!("v=>({m})({cm}(v))")),
+                        (Some(m), None) => Some(m.to_string()),
+                        (None, cm) => cm.clone(),
                     };
                     // A computed image the native hosts refuse is dropped
                     // here too, and journaled as they journal it, so the web
@@ -341,6 +539,55 @@ impl Em<'_> {
                 })
                 .collect(),
         };
+        if id == StyleId::Display && parts.css.contains("--exact-progress-justify:") {
+            let normal = self.uses.rt("normal");
+            writes.push(("--exact-progress-justify".into(), String::new(), Some(format!(
+                "v=>[\"flex\",\"grid\",\"none\"].includes({normal}(\"display\",String(v??\"\")))?\"auto\":\"start\""
+            ))));
+        }
+        if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {
+            let normal = self.uses.rt("normal");
+            writes.push((
+                "justify-self".into(),
+                String::new(),
+                Some(format!(
+                    "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?\"auto\":{:?}",
+                    style::PROGRESS_JUSTIFY
+                )),
+            ));
+        }
+        // A longhand bound beside a bound `font` shorthand: where it says
+        // nothing, the shorthand's style's (above), as the kernel has it.
+        let writes = if matches!(id, StyleId::FontWeight | StyleId::LineHeight)
+            && parts.tag != "img"
+            && parts.props.contains_key("data-fontshorthand")
+            && dynamic(StyleId::FontSize)
+        {
+            writes
+                .into_iter()
+                .map(|(name, unit, map)| {
+                    let fallback = format!("var({})", style::style_fallback(&name));
+                    let inner = map.unwrap_or_else(|| "v=>v".into());
+                    (name, unit, Some(format!("v=>({inner})(v)??{fallback:?}")))
+                })
+                .collect()
+        } else {
+            writes
+        };
+        // @ref LLP 1084 D7 — a grouped row's separator stands below its
+        // bottom padding (the page's sheet, as `element::host_css_of` says).
+        let mut writes = writes;
+        if id == StyleId::PaddingBottom && parts.props.contains_key("data-groupedrowseparator") {
+            if let Some((_, unit, map)) = writes.first().cloned() {
+                // A length; a percentage, which a background cannot reach,
+                // is none (`element::host_css_of`).
+                let inner = map.unwrap_or_else(|| "v=>v".into());
+                let px = format!(
+                    "v=>{{const t=({inner})(v);return t!=null&&/%/.test(String(t))?\"0px\":t}}"
+                );
+                writes.push(("--exact-padding-bottom".into(), unit, Some(px)));
+            }
+        }
         // A reference (`url(#…)`) names an element by its authored id, which
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at
         // run time from the node (`Sr`).
@@ -358,6 +605,13 @@ impl Em<'_> {
         // so its `--exact-accent` naming one that names the accent would name
         // itself: that token's colour stands by tuple (`data-x-accent`), as
         // css.rs leaves a self-reference out; a clear there writes nothing.
+        // A bound `color` that decides a symbol's ink (style.rs
+        // `symbol_marks`) keeps whether its binding has a value now, a clear
+        // included, whatever its map writes: symbols.js `inked` reads it.
+        let inked = (id == StyleId::TextColor
+            && parts.props.get("data-exact-ink").is_some_and(|w| w != "b"))
+        .then(|| format!("()=>{{const v=({f})();{e}.$ink=v!=null;return v}}"));
+        let f = inked.as_deref().unwrap_or(f);
         for (name, unit, map) in writes {
             let modes = crate::modes::active(plan);
             let channel = crate::modes::CHANNELS
@@ -368,13 +622,14 @@ impl Em<'_> {
                 .filter(|_| modes);
             let map = match map {
                 Some(m) if modes && name == "--exact-accent" => Some(format!(
-                    "v=>{{v=({m})(v);if(!{e}.hasAttribute(\"data-x-b\"))return v;{e}.removeAttribute(\"data-x-accent\");if(v==null||/^\\s*(unset|inherit)\\s*$/i.test(v))return null;const n={}.find(p=>v.includes(`var(${{p}})`));if(n){{{e}.setAttribute(\"data-x-accent\",n);return null}}return v}}",
+                    "v=>{{v=({m})(v);if(!{e}.hasAttribute(\"data-x-b\"))return v;{e}.removeAttribute(\"data-x-accent\");if(v==null||/^\\s*(unset|inherit)?\\s*$/i.test(v))return null;const n={}.find(p=>v.includes(`var(${{p}})`));if(n){{{e}.setAttribute(\"data-x-accent\",n);return null}}return v}}",
                     serde_json::to_string(&crate::modes::accent_properties(plan)).unwrap()
                 )),
                 map => map,
             };
             let value = match map {
-                Some(m) => format!("()=>({m})(({f})())"),
+                // An empty string declares nothing before the map reads it.
+                Some(m) => format!("()=>({m})({}(({f})()))", self.uses.rt("blank")),
                 None => f.to_string(),
             };
             match channel {
@@ -390,7 +645,8 @@ impl Em<'_> {
     }
 
     /// A Markdown text field is the web host's own editor (LLP 1045 D5:
-    /// markup-editor.js over its wasm), which replaces it once loaded.
+    /// markup-editor.js over its wasm), which replaces it once loaded; a
+    /// plain one with `decorations` keeps its textarea and is painted.
     pub(super) fn editor(&mut self, i: u32, element: &str, e: &str) -> Result<(), String> {
         let plan = self.plan;
         let row = &plan.nodes[i as usize];
@@ -400,6 +656,16 @@ impl Em<'_> {
             .map(|b| plan.binding(b))
             .find(|b| b.kind == BindingKind::Prop && b.id == PropId::Markup as u16);
         if element == "textarea" {
+            if row
+                .bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .any(|b| b.kind == BindingKind::Prop && b.id == PropId::Decorations as u16)
+            {
+                // Paint only (LLP 1114.007): decorations.js, no editor wasm.
+                let decorate = self.uses.rt("decorate");
+                let _ = write!(self.out, "{decorate}({e});");
+            }
             match markup.map(|b| style::literal(plan, plan.code(b.expr))) {
                 Some(Some(v)) if v.as_str() == Some("markdown") => {
                     self.editor = true;
@@ -479,23 +745,20 @@ impl Em<'_> {
         }
     }
 
-    /// A node's authored `id`, named for `Sr` in a plan whose rows can
-    /// reference an element.
+    /// Preserve literal authored IDs for URL references and for drag bindings
+    /// when the template rewrites an SVG element's DOM ID.
     pub(super) fn exact_id(&self, i: u32) -> Option<String> {
         let plan = self.plan;
-        if !self.refs {
+        let node = &plan.nodes[i as usize];
+        if !self.refs && !NodeType::from_wire(node.node_type).is_some_and(|t| t.is_svg_element()) {
             return None;
         }
-        plan.nodes[i as usize]
-            .bindings
-            .iter()
-            .map(|b| plan.binding(b))
-            .find_map(|b| {
-                (b.kind == BindingKind::Prop && b.id == PropId::Id as u16)
-                    .then(|| style::literal(plan, plan.code(b.expr)))
-                    .flatten()
-                    .and_then(|v| v.as_str().map(str::to_string))
-            })
+        node.bindings.iter().map(|b| plan.binding(b)).find_map(|b| {
+            (b.kind == BindingKind::Prop && b.id == PropId::Id as u16)
+                .then(|| style::literal(plan, plan.code(b.expr)))
+                .flatten()
+                .and_then(|v| v.as_str().map(str::to_string))
+        })
     }
 }
 
@@ -542,6 +805,11 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             // D14), which input-glue.js reads from the element's own style.
             "--exact-press:",
             "--exact-press-haptic:",
+            // The pressed paint (LLP 1061 D7), read the same way.
+            "--exact-press-opacity:",
+            "--exact-press-opacity-to:",
+            "--exact-press-background-color:",
+            "--exact-press-color:",
             // A fitted text's (LLP 1116.001 D1.4), which navigation.js finds by it.
             "--exact-fit:",
         ]
@@ -586,6 +854,11 @@ impl Em<'_> {
                 let v = serde_json::to_string(v).unwrap();
                 let _ = write!(self.out, "{p}({e},\"{name}\",()=>{v});");
             }
+        }
+        if let Some(v) = sandboxed_source(tag, props) {
+            let p = self.uses.rt("P");
+            let v = serde_json::to_string(v).unwrap();
+            let _ = write!(self.out, "{p}({e},\"src\",()=>{v});");
         }
         if tag == "canvas" {
             let cv = self.uses.rt("cv");
@@ -688,13 +961,37 @@ pub(super) fn attributes(
                 }
             }
             "href" if !exact_web::host::document::navigable(value) => {}
-            "src" if element == "iframe" && !exact_web::host::document::navigable(value) => {
+            "src" if sandboxed_source(element, props).is_some() => {}
+            "src"
+                if element == "iframe"
+                    && !exact_web::host::document::frame_navigable(
+                        value,
+                        props.get("sandbox").map(String::as_str),
+                    ) =>
+            {
                 attrs.push((name.clone(), "about:blank".into()));
             }
             _ => attrs.push((name.clone(), value.clone())),
         }
     }
     (attrs, content, css)
+}
+
+/// A frame's literal `data:` source (refused alone, shown in an opaque
+/// sandbox) with no literal `sandbox`: a bound one decides it, so it is no
+/// attribute (the frame shows about:blank) and rt.js `P` writes it
+/// (`element_extras`), keeping it to decide again as the sandbox changes.
+fn sandboxed_source<'a>(
+    element: &str,
+    props: &'a exact_kernel::SortedMap<String, String>,
+) -> Option<&'a String> {
+    use exact_web::host::document::{frame_navigable, navigable};
+    props.get("src").filter(|v| {
+        element == "iframe"
+            && !props.contains_key("sandbox")
+            && !navigable(v)
+            && frame_navigable(v, Some(""))
+    })
 }
 
 /// A pressed node's computed `transition`: an author's entries
@@ -723,6 +1020,43 @@ mod tests {
         .unwrap();
         let js = crate::emit::emit(&plan, false, false).unwrap().js;
         assert!(js.contains("v=>v===\"none\"?\"none\":\"grid\""), "{js}");
+    }
+
+    #[test]
+    fn a_literal_data_frame_is_shown_by_its_sandbox() {
+        // A literal opaque sandbox decides here; a bound one, in rt.js `P`,
+        // which is handed the source (no attribute until then); a
+        // same-origin one refuses it.
+        let attrs = |sandbox: Option<&str>| {
+            let mut props = exact_kernel::SortedMap::default();
+            props.insert("src".to_string(), "data:text/html,hi".to_string());
+            if let Some(s) = sandbox {
+                props.insert("sandbox".to_string(), s.to_string());
+            }
+            let (attrs, _, _) = super::attributes("iframe", &props);
+            attrs.into_iter().find(|(k, _)| k == "src").map(|a| a.1)
+        };
+        assert_eq!(attrs(Some("allow-scripts")).unwrap(), "data:text/html,hi");
+        assert_eq!(
+            attrs(Some("allow-scripts allow-same-origin")).unwrap(),
+            "about:blank"
+        );
+        assert_eq!(attrs(None), None);
+        let plan = contract::compile(
+            r#"component App
+  state sandbox = "allow-scripts"
+  view
+    column
+      iframe "data:text/html,a" sandbox=sandbox
+      iframe "data:text/html,b" sandbox="allow-scripts allow-same-origin"
+      iframe "https://e.dev/c"
+"#,
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(js.contains(",\"src\",()=>\"data:text/html,a\")"), "{js}");
+        assert!(!js.contains("()=>\"data:text/html,b\""), "{js}");
+        assert!(!js.contains("()=>\"https://e.dev/c\""), "{js}");
     }
 
     #[test]
@@ -758,7 +1092,8 @@ mod tests {
     };
 
     /// A bound `filter` (LLP 1095 D1) is written through the colour map:
-    /// the emitted binding wraps its value in `color_map(plan)`, which turns
+    /// the emitted binding wraps its value in `color_map(plan)`, a module
+    /// constant every colour site shares (`$cm`), which turns
     /// a role into its CSS, an admitted `-exact-platform-color()` literal into its
     /// fallback, and refuses one the plan does not hold.
     #[test]
@@ -785,8 +1120,20 @@ mod tests {
             "the plan admits the literal"
         );
         assert!(
-            js.contains(&format!(",\"filter\",\"\",()=>({map})((")),
+            js.contains(&format!("const $cm={map};\n"))
+                && js.contains(",\"filter\",\"\",()=>($cm)(blank(("),
             "the bound filter is not mapped:\n{js}"
+        );
+        // One constant, however many sites; none where no site maps a colour.
+        assert_eq!(js.matches("const $cm=").count(), 1);
+        let plain = contract::compile(
+            "component App\n  state on = false\n  view\n    text \"Plain\" opacity=(on ? 0.5 : 1)\n",
+        )
+        .unwrap();
+        let plain = crate::emit::emit(&plain, false, false).unwrap().js;
+        assert!(
+            plain.contains("\"opacity\"") && !plain.contains("$cm"),
+            "{plain}"
         );
         assert_eq!(
             run(
@@ -846,17 +1193,19 @@ mod tests {
                 .unwrap_or_else(|| panic!("no bound {row} names a metric"));
             crate::style::metric_map(&plan, plan.code(binding.expr)).unwrap()
         };
-        // The row starts at its text, after a symbol where one is shown.
+        // The row's content starts at its text, after a symbol where one is
+        // shown: its padding, the row spanning its card (LLP 1084 D7).
         assert_eq!(
             run(
-                &named("margin_left"),
+                &named("padding_left"),
                 &[
                     "-exact-grouped-row-inset",
                     "-exact-grouped-row-inset-symbol",
+                    "-exact-grouped-button-padding-start",
                     "12px"
                 ]
             ),
-            serde_json::json!([16, 56, "12px"])
+            serde_json::json!([16, 56, 16, "12px"])
         );
         // Red when destructive, by its role; the label's colour is no metric.
         assert_eq!(
@@ -866,11 +1215,11 @@ mod tests {
             ),
             serde_json::json!(["-exact-system-red", "-exact-label"])
         );
-        // The Mac's push button's padding is no row on the web.
+        // The Mac's push button's margin is no row on the web.
         assert_eq!(
             run(
-                &named("padding_left"),
-                &["-exact-grouped-button-padding-start", "unset"]
+                &named("margin_left"),
+                &["-exact-grouped-button-margin-inline", "unset"]
             ),
             serde_json::json!([null, "unset"])
         );
@@ -900,9 +1249,11 @@ mod tests {
             .unwrap_or_else(|| panic!("no column-count write:\n{js}"));
         let rest = &js[at + marker.len()..];
         let (unit, after) = rest.split_once('"').expect("unit");
-        let map = after
-            .strip_prefix(",()=>(")
-            .and_then(|mapped| mapped.find(")((").map(|end| mapped[..end].to_string()));
+        let map = after.strip_prefix(",()=>(").and_then(|mapped| {
+            mapped
+                .find(")(blank((")
+                .map(|end| mapped[..end].to_string())
+        });
         let map_src = map.unwrap_or_else(|| "v=>v".into());
         let script = format!(
             "const map={map_src};const unit={unit:?};const write=v=>{{const m=map(v);return m==null?null:typeof m===\"number\"?m+unit:String(m)}};console.log(JSON.stringify([write(0),write(2),write(null)]))"
@@ -943,56 +1294,33 @@ document.getElementById("out").textContent=JSON.stringify({{after2,after0,journa
 </script>"#
         );
         std::fs::write(&page, html).unwrap();
-        let chrome = std::env::var("CHROME").unwrap_or_else(|_| {
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into()
-        });
-        // `--dump-dom` prints the page and then does not exit (a keychain
-        // lookup keeps the process up), so read until the result and stop it.
-        let mut child = std::process::Command::new(&chrome)
-            .args([
-                "--headless=new",
-                "--disable-gpu",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--virtual-time-budget=2000",
-                &format!("--user-data-dir={}", dir.join("profile").display()),
-                "--dump-dom",
-                &format!("file://{}", page.display()),
-            ])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap_or_else(|e| panic!("chrome ({chrome}): {e}"));
-        let mut stdout = child.stdout.take().unwrap();
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            let mut tmp = [0u8; 8192];
-            loop {
-                match std::io::Read::read(&mut stdout, &mut tmp) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        buf.extend_from_slice(&tmp[..n]);
-                        if buf.windows(6).any(|w| w == b"</pre>") {
-                            break;
-                        }
-                    }
-                }
-            }
-            let _ = tx.send(buf);
-        });
-        let dumped = rx.recv_timeout(std::time::Duration::from_secs(20));
-        let _ = child.kill();
-        let _ = child.wait();
-        let dumped = dumped.unwrap_or_else(|_| panic!("chrome ({chrome}) dumped no DOM"));
-        let dom = String::from_utf8_lossy(&dumped);
-        let raw = dom
-            .split_once("<pre id=\"out\">")
-            .and_then(|(_, rest)| rest.split_once("</pre>"))
-            .map(|(body, _)| body)
-            .unwrap_or_else(|| panic!("no computed style in\n{dom}"));
+        // Use the same provisioned browser carrier as the app proofs. Chrome's
+        // --dump-dom can stay alive indefinitely on Linux even after the script ran.
+        let browser_script = format!(
+            r#"
+import {{ chromium }} from 'playwright-core';
+const browser = await chromium.launch({{executablePath: process.env.CHROME, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage']}});
+try {{
+  const page = await browser.newPage();
+  await page.goto({});
+  process.stdout.write(await page.locator('#out').textContent());
+}} finally {{ await browser.close(); }}
+"#,
+            serde_json::to_string(&format!("file://{}", page.display())).unwrap()
+        );
+        let result =
+            std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+                .args(["--eval", &browser_script])
+                .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+                .output()
+                .expect("Bun runs the provisioned browser");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
         let computed: serde_json::Value =
-            serde_json::from_str(&raw.replace("&quot;", "\"")).expect(raw);
+            serde_json::from_slice(&result.stdout).expect("computed styles");
         assert_eq!(computed["after2"], "2", "{computed}");
         assert_eq!(computed["after0"], "auto", "{computed}");
         assert_eq!(computed["journal2"], serde_json::json!([]), "{computed}");
@@ -1009,5 +1337,60 @@ document.getElementById("out").textContent=JSON.stringify({{after2,after0,journa
             "{computed}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A computed corner given a list (`10px 20px`, `10px / 20px`) is
+    /// refused whole with a journal line, as the kernel refuses it; a calc
+    /// is one value.
+    #[test]
+    fn a_computed_corner_list_is_refused_as_the_kernel_refuses_it() {
+        let plan = contract::compile(
+            "component App\n  state r = \"10px 20px\"\n  view\n    view border-top-left-radius=r testId=\"c\"\n",
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(
+            js.contains("unset border-top-left-radius: ") && js.contains(",say,"),
+            "{js}"
+        );
+        let map = crate::style::corner_list(exact_kernel::StyleId::BorderRadiusTopLeft);
+        let script = format!(
+            "const journal=[];const say=l=>journal.push(l);const m={map};console.log(JSON.stringify({{out:[\"10px 20px\",\"10px/20px\",\"calc(10px + 2px)\",\"12px\",8,null].map(m),journal:journal.length}}))"
+        );
+        let bun = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+            .args(["-e", &script])
+            .output()
+            .expect("bun");
+        assert!(
+            bun.status.success(),
+            "{}",
+            String::from_utf8_lossy(&bun.stderr)
+        );
+        let got: serde_json::Value = serde_json::from_slice(&bun.stdout).unwrap();
+        assert_eq!(
+            got,
+            serde_json::json!({"out": ["unset", "unset", "calc(10px + 2px)", "12px", 8, null], "journal": 2})
+        );
+    }
+
+    /// An empty string declares nothing before a row's map reads it: the
+    /// mapped rows (`cursor`, `animation-timeline` and its companions) see
+    /// `null` (rt.js `blank`), never a value to diagnose.
+    #[test]
+    fn an_empty_value_reaches_a_mapped_row_as_nothing() {
+        let plan = contract::compile(
+            "component App\n  state c = \"\"\n  view\n    view cursor=c animation-timeline=c testId=\"v\"\n",
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        for name in [
+            "\"cursor\"",
+            "\"--exact-animation-timeline\"",
+            "\"animation-play-state\"",
+        ] {
+            let at = js.find(name).unwrap_or_else(|| panic!("{name}:\n{js}"));
+            let write = js[at..].split(";S").next().unwrap();
+            assert!(write.contains("blank(("), "{name}: {write}");
+        }
     }
 }

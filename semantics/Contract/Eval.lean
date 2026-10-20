@@ -11,6 +11,8 @@ import Contract.Syntax
 import Contract.Value
 import Contract.Route
 import Contract.Format
+import Contract.Trig
+import Contract.Sort
 
 namespace Contract
 
@@ -97,6 +99,10 @@ def formatting (f : String) (args : List Value) : Result Value :=
   | "formatDate", [.num e, .num o, .str "medium"] => .ok (.str (Format.formatDate e o false))
   | "formatDate", [.num e, .num o, .str "month-year"] => .ok (.str (Format.formatDate e o true))
   | "formatDate", [.num e, .num o, .str "iso"] => .ok (.str (Format.formatIsoDate e o))
+  -- LLP 1116.020 D8: a day's label, relative to the `now` the app passes.
+  | "formatDay", [.num t, .num n, .num o, .str "day"] => .ok (.str (Format.formatDay t n o "day"))
+  | "formatDay", [.num t, .num n, .num o, .str "day-time"] => .ok (.str (Format.formatDay t n o "day-time"))
+  | "formatDay", [.num t, .num n, .num o, .str "list"] => .ok (.str (Format.formatDay t n o "list"))
   | "formatNumber", [.num n, .str "compact", _] => .ok (.str (Format.compact n))
   -- LLP 1116 D8: `decimal`, `percent`, and `currency` with its code.
   | "formatNumber", [.num n, .str style, .str code] =>
@@ -162,8 +168,8 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   | "isEmpty", [.str s] => .ok (.bool s.isEmpty)
   | "toString", [v] => Value.str <$> v.display
   | "floor", [.num x] => .ok (.num x.floor)
-  | "max", [.num a, .num b] => .ok (.num (Number.fmax a b))
-  | "min", [.num a, .num b] => .ok (.num (Number.fmin a b))
+  | "max", [.num a, .num b] => .ok (.num (Number.jsMax a b))
+  | "min", [.num a, .num b] => .ok (.num (Number.jsMin a b))
   | "first", [.list xs] => .ok (match xs with | [] => .none | x :: _ => .some x)
   | "at", [.list xs, .num i] =>
     let i := if Number.isNaN i then 0 else Number.trunc i
@@ -208,8 +214,8 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
         | v@(.str _) | v@(.num _) | v@(.bool _) => v.display
         | _ => .error (.type "join of an item that is not a string, number or bool")
       .ok (.str (sep.intercalate parts))
-  -- LLP 1088 D2: over UTF-16 code units, well formed. `toLowerCase` is
-  -- left out (its case tables are Unicode's).
+  -- LLP 1088 D2: over UTF-16 code units, well formed. `toLowerCase` and
+  -- `toUpperCase` are left out (their case tables are Unicode's).
   | "slice", [v, .num a, .num b] => sliceOf v a b
   | "replaceAll", [.str s, .str find, .str w] => .ok (.str (Str.replaceAll s find w))
   -- LLP 1088 §9.1: JavaScript's `Array.prototype.concat`.
@@ -220,6 +226,7 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   -- Formatting and localized text (`Contract.Format`).
   | "formatTime", vs => formatting "formatTime" vs
   | "formatDate", vs => formatting "formatDate" vs
+  | "formatDay", vs => formatting "formatDay" vs
   | "formatNumber", vs => formatting "formatNumber" vs
   | "t", vs => text env.prog.strings vs
   -- LLP 1102 §3.2: `round` is JavaScript's `Math.round`, a half up.
@@ -235,9 +242,33 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
     else .error (.unsupported "`calendarDiff` of a unit it does not take")
   | "toFixed", vs => formatting "toFixed" vs
   | "formatDecimal", vs => formatting "formatDecimal" vs
+  | "sin", [.num x] => .ok (.num x.sin)
+  | "cos", [.num x] => .ok (.num x.cos)
+  | "sum", [.list xs] =>
+    match Value.sum xs with
+    | .some n => .ok (.num n)
+    | .none => .error (.type "`sum` of an item that is not a number")
+  -- LLP 1116.016 §5: the roster's half of `sortBy`, on the items, their keys
+  -- (a `map` of the callback) and whether it is descending.
+  | "sortBy", [.list xs, .list ks, .bool d] => sortByKeys xs ks d
+  -- LLP 1017.003 §Refused (2026-10-17): the whole numbers below `n`. Any
+  -- other count does not fit, which the runner traps; a count past the
+  -- runner's list bound is outside the semantics (LLP 1090 D8), so none
+  -- is built here.
+  | "range", [.num n] =>
+    if n.isFinite && n.floor == n && F64.le 0 n then
+      if n.toNat ≤ 65536 then .ok (.list ((List.range n.toNat).map fun i => .num (F64.ofNat i)))
+      else .error (.unsupported "`range` past the list bound")
+    else .error (.refused "`range` of a count that is not a whole number at least 0")
+  -- LLP 1017.003 §Refused (2026-10-17): `Array.prototype.flat()`, depth 1.
+  | "flat", [.list xss] =>
+    match Value.flat xss with
+    | .some ys => .ok (.list ys)
+    | .none => .error (.type "`flat` of an item that is not a list")
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
   | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ | "indexOf", _
+  | "sin", _ | "cos", _ | "sum", _ | "sortBy", _ | "range", _ | "flat", _
   | "split", _ | "ceil", _ | "round", _ | "parseNumber", _ | "calendarDiff", _ =>
     .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")
@@ -268,6 +299,13 @@ def binop (op : BinOp) (a b : Value) : Result Value :=
   | .eq => (Value.equal a b).elim (.error (.type "`==` on values of two types")) (.ok ∘ .bool)
   | .ne => (Value.equal a b).elim (.error (.type "`!=` on values of two types")) (fun e => .ok (.bool !e))
   | .and | .or => .error (.type "short-circuit operator evaluated strictly")
+
+/-- `sortBy`'s direction, a literal: ascending unless `"desc"`. -/
+def sortDir : List Expr → Result Bool
+  | [] => .ok false
+  | [.str "asc"] => .ok false
+  | [.str "desc"] => .ok true
+  | _ => .error (.type "a `sortBy` direction that is not \"asc\" or \"desc\"")
 
 /-- Bind a callback's parameters to an item and its index. -/
 def bindParams (ps : List String) (item : Value) (i : Nat) (ls : Locals) : Locals :=
@@ -332,6 +370,12 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
         let xs ← (← eval fuel env inFn ls l).asList
         let ys ← evalFilter fuel env inFn ls ps body xs 0
         .ok (.list ys)
+      -- LLP 1116.016 §5: each key once, by `map`'s callback, then the sort.
+      | "sortBy", l :: .arrow ps body :: dir => do
+        let xs ← (← eval fuel env inFn ls l).asList
+        let ks ← evalMap fuel env inFn ls ps body xs 0
+        let d ← sortDir dir
+        sortByKeys xs ks d
       | "pending", [.var x] =>
         -- Answers here are synchronous: a settled resource is never
         -- pending, and an unsettled one is not known yet.
@@ -393,7 +437,7 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
     | .some v => eval fuel env inFn ((x, v) :: ls) a
     | .none => eval fuel env inFn ls b
     | _ => .error (.type "match on a value that is not an option")
-  | .arrow _ _ => .error (.type "an arrow outside `map` or `filter`")
+  | .arrow _ _ => .error (.type "an arrow outside `map`, `filter` or `sortBy`")
   | .letE x v body => do
     let w ← eval fuel env inFn ls v
     eval fuel env inFn ((x, w) :: ls) body

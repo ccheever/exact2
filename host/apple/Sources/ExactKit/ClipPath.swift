@@ -88,8 +88,10 @@ final class BoxMaskState {
     var boxMask: CALayer?
     var effectMask: AnyObject?
     private static var slot = 0
+    /// Its state, if `applyBoxMask` ever built one for it.
+    static func existing(_ view: NodeView) -> BoxMaskState? { objc_getAssociatedObject(view, &slot) as? BoxMaskState }
     static func of(_ view: NodeView) -> BoxMaskState {
-        if let s = objc_getAssociatedObject(view, &slot) as? BoxMaskState { return s }
+        if let s = existing(view) { return s }
         let s = BoxMaskState()
         objc_setAssociatedObject(view, &slot, s, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return s

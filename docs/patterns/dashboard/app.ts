@@ -22,7 +22,7 @@ const save = async (storage: Storage, all: Expense[]) => {
 
 const sources: Sources = {
   // The view has no reduce or sort: the data module adds and orders; the view shows. It has no
-  // clock: `month` ("2026-03") is an argument, and each expense carries the `day` the view read.
+  // clock: `month` ("2026-03") is an argument, and each expense carries the `day` and the instant `at` the view read.
   loadSummary: async ([month], _store, storage) => {
     const rows = (await load(storage)).filter((e) => e.day.startsWith(month));
     const name = (id: string) => categories.find((c) => c.id === id)?.name ?? id;
@@ -33,9 +33,9 @@ const sources: Sources = {
       recent: rows.slice(-5).reverse().map((e) => ({ ...e, category: name(e.category) })),
     };
   },
-  addExpense: async ([title, category, amount, day], _store, storage) => {
+  addExpense: async ([title, category, amount, day, at], _store, storage) => {
     const all = await load(storage);
-    return save(storage, [...all, { id: String(Math.max(0, ...all.map((e) => Number(e.id))) + 1), title, category, amount, day }]);
+    return save(storage, [...all, { id: String(Math.max(0, ...all.map((e) => Number(e.id))) + 1), title, category, amount, day, at }]);
   },
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);

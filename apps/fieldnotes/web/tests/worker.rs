@@ -14,12 +14,6 @@ use std::process::Command;
 
 #[test]
 fn fieldnotes_web_drives_on_its_placement_and_reports_frame_gaps_under_a_backup() {
-    let chrome = std::env::var("CHROME")
-        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
-    if !Path::new(&chrome).exists() {
-        missing("chrome", "Fieldnotes web drive unavailable: set CHROME");
-        return;
-    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let dist = std::env::var_os("EXACT_FIELDNOTES_DIST")
         .or_else(|| std::env::var_os("EXACT_WEB_DIST"))
@@ -41,11 +35,18 @@ fn fieldnotes_web_drives_on_its_placement_and_reports_frame_gaps_under_a_backup(
     }
     let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROBE])
-        .env("CHROME", chrome)
         .env("EXACT_WEB_DIST", &dist)
         .current_dir(root)
         .output()
         .unwrap();
+    if let Some(why) = String::from_utf8_lossy(&result.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("missing chrome: "))
+        .map(str::to_owned)
+    {
+        missing("chrome", &why);
+        return;
+    }
     eprintln!("{}", String::from_utf8_lossy(&result.stdout));
     assert!(
         result.status.success(),
@@ -57,6 +58,9 @@ fn fieldnotes_web_drives_on_its_placement_and_reports_frame_gaps_under_a_backup(
 
 const PROBE: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
+import { chromium } from './scripts/agent-launch.mjs';
+const { executable: browserExecutable, unavailable: browserMissing } = chromium();
+if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { readStaticFile, webContentType } from './host/web/serve.mjs';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -73,7 +77,7 @@ const server = createServer((req, res) => {
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const profile = mkdtempSync(resolve(tmpdir(), 'exact-fieldnotes-worker-'));
-const child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', '--disable-extensions', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+const child = spawn(browserExecutable, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', '--disable-extensions', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
 const cdp = new Cdp(child.stdio[3], child.stdio[4]);
 const exited = new Promise(r => child.on('exit', () => { cdp.fail('browser closed'); r(); }));
 const logs = [];

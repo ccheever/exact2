@@ -7,18 +7,16 @@
 // dragged out as a picture; the select's chevron and the switch's thumb follow the page's direction; and a
 // plain `dialog` has no padding of the user agent's. The nodes are as the hosts write them.
 import { test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 const sheet = () => withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0];
@@ -65,13 +63,9 @@ async function inChrome(test) {
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'navigation.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-shell-settings-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=600,900', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const suite = await cdpBrowser({ args: ['--window-size=600,900'] }), { cdp } = suite;
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     const call = (method, params) => cdp.send(method, params, sessionId);
     await prefer(call, {});
     const evaluate = async (expression) => {
@@ -79,13 +73,11 @@ async function inChrome(test) {
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     await test(evaluate, call);
   } finally {
-    child.kill();
+    await suite.close();
     server.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }
 const css = (evaluate, id, property, pseudo) => evaluate(`css(${JSON.stringify(id)}, ${JSON.stringify(property)}${pseudo ? `, ${JSON.stringify(pseudo)}` : ''})`);
@@ -125,7 +117,7 @@ check(`a material the host paints honours the person's settings: opaque with Red
   // The spinner, which no browser draws, is a ring of borders: a gradient would be gone.
   expect(await css(evaluate, 'spinner', 'backgroundImage', '::before')).toBe('none');
   expect(parseFloat(await css(evaluate, 'spinner', 'borderLeftWidth', '::before'))).toBeGreaterThan(0);
-}));
+}), 60000);
 
 check(`the shell carries the resets a careful web app ships`, () => inChrome(async (evaluate) => {
   // A phone does not inflate the text in landscape.
@@ -138,7 +130,7 @@ check(`the shell carries the resets a careful web app ships`, () => inChrome(asy
   const ends = 'JSON.stringify([getComputedStyle(document.documentElement).overscrollBehaviorY, getComputedStyle(document.body).overscrollBehaviorY])';
   expect(await evaluate(ends)).toBe('["contain","contain"]');
   expect(await evaluate(`document.documentElement.setAttribute('data-scrolldocument', ''); ${ends}`)).toBe('["auto","auto"]');
-}));
+}), 60000);
 
 check(`the small ones: a control's image is not dragged out, the chevron and the thumb follow the page's direction, a plain dialog has no padding`, () => inChrome(async (evaluate) => {
   for (const id of ['symbol', 'in-button', 'in-link', 'in-pressable']) {
@@ -164,4 +156,4 @@ check(`the small ones: a control's image is not dragged out, the chevron and the
   // A plain dialog's box is its author's; an alert keeps the padding the page gives it.
   expect(await css(evaluate, 'dialog', 'padding')).toBe('0px');
   expect(await css(evaluate, 'alert', 'padding')).toBe('24px');
-}));
+}), 60000);

@@ -12,10 +12,7 @@ extension NodeView {
     }
 
     func textRun(_ value: String) -> Run {
-        Run(text: value, size: CGFloat(Float(number("font_size", PageFacts.defaultRootFontSize))), weight: Int(number("font_weight", 400)),
-            family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic",
-            lineHeight: usedLineHeight, letterSpacing: CGFloat(Float(number("letter_spacing"))),
-            numeric: Int(number("font_variant_numeric")))
+        TextStyle.run(value, style: style, defaultSize: PageFacts.defaultRootFontSize)
     }
 
     var isParagraph: Bool { kind == "text" }
@@ -66,21 +63,14 @@ extension NodeView {
         #if os(macOS)
         textRasterPending = false
         #else
+        if let presenter, presenter.applying { presenter.changedText.insert(id) }
         presenter?.requestTextPublication()
         #endif
     }
 
     /// CSS start/end resolve from direction, for paragraphs and native editors.
     var textAlignmentCode: Int {
-        let rtl = style["direction"]?.string == "rtl"
-        switch style["text_align"]?.string {
-        case "left": return 0
-        case "center": return 1
-        case "right": return 2
-        case "justify": return 3
-        case "end": return rtl ? 0 : 2
-        default: return rtl ? 2 : 0
-        }
+        TextStyle.alignment(style)
     }
     func paragraphSpec() -> Spec {
         if let spec = cachedTextSpec { return spec }
@@ -90,7 +80,6 @@ extension NodeView {
         SystemColor.selectedItem = inEmphasizedRow
         defer { SystemColor.selectedItem = outer }
         #endif
-        let align = textAlignmentCode, rtl = style["direction"]?.string == "rtl"
         var runs: [Run] = []
         // An inline run is not in the view hierarchy — its paragraph owns it
         // and it was removed from any superview — so it has no appearance of
@@ -99,13 +88,15 @@ extension NodeView {
         let night = drawsDark, contrast = drawsHighContrast, elevated = drawsElevated
         // The view's own tint, read once, where anything here names it (LLP 1095 D8).
         let tint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) ? viewTint : nil
+        let ink = textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
             // Every piece is in the node's ink, or a share of it: one kind.
             var base = textRun("")
             base.fixedInk = style["text_color"]?.fixesInk == true
-            runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night)) ?? [textRun(source)]
+            runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night),
+                                                  boldText: text?.boldTextSteps(base.family) == true) ?? [textRun(source)]
             if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
@@ -114,45 +105,62 @@ extension NodeView {
             runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night, contrast: contrast, elevated: elevated, tint: tint))
         } else {
             runs = inlineText.filter(\.paints).map { $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint) }
-            // A container's background covers its descendants' fragments (CSS).
-            if inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil }) {
-                let byId = Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-                for (i, leaf) in inlineText.filter(\.paints).enumerated() where runs[i].background == nil {
+            let decorates = inlineText.contains(where: { !$0.paints && !$0.lightRun.decoration.isEmpty })
+            let backs = inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil })
+            let byId = decorates || backs ? Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) : [:]
+            // An inline container's lines reach its descendants' text, as the
+            // paragraph's own do below, whatever the box's own visibility:
+            // a hidden run paints neither its glyphs nor their lines.
+            if decorates {
+                for (i, leaf) in inlineText.filter(\.paints).enumerated() {
                     var up = byId[leaf.parent]
-                    while let run = up, runs[i].background == nil {
-                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
-                        if !paint.hidden { runs[i].background = paint.background }
+                    while let run = up {
                         up = byId[run.parent]
+                        guard !run.lightRun.decoration.isEmpty else { continue }
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        runs[i].propagate(paint.decoration, color: paint.color ?? ink)
                     }
                 }
             }
+            // A container's background covers its descendants' fragments (CSS).
+            if backs {
+                // A leaf paints one background, its nearest, and a box's ends
+                // are read from the characters that paint it: a box inside
+                // another visible background, and that outer box, keep square
+                // corners, which would otherwise show the page at their seams.
+                let visible = { (c: [Double]?) in c.map { $0.count < 4 || $0[3] > 0 } ?? false }
+                var square = Set<UInt32>()
+                for (i, leaf) in inlineText.filter(\.paints).enumerated() {
+                    var nested: [UInt32] = visible(runs[i].background) ? [runs[i].backgroundBox] : []
+                    var up = byId[leaf.parent]
+                    while let run = up {
+                        up = byId[run.parent]
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        guard !paint.hidden, paint.background != nil else { continue }
+                        if runs[i].background == nil {
+                            runs[i].background = paint.background
+                            (runs[i].backgroundBox, runs[i].backgroundRadii) = (paint.backgroundBox, paint.backgroundRadii)
+                        }
+                        if visible(paint.background), !nested.contains(paint.backgroundBox) { nested.append(paint.backgroundBox) }
+                    }
+                    if nested.count > 1 { square.formUnion(nested) }
+                }
+                for i in runs.indices where square.contains(runs[i].backgroundBox) { runs[i].backgroundRadii = [] }
+            }
+            // A box's identity is paint only where a box is rounded: square
+            // backgrounds keep sharing what they share (TextPaint's keys).
+            if !runs.contains(where: { $0.background != nil && $0.backgroundRadii.contains { !$0.isZero } }) {
+                for i in runs.indices { runs[i].backgroundBox = 0; runs[i].backgroundRadii = [] }
+            }
         }
-        // A fitted paragraph is drawn at the scale the kernel's layout chose
-        // for it, as it was measured (`-exact-fit`, LLP 1116.001 D1.4).
-        let fit = props["fitScale"].flatMap(Float.init) ?? 1
-        if fit != 1 { runs = runs.map { $0.scaled(fit) } }
-        let whiteSpace = ["pre-wrap": 1, "nowrap": 2, "pre-line": 3, "pre": 4][style["white_space"]?.string ?? ""] ?? 0
-        // CSS collapses white space before shaping, as the measurer does in
-        // Rust with the same function (LLP 1053 G5); Markdown keeps its lines.
-        let source = whiteSpace == 1 || whiteSpace == 4 || props["markup"] == "markdown" ? SourceMap() : SourceMap.collapse(&runs, whiteSpace: whiteSpace)
-        let lineClamp = Int(number("line_clamp"))
-        // `text-overflow: ellipsis` applies to a box that clips its inline overflow.
-        let clips = (style["overflow_x"]?.string).map { $0 != "visible" } ?? false
-        var spec = Spec(runs: runs, align: align, lineClamp: lineClamp,
-                        color: textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast),
-                        overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun("").scaled(fit))
-        spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
-        spec.source = source
-        spec.textIndent = CGFloat(Float(number("text_indent")))
-        spec.hyphens = ["none": 1, "auto": 2][style["hyphens"]?.string ?? ""] ?? 0
-        spec.textBoxTrim = ["trim-start": 1, "trim-end": 2, "trim-both": 3][style["text_box_trim"]?.string ?? ""] ?? 0
-        let edge = style["text_box_edge"]?.string ?? "auto"
-        spec.textBoxOver = edge.hasPrefix("cap") ? 1 : edge.hasPrefix("ex") ? 2 : 0
-        spec.textBoxUnder = edge.hasSuffix("alphabetic") ? 1 : 0
-        spec.balance = style["text_wrap_style"]?.string == "balance"
-        // The kernel's measurer hyphenates by the same document language.
-        if spec.hyphens == 2 { spec.language = presenter?.documentLanguage ?? "" }
-        spec.hyphenateAuto()
+        // The paragraph's own lines reach every run its children paint
+        // (CSS Text Decoration 3 §2.1); its own text's run already has them.
+        if props["text"] == nil || props["markup"] == "markdown", let lines = style["text_decoration_line"]?.string, !lines.isEmpty {
+            for i in runs.indices { runs[i].propagate(lines, color: ink) }
+        }
+        var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: textRun(""),
+                                  color: ink,
+                                  language: presenter?.documentLanguage ?? "")
         // One shadow over the paragraph when its runs agree (LLP 1077 D3).
         spec.gatherShadows()
         cachedTextSpec = spec

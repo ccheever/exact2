@@ -31,6 +31,40 @@ pub(super) fn check(c: &Component, fns: &[FnDecl]) -> Vec<AnalyzeError> {
             }
         }
     }
+    // @ref LLP 1125 D2 — a sequence's gate and key as a task's; its `play`
+    // arguments are re-read after every commit, not as the clock moves, so
+    // one that reads the clock would change at commits only.
+    for q in &c.sequences {
+        let options = q
+            .options
+            .iter()
+            .map(|(name, e, _)| (name.as_str(), Some(e)));
+        let gates = [("gate", q.gate.as_ref()), ("key", q.key.as_ref())];
+        let play = [("tracks", Some(&q.tracks))].into_iter().chain(options);
+        for (what, e) in gates.into_iter().chain(play) {
+            let Some(e) = e else { continue };
+            let mut seen = BTreeSet::new();
+            let Some(at) = clock(e, c, fns, &mut seen) else {
+                continue;
+            };
+            let gate = matches!(what, "gate" | "key");
+            let through = match at {
+                Through::Direct => String::new(),
+                Through::Derive(d) => format!(" through `{d}`"),
+                Through::Fn(f) => format!(" through `fn {f}`"),
+            };
+            errors.push(AnalyzeError {
+                id: if gate { "analyze-task-gate-clock" } else { "analyze-sequence-clock" },
+                message: if gate {
+                    format!("`sequence {}`'s {what} reads `performanceNow()`{through}. A gate is read at commits, not as the clock moves; gate on state (`playing`)", q.name)
+                } else {
+                    format!("`sequence {}`'s `{what}` reads `performanceNow()`{through}. `play`'s arguments are re-read at commits, not as the clock moves; the runner times each step from the beat, so say where in the pattern a step falls (`beat=`), not when", q.name)
+                },
+                span: e.span(),
+                related: Vec::new(),
+            });
+        }
+    }
     errors
 }
 

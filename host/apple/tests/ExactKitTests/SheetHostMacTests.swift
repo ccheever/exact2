@@ -161,6 +161,49 @@ final class SheetHostMacTests: XCTestCase {
         f.settle()
     }
 
+    /// LLP 1123 D2: the runner reads a sheet's dialog by its block, which the
+    /// dialog sits in by its own frame. A dialog with 20-point side margins
+    /// in a sheet: `frame` and `elementFromPoint` answer where AppKit shows
+    /// its card, not a box stretched or shifted by the margins.
+    func testTheRunnerReadsADialogWithMarginsWhereItsSheetShowsIt() throws {
+        let page = """
+        component Probe
+          state at = "unread"
+          state hit = "unread"
+          action read
+            let f = frame("card")
+            at = `${f.x},${f.y},${f.width}`
+            hit = match elementFromPoint(f.x + 5, f.y + 5) { case some(id) => id, case none => "none" }
+          view
+            column testId="page" width="100%" height="100%" padding=20
+              button testId="open" commandfor="box" command="show-modal"
+                text "Open"
+              text `${at} ${hit}` testId="status"
+              dialog id="box" testId="box" width=300 margin-left=20 margin-right=20 padding=0
+                column id="card" testId="card" width=100 height=40
+                button testId="read" press=read width=60 height=28
+                  text "Read"
+
+        """
+        let f = try SheetFixture(page: page)
+        fixture = f
+        try f.press("open")
+        let card = try f.node("card")
+        XCTAssertNotNil(card.window, "the dialog is in its sheet")
+        XCTAssertNotIdentical(card.window, f.window)
+        try f.press("read")
+        let clip = f.presenter.viewport.contentView
+        let shown = clip.convertAcross(card.bounds, from: card)
+        let x = shown.minX - clip.bounds.minX, y = shown.minY - clip.bounds.minY
+        let fields = f.status.split(separator: " ")
+        let at = fields.first.map { $0.split(separator: ",").compactMap { Double($0) } } ?? []
+        XCTAssertEqual(at.count, 3, f.status)
+        XCTAssertEqual(at[0], Double(x), accuracy: 0.5, "the card's x where AppKit shows it")
+        XCTAssertEqual(at[1], Double(y), accuracy: 0.5)
+        XCTAssertEqual(at[2], 100, accuracy: 0.5, "unscaled")
+        XCTAssertEqual(fields.last.map(String.init), "card", "and a point in it is the card")
+    }
+
     /// The dialog is laid out in its sheet's block: as large as its
     /// content, an authored width as written, at most the window's content
     /// area; the sheet's window is that size and AppKit centres it; the page
@@ -407,6 +450,65 @@ final class SheetHostMacTests: XCTestCase {
         XCTAssertEqual(agent.back()["back"] as? String, "dialog")
         XCTAssertNil(f.window.attachedSheet)
         XCTAssertNil(p.dialogs.active)
+    }
+
+    /// A `dialog` that is the navigation root's own child, authored before
+    /// or after its routes, is no route: in its sheet it is live as one
+    /// inside a route is. Its `autofocus` field has the focus, its controls
+    /// are enabled, the accessibility tree holds what is in it, and the
+    /// stack is the routes' alone.
+    func testADialogBesideTheRoutesIsLiveInItsSheet() throws {
+        let page = """
+        component Probe
+          state name = "draft"
+          action rename(v: string)
+            name = v
+          view
+            column testId="root" navigationKey="home" navigationBack="back" width="100%" height="100%" position="relative"
+              dialog id="before" testId="before" aria-label="Before"
+                input testId="before-field" aria-label="Before field" value=name input=rename autofocus=true width=200 height=24
+                button testId="before-done" commandfor="before" command="close" width=60 height=28
+                  text "Done"
+              column navigationKey="home" testId="home" position="absolute" inset=0 padding=20 gap=12
+                button testId="open-before" commandfor="before" command="show-modal"
+                  text "Before"
+                button testId="open-inside" commandfor="inside" command="show-modal"
+                  text "Inside"
+                button testId="open-after" commandfor="after" command="show-modal"
+                  text "After"
+                dialog id="inside" testId="inside" aria-label="Inside"
+                  input testId="inside-field" aria-label="Inside field" value=name input=rename autofocus=true width=200 height=24
+                  button testId="inside-done" commandfor="inside" command="close" width=60 height=28
+                    text "Done"
+              dialog id="after" testId="after" aria-label="After"
+                input testId="after-field" aria-label="After field" value=name input=rename autofocus=true width=200 height=24
+                button testId="after-done" commandfor="after" command="close" width=60 height=28
+                  text "Done"
+
+        """
+        let f = try SheetFixture(page: page)
+        fixture = f
+        let p = f.presenter
+        for name in ["before", "inside", "after"] {
+            try f.press("open-\(name)")
+            let dialog = try f.node(name), done = try f.node("\(name)-done"), field = try XCTUnwrap(try f.node("\(name)-field").field)
+            let sheet = try XCTUnwrap(f.window.attachedSheet, name)
+            XCTAssertTrue(dialog.window === sheet && p.dialogs.active === dialog, name)
+            XCTAssertFalse(dialog.routeInert, "\(name): no route's gate")
+            XCTAssertFalse(dialog.inert || done.inert, name)
+            XCTAssertTrue(field.isEnabled, name)
+            XCTAssertTrue(sheet.firstResponder === field.currentEditor(), "\(name): its autofocus field has the focus")
+            guard case .owned(let content) = p.axSheet(sheet) else { return XCTFail("\(name): the sheet is the session's") }
+            let ax = p.axElements(roots: [p.viewport, content], modalRoot: content)
+            XCTAssertEqual((ax["modal"] as? [String: Any])?["id"] as? UInt32, dialog.id, name)
+            let ids = (ax["elements"] as? [[String: Any]] ?? []).compactMap { $0["testId"] as? String }
+            XCTAssertTrue(ids.contains("\(name)-field") && ids.contains("\(name)-done"), "\(name): \(ids)")
+            let navigation = f.session.agentInstance.stateSections()["navigation"] as? [String: Any]
+            XCTAssertEqual(navigation?["stack"] as? [String], ["home"], name)
+            try f.press("\(name)-done")
+            XCTAssertNil(f.window.attachedSheet, name)
+            XCTAssertFalse(try f.node("open-\(name)").inert, name)
+        }
     }
 }
 #endif

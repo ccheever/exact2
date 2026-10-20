@@ -23,6 +23,8 @@ pub(crate) struct Lights {
     /// the lights by the same fragment shaders (`faded` in lights.wgsl).
     pub opacity: Buffer,
     opacity_words: Vec<f32>,
+    /// Some slot is fading: its pixels discard, so depth is tested after shading.
+    pub fading: bool,
     words: Vec<u32>,
     counts: Vec<u32>,
     // Per light: tile x, y and slice ranges (inclusive), or None when culled.
@@ -38,11 +40,18 @@ impl Lights {
             buffer: Buffer::new(device, 64, wgpu::BufferUsages::STORAGE, "game lights"),
             opacity: Buffer::new(device, 16, wgpu::BufferUsages::STORAGE, "game opacity"),
             opacity_words: Vec::new(),
+            fading: false,
             words: Vec::new(),
             counts: Vec::new(),
             spans: Vec::new(),
             info: [0.; 4],
         }
+    }
+
+    pub fn slot_fading(&self, slot: u32) -> bool {
+        self.opacity_words
+            .get(slot as usize)
+            .is_some_and(|&fade| fade > 0.)
     }
 
     /// Replace the per-slot opacities; true when the buffer was replaced and the
@@ -70,6 +79,7 @@ impl Lights {
             };
             self.opacity_words[slot as usize] = 1. - opacity;
         }
+        self.fading = self.opacity_words.iter().any(|&fade| fade > 0.);
         let grew = self
             .opacity
             .grow(device, queue, (self.opacity_words.len().max(1) * 4) as u64);

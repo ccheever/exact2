@@ -152,10 +152,11 @@ impl<'a> Walk<'a> {
                         continue;
                     };
                     let slot = shown(slot);
+                    let read = field.map_or("next".to_string(), |f| format!("next.{f}"));
                     self.out.push(AnalyzeError {
                         id: "analyze-read-after-assign",
                         message: format!(
-                            "`{slot}` here is its value from before the action, not the one assigned at line {}: writes land when the action ends. Bind the new value and read it: `let next = …`, `{slot} = next`, then `next`",
+                            "`{slot}` here is its value from before the action, not the one assigned at line {}: writes land when the action ends. Bind the new value and read it: `let next = …`, `{slot} = next`, then `{read}`",
                             w.span.line
                         ),
                         span: at,

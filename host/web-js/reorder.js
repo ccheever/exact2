@@ -5,7 +5,9 @@
 // with the keys the collection names), installed on list.js's collections
 // by the motion piece when a plan has a reorder drag, so a list without one
 // carries none of it.
+import { inertAncestor } from './navigation.js';
 import { clock, every, commit, journal } from "./rt.js";
+import { dragTarget } from './drag-target.js';
 
 // The runner's journal line (rt.js `say`).
 const say = line => journal.push(`t=${clock.now} ${line}`);
@@ -241,21 +243,12 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
   const HEIGHT_NOISE = 0.01;
   const GEOMETRY = ["list", "revision", "scrollSequence", "scrollTop", "portWidth", "portHeight", "rowWidth", "totalExtent"];
   let ReorderOwner = null, ReorderSerial = 0;
-  /** A grip's binding: its `reorderFor` list (the strict ancestor the
-   * compiler resolved) with a `reorderdrop`, every box on the way live. */
+  /** A grip's binding: its unique named ancestor with a `reorderdrop`,
+   * every box on the way live. */
   function reorderBinding(handle) {
-    const el = Views.get(handle), list = el?.$reorderList ?? named(el), c = list?.$list;
-    if (!c || !list.$reorderdrop || !el.isConnected || el.closest("[inert],[disabled]") || !el.getClientRects().length) return null;
+    const el = Views.get(handle), list = dragTarget(el, 'reorderfor'), c = list?.$list;
+    if (!c || !list.$reorderdrop || !el.isConnected || inertAncestor(el) || el.closest("[disabled]") || !el.getClientRects().length) return null;
     return c.reorderBinding(handle);
-  }
-  // A computed `reorderFor` names its list at run time: the one strict
-  // ancestor with that `id` (runner `reorder_binding`).
-  function named(el) {
-    const name = el?.dataset.reorderfor;
-    if (!name) return null;
-    let found = null;
-    for (let a = el.parentElement; a; a = a.parentElement) if (a.id === name) { if (found) return null; found = a; }
-    return found;
   }
   const sameBinding = (a, b) => !!a && !!b && ["handle", "list", "wrapper", "root", "rowEpoch"].every(k => a[k] === b[k]);
   const sameGeometry = (a, b) => !!a && !!b && GEOMETRY.every(k => a[k] === b[k]);

@@ -4,4 +4,7 @@
 //! `libexactcanvas.so`.
 
 #[cfg(target_os = "android")]
-exact_linux::canvas_jni!(hello_data::Hello);
+include!(concat!(env!("OUT_DIR"), "/hatches.rs"));
+
+#[cfg(target_os = "android")]
+exact_linux::canvas_jni!(hello_data::Hello, hatches = crate::exact_hatches());

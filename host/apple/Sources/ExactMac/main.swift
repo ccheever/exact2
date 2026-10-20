@@ -47,6 +47,31 @@ ExactEnv.stamp("NSApplication.shared")
 // typing; its window is made key for a `type` when one comes (`AgentMac`).
 app.setActivationPolicy(agentMode ? .accessory : .regular)
 ExactEnv.stamp("setActivationPolicy")
+// EXACT_AGENT_ACTIVATE=1 (set only by scripts/measure-controls.mjs, never by
+// default): this one run is activated and its window made key, as AppKit
+// draws a control's accent only in a key window; the app in front before it
+// is put back when it quits (LLP 1121 stage 9 F2).
+let agentActivates = agentMode && ExactEnv.environment["EXACT_AGENT_ACTIVATE"] == "1"
+let frontBefore = agentActivates ? NSWorkspace.shared.frontmostApplication : nil
+/// The app in front before an activated agent run, in front again: at every
+/// exit (the agent's own `exit` at the end of its input, AppKit's quit, an
+/// interrupt), never launching or reopening one that has gone.
+func frontAgain() {
+    guard let front = frontBefore, !front.isTerminated, front.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+    // (Cooperative activation: this app, still in front, yields to it.)
+    if #available(macOS 14.0, *) { NSApp.yieldActivation(to: front) }
+    if !front.activate() { fputs("exact: could not put \(front.bundleIdentifier ?? "the app that was in front") back in front\n", stderr) }
+}
+nonisolated(unsafe) var interrupted: DispatchSourceSignal?
+if agentActivates {
+    atexit { frontAgain() }
+    // An interrupt (a terminal's ctrl-c reaches the whole group) quits through exit too, on the main queue (not in
+    // the signal handler, where AppKit's restore is not safe).
+    signal(SIGINT, SIG_IGN)
+    interrupted = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+    interrupted?.setEventHandler { exit(130) }
+    interrupted?.resume()
+}
 let appReadyMs = ExactEnv.wall()
 
 /// The one session and its view; the session's clock is the agent's under a script.
@@ -87,11 +112,20 @@ final class Adapter: ExactSessionDelegate {
         guard !target.isEmpty else { return }
         // A link beside a document the person chose (LLP 1069.010 D1).
         if target.hasPrefix("doc:/") { ExactDocuments.deliver([target], to: session); return }
+        // The app's settings (LLP 1133.002 D11): macOS has no page per app, so
+        // Privacy & Security's Location Services, the one permission a module
+        // asks for today. Under the agent, journaled only.
+        if target == "app-settings:" {
+            let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+            session.log("openURL app-settings: opens \(pane)\(agentMode ? " (not under the agent)" : "")")
+            if !agentMode, let url = URL(string: pane) { NSWorkspace.shared.open(url) }
+            return
+        }
         let url = URL(string: target)
         let local = url?.isFileURL == true ? url!.standardizedFileURL.path
             : target.hasPrefix("/") ? URL(fileURLWithPath: target).standardizedFileURL.path : nil
         if let local, FileManager.default.fileExists(atPath: local) {
-            ExactDocuments.deliver([local], to: session)
+            ExactDocuments.deliver([local], to: session, keep: false)
             return
         }
         guard let url, ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") else {
@@ -329,7 +363,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// In front — never activated under a script (LLP 1012), so a running
     /// smoke never takes the focus from whoever is typing.
     func front() {
-        if agentMode { window.orderFrontRegardless() } else {
+        if agentMode && !agentActivates { window.orderFrontRegardless() } else {
             window.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
         }
@@ -346,7 +380,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         var row: [String: Any] = [
             "session": label, "title": window.title, "document": document ?? NSNull(),
             "edited": window.isDocumentEdited, "representedURL": window.representedURL?.path ?? NSNull(),
-            "key": window.isKeyWindow, "tabs": window.tabbedWindows?.count ?? 1,
+            "key": window.isKeyWindow, "visible": window.isVisible, "tabs":window.tabbedWindows?.count ?? 1,
             "footprintBefore": footprintBefore,
         ]
         // The first window's is from the process's start (what `metrics`
@@ -356,9 +390,11 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     }
 
     /// The red button, File ▸ Close Window and ⌘W ask the app first
-    /// (`beforeunload`, studio diary R17); a window it keeps stays.
+    /// (`beforeunload`, studio diary R17); a window it keeps stays. The one
+    /// window of an app that keeps running is hidden instead (LLP 1069.010 D8).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        closing || session.beforeUnload()
+        if !closing, ExactDocuments.hidesOnClose(window, only: windows.count == 1) { return false }
+        return closing || session.beforeUnload()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -374,12 +410,22 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// its views, its label on the carrier.
     func windowWillClose(_ notification: Notification) {
         Agent.route(label, nil)
+        PageFacts.closed(window)
         // After AppKit has finished closing the window this holds.
         DispatchQueue.main.async { [self] in
             windows.removeAll { $0 === self }
             if DevMenu.session === session {
                 if let next = windows.last { DevMenu.select(session: next.session) }
                 else { DevMenu.session = nil }
+            }
+            // A window closed while the quit is held, or the last window of
+            // an app that quits with it: the session stays for the quit, which
+            // asks its module for its quit work, waits for it and destroys the
+            // session after the hold (`applicationWillTerminate`).
+            if delegate.quitting?.holding == true
+                || windows.isEmpty && delegate.applicationShouldTerminateAfterLastWindowClosed(app) {
+                closedForQuit.append(self)
+                return
             }
             session.destroy()
         }
@@ -394,6 +440,8 @@ let launchRefusal = ExactEnv.environment["EXACT_PLAN"].flatMap { path in
 let firstWindow = DocumentWindow(label: "main", first: true)
 /// Every open window, oldest first.
 var windows = [firstWindow]
+/// Windows closed whose sessions wait for the quit (`windowWillClose`).
+var closedForQuit: [DocumentWindow] = []
 var windowCount = 1
 let session = firstWindow.session
 let view = firstWindow.view
@@ -504,11 +552,21 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// A one-window app quits with its window; one whose documents each
     /// get a window (`navigate-new`, LLP 1069.010 D4) stays, as a Mac
     /// document app does, for File ▸ New Window, Open and the Dock (LLP 1115 D8).
+    /// AppKit asks this when its last window is ordered out, so it is asked
+    /// too when an app that keeps running hides its window (LLP 1069.010 D8), and that
+    /// app ends only after its own `close()`.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        ExactDocuments.launchMode != "navigate-new"
+        ExactDocuments.endsWithoutWindows(hiding: windows.contains { !$0.closing })
     }
-    /// The Dock icon clicked with no window showing: a new one.
+    /// The Dock icon clicked, or the app opened again, with no window
+    /// showing: the window an app that keeps running hid comes back as it
+    /// was (LLP 1069.010 D8); a `navigate-new` app opens a new one.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag, ExactDocuments.keepsRunning(),
+           let hidden = windows.first(where: { !$0.window.isVisible && !$0.window.isMiniaturized }) {
+            hidden.front()
+            return false
+        }
         guard !flag, windows.isEmpty, ExactDocuments.launchMode == "navigate-new" else { return true }
         openWindow()
         return false
@@ -517,19 +575,24 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// the first that keeps itself open comes forward with whatever it asks
     /// and the quit stops there; once answered, its `close()` closes it, and
     /// the last window closing ends the app. Nothing is held while the app
-    /// asks (LLP 1069.010 D7); a quit with storage still landing that an
-    /// answer started is held until it lands, five seconds at most (LLP
-    /// 1097 D10).
+    /// asks (LLP 1069.010 D7). Once the quit is decided, each native module
+    /// starts its quit work (`ExactModule.willQuit`), and the quit is held
+    /// while that work runs or storage an answer started is still landing:
+    /// one hold, five seconds at most for all of it (LLP 1097 D10, LLP
+    /// 1069.010 Q4). AppKit's modal loop keeps the main thread running.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // A repeated quit joins the existing hold: it neither asks the app
-        // again nor starts a fresh five-second deadline.
+        // again, nor the modules, nor starts a fresh five-second deadline.
         if quitting?.holding == true { return .terminateLater }
         for w in windows where !w.closing && !w.session.beforeUnload() {
             relaunching = false
             w.front()
             return .terminateCancel
         }
-        let hold = StorageHold(bound: 5, pending: { windows.contains { $0.session.storageOperations > 0 } },
+        // The open windows' sessions, and the last window's if its closing started the quit.
+        let sessions = (windows + closedForQuit).map(\.session)
+        for session in sessions { session.willQuit() }
+        let hold = StorageHold(bound: 5, pending: { sessions.contains { $0.storageOperations > 0 || $0.quitWorkPending } },
                                begin: { _ in }, end: { NSApp.reply(toApplicationShouldTerminate: true) })
         guard hold.hold() else { return .terminateNow }
         quitting = hold
@@ -540,10 +603,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// The quit is decided, however it came (⌘Q, the app menu, an Apple
     /// Event, SIGTERM, the last window closing): every session still live goes now,
     /// synchronously, so each native module's `destroy()` runs before the
-    /// process ends ("destroyed with the session", LLP 1067.000 D3). A closed
-    /// window's own teardown (`windowWillClose`) waits for the next turn of
-    /// the run loop, which the last window's never gets; `destroy()` runs
-    /// once whichever comes first. Nothing is held (LLP 1069.010 Q4).
+    /// process ends ("destroyed with the session", LLP 1067.000 D3). The
+    /// last window's session, closed, is left for this (`windowWillClose`);
+    /// `destroy()` runs once in any case. The hold, if any, has ended.
     func applicationWillTerminate(_ notification: Notification) {
         for session in exact.sessions { session.destroy() }
         if relaunching {
@@ -601,7 +663,7 @@ quitSignal.setEventHandler {
     // first, so the main queue can deliver storage completions in that loop.
     RunLoop.main.perform(inModes: [.common]) {
         // AppKit may force a repeated terminate without asking the delegate.
-        // The first request already owns the storage hold and its deadline.
+        // The first request already owns the quit hold and its deadline.
         if delegate.quitting?.holding == true { return }
         app.terminate(nil)
     }
@@ -698,7 +760,7 @@ func finishLaunching() {
     ExactEnv.stamp("makeKeyAndOrderFront")
     // Under a script: in front regardless, so the window is seen (a covered
     // window's canvases render nothing, LLP 1009 D4) — but never activated.
-    if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
+    if agentMode && !agentActivates { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
     ExactEnv.stamp("activate")
 
     /// Agent mode: the driver owns the process from here — one JSON line in,

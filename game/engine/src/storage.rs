@@ -42,6 +42,7 @@ enum Lease<'a> {
     },
 }
 impl Drop for Lease<'_> {
+    #[inline]
     fn drop(&mut self) {
         match *self {
             Self::Hold { holds, slot } => holds.release(slot),
@@ -52,6 +53,25 @@ impl Drop for Lease<'_> {
 
 /// A shared component/resource borrow. Keeping it alive keeps its row leased:
 /// other rows of the component stay free, and this one refuses exclusive borrows.
+/// It prints and compares as the value it borrows, so guards go straight into
+/// `assert_eq!`:
+///
+/// ```
+/// use exact_game::*;
+/// let mut w = World::new(120, 7);
+/// w.spawn_named("a", Transform::at(1., 0., 0.));
+/// w.spawn_named("b", Transform::at(1., 0., 0.));
+/// w.spawn_named("c", Transform::at(2., 0., 0.));
+/// assert_eq!(w.get::<Transform>("a"), w.get::<Transform>("b"));
+/// assert_ne!(w.require::<Transform>("a"), w.require::<Transform>("c"));
+/// assert_eq!(format!("{:?}", w.require::<Transform>("a")),
+///     format!("{:?}", Transform::at(1., 0., 0.)));
+/// // `RefMut` does the same, but `get_mut` is a write: it marks the rows edited.
+/// assert_eq!(w.get_mut::<Transform>("a"), w.get_mut::<Transform>("b"));
+/// assert_ne!(w.require_mut::<Transform>("a"), w.require_mut::<Transform>("c"));
+/// assert_eq!(format!("{:?}", w.require_mut::<Transform>("c")),
+///     format!("{:?}", Transform::at(2., 0., 0.)));
+/// ```
 pub struct Ref<'a, C> {
     ptr: *const C,
     _lease: Lease<'a>,
@@ -64,9 +84,20 @@ impl<C> Deref for Ref<'_, C> {
         unsafe { &*self.ptr }
     }
 }
+impl<C: std::fmt::Debug> std::fmt::Debug for Ref<'_, C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        C::fmt(self, f)
+    }
+}
+impl<C: PartialEq> PartialEq<Ref<'_, C>> for Ref<'_, C> {
+    fn eq(&self, other: &Ref<'_, C>) -> bool {
+        C::eq(self, other)
+    }
+}
 /// An exclusive component/resource borrow of one row. Other rows of the component
 /// stay free to borrow; this row refuses every other borrow until the guard drops.
 pub struct RefMut<'a, C> {
+    pub(crate) owner: Option<(&'a crate::World, crate::Entity)>,
     ptr: *mut C,
     _lease: Lease<'a>,
     _life: PhantomData<&'a mut C>,
@@ -83,6 +114,16 @@ impl<C> DerefMut for RefMut<'_, C> {
         // SAFETY: this noncloneable guard owns the row's exclusive lease, so it is
         // the only reference to this slot.
         unsafe { &mut *self.ptr }
+    }
+}
+impl<C: std::fmt::Debug> std::fmt::Debug for RefMut<'_, C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        C::fmt(self, f)
+    }
+}
+impl<C: PartialEq> PartialEq<RefMut<'_, C>> for RefMut<'_, C> {
+    fn eq(&self, other: &RefMut<'_, C>) -> bool {
+        C::eq(self, other)
     }
 }
 
@@ -161,6 +202,7 @@ impl<C: Data> Storage<C> {
         self.mark_page(index / PAGE);
         self.mark_row(index);
         Ok(Some(RefMut {
+            owner: None,
             ptr: self.ptr(index),
             _lease: lease,
             _life: PhantomData,
@@ -215,6 +257,12 @@ pub(crate) trait Erased {
     fn remove(&mut self, index: usize);
     /// Erase every row.
     fn clear(&mut self);
+    fn clear_presentation(&mut self) {
+        self.clear();
+    }
+    fn retained_bytes(&self) -> usize {
+        0
+    }
     /// The save representation: columnar rows, or a resource's value.
     fn write_save(&self, w: &mut dyn Writer);
     fn read_save(
@@ -247,6 +295,12 @@ impl<C: Data> Erased for Storage<C> {
     }
     fn remove(&mut self, index: usize) {
         self.raw.erase(index);
+    }
+    fn retained_bytes(&self) -> usize {
+        self.raw.retained_bytes()
+    }
+    fn clear_presentation(&mut self) {
+        self.raw.clear_presentation();
     }
     fn clear(&mut self) {
         self.raw.erase_all();

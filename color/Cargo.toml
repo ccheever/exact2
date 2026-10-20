@@ -12,3 +12,4 @@ crate-type = ["rlib"]
 
 [dependencies]
 exact-num = { path = "../num" }
+libm = "0.2"

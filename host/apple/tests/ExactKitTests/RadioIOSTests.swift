@@ -86,13 +86,13 @@ final class RadioIOSTests: XCTestCase {
     /// LLP 1115.000 D13.2: a radio is the platform's symbols at the body
     /// text's size, as the checkbox's mark is, where it had been Safari's
     /// 16-point circle at every text size; a finger has 44 points to hit.
-    func testARadioIsTheSymbolPairAtBodySizeWithAFingersTarget() throws {
+    func testARadioIsTheSymbolPairScaledWithTheBodyTextWithAFingersTarget() throws {
         let p = presenter()
         let red = try XCTUnwrap(p.controls.controls[2] as? ExactRadio), green = try XCTUnwrap(p.controls.controls[3] as? ExactRadio)
-        let body = UIFont.preferredFont(forTextStyle: .body, compatibleWith: red.traitCollection)
-        let symbol = UIImage.SymbolConfiguration(font: body, scale: .large)
+        let symbol = UIImage.SymbolConfiguration(pointSize: red.side)
         let size = red.intrinsicContentSize
-        XCTAssertGreaterThan(size.width, 18, "the body text's mark, not Safari's 16-point circle")
+        XCTAssertEqual(size.width, UIFontMetrics(forTextStyle: .body).scaledValue(for: 22, compatibleWith: red.traitCollection).rounded(.up),
+                       "UIKit's 22-point circle at the body text's size, not Safari's 16-point circle")
         XCTAssertEqual(size, ExactCheckbox(frame: .zero).intrinsicContentSize, "the checkbox's size")
         XCTAssertEqual(red.mark(on: true, tint: .systemBlue)?.pngData(), UIImage(systemName: "circle.inset.filled", withConfiguration: symbol)?.withTintColor(.systemBlue, renderingMode: .alwaysOriginal).pngData(), "checked: the filled symbol")
         XCTAssertEqual(green.mark(on: false, tint: .systemGray)?.pngData(), UIImage(systemName: "circle", withConfiguration: symbol)?.withTintColor(.systemGray, renderingMode: .alwaysOriginal).pngData(), "unchecked: the empty circle")
@@ -102,6 +102,8 @@ final class RadioIOSTests: XCTestCase {
         large.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
         large.updateTraitsIfNeeded()
         XCTAssertGreaterThan(large.intrinsicContentSize.width, size.width * 1.5)
+        // To 44 points, about where UIKit's list checkmark stops (LLP 1116.019 D1).
+        XCTAssertEqual(large.intrinsicContentSize.width, 44)
         large.removeFromSuperview()
         // The mark as drawn: ink at the centre only when checked.
         red.frame = CGRect(origin: .zero, size: size)

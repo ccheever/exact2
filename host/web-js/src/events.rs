@@ -31,6 +31,7 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         EventKind::Key | EventKind::Keycapture | EventKind::Keyup => Some("onKey"),
         EventKind::Beforeinput => Some("onBeforeInput"),
         EventKind::Beforeunload => Some("onUnload"),
+        EventKind::Midimessage => Some("onMIDI"),
         EventKind::Submit => Some("onSubmit"),
         EventKind::Message => Some("onMessage"),
         EventKind::Scroll => Some("onScroll"),

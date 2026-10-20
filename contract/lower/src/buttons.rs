@@ -5,14 +5,7 @@ use crate::{err, tags::AttrTarget, ButtonSite, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
 use exact_kernel::StyleId;
 
-fn rows(a: &Attr) -> Vec<StyleId> {
-    match crate::tags::attr_valued(&a.name, &a.value) {
-        Some(AttrTarget::Styles(ids)) => ids.to_vec(),
-        Some(AttrTarget::Shorthand) => crate::shorthands::rows(&a.name).to_vec(),
-        Some(AttrTarget::Flex) => vec![StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis],
-        _ => Vec::new(),
-    }
-}
+use crate::tags::rows;
 
 fn layout(id: StyleId) -> bool {
     use StyleId::*;
@@ -82,8 +75,10 @@ impl Lowerer<'_> {
         }
         let face = crate::grouped::unsheet(children);
         let children = face.as_deref().unwrap_or(children);
-        let composed = self.compose_animation(&attrs)?;
-        let checked = composed.as_deref().unwrap_or(&attrs);
+        let timed = crate::motion::attrs(&attrs, &crate::theme::motion_tokens());
+        let timed = timed.as_deref().unwrap_or(&attrs);
+        let composed = self.compose_animation(timed)?;
+        let checked = composed.as_deref().unwrap_or(timed);
         let disabled = attrs.iter().find_map(|a| {
             rows(a)
                 .into_iter()
@@ -195,8 +190,10 @@ fn button_style_edit(kind: &Bare, reason: &str) -> String {
     let custom =
         "for a custom face, remove `buttonStyle` (or write `appearance=\"none\"` without it)";
     match kind {
+        // The reason leads: for the face it names the edit that keeps what
+        // the attribute was for (LLP 1116.018).
         Bare::Face => format!(
-            "for a native button, keep only `text` and a symbol `image` in its face, with no width or font on them; {custom}. This button is bare: {reason}"
+            "{reason}. A native button's face is `text`s and a symbol `image`, sized by `font-size`; {custom}"
         ),
         Bare::Drops(written) => format!(
             "to keep the native button, remove `{written}` (it drops the platform's appearance); {custom}"

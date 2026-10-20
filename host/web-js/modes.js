@@ -13,8 +13,11 @@ import { After, PropHooks, inflight, say } from "./rt.js";
 // The rows by bit (`modes.rs` `CHANNELS`).
 const CH = ["color", "caret-color", "fill", "stroke", "accent-color", "text-shadow", "-webkit-text-stroke-color"];
 // A value that sets no row: the row is the one around (`StyleValue::text_unsets`).
-const UNSETS = /^\s*(unset|inherit)\s*$/i;
+const UNSETS = /^\s*(unset|inherit)?\s*$/i;
 let Axes = [], Classes = {}, Texts = [], Vars = {}, Accent = [], Names = {}, Win = [], Pending = false;
+// A development build's design digest (LLP 1121 stage 4): the base a live
+// batch applies to. Null in a release build, which takes none.
+let Design = null, Structure = null, Rules = null, AccentRules = null;
 const key = d => Axes.map(([a, values], i) => `${a}=${values[d[i]]}`).join(",");
 const rendering = () => typeof document === "undefined" || !!globalThis.__exactRender;
 
@@ -65,7 +68,10 @@ function apply() {
       for (const p of e.getAttribute("data-x-accent") == null ? Vars[c] : [...Vars[c], "--exact-accent"]) { const v = e.style.getPropertyValue(p); if (v && !v.includes("var(--x-")) e.style.removeProperty(p); }
     }
   }
-  if (Axes.length) set(document.documentElement, key(Win));
+  // Every token is a property in a development build: its boundaries take
+  // the empty tuple too, so one naming the accent resolves there.
+  const tuples = Axes.length > 0 || Design != null;
+  if (tuples) set(document.documentElement, key(Win));
   // Document order: a boundary's tuple is known before those inside it.
   for (const b of boundaries(document.getElementById("exact-root") ?? document)) {
     const base = around(b), pin = b.getAttribute("data-x-pin");
@@ -73,7 +79,7 @@ function apply() {
     if (!d) { if (b.$xbad !== pin) say(`invalid -exact-mode value ${JSON.stringify(pin)}: an axis of the app's design and one of its values, each axis once; unset`); b.$xbad = pin; d = base; }
     else b.$xbad = undefined;
     b.$xd = d;
-    if (Axes.length) set(b, key(d));
+    if (tuples) set(b, key(d));
     const own = Number(b.getAttribute("data-x-b")), was = b.$xs ??= [];
     for (let j = 0; j < CH.length; j++) {
       // Its own row stands, from its CSS or a binding that sets it now.
@@ -84,6 +90,7 @@ function apply() {
       was[j] = text;
     }
   }
+  globalThis.exact?.repaintPress?.(); // a held press eases over the tuples as they are now (input-glue.js)
 }
 const set = (e, k) => { if (e.getAttribute("data-x-modes") !== k) e.setAttribute("data-x-modes", k); };
 
@@ -159,13 +166,128 @@ const refused = pins => {
   return null;
 };
 
+// dev-only {: the live table's runtime, which a release build's copy leaves
+// out (build.mjs `withoutDev`).
+// The last scrub frame applied (`{id, rev}`), which an older one is not.
+let Scrubbed = null;
+// The runs a later run's frame has followed: theirs are older (a few kept).
+const Retired = [];
+/** The page's rule for each full tuple, by its key, and its accent
+ * companions (`[data-x-accent]`, modes.rs `rules`), by key and property. */
+function tupleRules() {
+  if (Rules) return Rules;
+  Rules = new Map(); AccentRules = new Map();
+  for (const sheet of document.styleSheets ?? []) {
+    let rules;
+    try { rules = sheet.cssRules; } catch { continue; }
+    for (const r of rules) {
+      const m = /\[data-x-modes="([^"]*)"\]/.exec(r.selectorText ?? "");
+      if (!m) continue;
+      const a = /\[data-x-accent="([^"]*)"\]/.exec(r.selectorText);
+      if (a) AccentRules.set(`${m[1]}|${a[1]}`, r); else Rules.set(m[1], r);
+    }
+  }
+  return Rules;
+}
+/** The theme's own `:root` rule that declares `prop` (roles.rs `theme_css`). */
+function themeRule(prop) {
+  for (const sheet of document.styleSheets ?? []) {
+    let rules;
+    try { rules = sheet.cssRules; } catch { continue; }
+    for (const r of rules) if (r.selectorText === ":root" && r.style?.getPropertyValue(prop)) return r;
+  }
+  return null;
+}
+/** Full tuple `t`'s key (mixed radix over the axes, the first most
+ * significant), as modes.rs `key` writes it. */
+const tupleKey = t => {
+  const pins = [];
+  for (let i = Axes.length - 1; i >= 0; i--) { const [a, values] = Axes[i]; pins.unshift(`${a}=${values[t % values.length]}`); t = Math.floor(t / values.length); }
+  return pins.join(",");
+};
+/** A live batch or snapshot (LLP 1121 stage 4): each changed token's
+ * property set again in every tuple's rule, in one style update. Stale when
+ * its base is not this page's design. */
+function design(frame) {
+  if (frame.structure !== Structure) return { live: "structure" };
+  // A frame sent before the last applied is shown over already: one of a
+  // retired run, or one after a mark of its own run (with no
+  // run on either, its scrub) not above it; one with a run after a mark
+  // with none is a new run's.
+  const mark = frame.scrub;
+  const same = mark && Scrubbed && (mark.run != null && Scrubbed.run != null ? mark.run === Scrubbed.run : mark.run == null && Scrubbed.run == null && mark.id === Scrubbed.id);
+  const older = mark && (Retired.includes(mark.run) || (same && mark.rev <= Scrubbed.rev));
+  if (older) return { live: "applied" };
+  if (frame.base != null && frame.base !== Design) return { live: "stale" };
+  if (mark) {
+    if (Scrubbed?.run != null && mark.run !== Scrubbed.run && !Retired.includes(Scrubbed.run)) { Retired.push(Scrubbed.run); if (Retired.length > 8) Retired.shift(); }
+    Scrubbed = mark;
+  }
+  if (frame.design === Design || !frame.tokens?.length) return { live: "applied" };
+  return mark ? still(() => setTokens(frame)) : setTokens(frame);
+}
+/** A scrub's frame shows with no transition, as the tool drags it (LLP 1121
+ * D13): every transition off while its values are set and styled, then back
+ * on, with nothing left to move. */
+function still(apply) {
+  const root = document.documentElement;
+  if (!document.getElementById("x-scrub-still")) {
+    const sheet = document.createElement("style");
+    sheet.setAttribute("id", "x-scrub-still");
+    sheet.textContent = "[data-x-scrub],[data-x-scrub] *,[data-x-scrub] *::before,[data-x-scrub] *::after{transition:none!important}";
+    document.head.append(sheet);
+  }
+  // Off through the drag (one style change of the whole page as it starts
+  // and one as it rests, not two each frame), its last values styled before
+  // transitions come back.
+  if (!root.hasAttribute("data-x-scrub")) root.setAttribute("data-x-scrub", "");
+  try { return apply(); } finally {
+    clearTimeout(StillUntil);
+    StillUntil = setTimeout(() => { void root.offsetWidth; root.removeAttribute("data-x-scrub"); }, 150);
+  }
+}
+let StillUntil = null;
+/** Set a frame's tokens in every tuple's rule, in one style update. */
+function setTokens(frame) {
+  const rules = tupleRules();
+  // A type token is a property a row it writes (`parts`, modes.rs `design`).
+  for (const t of frame.tokens.flatMap(t => t.parts ?? [t])) {
+    if (!t.prop || !Array.isArray(t.css)) continue;
+    // The tint's override: the theme's `:root` rule, under an authored
+    // `accent-color`'s redeclaration (LLP 1121 stage 5).
+    if (t.root) { themeRule(t.prop)?.style.setProperty(t.prop, t.css[0]); continue; }
+    t.css.forEach((css, i) => {
+      rules.get(tupleKey(i))?.style.setProperty(t.prop, css);
+      // Its accent companion: the token's colour where it is one, else the
+      // accent around (no companion, as the build writes none).
+      const companion = AccentRules.get(`${tupleKey(i)}|${t.prop}`)?.style;
+      if (companion) { if (css.includes("--exact-accent")) companion.removeProperty("--exact-accent"); else companion.setProperty("--exact-accent", css); }
+    });
+  }
+  Design = (globalThis.exact ??= {}).designDigest = frame.design;
+  globalThis.exact.repaintPress?.(); // a held press eases over the new values (LLP 1121 D8, input-glue.js)
+  // A symbol sized by a type token's property redraws its mask, as the
+  // build channel's scheme pin asks it (symbols.js listens for a resize).
+  if (frame.tokens.some(t => t.parts) && typeof dispatchEvent === "function") dispatchEvent(new Event("resize"));
+  return { live: "applied" };
+}
+// dev-only }
+
 /** `axes`: [name, values] as declared, the first value the default;
  * `classes`: each class's rows by bit, the text's index or -1; `texts`,
  * each `property:value`; `vars`: each class's properties that name a
  * varying token; `accent`: the properties of those that name the accent;
- * `names`: each varying token's name by its property. */
-export function modes(axes, classes, texts, vars, accent, names) {
+ * `names`: each varying token's name by its property; `devDesign` and
+ * `devStructure`: a development build's design and structure digests, which
+ * install `exact.design`. */
+export function modes(axes, classes, texts, vars, accent, names, devDesign, devStructure) {
   Axes = axes; Classes = classes; Texts = texts; Vars = vars; Accent = accent; Names = names ?? {}; Win = axes.map(() => 0);
+  // dev-only {
+  if (devDesign != null && typeof document !== "undefined") { Design = devDesign; Structure = devStructure; Rules = null; Object.assign(globalThis.exact ??= {}, { design, designDigest: devDesign }); }
+  // A dev reload's checkpoint (dev.mjs `capture`) carries the window's modes the design still has.
+  const kept = JSON.parse(globalThis.document?.querySelector?.('script[type="application/vnd.exact.dev-checkpoint"]')?.textContent ?? "null")?.modes;
+  if (kept) Axes.forEach(([a, values], i) => { const j = values.indexOf(kept[a]); if (j >= 0) Win[i] = j; });
+  // dev-only }
   After.push(() => rendering() ? typeof document !== "undefined" && apply() : schedule());
   PropHooks["data-x-pin"] = (e, v) => { if (v == null) e.removeAttribute("data-x-pin"); else e.setAttribute("data-x-pin", v); schedule(); return true; };
   (globalThis.exact ??= {}).modes = {
@@ -176,7 +298,8 @@ export function modes(axes, classes, texts, vars, accent, names) {
     // tokens `text` names, the tuple the element is in, and whether the
     // boundary wrote the row again. A token folded inline is not one.
     token: (e, prop, text) => {
-      const names = [...new Set([...String(text).matchAll(/var\((--x-[\w-]+)\)/g)].map(m => Names[m[1]]).filter(Boolean))];
+      // (Any property this table names: a token's `--x-…`, and a role's override, `--exact-canvas-text`.)
+      const names = [...new Set([...String(text).matchAll(/var\((--[\w-]+)\)/g)].map(m => Names[m[1]]).filter(Boolean))];
       if (!names.length) return undefined;
       const j = CH.indexOf(prop === "--exact-accent" ? "accent-color" : prop);
       let at = e;
@@ -194,7 +317,12 @@ export function modes(axes, classes, texts, vars, accent, names) {
     // The app's `setMode(axis, value)` (commands.js), as the runner takes it.
     command: args => {
       const [a, v] = args;
-      if (args.length === 2 && typeof a === "string" && typeof v === "string" && !refused([[a, v]])) return void globalThis.exact.modes.set([[a, v]]);
+      if (args.length === 2 && typeof a === "string" && typeof v === "string" && !refused([[a, v]])) {
+        // (A development page may hold the axis over the app's own, LLP 1122 T7: kept as asked, applied when handed back.)
+        const x = globalThis.exact, apply = () => x.modes.set([[a, v]]);
+        (x.asked ??= {})[`mode:${a}`] = { value: v, apply };
+        return void (x.held?.[`mode:${a}`] ? x.onAsked?.() : apply());
+      }
       say(`setMode(${args.map(x => JSON.stringify(x)).join(", ")}) refused: an axis of the app's design and one of its values`);
     },
   };

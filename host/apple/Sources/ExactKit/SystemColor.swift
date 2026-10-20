@@ -114,6 +114,13 @@ package enum SystemColor {
     private typealias Native = NSColor
     #endif
 
+    /// The platform's own colour a row names (`{"sys": "systemTealColor"}`),
+    /// which the platform resolves for each trait itself; nil for any other row.
+    static func native(_ row: BatchValue?) -> PlatformColor? {
+        guard case .object(let o)? = row, let name = o["sys"]?.string, !name.hasPrefix("@") else { return nil }
+        return lookup(name)
+    }
+
     /// The colour a name looks up: an asset, or a zero-argument class method
     /// of `UIColor`/`NSColor` that returns a colour. The name is already
     /// checked (`roles.rs`'s `native_name_ok`), so no private or allocating
@@ -227,14 +234,13 @@ package enum SystemColor {
 
 #if os(iOS) || os(tvOS)
 extension SystemColor {
-    /// The traits a platform colour resolves by: style, contrast and, on
-    /// iOS, the level (tvOS has none).
-    static var traits: [UITrait] {
+    /// Whether a platform colour resolves differently under `b` than under
+    /// `a`: by style, contrast and, on iOS, the level (tvOS has none).
+    static func resolvesDifferently(_ a: UITraitCollection, _ b: UITraitCollection) -> Bool {
         #if os(iOS)
-        return [UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self, UITraitUserInterfaceLevel.self]
-        #else
-        return [UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]
+        if a.userInterfaceLevel != b.userInterfaceLevel { return true }
         #endif
+        return a.userInterfaceStyle != b.userInterfaceStyle || a.accessibilityContrast != b.accessibilityContrast
     }
 }
 #endif
@@ -270,6 +276,7 @@ extension NodeView {
     /// A window or ancestor tint changed: the rows naming it apply again.
     package override func tintColorDidChange() {
         super.tintColorDidChange()
+        tintPadBar()
         // An `svg`'s paints are resolved into its scene's layers.
         if kind == "svg" { presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint) }
         // A symbol counts: hierarchical and palette glyphs bake the tint in.

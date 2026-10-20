@@ -127,6 +127,52 @@ fn text(c: Constant) -> String {
     }
 }
 
+/// A colour keyframe with the app's design tokens (LLP 1121 D3) replaced by
+/// the colours they stand for, as a row reads them: each whole component of
+/// the value (a colour, or a shadow's part, split at the top level) that is a
+/// token's name, a role's spelling, or an expression over tokens the build
+/// folded (`light-dark(chip, #fff)`, a synthetic token named by its text)
+/// is that entry's folded colour, a `light-dark()` pair whole, so the frames
+/// follow the scheme. A word inside a function (`rgb(0, 0, 0)`) is no
+/// token. `Err` names one that varies by an app axis, which a keyframe
+/// folded once cannot follow.
+pub(crate) fn tokens(value: &str, theme: &[crate::theme::ThemeEntry]) -> Result<String, String> {
+    let mut out = String::with_capacity(value.len());
+    let take = |part: &str, out: &mut String| -> Result<(), String> {
+        match theme
+            .iter()
+            .find(|e| !part.is_empty() && (e.name == part || e.role.as_deref() == Some(part)))
+        {
+            Some(e) if !e.slices.is_empty() => Err(format!(
+                "`{part}` varies by an app axis, and a keyframe is folded once"
+            )),
+            Some(e) => {
+                out.push_str(&e.value);
+                Ok(())
+            }
+            None => {
+                out.push_str(part);
+                Ok(())
+            }
+        }
+    };
+    let (mut depth, mut start) = (0usize, 0usize);
+    for (i, c) in value.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            c if depth == 0 && (c.is_whitespace() || c == ',') => {
+                take(&value[start..i], &mut out)?;
+                out.push(c);
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    take(&value[start..], &mut out)?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

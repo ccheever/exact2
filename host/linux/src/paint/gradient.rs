@@ -11,6 +11,10 @@ use exact_kernel::{Color, StyleProps};
 pub(super) struct Captured {
     gradient: exact_kernel::gradient::Gradient,
     dark: bool,
+    /// Its wide stops' colours by value, which its stops are read through:
+    /// the retained paint holds no slot, and the ramp mixes the exact
+    /// colours (LLP 1121 stage 4).
+    values: exact_kernel::style::wide::Values,
 }
 
 /// What a backend fills: placement in the shape's coordinates, and the
@@ -33,24 +37,31 @@ impl Captured {
             .background_image
             .layers()
             .iter()
-            .map(|gradient| Captured {
-                dark,
-                gradient: gradient.clone(),
-            })
+            .map(|gradient| Captured::new(gradient.clone(), dark))
             .collect()
     }
 
     /// CSS `mask-image`'s gradient (LLP 1077 D2), placed in the border box.
     pub(super) fn mask(style: &StyleProps, dark: bool) -> Option<Captured> {
         let gradient = style.rare.mask_image.gradient()?.clone();
-        Some(Captured { gradient, dark })
+        Some(Captured::new(gradient, dark))
+    }
+
+    fn new(gradient: exact_kernel::gradient::Gradient, dark: bool) -> Captured {
+        let values = exact_kernel::style::wide::Values::of(gradient.stops.iter().map(|s| s.color));
+        Captured {
+            gradient,
+            dark,
+            values,
+        }
     }
 
     /// The paint for a padding box. A radial gradient whose ending shape has
     /// no area is its last colour everywhere, as CSS draws it.
     pub(super) fn place(&self, padding: Rect4) -> Result<GradientPaint, [u8; 4]> {
         let (x, y, w, h) = padding;
-        let (mut ramp, mut geometry) = self.gradient.placed(w, h, self.dark);
+        let wide = |id| self.values.get(id);
+        let (mut ramp, mut geometry) = self.gradient.placed_with(w, h, self.dark, &wide);
         let count = self.gradient.stops.len();
         let repeat = self.gradient.repeating && ramp.stops.len() > count;
         if repeat {
@@ -68,7 +79,7 @@ impl Captured {
                 stop.at = (stop.at / 100.0 - first) / (last - first) * 100.0;
             }
         }
-        let stops = ramp.resolved(self.dark);
+        let stops = ramp.resolved_with(self.dark, &wide);
         let geometry = match geometry {
             Geometry::Linear { start, end } => Geometry::Linear {
                 start: (start.0 + x, start.1 + y),

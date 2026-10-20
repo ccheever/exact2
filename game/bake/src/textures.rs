@@ -39,6 +39,7 @@ pub fn materials(
             },
             alpha_cutoff: material.alpha_cutoff().unwrap_or(0.5),
             double_sided: material.double_sided(),
+            rim: crate::toon::rim(&material)?,
             normal_scale: material.normal_texture().map_or(1.0, |t| t.scale()),
             occlusion_strength: material.occlusion_texture().map_or(1.0, |t| t.strength()),
             ..Default::default()

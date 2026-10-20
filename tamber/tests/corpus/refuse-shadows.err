@@ -1,0 +1,16 @@
+8:3: tamber-kind: `unwritten` reads as a shadow: write its kind, `unwritten: box-shadow` or `unwritten: text-shadow`
+9:30: tamber-kind: a text shadow has no spread: <offset-x> <offset-y> [<blur>]
+10:29: tamber-kind: a text shadow is never `inset`
+11:28: tamber-kind: a text shadow is one shadow, not a list
+12:27: tamber-kind: write the colour: CSS's default, currentcolor, is not one a box shadow holds
+13:28: tamber-kind: a shadow's length: the kernel takes only px in a shadow until QUEUE's item "`rem`/`em` where the kernel still takes only `px`"
+14:28: tamber-kind: two to four lengths: <offset-x> <offset-y> [<blur> [<spread>]]
+15:29: tamber-kind: one colour, and lengths in px (unitless zero)
+16:3: tamber-under-kind: only a colour may vary by an axis `under scheme=dark`: the kernel picks a length's slice without knowing the scheme
+18:31: tamber-kind: a blur radius is never negative
+19:22: tamber-kind: `10000000000000000000000000000000000000000px` is past the lengths a shadow holds
+20:26: tamber-kind: `1`: a shadow's length says px (unitless only zero)
+21:32: tamber-kind: `shadow.box` is the other row's shadow
+24:3: tamber-kind: `card.unwritten` reads as a shadow: write its kind, `card.unwritten: box-shadow` or `card.unwritten: text-shadow`
+25:26: tamber-kind: `shadow.box` is a shadow token, not a length
+26:28: tamber-kind: `shadow.box` is a shadow token, not a number

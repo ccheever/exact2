@@ -917,3 +917,25 @@ fn takes_text_is_what_set_dynamic_reads_on_a_number_row() {
         assert!(takes_text(row), "{row:?}");
     }
 }
+
+#[test]
+fn clip_keeps_content_minimums_without_becoming_a_scroll_container() {
+    use taffy::Overflow as O;
+    for (x, y, expected) in [
+        ("clip", "clip", (O::Clip, O::Clip)),
+        ("clip", "visible", (O::Clip, O::Visible)),
+        ("visible", "clip", (O::Visible, O::Clip)),
+        ("clip", "hidden", (O::Hidden, O::Hidden)),
+        ("auto", "clip", (O::Scroll, O::Hidden)),
+    ] {
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::OverflowX, &StyleValue::Text(x.into()))
+            .unwrap();
+        style
+            .set_dynamic(StyleId::OverflowY, &StyleValue::Text(y.into()))
+            .unwrap();
+        let layout = style.to_taffy(NodeType::View, &Env::default());
+        assert_eq!((layout.overflow.x, layout.overflow.y), expected);
+    }
+}

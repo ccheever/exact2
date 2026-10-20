@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
 import { moduleGraph } from './agent-launch.mjs';
 import { buildArgs, buildFirst, buildReason, failureSummary, nativeBuild, overrideDir, planOverride, planSource, rebuildCommand, refuseBuild } from './agent-build.mjs';
@@ -32,19 +32,20 @@ test('a missing or stale build is built first, said in one line; a fresh one run
     const built = new Date(Date.now() + 10_000), edited = new Date(+built + 10_000), before = new Date(Date.now() - 60_000);
     for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) utimesSync(resolve(dir, file), before, before);
     const said = [], builds = [];
-    const drive = (host, { sim, code = 0, output = '' } = {}) => buildFirst(host, app, {
-      sim, say: line => said.push(line), wait: () => {}, build: async (args, log) => (builds.push({ args, log }), { code, output }),
+    const drive = (host, { code = 0, output = '' } = {}) => buildFirst(host, app, {
+      say: line => said.push(line), wait: () => {}, build: async (args, log) => (builds.push({ args, log }), { code, output }),
     });
 
     // No build yet: built first, for either host, by the command `bun exact.mjs ios|mac` runs.
     for (const host of ['ios', 'macos']) assert.equal(buildReason(nativeBuild(host, app), app), 'there is no build yet');
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), new RegExp(`^Error: run \\(cd '${dir}' && bun exact\\.mjs ios\\) first$`));
-    assert.equal(await drive('ios', { sim: 'lane-r5ab' }), 0);
-    assert.deepEqual(builds.map(b => b.args), [['--ios', 'field-log-apple', '--sim', 'lane-r5ab']]);
+    assert.equal(await drive('ios'), 0);
+    // The drive installs, keeping a Release build it replaces: the build installs nothing.
+    assert.deepEqual(builds.map(b => b.args), [['--ios', 'field-log-apple', '--no-install']]);
     assert.equal(builds[0].log, resolve(dir, '.exact/ios-build.log'));
     assert.equal(said.length, 1);
     assert.match(said[0], /^building for iOS: there is no build yet; its log: \S*\.exact\/ios-build\.log$/);
-    assert.deepEqual(buildArgs('macos', app, 'lane-r5ab'), ['field-log-apple'], 'a Mac build takes no simulator');
+    assert.deepEqual(buildArgs('macos', app), ['field-log-apple']);
 
     // A build its receipt shows fresh: nothing runs, nothing is said.
     const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
@@ -63,7 +64,7 @@ test('a missing or stale build is built first, said in one line; a fresh one run
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /^Error: ios build is stale: .*app\.contract changed since .*; run \(cd .* && bun exact\.mjs ios\)$/);
     assert.equal(await drive('ios'), 0);
     // (A contract edit alone is a plan-only edit, which a build with no module receipt to check its bake against still rebuilds.)
-    assert.deepEqual([said, builds.map(b => b.args)], [['building for iOS: the build is older than its sources (app.contract changed), and the build has no module receipt to check a new plan against; its log: ' + said[0].split('its log: ')[1]], [['--ios', 'field-log-apple']]]);
+    assert.deepEqual([said, builds.map(b => b.args)], [['building for iOS: the build is older than its sources (app.contract changed), and the build has no module receipt to check a new plan against; its log: ' + said[0].split('its log: ')[1]], [['--ios', 'field-log-apple', '--no-install']]]);
 
     // A scratch file in .exact/ (the build's log among them) is not a source.
     utimesSync(resolve(dir, 'app.contract'), before, before);
@@ -156,6 +157,69 @@ test('a source edited while the build ran is stale; a build claimed meanwhile is
   }
 });
 
+// The Apple build signs a copy of the GPU dylib and the app's bake reads it, so the archive's dep-info names a file the
+// build itself wrote after it started. Cargo leaves that dep-info as it was when a relink names the same paths, so its
+// time says nothing: the receipt's digest of the product decides, and every other input keeps the build's start.
+test('a product the build wrote and then read is judged by its recorded bytes; any other input by the build start', () => {
+  const previous = process.env.EXACT_APP_DIR, macBin = process.env.EXACT_MAC_BIN, targetDir = process.env.CARGO_TARGET_DIR, cwd = process.cwd();
+  const { dir, write } = scratchApp('gpu-log');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    delete process.env.EXACT_MAC_BIN; delete process.env.CARGO_TARGET_DIR;
+    const app = resolveApp('gpu-log');
+    const at = seconds => new Date(Date.now() + seconds * 1000), stamp = (file, seconds) => utimesSync(file, at(seconds), at(seconds));
+    for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(resolve(dir, file), -120);
+    const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
+    mkdirSync(bundle, { recursive: true });
+    const profile = resolve(app.target, 'aarch64-apple-ios-sim', 'host-dev'), dylib = resolve(profile, 'signed/libgpu_log_gpu.dylib');
+    const info = resolve(profile, 'libgpu_log_apple.d'), generated = resolve(profile, 'generated.contract');
+    const sha256 = text => createHash('sha256').update(text).digest('hex');
+    const changed = () => nativeBuild('ios', app).changed.map(p => resolve(p)).sort();
+    // The first build, t-100 s to t-70 s, wrote the dep-info at t-80 s.
+    write(dylib.slice(dir.length + 1), 'signed v1');
+    write(generated.slice(dir.length + 1), 'component Generated');
+    writeFileSync(info, `${profile}/libgpu_log_apple.a: ${resolve(dir, 'app.contract')} ${generated} ${dylib}\n`);
+    stamp(info, -80); stamp(generated, -110);
+    // A GPU source edited, and built again from t-20 s to t+10 s: the copy signed again at t-10 s, the archive relinked,
+    // and the dep-info, naming the same paths, left as it was.
+    writeFileSync(dylib, 'signed v2'); stamp(dylib, -10);
+    writeFileSync(receipt, JSON.stringify({ target: 'aarch64-apple-ios-sim', started: at(-20).toISOString(), build: { products: [{ path: dylib, bytes: 9, sha256: sha256('signed v2') }] } }));
+    stamp(receipt, 10);
+    assert.deepEqual(changed(), []);
+    // Other bytes, though put back with the time it had: not what the bundle holds.
+    writeFileSync(dylib, 'signed v3'); stamp(dylib, -10);
+    assert.deepEqual(changed(), [dylib]);
+    rmSync(dylib);
+    assert.deepEqual(changed(), [dylib]);
+    write(dylib.slice(dir.length + 1), 'signed v2');
+    assert.deepEqual(changed(), []);
+    // A source under the profile directory that the receipt does not name as a product keeps the build's start.
+    stamp(generated, -5);
+    assert.deepEqual(changed(), [generated]);
+    stamp(generated, -110); stamp(resolve(dir, 'app.contract'), -5);
+    assert.deepEqual(changed(), [resolve(dir, 'app.contract')]);
+    stamp(resolve(dir, 'app.contract'), -120);
+    // `build.dep-info-basedir` writes the paths relative to the workspace Cargo ran in, and the drive runs from
+    // elsewhere (here neither this checkout nor the workspace): both rules read them against that workspace.
+    const rel = path => relative(app.workspace, path);
+    writeFileSync(info, `${rel(profile)}/libgpu_log_apple.a: ${rel(resolve(dir, 'app.contract'))} ${rel(generated)} ${rel(dylib)}\n`);
+    stamp(info, -80);
+    process.chdir(dirname(dir));
+    assert.notEqual(realpathSync(process.cwd()), app.workspace);
+    assert.deepEqual(changed(), []);
+    writeFileSync(dylib, 'signed v3'); stamp(dylib, -10);
+    assert.deepEqual(changed(), [dylib]);
+    writeFileSync(dylib, 'signed v2'); stamp(dylib, -10); stamp(generated, -5);
+    assert.deepEqual(changed(), [generated]);
+  } finally {
+    process.chdir(cwd);
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    if (macBin === undefined) delete process.env.EXACT_MAC_BIN; else process.env.EXACT_MAC_BIN = macBin;
+    if (targetDir !== undefined) process.env.CARGO_TARGET_DIR = targetDir;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a build already running ends before the check: the drive neither races it nor is refused as busy', async () => {
   const previous = process.env.EXACT_APP_DIR;
   const { dir } = scratchApp('busy-log');
@@ -238,20 +302,25 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     // or to the declarations a web build writes beside app.ts, leaves it fresh (round 5's book-club rebuilt for server/index.ts).
     write('server/index.ts', "import { Database } from 'bun:sqlite';\nimport { routes } from './routes';\nexport const port = 9610;\n");
     write('app.contract.d.ts', 'export type Answer = unknown;\n');
+    write('seed.json', '[{"table":"owners","row":{"person":"dev:alice"}}]\n');
+    write('.exact/seed-log.json', '{}\n');
     stamp('server/index.ts', 15); stamp('app.contract.d.ts', 15);
+    stamp('seed.json', 15); stamp('.exact/seed-log.json', 15);
     assert.deepEqual(nativeBuild('ios', app).changed, []);
     assert.equal(await drive(), 0);
     assert.deepEqual([said, builds, bakes, kept()], [[], [], [], null]);
 
     // A contract edit: baked and kept beside the build, in one line, and no build; the driver runs it. The
-    // compiler's warnings the bake said follow it, one line each (LLP 1116.004 D7).
+    // compiler's warnings the bake said follow it, one line each the first time, then a count naming their file.
     write('app.contract', 'component App\n  view\n    text "hello again" color="#336699"\n');
     stamp('app.contract', 20);
     const warning = 'app.contract:3:31 warning [lower-colour-one-scheme] `#336699` on `color` stays the same in dark mode';
     bakeSays = `${warning}\n{"version":1}\n`;
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /ios build is stale/, 'before the bake, the driver refuses as before');
     assert.equal(await drive(), 0);
-    assert.deepEqual([said, builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)', warning], [], 1]);
+    assert.deepEqual([said.slice(0, 2), builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)', warning], [], 1]);
+    assert.equal(said.length, 3);
+    assert.match(said[2], /^compiler: 1 warning; \S+\/\.exact\/warnings-ios\.txt lists them all$/);
     bakeSays = '';
     assert.deepEqual(kept(), { plan: resolve(overrideDir('ios', app), 'app.plan'), dir: overrideDir('ios', app) });
     assert.equal(readFileSync(kept().plan, 'utf8'), 'plan two');
@@ -281,13 +350,19 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     assert.equal(kept(), null, 'kept for another build: never run as fresh');
 
     // Anything else edited is built, and what was kept goes with it; the warnings Cargo said for the bake's
-    // build script follow, in the compiler's own form.
+    // build script follow, in the compiler's own form: in full, since the bake before said none.
     reset();
     stamp('app.json', 60);
     buildSays = `   Compiling plan-log-apple v0.1.0\nwarning: plan-log-apple@0.1.0: ${warning}\nhost/apple: built\n`;
     assert.equal(await drive(), 0);
+    assert.deepEqual([bakes.length, builds.length, said[1], said.length], [0, 1, warning, 3]);
+    // Built again over the same warning: its count alone.
+    reset();
+    stamp('app.json', 70);
+    assert.equal(await drive(), 0);
     buildSays = '';
-    assert.deepEqual([bakes.length, builds.length, said.slice(1)], [0, 1, [warning]]);
+    assert.equal(said.length, 2);
+    assert.match(said[1], /^compiler: 1 warning, as before \(\S+\/warnings-ios\.txt lists them; /);
     assert.match(said[0], /^building for iOS: the build is older than its sources \((app\.contract, app\.json|app\.json, app\.contract) changed\); its log: /);
     assert.ok(!existsSync(overrideDir('ios', app)));
 
@@ -315,4 +390,38 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     if (trust === undefined) delete process.env.EXACT_UPDATE_TRUST; else process.env.EXACT_UPDATE_TRUST = trust;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// A drive's compiler warnings keep the compiler's order, the symbols only the web draws blank one line at the end;
+// the file beside the app lists each (the euxy port's header warning was one of 43, behind 21 of them).
+test('a drive says the web-only symbol warnings in one line and lists each in its file', async () => {
+  const { warningLines } = await import('./app-cli.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-warning-lines-')));
+  try {
+    const header = 'app.contract:9:3 warning [lower-header-unplaced] this `button` in this route\'s `header` is not shown on iOS';
+    const first = 'app.contract:4:5 warning [lower-symbol-platform] symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token';
+    const later = 'app.contract:5:5 warning [lower-symbol-platform] symbol `sf/b` is blank on web too: write `symbol:add`, the role, which draws on every host';
+    const native = 'app.contract:6:5 warning [lower-symbol-platform] symbol `sf/c` is blank on linux and web too: write `symbol:add`, the role, which draws on every host';
+    const said = warningLines(dir, 'ios', [header, native, first, later]);
+    assert.deepEqual(said.slice(0, 2), [header, native]);
+    assert.match(said[2], /^app\.contract:4:5 warning \[lower-symbol-platform\] 2 SF Symbol uses draw blank on the web, here first: .*\.exact\/warnings-ios\.txt lists each, and how\)$/);
+    assert.match(said[3], /^compiler: 4 warnings; /);
+    assert.equal(readFileSync(resolve(dir, '.exact', 'warnings-ios.txt'), 'utf8'), [header, native, first, later].map((w) => `${w}\n`).join(''));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// An Apple build's bake says its warnings on every build: the SF Symbols only the web draws blank one line where the
+// first was (euxy's 18, every Release build), the rest each.
+test('an Apple bake says the web-only symbol warnings in one line', async () => {
+  const { bakeWarnings } = await import('./linked-plan.mjs');
+  const alias = 'app.contract:2:5 warning [lower-symbol-alias] symbol `sf/arrow.up.arrow.down` is the role `sort`: write `symbol:sort`';
+  const first = 'app.contract:4:5 warning [lower-symbol-platform] symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token';
+  const later = 'app.contract:5:5 warning [lower-symbol-platform] symbol `sf/b` is blank on web too: write `symbol:add`, the role, which draws on every host';
+  assert.deepEqual(bakeWarnings('euxy', [alias, first, later]), [
+    `warning: euxy: ${alias}`,
+    'warning: euxy: app.contract:4:5 warning [lower-symbol-platform] 2 SF Symbol uses draw blank on the web, here first: an icon token or a role draws on every host (`bun exact.mjs contract build --json` says each, and how)',
+  ]);
+  assert.deepEqual(bakeWarnings('euxy', [alias]), [`warning: euxy: ${alias}`]);
 });

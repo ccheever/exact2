@@ -1,5 +1,8 @@
 // Which `aria-keyshortcuts` button a key may reach, on every Apple host, by
-// the rule the web host's input-glue.js keeps: none behind the frontmost
+// the rule the web host's input-glue.js keeps and the Linux host's
+// `shortcuts.rs` states: a button bound to a world's action (`action="buy"`)
+// is one, pressed as a click presses it, so a focused canvas never hears its
+// key (LLP 1132 D11). None behind the frontmost
 // shown `aria-modal` view (gallery F22: Escape left the selection mode
 // behind an open dialog instead of closing it), and never Enter or Space
 // while the focus is a control those keys activate (onboarding F27: Enter
@@ -22,10 +25,22 @@ extension Presenter {
             .last { $0.props["accessibilityModal"] == "true" && $0.accessibilityVisible }
     }
 
+    /// Press `node` as its shortcut: a world's control is a down and an up
+    /// of its action on the assistive contact, which moves no focus, then
+    /// its authored `press`, if it has one, as the web's click runs both. A
+    /// disabled button takes its key and presses nothing, as on the web.
+    func pressShortcut(_ node: NodeView) {
+        guard !node.disabled else { return }
+        guard node.isSurfaceControl else { return press(node.id) }
+        let contact = NodeView.assistiveContact
+        if node.control("down", id: contact) { _ = node.control("up", id: contact) }
+        if node.handlers.contains("press") { press(node.id) }
+    }
+
     /// Whether `node`'s shortcut may take `key` (the web's name) with the
     /// modifiers `held` (`KeyCodes.held`), the focus being `focus`.
     func shortcutAdmits(_ node: NodeView, key: String, held: String, focus: NodeView?) -> Bool {
-        if let modal = shortcutModal, node !== modal, !node.isDescendant(of: modal) { return false }
+        if let modal = shortcutModal, !logicallyWithin(node, modal) { return false }
         if held.isEmpty, key == "Enter" || key == " " || key == "Space", let focus, focus !== node,
            focus.isButton || focus.handlers.contains("press") { return false }
         return true

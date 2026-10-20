@@ -218,18 +218,22 @@ fn a_task_fires_each_frame_with_every_frame() {
 }
 
 #[test]
-fn static_font_declarations_parse_in_shorthand_and_block_forms() {
+fn font_declarations_parse_in_shorthand_and_block_forms() {
     let file = parse(
-        "font \"Body\" = \"assets/Body.ttf\"\nfont \"Display\"\n  400 = \"assets/Display.ttf\"\n  700 = \"assets/Display-Bold.otf\"\n  400 italic = \"assets/Display-Italic.ttf\"\ncomponent App\n  view\n    text \"hello\"\n",
+        "font \"Body\" = \"assets/Body.ttf\"\nfont \"Display\"\n  400 = \"assets/Display.ttf\"\n  700 = \"assets/Display-Bold.otf\"\n  400 italic = \"assets/Display-Italic.ttf\"\n  100 900 = \"assets/Display-Variable.ttf\"\ncomponent App\n  view\n    text \"hello\"\n",
     )
     .unwrap();
     assert_eq!(file.fonts.len(), 2);
-    assert_eq!(file.fonts[0].faces[0].weight, 400);
+    assert_eq!(file.fonts[0].faces[0].weight, None, "the file's own range");
+    assert_eq!(file.fonts[1].faces[0].weight, Some([400, 400]));
+    assert_eq!(file.fonts[1].faces[3].weight, Some([100, 900]));
     assert!(!file.fonts[0].faces[0].italic);
-    assert_eq!(file.fonts[1].faces.len(), 3);
+    assert_eq!(file.fonts[1].faces.len(), 4);
     assert!(file.fonts[1].faces[2].italic);
 
     let error = parse("font \"Bad\"\n  1001 = \"assets/Bad.ttf\"\n").unwrap_err();
+    assert_eq!(error.id, "syntax-font-weight");
+    let error = parse("font \"Bad\"\n  700 400 = \"assets/Bad.ttf\"\n").unwrap_err();
     assert_eq!(error.id, "syntax-font-weight");
 }
 
@@ -513,6 +517,31 @@ fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_
     assert_eq!(text(r"`a\${x}`"), "a${x}");
     assert_eq!(text(r"`a\tb\nc`"), "a\tb\nc");
     assert_eq!(text(r#"`\`\\\"\$`"#), "`\\\"$");
+    // A code point, as JavaScript and Swift write it (the euxy port's
+    // non-breaking hyphen), in a template and a string alike.
+    assert_eq!(
+        text(r"`a\u{2011}b\u2011\u{1F600}`"),
+        "a\u{2011}b\u{2011}\u{1F600}"
+    );
+    let file = parse("component A\n  view\n    text \"x\\u{2011}y\\u00e9\"\n").unwrap();
+    let Node::Element { positional, .. } = &file.components[0].view[0] else {
+        panic!()
+    };
+    assert!(
+        matches!(&positional[0], Expr::Str(s, _) if s == "x\u{2011}y\u{e9}"),
+        "{positional:?}"
+    );
+    for (bad, says) in [
+        (r"\u{}", "`\\u` takes a code point in hex"),
+        (r"\u{1234567}", "`\\u` takes a code point in hex"),
+        (r"\u12", "`\\u` takes a code point in hex"),
+        (r"\u{D800}", "`\\u{D800}` is no Unicode character"),
+        (r"\u{110000}", "`\\u{110000}` is no Unicode character"),
+    ] {
+        let e = parse(&format!("component A\n  view\n    text \"{bad}\"\n")).unwrap_err();
+        assert_eq!(e.id, "syntax-bad-escape", "{bad}: {e:?}");
+        assert!(e.message.starts_with(says), "{bad}: {}", e.message);
+    }
     // `\\` before `${` is an escaped backslash; the interpolation still runs.
     let p = parts(r"`a\\${x}\`b`");
     assert!(
@@ -528,7 +557,7 @@ fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_
     let e = parse("component A\n  view\n    text `ok \\q`\n").unwrap_err();
     assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
     assert_eq!((e.span.line, e.span.col), (3, 14), "{e:?}");
-    let accepted = r#"a string accepts \n \t \" \\ \` \$"#;
+    let accepted = r#"a string accepts \n \t \" \\ \` \$ and \u{…}, a Unicode code point in hex (`\u{2011}`, `\u2011`)"#;
     assert_eq!(e.message, format!("unknown escape `\\q`; {accepted}"));
     // A string's refusal names the escapes it accepts too.
     let e = parse("component A\n  view\n    text \"a\\rb\"\n").unwrap_err();
@@ -559,6 +588,12 @@ fn a_mutations_clauses_may_continue_on_indented_lines() {
     assert_eq!(edited.then.as_ref().map(|t| &*t.0), Some("followEdit"));
     assert!(saved.queue);
     assert_eq!(saved.refreshes.len(), 2);
+    let err = parse(
+        "component A\n  mutation m as shape Ok refreshes board feed\n  view\n    text \"a\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(err.id, "syntax-expected-newline");
+    assert!(err.message.contains("refreshes board, feed"), "{err:?}");
     assert_eq!(saved.then.as_ref().map(|t| &*t.0), Some("reload"));
     assert_eq!(a.states[0].name, "n");
     // Out of order, the continued line is named.

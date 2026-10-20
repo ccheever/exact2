@@ -3,6 +3,25 @@
 version = 4
 
 [[package]]
+name = "activity-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "activity-fixture-data",
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "activity-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -666,6 +685,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "exact-tamber",
+ "libc",
  "serde_json",
  "sha2",
 ]
@@ -687,6 +707,7 @@ dependencies = [
  "contract-syntax",
  "contract-types",
  "exact-kernel",
+ "exact-motion",
  "exact-plan",
  "exact-runner",
  "serde_json",
@@ -704,6 +725,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-route",
  "exact-tamber",
  "icu_locale",
  "serde_json",
@@ -1127,6 +1149,7 @@ dependencies = [
  "exact-textflow",
  "ibex2",
  "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -1188,6 +1211,7 @@ name = "exact-color"
 version = "0.1.0"
 dependencies = [
  "exact-num",
+ "libm",
 ]
 
 [[package]]
@@ -1198,6 +1222,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "getrandom 0.3.4",
+ "libc",
  "p256",
  "same-file",
  "serde_json",
@@ -1355,6 +1380,7 @@ dependencies = [
  "exact-data",
  "exact-grants",
  "exact-kernel",
+ "exact-linux",
  "exact-markdown",
  "exact-motion",
  "exact-plan",
@@ -1363,6 +1389,7 @@ dependencies = [
  "exact-runner",
  "exact-svg-raster",
  "exact-textflow",
+ "exact-update",
  "fontconfig-parser",
  "fontique",
  "getrandom 0.3.4",
@@ -1382,6 +1409,8 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "unicode-segmentation",
+ "url",
  "vello",
  "wgpu 29.0.4",
  "windows-sys 0.61.2",
@@ -1542,6 +1571,7 @@ dependencies = [
  "libc",
  "serde_json",
  "sha2",
+ "url",
  "windows-sys 0.61.2",
 ]
 
@@ -1563,11 +1593,13 @@ dependencies = [
  "contract",
  "exact-canvas",
  "exact-grants",
+ "exact-js-value",
  "exact-kernel",
  "exact-motion",
  "exact-num",
  "exact-plan",
  "exact-route",
+ "serde_json",
  "sha2",
 ]
 
@@ -1588,7 +1620,9 @@ version = "0.1.0"
 dependencies = [
  "exact-color",
  "exact-kernel",
+ "exact-motion",
  "exact-num",
+ "libc",
  "serde_json",
 ]
 
@@ -1597,11 +1631,15 @@ name = "exact-terminal"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "caltrain",
+ "chrono",
+ "chrono-tz",
  "contract",
  "exact-kernel",
  "exact-plan",
  "exact-runner",
  "exact-textflow",
+ "iana-time-zone",
  "libc",
  "png",
  "rustix 1.1.4",
@@ -1663,6 +1701,7 @@ dependencies = [
  "exact-textflow",
  "exact-web-capabilities",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -2871,7 +2910,9 @@ dependencies = [
 name = "markdown-data"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-data",
+ "exact-kernel",
  "exact-plan",
  "exact-runner",
  "markdown-parse",
@@ -2941,6 +2982,27 @@ dependencies = [
  "exact-web",
  "exact-web-capabilities",
  "markdown-data",
+]
+
+[[package]]
+name = "material-specimens-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "hello-data",
+]
+
+[[package]]
+name = "material-specimens-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-linux",
+ "serde_json",
+ "tiny-skia",
 ]
 
 [[package]]
@@ -3036,6 +3098,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "metronome-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "metronome-data",
+]
+
+[[package]]
+name = "metronome-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "metronome-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "metronome-data",
+]
+
+[[package]]
+name = "metronome-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "metronome-data",
+]
+
+[[package]]
 name = "mimalloc"
 version = "0.1.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3074,6 +3178,37 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "module-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "module-fixture-data",
+]
+
+[[package]]
+name = "module-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-data",
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "module-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "module-fixture-data",
 ]
 
 [[package]]
@@ -3180,6 +3315,16 @@ dependencies = [
  "indexmap",
  "rustc-hash",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "native-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "native-fixture-data",
 ]
 
 [[package]]
@@ -4404,10 +4549,12 @@ dependencies = [
 name = "shelf-android"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-js",
  "exact-js-bake",
  "exact-linux",
  "exact-logic",
+ "exact-plan",
 ]
 
 [[package]]
@@ -4415,6 +4562,7 @@ name = "shelf-apple"
 version = "0.1.0"
 dependencies = [
  "exact-apple",
+ "exact-apple-update",
  "exact-js",
  "exact-js-bake",
  "exact-logic",
@@ -4816,6 +4964,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "tamber-host-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "tamber-host-data",
+]
+
+[[package]]
+name = "tamber-host-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "tamber-host-data",
+]
+
+[[package]]
+name = "tamber-host-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "tamber-host-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "tamber-host-data",
+]
+
+[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4871,6 +5060,7 @@ version = "0.1.0"
 dependencies = [
  "exact-plan",
  "exact-runner",
+ "libm",
 ]
 
 [[package]]
@@ -4915,6 +5105,18 @@ version = "0.1.0"
 dependencies = [
  "exact-plan",
  "exact-runner",
+]
+
+[[package]]
+name = "theme-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "theme-fixture-data",
 ]
 
 [[package]]
@@ -5057,6 +5259,16 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "typetour-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "typetour-data",
+]
 
 [[package]]
 name = "typetour-apple"
@@ -5561,6 +5773,18 @@ dependencies = [
  "log",
  "once_cell",
  "pkg-config",
+]
+
+[[package]]
+name = "weatherlight-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
 ]
 
 [[package]]

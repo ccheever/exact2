@@ -220,6 +220,38 @@ fn srgb(r: f64, g: f64, b: f64, alpha: f64) -> Wide {
 }
 
 #[test]
+fn folding_keeps_the_same_bits_on_every_host() {
+    // glibc's pow gives 0x3f76_f5ad_db50_c915 for this sRGB channel.
+    assert_eq!(
+        srgb_to_linear(17.0 / 255.0).to_bits(),
+        0x3f76_f5ad_db50_c914
+    );
+
+    // Tamber's mix.tamber: color-mix(in oklab, #1083fe 88%, #0b0f14).
+    // Its a component differed by one ulp between the Linux run and the golden.
+    let lab = |rgb: [f64; 3]| {
+        MixSpace::Oklab.from_linear_srgb(
+            Wide {
+                space: Space::Srgb,
+                c: rgb.map(|v| v / 255.0),
+                alpha: 1.0,
+            }
+            .linear_srgb(),
+        )
+    };
+    let (a, b) = (lab([16.0, 131.0, 254.0]), lab([11.0, 15.0, 20.0]));
+    let mixed = [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * 0.12);
+    assert_eq!(
+        mixed.map(f64::to_bits),
+        [
+            0x3fe2_2732_0e61_2567,
+            0xbfa6_c513_a3d4_fb4c,
+            0xbfc6_92aa_2fe5_3c8c
+        ]
+    );
+}
+
+#[test]
 fn every_interpolation_space_round_trips() {
     use crate::mix::MixSpace::*;
     let samples = [

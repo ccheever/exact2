@@ -166,6 +166,7 @@ extension MenuHost {
         entry.native = native
         native.popover.behavior = entry.value == "manual" ? .applicationDefined : .transient
         native.popover.animates = !ExactEnv.agentFreezes
+        native.content.pointerTracking = { [weak presenter] in presenter?.trackPointer($0) }
         // As large as its content, at most what the screen can show beside AppKit's own margin.
         // A block's used size holds the box's margins, which are no part of the popover.
         let screen = (window.screen ?? NSScreen.main)?.visibleFrame.size ?? window.frame.size

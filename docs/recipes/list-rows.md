@@ -1,6 +1,7 @@
 # Recipe: list rows: search, swipe, filter and long-press
 
-A list under a large title with the bar's search field and rows that swipe to delete.
+A list under a large title and the bar's search field; its rows swipe to delete and
+long-press for a menu.
 
 ```contract
 routes nav
@@ -13,11 +14,14 @@ shape Note
 component Notes
   state query = ""
   state notes = [Note(id="1", title="Groceries"), Note(id="2", title="Ideas")]
+  state aimed = ""
   derive shown = notes.filter(n => n.title.toLowerCase().includes(query.trim().toLowerCase()))
   action search(v: string)
     query = v
   action remove(id: string)
     notes = notes.filter(n => n.id != id)
+  action aim(id: string)
+    aimed = id
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
       for e in stack(nav) key=e.id
@@ -29,36 +33,37 @@ component Notes
           list id="notes-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
               for n in shown key=n.id
-                scroll swipeContent=`row-${n.id}` swipeTrailing=`delete-${n.id}` padding-right=0
-                  overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
-                  row id=`row-${n.id}` width="100%" flex-shrink=0 scroll-snap-align="start"
-                    padding-right=16 box-sizing="border-box"
-                    text n.title testId=`note-${n.id}`
-                  button id=`delete-${n.id}` destructive=true press=remove(n.id) aria-label="Delete"
-                    flex-shrink=0 scroll-snap-align="start" testId=`delete-${n.id}`
-                    image "symbol:delete"
+                row delete=remove(n.id) contextmenu=aim(n.id) contextPopover="menu" testId=`note-${n.id}`
+                  text n.title
+          column id="menu" popover="auto" role="menu"
+            button press=remove(aimed) destructive=true popovertarget="menu" popovertargetaction="hide"
+              testId="menu-delete"
+              image "symbol:delete"
+              text "Delete"
 ```
 
 ```contract-test
-test "search, then swipe to delete"
+test "search, swipe to delete, delete from the menu"
   type "search" "gro"
   expect tree missing "note-2"
   type "search" ""
-  tap "delete-2"
+  tap "note-2-delete"
   expect tree missing "note-2"
-  expect tree has "note-1"
+  tap "note-1" contextmenu
+  tap "menu-delete"
+  expect tree missing "note-1"
 ```
 
-- A `list` with no `appearance` is the plain list: its children are rows, with the platform's
-  separators and press. Draw neither. A child that is no row says `border-bottom="none"`;
-  rows of your own say `appearance="none"`.
-- The swipe is a horizontal snap scroll naming its content and its trailing action (on iOS
-  UIKit's own; a full swipe performs the first). In a grouped list: no `width` on the
-  scroll, `padding-right=0` on it (its padding is in its port, where the action would show),
-  `padding-right=16` on the content.
+- `delete=` on a row is its swipe to delete: a red Delete (on iOS UIKit's own; a full swipe
+  runs it). `disabled` beside it keeps that row from deleting; the row still opens. A test
+  taps `"<row testId>-delete"`. Other actions than Delete: `contract vocab swipe`.
+- The swipe deletes without asking, as iOS does where a deletion is routine or recoverable
+  (Mail, Notes, Reminders). An irreversible loss confirms, as a detail screen's Delete or a
+  bulk clear does: its action opens an alert (`contract vocab confirm`).
+- Search querying a server, live or on the Search key: `contract vocab search`.
 - A filter: a `row role="radiogroup"` of `button role="radio"` above the list
-  ([persisted-setting](persisted-setting.md)).
-- One long-press menu for all rows: `contextmenu=aim(n.id) contextPopover="note-menu"` on the
-  row's content, and a `column id="note-menu" popover="auto" role="menu"` of buttons acting
-  on `aimed`, each `popovertarget="note-menu" popovertargetaction="hide"` (iOS: a `UIMenu`).
-  Test: `tap "note-1" contextmenu`.
+  ([persisted-setting](persisted-setting.md)): a segmented control; `appearance="none"` keeps
+  keys you paint, one Tab stop and the arrows. iOS 26 bar buttons share one glass
+  capsule; `buttonStyle="glass"` gives one its own.
+- One long-press menu serves every row: the row notes which (`aim`), each item acts on `aimed`
+  and hides it (iOS: a `UIMenu`). Test: `tap "note-1" contextmenu`.

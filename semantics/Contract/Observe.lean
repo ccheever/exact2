@@ -18,7 +18,8 @@ state in exactly this form; the two texts are compared line by line.
   `view <testId> <text>`   each element with a `testId`, in preorder, but
                            none inside a virtualized `list`: the runner
                            shows the rows its window lays out (a layout
-                           fact), the semantics every row
+                           fact), the semantics every row. An unopened
+                           tab panel has no descendants to observe
 
 Values: a number is `n` and its 16 hex digits of IEEE bits (every NaN is
 `7ff8000000000000`); a string is quoted with `\"`, `\\`, `\n`, `\r`, `\t`

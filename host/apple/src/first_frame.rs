@@ -52,10 +52,17 @@ impl<D: DataSource> Host<D> {
     /// the host's clock, which inputs and the engine's input clock follow,
     /// takes the wall (D5).
     pub fn frame_at(&mut self, frame_ms: f64, wall_ms: f64) -> String {
-        if self.engine.starts_on_frame() {
-            self.now_ms = wall_ms.max(self.now_ms);
+        if !self.engine.starts_on_frame() {
+            return self.frame(frame_ms);
         }
-        self.frame(frame_ms)
+        self.now_ms = wall_ms.max(self.now_ms);
+        // What the frame's commits begin starts at this frame, as the same
+        // callback's tick would start it (D5), so a curve a frame task
+        // begins, and Core Animation's play of it, cost one batch, not two.
+        self.presence.frame = Some(frame_ms / 1000.0);
+        let out = self.frame(frame_ms);
+        self.presence.frame = None;
+        out
     }
 
     /// Turn the first-frame rule on or off (D7). Off, at the agent's
@@ -87,15 +94,12 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The engine time a commit at `ms` is heard at: never behind the engine,
-    /// and, with the rule on, never past the host's clock, which a runner a
-    /// frame task put at its target may lead (D5).
+    /// and never past the host's clock, which the runner may lead: with the
+    /// rule on, a frame task puts it at its target (D5), and on a live clock
+    /// an input's commit observes a sample taken after the input's time,
+    /// whose gesture (a release ending its hold) runs on at that time.
     pub(super) fn engine_time(&self, ms: f64) -> f64 {
-        let t = if self.engine.starts_on_frame() {
-            ms.min(self.now_ms) / 1000.0
-        } else {
-            ms / 1000.0
-        };
-        t.max(self.engine.now())
+        (ms.min(self.now_ms) / 1000.0).max(self.engine.now())
     }
 
     /// While a motion tick's frame is set, start what waits for it, and send

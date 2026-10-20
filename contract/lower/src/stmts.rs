@@ -8,10 +8,11 @@
 //! (LLP 1005 §2).
 
 use crate::{expr, LowerError, Lowerer};
-use contract_syntax::Stmt;
+use contract_syntax::{Expr, Node, Span, Stmt};
 use contract_types::{Ref, Scope, Ty};
 use exact_plan::asm::Asm;
 use exact_plan::Opcode;
+use std::collections::BTreeSet;
 
 impl Lowerer<'_> {
     /// The slot a state's or a mutation's name writes.
@@ -75,8 +76,21 @@ impl Lowerer<'_> {
                 args,
                 ..
             } => {
-                for arg in args {
-                    expr::compile(self, asm, arg, scope, locals)?;
+                let activity = matches!(
+                    source.as_str(),
+                    "startActivity" | "updateActivity" | "endActivity"
+                );
+                let mut types = Vec::new();
+                for (i, arg) in args.iter().enumerate() {
+                    let ty = expr::compile(self, asm, arg, scope, locals)?;
+                    if activity {
+                        let ty = contract_types::activity_option_type(source, i).unwrap_or(ty);
+                        types.push(self.ty_id(&ty)?.0.to_string());
+                    }
+                }
+                if activity {
+                    let descriptor = self.b.str(&types.join(","));
+                    asm.str(descriptor);
                 }
                 let m = self.mutations[root
                     .mutations
@@ -84,7 +98,7 @@ impl Lowerer<'_> {
                     .position(|m| &m.name == target)
                     .unwrap()];
                 let source = self.b.str(source);
-                asm.send(m, source, args.len() as u16);
+                asm.send(m, source, args.len() as u16 + u16::from(activity));
             }
             Stmt::Refresh { target, .. } => {
                 let r = self.resources[root
@@ -99,15 +113,34 @@ impl Lowerer<'_> {
             // the next statement. No call opcode: the plan never sees one.
             Stmt::Call { body, .. } => self.block(asm, body, scope, locals)?,
             Stmt::Command { name, args, span } => {
+                // Said beside the rest, not in their place: a design's own
+                // refusal (an axis declared twice) comes first.
                 if name == "setMode" {
-                    crate::theme::set_mode_args(args, *span)?;
+                    if let Err(e) = crate::theme::set_mode_args(args, *span) {
+                        self.push(e);
+                    }
                 }
+                if name == "share" {
+                    share_pictures(&self.root.view, args)?;
+                }
+                let iframe = name == "postMessage"
+                    && !matches!(args.get(1), Some(Expr::Str(target, _)) if self.canvas_targets.contains(target));
                 let args = expr::command_args(name, args);
                 for arg in &args {
                     expr::compile_or_none(self, asm, *arg, scope, locals)?;
                 }
+                // An absent iframe must drop, never enter the canvas's pending queue.
+                if iframe {
+                    expr::compile_or_none(
+                        self,
+                        asm,
+                        Some(&Expr::Str("iframe".into(), *span)),
+                        scope,
+                        locals,
+                    )?;
+                }
                 let name = self.b.str(name);
-                asm.command(name, args.len() as u16);
+                asm.command(name, args.len() as u16 + u16::from(iframe));
             }
             Stmt::If {
                 cond,
@@ -156,4 +189,110 @@ impl Lowerer<'_> {
         }
         Ok(())
     }
+}
+
+/// `share(files=["#id"])` (LLP 1125 D12): a literal `#id` that no element of
+/// the whole expanded view carries is refused here. Where some element's id
+/// is computed, or a node is not expanded or draws elements of its own
+/// (Markdown's headings), any id may exist, and the runner refuses a
+/// missing one into the journal when the share runs.
+fn share_pictures(view: &[Node], args: &[Expr]) -> Result<(), LowerError> {
+    let wanted: Vec<(&str, Span)> = args
+        .iter()
+        .filter_map(|a| match a {
+            Expr::NamedArg(n, value, _) if n == "files" => match value.as_ref() {
+                Expr::List(items, _) => Some(items),
+                _ => None,
+            },
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|item| match item {
+            Expr::Str(s, at) => s.strip_prefix('#').map(|id| (id, *at)),
+            _ => None,
+        })
+        .collect();
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let mut ids = BTreeSet::new();
+    let mut stack: Vec<&Node> = view.iter().collect();
+    while let Some(node) = stack.pop() {
+        match node {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                if tag == "markdown" {
+                    return Ok(());
+                }
+                match attrs
+                    .iter()
+                    .rev()
+                    .find(|a| a.name == "id")
+                    .map(|a| &a.value)
+                {
+                    Some(Expr::Str(id, _)) => {
+                        ids.insert(id.as_str());
+                    }
+                    Some(_) => return Ok(()),
+                    None => {}
+                }
+                stack.extend(children);
+            }
+            Node::When {
+                then, otherwise, ..
+            } => stack.extend(then.iter().chain(otherwise)),
+            Node::Each { body, .. } => stack.extend(body),
+            Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none)),
+            Node::Use { .. } | Node::Children { .. } => return Ok(()),
+        }
+    }
+    match wanted.into_iter().find(|(id, _)| !ids.contains(id)) {
+        Some((id, at)) => crate::err(
+            "lower-share-picture",
+            format!("`files=[\"#{id}\"]` names no element: nothing in the view has `id=\"{id}\"`, so there is no element to draw. Give the element to share `id=\"{id}\"`"),
+            at,
+        ),
+        None => Ok(()),
+    }
+}
+
+pub(crate) fn canvas_targets(nodes: &[Node]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for node in nodes {
+        match node {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                if tag == "canvas" {
+                    for a in attrs.iter().filter(|a| a.name == "surface") {
+                        if let Expr::Ident(name, _) | Expr::Call(name, _, _) = &a.value {
+                            out.insert(name.clone());
+                        }
+                    }
+                }
+                out.extend(canvas_targets(children));
+            }
+            Node::Use { children, .. } => out.extend(canvas_targets(children)),
+            Node::When {
+                then, otherwise, ..
+            } => {
+                out.extend(canvas_targets(then));
+                out.extend(canvas_targets(otherwise));
+            }
+            Node::Each { body, .. } => out.extend(canvas_targets(body)),
+            Node::Match { some, none, .. } => {
+                out.extend(canvas_targets(&some.1));
+                out.extend(canvas_targets(none));
+            }
+            Node::Children { .. } => {}
+        }
+    }
+    out
 }

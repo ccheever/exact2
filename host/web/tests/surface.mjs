@@ -1,6 +1,8 @@
 import {assetDelivery} from '../gpu-assets.js';
+import { inertAncestor } from '../navigation.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { glueDeclarations, checkedGlueCall } from './glue-fixture.mjs';
 
 // Run the production lazy module and applyBatch with a deterministic GPU and
 // presenter. The runner's returned batch addresses the *final* outer tree.
@@ -39,8 +41,8 @@ export async function fixture(options = {}) {
     gpu_assets: () => '{"requests":[],"retired":[]}', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
   };
   const glue = readFileSync(process.env.R8A_GLUE_SOURCE || new URL('../glue.js', import.meta.url), 'utf8');
-  const applySource = glue.slice(glue.indexOf('function applyBatch(batch)'), glue.indexOf('\nfunction send(', glue.indexOf('function applyBatch(batch)')));
-  const operationSource = glue.slice(glue.indexOf('function apply(batch)'), glue.indexOf('function applyBatch(batch)', glue.indexOf('function apply(batch)')));
+  const applySource = glueDeclarations(glue, ['applyBatch', 'wakeLock', 'holdWake']);
+  const operationSource = glueDeclarations(glue, ['apply']);
   const applyOperations = new Function('exact', 'views', 'globalThis', `
     let timelinesMoved = false;
     const retiredViews = new WeakSet(), followedScrolls = new Map(), pendingScrolls = new Map();
@@ -50,13 +52,21 @@ export async function fixture(options = {}) {
     const viewFor = (_, id) => views.get(id), noteFit = () => {};
     ${operationSource}; return apply;
   `)(exact, views, {exact});
-  const applyBatch = new Function('globalThis', 'apply', `let timelinesMoved = false; const agentMode = false, frameSampler = null, textflow = null, page = null, clocks = {sync() {}}, presence = {hold: () => false}, letGo = () => {}, motion = {commit() {}, followTimelines() {}}, arrange = {commit() {}}, flowBatch = () => {}, markScrollDocument = () => {}, refitTexts = () => {}; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
+  const applyBatch = new Function('globalThis', 'apply', `
+    let timelinesMoved = false, agentClock = 0, followOnSeek = true;
+    const register = () => {}, seek = () => {}, root = {}, log = () => {};
+    const loadAfterPaint = () => { throw new Error('surface fixture: unexpected lazy module load'); };
+    const agentMode = false, frameSampler = null, textflow = null, page = null, clocks = {sync() {}}, presence = {hold: () => false}, letGo = () => {}, motion = {commit() {}, followTimelines() {}}, arrange = {commit() {}}, flowBatch = () => {}, refitTexts = () => {};
+    ${applySource}
+    return (${checkedGlueCall})(applyBatch);
+  `)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
   const nextGpu = {...gpu, gpu_load() {}, gpu_unload() { order.push("next unload"); },
     gpu_create: () => { order.push("next create"); return options.createFail ? 0 : ++next; },
     gpu_bind_at: () => { order.push("next bind"); return !options.bindFail; },
     gpu_destroy() { order.push("next destroy"); }, ...options.nextGpu};
   const source = readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8')
     .replace('import { assetDelivery } from "./gpu-assets.js";', '')
+    .replace('import { inertAncestor } from "./navigation.js";', '')
     .replaceAll('import.meta.url', '"http://fixture/"')
     .replace('import { pacer } from "./pace.js";', 'const pacer = () => Object.assign(now => now, {period_ms: 1000 / 120});') // the frame clock is tested in pace.test.mjs
     .replace('await import(`./gpu.js?g=${version}`)', 'await candidate(version)')
@@ -76,6 +86,7 @@ export async function fixture(options = {}) {
     remove() { order.push('remove clone'); this.isConnected = false; }
     replaceWith(el) { order.push("replace"); this.isConnected = false; el.isConnected = true; }
     getAttribute() { return null; }
+    hasAttribute(name) { return name === 'inert' && !!this.inert; }
     removeAttribute() {}
     setAttribute() {}
     addEventListener(name, fn) { const set = this.handlers.get(name) ?? new Set(); set.add(fn); this.handlers.set(name,set); this.listeners[name] = event => [...set].forEach(f => f(event)); }
@@ -92,9 +103,9 @@ export async function fixture(options = {}) {
     }
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
-    'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'performance', 'setTimeout',
+    'inertAncestor', 'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'performance', 'setTimeout',
     source + `;exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
-  )(settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
+  )(inertAncestor, settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
     class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, window,
     options.performance ?? globalThis.performance, options.setTimeout ?? globalThis.setTimeout);
   function create(id, name = 'world') {

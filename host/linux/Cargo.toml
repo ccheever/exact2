@@ -52,6 +52,7 @@ serde_json = "1.0"
 libloading = "0.8"
 base64 = "0.22"
 tiny-skia = "0.12"
+unicode-segmentation = "1.13"
 # Text (LLP 1085.000): Parley lays out, fontique finds and matches faces
 # (its `system` feature off: no fontconfig, no platform font API), swash
 # rasterizes the face Parley chose. Every one is Rust.
@@ -91,8 +92,17 @@ chrono = "0.4"
 chrono-tz = "0.10"
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_System_Com"] }
 
+[features]
+# Integration tests only: a new executor waits for a native-worker slot
+# (src/executor.rs `WAIT_FOR_SLOT`), turned on by the dev-dependency below.
+test-wait = []
+
 [dev-dependencies]
+exact-update = { path = "../../update" }
+exact-linux = { path = ".", features = ["test-wait"] }
 cc = "1"
 caltrain = { path = "../../apps/caltrain" }
 caltrain-data = { path = "../../apps/caltrain/data" }
 contract = { path = "../../contract/cli" }
+# A scripted socket transport names the URL type its trait takes.
+url = "2.5"

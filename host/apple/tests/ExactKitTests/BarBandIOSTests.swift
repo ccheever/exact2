@@ -84,6 +84,21 @@ final class BarBandIOSTests: XCTestCase {
         }.count
     }
 
+    func testAHeadingOfOnlySpacesIsABlankTitleWithNoQuotes() throws {
+        let session = try fixture()
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController)
+        XCTAssertGreaterThan(try titleInk(nav), 0, "the large title draws \"Team Board\"")
+        let bar = box(nav.navigationBar), card = box(try node("persona"))
+        _ = Agent(session: session).tap(["id": Int(try node("blank").id)])
+        spin(0.5)
+        // UIKit draws a large title of only white space as a pair of quotes
+        XCTAssertEqual(route.navigationItem.title, "", "the heading's spaces are no title")
+        XCTAssertEqual(try titleInk(nav), 0, "nothing is drawn in the large title's place")
+        XCTAssertEqual(box(nav.navigationBar).maxY, bar.maxY, accuracy: 0.5, "the bar keeps its large title's height")
+        XCTAssertEqual(box(try node("persona")).minY, card.minY, accuracy: 0.5, "and what is under it does not move")
+    }
+
     func testTheContentBetweenTheBarAndTheListSitsBelowTheBarAndTakesATap() throws {
         let session = try fixture()
         let p = session.presenter

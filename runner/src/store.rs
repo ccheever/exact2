@@ -43,6 +43,18 @@ pub struct Store {
     /// Device topics the answer being made watches (`native.watch`, LLP
     /// 1016.002): taken by the runner after each answer.
     topics: std::cell::RefCell<Vec<String>>,
+    /// Socket operations the mutation being answered, or the mapper of the
+    /// frame being parsed, staged, by the index of the resource that owns
+    /// each socket (LLP 1016.000 D7): taken by the runner after each such
+    /// turn, which publishes them only if its commit stands.
+    sockets: Vec<(usize, crate::SocketOp)>,
+    /// Socket operations a turn of an answer sent, by the same index (the
+    /// amendment of 2026-10-18): taken by the runner after the turn, and
+    /// sent once its commit stands, whatever becomes of the answer.
+    answer_sockets: Vec<(usize, crate::SocketOp)>,
+    /// Each open socket's buffered bytes at the start of the turn, by its
+    /// resource's index: what its handle's `bufferedAmount` starts from.
+    socket_buffered: Vec<(usize, u64)>,
     /// Each entry's value before its first write since the open checkpoint:
     /// what a refused transaction puts back. A checkpoint costs what the
     /// transaction writes, not the store's size. Checkpoints do not nest.
@@ -133,6 +145,15 @@ pub(crate) struct StoreCheckpoint {
     pub(crate) writes: usize,
 }
 
+/// What a host's store snapshot changed (LLP 1126.001 WP12): anything at all,
+/// and whether a name a resource reads did. Only the second re-asks readers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StoreChange {
+    /// Some kept name differed.
+    pub any: bool,
+    /// A name a resource reads differed: not a kept answer or a persisted slot.
+    pub read: bool,
+}
 impl Store {
     /// The store for `grants` (its `secret.keep <name>` lines, when the whole
     /// set parses), filled from `snapshot`; an entry the grant does not name
@@ -204,6 +225,9 @@ impl Store {
             reads: std::cell::Cell::new(0),
             entropy: std::cell::Cell::new(0),
             topics: Default::default(),
+            sockets: Vec::new(),
+            answer_sockets: Vec::new(),
+            socket_buffered: Vec::new(),
             undo: Vec::new(),
             copied: 0,
         }
@@ -269,6 +293,9 @@ impl Store {
     /// app — `get` sees nothing there, `set` refuses — and never counted as
     /// a read or a revision.
     pub const KEPT: &'static str = "exact.kept.";
+    /// The most the kept answers hold together: the runner keeps no more,
+    /// and a host's snapshot need read no more (LLP 1027 D4, 2026-10-16).
+    pub const KEPT_TOTAL_BYTES: usize = crate::runner::kept::KEPT_TOTAL_BYTES;
 
     /// The runner's persisted states (LLP 1116 D5): `state … persist`'s
     /// value lives under this prefix and the state's name, as JSON text,
@@ -289,6 +316,15 @@ impl Store {
     /// A kept answer, by the runner (uncounted, ungated).
     pub(crate) fn kept(&self, name: &str) -> Option<&[u8]> {
         self.values.get(name).map(Vec::as_slice)
+    }
+
+    /// Every kept answer's name and length, by the runner.
+    pub(crate) fn kept_lengths(&self) -> Vec<(String, usize)> {
+        self.values
+            .iter()
+            .filter(|(name, _)| Store::is_kept(name))
+            .map(|(name, value)| (name.clone(), value.len()))
+            .collect()
     }
 
     /// Keep an answer for the next boot, by the runner: a write for the host
@@ -389,6 +425,42 @@ impl Store {
             .collect()
     }
 
+    /// Adopt a host snapshot without publishing its values as new writes.
+    /// The open checkpoint can restore it if settlement refuses the change.
+    pub(crate) fn refresh_snapshot(&mut self, snapshot: Vec<(String, Vec<u8>)>) -> StoreChange {
+        let next: exact_kernel::SortedMap<_, _> = snapshot
+            .into_iter()
+            .filter(|(name, _)| self.is_granted(name) || Self::runner_owned(name))
+            .collect();
+        let mut names: Vec<String> = self.values.keys().chain(next.keys()).cloned().collect();
+        names.sort();
+        names.dedup();
+        let mut change = StoreChange::default();
+        for name in names {
+            if self.values.get(&name) == next.get(&name) {
+                continue;
+            }
+            change.any = true;
+            change.read |= !Self::runner_owned(&name);
+            self.remember(&name);
+            match next.get(&name) {
+                Some(value) => {
+                    self.values.insert(name, value.clone());
+                }
+                None => {
+                    self.values.remove(&name);
+                }
+            }
+        }
+        // A kept answer or a persisted slot is the runner's own record, never
+        // a reader's input: two sessions keeping different answers to one
+        // reader would otherwise re-ask each other without end.
+        if change.read {
+            self.revision += 1;
+        }
+        change
+    }
+
     /// Everything kept: what a reload carries (`Carried::store`).
     pub fn snapshot(&self) -> Vec<(String, Vec<u8>)> {
         self.values
@@ -441,6 +513,44 @@ impl Store {
         if !topics.iter().any(|t| t == topic) {
             topics.push(topic.to_owned());
         }
+    }
+
+    /// Stage `op` on the socket of resource `resource` for the mutation
+    /// being answered or the frame being parsed (LLP 1016.000 D7).
+    pub fn stage_socket(&mut self, resource: usize, op: crate::SocketOp) {
+        self.sockets.push((resource, op));
+    }
+
+    /// Stage `op` on the socket of resource `resource` for the turn of an
+    /// answer being run (LLP 1016.000 D7, the amendment of 2026-10-18).
+    pub fn stage_answer_socket(&mut self, resource: usize, op: crate::SocketOp) {
+        self.answer_sockets.push((resource, op));
+    }
+
+    /// The operations turns of answers sent since the last take.
+    pub fn take_answer_sockets(&mut self) -> Vec<(usize, crate::SocketOp)> {
+        std::mem::take(&mut self.answer_sockets)
+    }
+
+    /// Set the turn's socket snapshot (see `socket_buffered`).
+    pub fn set_socket_buffered(&mut self, snapshot: Vec<(usize, u64)>) {
+        self.socket_buffered = snapshot;
+    }
+
+    /// Each open socket's buffered bytes at the start of this turn, by the
+    /// index of the resource that owns it.
+    pub fn socket_buffered(&self) -> &[(usize, u64)] {
+        &self.socket_buffered
+    }
+
+    /// The socket operations staged since the last take, left staged.
+    pub fn staged_sockets(&self) -> &[(usize, crate::SocketOp)] {
+        &self.sockets
+    }
+
+    /// The socket operations staged since the last take.
+    pub fn take_sockets(&mut self) -> Vec<(usize, crate::SocketOp)> {
+        std::mem::take(&mut self.sockets)
     }
 
     /// The topics watched since the last take.
@@ -591,5 +701,26 @@ mod tests {
         store.set("token", "new").unwrap();
         assert_eq!(store.revision(), before + 1);
         assert_eq!(store.take_writes().len(), 1);
+        let revision = store.revision();
+        assert_eq!(
+            store.refresh_snapshot(store.snapshot()),
+            StoreChange::default()
+        );
+        assert_eq!(store.revision(), revision);
+        let kept = format!("{}token", Store::KEPT);
+        let mut peer = store.snapshot();
+        peer.push((kept.clone(), b"answer".to_vec()));
+        let change = store.refresh_snapshot(peer);
+        assert!(
+            change.any && !change.read,
+            "a kept answer is no reader's input"
+        );
+        assert_eq!(store.revision(), revision);
+        assert!(
+            store
+                .refresh_snapshot(vec![("token".into(), b"peer".to_vec())])
+                .read
+        );
+        assert_eq!(store.revision(), revision + 1);
     }
 }

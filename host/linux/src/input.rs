@@ -96,6 +96,7 @@ type Ranges = [(i32, i32); 2];
 pub struct Input {
     devices: Vec<(Device, Option<Ranges>)>,
     keyboard: Keyboard,
+    touch_only: bool,
 }
 
 impl Input {
@@ -104,6 +105,7 @@ impl Input {
     /// skipped.
     pub fn open() -> Input {
         let mut devices = Vec::new();
+        let mut pointing = Vec::new();
         for (_, d) in evdev::enumerate() {
             let pointer = d.supported_events().contains(EventType::RELATIVE);
             // An absolute pointer: ABS_X/ABS_Y with their ranges (a KVM's
@@ -128,6 +130,13 @@ impl Input {
             if !(pointer || absolute.is_some() || keyboard) {
                 continue;
             }
+            let keys = d.supported_keys();
+            pointing.push(crate::presenter::Pointing {
+                relative: pointer,
+                absolute: absolute.is_some(),
+                touch: keys.is_some_and(|k| k.contains(evdev::KeyCode::BTN_TOUCH)),
+                left: keys.is_some_and(|k| k.contains(evdev::KeyCode::BTN_LEFT)),
+            });
             // SAFETY: fcntl on a file descriptor this process owns; the
             // flags are read and written whole.
             unsafe {
@@ -142,7 +151,14 @@ impl Input {
         Input {
             devices,
             keyboard: Keyboard::default(),
+            touch_only: crate::presenter::touch_only(&pointing),
         }
+    }
+
+    /// Whether a touch screen is the only pointing device open
+    /// ([`crate::presenter::touch_only`]).
+    pub fn touch_only(&self) -> bool {
+        self.touch_only
     }
 
     /// How many devices are open.

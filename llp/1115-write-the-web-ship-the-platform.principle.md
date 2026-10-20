@@ -117,6 +117,10 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
 - **D2. Unset backgrounds are the platform's.** The window/viewport, launch view and sheet
   surfaces fall back to `systemBackground` (iOS) and `windowBackgroundColor` (macOS), never a
   fixed white. (Today a page with no background is white text on white in dark mode.)
+  > **Amended by LLP 1116.021 D7 (2026-10-17).** On iOS a sheet's surface is its route's own
+  > background where the route has one: a sheet whose scroll is a grouped list is on the
+  > grouped background (LLP 1116.007 D5), as a hand-built grouped sheet is, so no white band
+  > shows between it and a keyboard's bar. A route with none keeps `systemBackground`.
 - **D3. Type is the platform's.** The root font size is the platform body size (§3). Headings
   (`role="heading"`/`h1`–`h6`) get the platform's text styles by level, overridable by any
   authored `font-size`/`font-weight`. Bold Text is honoured.
@@ -143,12 +147,36 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   > action sheet or popover on iOS, a light-dismiss dialog on the web, the painted dialog on
   > the Mac, a Material dialog cancelled by a touch outside on Android. The shape rule is one
   > function in the kernel (`kernel/src/confirmation.rs`), which lowering and each host read.
+  >
+  > **Extended (2026-10-15, the euxy port's rename prompt).** A prompt is the alert with a text
+  > field: one `input` row of an alert-shaped `alertdialog` counts with its text and is
+  > `UIAlertController`'s text field on iOS, `NSAlert`'s accessory field on the Mac, and the
+  > `dialog`'s field on a line of its own on the web, standing in for the authored `input`.
+  > Return, on every host: the field's key handlers first; a field with a `submit` then commits
+  > and runs it, and that is all; any other commits and presses the first action that is not
+  > destructive, whatever its style, nothing while that action is disabled. Lowering refuses a field in any
+  > other shape; Linux paints it as authored.
+  >
+  > **Amended (2026-10-16).** On iOS Return is the field delegate's, and the alert has no
+  > `preferredAction` unless its author gave one: a hand-built `UIAlertController` and React
+  > Native's `Alert.prompt` draw no action filled, so an unsaid prompt drew "Rename" as a tell. An
+  > alert's preferred action is the Mac's default button (LLP 1115.000 D7.3): its one
+  > `buttonStyle="filled"` action that is not destructive; on a prompt only when that is the action
+  > Return presses, so the bold action and Return's are always one.
 - **D7. Docs say less.** The agent guide, `exact new` and the recipe apps omit colours, fonts and
   control metrics; where colour is needed they name roles. A short starter guide is the only
   required reading.
 - **D8. Each platform's own conventions** (the Mac's Help and Edit menus, frame autosave,
   non-selectable UI labels, `NSSearchField`; Windows's IME and accessibility) are in scope on the
   same test.
+- **D9. The iOS dev menu is the exception** (Charlie, 2026-10-16). A release iOS build keeps it
+  by default, as a shipped page keeps its browser's developer tools: the build's info and
+  release notes are worth more to the people testing it than the gesture costs anyone else.
+  `EXACT_DEV_MENU=0` removes it, set when building (`ExactDevMenu` in `Info.plist`, which an
+  installed app needs: it is launched with no environment) or when launching. A release Mac
+  build ships its Develop menu hidden (LLP 1115.000 D7.8), since there it is a menu-bar item
+  every person sees and its chords take ⌘R and ⌘D: `defaults write <bundle id> ExactDevMenu
+  -bool YES` shows it, as Safari's settings show Safari's, unless the build said `0`.
 
 ## 6. Waves
 

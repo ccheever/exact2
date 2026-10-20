@@ -114,12 +114,6 @@ private func affine(_ v: Any?) -> CGAffineTransform {
     return t.count == 6 ? CGAffineTransform(a: t[0], b: t[1], c: t[2], d: t[3], tx: t[4], ty: t[5]) : .identity
 }
 
-/// A pattern's rendered tile, for Core Graphics' pattern callback.
-private final class TileCell {
-    let image: CGImage, rect: CGRect
-    init(image: CGImage, rect: CGRect) { self.image = image; self.rect = rect }
-}
-
 enum SvgIsland {
     /// The most pixels one island's bitmap holds (64 MB at 4 bytes each).
     static let cap = 16_777_216
@@ -317,27 +311,12 @@ enum SvgIsland {
         ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
         ctx.scaleBy(x: CGFloat(w) / area.width, y: CGFloat(h) / area.height)
         ctx.translateBy(x: -area.minX, y: -area.minY)
-        // A Core Graphics pattern whose matrix is pattern space to the
-        // bitmap's device space: its phase is the tile's origin in pattern
-        // space, and one rendered cell repeats without seams.
-        let cell = TileCell(image: image, rect: tileRect)
-        var callbacks = CGPatternCallbacks(version: 0, drawPattern: { info, c in
-            guard let info else { return }
-            let cell = Unmanaged<TileCell>.fromOpaque(info).takeUnretainedValue()
-            c.draw(cell.image, in: cell.rect)
-        }, releaseInfo: nil)
-        let made = withExtendedLifetime(cell) { () -> Bool in
-            guard let pattern = CGPattern(info: Unmanaged.passUnretained(cell).toOpaque(), bounds: tileRect,
-                                          matrix: t.concatenating(ctx.ctm), xStep: tileRect.width, yStep: tileRect.height,
-                                          tiling: .constantSpacing, isColored: true, callbacks: &callbacks),
-                  let space = CGColorSpace(patternBaseSpace: nil) else { return false }
-            ctx.setFillColorSpace(space)
-            var alpha = CGFloat(num(g["o"] ?? 1))
-            ctx.setFillPattern(pattern, colorComponents: &alpha)
-            ctx.fill(area)
-            return true
-        }
-        guard made else { return nil }
+        // Drawing each image in a CGPattern callback antialiases its outer
+        // edge independently, leaving gaps between rotated cells. Tiled-image
+        // drawing samples across those edges while retaining image interpolation.
+        ctx.concatenate(t)
+        ctx.setAlpha(CGFloat(num(g["o"] ?? 1)))
+        ctx.draw(image, in: tileRect, byTiling: true)
         guard let out = ctx.makeImage() else { return nil }
         let layer = CALayer()
         layer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]

@@ -21,6 +21,8 @@ pub(crate) struct ContentBox {
 /// A JSON writer for one batch.
 #[derive(Debug, Default)]
 pub struct Batch {
+    /// Deferred store read and data activation still need a retry (LLP 1126.001 WP12).
+    pub store_status: Option<(bool, bool)>,
     ops: Vec<String>,
     /// The views this batch creates: each starts at its presentation's
     /// identity (`Host::present`).
@@ -47,6 +49,11 @@ pub struct Batch {
     /// Image handles a 2D canvas asked for (LLP 1056 D9): the presenter
     /// decodes each and answers `exact_canvas_image`.
     images: Vec<String>,
+    /// The root font size or the window's modes moved (`Host::facts_moved`).
+    pub facts: bool,
+    /// Whether a displayed element holds the wake lock, when that changed
+    /// (`Host::wakelock_moved`, LLP 1125 D11).
+    pub wakelock: Option<bool>,
 }
 
 pub use exact_runner::agent::quote;
@@ -158,7 +165,7 @@ impl Batch {
         out: &mut String,
         id: u32,
         parent: u32,
-        props: &std::collections::BTreeMap<String, String>,
+        props: &exact_kernel::SortedMap<String, String>,
         style: &str,
         handlers: &[&str],
         paints: bool,
@@ -437,7 +444,14 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"auth","ticket":N,"cancel":true}`: the runner let go of it.
+    /// A reserved activity send, dispatched to the demand-loaded arm.
+    pub fn activity(&mut self, ticket: u64, request: &str) {
+        self.ops.push(format!(
+            "{{\"op\":\"activity\",\"ticket\":{ticket},\"request\":{request}}}"
+        ));
+    }
+
+    /// Cancel the authentication session whose ticket the runner let go.
     pub fn auth_cancel(&mut self, ticket: u64) {
         self.ops.push(format!(
             "{{\"op\":\"auth\",\"ticket\":{ticket},\"cancel\":true}}"
@@ -508,7 +522,8 @@ impl Batch {
     }
 
     /// `{"op":"sound","files":[…],"ops":[…]}` (LLP 1096 D8): the voice
-    /// table's `play` and `end` ops in runner milliseconds, and at a boot
+    /// table's `play` (with `playbackRate` and `pan` when not 1 and 0, LLP
+    /// 1125 D10) and `end` ops in runner milliseconds, and at a boot
     /// the files to decode, in declaration order (a new boot silences the
     /// last one's voices). Nothing is sent when there is nothing to say.
     pub fn sound(
@@ -543,21 +558,67 @@ impl Batch {
                     sound,
                     at,
                     gain,
-                } => write!(
-                    s,
-                    "{{\"op\":\"play\",\"id\":{id},\"sound\":{sound},\"at\":{},\"gain\":{}}}",
-                    exact_runner::agent::num(*at),
-                    exact_runner::agent::num(*gain)
-                ),
+                    playback_rate,
+                    pan,
+                } => {
+                    let _ = write!(
+                        s,
+                        "{{\"op\":\"play\",\"id\":{id},\"sound\":{sound},\"at\":{},\"gain\":{}",
+                        exact_runner::agent::num(*at),
+                        exact_runner::agent::num(*gain)
+                    );
+                    if *playback_rate != 1.0 {
+                        let _ = write!(
+                            s,
+                            ",\"playbackRate\":{}",
+                            exact_runner::agent::num(*playback_rate)
+                        );
+                    }
+                    if *pan != 0.0 {
+                        let _ = write!(s, ",\"pan\":{}", exact_runner::agent::num(*pan));
+                    }
+                    write!(s, "}}")
+                }
                 SoundOp::End { id, at } => write!(
                     s,
                     "{{\"op\":\"end\",\"id\":{id},\"at\":{}}}",
                     exact_runner::agent::num(*at)
                 ),
+                // A sequence step's haptic, at its time (LLP 1125 D3).
+                SoundOp::Haptic { id, kind, at } => {
+                    let _ = write!(s, "{{\"op\":\"haptic\",\"id\":{id},\"kind\":");
+                    quote(kind, &mut s);
+                    write!(s, ",\"at\":{}}}", exact_runner::agent::num(*at))
+                }
+                SoundOp::Unhaptic { id } => write!(s, "{{\"op\":\"unhaptic\",\"id\":{id}}}"),
             };
         }
         s.push_str("]}");
         self.ops.push(s);
+    }
+
+    /// This batch's ops, for another batch to carry (`Host::ending`).
+    pub(crate) fn into_ops(self) -> Vec<String> {
+        self.ops
+    }
+
+    /// The runner's timed outputs since the last take (LLP 1096 D7, LLP
+    /// 1125 D7): the voice table's `sound` op and the MIDI queue's `midi`
+    /// op; at a `boot`, the files to decode and whether MIDI's arm loads.
+    pub fn timed<D: exact_runner::DataSource>(
+        &mut self,
+        runner: &mut exact_runner::Runner<D>,
+        boot: bool,
+    ) {
+        if runner.take_activities_demand() {
+            self.ops
+                .push("{\"op\":\"activity\",\"demand\":true}".into());
+        }
+        self.sound(runner.take_sounds(), boot.then(|| runner.plan()));
+        let uses = boot && exact_runner::uses::uses_midi(runner.plan());
+        if let Some(op) = exact_runner::midi::batch_op(&runner.take_midi(), uses) {
+            self.ops.push(op);
+        }
     }
 
     /// `{"op":"destroy","id":…}`.
@@ -771,6 +832,12 @@ impl Batch {
         if self.controls {
             s.push_str(",\"controls\":true");
         }
+        if self.facts {
+            s.push_str(",\"facts\":true");
+        }
+        if let Some(held) = self.wakelock {
+            let _ = write!(s, ",\"wakelock\":{held}");
+        }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");
             for (i, src) in self.images.iter().enumerate() {
@@ -780,6 +847,12 @@ impl Batch {
                 quote(src, &mut s);
             }
             s.push(']');
+        }
+        if let Some((read, activation)) = self.store_status {
+            let _ = write!(
+                s,
+                ",\"storeReadPending\":{read},\"storeActivationPending\":{activation}"
+            );
         }
         if let Some((first, last)) = self.seq {
             let _ = write!(s, ",\"seq\":[{first},{last}]");

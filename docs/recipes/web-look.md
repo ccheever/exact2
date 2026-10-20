@@ -11,13 +11,13 @@ box (emphasis is a part: [content-design](content-design.md)).
 | `buttonStyle="bordered-prominent"` (`"filled"`) | the accent as its fill: once a screen, the action people came for |
 | `buttonStyle="plain"`, `"tinted"` | the accent as text; as a light tint |
 | `destructive=true` | red, in the button's style |
-| a card with a `press`, a custom `button`, a `link` | a wash on hover; dims while pressed and from Space (`-exact-press-scale` replaces the dim); dimmed when disabled |
+| a card with a `press`, a custom `button`, a `link` | a wash on hover; dims while pressed and from Space (an authored press replaces the dim); dimmed when disabled |
 | `row role="radiogroup"` of `button role="radio"` (a value from two to five); a root `tablist` (`aria-controls`) | a segmented control, arrows move the choice; a tab bar |
-| a route's `header` | an app bar, sticky on a page that scrolls |
+| a route's `header` | an app bar, sticky as a page scrolls |
 | `dialog role="alertdialog"` | an alert: its `aria-label` the title |
 | an `input` checkbox, radio, range; `switch` | in the accent; a switch |
-| `input`, `textarea`, `select`, a `date` or `time` | 36 px fields; the browser's picker |
-| `text role="heading" aria-level=1…3` | the level's text style, bold |
+| `input`, `textarea`, `select`, `date`, `time` | 36 px fields; the browser's picker |
+| `text role="heading" aria-level=1…3` | its level's text style, bold (3 semibold) |
 
 What you write wins: a heading's `font-weight`, an `accent-color` on a button or the root.
 The one colour to write is that accent, a role or one `light-dark(light, dark)` pair; a

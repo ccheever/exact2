@@ -163,7 +163,13 @@ pub fn mime_for(name: &str) -> &'static str {
         "webm" => "video/webm",
         "json" => "application/json",
         "md" | "markdown" => "text/markdown",
-        "txt" => "text/plain",
+        "txt" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "tsv" => "text/tab-separated-values",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "xml" => "application/xml",
+        "yaml" | "yml" => "application/yaml",
         _ => "application/octet-stream",
     }
 }
@@ -211,8 +217,8 @@ pub fn answer_paths(value: &str) -> Vec<String> {
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .collect();
-    if lines.len() == 1 {
-        return lines[0].split_whitespace().map(str::to_owned).collect();
+    if !value.contains('\n') {
+        return value.split_whitespace().map(str::to_owned).collect();
     }
     lines.into_iter().map(str::to_owned).collect()
 }
@@ -355,5 +361,43 @@ mod tests {
             delivered_type("image/heic", &["image/jpeg".into()]),
             "image/jpeg"
         );
+    }
+}
+
+#[cfg(test)]
+mod text_types {
+    #[test]
+    fn text_files_have_their_mime_type_and_unknown_files_stay_binary() {
+        for (name, mime) in [
+            ("diary.CSV", "text/csv"),
+            ("data.tsv", "text/tab-separated-values"),
+            ("notes.txt", "text/plain"),
+            ("notes.md", "text/markdown"),
+            ("index.html", "text/html"),
+            ("data.xml", "application/xml"),
+            ("config.yml", "application/yaml"),
+            ("opaque.bin", "application/octet-stream"),
+        ] {
+            assert_eq!(super::mime_for(name), mime, "{name}");
+            assert!(super::accepts(&[mime.into()], name, mime));
+        }
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    #[test]
+    fn a_newline_keeps_a_single_path_with_spaces() {
+        for (input, expected) in [
+            ("/tmp/my photo.png\n", vec!["/tmp/my photo.png"]),
+            (
+                "/tmp/a b.png\n/tmp/c.png\n",
+                vec!["/tmp/a b.png", "/tmp/c.png"],
+            ),
+            ("a.png b.png", vec!["a.png", "b.png"]),
+            ("", vec![]),
+        ] {
+            assert_eq!(super::answer_paths(input), expected);
+        }
     }
 }

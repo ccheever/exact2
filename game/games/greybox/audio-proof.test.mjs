@@ -86,16 +86,17 @@ test('Apple background notifications deliver in order on main', async () => {
   if (process.platform !== 'darwin') return;
   const dir = mkdtempSync(resolve(tmpdir(), 'audio-main-'));
   try {
-    const source = readFileSync(resolve(import.meta.dir, '../../../host/apple/Sources/ExactKit/CanvasSeams.swift'), 'utf8');
-    const adapter = source.slice(source.indexOf('// ExactKit owns session policy'));
+    const source = readFileSync(resolve(import.meta.dir, '../../../host/apple/Sources/ExactSurfaces/CanvasSeams.swift'), 'utf8');
+    const adapter = source.slice(source.indexOf('// A live surface asks for the session once per process'));
     const stubs = `import Foundation
 import AppKit
 enum ExactEnv { static let agentMode = false }
+final class Owner { static let shared = Owner(); func callMain<T>(_ body: () -> T) -> T { Thread.isMainThread ? body() : DispatchQueue.main.sync(execute: body) } }
 final class Frames { func requestCanvas() {} }
 final class Session { let frames = Frames() }
 // One artifact (LLP 1009 D6): each canvas's entry names the module that made it.
 final class GpuModule { var lifecycle: ((UInt32, UInt32) -> Void)? }
-final class Canvases {
+final class CanvasesHost {
     final class Entry { let id: UInt32 = 1; var module: GpuModule? }
     let module = GpuModule()
     var modules: [String: GpuModule] { ["": module] }
@@ -105,7 +106,7 @@ final class Canvases {
 }
 `;
     const fixture = `
-let owner = Canvases()
+let owner = CanvasesHost()
 var calls: [(UInt32, Bool)] = []
 owner.module.lifecycle = { _, code in calls.append((code, Thread.isMainThread)) }
 let lifecycle = CanvasLifecycle(owner)
@@ -205,13 +206,14 @@ test('iOS notification mapping honors shouldResume and failed activation on main
   if (process.platform !== 'darwin') return;
   const dir = mkdtempSync(resolve(tmpdir(), 'audio-ios-'));
   try {
-    const source = readFileSync(resolve(import.meta.dir, '../../../host/apple/Sources/ExactKit/CanvasSeams.swift'), 'utf8');
-    const adapter = source.slice(source.indexOf('// ExactKit owns session policy'))
+    const source = readFileSync(resolve(import.meta.dir, '../../../host/apple/Sources/ExactSurfaces/CanvasSeams.swift'), 'utf8');
+    const adapter = source.slice(source.indexOf('// A live surface asks for the session once per process'))
       .replaceAll('#if os(macOS)', '#if false').replaceAll('#if os(iOS)', '#if true');
     const stubs = `import Foundation
 let AVAudioSessionInterruptionTypeKey = "type"
 let AVAudioSessionInterruptionOptionKey = "options"
 enum ExactEnv { static let agentMode = false }
+final class Owner { static let shared = Owner(); func callMain<T>(_ body: () -> T) -> T { Thread.isMainThread ? body() : DispatchQueue.main.sync(execute: body) } }
 enum UIApplication {
     static let willResignActiveNotification = Notification.Name("resign")
     static let didEnterBackgroundNotification = Notification.Name("background")
@@ -234,11 +236,13 @@ final class AVAudioSession {
         if fails { throw NSError(domain:"injected", code:1) }
     }
 }
+// ExactKit's session owner (AudioSession.swift): the app's category, then active
+enum AudioSession { static func activate() throws { let s = AVAudioSession.sharedInstance(); try s.setCategory(.ambient); try s.setActive(true) } }
 final class Frames { func requestCanvas() {} }
 final class Session { let frames = Frames() }
 // One artifact (LLP 1009 D6): each canvas's entry names the module that made it.
 final class GpuModule { var lifecycle: ((UInt32, UInt32) -> Void)? }
-final class Canvases {
+final class CanvasesHost {
     final class Entry { let id: UInt32 = 1; var module: GpuModule? }
     let module = GpuModule()
     var modules: [String: GpuModule] { ["": module] }
@@ -248,7 +252,7 @@ final class Canvases {
 }
 `;
     const fixture = `
-let owner = Canvases()
+let owner = CanvasesHost()
 var calls: [UInt32] = []
 owner.module.lifecycle = { _, code in precondition(Thread.isMainThread); calls.append(code) }
 let lifecycle = CanvasLifecycle(owner)

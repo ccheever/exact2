@@ -153,7 +153,7 @@ impl Lowerer<'_> {
         let mut inner = scope.clone();
         inner.push_each(var, index.as_deref(), item);
         match contract_types::infer(key, &inner, shapes) {
-            Ok(t) if t != Ty::String && t.is_complete() => err("lower-reorder-group", format!("a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a {t}: key it by the item's string id"), key.span()),
+            Ok(t) if !t.is_string() && t.is_complete() => err("lower-reorder-group", format!("a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a {t}: key it by the item's string id"), key.span()),
             _ => Ok(()),
         }
     }
@@ -300,7 +300,7 @@ impl Lowerer<'_> {
             })
         };
         for a in attrs.iter().filter(|a| main_axis(&a.name)) {
-            let main = match super::values::sides(&a.name, &a.value)? {
+            let main = match super::shorthands::sides(&a.name, &a.value)? {
                 Some(four) if !a.name.ends_with(ends[0]) && !a.name.ends_with(ends[1]) => {
                     sides.map(|i| four[i].clone()).to_vec()
                 }

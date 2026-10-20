@@ -39,7 +39,7 @@ pub use exact_gpu_reflect::interface_digest;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{LazyLock, RwLock};
+use std::sync::{LazyLock, Mutex, RwLock};
 
 struct Entry {
     text: String,
@@ -49,6 +49,8 @@ struct Entry {
 static SHADERS: LazyLock<RwLock<HashMap<String, Entry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 static GENERATION: AtomicU32 = AtomicU32::new(0);
+/// The names [`shader_module`] has already said have no text.
+static UNREGISTERED: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
 
 /// Register (or replace) the text of shader `name`: validated by naga, its
 /// interface digest checked against `expected` when one is given. On
@@ -121,12 +123,24 @@ pub fn shader_generation() -> u32 {
 }
 
 /// The shader module descriptor for `name` over its registered text — what
-/// a generated `module()` returns. Empty text when nothing is registered,
-/// which the module never reaches: it refuses to create a surface first.
+/// a generated `module()` returns. A module refuses to create a surface
+/// before every shader it names is registered, so a host never gets here
+/// without text. A fixture that builds a surface itself can: it gets empty
+/// text, which the GPU reports only as a missing entry point at pipeline
+/// creation, so the first such call per name says which shader on stderr
+/// (LLP 0382). A fixture registers first with [`load_dir`].
 pub fn shader_module(name: &'static str) -> wgpu::ShaderModuleDescriptor<'static> {
+    let text = shader_source(name).unwrap_or_else(|| {
+        let mut named = UNREGISTERED.lock().unwrap_or_else(|e| e.into_inner());
+        if !named.contains(&name) {
+            named.push(name);
+            eprintln!("exact gpu: shader `{name}` has no registered source; its pipeline compiles empty text (register it first: exact_gpu::shaders::load_dir, or set_shader)");
+        }
+        String::new()
+    });
     wgpu::ShaderModuleDescriptor {
         label: Some(name),
-        source: wgpu::ShaderSource::Wgsl(Cow::Owned(shader_source(name).unwrap_or_default())),
+        source: wgpu::ShaderSource::Wgsl(Cow::Owned(text)),
     }
 }
 

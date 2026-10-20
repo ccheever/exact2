@@ -132,7 +132,7 @@ test "a long press offers Remove, which asks first"
   expect tree missing "book-seed-1"
 
 test "a swipe deletes"
-  tap "delete-seed-2"
+  tap "book-seed-2-delete"
   clock data
   expect text "library-count" == "2 of 2 books"
   expect tree missing "book-seed-2"

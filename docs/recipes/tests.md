@@ -28,21 +28,21 @@ test "a repeat is refused and keeps its text; the list survives a relaunch"
 | `clock data` · `clock settle` · `clock +5000` · `reload` | Lands replies · ends transitions · moves the virtual clock · relaunches on the same storage, at the clock's time. |
 | `back` | The platform's Back: cancels a dialog, else dismisses a sheet, else pops the pushed route. |
 | `fail fetch "<prefix>"`, `pass fetch …` | A lost connection there, then none. |
-| `request POST "/items" {…} as grace` (`expect 409`) | Writes through the app's server as another person ([rest-backend](rest-backend.md)); a status not 2xx (or the `expect`ed one) fails; then `clock +<poll ms>`, `clock data`, `expect`. |
+| `request POST "/items" {…} as grace` (`expect 409`) | Writes through the app's server as another person ([rest-backend](rest-backend.md)); a status not 2xx (or the `expect`ed one) fails. |
 | `size 390x844`, `epoch`, `time-zone`, `locale`, `seed`, `before data` | Launch lines: before a test's steps, or atop the file. |
 
 Every other form (`screenshot`, `resize`, drags): [the grammar](../contract-grammar.md#authored-tests).
-An `expect` has no `<` or `contains`: compare a derive with `==`. `clock data` after an
+`expect` has no `<` or `contains`: compare a derive with `==`. `clock data` after an
 input whose reply the next `expect` reads (iOS needs it); `clock settle` after a sheet, an
-alert or a push. Test the refusal as well as the success; never wait in real time in a
-test (pin `epoch` and `time-zone`); give every screen its own ids.
+alert or a push. Test the refusal too; never wait in real time (pin `epoch`, `time-zone`); give
+every screen its own ids; tap a tab before reading in it.
 
 ## Before you call it done
 
-`verify` (`verify ios`) runs these tests, then `check`s the first screen and the screen each test
-ends on, light and dark at two widths; on the web it reloads each end screen (a saved value that
-comes back different is a finding; a game or draft in progress, kept in memory, is a note, not
-counted), then relaunches once on real time and checks the first screen shows what the test stored.
-Screenshots are in `.exact/verify/` (`--shots <dir>` copies them). A clean `verify` is done; a screen
-no test ends on is not checked, so end a test there. Drive by hand to see why a step fails
-(`agent web --storage s1 …`).
+`verify` (`verify ios`) runs these tests, then `check`s the first screen and each test's end
+screen, light and dark at two widths; on the web it reloads each end screen (a saved value that
+comes back changed is a finding), then relaunches on a test's storage and checks what it stored
+came back. Screenshots: `.exact/verify/` (`--shots <dir>` copies them). A clean `verify` is
+done; a screen no test ends on is not checked, so end a test there. A finding that is the design
+is listed, not counted, with `"verify": {"accept": [{"finding": "contrast", "node": "<testId>",
+"why": "…"}]}` in app.json. Drive by hand to see why a step fails (`agent web --storage s1 …`).

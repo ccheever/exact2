@@ -33,7 +33,7 @@ use handles::calc_handle;
 pub(crate) use handles::{calc_handle_in, resolve_calc, tree_handle, LayoutEnv};
 pub mod env;
 pub use env::link as link_segments;
-pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
+pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, Region, SegmentVar, TitleBarVar};
 /// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
 /// `color()`) into every colour row's grammar: native hosts and the compiler
 /// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).
@@ -46,7 +46,9 @@ pub mod metrics;
 pub mod profiled;
 pub mod relative;
 pub mod roles;
+pub mod scale;
 mod shadow;
+pub mod sides;
 pub mod space;
 pub(crate) mod stroke;
 pub mod symbols;
@@ -78,6 +80,8 @@ pub enum Dimension {
     /// The viewport's safe-area inset at an edge, plus points (zero for a
     /// bare `env()`).
     Env(Edge, f32),
+    /// A layout region's inset at an edge plus points (LLP 1123 D10; [`env`]).
+    Region(Region, Edge, f32),
     /// A viewport segment's length (LLP 1078 D3): `env(viewport-segment-<var>
     /// <x> <y>)`, plus points. Undefined on a viewport with one segment, or
     /// past its grid: the row's initial value then (CSS-ENV-1 §2.3).
@@ -100,6 +104,7 @@ impl Dimension {
             | Dimension::Percent(v)
             | Dimension::Viewport(_, v)
             | Dimension::Env(_, v)
+            | Dimension::Region(_, _, v)
             | Dimension::Segment(_, _, _, v) => v.is_finite(),
             Dimension::Calc(p, v) => p.is_finite() && v.is_finite(),
         }
@@ -115,8 +120,7 @@ impl Dimension {
         }
     }
 
-    /// A math function as the dimension it simplifies to ([`calc`]), or
-    /// `None`.
+    /// A math function as the dimension it simplifies to ([`calc`]), or `None`.
     pub fn parse_calc(text: &str) -> Option<Dimension> {
         calc::parse(text).ok().flatten()
     }
@@ -140,9 +144,7 @@ impl Dimension {
     /// [`StyleProps::to_taffy`] substitutes exactly before lowering.
     pub fn resolve(self, env: &Env) -> Dimension {
         match self {
-            Dimension::Env(edge, plus) => {
-                Dimension::Points(calc::narrow(f64::from(env.inset(edge)) + f64::from(plus)))
-            }
+            Dimension::Env(..) | Dimension::Region(..) => env::resolve_inset(self, env),
             Dimension::Viewport(unit, n) => Dimension::Points(calc::narrow(
                 f64::from(unit.basis(env)) * f64::from(n) / 100.0,
             )),
@@ -176,7 +178,8 @@ impl Dimension {
         }
     }
 
-    /// Whether this is a segment length `env` does not define (LLP 1078 D3).
+    /// Whether this is a segment length `env` does not define (LLP 1078 D3),
+    /// or a calculation that reads one or an undefined title-bar area.
     fn undefined_segment(self, env: &Env) -> bool {
         match self {
             Dimension::Segment(_, x, y, _) => env.segment(x, y).is_none(),
@@ -318,11 +321,11 @@ pub enum StyleValue<'a> {
 }
 
 impl StyleValue<'_> {
-    /// Whether this value is a CSS-wide keyword that leaves row `style`
-    /// unset — inherited, else initial — which is what clearing the row
-    /// does: `unset`, and `inherit` on an inherited row (`color:
-    /// currentcolor` is `inherit`). `inherit` on any other row needs its
-    /// parent's value, which no row holds, so it stays refused (feed F1).
+    /// Whether this value leaves row `style` unset — inherited, else
+    /// initial — which is what clearing the row does: an empty string, which
+    /// declares nothing (CSSOM's `setProperty(p, "")`), `unset`, and `inherit`
+    /// on an inherited row (`color: currentcolor` is `inherit`). `inherit` on
+    /// any other row needs its parent's value, which no row holds, so it stays refused (feed F1).
     pub fn unsets(&self, style: StyleId) -> bool {
         let StyleValue::Text(t) = self else {
             return false;
@@ -330,12 +333,12 @@ impl StyleValue<'_> {
         Self::text_unsets(t, style)
     }
 
-    /// [`Self::unsets`] for borrowed text, before a producer allocates a
-    /// style value. Dynamic bindings use this on every changed row.
+    /// [`Self::unsets`] for borrowed text; dynamic bindings ask it of every changed row.
     pub fn text_unsets(t: &str, style: StyleId) -> bool {
         // A metric with no row on this platform (LLP 1115.002 D6).
         let t = metrics::text(t).unwrap_or(t).trim();
-        t.eq_ignore_ascii_case("unset")
+        t.is_empty()
+            || t.eq_ignore_ascii_case("unset")
             || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
             || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)
             // @ref LLP 1034 §8: a bound `normal` follows the surrounding
@@ -582,6 +585,15 @@ impl StyleValue<'_> {
                         expected: "one or two lengths in px or percentages of the box (unitless zero allowed)",
                     })
             }
+            // `translate: -50%`: one percentage, the x's, which the
+            // compiler and the runner pass as a percentage.
+            StyleValue::Percent(p)
+                if p.is_finite()
+                    && (style == StyleId::Translate || style == StyleId::TranslatePercent) =>
+            {
+                let x = if style == StyleId::Translate { 0.0 } else { *p as f32 };
+                Ok(Vec2 { x, y: 0.0 })
+            }
             _ => Err(StyleValueError::WrongKind {
                 style,
                 expected: "vec2",
@@ -614,6 +626,7 @@ pub fn takes_text(style: StyleId) -> bool {
                         | SymbolValue
                         | TextStrokeWidth
                         | ShapeMargin
+                        | FontStretch
                 )
         }
         StyleCodec::U16 | StyleCodec::U32 | StyleCodec::I32 => false,
@@ -1100,10 +1113,23 @@ fn align_content(v: AlignContent) -> Option<taffy::style::AlignContent> {
     })
 }
 
+impl Overflow {
+    /// CSS Overflow 3 §3.1: visible/clip compute to auto/hidden beside
+    /// a scrolling axis; together they remain non-scrolling.
+    pub fn computed(self, other: Self) -> Self {
+        match self {
+            Self::Visible if !matches!(other, Self::Visible | Self::Clip) => Self::Auto,
+            Self::Clip if !matches!(other, Self::Visible | Self::Clip) => Self::Hidden,
+            value => value,
+        }
+    }
+}
+
 fn overflow(v: Overflow) -> taffy::style::Overflow {
     match v {
         Overflow::Visible => taffy::style::Overflow::Visible,
         Overflow::Hidden => taffy::style::Overflow::Hidden,
+        Overflow::Clip => taffy::style::Overflow::Clip,
         Overflow::Scroll | Overflow::Auto => taffy::style::Overflow::Scroll,
     }
 }
@@ -1146,11 +1172,12 @@ impl StyleProps {
     /// without building the engine's style: a kernel that mirrors no engine
     /// tree checks content regions too (LLP 1047 §10).
     pub(crate) fn unpadded(&self, env: &Env) -> bool {
+        let (down, across) = (cells::ROW, cells::COLUMN);
         [
-            self.padding_top,
-            self.padding_right,
-            self.padding_bottom,
-            self.padding_left,
+            self.padding_top.spaced(env, down),
+            self.padding_right.spaced(env, across),
+            self.padding_bottom.spaced(env, down),
+            self.padding_left.spaced(env, across),
         ]
         .into_iter()
         .all(|p| match p.resolve(env) {
@@ -1258,23 +1285,15 @@ impl StyleProps {
             // scroller scrolls (`sticky.rs`).
             PositionType::Sticky => taffy::style::Position::Relative,
         };
-        let overflow_y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
-            taffy::style::Overflow::Scroll
+        let y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
+            Overflow::Auto
         } else {
-            overflow(self.overflow_y)
+            self.overflow_y
         };
-        // CSS: a visible axis beside a scrolling one computes to auto.
-        let mut overflow_x = overflow(self.overflow_x);
-        let mut overflow_y = overflow_y;
-        use taffy::style::Overflow as O;
-        if overflow_x == O::Visible && overflow_y != O::Visible {
-            overflow_x = O::Scroll;
-        } else if overflow_y == O::Visible && overflow_x != O::Visible {
-            overflow_y = O::Scroll;
-        }
+        let x = self.overflow_x;
         s.overflow = taffy::geometry::Point {
-            x: overflow_x,
-            y: overflow_y,
+            x: overflow(x.computed(y)),
+            y: overflow(y.computed(x)),
         };
         s.scrollbar_width = 0.0;
 
@@ -1309,17 +1328,19 @@ impl StyleProps {
                 left: self.left.to_lpa(env),
             }
         };
+        // Under a terminal's space rule, each in whole cells on its axis.
+        let (down, across) = (cells::ROW, cells::COLUMN);
         s.margin = taffy::geometry::Rect {
-            top: self.margin_top.to_lpa(env),
-            right: self.margin_right.to_lpa(env),
-            bottom: self.margin_bottom.to_lpa(env),
-            left: self.margin_left.to_lpa(env),
+            top: self.margin_top.spaced(env, down).to_lpa(env),
+            right: self.margin_right.spaced(env, across).to_lpa(env),
+            bottom: self.margin_bottom.spaced(env, down).to_lpa(env),
+            left: self.margin_left.spaced(env, across).to_lpa(env),
         };
         s.padding = taffy::geometry::Rect {
-            top: self.padding_top.floor_lp(env, 0.0),
-            right: self.padding_right.floor_lp(env, 0.0),
-            bottom: self.padding_bottom.floor_lp(env, 0.0),
-            left: self.padding_left.floor_lp(env, 0.0),
+            top: self.padding_top.spaced(env, down).floor_lp(env, 0.0),
+            right: self.padding_right.spaced(env, across).floor_lp(env, 0.0),
+            bottom: self.padding_bottom.spaced(env, down).floor_lp(env, 0.0),
+            left: self.padding_left.spaced(env, across).floor_lp(env, 0.0),
         };
         let [top, right, bottom, left] = self.border_widths_in(env);
         s.border = taffy::geometry::Rect {
@@ -1340,8 +1361,8 @@ impl StyleProps {
         s.align_content = align_content(self.align_content);
         s.justify_items = justify_items(self.justify_items, self.direction);
         s.gap = taffy::geometry::Size {
-            width: length(self.column_gap),
-            height: length(self.row_gap),
+            width: length(cells::gap(env, self.column_gap, across)),
+            height: length(cells::gap(env, self.row_gap, down)),
         };
 
         s.grid_auto_flow = grid_auto_flow(self.grid_auto_flow);
@@ -1361,6 +1382,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .effective_style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
+    arena.alert_layout(slot, &mut s);
     // HTML's button layout, which Exact's reset of a `<button>` keeps: its
     // automatic inline size is shrink-to-fit, and a block button's content
     // sits in an anonymous flow-root box centred safely in the block axis,
@@ -1441,33 +1463,11 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
             s.aspect_ratio_content_box = true;
         }
     }
-    // A native tab bar fills the tablist's box, a segmented control its
-    // content box. Its measured height supplies the automatic minimum, so
-    // even a short authored row reserves the control. Its width is the
-    // narrowest the control can be, the automatic minimum width in place of
-    // the hidden tabs' own (LLP 1116.004 D2): UIKit's fits its segments to
-    // any box, so a grouped row's tablist shrinks to the row; AppKit's keeps
-    // its natural width.
-    // An explicit CSS min-height or min-width still owns that constraint; no
-    // natural ratio or preferred width is inferred from this container
-    // measurement.
-    if !arena.node_type(slot).is_replaced()
-        && !matches!(
-            arena.node_type(slot),
-            NodeType::Control | NodeType::NativeView
-        )
-    {
-        if let Some((width, height)) = arena.intrinsic(slot) {
-            if s.min_size.height.is_auto() {
-                s.min_size.height = length(height);
-            }
-            if s.min_size.width.is_auto() {
-                s.min_size.width = length(width);
-            }
-        }
-    }
+    crate::kernel::apply_projection(arena, slot, &mut s);
     // @ref LLP 1075.003 §3.5 — what a native container covers of the box.
     crate::kernel::apply_cover(arena, slot, &mut s);
+    // A grouped list's card and cell margins, as the platform's list has them.
+    crate::grouped::apply_margins(arena, slot, &mut s);
     // @ref LLP 1115.002 D8.2 — the containing block a host gave the subtree.
     crate::kernel::apply_block(arena, slot, &mut s);
     // @ref LLP 1074 T1 — a root is the containing block of every absolutely

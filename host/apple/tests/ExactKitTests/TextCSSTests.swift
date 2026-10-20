@@ -220,6 +220,64 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(drawn(700), 600, "700 matches the 600 face, drawn at its declared weight")
     }
 
+    /// LLP 1019 D2, D8: a face declared over a weight range and a width range
+    /// draws each request on `wght` and `wdth`, clamped to the ranges, as a
+    /// browser draws an `@font-face` with range descriptors; matching treats
+    /// a range as its value nearest the request (CSS Fonts 4 §5.2).
+    func testADeclaredRangeDrawsEachWeightAndWidthOnTheAxes() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
+        let flex = try Data(contentsOf: root.appendingPathComponent("host/linux/tests/fonts/RobotoFlex-subset.ttf").standardized)
+        let engine = TextEngine(resolve: { _ in nil }, read: { _ in flex })
+        let family = Array("Flex".utf8), source = Array("flex.ttf".utf8)
+        family.withUnsafeBufferPointer { f in
+            source.withUnsafeBufferPointer { src in
+                var face = ExactFontFace()
+                face.family = f.baseAddress; face.family_len = f.count
+                face.source = src.baseAddress; face.source_len = src.count
+                face.stack = 8; face.weight = 100; face.weight_max = 1000
+                face.stretch_min = 250; face.stretch_max = 1510; face.italic = 0
+                var catalog = ExactFontCatalog()
+                withUnsafePointer(to: &face) { row in
+                    catalog.faces = row; catalog.count = 1
+                    withUnsafePointer(to: &catalog) { engine.install($0) }
+                }
+            }
+        }
+        // CoreText reports no variation for this file's fonts, so each is
+        // measured against the file drawn at explicit axes.
+        let file = (CTFontManagerCreateFontDescriptorsFromData(flex as CFData) as! [CTFontDescriptor])[0]
+        func line(_ font: CTFont) -> CGFloat {
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: "EXACT", attributes: [.font: font]))
+            return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        }
+        func width(_ weight: Int, _ stretch: CGFloat) -> CGFloat {
+            line(engine.font(size: 48, weight: weight, family: 8, italic: false, stretch: stretch) as CTFont)
+        }
+        func reference(wght: Double, wdth: Double, opsz: Double = 48) -> CGFloat {
+            let axes: [NSNumber: NSNumber] = [0x77676874: wght as NSNumber, 0x77647468: wdth as NSNumber, 0x6f70737a: opsz as NSNumber]
+            let d = CTFontDescriptorCreateCopyWithAttributes(file, [kCTFontVariationAttribute: axes] as CFDictionary)
+            return line(CTFontCreateWithFontDescriptor(d, 48, nil))
+        }
+        XCTAssertEqual(width(650, 75), reference(wght: 650, wdth: 75))
+        XCTAssertEqual(width(1000, 200), reference(wght: 1000, wdth: 151), "clamped to the declared range")
+        XCTAssertNotEqual(reference(wght: 650, wdth: 75), reference(wght: 650, wdth: 75, opsz: 14),
+                          "opsz is the size, as `font-optical-sizing: auto` sets it")
+        XCTAssertLessThan(width(700, 50), width(700, 100))
+        XCTAssertLessThan(width(700, 100), width(700, 125))
+        XCTAssertLessThan(width(300, 100), width(900, 100))
+
+        let regular = RegisteredFace(family: "Flex", generic: nil, weight: 400, italic: false, descriptor: file)
+        let ranged = RegisteredFace(family: "Flex", generic: nil, weights: 500...900, stretches: 100...100, italic: false, descriptor: file)
+        XCTAssertEqual(TextEngine.matched([regular, ranged], weight: 750, italic: false).weights, 500...900)
+        XCTAssertEqual(TextEngine.matched([regular, ranged], weight: 420, italic: false).weights, 500...900,
+                       "for 420, weights up to 500 come before lighter ones")
+        XCTAssertEqual(TextEngine.matched([regular, ranged], weight: 380, italic: false).weights, 400...400)
+        let condensed = RegisteredFace(family: "Flex", generic: nil, weights: 400...400, stretches: 75...75, italic: false, descriptor: file)
+        XCTAssertEqual(TextEngine.matched([regular, condensed], weight: 400, italic: false, stretch: 80).stretches, 75...75,
+                       "at or below normal width, narrower faces come first")
+        XCTAssertEqual(TextEngine.matched([regular, condensed], weight: 400, italic: false, stretch: 110).stretches, 100...100)
+    }
+
     func testEllipsisEndsAnOverWideLineOnlyWhereItPaints() {
         var s = spec([run("a nowrap label that is much wider than its box")], whiteSpace: 2)
         s.ellipsis = true
@@ -283,4 +341,19 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(node.inlineLink(at: hit), "https://example.com")
     }
     #endif
+
+    /// A clamp's last line wider than its box, one word longer than the
+    /// line, ends in "…" as UILabel's tail truncation does (notes at the
+    /// largest text size, round 22: "Packing" ran over the row's time);
+    /// layout keeps the word's width, as CSS measures it.
+    func testLineClampTruncatesAWordLongerThanItsLastLine() {
+        let clamped = Spec(runs: [run("Packing")], align: 0, lineClamp: 1, color: [0, 0, 0, 255])
+        let natural = engine.paragraph(clamped, width: .infinity).width
+        let p = engine.paragraph(clamped, width: natural / 2)
+        XCTAssertNotNil(p.clampedRange)
+        XCTAssertLessThanOrEqual(CTLineGetTypographicBounds(p.lines[0], nil, nil, nil), Double(natural / 2) + 0.5)
+        XCTAssertEqual(p.width, natural, accuracy: 1.0 / 64)
+        // One that fits takes no ellipsis.
+        XCTAssertNil(engine.paragraph(clamped, width: natural + 1).clampedRange)
+    }
 }

@@ -120,6 +120,45 @@ pub fn rust_hatch_entry(
     })
 }
 
+/// What an app's Android crate (the Canvas host's library) writes beside
+/// its plan (LLP 1115.001.000 D2, D4): `hatches.rs`, which defines
+/// `exact_hatches()`, the install `canvas_jni!` hands the host (the app's
+/// Rust hatches, `modules/android/*.rs` or `modules/linux/*.rs`, with the
+/// reader's Kotlin ones told beside them; the reader's alone when the app
+/// has no Rust ones; none when it gives `android` no word); and `uses.txt`,
+/// the plan's capabilities by name, one a line, which the APK's build reads
+/// (a plan with a date or time control links Compose Material 3).
+pub fn android_entry(
+    app_root: &Path,
+    manifest: &Manifest,
+    plan: &exact_plan::Plan,
+    out_dir: &Path,
+) -> Result<(), String> {
+    let install = "Option<::exact_linux::hatches::Install>";
+    let text = match rust_hatches(app_root, manifest, "android")? {
+        Some(rust) => format!(
+            "{rust}fn exact_hatches() -> {install} {{\n    Some(::exact_linux::hatches::install_with_reader::<hatches::ExactHatches>(HatchKey::WORDS))\n}}\n"
+        ),
+        None => {
+            let modules = app_root.join("modules");
+            if modules.is_dir() {
+                println!("cargo:rerun-if-changed={}", modules.display());
+            }
+            let words = hatches_on(manifest, "android")?;
+            if words.is_empty() {
+                format!("fn exact_hatches() -> {install} {{\n    None\n}}\n")
+            } else {
+                format!(
+                    "fn exact_hatches() -> {install} {{\n    Some(::exact_linux::hatches::install_with_reader::<()>(&{words:?}))\n}}\n"
+                )
+            }
+        }
+    };
+    std::fs::write(out_dir.join("hatches.rs"), text).map_err(|e| e.to_string())?;
+    let uses: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
+    std::fs::write(out_dir.join("uses.txt"), uses.join("\n")).map_err(|e| e.to_string())
+}
+
 /// A painting host's hatches for an app's own crate (LLP 1075.003.000.001
 /// §5): Rust for its generated entry, or `None` when the app has no
 /// `modules/linux/*.rs`. The text is the typed `HatchKey`, with only the
@@ -133,10 +172,18 @@ pub fn rust_hatches(
     manifest: &Manifest,
     platform: &str,
 ) -> Result<Option<String>, String> {
-    // A painting host's own directory when the app has one (`modules/android`,
-    // `modules/windows`), else the presenter's, `modules/linux`.
+    // A painting host's own Rust when the app has some (`modules/android`,
+    // `modules/windows`), else the presenter's, `modules/linux`. Android's
+    // directory may hold only the reader's Kotlin (LLP 1115.001.000 D4).
+    let rust = |directory: &Path| {
+        std::fs::read_dir(directory)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|entry| entry.path().extension().is_some_and(|e| e == "rs"))
+    };
     let own = app_root.join("modules").join(platform);
-    let directory = if own.is_dir() {
+    let directory = if rust(&own) {
         own
     } else {
         app_root.join("modules/linux")

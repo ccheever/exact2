@@ -14,9 +14,14 @@ impl Surfaces {
         &mut self,
         host: &mut Host<D>,
         scale: f32,
+        mut previous: BTreeMap<u32, crate::canvas2d::CanvasPaint>,
+        skip: Option<u32>,
     ) -> BTreeMap<u32, crate::canvas2d::CanvasPaint> {
         let mut result = BTreeMap::new();
         for (&view, canvas) in &self.canvases {
+            if skip == Some(view) {
+                continue;
+            }
             let Some(abi) = self.abis.get(&canvas.artifact).filter(|a| a.rendered) else {
                 continue;
             };
@@ -42,7 +47,14 @@ impl Surfaces {
                 host.log("GPU canvas exceeds native readback limit");
                 continue;
             };
-            let mut bytes = vec![0; len];
+            // The previous CPU canvas is no longer being painted. Reuse its
+            // allocation only when there are no retained readers.
+            let mut bytes = previous
+                .remove(&view)
+                .and_then(|c| Arc::try_unwrap(c.pixels).ok())
+                .filter(|p| p.width() == w && p.height() == h)
+                .map(Pixmap::take)
+                .unwrap_or_else(|| vec![0; len]);
             let code = unsafe {
                 abi.symbol::<unsafe extern "C" fn(u32, f32, f32, f32, f64, *mut u8, usize) -> u32>(
                     b"gpu_readback",

@@ -6,7 +6,10 @@ import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
-const source = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8').replace('export function', 'function');
+const moduleSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
+const withoutPrompt = moduleSource.replace(/^import\s+["']\.\/prompt-glue\.js["'];[^\n]*\n/m, '');
+if (withoutPrompt === moduleSource) throw new Error('input glue must retain the prompt side-effect import');
+const source = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
 function page(chords) {
   const clicks = [], listeners = [];
   const buttons = chords.map(chord => ({ isConnected: true, disabled: false, getClientRects: () => [{}],

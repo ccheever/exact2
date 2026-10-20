@@ -3,12 +3,146 @@
 import UIKit
 
 extension NodeView {
+    /// UIKit's field for an `input`.
+    func makeField() {
+        let f = TextField(frame: .zero)
+        f.owner = self
+        f.borderStyle = .none
+        f.backgroundColor = .clear
+        f.delegate = self
+        f.addTarget(self, action: #selector(fieldChanged), for: .editingChanged)
+        addSubview(f)
+        field = f
+    }
+    /// An `input` made inside a closed `dialog` or popover, which the
+    /// kernel has not laid out (`MenuHost.layOut`), has no UIKit field
+    /// until its box first shows or a prompt takes its keyboard from it
+    /// (`PromptField`): made then, with the props and style it has.
+    func makeWaitingField() {
+        guard fieldWaits else { return }
+        fieldWaits = false
+        makeField()
+        applyFieldStyle()
+        if let field { applyField(field, set: props, clear: []) }
+        layoutField()
+    }
+    /// HTML's `enterkeyhint` as UIKit's return key, for an `input` and a
+    /// `textarea` alike; `unsaid` is the key with no hint.
+    static func returnKey(_ hint: String?, unsaid: UIReturnKeyType) -> UIReturnKeyType {
+        switch hint {
+        case "done": .done
+        case "go": .go
+        case "next": .next
+        case "search": .search
+        case "send": .send
+        case "enter", "previous": .default
+        default: unsaid
+        }
+    }
+    /// The props an `input`'s field shows: `set` and `clear` are what changed.
+    func applyField(_ f: UITextField, set: [String: String], clear: [String]) {
+        #if os(iOS)
+        f.pasteDelegate = FieldSelections.tracks(self) ? self : nil
+        #endif
+        f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
+        if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
+        if let v = props["value"] { writeValue(v, into: f) }
+        applyPlaceholder(f); applyFieldName(f)
+        // The web's `type` and `inputmode`, as UIKit spells them.
+        let type = props["type"] ?? "text"
+        f.isSecureTextEntry = type == "password"
+        // `autocomplete` names the field to AutoFill over what `type` implies (LLP 1102 §3.6).
+        let content = Autofill.contentType(props["autocomplete"], fallback: type == "password" ? .password : type == "email" ? .emailAddress : nil)
+        let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.smartQuotesType != inputSmartQuotes || f.smartDashesType != inputSmartDashes || f.textContentType != content
+        f.textContentType = content
+        f.autocapitalizationType = inputCapitalization
+        f.autocorrectionType = inputCorrection
+        f.spellCheckingType = inputSpellChecking
+        f.smartQuotesType = inputSmartQuotes
+        f.smartDashesType = inputSmartDashes
+        let keyboard: UIKeyboardType = switch props["inputMode"] ?? type {
+        case "email": .emailAddress
+        case "numeric": .numberPad
+        case "number": wholeNumbers ? .numberPad : .decimalPad
+        case "decimal": .decimalPad
+        case "tel": .phonePad
+        case "url": .URL
+        case "search": .webSearch
+        default: .default
+        }
+        let keyboardChanged = f.keyboardType != keyboard
+        f.keyboardType = keyboard
+        let barChanged = applyPadBar() // a pad's missing keys its field asks for: ±, Done (LLP 1116.003 D7)
+        // A keyboard that is up takes the field's traits, type and bar at once
+        if traitsChanged || keyboardChanged || barChanged, f.isFirstResponder { f.reloadInputViews() }
+        // HTML's `enterkeyhint` labels the return key (feed F25); UIKit
+        // has no `previous`, which keeps the default. Unsaid, it is Done
+        // (Search on a search field, as `UISearchBar`'s), a `submit`
+        // handler or not: Return puts the keyboard away from a single-line
+        // field unless the action focuses it again (D9.2), so Done says
+        // what it does (LLP 1116.019 D5). The document keeps no hint, so
+        // the web's keyboard stays its own.
+        f.returnKeyType = NodeView.returnKey(props["enterKeyHint"], unsaid: type == "search" ? .search : .done)
+        f.isEnabled = !disabled
+        if headerField != nil { presenter?.menus.promptInputChanged(self) } // a prompt's field stands in for it (PromptFieldIOS.swift)
+        if isNativeTextControl { styleNativeField() }
+        updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
+    }
+    /// Whether a `type="number"` field takes only whole numbers, so the
+    /// number pad, with no decimal point, serves it (LLP 1116.019 D5): its
+    /// `step` is unsaid (HTML's default is 1) or whole, and its `min`, the
+    /// step's base, is unsaid or whole; a value HTML cannot parse counts as
+    /// unsaid, as an invalid step is HTML's 1. `step="any"`, a fractional
+    /// step or a fractional min keeps the decimal pad. A negative min gets
+    /// the bar's ± either way (`PadBarIOS`).
+    var wholeNumbers: Bool {
+        func whole(_ key: String) -> Bool {
+            guard let n = props[key].flatMap({ Double($0.trimmingCharacters(in: .whitespaces)) }), n.isFinite else { return true }
+            return n == n.rounded()
+        }
+        return props["step"]?.trimmingCharacters(in: .whitespaces).lowercased() != "any" && whole("step") && whole("min")
+    }
+    /// The style an `input`'s field shows.
+    func applyFieldStyle() {
+    field?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
+    if let f = field, let t = text {
+        f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+        f.textColor = fieldInk
+        applyPlaceholder(f)
+        styleNativeField()
+        updateNumberStepper() // `appearance` may have changed (LLP 1116.007 D4)
+    }
+    }
+    /// A field's ground where it writes none: the design's `Field` where it
+    /// overrides that role (LLP 1121 D9), else none, as before (the page
+    /// shows through the box Exact paints; a search field's chrome keeps
+    /// UIKit's fill).
+    var fieldGroundColor: UIColor? {
+        guard isNativeTextControl, !wrote("background_color") else { return nil }
+        return ThemeRoles.color("Field", in: self)
+    }
+    /// The ground the node's layer paints under its field: none where a
+    /// search field's chrome fills it (`styleNativeField`).
+    var fieldGround: CGColor? {
+        #if !os(tvOS)
+        if searchChrome != nil { return nil }
+        #endif
+        return fieldGroundColor?.resolvedColor(with: traitCollection).cgColor
+    }
     var isNativeTextControl: Bool {
         (field != nil || textArea != nil) && props["markup"] != "markdown" && style["appearance"]?.string != "none"
     }
     /// A native field in a grouped list's row (LLP 1116.005 D2), as the
     /// kernel publishes it with the editor box: borderless, its cell being
     /// the field, as a hand-built settings form's is.
+    /// The design's Field under a field's own bezel sits on the bezel's
+    /// corners (BoxLayerIOS.swift); the background's own clip still holds
+    /// inside it. Nil in a grouped cell, which has no corners.
+    func fieldOutline() -> CGPath? {
+        guard !isCellField else { return nil }
+        let r = min(FieldChromeCache.textareaRadius, bounds.width / 2, bounds.height / 2)
+        return CGPath(roundedRect: bounds, cornerWidth: r, cornerHeight: r, transform: nil)
+    }
     var isCellField: Bool { isNativeTextControl && fieldInCell }
     /// Whether a touch a grouped row leaves to no control falls to the row's
     /// field (`cellField`). It widens the field's target to the cell, as a
@@ -24,8 +158,11 @@ extension NodeView {
         // Return the published insets applied to that argument, rather than
         // an absolute rect: the latter hid values or moved their baseline.
         // UIKit centres its single line within the resulting content box.
+        // Layout's inset less what the drawn box lost to the pixel grid, so
+        // the text keeps layout's width (`PixelGridIOS.swift`).
         var insets = UIEdgeInsets(top: rect.minY, left: rect.minX,
-            bottom: max(0, bounds.height - rect.maxY), right: max(0, bounds.width - rect.maxX))
+            bottom: max(0, layoutBounds.height - rect.maxY) + bounds.height - layoutBounds.height,
+            right: max(0, layoutBounds.width - rect.maxX) + bounds.width - layoutBounds.width)
         // A number input's stepper takes the text's trailing end (LLP 1116.007 D4).
         let room = stepperRoom
         if room > 0 { if style["direction"]?.string == "rtl" { insets.left += room } else { insets.right += room } }
@@ -57,6 +194,8 @@ extension NodeView {
         } else if !search, let chrome = searchChrome {
             chrome.removeFromSuperview()
         }
+        // The chrome's fill is the design's Field where it overrides it.
+        searchChrome?.backgroundColor = fieldGroundColor
         #endif
         if isNativeTextControl {
             field.defaultTextAttributes[.kern] = number("letter_spacing")
@@ -158,11 +297,10 @@ extension TextArea {
 
 #if os(iOS) || os(tvOS)
 extension Presenter {
-    /// Applies a `fieldContent` op, in its batch or replayed when a sheet that
-    /// held it closes (`ModalHost.deferGeometry`). A content box touches its
-    /// node here, where it takes effect: the paragraph laid out in it, and a
-    /// native button's face, whose padding the kernel resolved with it, asked
-    /// for again at the next controls sync (a batch's, or the replay's).
+    /// Applies a `fieldContent` op. A content box touches its node here,
+    /// where it takes effect: the paragraph laid out in it, and a native
+    /// button's face, whose padding the kernel resolved with it, asked for
+    /// again at the next controls sync.
     func applyContentGeometry(_ v: NodeView, _ op: BatchOp) {
         v.applyFieldContent(op.payload)
         touched(v.id, textChanged: true)

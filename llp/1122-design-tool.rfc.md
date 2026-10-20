@@ -34,8 +34,8 @@ loop's hot reload. Each change is a reviewable diff.
 It is a `tamber/1` client (LLP 1121 D13, D14) with no private channel, and an agent can do
 everything it does. It asks of the rest of exact2:
 - an **inspect mode** in every host's development build;
-- a **build channel** on the dev loop: four commands down (inspect, outline, hold a state,
-  pin a mode) and three reports up (status, a selection, unsupported);
+- a **build channel** on the dev loop: five commands down (inspect, outline, hold a state,
+  pin a mode, and navigate, from T7) and three reports up (status, a selection, unsupported);
 - **`set-row`**, a checked edit of one Contract row;
 - **source maps** that name attributes and file digests.
 
@@ -242,7 +242,10 @@ and behaviour stay with Contract source (D14).
 ### D2 — Architecture
 
 - **A web JS-target Exact app** (LLP 1121 D13). Its TypeScript data module is its only
-  client code, speaking `tamber/1` over one socket with the project's local token.
+  client code, speaking `tamber/1` with the project's local token. *As built in Tamber stage 3
+  (LLP 1121 §10):* requests are `POST /__tamber`, and the tool follows changes by the long poll
+  `POST /__tamber/events`, because a JS-target data module's `fetch` reads a whole body and
+  `exactStream` merges a server-sent stream. There is no WebSocket.
 - **The Tamber server**, in the dev loop (LLP 1121 D13), owns:
   - the design files and every write to them (`set-row`, `commit`, held proposals, scrubs);
   - the selection join: a build's report plus that build's source map (D5);
@@ -254,7 +257,9 @@ and behaviour stay with Contract source (D14).
 ### D3 — The canvas: the app, running
 
 - **The web build, embedded.** The tool shows the app's web development build in one
-  `iframe` (LLP 1020) at the dev loop's URL.
+  `iframe` (LLP 1020) at the dev loop's URL, framed as `localhost` on its port: another site
+  than the tool's 127.0.0.1, so a browser with site isolation runs it in its own process
+  (amended after T2's gate; the dev loops answer on [::1] too).
   - **It is the real app:** it runs, takes input, navigates, and reloads on a structural edit
     as it does in a browser tab.
   - **An `iframe` is a second document, not a second session in the tool's runtime.** That
@@ -265,8 +270,10 @@ and behaviour stay with Contract source (D14).
   - **Origins.** The tool and the dev loop are different origins, so the tool never
     scripts the frame. Every control goes through the server (D4). A node selected or
     outlined off screen is scrolled into view by the host, not by the tool.
-  - **One frame in v1.** Two frames of one dev URL would share storage; several copies are
-    T7. An "open in a tab" button covers what an embed cannot do (LLP 1020 defers
+  - **One frame in v1.** Two frames of one dev URL would share storage (the canvas's
+    `localhost` origin keeps its own, apart from a tab at the printed URL); several copies are
+    T7, each at a loopback host of its own (`exact-copy-<n>.localhost`), so each copy is its
+    own origin with its own storage (T7 as built). An "open in a tab" button covers what an embed cannot do (LLP 1020 defers
     permission delegation and navigation control). Web content the app itself embeds is a
     leaf to inspect.
 - **Devices and simulators, as they are.** The developer runs the app on the iOS simulator,
@@ -283,9 +290,14 @@ and behaviour stay with Contract source (D14).
 - **Modes.** The tool pins a build's app mode, scheme, contrast or text size with a control
   message (D4), the same facts `prefer` pins. One copy shows one mode at a time; the app's own
   preview screens show several at once inside one copy (below); a grid of live copies, one
-  per mode, is T7. An app's own `setScheme` beats a requested scheme, so the tool shows each
-  build's **effective** scheme, contrast, mode and text size, from the build's status
-  report (D4).
+  per mode, is T7. On the canvas and on every native build, an app's own `setScheme` beats a
+  requested scheme, so the tool shows each build's **effective** scheme, contrast, mode and
+  text size, from the build's status report (D4).
+  - **A pinned grid copy (T7) is the exception.** There the person asked one copy to show one
+    mode, so the pin holds over the app's own `setScheme`, `setMode` on a pinned axis and
+    `setRootFontSize` until the copy is handed back. The tile says when the app asked
+    otherwise (the status's `app`), and on hand-back the app's latest choice applies. Handing
+    a pin back restores only the axes that pin set (theme2's rulings F2, 2026-10-19).
 - **Preview screens.** Ordinary routes, written by the developer (the tool offers a
   starter), that lay out a component or screen under several `color-scheme` and
   `-exact-mode` pins (LLP 1121 D5). A Light preview is `color-scheme="light"`; Dim and
@@ -293,7 +305,7 @@ and behaviour stay with Contract source (D14).
   one. A copy on a preview screen is the component workbench (D7).
 - **No captures in v1.** Nothing is screenshotted, stored or sent as an image.
 
-### D4 — The build channel: four commands down, three reports up
+### D4 — The build channel: five commands down, three reports up
 
 **Today the dev channel only goes one way.** It is server-sent events (`host/web/dev.js`'s
 `EventSource`; the JS page's `/__dev/page`), and a host acts only on a generation (a new
@@ -344,7 +356,14 @@ socket frames (LLP 1121 D13). So D4 adds both directions.
   command and batch on both streams.
 
 The tool drives no input into an app (no taps, no typing), takes no pictures and launches no
-sessions. Commands need `write` scope and are journaled with their client.
+sessions. `inspect` needs `read` scope and the other four commands need `write` (D12); all are
+journaled with their client.
+- **`navigate {location}`** (T7, the fifth command): route a build to a path, query and
+  fragment on its own origin, in place, as a link to it would (the app's navigation root or
+  router), with no reload. A location with a scheme or host is refused. A build that can't
+  answers `unsupported`, and the tool reloads that copy's frame at the location instead. A
+  status carries the build's `location`. It is navigation, not input: no tap or key is driven,
+  and it holds nothing on the build. The grid mirrors navigation by location, never by point.
 
 ### D5 — Inspect: tap the real screen
 
@@ -612,7 +631,8 @@ A component with no params shows its rows (D5) and an offer to promote one to a 
 ### D10 — Agents as co-editors
 
 An agent is a client with the same token, reads and writes.
-- **Attribution.** Each event in `subscribe` names its client; the tool outlines an agent's
+- **Attribution.** Every write carries its `client` (not a `hello`: clients share one server;
+  as built in Tamber stage 3), and each event names it; the tool outlines an agent's
   edits in its own colour.
 - **Held proposals**, a server addition. An agent's `propose` can be held: the server keeps
   the transaction in memory (with an expiry) and announces it on `subscribe`. The tool
@@ -657,20 +677,33 @@ is undone in one step.
   - A paired client reads, proposes or writes through `tamber/1` as its scope allows, and
     receives selections and outlines' sources like any client. Its access ends when its
     token is revoked or expires.
-    - **Seeing the app** remotely goes through an **authenticated canvas gateway**: the Tamber
-    server proxies the app's dev URL, same-origin, under the paired client's token, over the
-    encrypted transport.
+  - **Seeing the app** remotely goes through an **authenticated canvas gateway**: the Tamber
+    server proxies the app's dev URL under the paired client's token, over the encrypted
+    transport, on **its own origin** (a second TLS port on the same listener and certificate),
+    so script in the framed canvas can't read the tool's DOM, storage or token (LLP 1121 stage
+    10 C; theme2's ruling, 2026-10-19).
+    - The tool enters the canvas with a single-use grant carried in the frame's `#g=` fragment;
+      the gateway trades it for a session cookie bound server-side to the token, and the
+      fragment leaves the frame's address before any request. No wire request reads a cookie,
+      and a cookie that page code sets with the gateway's name grants nothing.
+    - The gateway needs `read`.
     - A remote frame whose `src` was the developer's loopback URL would load the remote
-      browser's own loopback.
+      browser's own loopback, so the gateway rewrites the app's loopback URLs to itself. That
+      rewrite is functional, not a security boundary: it never touches a non-loopback host,
+      and exotic encodings are a known limit. The boundary is the token and the origin.
     - The dev gate checks host, origin and peer, never a paired credential
       (`scripts/install-page.mjs`).
-    - Revoking the token ends canvas access too.
+    - Revoking the token ends canvas access too, on both ports, separately from the socket.
 
     Without the gateway, a remote client works on the design and sees selections, but has no
     canvas.
-  - Control messages (D4) need `write`: inspect, outline, hold and pin change what the
-    developer's screens show.
-- **No team relay** (§9 Q6, ruled): remote use is pairing only.
+  - Control messages (D4): `inspect` needs `read`, since it only reports what is under the
+    pointer, so a `propose` client inspects read-only; `outline`, `hold`, `pin` and `navigate`
+    (T7) need `write`, since they change what the developer's screens show (LLP 1121 stage 10
+    A's scope table).
+- **No relay in v1** (§9 Q6): remote use is pairing only. A hosted relay is LLP 1121 stage
+  10c, later: a blind pass-through of the client's TLS to the developer's server, which changes
+  nothing here (the same pairing, tokens, scopes and gateway).
 
 ### D13 — Security
 
@@ -680,9 +713,9 @@ is undone in one step.
   verified-local request (LLP 1121 D13). Paired clients have scoped, revocable tokens, only
   over an encrypted transport (D12).
 - **No driving.** The tool sends no taps, keystrokes or file answers into an app. Its only
-  control is D4's four commands, which need `write`, are journaled with their client, and
-  are cleared when that client goes. Inspect mode takes input only while it is on, with a
-  banner and a local way out.
+  control is D4's five commands (`inspect` needs `read`, the rest `write`; D12), which are
+  journaled with their client and cleared when that client goes. Inspect mode takes input only
+  while it is on, with a banner and a local way out.
 - **Reports are bound to their build.** A `status` or `selected` POST must carry the nonce
   from that build's stream hello. The dev loop accepts other POSTs with no token
   (`host/web-js/dev.mjs`), so without it a page that can reach the dev server could forge a
@@ -717,9 +750,9 @@ is undone in one step.
 | `explain`, `uses`, token beside value | LLP 1121 D7, stage 2 | in progress |
 | params; state parts and `set-state`; importers; pairing | LLP 1121 stages 7, 8, 3a–3d, 10 | accepted, not built |
 | inspect mode in each host's development build, and the `selected` report | this RFC D5 → the hosts | proposed |
-| the build channel: registration with a nonce, four commands down, `status`, `selected` and `unsupported` reports up | this RFC D4 → the dev loops, the hosts, the Tamber server | proposed |
+| the build channel: registration with a nonce, five commands down (navigate from T7), `status`, `selected` and `unsupported` reports up | this RFC D4 → the dev loops, the hosts, the Tamber server | proposed |
 | devices launched connected to the dev URL, one `--wasm` loop for frame and devices | this RFC D3, D4 → `host/apple/build.mjs`, the dev loops | proposed |
-| the canvas gateway for paired clients | this RFC D12 → the Tamber server | proposed |
+| the canvas gateway for paired clients | this RFC D12 → the Tamber server | built (LLP 1121 stage 10 C) |
 | `iframe` embedding stated as a second document, not a second session | this RFC D3 → LLP 1121 D14 | proposed |
 | the held state, as `hold` and as a form of `tap` | this RFC D8 → the hosts, LLP 1012 | ruled yes (§9 Q4) |
 | a held state's overlay rows, and a `boundary` row source, in the node explanation | this RFC D5, D8 → LLP 1035.002, LLP 1121 D7 | proposed |
@@ -812,6 +845,10 @@ lands with or after the Tamber stage it needs.
     - The questions this stage settles: how many web copies a machine runs well, whether
       each needs its own `--storage`, how navigation is mirrored across them (by location,
       never by point), and whether native copies (several simulators) are worth their cost.
+      **Settled (T7, 2026-10-19):** six copies by default (the largest that holds a sustained
+      60 fps scrub on the gate's Mac), four through the remote gateway; each copy its own
+      origin and storage; navigation mirrored by `navigate` (D4); native copies not in T7
+      (QUEUE).
     - Captures come back only if a later need (a review's before and after, a visual
       history) proves live copies insufficient.
 
@@ -877,8 +914,710 @@ lands with or after the Tamber stage it needs.
    app, updated by the live table and the hot reload. Several live copies come in T7.
 6. **People who share no machine or network with the developer.** **Ruled (Charlie,
    2026-10-13): no hosted relay.** Remote use is pairing only, over an encrypted connection
-   (D12).
+   (D12). **Revisited (Charlie, 2026-10-19): "We will prob need one yes."** A hosted relay is
+   LLP 1121 stage 10c, later: blind TLS pass-through, so the relay never sees a token,
+   a design or a canvas, and the tool's side is unchanged.
 7. **How the tool controls running apps.** **Ruled (Charlie, 2026-10-13): yes, for now.** The
    tool sends four commands (inspect, outline, hold, pin) and receives three reports
-   (status, a selection, unsupported), and it never drives an app (D4). Taps and typing
+   (status, a selection, unsupported), and it never drives an app (D4). T7 added a fifth,
+   `navigate`, navigation by location, not input. Taps and typing
    stay with agents, through the agent API.
+
+## 10. As built
+
+### T1, commit 1: the server additions, `tamber/1.1` (`6281652df`..`a0129f4ad`)
+
+- **`history`** is the design files' git log, with token-level edits per commit.
+- **`revert`** proposes, held, the inverse of a past commit as semantic operations
+  (`set-token`, `unset-token-when`, `add-token`, `remove-token`, axis values), planned on
+  today's files. It is never a byte restore, since a client can't send one.
+  - **Refused, naming each edit and why,** where an edit has no inverse operation: the commit
+    created or removed a design file, added or removed a dial, added an axis, reordered an
+    axis's values, changed an axis's `under`, or changed a kind, a range, metadata, the
+    design's name or its exports. A removed axis is restored with `add-axis`.
+  - **Accepted after its files moved,** it is planned again from the commit, never replayed. A
+    partial revert keeps its selection when planned again.
+  - A client can't forge a revert's review. A removed dial counts as restored only with its
+    whole declaration.
+- **`import`** takes `{kind, source, name?}`, or `sources: [{name, text}]` for multi-file DTCG
+  such as Figma's per-mode files. Astryx is refused there and keeps its CLI.
+- **`requires: {path: digest}`**, on a transaction or a proposal, names files a write was
+  planned on but doesn't edit. It is checked on the snapshot the write uses.
+- **`/__tamber/tool/`** serves the tool's files to local requests only, through no symlink or
+  dot file.
+
+### T1, commit 2: the skeleton and `tamber tool` (`b516197e1`..`9bdf8cf62`)
+
+- **The tool is served at a fixed local port, 127.0.0.1:7740.** A data module's grant names one
+  origin and port, and its `fetch` needs an absolute URL.
+  - So one tool runs per machine, on one project at a time. To switch, stop it and run `tamber
+    tool <other app>`.
+  - The port binds loopback only.
+  - A port already held is refused, naming what holds it: another app's design server, or a
+    process found with `lsof`. A design server for the same app, serving this checkout's
+    build, is reused.
+- **`bun exact.mjs tamber tool [<app>] [--via <dev url>]`** builds the tool if stale. With no
+  `--via`, it starts the app's design server on that port. With `--via`, it forwards
+  `/__tamber` to the dev loop that holds the design (one writer per project). `--via` takes only
+  a loopback address, and only a loop serving this app.
+- **The data module:**
+  - it fetches the token once, and asks again once after a 404, for a restarted server;
+  - its grant names the tool's origin only;
+  - every write is `design-tool:<person>`, with the person asked once and kept;
+  - it follows changes by the long poll, first asking with `wait: false`;
+  - an epoch change or `missed` starts the list again and reads the design again.
+- **Wire additions (`tamber/1.1`):**
+  - `hello` carries the app's directory;
+  - `wait: false` makes the long poll answer at once;
+  - while the design server is down, the long poll answers its `down` event, then 503, never
+    an empty answer to ask again at once.
+
+### T1, commit 3: the dials panel, the token grid and contrast (`d1704b462`, `567ca6099`, `e2dc10b70`, `d508bba97`, `d9ffffcb8`)
+
+- **The panel is drawn from declared metadata only.** A control that doesn't fit its dial's kind
+  falls back to the kind's own control, and its help says so. Groups appear in the order they
+  are first declared, priority defaults to 2, and priority 3 goes behind "More" (LLP 1121 D15).
+  `control=none` is not drawn.
+- **Grid columns** are app-mode tuples × light and dark. The light column is left out for the
+  values of an `under scheme=dark` axis, since it repeats the default's. A residual shows its
+  fallback, labelled.
+- **Contrast** is between any two tokens, on stored values (each side clipped to 8-bit sRGB),
+  labelled so. Declared pairs (`pair=`, LLP 1121 D3) are not built yet.
+- **Additions to `tamber/1.1`:** `resolve` carries `srgb {light, dark}` and `files` (the digests
+  it read), `explain` carries `files`, and `hello` carries `epoch`. The tool re-reads a grid
+  whose reads span two revisions, and it binds undo and redo to one server epoch.
+- **Known limitation:** a colour dial's `select` options written as `oklch()` or `hsl()` are
+  matched against the current value as written, not folded.
+
+### T1, commit 4: editing and undo (`f707933a7`, with its fixes in `e2dc10b70`, `d508bba97`, `b51155dd3`)
+
+- **A cell writes the branch the checker picks for its column** (D6's target branch). On a light
+  column, a `when` naming an under-dark axis is passed over, as the checker does. "Only this
+  mode" adds a `when` naming every axis, and a light column with an under-dark axis offers none.
+- **Apply writes the proposal it shows:** its edit, the digests `propose` read, and the server
+  run that read them.
+- **Expressions are kept.** Overwriting a value that names tokens, dials or a platform role is an
+  explicit "Pin a value".
+- **The chip** reads "Rebuilds" unless `hello` says `live: true`. Stage 4 adds that field once
+  the live table works.
+- **Undo and redo** are the session's stack of inverse ids, bound to one run of the server by its
+  token. A different run on the port refuses them as unknown, and the stacks start again. A
+  refused inverse names who changed the file. Redo sends the original operations against the
+  current digests.
+- **Open:** if the wire answers an undo with 504 after 120 s and the undo lands later, its entry is
+  set aside, with a message, instead of moving to redo. The fix is in the wire (a write is held
+  until the server answers), queued with Tamber stage 4.
+
+### T1, commit 5: the changeset, `commit` and history (`7c68b2935`, `710959c37`, `f4c957321`, `3b5376d36`, `5ce08cfc8`)
+
+- **The changeset** lists every write since the tool opened, its own and others', hand edits
+  included.
+  - Each row gives the token values before and after, measured file by file between the reads
+    either side of the write. The tool's own rows show their diff.
+  - After a gap in the long poll, a row says the list may be incomplete. Old rows aren't
+    reconciled.
+- **`commit`** composes its message from a dry run of the server's scope (`commit {dry}` →
+  `{files, edits, scope}`), so writes from before the tool opened are named. It sends the scope
+  back, and the server refuses the commit (409, `stale: true`) if the session wrote in between.
+  Refusals show by file and reason. It never pushes.
+- **`write`** numbers each write, on its reply, its `changed` event and the session's edits.
+  `hello` carries `design`.
+- **History** reads as token edits, ten to a page. Revert holds a past commit's inverse as a
+  proposal.
+
+### T1, commit 6: agents' edits and held proposals (`b98b34628`, `f4c957321`, `84b87121a`, `7b83ebd68`)
+
+- Each change names its client, with a colour per client in the order clients appear.
+- **The grid outlines only the cells a change moved,** each credited to the latest client that
+  changed it, measured between the nearest reads around the change. A hand edit gets the tokens
+  that moved in its stretch that no other change claims.
+- Highlights fade oldest first, one every 3 s.
+- **The inbox** shows each proposal's proposer, diff, tokens and items, each item naming its file.
+  - Accept, Accept picked, or Drop. A partial or stale accept comes back recomputed with its new
+    diff, never replayed.
+  - An accepted proposal is one undo step. Its redo is written as the proposer's, and the tool's
+    row says who redid it.
+
+### T1a, commit 7: import review (`782bf06b4`, `84b87121a`, `7b83ebd68`, `1df7c4a12`; `1d83f9794`)
+
+- **Through the file picker:** one stylesheet, or several DTCG files, each a mode. Several
+  stylesheets are refused (400).
+- **The review** lists each operation by kind:
+  - a token, with each mode's value and swatches, references followed;
+  - an axis;
+  - a dropped mode value.
+- **Role overrides are off until ticked.** One the importer can't offer shows its
+  `tamber-role-axis` note. Every unmapped value is listed with its reason and source block, and
+  the count shows as source = mapped + reported.
+- **Each mode's value is editable** before accepting, and what Accept writes is what the card
+  shows. Accept is one transaction, and undo one step.
+- **The server refuses** a write or propose that would make a role override vary by an app axis
+  (`tamber-role-axis`, as the compiler's lowering would), and nothing is written. A role that
+  varied before the write is left to the build.
+- **Known gap:** a reference whose target has modes the reference lacks gets no rows for them.
+
+T1 and T1a are complete.
+
+### T2, steps 1–3: the canvas, builds and pins, scrubs (`9bfa9f50f`, `952302694`, `694df527b`)
+
+- **The canvas** is one sandboxed `iframe` on `hello.page`'s port (*1.3*, the dev loop's own
+  origin, or null with no loop), framed as `localhost` since the follow-up below (the dev loops
+  answer on [::1] too), with phone, tablet and desktop sizes and "open in a tab", which opens
+  `hello.page` as printed. The canvas's cookies and storage are its own. The dev loops'
+  HTML carries `frame-ancestors 'self' http://127.0.0.1:7740`. `'self'` is there because the
+  directive checks the whole ancestor chain, so an app framing its own pages needs it.
+- **Builds and pins:** the build list comes from the server, with each build's effective facts from
+  its status, and pinning, pinned or handing back by revision (`pinRevision`, *1.3*). Each build's
+  last refusal is listed (`unsupported`). The tool names itself on its long poll, so its pins hold
+  while it runs and are handed back about 35 s after it closes.
+- **Scrubs:** "Scrub live" sits beside Apply, an explicit choice and never the default. A
+  scrub opens on that button rather than on pressing a control, since no press reaches the tool.
+  - One frame is in flight at a time, the latest value.
+  - Keep (or letting go of a slider) writes once and is one undo step.
+  - Cancel and Escape wait for the server to let go, and leaving the edit cancels first.
+  - It is not offered for a rebuild edit or with no loop, and the tool says why.
+
+### T2's gate: met, the web page's structural reload tracked apart (2026-10-16; the run is `~/x2theme/t2-gate-run.txt`)
+
+The run was on the Bluesky clone, on the wasm loop with the tool driven in headless Chrome, plus
+the iOS simulator and the Mac.
+
+| Gate line | Result |
+|---|---|
+| The clone runs in the tool's frame and on the iOS simulator and the Mac | **Met.** |
+| A token or dial scrub, chosen explicitly, updates all three with no reload whenever `live` | **Met.** `primary_500`: about 0.6 s per preview, all three design digests moved, no reload, the file untouched until Keep wrote one line. |
+| A structural edit hot-reloads all three and keeps their slots | **Met.** iOS and the Mac in the run. The wasm page held its generation while the app had requests pending, which was so before T2. reload1's `777c5e526`..`7a71e5bf7` (LLP 1007 §6) has the dev loop swap after a 1 s settle window, and the clone then shows a Contract edit 2.8–4.7 s after the save, with its slots, navigation stack and URL kept. |
+| A cancelled scrub restores every copy | **Met.** |
+| `pin` shows Dim on one copy, and the tool shows each copy's effective mode | **Met.** |
+| Closing the tool clears its pins on every build, and a reloaded build gets its pins back | **Met.** The pins were handed back 38 s after the tool closed. |
+| A report without the current nonce is refused | **Met** (403). |
+
+- **The lead's ruling:** the gate is met. The web page's structural reload is tracked as its own
+  fix (reload1, `~/x2theme/reload-brief.md`), which theme2 signs off when it comes.
+- **On the JS loop,** the clone's JS-target page busy-loops in headless Chrome (queued at stage 4).
+  Being same-site with the tool, it stalled the tool's renderer, so the live lines were driven over
+  the wire there, and they reached iOS and the Mac.
+- **Follow-ups before T2b:**
+  - frame the page at a different site (`localhost`), so a heavy app can't stall the tool (done
+    after T2b step 6: "The canvas frames a 127.0.0.1 page as localhost, in its own process");
+  - serialize the canvas host's refusal and status posts (done: `5f9e9fd75`).
+
+### T2b (web, wasm): inspect mode, the server's join, outline, the inspector (`ed60a4824`, `b7955343e`, `30a4e1da9`; report order `5f9e9fd75`; framing `169407db1`)
+
+- **Inspect mode on the wasm page** (`host/web/dev.js`, development only):
+  - `inspect {client, build?, on | refresh}` (*1.3*) is numbered, owned by a present client, and
+    replayed to a build that registers again;
+  - a banner with a close control, and Escape;
+  - a pointer cover plus a gate on keys, focus, change, scroll and drag, so the app gets no input,
+    and guest frames none either;
+  - a released press selects what the **browser's own hit test** finds. That is the wasm page's
+    real tap path, in place of D5's "the runtime's own hit test, `geometry-glue.js`", which is the
+    app's `elementFromPoint` import.
+- **The `selected` report** carries the plan, design and pin revision, plus the node, site,
+  instance, the node's own tuple, and its rows (value, source, token), trimmed to 64 KiB and said so.
+  Reports go one at a time per stream, in order.
+- **The server's join** (`scripts/tamber-inspect.mjs`):
+  - **Currency:** a report whose plan, design or pin revision isn't the build's latest status is a
+    409, and the build is asked again once per status.
+  - **The map:** the site is looked up in the named plan's source map, verified by digest. The
+    compiler now records each source's SHA-256 in the map, and a changed or missing file makes the
+    selection read-only, with the reason.
+  - **Editability fails closed:** the token rung is offered only where the row's own whole value
+    is one declared token. Every other row says why and links its token.
+- **`outline {sites, plan}`** goes to inspecting builds, each drawing one box per mounted copy.
+  Outlines are owned by their client.
+- **The inspector:** a selection is pinned to its build's facts, the design's axes and its scheme,
+  and goes stale on any move. The token rung opens the winning branch's cell with its column's full
+  place. Impact shows `uses` for its own token.
+- **The canvas frames the page as `localhost:<port>`,** a different site from the tool's, so the
+  browser runs it in its own process. The dev loops also answer on `[::1]`.
+- **Known limits:**
+  - the server keeps one map, the running generation's, so a build on another plan gets no outline
+    and a read-only selection (lifted by T2c's maps per plan);
+  - a popover's light dismiss happens before inspect can stop it;
+  - a gesture already under way isn't cancelled.
+
+### T2b's gate, the wasm half: met (2026-10-16; the run is `~/x2theme/t2b-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A click in the frame selects the node the browser hit-tests, and shows its source, rows, sources and token chain | **Met** on the clone, e.g. "Feeds ✨" at `home.contract:203 · HomeScreen`. |
+| Every copy of the node is outlined | **Met:** 3 marks on the 3 mounted posts' author names. |
+| Inherited, dynamic and boundary rows are read-only, with their reason | **Met** for inherited and dynamic on the clone. Boundary rows are met on the theme fixture by tests, since the clone's signed-out screens have no boundary. |
+| Taps don't reach the app while inspect is on | **Met.** |
+
+The JS target's half followed (below, after T2c), with the same gate on the clone's JS loop.
+
+### T2c: native inspect, maps per plan (`abc6490e9`, `9d24e4ebc`, `efd03e95a`; optional *1.9* fields, no bump)
+
+T2c went before T2b's JS half (the lead's order, 2026-10-17).
+
+- **One source map per plan digest** (step 1).
+  - The server resolves each build through the map of the plan it says it runs (`planDigest`).
+  - The JS loop's resident producer announces each published plan's map on a pipe (fd 3), and the
+    loop pulls the bytes by their hash. A native on the JS loop therefore has its own plan's map.
+  - A selection on one plan outlines the matching sites on every inspecting build, each from its
+    own map. A build whose plan has no map here gets none, and is said so.
+  - A build the server skips is sent `{clear}` for the outlines it drew for that client.
+- **iOS and the Mac inspect** (steps 2–3). They answer `inspect` and `outline` as the wasm page
+  does, compiled into development builds only: Swift's `EXACT_INSPECT` from the trust policy, plus
+  the runtime gate. `host/apple/inspect-gate.test.mjs` checks the define, the `#if` cover, and a
+  production bake's strings and symbols.
+  - Input: iOS's window takes every touch and press. The Mac's event monitor takes every mouse,
+    wheel, hover, gesture, key and modifier event in every window of the app, and menus close.
+    Each sequence is owned to its end, entering or leaving inspect mode included.
+  - The report is the runner's own `node` op, so its rows are the kernel's. Status and report
+    name one plan digest: the runner's.
+  - The walk goes up from the platform's own hit view to the nearest plan node and stops at a
+    system bar or the title bar. A node the bar hosts is selected: the title, a bar or toolbar
+    item, a tab, title segments, the search field. The bar's own parts select nothing, and the
+    banner says why.
+  - Outlines follow where each copy shows, a native bar's stand-in included, in its own window.
+    The copy just tapped never scrolls (the click token, *1.7*).
+- **Linux answers `inspect` unsupported** (step 4), as do tvOS and a development JS page.
+- **Known limits:**
+  - an AppKit control's tracking loop already running when inspect mode comes on is not cancelled;
+  - a grouped list's cell, a Mac toolbar segment and the collapsed segments menu are not boxed;
+  - two sessions in one build running different plans give one status digest;
+  - no tests send synthesized UIEvents (UIKit has no public way to make one): iOS interception is
+    checked end to end on the simulator. The Mac's tests send constructed NSEvents.
+
+### T2c's gate: met for the simulator and the Mac; the phone pending (2026-10-17; the run is `~/x2theme/t2c-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A tap selects the node the platform hit-tests, with source, rows and token chain | **Met** on iOS and the Mac. "Feeds ✨" gives `home.contract:203`, the same as the wasm page. On the JS loop the native's selection is editable: text colour offers "Edit text". |
+| Every copy is outlined | **Met,** across builds too: a Mac click outlined the tab on the iOS simulator. |
+| Inherited, dynamic, initial and boundary rows are read-only, with their reason | **Met** on both for inherited, dynamic and initial. A boundary row is host-independent: the server's join decides it from the kernel's rows, whichever host reports them. It is met for T2b by the theme fixture's test, and the clone's signed-out screens have no boundary. |
+| Taps don't reach the app while inspect is on | **Met** on both, with real touches on iOS. |
+| A tap on platform chrome selects nothing; a node a bar hosts is selected | **Met by the host tests on real bars** (UINavigationBar's title and Back, UITabBar's items and space, the Mac title bar and close button). The clone draws its own chrome, and its back glyph is correctly selected as the app's view. |
+| A real phone | **Pending:** it needs Charlie's device. |
+
+### T2b, the JS target's half (`b19d1e1a2`, `316744fc3`, `731357ac2`; optional *1.9* field `computed`)
+
+- **The page says its plan** (`planDigest`, the SHA-256 of dist's app.plan). The JS loop keeps
+  each plan's map by that digest, so a selection on the JS page is joined to, and outlined from,
+  the JS plan's own map. `designServed` is set only for a design the builds take: a value-only
+  edit, a kept build, or a reload whose shape held.
+- **The inspect table** (host/web-js/src/inspect.rs, `exact-web-js inspect-table`) says of each
+  site what the runner's `node` op says of each view made from it. That is the type, the
+  regions above it (arms; an `each` row's key is the page's), and every own row: its value in
+  each app tuple in `node`'s words, read from per-tuple static trees, plus dynamic or heading,
+  the tokens it reads and its text. It also gives the text-style sources, the initial values
+  (a control's start included), the boundaries and their implied rows, and each row's CSS
+  property.
+  - The dev loop makes the table when a page first asks for it (1.8 s on the Bluesky clone),
+    keyed by plan. No build makes it, so release bytes are unchanged: production builds of
+    theme-fixture, realworld and the clone, and all 88 conformance contracts, were compared
+    against main byte for byte.
+  - rt.js itself has no hook. A `--dev` copy gains two lines (module.mjs `withInspectHooks`):
+    the view id, and every `each` region with its rows and key function.
+- **The page's inspect mode** (host/web-js/inspect-dev.js, served by the dev loop) works as the
+  wasm page's does.
+  - Its gate is the dev client's, on the window before the app's module runs, with a cover, a
+    guest-frame shield and Escape while the module loads.
+  - Each report is row for row `node`'s. Static and token rows are in the kernel's format; a
+    token's row follows the page's current design after a live edit (theme2's ruling).
+  - A row an expression binds is own only while the page has it set, and its value is the
+    computed CSS, marked `computed: true`.
+- **Known limits:**
+  - a text style's size (a heading's too) is its ramp at the 16 px root, so a pinned root moves
+    it in `node` and not on the page;
+  - a text style or heading chosen by an expression is not a style source the table knows;
+  - a control start or a style fallback under an ancestor row that only an expression sets is
+    not recorded;
+  - tokens an expression names are recovered only through custom properties, so not family,
+    type or inline tokens, and not the exact text of an expression that mixes them with other
+    text;
+  - an expression row's ownership is read from what the page wrote: an animation's `none`, a
+    tint's `unset`, and SVG geometry written as attributes disagree with `node`;
+  - `css_property` misses a few rows the emitter writes elsewhere (the press scale, the control
+    size, legacy line clamps, timelines);
+  - a row root a host replaces (the markup editor's textarea) loses its key;
+  - outline marks follow document order, and `from` and `node` are the page's own view ids.
+
+### T2b's gate, the JS half: met (2026-10-17; the run is `~/x2theme/t2b-js-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| The same node on the clone answers the same on the JS and wasm loops | **Met** for five nodes: both tabs, the hamburger, the wordmark and a post's avatar. Identity, rows, sources, tokens, joins and editability match. Static and token values match exactly; expression rows match by source and token (theme2's ruling). Seven theme-fixture nodes, two of them boundaries, are compared on every test run. |
+| A live token edit, then the node inspected → the new value | **Met** on the theme fixture's JS loop. On this machine the loop served the edit by a rebuild and reload, so the value came from the new plan's table; the value-only batch path was not driven. |
+
+### Stage 6's kinds in the tool (`b436b529b`; `cf00a0d47`..`bbc26d770`, `f16377fd6`; reads `76efb7f0a`, `5443e977b`, `0beb826a9`, `904db0513`)
+
+- **Each kind loads and shows as `resolve` gives it.** Before this, a design with any non-colour token
+  failed to load. A cell shows a length in px (with its rem, em or named value labelled by its px),
+  a number, a shadow (a small preview on its column's ground, plus its text), a type's longhands
+  (the unsaid ones named), a family, a duration or an easing. A length dial's slider and stepper
+  write `Npx`.
+- **Typed fields by kind** (`parts.ts`, a byte-exact cut of the value as written): a length's amount
+  and unit, a number, each shadow's x, y, blur, spread, inset and colour, and a type's longhands.
+  Each field edits only its own part, and the edit is still the one `set-token` line. Words it
+  doesn't touch stay as written: token colours, an unsaid spread, a family's quoting. A draft goes
+  stale when its branch's value moves under it, whichever field typed it.
+- **Kinds that rebuild say so before the gesture** (D6): a motion token reads "Rebuilds", Apply
+  writes it, and it has no scrub. On the JS target's dev loop, `propose` answers `rebuild` for an
+  edit that moves a token the pages write inline (a `font-weight` number, an SVG attribute's length
+  or number), as the loop's design reader marks it (theme2's 18:00 ruling). Without the reader, the
+  session's class stands.
+- **Icons** are listed read only, with their sources, since no operation writes one.
+- **Reads on a big design** (found by the gate): the design and axes reads follow the files (a
+  `changed` event, a gap, a new run), not every event. A read asks four resolves at a time and
+  stops once a newer read overtakes it. A proposal is asked again on each poll answer, except while
+  a scrub is shown. Before this, the clone's 73 resolves (about 207 ms each while the serve process
+  parsed `app.contract` per request) were reread on every build status and overran their 15 s.
+- **Known limits:**
+  - the design reader getting ready sends no event, so a proposal shown before then can stay
+    Live until the next poll answer (25 s at most);
+  - Expose's lengths are an inline Contract theme, which no design server serves;
+  - a batch `resolve` would make a read one request (QUEUE).
+
+### Stage 6 kinds' gate: met (2026-10-18; the run is `~/x2theme/kinds-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A length scrubs live on the web and the natives; Keep writes one line | **Met** on a clone copy's `space.header`: the JS loop, the wasm loop, the iOS simulator and the Mac. Each native build's design digest followed every frame, with no reload. |
+| A shadow list (inset, token colours) scrubs live; Keep writes one line | **Met** on `shadow.header`. A blur and an unsaid spread were edited; the untouched words were kept as written. |
+| A motion edit rebuilds | **Met**: "Rebuilds" before the gesture, no scrub, Apply only. |
+| Icons read only | **Met**: the clone's 64 icons, listed with their sources. |
+| theme-fixture's JS-loop e2e | **Met** (`kindsOnTheJsLoop`, every run of scripts/design-tool.test.mjs). |
+
+### T3, components (step 1 `4600797f5`, `fcfca3753`, `80544178c`, `5684f39d3`, `a8cfb59f7`, `18bf8d9d8`; steps 2-3 `a8c3a089a`, `31290cd65`, `ed742c171`, `5dc1d9dc4`; step 4 `212c41b73`, `8e20080a6`, `b372bf692`, `f45cc65ed`, `8209bcef9`; optional *1.11* rung `param`)
+
+- **The param rung** (D6, step 1, the server's join): a row the node itself sets to one component
+  param joins as `{rung: "param", param, short, token?, modes}`. `token` is the token the param
+  aliases directly (its value as the app has it, the line's or the default, when that names one
+  token, a role override by any spelling of its role; none for a param with `when` lines). The
+  server reads the app's components by `describe` when its files change, for a new plan, and
+  after a failed read. A row's names and text, in `selection`, `selected` and a held state's rows,
+  name a param in full, never by the IR token a plan names it by (`param.f<hash>.…`), also inside a
+  synthetic token's expression or the custom property a JS page writes for it, and in a plan
+  reply's `changed` (a held proposal, a `changed` event).
+- **The component panel** (D7, step 2; `components.ts`): every component with params, a native
+  view's declared in the design (`app.tamber#Name`) too, by group and priority (3 behind "more"),
+  each param with its declared control. `control=token` (the default), and every kind the dials
+  have no control for, is a field for a token or a literal; a duration's slider or stepper writes
+  ms; an icon param shows its sources. An edit is `set-param`, proposed with its chip, scrubbed
+  when live; a duration or easing param rebuilds. A set param says so, with Reset (`unset-param`,
+  one undo), and a literal that no longer follows the tokens its default reads is marked pinned.
+  The panel is the app design's: it shows while that is open.
+- **The param as the default rung** (step 3): a selected row that reads a param opens the param in
+  the branch editor on the branch that won for the copy, its edit `set-param`, its typed fields and
+  Only this mode as a token's (a param's first `when` line writes its own line first, in the one
+  reviewed transaction, which has no scrub). The token it aliases is offered beside it, never the
+  default. A param whose value is an expression offers its inputs there (Follows / Pin).
+- **Re-scope** (step 4; `rescope.ts`): the last edit of a param whose value there aliases one token
+  offers "Apply to the token … instead"; the last edit of a token one param aliases there offers
+  "Apply to … instead". One transaction: the edit's inverse, then the same value at the other rung,
+  on the same `when`; the other rung's value is the one the moved line's copies show (its most
+  specific `when` the edit's holds). It is worked out from the revision the edit was reviewed on,
+  and it `requires` every file it read, so another write, a hand edit or a component's source
+  changed since refuses it, and a refusal withdraws the offer. It is a write of its own: one undo
+  takes back the move, a second the edit. A redo offers none.
+- **The workbench** (D7) in T3 is the component panel and the canvas with the component's
+  instances outlined (theme2's 10:36 ruling). A preview screen of one component alone needs a host
+  route that renders it, which stage 12's component library brings: it moves there.
+- **Known limits:**
+  - a param's first `when` line (two operations) offers no re-scope;
+  - a `when` of the other rung that only partly overlaps the edited line's (it covers some of its
+    copies, not all) does not count: the move takes the most specific `when` that covers the
+    edited line, else the unconditional value, and two equally specific ones offer no move;
+  - a loop through another token (`radius.alias = radius.md`, then the param set to `radius.alias`
+    and moved to `radius.md`) is refused by the server rather than foreseen;
+  - promote a row to a param and detach a param to a template wait for T5's `set-row`;
+  - the clone declares no native component, so a native's params in the panel are shown by the
+    stub's `MapCard` only.
+
+### T3's gate: met (2026-10-18; the run is `~/x2theme/t3-gate-run.txt`)
+
+On a fresh copy of the clone (`dt3-gate`, its main `f473895` with a `PostButton.fade` duration param
+added).
+
+| Gate line | Result |
+|---|---|
+| `PostButton`'s params appear as declared | **Met**: Fill (a select of `primary_500`, `contrast_900`, `positive_500`), Height (a slider, 24px – 48px · step 1px) and Fade (a field), in their groups, with Controls and Drawer listed beside it. |
+| A param edit re-scoped to the token it aliases is one transaction and one undo | **Met** on the JS loop, the wasm loop and with the iOS simulator's and the Mac's builds attached: `PostButton.fill = contrast_900`, moved, wrote `primary_500 = contrast_900` and dropped the param's line in one write. One undo gave the param edit's bytes back; a second gave the original. |
+| A duration param's chip says "rebuilds" | **Met**: `PostButton.fade` to 300ms says Rebuilds, with Scrub disabled. |
+| (review2) Reset restores the file byte for byte in one undo | **Met**: `Controls.hit`'s line, after a Keep, went with Reset; one undo put it back byte for byte. |
+| (review2) A native-declared component's params | The clone declares none: the stub's `MapCard` (`app.tamber#MapCard`) shows them (contract tests). |
+| A live param scrubbed on the web and the natives | **Met**: `Controls.hit` (the post action buttons' padding) 5 → 10px, the frame's padding following and every build's design digest the served one: the JS loop, the wasm loop, the iOS simulator, the Mac. Keep wrote one line. |
+| The param rung from the canvas | **Met** on the JS and wasm loops and with the iOS simulator attached: a post's reply button inspected offers "Edit Controls.hit" on its padding rows and "Edit Controls.radius" on its radius rows. |
+
+
+
+### T4, states (step 1 and step 2 `6fbc0264fa` with README `9d488627c5` and fixes `e7ccae826d`; the hold replay `2ca697fc0b`, `86bcbefcbc`, `28ce115532`, `7df268ad8c`; the pages' glue wait `49af400183`, `a747b9e2ee`, `fbbba0cf0d` and the JS page's glue load `82c4602f66`, `479a5fa29e`, `236b0186ed`, `902c31665a`; optional *1.12* rung `state`)
+
+- **Held states** (D8, step 1; `holds.ts`): Pressed, Hovered or Focused holds that state on the
+  selected copy (`hold`), one a build, a new one replacing the last; Let go ends it. The status
+  says Holding until the build's `held` report on that hold frame, then Held (the server forgets a
+  report at each hold frame, so a listing's `held` is its hold's); where it is (here, the press's
+  node the build names, `held.site`, or another node of the build, which a hold here replaces);
+  why the last one went (real input, disabled, no single view there, another hold, its client
+  gone, no single site in a new plan) and a state a build cannot hold. While it is held here the
+  selection's page is asked again for the held look's rows (an inspect refresh, once a hold; a
+  selection's held report counts only as the answer to the hold it was asked under), each row at
+  its part's place; a host that reports none, or not their tokens, says provenance incomplete.
+- **The state rung** (D6, step 2, the server's join): a style's `:active` part row (the map's
+  `state` and `at`, origin `class:<Name>`) joins as `{rung: "state", style, state, row, file,
+  text?, token?}`, the default: the style by the name its file declares it with (the compiler may
+  rename a second `style Card`), the row as its author wrote it, the style's file relative to the
+  app, the value as written (only a whole one literal), and the token its whole value is, offered
+  beside it. A held row carries it where the build names the held node; a style outside the app's
+  own Contract sources (a package's, vendored or linked) is read-only; an inline `:active` row on a
+  node points at `set-row` (T5). The editor starts from the value as written, its draft bound to
+  the copy and the files' digests it was opened on (a write since, or a stale or read-only copy,
+  refuses Apply until the copy is selected and the row opened again); `set-state` rebuilds.
+- **The hold replay** (stage 8 E, fixed here by the lead's 18:30): after a new plan, a held site
+  corresponds by its place and call-site chain: the same calls take the same chain; as many copies
+  whose calls moved go by rank where each file's calls moved as one edit moves them; else the
+  unmoved kept and the rest so among themselves; copies added or removed keep the unmoved chain;
+  else, or on a throw, cleared with the diagnostic.
+- **The workbench's state parts** (moved here from stage 8's gate): a selected component's
+  `:active` part rows, each with its state rung, are the workbench's state parts; T3's component
+  panel lists params, not state parts.
+- **Known limits:**
+  - only `:active` parts carry their place in the map: a `:hover`, `:focus-visible`, `:disabled` or
+    `:checked` part's rows are offered no state rung, so a held hover or focus look is read-only (a
+    gap against D8: QUEUE, the compiler to record `at` for every state part);
+  - the replay goes by places alone (the map has no other identity of a call or an element): a
+    reorder that keeps its spacing, a call or element moved onto another's old place, or a copy
+    added or removed while one keeps its line can carry the hold to the other copy (the host lets
+    it go, `gone`, where the copies' instance paths differ); a slot filled at two outlets is one
+    copy, its outlets told apart by their order;
+  - a hold sent while a page's input glue loads (a page reloading after a rebuild) waits for the
+    glue to say it has (`exact-hold`) up to 60 s, then says it is not loaded. The gate found two
+    causes, both fixed above: the pages' fixed 2 s wait, and the JS page loading its glue only after
+    an animation frame, which a canvas scrolled out of view in the tool never gets (it now loads a
+    second on as well). The wasm shell's own activation still waits on frames (QUEUE), and the
+    agents' own `holdState` waits are still 2 s;
+  - a page that answers a refresh with no selection leaves "asked" said until the next selection
+    (data sources have no timers); a hold ended because its client went says nothing (the server
+    sends no reason);
+  - before the server's first file read the join has no own-sources list and uses the path rule
+    (the write refuses a vendored file regardless).
+
+### T4's gate (2026-10-18; the run is `~/x2theme/t4-gate-run.txt`)
+
+On a copy of the clone (`dt4-gate`, its main `95d7d41` with two Post buttons in the home header,
+the second disabled).
+
+| Gate line | Result |
+|---|---|
+| Hold pressed on the Post button shows its `:active` look with no touch | **Met** on the JS loop and the wasm loop (#0059d6, "Held pressed."), the iOS simulator (#0059d6 against #006aff at rest) and the Mac (held `active` on the wire; its screen capture was covered on the shared desktop, the look met in stage 8's gate). |
+| Real input on it lets the hold go | **Met** on the JS and wasm loops ("real input on the node let it go"). |
+| The disabled Post button refuses a hold | **Met** on the JS and wasm loops, the iOS simulator and the Mac (`disabled`). |
+| Hovered: held where a pointer is, unsupported where none | **Met**: held on the Mac; the iOS simulator answers `unsupported` ("this host holds no hover"), to the owning client only. |
+| Inspect on the held node shows the state part's rows | **Met** on the JS loop with stage 9 E: the held row ":active background-color" at its part (`screens.contract:582`) with its token, no provenance incomplete, "Edit PostButton :active background-color" on it. |
+| The workbench's state parts, editable through `set-state` | **Met**: the selection's `:active` row offers the state rung (the default) and "Edit the token primary_600 instead"; the field starts at `primary_600`; Rebuilds; Apply wrote one line (`screens.contract:582`, `primary_600` → `positive_500`). |
+| After the rebuild the hold is held again | **Met** on the JS loop (00:49Z, at main with the glue fixes): the server re-sent it at the corresponding copy ("Holding pressed.", where before the replay fix every PostButton cleared), the reloaded page held it 2 s later ("Held pressed.") with the canvas out of view, and in view its ground was the new `:active` value, `positive_500`, with no touch. **Met** on the wasm loop too (01:17Z, in a quiet window): Held again after its restart, `positive_500` in view. |
+
+### T5, template and style rungs (step 1 `1c6434a090`, `ee2d85d546`; step 2 `f0f1917a25`; step 3 `95332bb9de`; the map's `layout` `7553483dd7`; fixes `c74d313a22`, `7eec1a9a90`, `fb943c06df`, `47d74f03b7`, `e1d7526acc`, `7311d0f039`; optional *1.12* fields)
+
+- **The template and style rungs** (D6, step 1, the server's join): a row its author wrote, where
+  the map places it (D1's `at` and `attr`), answers the template rung `{file, at, sha256, row,
+  state?, instances, text, component?, token?}` on the node or the style rung `{style, row, file,
+  text, token?}` in its class's `style` by the name its file declares, the default unless the row
+  reads a param (whose rung then carries its `template` address, for a detach); the token its
+  whole value is offered beside. `row` is the attribute as written (a shorthand's whole for a
+  longhand). Only a plain value is offered, read at the map's UTF-8 byte column as Contract writes
+  one (`plainAt`: a string, its escapes decoded as the lexer does, a bare `#…` colour, a number,
+  in any parentheses, then a comment, another attribute or a positional argument); an expression
+  or a name in scope, a file outside the app's own sources, a conditional class and a layout row
+  (the map's `layout`, D14, set-row's own test: `paint_row`, now the library's) are refused with a
+  reason, a whole token still offered. A state row written under the node takes the template rung
+  with `state`, held ones too where the build names the held node; `instances` counts call-site
+  chains (a `button "…"`'s label is no copy).
+- **The tool's editor** (step 2): "Edit this template · N instances" / "Edit style X" as the
+  bordered default, a field from the value as written, proposed as `set-row` (Rebuilds, no scrub),
+  its draft bound to the copy (with the build's facts) and the files' digests, and refused at
+  propose when the files moved since the copy was selected; the server's refusals (a moved file, a
+  compile failure with its diagnostics, D14) shown, nothing written.
+- **Moves** (step 3, D6's enumerated set; `moves.ts`): a template row to a new param (`add-param`
+  in the template's file, its kind the row's, its default the value as written) or, an
+  unconditional value, a new token (`add-token`), the row reading it; a param row detached to its
+  template (the param's value written there; `remove-param` for it unless the server says another
+  row still reads it, and for each param it alone left read, as the compile names them; refused
+  where the design sets it or its default is an expression over another param). Each one
+  transaction, one undo; checked against the params read the ops were made from.
+- **Known limits:**
+  - a promotion's kind is read from the row's name (a colour row's, opacity's number, shadows,
+    `font-family`, durations, easings, else a length); a row whose value the server types
+    otherwise is refused by the server, not guessed again;
+  - a detach copies a token default as the token's name (the row then reads the token, D6's
+    "expressions are kept"), and refuses a default that is an expression over another param;
+  - before the server's first file read the join has no own-sources list and uses the path rule
+    (the server's write refuses a vendored file regardless);
+  - a positional argument written against the value with no space (`opacity=0.5("hi")`) reads as
+    an expression;
+  - a param colour on the JS page reads as a dynamic value (a CSS variable the page resolves), so
+    its row offers neither the param rung nor a detach there.
+
+### T5's gate (2026-10-19; the run is `~/x2theme/t5-gate-run.txt`)
+
+On a copy of the clone (`dt5-gate`, its main `95d7d41` with the header's right slot given a literal
+ground and the Post button a one-reader `corner` param).
+
+| Gate line | Result |
+|---|---|
+| A template colour edit writes one line and hot-reloads | **Met** on the JS loop: `#f1f3f5` → `#ffb3b3` at `home.contract:331` only, Rebuilds, the page rebuilt to that colour; one undo restored it. |
+| A stale source digest is refused | **Met**: the file edited after the copy was selected; the server refused (`tamber-contract-edit`: the file changed since line 331 was selected), nothing written. |
+| A candidate that fails to compile writes nothing | **Met**: `not-a-colour` refused with its diagnostic (`tamber-unknown-token`), the files unchanged. |
+| Promote to param and to token are each one transaction | **Met**: `drawerGround` (the param's line and the row reading it, one write, one undo); `gate.drawer` (`app.tamber`'s new token and the row naming it, two files, one write, one undo). |
+| A `class:` row edits the style in its own file | **Met**: the Post button's `color` row wrote `style PostButton`'s line in `screens.contract`; undone. |
+| (review2) Detach is one transaction, its closure listed | **Met**: `PostButton.corner` detached: its line removed and the row written `999px`, one write, one undo. |
+| (review2) A layout row is refused with D14's reason | **Met**: width, height, margins, paddings, alignment and font-weight rows each say D14's reason. |
+
+### T6, collaboration (step 1 `cd6300a22a`; step 2 `68515147ac`, `91b875075f`, `3ea24dbfe8`, `5570a77ed5`, `513f050bd1`; step 3 `cfdf491e12`, `4087df91ba`, `80815754b1`, `814c00e289`; the entry word `8f90a463db`, `a21184f903`, `927178760a`, `2ca911ea7f`; *1.13*, LLP 1121 stage 10)
+
+- **The local tool pairs and revokes** (step 1, D12): a Clients panel, shown only to the local token (hello's
+  `local`). A scope picker says what each scope may do. "Pair a client" mints a code (`pair-code`) and shows it,
+  good once until its expiry, with each remote door's origin and certificate fingerprint to check on the other
+  machine (the tunnel said as trusted), or how to open one. The paired clients (`clients`: scope, peer, last seen)
+  are read again as one pairs or goes and when the server starts again, and retried after a refusal. Each is
+  revoked here (`revoke`), bound to the server run that listed it.
+- **Remote mode** (step 2): with no server on this machine, the tool pairs with another machine's server by its
+  address and the code its tool shows.
+  - It pairs only through an https door or a tunnel to this machine's loopback, and refuses any other address
+    before anything is sent. The code goes once, in the body of `POST /__tamber/pair`.
+  - From then on every request goes to that door at the paired scope; the client is the name the server gave.
+  - `wire.ts` is the tool's one client (moved out of app.ts). The rest of the tool holds a handle for a token,
+    never the token, so no state, log or reply carries one. A token goes only to the server it came from: a write
+    bound to another (this machine's, a review made before pairing) is refused unsent, and an answer from before
+    a pairing, or from an older one, changes nothing.
+- **Scope** (D12; ruling 5): nothing above the paired scope is sent. `NEEDS` mirrors LLP 1121's table, and a test
+  holds it to `METHOD_SCOPE`. `inspect` is `read` only as a refresh, and a drop of another client's held proposal
+  is `write`.
+  - Below `write`, what writes is greyed, and one line says why.
+  - At `propose`, Apply is "Propose for review": the edit is held (`propose` with `hold`) for someone with `write`.
+  - Below `propose`, every drafting control is greyed.
+  - A reader's or proposer's selection is read from the server (a read-only `inspect` refresh), shown as the build
+    reported it, and offers no edit.
+- **Revoked** (D12): a 401 drops the token and sends nothing more. The tool says Revoked, a Keep, Cancel or write
+  in flight is shown as the revoke, and the canvas goes with the rest of the view.
+- **The canvas through the gateway** (step 3, LLP 1121 stage 10 C): a paired tool asks for a grant (`canvas`,
+  `read`) once per server run and frames the gateway's entry with the grant in the `#g=` fragment.
+  - The frame is built from parts, never the server's string: only through B's TLS door, on that door's host,
+    which must not be loopback (any other port on this machine may be another service), another port than the
+    door (another origin than the tool, which the door serves), at `/canvas/<this client>/`, with a 43-character
+    base64url grant.
+  - Paired, the tool is never local, whatever the server's hello says, so it never frames a page of this machine.
+  - It mints one grant a key (client, server run, tick); a second ask shares it, and a mint a newer ask overtook
+    is answered without its grant and kept nowhere. The frame mounts only once a fresh grant has settled, and
+    Reload Canvas or Try Again asks for another.
+  - C2's entry page posts `{type: 'exact-canvas-entered'}` to the tool's origin once it has entered. The tool takes
+    it only from the minted canvas's origin and from a direct frame of its own window (`event.currentTarget`;
+    never a window the canvas opened, a frame inside it, or a window gone). It then drops the grant from the
+    frame's URL, its state and its memory: one load of the gateway's root under the session.
+- **Tests:** the stub answers A2 (pair-code with a fixed series a test can type, pair, clients, revoke, hello's
+  scope, `local` and client, a 401 after revoke) and checks every request with A1's table.
+  - The contract tests cover the panel, refusals, remote mode end to end, a hello that lies about `local`, and the
+    canvas refused through a tunnel.
+  - `scripts/design-tool-scope.test.mjs` covers the scope table, `doorOf`, `canvasFrame`'s refusals, `wire.ts`'s
+    hold-backs with fetch stubbed, and the entry word's sources and mints.
+  - `scripts/design-tool-pair.test.mjs` pairs through a real `tamber serve --trust-tunnel`. It allows only `read`
+    and `propose` through, revokes while the tool runs, and finds the code and token in no URL, drive reply,
+    server output or browser profile file.
+- **Known limits:**
+  - The tool can't learn its page's address (no `location` in the data module). The person types the door's
+    address, and pairing works from the tool that door serves: B refuses another origin.
+  - A tunnel has no canvas (stage 10), and neither does a TLS door on loopback.
+  - Until the entry page's word comes (at most 40 one-second polls a canvas), the frame's `src`, and so the tool's
+    state, holds the grant. It is single-use and dead after 30 s.
+  - The data module can't see the iframe element (`document` is hidden from it), so the word is bound by window
+    topology, not to the element. A second direct canvas-origin frame would pass; the remote view has one.
+  - `tamber tool --via`'s 2 s probe of a dev loop can time out under load (QUEUE).
+
+### T6's gate: met (2026-10-19; the run is `~/x2theme/stage10-gate-run.txt`, LLP 1121 stage 10's)
+
+The tool's own lines ran in LLP 1121 stage 10's gate. They were driven in its second Chrome profile, which trusts
+only the run's certificate, against B's TLS door bound to this Mac's LAN address for the run (theme2's 13:40Z
+ruling). exact2 main at `29ec5ae613` (`~/x2theme/t6-gate-dlines.mjs`).
+
+| Gate line | Result |
+|---|---|
+| The tool's own pair panel pairs a second browser over TLS, by the door's address and the code | **Met** (1, D): paired as `remote:Gate#1` at `propose`; the code field empty after, no URL held it. |
+| A `propose` client can't write or send commands; what writes is greyed and says why | **Met** (2, D): Inspect, Commit, Undo and Redo disabled, the scope line said; the wire's own refusals are line (2). |
+| The canvas comes through the gateway on its own origin, and the grant leaves the frame | **Met** (5, D): the tool set the frame's `src` to `/canvas/remote%3AGate%231/#g=…`, then to the gateway's root once entered; the tool's page held no grant. |
+| Revocation cuts the tool off, socket and canvas | **Met** (3, D): "Revoked" shown, the canvas frame gone, no wire request after the revoke. |
+| No regressions | **Met** (7): design-tool 18; the contract tests 56. |
+
+**First final run:** 21 of 22. (5, D) read the frame's first `src` after the entry word had already dropped the
+grant: a timing fault in the gate's check, not the tool. The check now records each `src` as the tool sets it,
+and the re-run met every line.
+
+### T7, several live copies (T7a `f3dba4c097`..`04232cb3bd`; T7a-2 `6f5f5dd3ba`..`0739d2c4e7`; T7b `d287ba04c6`..`244db8615c`; *1.14*)
+
+- **Which frame is which build** (theme2's 18:11Z Q1, 18:14Z): no URL marker. Each copy is an iframe the tool names
+  `exact-copy-<n>`. The dev page posts `{type: "exact-build", id}` to its parent each time it registers. The tool
+  takes the word only from its own child frame of that name (`window.frames[name]`, the message's source), from
+  that tile's origin, and only while the frame shows the page the tool gave it. A copy keeps its build id under
+  its frame's name, which the page only reads.
+- **Copies at loopback names of their own** (the gate's F1, theme2's 21:04Z ruling):
+  - Each local copy is at `http://exact-copy-<n>.localhost:<port>/`, because a browser carries six HTTP/1.1
+    connections a host and each copy holds a stream. The dev loop admits those names (`n` 1 to 99), never as local.
+  - Each copy is its own origin, with its own storage (Q3 as ruled then: "each copy starts with its own data").
+  - Through a paired server's gateway the copies share its one origin, and at most 4 show, as the grid says.
+- **`navigate`** (Q2): a fifth build-channel command and a write method.
+  - It routes one build in place to a location (a path, query and fragment on its own origin, spelled as URLs and
+    the router write it, at most 2 KiB) through the app's navigation root, else its router's `go`, with no reload
+    and the app's state kept.
+  - A build without the capability is 409 `unsupported`, and a page that can't route answers `unsupported` later.
+    Either way the tool reloads that copy's frame at the location instead and says so.
+  - It holds nothing on the build; it is journaled with its client. A status says its `location`.
+- **The grid** (S1): Light, then dark at each value of an axis (the first by default), at the build's own text size
+  and again larger (22 px by default, and a third size where 8 copies are asked for). The default is 6 copies (4, 6
+  or 8). Each copy is pinned on its own build only, once that build has said which it is. The grid gives back
+  only what it set and still holds: a pin by the revision the server gave it, a hold by its state and instance.
+  One reconciling pass runs at a time, bound to its server run.
+- **The states side by side** (S2): the selection as it was when chosen, at rest, pressed, hovered and focused, every
+  copy in its mode. Each copy is held on the selection's site in the selection's plan, once it shows the
+  selection's screen. The views are exclusive, so the states' copies are never the grid's pins.
+- **Mirror navigation**: a copy the person moves leads, and the others are sent `navigate`. A copy sent somewhere
+  has gone once it reports any new place (a router's rewrite, a Back), or five passes on, and isn't sent there
+  again. A copy's first report never leads. Mirror off moves nothing.
+- **A pinned copy holds its pin over the app's own** (the gate's F2, theme2's 21:04Z ruling; D3 is amended for
+  pinned grid copies alone):
+  - The app's `setScheme`, `setMode` on a pinned axis and `setRootFontSize` are kept as asked and not applied: in
+    the runner on the wasm page (`hold_facts`, ABI `exact_hold_facts`; no host mirrors a held command), and at
+    the command sites on the JS page.
+  - A smaller pin releases what it drops, and hand-back releases all, each to the app's latest choice, in one
+    commit that is rolled back whole if refused.
+  - What the app asked against the pin is said in the copy's status (`app`) and on its tile.
+  - The single canvas and every native build keep D3.
+- **Tests:**
+  - `scripts/dev-copies.test.mjs`, both web loops in Chrome:
+    - ids per frame, surviving a reload of all frames and of one;
+    - `navigate` in place with state kept, a redirect, and a later refusal;
+    - leader moves by a link, Back and a fragment;
+    - six copies at their own names all registering and reporting;
+    - a pinned copy holding its scheme, mode and root size over the app's own (what paints included), a smaller
+      pin, and hand-back.
+  - `contract/cli/tests/it/tamber_held.rs` covers the runner's held facts.
+  - The contract tests cover the grid (copies registering out of order, the leader, both fallbacks, Mirror off, a
+    smaller grid and the hand-back, the app's own choice on a tile) and the states, against the stub's copies
+    served from a dev-loop origin of its own.
+- **Known limits:**
+  - A dev reload (JS, or the wasm loop's resident reload) forgets a choice the app made by a press before it. Its
+    launch choices are asked again.
+  - While a hand-back the runner refused waits for its retry, the page shows the release.
+  - The server's `pin` has no revision condition, so another client's pin landing during the grid's own release
+    can be cleared.
+  - A listing has no hold revision: another client's identical hold reads as the grid's.
+  - Native copies (several simulators) and `navigate` on the native hosts are QUEUE (Q4).
+
+### T7's gate: met (2026-10-20; the run is `~/x2theme/t7-gate-run.txt`)
+
+The Bluesky clone's JS dev loop, the tool's grid in headed Chrome, exact2 main at `244db8615c` (the run took
+T7b's tool at `a51522a217` with the app-note line). The scrub was through the wire as the tool sends it: one
+request in flight, the latest value next, 60 Hz gestures. It changed `contrast_0`'s light and dark sides and its
+`dark-style=black` line each step.
+
+| Gate line | Result |
+|---|---|
+| Six live copies of the clone update together on a scrub | **Met**: at 4, 6 and 8 copies every copy showed about 41 values a second (the scrub's own request rate, 263 requests in 6 s), its last value the scrub's last. |
+| Each shows its own mode's value | **Met**: Light, Dim and Black at 16, 22 and 28 px each showed only its mode's values, none of another's. Black held over the clone's own `setMode("dark-style", "dim")` at launch (F2). |
+| Q5: the default is the largest count that holds a sustained 60 fps scrub | **6**: frame p50 16.7 ms at 4, 6 and 8; p95 18.8 ms at 4 and 6, 23.6–25.5 ms at 8 (14–19 frames over 25 ms). Chrome 99%/141%/217% CPU and 3.6/4.9/6.0 GB; the dev loop 54–93% CPU, about 1 GB. |
+
+**Findings on the way, now fixed:** six copies of one origin starved their own reports (F1), and the clone's own
+`setMode` beat the Black copy's pin (F2). Headless Chrome on this Mac composites six large frames at about 15 fps
+idle, so the gate runs headed.

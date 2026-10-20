@@ -8,7 +8,7 @@ compiles (`contract/cli/tests/it/vocab.rs`).
 -->
 
 ## scroll: scrolling to the top, or to an item
-names: scrollTo, scrollToTop, scroll-to-top, scrollToIndex, scrollIntoView, scrollTop
+names: scrollTo, scrollToTop, scroll-to-top, scrollToIndex, scrollIntoView, scrollTop, scrollToEnd, scrollToBottom, scroll-to-bottom
 
 From an action, `scrollIntoView(id)` scrolls every scroller above the element with that `id`
 until it shows, as the web's `Element.scrollIntoView()` does: `block="start"` by default
@@ -35,9 +35,15 @@ component App
           text r id=`row-${r}` padding=16
 ```
 
+- Every scroller above the element moves, so a horizontal strip inside a sheet or a form
+  scrolls the form too. `block="nearest"` leaves a scroller that already shows the element
+  where it is, and `inline` (`"start"`, `"center"`, `"end"`, default `"nearest"`) places it
+  across a horizontal strip: ``scrollIntoView(`icon-${i}`, block="nearest", inline="start")``.
 - A virtualized `list` (rows not built yet) scrolls to a row by its key:
   `scrollIntoView("list-id", key, block="center")`. A chat opens at its newest row with
-  `scroll-start="end"` on the `list`, and `scrollFollowEnd=true` keeps it there.
+  `scroll-start="end"` on a `list virtualized=true`, and `scrollFollowEnd=true` keeps it
+  there as messages arrive, while the reader is at the end (`chat-thread`; a grouped list
+  is never virtualized).
   To restore after remount, save `ScrollEvent.firstVisibleKey` and
   `firstVisibleOffset` in the app, then call `scrollIntoView("list-id", key, offset=within)`.
   The optional key is text; the offset is signed CSS pixels into the row on the list's axis.
@@ -79,8 +85,8 @@ component App
           text t
 ```
 
-- The build asks each source once and bakes its answer into the first frame. Storage and
-  the network refuse it there with `code: 'bake'`: let that throw (`catch (e) { if (e.code
+- The build asks each source once and bakes its answer into the first frame. Storage,
+  the network and the native module refuse it there with `code: 'bake'`: let that throw (`catch (e) { if (e.code
   === 'bake') throw e; … }`) so the placeholder shows and the source is asked at launch.
   Caught and answered as an error, the error is baked into every launch's first frame.
 - A refresh keeps the last answer on screen (`pending(feed)` is true meanwhile): show the
@@ -110,7 +116,7 @@ Contract has no `Intl.PluralRules`: a language with more forms gets its strings 
 data module.
 
 ## choice: one value from two to five (a preset, units, a period)
-names: radiogroup, radio, segmented, segmented-control, segmentedcontrol, UISegmentedControl
+names: segment, segments, radiogroup, radio, segmented, segmented-control, segmentedcontrol, UISegmentedControl
 
 A `row role="radiogroup"` of `button role="radio" aria-checked=…`, each pressing its value, is
 the platform's segmented control: UIKit's `UISegmentedControl`, AppKit's segmented control,
@@ -139,7 +145,7 @@ component App
 More: docs/recipes/persisted-setting.md
 
 ## screen: a second screen, a list and its detail, and Back
-names: navigate, navigation, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router
+names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router, back button, back-button, back title, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
 
 A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
@@ -187,9 +193,24 @@ component App
   `open` replaces when one shows: `nav = top(nav).name == "recipe" ? replace(nav,
   path("recipe", name)) : push(nav, path("recipe", name))`.
 - Each route keeps its own scroll: a pushed screen opens at its top, and Back returns to the
-  list where it was left. Build locations with `path("recipe", name)`; a route's parameters
-  are strings (`e.params.name`). In tests, `clock settle` after each push and back. A form
+  list where it was left. What an `if` swaps inside one route's scroll keeps that scroll's
+  place, as a web page's does, so the stages a person moves through (a quiz's start, its
+  questions, its results) are routes too; swapped by a state, the next stage opens where the
+  last was scrolled to, part way down and under the bar. Build locations with
+  `path("recipe", name)`; a route's parameters are strings (`e.params.name`). In tests, `clock settle` after each push and back. A form
   over the screen is a sheet (`contract vocab modal`).
+- A welcome shown at first launch only is not a second route: the main screen is the root
+  route and shows the welcome while a `persist` flag is unset (docs/recipes/first-launch.md).
+  A stack's first visit keeps its root route: `replace` to another route is refused there.
+- A route's first child, a `header` holding one heading, is iOS's navigation bar: an
+  `aria-level=1` heading is its large title, a lower level the inline title. A pushed route
+  has the platform's Back button and edge swipe with nothing written; a control whose `id`
+  is the root's `navigationBack` runs your action and titles the button. Draw neither
+  (docs/contract-for-agents.md, the table of what each host draws).
+- The Back button's title: exact2 leaves UIKit's default back button, which on iOS 26 and
+  later is a bare chevron. For "‹ Settings", put a
+  `button id="back" press=back` with `text "Settings"` (no `‹`: iOS draws it) in the pushed
+  route's `header`, with `navigationBack="back"` on the root.
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 
@@ -217,7 +238,7 @@ component App
 ```
 
 ## modal: a form over the screen, with Save and Cancel
-names: dialog, sheet, closedby, popup
+names: dialog, sheet, closedby, popup, grabber, sheet-grabber, prefersGrabberVisible, sheetCornerRadius, preferredCornerRadius
 
 A form you lay out (fields, Save, Cancel) is a route presented as a sheet:
 `navigationPresentation="modal"` on its root, its Cancel the control whose `id` the root's
@@ -258,26 +279,34 @@ component App
         if e.name == "rename"
           column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-              button id="back" press=back testId="cancel"
-                text "Cancel"
+              button id="back" press=back aria-label="Cancel" testId="cancel"
+                image "symbol:close"
               text "Rename" role="heading"
-              button press=save disabled=(draft.trim() == "") testId="save"
-                text "Save"
+              button press=save buttonStyle="bordered-prominent" aria-label="Save"
+                disabled=(draft.trim() == "") testId="save"
+                image "symbol:checkmark"
             input value=draft input=edit aria-label="Name" autofocus=true margin=16 testId="field"
 ```
 
 - In tests, `clock settle` after the push and after Save. A sheet's height:
-  `navigationDetent="medium"` (or `"fit-content"`).
+  `navigationDetent="medium"` (or `"fit-content"`, or `"45%"` of the sheet's maximum).
+- A sheet's grabber is the platform's: iOS shows one on a sheet with several detents.
+  `navigationGrabber="visible"` or `"hidden"` on the route says otherwise; draw none.
+- A sheet's corners are the platform's: on iOS 26 and later a large sheet is rounded like
+  the display and floats inset from the bottom edge, as UIKit's own does. A `border-radius`
+  on the route is its corner radius (UIKit's `preferredCornerRadius`, React Native's
+  `sheetCornerRadius: 40` is `border-radius=40`), which also runs a large sheet to the
+  bottom edge.
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 
-## confirm: ask before deleting
-names: confirmation, alert, alertdialog, delete-confirmation, Alert, showModal
+## confirm: ask before what can't be undone (delete, close, cancel)
+names: confirmation, alert, alertdialog, delete-confirmation, Alert, showModal, prompt, rename, action sheet, action-sheet, actionSheet, ActionSheetIOS, showActionSheetWithOptions, UIAlertController
 
 A `dialog role="alertdialog"`: its `aria-label` the question, a `text` the message, each action
 a `button` with `press` that also closes it, and one Cancel (a closing button with no
 `press`). It is iOS's alert, the web's modal `dialog`, macOS's alert. Open it from an action
-with `showModal(id)` (a swipe or menu action asks first), or from a button with
+with `showModal(id)` (an action that asks first), or from a button with
 `commandfor=id command="show-modal"`. It takes no `open`: in HTML `open` alone shows a dialog
 non-modally, and a dialog that state holds open is not available yet.
 
@@ -303,13 +332,29 @@ component App
           text "Cancel"
 ```
 
+- Ask first for what can't be undone: a detail screen's Delete, Close Poll, Cancel Event, a bulk
+  clear. A routine or recoverable step asks nothing: a row's swipe (`contract vocab swipe`), a
+  row removed from a form being edited.
 - Its rows are only text, actions and one Cancel; a form is a sheet (`contract vocab modal`).
   In tests, `clock settle` after it opens, then `tap "remove-confirm"`.
-- An alert has no outside: Escape and Back cancel it, a tap beside it does nothing. Leave
+- A prompt (rename, a name for a new list) is the same alert with an `input` row:
+  `input value=draft input=editDraft placeholder="Name"` among its rows. iOS's alert shows it
+  as its own text field, macOS's `NSAlert` beneath its message; each keystroke is the input's
+  `input`, so the action's `press` reads `draft`. Return presses the first action that is not
+  destructive (nothing while it is disabled), unless the field has a `submit`, which then has
+  Return alone. `disabled=(draft == "")` on Save dims it while the field is empty.
+- An alert that only tells ("Couldn't save.") is a `text` and one closing button, no action:
+  the platform's one-button alert. Set the message in state, then `showModal(id)`
+  (`contract vocab error-alert`). Leave `closedby` unwritten: iOS has no dismissible form of it.
+- An alert has no outside: Escape and Back cancel it (the Mac's one-button alert takes Return,
+  not Escape, as AppKit's does), a tap beside it does nothing. Leave
   `closedby` unwritten; `closedby="any"` asks for the platform's dismissible form in its place
   (an action sheet on an iPhone, a dialog a click outside closes on the web).
+- Several actions and no `text` make an action sheet (an "Open in…" chooser): from the
+  bottom of an iPhone, its Cancel drawn, when it has a Cancel; a popover at its invoker
+  when it has none.
 
-More: docs/recipes/navigation-stack.md
+More: docs/recipes/navigation-stack.md, docs/recipes/error-alert.md
 
 ## date: the date, the time and the day
 names: day, today, clock, time, Date, exactTime
@@ -380,16 +425,20 @@ component App
 - Only a number, string or bool, or an option or list of one, up to 16 KB; records are app
   data, kept by a source (docs/recipes/files-and-grants.md). Only the root's state
   persists, keyed by its name. A test's `reload` relaunches on the same store; a drive
-  keeps it across runs with the same `--storage s1`.
+  keeps it across runs with the same `--storage s1` (on the web, with `--keep-storage` too).
 
 More: docs/recipes/persisted-setting.md
 
 ## swipe: a list row's swipe actions
-names: swipe-actions, swipeActions, swipe-to-delete, swipeleft
+names: delete, swipe-actions, swipeActions, swipe-to-delete, swipeleft, swipeContent, swipeLeading, swipeTrailing, swipe actions
 
-The row is a horizontal snap `scroll` naming its content (`swipeContent`) and its trailing
-action (`swipeTrailing`, a button's `id`). On iOS that is UIKit's own swipe action (a full
-swipe performs the first); on the web the row scrolls to show it.
+`delete=action` on a list row is its swipe to delete: a red Delete beside the row, which a
+full swipe performs. On iOS it is UIKit's own swipe action; on the web and the Mac the row
+scrolls to show it. `disabled` beside it keeps that row from deleting, and the row still
+opens. The swipe deletes without asking, as iOS does where a deletion is routine or
+recoverable (Mail, Notes, Reminders); an irreversible loss confirms, as a detail screen's
+Delete or a bulk clear does, its action opening an alert (`contract vocab confirm`). In tests, `tap "item-Milk-delete"` presses it (the row's `testId` and
+`-delete`).
 
 ```contract
 component App
@@ -397,21 +446,50 @@ component App
   action remove(item: string)
     items = items.filter(i => i != item)
   view
-    column
-      for i in items key=i
-        scroll swipeContent=`row-${i}` swipeTrailing=`delete-${i}` width="100%"
-          overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
-          row width="100%"
-            row id=`row-${i}` width="100%" flex-shrink=0 scroll-snap-align="start" padding="12px 16px"
-              text i
-            button id=`delete-${i}` destructive=true press=remove(i) aria-label=`Delete ${i}` testId=`delete-${i}`
-              flex-shrink=0 scroll-snap-align="start"
-              image "symbol:delete"
+    list appearance="auto" flex=1
+      section
+        for i in items key=i
+          row delete=remove(i) testId=`item-${i}`
+            text i
 ```
 
-- In a grouped list (`list appearance="auto"`), the scroll is a section's row: leave its
-  `width` unsaid and give it `padding-right=0`. To ask first, the action's `press` opens a
-  confirmation (`contract vocab confirm`). In tests, `tap "delete-Milk"` presses it.
+- On a row of a grouped list's `section`, or of a `list` whose rows go down the page;
+  anywhere else it does nothing (warning `lower-delete-row`). A `list` with sections is a
+  grouped list only with `appearance="auto"` (warning `lower-list-section`).
+- Other actions than Delete (Pin, Flag, a leading action, several) are the long form: a
+  horizontal snap `scroll` laid out as a row (`display="flex"`), naming its content
+  (`swipeContent`) and its actions (`swipeTrailing`, `swipeLeading`: buttons' `id`s, inside
+  the scroll after the content), each button with a `press` and a name. Or put them in the
+  long-press menu (`contract vocab menu`). A Delete that the platform draws is `delete=`,
+  not the long form; the long form is for a Delete you paint (below) or word otherwise, a
+  handler that reads the press's event (`delete=` passes none), or a scroll you drive.
+
+```contract
+component App
+  state items = ["Milk", "Eggs"]
+  state pinned = ""
+  action pin(item: string)
+    pinned = item
+  view
+    list appearance="auto" flex=1
+      section
+        for i in items key=i
+          scroll swipeContent="row" swipeTrailing="pin" display="flex" padding-right=0
+            overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+            row id="row" width="100%" flex-shrink=0 scroll-snap-align="start" padding-right=16
+              box-sizing="border-box"
+              text i
+            button id="pin" press=pin(i) aria-label="Pin" flex-shrink=0
+              scroll-snap-align="start"
+              image "symbol:pin"
+```
+
+- UIKit draws its swipe actions itself (rounded on iOS 26 and later), whatever you paint.
+  To keep painted actions (flush 76-point rectangles of your own colours), write
+  `appearance="none"` on every control the row names: on iOS the row then swipes by its own
+  scroll, as on the web, and keeps the swipe's behaviours: one row open at a time, a full
+  swipe (past half the row) presses the outermost action, and VoiceOver reads each action as
+  a custom action of the row's content.
 
 More: docs/recipes/list-rows.md (search, filter, the long-press menu)
 
@@ -425,17 +503,19 @@ a literal number of milliseconds, and the action takes no parameters.
 
 ```contract
 component App
-  state n = 0
+  state seconds = 0
   task t mount
     every(1000, tick)
   action tick
-    n = n + 1
+    seconds = floor(performanceNow() / 1000)
   view
-    text `${n}s` testId="n"
+    text `${seconds}s` testId="n"
 ```
 
 - A `derive` that reads `performanceNow()` is not read again as time passes: the tick's action
   writes it to state. In a test `clock +N` fires the timers; never wait in real time.
+- Measure time, never count ticks: on a device, ticks missed while the app was suspended fire
+  once, not once each.
 
 More: docs/recipes/timers.md
 
@@ -671,7 +751,7 @@ component App
 - A derive is no timer: one that reads `performanceNow()` shows the time of its last recompute.
 
 ## action: what a press, an input or a key does
-names: handler, onClick, onPress, onChange, setState, reducer
+names: state, useState, handler, onClick, onPress, onChange, setState, reducer
 
 `action name(params)` over indented statements: `x = expr` on its own state, `let`, `send`, `refresh`,
 `if`/`else`, `match`, a host command, or a call of another action. No loops, awaits or returns; the
@@ -692,14 +772,15 @@ component App
       text `${n}` testId="n"
 ```
 
+- `state name = value` is what actions write; `persist` keeps it across launches.
 - An action reads the state it started with: bind a value with `let` to read it after writing it.
 
 ## stepper: a count with plus and minus (a number field)
 names: UIStepper, NSStepper, quantity, spin-button, increment, counter
 
-`input type="number"` with `min`, `max` and `step` is a numeric field with the platform's stepping control
-(UIStepper on iOS, NSStepper on the Mac, the browser's spin buttons on the web); the field stays
-editable; `appearance="textfield"` drops the control. A count 1-99:
+`input type="number"` with `min`, `max` and `step` is a field with the platform's stepper
+(UIStepper, NSStepper, the browser's spin buttons); the field stays editable;
+`appearance="textfield"` drops the stepper. A count 1-99:
 
 ```contract
 component App
@@ -711,7 +792,9 @@ component App
 ```
 
 - The value is text, as any field's: a step is an `input` and a `change` with the new text, which a
-  derive parses with `parseNumber` (docs/recipes/number-field.md). `step` defaults to 1.
+  derive parses with `parseNumber` (`number-field`).
+- A press adds `step` (1 unsaid), the value's unit: `step=50` for millilitres. A freely typed
+  amount has no stepper: a plain `input` with `inputmode`.
 - On iOS the stepper needs the field about 130 pt wide (`flex=1` in a row), else the field shows alone.
 - A test types the value (`type "qty" "5"`); `agent … layout qty` gives `native.stepper`'s
   `increment` point, and `tap qty at <x> <y>` presses it.
@@ -740,6 +823,133 @@ The period is the distance between the first and last fixed-up stops, measured
 along the gradient line. `background-attachment` takes `scroll` or `fixed`;
 `local` remains deferred. Each row paints its own background, so a repeated
 hatch on separate rows does not establish one pattern across the list.
+
+## menu: a pull-down menu of actions, and a long-press one
+names: menus, popover, dropdown, pulldown, pull-down, popupmenu, contextPopover, UIMenu, context menu, context-menu, contextMenu, UIContextMenuInteraction, menuitemradio, menuitemcheckbox, checkmark
+
+A menu is HTML's: a `column popover="auto" role="menu"` of `button`s, opened by a button's
+`popovertarget` (on iOS a `UIMenu`; in a `header`, the bar item's pull-down). A long-press
+menu is the same column, named by `contextPopover` on what is pressed, with
+`contextmenu=` an action that notes which item it was. Each button closes it with
+`popovertarget="<menu id>" popovertargetaction="hide"`.
+
+```contract
+component App
+  state picked = ""
+  state aimed = ""
+  action sort(by: string)
+    picked = by
+  action aim(id: string)
+    aimed = id
+  action remove
+    picked = `removed ${aimed}`
+  view
+    column
+      button popovertarget="sort-menu" aria-label="Sort" testId="sort"
+        image "symbol:more"
+      column id="sort-menu" popover="auto" role="menu"
+        button press=sort("name") popovertarget="sort-menu" popovertargetaction="hide" testId="by-name"
+          text "Name"
+        button press=sort("date") popovertarget="sort-menu" popovertargetaction="hide"
+          text "Date"
+      text "Row 1" contextmenu=aim("1") contextPopover="row-menu" testId="row-1"
+      column id="row-menu" popover="auto" role="menu"
+        button press=remove destructive=true popovertarget="row-menu" popovertargetaction="hide"
+          text "Remove"
+      text picked testId="picked"
+```
+
+- The menu's title is the popover column's `aria-label` (iOS: `UIMenu(title:)`).
+- A checkmark: `role="menuitemradio" aria-checked=(sortKey == "name")` on the row (a toggle:
+  `role="menuitemcheckbox"`).
+- A row's second `text`, under the first (a block `button`, or `flex-direction="column"`), is
+  its grey subtitle: `text "Name"` then `text "A to Z"`. Side by side they stay one title.
+- An `hr` between rows starts a section; `destructive=true` paints a row red.
+
+A test opens one with `tap "sort"`, a long-press one with `tap "row-1" contextmenu`, then
+taps the item. A row whose `popovertarget` names another menu is its submenu.
+
+## search: the bar's search field, filtering a list or querying a server
+names: searchable, searchbar, search-bar, UISearchBar, UISearchController, search bar, search field, hidesSearchBarWhenScrolling, hideWhenScrolling, sticky search
+
+An `input type="search"` in a route's `header` is the bar's search field: on iOS UIKit's
+search controller (a magnifier, a clear button, Cancel), on the web a field under the title.
+Each keystroke is its `input`, and the list filters on the query, so there is no Search
+button. No match is an `EmptyState` in the list's place (`pattern list-detail`).
+
+```contract
+routes nav
+  home "/"
+
+component App
+  state query = ""
+  state notes = ["Groceries", "Ideas", "Recipes"]
+  derive shown = notes.filter(n => n.toLowerCase().includes(query.trim().toLowerCase()))
+  action search(v: string)
+    query = v
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="notes" position="absolute" inset=0
+          header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
+            text "Notes" role="heading" aria-level=1 flex=1
+            input type="search" value=query input=search placeholder="Search" aria-label="Search Notes"
+              testId="search" width="100%"
+          list id="notes" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+            section
+              for n in shown key=n
+                row
+                  text n
+```
+
+- On iOS the field scrolls away with the content while it is empty, as UIKit's does;
+  `position="sticky" top=0` on the `input` keeps it shown (`hidesSearchBarWhenScrolling =
+  false`, React Navigation's `hideWhenScrolling={false}`).
+- `flex-wrap` and `width="100%"` give the field its own line on the web; iOS places it
+  itself. A field in the content with a Search button beside it is a web form's, a tell.
+- A test types the query: `type "search" "gro"`, and `type "search" ""` to clear it.
+
+The same field queries a server when a `resource` takes the query as its argument: each
+change asks again (`contract vocab resource`), and the list shows the answer. To ask only on
+the keyboard's Search key (Return on the web and the Mac), as for a slow or costly server,
+the field's `submit` copies the query into the state the resource reads:
+
+```contract
+routes nav
+  home "/"
+
+shape Book
+  id: string
+  title: string
+
+component App
+  state query = ""
+  state asked = ""
+  resource found = searchBooks(asked) as shape Book[] else empty()
+  action search(v: string)
+    query = v
+  action ask
+    asked = query.trim()
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="books" position="absolute" inset=0
+          header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
+            text "Books" role="heading" aria-level=1 flex=1
+            input type="search" value=query input=search submit=ask placeholder="Search"
+              aria-label="Search Books" testId="search" width="100%"
+          list id="books" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+            section
+              for b in found key=b.id
+                row
+                  text b.title
+```
+
+- Live, as you type: `resource found = searchBooks(query)`, with no `submit`. A test types
+  the query, then `clock data` before it reads the answer; on the Search key, `type "search"
+  key "Enter"`.
+
+More: docs/recipes/list-rows.md
 
 ## menubar: adding commands to the Mac menu bar
 names: -exact-menu, -exact-menu-remove
@@ -797,3 +1007,152 @@ component App
   element, which has no placeholder.
 - `::before` and `::after` are refused: Contract has no generated box. Write what they would show as
   a child (a `text`, an `image`).
+
+## glass: Liquid Glass, a material or a blur behind a box
+names: Liquid Glass, liquid-glass, liquidGlass, material, materials, vibrancy, blur, frosted, UIVisualEffectView, UIGlassEffect, BlurView, GlassView, expo-blur, expo-glass-effect
+
+Bars, tab bars, sheets and menus are the platform's, glass included: leave them unsaid. A
+surface of your own takes `backgroundMaterial`: `"glass"` or `"glass-clear"` is
+`UIGlassEffect` on iOS 26 and `NSGlassEffectView` on macOS 26; `"ultra-thin"`, `"thin"`,
+`"material"`, `"thick"` and `"chrome"` (each with `-light` and `-dark`) are UIKit's blurs,
+and `"sidebar"`, `"menu"`, `"popover"`, `"hud-window"` the Mac's. The web and Linux draw a
+blur that approximates each. A glass button is `buttonStyle="glass"` or
+`"prominent-glass"`, and `glassGroup=<points>` on a box merges the glass inside it as
+SwiftUI's `GlassEffectContainer` does.
+
+```contract
+component App
+  view
+    column height="100%" background-color="-exact-system-teal"
+      row backgroundMaterial="glass" border-radius=24 margin=16 padding=12 gap=8
+        button buttonStyle="glass" aria-label="Play" testId="play"
+          image "symbol:play"
+        text "Now playing"
+```
+
+- CSS's `backdrop-filter="blur(12px) saturate(1.8)"` blurs what is behind on the web, macOS
+  and Linux; iOS draws a fixed light material for it, so a surface meant for iPhone says
+  `backgroundMaterial`, which wins when both are written.
+- A navigation bar's buttons share one glass capsule on iOS 26; `buttonStyle="glass"` on
+  each gives it a capsule of its own (`contract vocab bar-buttons`).
+
+## bar-buttons: the navigation bar's buttons, grouped or each in its own capsule
+names: bar button, bar-button, barbuttons, UIBarButtonItem, sharesBackground, headerRight, headerLeft, toolbarItem, ToolbarItem, ToolbarItemGroup
+
+The buttons of a route's `header` are its bar's items: those before the heading lead, those
+after it trail. iOS 26 puts adjacent ungrouped buttons on one shared glass capsule.
+`buttonStyle="glass"` on a bar button gives it a capsule of its own (`sharesBackground =
+false`), and a `row role="group"` around some keeps those on one capsule, set apart from the
+next group. Leave their size, colour and padding unsaid.
+
+```contract
+routes nav
+  home "/"
+
+component App
+  state n = 0
+  action add
+    n = n + 1
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          header
+            text "Patterns" role="heading" aria-level=1
+            button popovertarget="sort-menu" buttonStyle="glass" aria-label="Sort" testId="sort"
+              image "symbol:sf/arrow.up.arrow.down"
+            button press=add buttonStyle="glass" aria-label="New" testId="new"
+              image "symbol:add"
+          column id="sort-menu" popover="auto" role="menu"
+            button press=add popovertarget="sort-menu" popovertargetaction="hide"
+              text "Date Added"
+          text `${n}` testId="n"
+```
+
+- A `popovertarget` button is the bar item's pull-down menu (`contract vocab menu`). Write the
+  menu beside the header; one written in it is still its button's menu, never more bar buttons.
+
+More: docs/contract-for-agents.md, "Bar buttons, glass and the search field"
+
+## haptics: a tap the hand feels
+names: haptic, vibrate, vibration, Haptics, impactAsync, selectionAsync, notificationAsync, UIImpactFeedbackGenerator, UISelectionFeedbackGenerator, UINotificationFeedbackGenerator, sensoryFeedback, expo-haptics
+
+`-exact-press-haptic` plays at touch-down on what is pressed, with no round trip:
+`"selection"`, or `"impact-light"`, `-medium`, `-heavy`, `-soft`, `-rigid`. From an action,
+`haptic(kind)` plays one of those or `"success"`, `"warning"` or `"error"`, as when a drag
+crosses a threshold; an outcome is an action's, since a press has none at touch-down. A
+native button (one with `buttonStyle`) plays its haptic from its action.
+iOS uses the feedback generators, the web vibrates where it can, Linux does nothing.
+
+```contract
+component App
+  state n = 0
+  action add
+    let next = n + 1
+    n = next
+    if next == 10
+      haptic("success")
+  view
+    button press=add -exact-press-haptic="impact-light" testId="add"
+      text `${n}`
+```
+
+## status-bar: the colour of the iPhone's status bar
+names: status bar, statusbar, setStatusBarStyle, UIStatusBarStyle, preferredStatusBarStyle, expo-status-bar
+
+`status-bar-style="light-content"` (light text, for a dark surface), `"dark-content"` or
+`"auto"` on any node, bound to state if it changes, sets an iPhone's status bar; of what the
+bar sits over, the declaration painted on top wins. `status-bar-animation="fade"` fades a
+change. Other hosts ignore both.
+
+More: docs/contract-for-agents.md (`status-bar-style`)
+
+## toast: a message that shows for a moment
+names: Toast, snackbar, Snackbar, react-native-toast-message, burnt
+
+No host has a toast control, iOS included. A brief message is an overlay: a root child after
+the page (after the `tablist` in a tab app) shown while state holds the message, and a
+`task … when` that clears it with `after(ms, action)`.
+
+```contract
+component App
+  state toast = ""
+  action save
+    toast = "Saved"
+  action hide
+    toast = ""
+  task dismiss when toast != "" key=toast
+    after(2000, hide)
+  view
+    column height="100%"
+      button press=save testId="save"
+        text "Save"
+      if toast != ""
+        text toast position="absolute" bottom=32 left=16 right=16 padding=12 border-radius=12 backgroundMaterial="thin" aria-live="polite" testId="toast"
+```
+
+- The action the task runs clears the message whatever it reads: a gated task is armed at
+  commits, not by the clock (docs/agent-pitfalls.md, "A gate reads state at commits").
+
+## titlebar: a row beside the Mac's traffic lights
+names: titlebar-area, titlebar-area-x, titlebar-area-y, titlebar-area-width, titlebar-area-height, title-bar, traffic-lights, trafficLightPosition, window-controls-overlay, hiddenInset
+
+Window Controls Overlay's `env(titlebar-area-x|y|width|height)` is the part of the title
+bar the page may draw in, beside the window's controls. On the Mac, under
+`viewport-fit="cover"`, it is AppKit's title bar less the traffic lights: in a 900-point
+window `78 0 822×32`. It is all zero in full screen and while the window has a toolbar (an
+app with routes has one), and undefined elsewhere: in a browser tab, on iOS, Linux and
+Windows, and on a Mac window that does not cover its title bar. Give each a fallback.
+
+```contract
+component App
+  view
+    main viewport-fit="cover" display="flex" flex-direction="column" width="100%" height="100%"
+      row margin-left="env(titlebar-area-x, 0px)" width="env(titlebar-area-width, 100%)" height="env(titlebar-area-height, 0px)" align-items="center"
+        text "Drafts" role="heading" aria-level=1
+      scroll flex=1 min-height=0 padding=16
+        text "Body"
+```
+
+- Nothing moves the traffic lights or sets the row's height: the title bar is AppKit's.
+- More: docs/contract-grammar.md (lengths).

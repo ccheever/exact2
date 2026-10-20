@@ -20,9 +20,15 @@ use exact_kernel::{NodeRef, PropValue, RowValue, StyleId};
 use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
+mod looks;
 mod row;
+/// A row's value as `node` prints it: the JS target's inspect table (LLP 1122 T2b) writes the same words.
+pub use row::row_json;
 mod schedule;
 mod sound;
+mod source;
+mod streams;
+mod transport;
 mod tree;
 
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
@@ -57,6 +63,9 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             },
             None => error("picker needs an id"),
         },
+        // Every view's plan site, and the plan's digest (LLP 1122 D5): what a
+        // development page outlines by, without a node's whole explanation.
+        Some("sites") => runner.view_sites_json(),
         Some("node") => match field_num(request, "id") {
             Some(n) if n >= 0.0 && n == n.trunc() => {
                 let mut reply = node(runner, n as u32);
@@ -371,12 +380,12 @@ pub(crate) fn target<D: DataSource>(
     }
 }
 
-/// Every live root and node, in structural preorder.
 /// The tree: every live node in preorder — id, parent, depth, type, props by
 /// their schema names, the events it handles, `inactive` when it is under a
-/// route its navigation root has not selected, its children — plus the
-/// kernel's epoch and incarnation (the consistency token: nothing moves
-/// between two calls unless the agent moved it).
+/// route its navigation root has not selected, `unopened` on a tab panel not
+/// yet built (LLP 1075.003 §9.14), its children — plus the kernel's epoch
+/// and incarnation (the consistency token: nothing moves between two calls
+/// unless the agent moved it).
 pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
     tree::all(runner, false)
 }
@@ -434,6 +443,17 @@ fn token_json<D: DataSource>(runner: &Runner<D>, id: u32, row: StyleId, s: &mut 
     let Some((names, text, modes, implied)) = runner.row_token(id, row) else {
         return;
     };
+    token_fields(&names, &text, &modes, implied, s);
+}
+
+/// `,"token":{…}` (`token_json`'s).
+pub(super) fn token_fields(
+    names: &[String],
+    text: &str,
+    modes: &str,
+    implied: bool,
+    s: &mut String,
+) {
     s.push_str(",\"token\":{\"names\":[");
     for (i, n) in names.iter().enumerate() {
         if i > 0 {
@@ -442,18 +462,20 @@ fn token_json<D: DataSource>(runner: &Runner<D>, id: u32, row: StyleId, s: &mut 
         quote(n, s);
     }
     s.push_str("],\"text\":");
-    quote(&text, s);
+    quote(text, s);
     s.push_str(",\"modes\":");
-    quote(&modes, s);
+    quote(modes, s);
     let _ = write!(s, ",\"implied\":{implied}}}");
 }
 
 /// One node, explained (LLP 1035.002 D1): every row it sets or inherits with
 /// where the value came from — `authored` (the own row), `inherited` from
-/// the ancestor whose own row won (CSS inheritance, LLP 1035.000 D1), or
-/// `initial` — its props, the plan site it was instantiated from with the
+/// the ancestor whose own row won (CSS inheritance, LLP 1035.000 D1), the
+/// `style` or `heading` that gives it (LLP 1115.000 D12.2), or `initial`
+/// ([`source::write`]) — its props, the plan site it was instantiated from with the
 /// instance path to it (D6), and the kernel's frames: `frame` relative to
-/// the parent, `absolute` in the root's space, `content` when it scrolls.
+/// the parent, `absolute` in the root's space, or in its host block's for a
+/// node inside one (LLP 1115.002 D8.2), `content` when it scrolls.
 /// Observations of the runner's memory, tagged with the epoch and
 /// incarnation; a host adds the spaces and what it mounted. An id that is
 /// not a live node in this incarnation is refused by name.
@@ -508,6 +530,12 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         }
         s.push(']');
     }
+    // The app modes it is in (LLP 1121 D5): the window's, overridden by the
+    // pins above it (LLP 1122 D5's selected node's tuple).
+    if let Some(modes) = runner.modes_of_view_json(id) {
+        s.push_str(",\"modes\":");
+        s.push_str(&modes);
+    }
     // An own row the plan binds by an expression is `dynamic` (D5); one it
     // binds by a literal — or that a class expansion or the runner set — is
     // `authored`. The plan's bindings for this node's site say which.
@@ -540,20 +568,13 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         if own {
             token_json(runner, id, row, &mut s);
         }
-        if own && dynamic(row) {
-            s.push_str(",\"source\":\"dynamic\"}");
-        } else if own {
-            s.push_str(",\"source\":\"authored\"}");
-        } else {
-            match node.source_of(row) {
-                Some(from) => {
-                    let _ = write!(s, ",\"source\":\"inherited\",\"from\":{from}}}");
-                }
-                None => s.push_str(",\"source\":\"initial\"}"),
-            }
-        }
+        source::write(runner, &node, row, own, own && dynamic(row), &mut s);
     }
-    s.push_str("},\"props\":{");
+    s.push('}');
+    // @ref LLP 1121 D8 — its state looks' rows, each as a style row is (its
+    // value, the token it read), for inspect on a held state (LLP 1122 D8).
+    looks::write(runner, &node, &mut s);
+    s.push_str(",\"props\":{");
     props_json(&node, &mut s);
     let f = node.frame;
     let (px, py) = node
@@ -711,9 +732,10 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         runner.page(),
         runner.viewport().fold,
     );
+    let (files, pictures) = (page.can_share_files, page.can_share_pictures);
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canOpenFiles\":{},\"hasFocus\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canShareFiles\":{files},\"canSharePictures\":{pictures},\"canOpenFiles\":{},\"hasFocus\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -732,6 +754,13 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     );
     s.push_str(",\"displayMode\":");
     quote(media.display_mode.keyword(), &mut s);
+    s.push_str(",\"navigationType\":");
+    quote(page.navigation_type(), &mut s);
+    let _ = write!(
+        s,
+        ",\"persisted\":{},\"restores\":{}",
+        page.persisted, page.restores
+    );
     s.push('}');
     // The driver's fetch faults (LLP 1103 D3), when any are armed or spent.
     if !runner.faults().is_empty() {
@@ -785,6 +814,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     // Why each failed resource failed (app farm round 1: a shape refusal
     // showed only in the journal while the view kept its placeholder).
+    let _ = write!(s, ",\"mutationRequests\":{}", runner.mutation_requests());
     let failed = runner.failed_resources();
     if !failed.is_empty() {
         s.push_str(",\"failed\":{");
@@ -831,20 +861,28 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         s.push_str("}}");
     }
-    // Open streams (LLP 1016.000 D5): pending until their first message,
-    // then listed here with what they delivered and what coalesced.
-    s.push_str("],\"streams\":[");
-    for (i, (name, ticket, count)) in runner.streams().iter().enumerate() {
+    s.push_str("],");
+    streams::state(runner, &mut s);
+    // Native modules, as the runner answers them (LLP 1133.002 §6).
+    if let Some(extensions) = runner.extensions_json() {
+        let _ = write!(s, ",\"extensions\":{extensions}");
+    }
+    // The documents the answers watch (LLP 1069.010.000 D1), whether or not
+    // the host can listen for them.
+    s.push_str(",\"watches\":[");
+    let watches = runner.watched_topics();
+    let watches = watches.iter().filter_map(|t| {
+        t.strip_prefix("doc-watch-recursive:")
+            .map(|p| (p, true))
+            .or_else(|| t.strip_prefix("doc-watch:").map(|p| (p, false)))
+    });
+    for (i, (path, recursive)) in watches.enumerate() {
         if i > 0 {
             s.push(',');
         }
-        s.push_str("{\"name\":");
-        quote(name, &mut s);
-        let _ = write!(
-            s,
-            ",\"ticket\":{ticket},\"messages\":{},\"coalesced\":{}}}",
-            count.messages, count.coalesced
-        );
+        s.push_str("{\"path\":");
+        quote(path, &mut s);
+        let _ = write!(s, ",\"recursive\":{recursive}}}");
     }
     s.push(']');
     // The module's background storage (LLP 1097 D8), where it has any.
@@ -872,6 +910,8 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     s.push(']');
     sound::state(runner, request, &mut s);
+    crate::wakelock::state(runner.kernel(), &mut s);
+    transport::state(runner, request, &mut s);
     // The store's names, never its values (LLP 1018 D5).
     s.push_str(",\"store\":[");
     for (i, name) in runner.store_names().iter().enumerate() {

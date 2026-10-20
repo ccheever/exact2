@@ -1,20 +1,21 @@
 // Firefox and WebKit carrier for scripts/agent.mjs. Chrome deliberately stays
 // in agent.mjs on its direct CDP pipe; importing Playwright is deferred until
 // one of these browsers is selected.
+import { MalformedOperation, keyArguments } from './agent-keys.mjs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { backLayer, chromium, launchFacts, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
+import { backLayer, chromium, launchFacts, listenOn, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { pageAim } from './agent-aim.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp, webBuildCommand, webDist as defaultWebDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const INSTALL = 'bunx playwright@1.63.0 install firefox webkit';
+const INSTALL = `bunx playwright@${JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).devDependencies['playwright-core']} install firefox webkit`;
 const WORLD_LIMIT = 256 * 1024 * 1024;
 
 const FIREFOX_PREFS = {
@@ -35,8 +36,8 @@ function unavailable(name, error) {
   return new Error(`web carrier unavailable: ${name}: ${message.replace(/\s+/g, ' ').trim()}`);
 }
 
-/** Why the engine `name` (chromium, firefox, webkit) cannot be driven here, or null: Chrome as agent.mjs
- * finds it, Firefox and WebKit as Playwright installs them. For tests to choose themselves (scripts/coverage.mjs). */
+/** Why the engine `name` (chromium, firefox, webkit) cannot be driven here, or null: Chromium as agent-launch.mjs
+ * `chromium` finds it, Firefox and WebKit as Playwright installs them. For tests to choose themselves (scripts/coverage.mjs). */
 export async function browserMissing(name) {
   if (name === 'chromium') return chromium().unavailable;
   const playwright = await import('playwright-core');
@@ -66,7 +67,7 @@ async function assertDist(dist, app) {
   if (!await builtAppMatches(dist, app)) throw staleError(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, '.exact-build.json')}; run ${webBuildCommand(app, dist)}`);
 }
 
-async function files({ plan, pageURL, app, webDist }) {
+async function files({ plan, pageURL, app, webDist, port, env }) {
   const selected = resolveApp(app), dist = resolve(webDist ?? defaultWebDist());
   if (!pageURL) {
     await assertDist(dist, selected);
@@ -90,7 +91,8 @@ async function files({ plan, pageURL, app, webDist }) {
     if (js) return serveBuildTree(served, req, res);
     serveStatic(dist, req, res);
   });
-  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  // `--port`/EXACT_PORT (agent-launch.mjs `webPort`), else a free one.
+  await listenOn(server, port ?? 0, '127.0.0.1', undefined, port != null, env);
   return { js, server, planBuild, url: pageURL ?? `http://127.0.0.1:${server.address().port}/` };
 }
 
@@ -108,7 +110,7 @@ const init = `
 
 async function waitForBoot(page, why = 'the page never booted') {
   try { await page.waitForFunction(() => document.getElementById('exact-root')?.dataset.bootMs != null, null, { timeout: 30000 }); }
-  catch { throw new Error(why); }
+  catch { throw new Error(typeof why === 'function' ? why() : why); }
   await page.evaluate(() => globalThis.exact.ready);
   return Number(await page.locator('#exact-root').getAttribute('data-boot-ms'));
 }
@@ -122,12 +124,12 @@ const keyName = (code) => {
   // Playwright's keyboard names F1–F12 only; Chrome's CDP and the native hosts press F13–F24.
   if (/^F(1[3-9]|2[0-4])$/.test(code)) throw new Error(`key: ${code} is not on Playwright's keyboard (F1–F12); Chrome, macOS, iOS and Linux press it`);
   const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', ContextMenu: 'ContextMenu', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight', Control: 'Control', Alt: 'Alt', Meta: 'Meta' }[code];
-  if (!key) throw new Error(`key: unsupported key ${code}`);
+  if (typeof key !== 'string') throw new MalformedOperation(`key: unsupported key ${code}`);
   return key;
 };
 // A chord (`Shift+Enter`, `Meta+s`, `+`), Playwright's own syntax: the keys
 // to hold down in order, modifiers first.
-const chordKeys = (chord) => {
+export const chordKeys = (chord) => {
   const held = [];
   let rest = chord;
   for (let m; (m = /^(Shift|Control|Alt|Meta)\+(.+)$/.exec(rest)); rest = m[2]) held.push(m[1]);
@@ -214,14 +216,16 @@ export function poolBrowsers() {
 
 /** Open Firefox or WebKit through Playwright. The page still owns Exact's
  * deterministic runner/motion clock; Playwright carries only browser IO. */
-export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts, parity = '' }) {
+export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts, parity = '', port = null, env = process.env }) {
   if (!['firefox', 'webkit'].includes(name)) throw new Error(`browser: chrome, firefox or webkit, not ${name}`);
   const facts = givenFacts ?? launchFacts({});
   if (reuse) await reuse.close(); // Chrome reuse is intentionally not crossed with another engine.
-  const hosted = await files({ plan, pageURL, app, webDist });
+  const hosted = await files({ plan, pageURL, app, webDist, port, env });
   let browserServer, browser, context, page, poolKey;
   // Only Chrome keeps a named store's profile between drives (agent.mjs `openWeb`); here it is this drive's own.
   const hostLines = storage === undefined ? [] : [`${name}: --storage ${storage} is this drive's own profile, emptied when it ends; Chrome keeps a store between drives`];
+  // Why a page never booted: its last 20 lines when the wait gave up, as a hangup's report (agent-wire.mjs).
+  const neverBooted = what => () => `${what}; ${hostLines.slice(-20).join('\n')}`;
   const closeFiles = () => {
     hosted.server.close();
     if (hosted.planBuild) rmSync(hosted.planBuild, { recursive: true, force: true });
@@ -267,7 +271,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
     for (const [key, value] of Object.entries(facts)) address.searchParams.set(key, value);
     if (storage !== undefined) address.searchParams.set('storage', storage);
     await page.goto(address.href, { waitUntil: 'commit' });
-    let boot = await waitForBoot(page, `the page never booted; ${hostLines.join('\n')}`);
+    let boot = await waitForBoot(page, neverBooted('the page never booted'));
     if (await page.evaluate(() => matchMedia('(prefers-reduced-transparency: reduce)').matches)) throw new Error(`${name} cannot emulate the required prefers-reduced-transparency: no-preference launch fact`);
     if (plan && !hosted.js) {
       const carry = world ? worldFile(world).toString('base64') : null;
@@ -279,17 +283,17 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
     }
     const frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
     const evaluate = expression => page.evaluate(expression);
-    const ask = async req => {
+    const rawAsk = async req => {
       if (req.op === 'tap' && req.resize !== undefined) {
         const pair = req.resize;
         if (Object.keys(req).some(k => !['op', 'resize'].includes(k)) || !Array.isArray(pair) || pair.length !== 2
-          || !pair.every(n => Number.isInteger(n) && n >= 64 && n <= 4096) || pair[0] * pair[1] > 8388608) return { error: 'tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields' };
+          || !pair.every(n => Number.isInteger(n) && n >= 64 && n <= 4096) || pair[0] * pair[1] > 8388608) return { malformed: true, error: 'tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields' };
         await page.setViewportSize({ width: pair[0], height: pair[1] }); await frame();
         return { resized: pair, viewport: await page.evaluate(() => [innerWidth, innerHeight]), delivery: 'browser-viewport' };
       }
       // The tab closed with its `beforeunload` run (agent.mjs's Chrome carrier): a prevented one's dialog answered "Stay".
       if (req.op === 'tap' && req.close !== undefined) {
-        if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { error: 'tap close takes no other input fields' };
+        if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { malformed: true, error: 'tap close takes no other input fields' };
         const asked = new Promise(ok => page.once('dialog', ok)), gone = new Promise(ok => page.once('close', () => ok(null)));
         await page.close({ runBeforeUnload: true });
         const dialog = await Promise.race([asked, gone, new Promise(ok => setTimeout(() => ok(undefined), 5000))]);
@@ -302,6 +306,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       if (req.op === 'clock' && await page.evaluate(() => typeof ImageDecoder === 'undefined' && [...document.images].some(i => /\.(gif|webp)(?:[?#]|$)/i.test(i.currentSrc || i.src)))) throw new Error(`${name} clock refuses: this engine has no ImageDecoder, so an animated GIF/WebP would run on wall time`);
       return JSON.parse(await page.evaluate(req => globalThis.exact.agentSettled(req).then(JSON.stringify), req));
     };
+    const ask = req => rawAsk(req).then(MalformedOperation.reply);
     const heldKeys = new Map();
     const emulated = { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'no-preference', 'prefers-contrast': 'no-preference' };
     const focus = async (id, select = true) => {
@@ -315,7 +320,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       return { ok: document.activeElement === el };
     }, view));
     const browserKey = async (id, opts, requireFocus) => {
-      if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
+      keyArguments(opts);
       const isWorld = await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) ?? false, id);
       if (isWorld) { const r = await ask({ op: 'focus', id, world: true }); if (r.error || !r.ok) throw new Error(r.error ?? `view ${id} could not take focus`); }
       else await directFocus(id, requireFocus);
@@ -349,12 +354,12 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         heldKeys.clear();
         await page.evaluate(async (keep) => { sessionStorage.clear(); if (keep) return; localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); }, keep);
         if (!keep) await context.clearCookies();
-        hostLines.length = 0; await page.goto(withEpoch(withFaults(keep ? page.url() : address.href, failFetch), epoch), { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
+        hostLines.length = 0; await page.goto(withEpoch(withFaults(keep ? page.url() : address.href, failFetch), epoch), { waitUntil: 'commit' }); this.boot = await waitForBoot(page, neverBooted('the reused page never booted'));
       },
       ask,
       async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
       async prefer(media, pageFacts, fold = {}, mode = {}) {
-        const unsupported = Object.entries(media).find(([key, value]) => key === 'display-mode' || (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
+        const unsupported = Object.entries(media).find(([key, value]) => key === 'display-mode' || key === 'pointer' || key === 'hover' || (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
         if (unsupported) throw new Error(`${name} prefer cannot emulate ${unsupported[0]} ${unsupported[1]} through Playwright`);
         if (pageFacts['display-scale'] != null && pageFacts['display-scale'] !== 1) throw new Error(`${name} prefer cannot set display-scale ${pageFacts['display-scale']}: a browser's scale is fixed when it launches, and Playwright's is 1 here`);
         Object.assign(emulated, media);
@@ -377,7 +382,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         if (kind === 'history') { const reply = await ask({ op: 'tap', id, history: opts.history }); if (reply.error) throw new Error(reply.error); await frame(); return reply; }
         // @ref LLP 1098 D10 — the handler the browser would call, through the media glue's `act`, as the
         // Chrome carrier delivers it: no box is needed (an `audio` without controls has none).
-        if (kind === 'mediasession') { const r = await page.evaluate(([id, action, seconds]) => globalThis.exact?.mediaSession?.act(id, action, seconds) ?? { error: 'mediasession: this page publishes no media session (no media glue)' }, [id, opts.mediaSession, opts.seconds ?? null]); if (r.error) throw new Error(r.error); await frame(); return r; }
+        if (kind === 'mediasession') { const r = await page.evaluate(([id, action, seconds]) => globalThis.exact?.mediaSession?.act(id, action, seconds) ?? { error: 'mediasession: this page publishes no media session (no media glue)' }, [id, opts.mediaSession, opts.seconds ?? null]); MalformedOperation.reply(r); if (r.error) throw new Error(r.error); await frame(); return r; }
         const box = id == null ? null : (await ask({ op: 'layout' })).nodes.find(n => n.id === id);
         if (id != null && (!box || (box.w === 0 && box.h === 0))) throw new Error(`view ${id} has no box on screen`);
         const point = kind === 'contextmenu' || kind === 'press' ? opts.at : null;

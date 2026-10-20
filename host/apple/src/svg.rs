@@ -12,7 +12,7 @@
 //! these properties: it tracks each animation's start and pause, and never
 //! samples it per frame.
 
-use super::svg_lower::specs;
+use super::svg_lower::{specs, specs_in, transition_specs};
 use crate::batch::Batch;
 use crate::style::num;
 use exact_kernel::id::{IdMap, IdSet};
@@ -50,8 +50,18 @@ pub(crate) const BOX_LOWERED: [Property; 4] = [
     Property::BackgroundColor,
 ];
 
+/// Whether this host has a Core Animation render server to hand motion to.
+/// watchOS has none: its views are SwiftUI, drawn by LLP 1126's drivers
+/// (D10), so every property is sampled there.
+pub(crate) fn render_server() -> bool {
+    !cfg!(target_os = "watchos")
+}
+
 /// Every property Core Animation plays on this host.
 pub(crate) fn lowered(box_motion: bool) -> Vec<Property> {
+    if !render_server() {
+        return Vec::new();
+    }
     let mut all = LOWERED.to_vec();
     if box_motion {
         all.extend(BOX_LOWERED);
@@ -76,6 +86,16 @@ pub(crate) struct SvgState {
     /// Boxes whose lowered animations may have changed, and their last spec.
     boxes: IdSet<ViewId>,
     box_sent: IdMap<ViewId, String>,
+    /// The border box each box's last specs were resolved against: a
+    /// percentage `translate` is resolved in them, so a resize sends them again.
+    box_size: IdMap<ViewId, (f32, f32)>,
+    /// Boxes whose specs carry a played transition: made again each batch,
+    /// so one retargeted, cancelled or ended leaves Core Animation as it
+    /// leaves the engine.
+    played: IdSet<ViewId>,
+    /// Each played transition's spec and the transition it was made for.
+    pub(crate) played_specs:
+        std::collections::BTreeMap<(u64, usize), (exact_motion::TransitionEnds, String)>,
     /// SVG elements with a press handler (LLP 1055.000 D17).
     pressable: IdSet<ViewId>,
     /// Whether a `foreignObject` was met: its boxes are then looked for
@@ -84,6 +104,9 @@ pub(crate) struct SvgState {
     /// Whether boxes' transforms and background colours are lowered
     /// ([`BOX_LOWERED`]): iOS.
     pub(crate) box_motion: bool,
+    /// Whether Core Animation plays boxes' opacity and background-colour
+    /// transitions (`svg_lower::hand_over_transitions`): iOS.
+    pub(crate) play_transitions: bool,
 }
 
 impl SvgState {
@@ -91,6 +114,7 @@ impl SvgState {
     pub(crate) fn new(box_motion: bool) -> Self {
         Self {
             box_motion,
+            play_transitions: box_motion,
             ..Self::default()
         }
     }
@@ -164,11 +188,20 @@ impl SvgState {
         }
     }
 
+    /// A box whose transition Core Animation now plays
+    /// (`svg_lower::hand_over_transitions`): its specs are owed.
+    pub(crate) fn played(&mut self, id: ViewId) {
+        self.played.insert(id);
+        self.boxes.insert(id);
+    }
+
     /// Forget a destroyed node; `true` when it was an SVG element (no view).
     pub(crate) fn destroyed(&mut self, id: ViewId) -> bool {
         self.pressable.remove(&id);
+        self.played.remove(&id);
         self.sent.remove(&id);
         self.box_sent.remove(&id);
+        self.box_size.remove(&id);
         self.boxes.remove(&id);
         match self.elements.remove(&id) {
             Some(root) => {
@@ -233,6 +266,26 @@ impl SvgState {
                 self.sent.insert(root, (scene, bx));
             }
         }
+        let resized: Vec<ViewId> = self
+            .box_size
+            .iter()
+            .filter(|(id, size)| {
+                kernel
+                    .node(**id)
+                    .is_some_and(|n| (n.frame.width, n.frame.height) != **size)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        self.boxes.extend(resized);
+        self.boxes.extend(self.played.iter().copied());
+        // A spec kept for a transition that ended, or whose box went.
+        if !self.played_specs.is_empty() {
+            let live: std::collections::BTreeSet<(u64, usize)> = engine
+                .played_transitions()
+                .map(|(key, p)| (key, p as usize))
+                .collect();
+            self.played_specs.retain(|slot, _| live.contains(slot));
+        }
         let mut boxes: Vec<ViewId> = self.boxes.drain().collect();
         boxes.sort_unstable();
         for id in boxes {
@@ -265,7 +318,30 @@ impl SvgState {
             } else {
                 &[Property::Opacity]
             };
-            let specs = specs(engine, key, props, &underlying);
+            let size = (node.frame.width, node.frame.height);
+            let mut specs = specs_in(
+                engine,
+                key,
+                props,
+                &underlying,
+                Some((size.0 as f64, size.1 as f64)),
+            );
+            let played = transition_specs(engine, key, &mut self.played_specs);
+            if played.is_empty() {
+                self.played.remove(&id);
+            } else {
+                specs.pop();
+                if specs.len() > 1 {
+                    specs.push(',');
+                }
+                specs.push_str(&played.join(","));
+                specs.push(']');
+            }
+            if specs == "[]" {
+                self.box_size.remove(&id);
+            } else {
+                self.box_size.insert(id, size);
+            }
             if self.box_sent.get(&id) != Some(&specs) {
                 batch.animations(id, &specs);
                 if specs == "[]" {
@@ -844,8 +920,75 @@ fn shape_json(
             Property::Stroke,
         ]
     };
-    let specs = specs(engine, key, props, &underlying);
+    let mut specs = specs(engine, key, props, &underlying);
+    if let Some(path) = path_spec(engine, key) {
+        specs.pop();
+        if specs.len() > 1 {
+            specs.push(',');
+        }
+        specs.push_str(&path);
+        specs.push(']');
+    }
     let _ = write!(s, ",\"a\":{specs}");
+}
+
+/// A `d` transition Core Animation plays (LLP 1115.003 D4,
+/// `svg_lower::hand_over_paths`): a `path` spec between the paths at its ends,
+/// in the shape's own space, held at its start through any delay (fill both).
+/// An easing that is no cubic, and a spring's frames, become linear keys.
+fn path_spec(engine: &Engine, key: u64) -> Option<String> {
+    let (from, to, start, curve) = engine.played_path(key)?;
+    let at = |t: f64| {
+        let mut out = String::new();
+        path_json(
+            Some(&exact_kernel::svg::parse_d(&from.lerp(&to, t).to_d())),
+            &mut out,
+        );
+        out
+    };
+    let (duration, keys, cubic): (f64, Vec<(f64, f64)>, Option<[f64; 4]>) = match &curve {
+        exact_motion::PlayedCurve::Easing { easing, duration } => {
+            match super::svg_lower::bezier(easing) {
+                Some(c) => (*duration, vec![(0.0, 0.0), (1.0, 1.0)], Some(c)),
+                None => {
+                    let xs: Vec<f64> = (0..=32).map(|j| j as f64 / 32.0).collect();
+                    (
+                        *duration,
+                        xs.iter().map(|x| (*x, easing.progress(*x))).collect(),
+                        None,
+                    )
+                }
+            }
+        }
+        exact_motion::PlayedCurve::Frames { duration, values } => {
+            let last = values.len().saturating_sub(1).max(1) as f64;
+            let keys = values
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (i as f64 / last, v.x))
+                .collect();
+            (*duration, keys, None)
+        }
+    };
+    if duration <= 0.0 || keys.len() < 2 {
+        return None;
+    }
+    let times: Vec<String> = keys.iter().map(|(t, _)| num(*t as f32)).collect();
+    let values: Vec<String> = keys.iter().map(|(_, p)| at(*p)).collect();
+    let curves = cubic.map_or(String::new(), |c| {
+        format!(
+            "[{},{},{},{}]",
+            num(c[0] as f32),
+            num(c[1] as f32),
+            num(c[2] as f32),
+            num(c[3] as f32)
+        )
+    });
+    Some(format!(
+        "{{\"id\":\"d#{start}#path\",\"k\":\"path\",\"s\":{start},\"dl\":0,\"d\":{duration},\"n\":1,\"t\":[{}],\"v\":[{}],\"c\":[{curves}],\"fill\":3,\"h\":null}}",
+        times.join(","),
+        values.join(",")
+    ))
 }
 
 /// A gradient: `{"lg":[x1,y1,x2,y2]}` or `{"rg":[cx,cy,r,fx,fy,fr]}`, its

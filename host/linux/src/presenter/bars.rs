@@ -63,7 +63,7 @@ struct Seen {
     window: (f32, f32),
     edges: [f32; 4],
     /// The colours a bar is drawn in, which a new palette changes.
-    colors: [[u8; 4]; 4],
+    colors: [[u8; 4]; 8],
 }
 
 /// What the presenter keeps of its shell's bars.
@@ -160,7 +160,7 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn fit_bars(&mut self) -> Option<String> {
         self.bars.painter.as_ref()?;
         let (window, safe, frame) = self.bar_window();
-        let above = (safe[0] + look::TOP_HEIGHT - frame[1]).max(0.0);
+        let above = (safe[0] + look::top_height() - frame[1]).max(0.0);
         let nav = look::nav_height(self.bar_font_scale());
         let below = (frame[1] + frame[3] - (window.1 - safe[2] - nav)).max(0.0);
         match self.host.set_bar_room(Some((above, below))) {
@@ -254,8 +254,11 @@ impl<D: DataSource> Presenter<D> {
         let top = (bars.routes.iter())
             .find(|r| Some(r.route) == route)
             .map(|r| {
+                // A readout (`role="status"`, LLP 1075.003 §9.15) is no
+                // button, and Material's top app bar has no item for it.
                 let buttons = |ids: &[ViewId]| -> Vec<Button> {
                     (ids.iter())
+                        .filter(|id| r.shape.items.contains(id))
                         .filter_map(|id| self.bar_button(*id, dark))
                         .collect()
                 };
@@ -295,6 +298,7 @@ impl<D: DataSource> Presenter<D> {
         if self.bars.painter.is_none() {
             return;
         }
+        let _roles = self.host.runner().bind_roles(); // The bars' look resolves them.
         let (window, safe, _) = self.bar_window();
         let (dark, font_scale) = (self.dark(), self.bar_font_scale());
         let epoch = self.host.kernel().epoch();
@@ -306,14 +310,24 @@ impl<D: DataSource> Presenter<D> {
                 .filter(|_| barred)
                 .and_then(|route| self.content_scroller(route));
         }
+        use super::palette::{material, Material};
         use super::top::look::Role;
-        let colors = [
+        let [a, b, c, d] = [
             Role::Surface,
             Role::SurfaceContainer,
             Role::OnSurface,
             Role::Primary,
         ]
         .map(|role| role.color(dark));
+        // And those the navigation bar reads by Material's names.
+        let [e, f, g, h] = [
+            Material::OnSurfaceVariant,
+            Material::SecondaryContainer,
+            Material::Secondary,
+            Material::OnSecondaryContainer,
+        ]
+        .map(|role| material(role, dark).unwrap_or_default());
+        let colors = [a, b, c, d, e, f, g, h];
         let seen = Seen {
             dark,
             font_scale,
@@ -481,7 +495,9 @@ impl<D: DataSource> Presenter<D> {
                 // Read before the tab's press, scrolled after it.
                 let root = self.reselected_root(node);
                 if (self.host.runner().handlers_of(node)).contains(&EventKind::Press) {
-                    self.dispatch_press(node, now_ms, true);
+                    self.press_then_follow(node, now_ms, true);
+                } else if let Some(key) = self.host.kernel().node(node).map(|n| n.key) {
+                    self.follow_invocation(key, node, now_ms);
                 }
                 let scroller = root
                     .filter(|route| self.reselected_root(node) == Some(*route))

@@ -1,6 +1,7 @@
 import {test,expect} from 'bun:test';
 import {focusController} from '../navigation.js';
 import {createInputHandlers} from '../input-glue.js';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 // Production focus transaction, including autofocus during the dispatched commit.
 test('E11 only enclosing canvases receive pointer focus; new autofocus wins',()=>{
@@ -157,10 +158,8 @@ test('declared shortcuts support named keys and leave text input and composition
 // the page's own colour.
 test('bare fields restore keyboard focus and a disabled native field is the look\'s grey, not the page\'s ink', async () => {
   const {readFileSync} = await import('node:fs');
-  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
-  const {chromium} = await import('playwright-core');
   const {withLook} = await import('../look.mjs');
-  const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     const css = withLook(readFileSync(new URL('../index.html', import.meta.url), 'utf8')).match(/<style>([\s\S]*?)<\/style>/)[1];
@@ -203,11 +202,8 @@ test('bare fields restore keyboard focus and a disabled native field is the look
 
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native buttons keep the UA focus ring and bare buttons restore it`, async () => {
   const {readFileSync} = await import('node:fs');
-  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
-  const playwright = await import('playwright-core');
   const {withLook} = await import('../look.mjs');
-  const browser = await playwright[engine].launch({headless: true,
-    ...(engine === 'chromium' ? {executablePath: browserPath().executable} : {})});
+  const browser = await suiteBrowser(engine);
   try {
     const page = await browser.newPage();
     const reference = await browser.newPage();
@@ -259,13 +255,11 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native 
 // #282: the real HTML dialog path, reached through the JS target's commands.
 test('action dialog commands keep modal focus and preserve bare close as window close', async () => {
   const {readFileSync} = await import('node:fs');
-  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
-  const {chromium} = await import('playwright-core');
-  const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     await page.setContent('<div id="exact-root"><button id="opener">Open</button><button id="outside">Outside</button><dialog id="form"><button id="first">First</button><button id="last">Last</button></dialog><div id="box"></div></div><dialog id="other"></dialog>');
-    const source = readFileSync(new URL('../../web-js/commands.js', import.meta.url), 'utf8').replace(/^import .*;$/m, '').replace('export const commands', 'const commands');
+    const source = readFileSync(new URL('../../web-js/commands.js', import.meta.url), 'utf8').replace(/^import .*$/gm, '').replace('export const commands', 'const commands');
     await page.addScriptTag({content: `${source}\nwindow.journal=[];window.quit=0;window.close=()=>quit++;window.hostCommands=commands(line=>journal.push(line));`});
     const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
     const runtime = readFileSync(new URL('../../web-js/rt.js', import.meta.url), 'utf8');
@@ -276,7 +270,7 @@ test('action dialog commands keep modal focus and preserve bare close as window 
       ${glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('))}
       attach(el, 1, ['close']);
       const clock = {agent: true, now: 0, timers: []}, start = 0, Mutations = [], OnHooks = {}, Owner = null;
-      const onEnd = () => {};
+      const onEnd = () => {}; let Propagating = null;
       ${runtime.slice(runtime.indexOf('export function on('), runtime.indexOf('// Each event family')).replace('export function', 'function')}
       on(el, 'close', () => jsClosed.push(document.activeElement.id));
     })();`});
@@ -325,8 +319,6 @@ test('action dialog commands keep modal focus and preserve bare close as window 
 }, 60000);
 
 test('a queued dialog close cannot act after its conditional scope ends', async () => {
-  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
-  const {chromium} = await import('playwright-core');
   const server = Bun.serve({port: 0, hostname: '127.0.0.1', async fetch(req) {
     const path = new URL(req.url).pathname;
     if (path === '/') return new Response('<div id="exact-root"><button id="opener">Open</button><div id="branch"></div></div>', {headers: {'Content-Type': 'text/html'}});
@@ -336,7 +328,7 @@ test('a queued dialog close cannot act after its conditional scope ends', async 
     const file = await local.exists() ? local : Bun.file(new URL(`../../..${path.replace('/web-js/', '/web/')}`, import.meta.url));
     return await file.exists() ? new Response(file) : new Response(null, {status: 404});
   }});
-  const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     for (const retain of [false, true]) {

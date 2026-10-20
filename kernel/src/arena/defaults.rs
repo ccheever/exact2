@@ -56,11 +56,16 @@ static TAB_BAR: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DefaultContext {
+    pub alert: u8,
     pub header: bool,
     pub inside_header: bool,
     pub tab_bar: bool,
     pub tab: bool,
     pub native_tab: bool,
+    /// [`NodeArena::said_style_rows`].
+    pub said_style: StyleMask,
+    /// [`NodeArena::ink_said`]: a move can change it with the colour equal.
+    pub ink_said: bool,
 }
 
 impl NodeArena {
@@ -125,11 +130,14 @@ impl NodeArena {
 
     pub(crate) fn default_context(&self, slot: u32) -> DefaultContext {
         DefaultContext {
+            alert: self.alert_context(slot),
             header: self.is_neutral_header(slot),
             inside_header: self.inside_neutral_header(slot),
             tab_bar: self.is_neutral_tab_bar(slot),
             tab: self.is_neutral_tab(slot),
             native_tab: self.neutral_tab_root(slot).is_some(),
+            said_style: self.said_style_rows(slot),
+            ink_said: self.ink_said(slot),
         }
     }
 
@@ -150,10 +158,13 @@ impl NodeArena {
         ]
         .into_iter()
         .flatten()
+        .chain(self.alert_start(slot))
     }
 
     pub(crate) fn style_starts(&self, slot: u32) -> impl Iterator<Item = &StyleProps> {
+        // A style the author names beats a control's own type.
         self.structural_starts(slot)
+            .chain(self.text_style_start(slot))
             .chain(self.control_text_start(slot))
     }
 
@@ -202,6 +213,22 @@ impl NodeArena {
     /// not mark inherited, keep the effective own rows, including structural
     /// defaults below stored values and authored clears. One walk.
     pub fn computed_style(&self, slot: u32, rows: StyleMask) -> StyleProps {
+        let mut out = self.computed_rows(slot, rows);
+        if self.bold_text && (rows.has(StyleId::FontWeight) || out.mask.has(StyleId::FontWeight)) {
+            let family = self.computed_source(slot, StyleId::FontFamily).font_family;
+            let weight = self.emboldened(slot, out.font_weight, family);
+            if weight != out.font_weight {
+                // Said, so a host sent the rows paints what was measured.
+                out.font_weight = weight;
+                out.mask.set(StyleId::FontWeight);
+            }
+        }
+        out
+    }
+
+    /// [`Self::computed_style`] as CSS computes it, before Bold Text (LLP
+    /// 1115.000 D12.3): what a cascade of its own (an SVG's) starts from.
+    pub(crate) fn computed_rows(&self, slot: u32, rows: StyleMask) -> StyleProps {
         let mut out = self.effective_style(slot).into_owned();
         self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
         out
@@ -227,17 +254,54 @@ impl NodeArena {
             }
             cur = self.parents[s as usize];
         }
+        // A bare `font-size` style fills what nothing above says (LLP
+        // 1115.000 D12.2).
+        if let Some((_, style)) = self.bare_text_style(slot, id) {
+            return style;
+        }
         if self.document_style.mask.has(id) {
             return &self.document_style;
         }
         &self.styles[slot as usize]
     }
 
+    /// The slot whose text style supplies inherited row `id` for `slot`
+    /// (LLP 1115.000 D12.2): one that names it through the `font`
+    /// shorthand, where nothing written stops the walk first, or the
+    /// nearest bare `font-size` style when nothing above says the row.
+    pub fn text_style_source(&self, slot: u32, id: StyleId) -> Option<u32> {
+        let mut cur = Some(slot);
+        while let Some(s) = cur {
+            let own = &self.styles[s as usize];
+            if own.mask.has(id) {
+                return None;
+            }
+            if self
+                .text_style_start(s)
+                .is_some_and(|start| start.mask.has(id) && !own.written.has(id))
+            {
+                return Some(s);
+            }
+            if self
+                .style_starts(s)
+                .any(|start| start.mask.has(id) && !own.written.has(id))
+                || !id.inherited()
+            {
+                return None;
+            }
+            cur = self.parents[s as usize];
+        }
+        self.bare_text_style(slot, id).map(|(s, _)| s)
+    }
+
     /// The computed text style without copying unrelated rows.
     pub fn text_style(&self, slot: u32) -> crate::text::TextStyle {
-        crate::text::TextStyle::from_rows(&self.styles[slot as usize], |rows, take| {
-            self.copy_inherited(slot, rows, take)
-        })
+        let mut style =
+            crate::text::TextStyle::from_rows(&self.styles[slot as usize], |rows, take| {
+                self.copy_inherited(slot, rows, take)
+            });
+        self.embolden(slot, &mut style);
+        style
     }
 
     /// Inherited values for comparison across a topology change.
@@ -246,6 +310,15 @@ impl NodeArena {
         self.copy_inherited(slot, StyleMask::INHERITED, |from, mask| {
             out.copy_rows(from, mask)
         });
+        if self.bold_text {
+            let weight = self.computed_source(slot, StyleId::FontWeight).font_weight;
+            let family = self.computed_source(slot, StyleId::FontFamily).font_family;
+            let bold = StyleProps {
+                font_weight: self.emboldened(slot, weight, family),
+                ..StyleProps::default()
+            };
+            out.copy_rows(&bold, StyleMask::of(StyleId::FontWeight));
+        }
         out
     }
 
@@ -259,9 +332,23 @@ impl NodeArena {
             .intersect(StyleMask::INHERITED)
             .minus(self.styles[slot as usize].mask);
         let mut cur = Some(slot);
+        // Per row, the nearest bare `font-size` style on the way up whose
+        // node does not write the row (LLP 1115.000 D12.2): a style gives
+        // two rows, so two fills at most.
+        let mut bare: [Option<(&StyleProps, StyleMask)>; 2] = [None, None];
+        let mut claimed = StyleMask::default();
         while !pending.is_empty() {
             let Some(p) = cur else { break };
             let ancestor: &StyleProps = &self.styles[p as usize];
+            if let Some(rows) = self.bare_style_rows(p) {
+                let claim = rows.mask.minus(ancestor.written).minus(claimed);
+                if let Some(free) = bare.iter_mut().find(|b| b.is_none()) {
+                    if !claim.is_empty() {
+                        *free = Some((rows, claim));
+                        claimed = claimed.union(claim);
+                    }
+                }
+            }
             let found = pending.intersect(ancestor.mask);
             if !found.is_empty() {
                 copy(ancestor, found);
@@ -275,6 +362,14 @@ impl NodeArena {
                 }
             }
             cur = self.parents[p as usize];
+        }
+        // What nothing above says, a bare style fills.
+        for (style, claim) in bare.into_iter().flatten() {
+            let found = pending.intersect(claim);
+            if !found.is_empty() {
+                copy(style, found);
+                pending = pending.minus(found);
+            }
         }
         let found = pending.intersect(self.document_style.mask);
         if !found.is_empty() {

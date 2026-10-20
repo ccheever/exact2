@@ -29,7 +29,7 @@ impl Lowerer<'_> {
             );
         }
         if (event == "beforeinput" || event == "selectionchange" && tag != "text")
-            && control != Some("field")
+            && !contract_syntax::edits_text(control)
         {
             return err(
                 "lower-attr-tag",
@@ -59,7 +59,7 @@ impl Lowerer<'_> {
         // prop names the real action here: its arity is checked now,
         // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
         let valid = contract_analyze::handler_accepts(
-            if event == "selectionchange" && control == Some("field") {
+            if event == "selectionchange" && contract_syntax::edits_text(control) {
                 "beforeinput"
             } else {
                 event

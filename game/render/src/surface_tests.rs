@@ -1,4 +1,6 @@
 use super::*;
+#[path = "surface_tests/trace.rs"]
+mod trace;
 use exact_game::{Camera, Input, Mesh, Transform, Vec3};
 use exact_gpu::{fixture, Gpu};
 
@@ -19,6 +21,7 @@ impl Game for Move {
         w.spawn((Transform::at(0., 0., 8.), Camera::default()));
     }
     fn tick(w: &mut World, _: &Input, args: &Self::Args) {
+        let _span = w.span("move");
         if args.r#move {
             for (_, (_, t)) in w.query::<(&Mesh, &mut Transform)>().iter() {
                 t.position.x += 1.;
@@ -771,8 +774,8 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
     let work = original.render.as_ref().unwrap().0.asset_work();
     assert_eq!(
         work,
-        (10, 4),
-        "both winding variants and one shared texture plus three defaults"
+        (0, 4),
+        "geometry and textures upload before drawing; pipeline variants follow the scene"
     );
     let renderer = &original.render.as_ref().unwrap().0 as *const _;
     for _ in 0..2 {
@@ -784,7 +787,13 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
             "matching presentation/readback format must not rebuild or upload"
         );
     }
-    for tick in 0..=30 {
+    fixture::render(&gpu, &mut original, &frame(0.)).unwrap();
+    let work = original.render.as_ref().unwrap().0.asset_work();
+    assert!(
+        work.0 > 0 && work.0 < 44,
+        "only the drawn scene variants compile"
+    );
+    for tick in 1..=30 {
         fixture::render(&gpu, &mut original, &frame(tick as f64 * 1000. / 60.)).unwrap();
         assert_eq!(
             original.render.as_ref().unwrap().0.asset_work(),
@@ -1140,7 +1149,7 @@ impl Game for Socketed {
     type Args = SocketLook;
     fn setup(w: &mut World, _: &SocketLook) {
         w.insert_resource(exact_game::Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             bloom: None,
             fog: None,
             ..Default::default()
@@ -1259,4 +1268,133 @@ fn offsets_move_socketed_props_with_their_owner_and_alone() {
         (prop.1 - still.1 + 20.).abs() < 3. && (prop.0 - still.0).abs() < 3.,
         "{still:?} -> {prop:?}"
     );
+}
+
+#[path = "surface_pose_tests.rs"]
+mod poses;
+
+#[test]
+fn srgb_target_matches_shader_transfer_after_hdr_rendering() {
+    use exact_game::{Environment, Material, SceneSamples};
+    struct Transfer;
+    impl Game for Transfer {
+        type Args = ();
+        const ID: &'static str = "srgb-output-pixels";
+        const SAMPLES: SceneSamples = SceneSamples::One;
+        fn setup(w: &mut World, _: &()) {
+            for (i, value) in [0.001, 0.003, 0.01, 0.05, 0.2, 0.5, 1., 2., 8.]
+                .into_iter()
+                .enumerate()
+            {
+                w.spawn((
+                    Transform::at((i % 3) as f32 - 1., (i / 3) as f32 - 1., 0.),
+                    Mesh::cube(0.8),
+                    Material {
+                        emissive: [value, value * 0.5, value * 0.2],
+                        ..Material::rgb(0., 0., 0.)
+                    },
+                ));
+            }
+            w.spawn((Transform::at(0., 0., 6.), Camera::default()));
+            w.insert_resource(Environment {
+                fog: None,
+                ..Default::default()
+            });
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let draw = |format| {
+        let mut s = WorldSurface::<Transfer>::default();
+        assert!(s.srgb_target());
+        s.bind(&[], None).unwrap();
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("sRGB transfer comparison"),
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        for _ in 0..4 {
+            s.prepare_assets(&gpu.device, &gpu.queue, format);
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            s.render(
+                &frame(0.),
+                &gpu.device,
+                &gpu.queue,
+                &mut encoder,
+                &view,
+                format,
+            );
+            gpu.queue.submit([encoder.finish()]);
+            s.submitted();
+            assert!(s.error().is_none(), "{:?}", s.error());
+        }
+        fixture::read(&gpu, &texture).unwrap()
+    };
+    let shader = draw(wgpu::TextureFormat::Rgba8Unorm);
+    let hardware = draw(wgpu::TextureFormat::Rgba8UnormSrgb);
+    assert!(shader
+        .data
+        .iter()
+        .zip(&hardware.data)
+        .all(|(a, b)| a.abs_diff(*b) <= 1));
+    assert!(
+        !WorldSurface::<Move>::default().srgb_target(),
+        "the four-sample path is unchanged"
+    );
+}
+
+#[test]
+fn world_perf_difference_reads_only_the_requested_ticks_over_the_wire() {
+    #[derive(Default, exact_game::Data)]
+    struct Sample {
+        count: u64,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct Spans {
+        spans: Vec<Sample>,
+        error: String,
+    }
+    #[allow(non_snake_case)]
+    #[derive(Default, exact_game::Data)]
+    struct Metrics {
+        tickSpans: Spans,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct WorldState {
+        perf: Metrics,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct Reply {
+        world: WorldState,
+    }
+    let mut s = surface();
+    s.agent(r#"{"op":"clock","now":0}"#);
+    s.agent(r#"{"op":"state","perf":true}"#);
+    s.agent(r#"{"op":"clock","now":34}"#);
+    let read = |text: String| {
+        exact_game::json::from_str::<Reply>(&text)
+            .unwrap()
+            .world
+            .perf
+            .tickSpans
+    };
+    let window = read(s.agent(r#"{"op":"state","span_since":1}"#).unwrap());
+    assert!(!window.spans.is_empty());
+    assert!(window.spans.iter().all(|s| s.count == 1));
+    let all = read(s.agent(r#"{"op":"state","span_since":0}"#).unwrap());
+    assert!(all.spans.iter().all(|s| s.count == 2));
+    let backwards = read(s.agent(r#"{"op":"state","span_since":3}"#).unwrap());
+    assert!(backwards.error.contains("counters went back"));
 }

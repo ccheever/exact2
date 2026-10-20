@@ -27,6 +27,37 @@
 pub mod asm;
 pub mod builder;
 pub mod bytes;
+mod entry;
+pub mod pool;
+pub use entry::entry_identifier;
+/// ActivityKit's ordered placement identities (LLP 1126.001 WP8).
+pub const ACTIVITY_PLACEMENTS: [&str; 8] = [
+    "lockScreen",
+    "compactLeading",
+    "compactTrailing",
+    "minimal",
+    "expanded.leading",
+    "expanded.trailing",
+    "expanded.center",
+    "expanded.bottom",
+];
+/// `haptic(kind)`'s kinds, a sequence step's too (LLP 1077 D14): the
+/// presses `-exact-press-haptic` takes (`PressHaptic` in the kernel's schema),
+/// `impact` (`impact-medium`'s), and the outcomes, which an action plays and a
+/// press does not, since at touch-down nothing has succeeded yet.
+pub const HAPTIC_KINDS: [&str; 10] = [
+    "selection",
+    "impact",
+    "impact-light",
+    "impact-medium",
+    "impact-heavy",
+    "impact-soft",
+    "impact-rigid",
+    "success",
+    "warning",
+    "error",
+];
+
 pub mod shared;
 pub mod strings;
 pub mod value;
@@ -72,6 +103,8 @@ pub enum PlanError {
         available: usize,
     },
     BadMagic,
+    /// A running host received a snapshot, or the snapshot reader received another entry.
+    WrongEntry,
     UnsupportedVersion(u32),
     FormatDigestMismatch {
         expected: u64,
@@ -127,16 +160,21 @@ pub enum PlanError {
         mutation: u32,
         slot: u32,
     },
-    /// A static face weight is outside CSS Fonts' 1–1000 domain.
+    /// A face's weight range leaves CSS Fonts' 1–1000 domain or runs
+    /// backwards.
     FaceWeight {
         face: u32,
         weight: u16,
+    },
+    /// A face's stretch range is empty or runs backwards.
+    FaceStretch {
+        face: u32,
     },
     /// A face source is not a portable local relative path.
     FaceSource {
         face: u32,
     },
-    /// A family repeats one static `(weight, italic)` coordinate.
+    /// A family repeats one `(weight range, stretch range, italic)` face.
     DuplicateFace {
         family: u32,
         face: u32,
@@ -221,6 +259,42 @@ impl Plan {
     /// progress. Called by the generated `validate`, so every loaded or built
     /// plan has passed it.
     pub fn validate_semantics(&self) -> Result<(), PlanError> {
+        let activity = !self.activity_slots.is_empty();
+        if self.snapshot_entry.is_empty() {
+            if self.snapshot_refresh.is_some() || activity {
+                return Err(PlanError::WrongEntry);
+            }
+        } else if self.snapshot_refresh.is_some() == activity {
+            return Err(PlanError::WrongEntry);
+        }
+        if activity {
+            if self.activity_slots.len() != ACTIVITY_PLACEMENTS.len() {
+                return Err(PlanError::WrongEntry);
+            }
+            let roots: Vec<_> = self
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.parent == Some(NodesId(0)) && n.arm.is_none())
+                .map(|(i, _)| i as u32)
+                .collect();
+            for (i, slot) in self.activity_slots.iter().enumerate() {
+                if self.str(slot.name) != ACTIVITY_PLACEMENTS[i]
+                    || roots.get(i) != Some(&slot.root.0)
+                {
+                    return Err(PlanError::WrongEntry);
+                }
+            }
+            if roots.len() != ACTIVITY_PLACEMENTS.len()
+                || !self.slots.iter().any(|s| {
+                    self.str(s.name) == "snapshot_state"
+                        && s.owner.is_none()
+                        && self.type_(s.ty).kind == TypeKind::Record
+                })
+            {
+                return Err(PlanError::WrongEntry);
+            }
+        }
         // @ref LLP 1038 D2 — declaration order and the one root router slot.
         let mut notfound = false;
         for (i, route) in self.routes.iter().enumerate() {
@@ -390,11 +464,16 @@ impl Plan {
             if !is_portable_asset_path(self.str(face.source)) {
                 return Err(PlanError::FaceSource { face: i as u32 });
             }
-            if !(1..=1000).contains(&face.weight) {
+            if !(1..=1000).contains(&face.weight)
+                || !(face.weight..=1000).contains(&face.weight_max)
+            {
                 return Err(PlanError::FaceWeight {
                     face: i as u32,
                     weight: face.weight,
                 });
+            }
+            if face.stretch_min == 0 || face.stretch_max < face.stretch_min {
+                return Err(PlanError::FaceStretch { face: i as u32 });
             }
         }
         for (i, family) in self.families.iter().enumerate() {
@@ -402,7 +481,13 @@ impl Plan {
             let mut coordinates = Vec::new();
             for face_id in family.faces.iter() {
                 let face = self.face(face_id);
-                let coordinate = (face.weight, face.italic);
+                let coordinate = (
+                    face.weight,
+                    face.weight_max,
+                    face.stretch_min,
+                    face.stretch_max,
+                    face.italic,
+                );
                 if coordinates.contains(&coordinate) {
                     return Err(PlanError::DuplicateFace {
                         family: i as u32,
@@ -452,6 +537,28 @@ impl Plan {
             })
         {
             return Err(PlanError::GenericStacks);
+        }
+        // @ref LLP 1121 D8 — looks by node, then state, one a state a node
+        // (hosts binary-search by node).
+        if let Some(i) = self
+            .looks
+            .windows(2)
+            .position(|pair| (pair[0].node.0, pair[0].state) >= (pair[1].node.0, pair[1].state))
+        {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32 + 1,
+                field: "node",
+            });
+        }
+        // A look is `:hover` (1) or `:focus-visible` (2): `:active` (0) lowers
+        // to the press paint (LLP 1121 D8 as amended 2026-10-18).
+        if let Some(i) = self.looks.iter().position(|l| !(1..=2).contains(&l.state)) {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32,
+                field: "state",
+            });
         }
         self.validate_texts()?;
         self.validate_site_depth()?;
@@ -738,6 +845,12 @@ pub const RUNNER_OWNED_SOURCES: &[&str] = &[
     "exactPage",
     "exactSurface",
     "exactTime",
+    "exactTransport",
+    "exactMIDI",
+    "exactActivities",
+    "startActivity",
+    "updateActivity",
+    "endActivity",
 ];
 
 /// Whether the runner answers `name` ([`RUNNER_OWNED_SOURCES`]).
@@ -758,17 +871,27 @@ impl Plan {
     /// Declare a hatch word and the platforms that handle it, after
     /// lowering: the row comes from `app.json`, not from Contract.
     pub fn add_hatch(&mut self, word: &str, platforms: u16) {
-        let id = match self.strings.iter().position(|s| s == word) {
+        let found = self.strings.iter().position(|s| s == word);
+        let id = match found {
             Some(i) => StrId(i as u32),
             None => {
-                self.strings.push(word.to_string());
-                StrId(self.strings.len() as u32 - 1)
+                let id = StrId(self.strings.len() as u32);
+                self.strings.push(word);
+                id
             }
         };
         self.hatches.push(HatchesRow {
             word: id,
             platforms,
         });
+    }
+
+    /// The native module row of source `name`, when a module answers it
+    /// rather than the app's data (LLP 1133.002 D13).
+    pub fn module_named(&self, name: &str) -> Option<&ModulesRow> {
+        self.modules
+            .iter()
+            .find(|m| self.str(self.sources[m.source.0 as usize].name) == name)
     }
 
     /// Whether `platform`'s module handles `word`, as the plan says it: true

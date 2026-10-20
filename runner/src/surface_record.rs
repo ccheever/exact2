@@ -98,7 +98,12 @@ fn shaped(
     Ok(match (row.kind, json) {
         (TypeKind::Number, None) => Value::Number(0.0),
         (TypeKind::Bool, None) => Value::Bool(false),
-        (TypeKind::String, None) => Value::str(""),
+        (TypeKind::String, None) => Value::str(
+            row.fields
+                .iter()
+                .next()
+                .map_or("", |f| plan.str(plan.field(f).name)),
+        ),
         (TypeKind::Unit, None | Some(Json::Null)) => Value::Unit,
         (TypeKind::Number, Some(Json::Scalar(v @ Value::Number(_))))
         | (TypeKind::Bool, Some(Json::Scalar(v @ Value::Bool(_))))

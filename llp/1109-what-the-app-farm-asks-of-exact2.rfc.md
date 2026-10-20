@@ -1,7 +1,7 @@
 # LLP 1109: What the app farm asks of Exact2 — the decisions left after round 1
 
 **Type:** RFC (a decision brief: each item proposes, Charlie decides)
-**Status:** Accepted, 2026-10-08: every question ruled by Charlie (§R). D1 is implemented (`9731c8056`); D3 is implemented (`513450bda`); D2 is "no change".
+**Status:** Accepted, 2026-10-08: every question ruled by Charlie (§R). D1 is implemented (`9731c8056`); D3 is implemented (`513450bda`), and amended 2026-10-12 with `failure(x).reason`; D2 is "no change".
 **Systems:** Contract's `now()` (the roster, the runner's clock and every host's clock origin, the JS target's runtime, the Lean semantics and `contract-difftest`); the data seam's answer check (`host/web-js/ts-data.js`, `js/src/lib.rs`, `js/web/src/lib.rs`, the runner's `conform`); `failed(x)`; the agent driver and authored tests (`scripts/agent.mjs`, `scripts/agent-test.mjs`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-08
@@ -52,6 +52,59 @@
   web's and Apple's plain HTTP, `refused` on Apple's event stream; the
   server answered, so `offline`'s "reached no server" is wrong, and a
   retry gets the same answer).
+- **D3, amended: `failure(x).reason` (author ruling 2026-10-12, via the
+  sb4 app farm).** The farm's wave 4 (014) branched on a Snapback query's
+  `require … else NOT_MANAGER` only with `startsWith(f.message, …)`.
+  `failure(x).code` keeps its closed six-word list on every host; no seventh
+  code. `Failure` gains a third field, `reason`: the server's refusal code
+  (`SLOT_FULL`, `E_RULE`) when the failure came from a Snapback refusal,
+  `""` otherwise, the same on the web and native runners.
+  *Implemented:* the mechanism is generic and the driver uses it. A
+  TypeScript source's thrown (or let-through) error with a string `reason`
+  property carries it (host/web-js `shape.js` `failureReason`, js/src
+  `prelude.js` `fail`); natively it crosses the seam as
+  `DataError::Failed(code, message, reason)` (an `error` with a reason is
+  `Failed`, not `Unavailable`), the worker envelope carries it, and the VM's
+  `Failure` record is `{ code, message, reason }` by position (the
+  compiler's shape, `vm.rs`, the JS target's `r_N.e()`, the Lean VM model's
+  `failureValue`). A Rust source's own error has none. The snapback4
+  driver's `refused(why)` sets `reason` to the refusal's code (so
+  `E_OFFLINE` is `offline` with reason `E_OFFLINE`), and now defines, not
+  assigns, the `FetchError` name it gives `E_OFFLINE`: on Hermes
+  `Error.prototype.name` is read-only, so the assignment threw and a native
+  `E_OFFLINE` was `error`.
+
+### EX5 amendment: domain codes, mutation status and finite strings
+
+Commissioned by Charlie’s wave-10 EX5 brief, 2026-10-13; implementer Codex.
+This replaces D3’s six-code restriction for a source’s domain failures: the exposed
+`Failure.code` is its nonempty `reason`, otherwise the infrastructure class. The
+internal `FailureCode` still classifies transport/storage/shape failures; a source
+whose error carries `reason: "SLOT_FULL"` exposes that code directly on every host.
+`reason` remains available. Snapback’s `refused` helper already carries this string.
+
+`failed(x)` and `failure(x)` also accept mutations. One latest failure per mutation,
+not a history: cleared on new send, assignment or successful answer. A failed admitted
+request keeps the previous result, runs no `then`, and is never automatically retried.
+Superseded tickets cannot overwrite the current status. Status participates in view
+and derive invalidation and commit rollback. A synchronous action refusal still rolls
+back the action rather than committing a partial send. New validated mutation opcodes
+address the mutation table; no resource/mutation index overloading.
+
+Finite strings use `enum<"draft", "published">` in parameter and shape type positions.
+Nonempty, distinct quoted members; string values at the seam, string-literal unions
+in generated TypeScript. Literal arguments must belong to the vocabulary; dynamic
+arguments need the declared enum type. A finite vocabulary is a subtype of string:
+ordinary string consumers accept it, including routes, localization, surface messages,
+string commands and keys; enum destinations still enforce membership. Shape answers are checked for membership on
+native and web runners. Placeholder zero is the first member. The existing plan string
+row carries members in its fields, with primitive-string field types; no new TypeKind.
+The Lean expression backend erases finite strings to strings (evaluation representation),
+so membership admission is separately covered by compiler and native/web shape tests.
+
+The UI’s virtual clock advances only Exact timers and motion. `epoch now` aligns
+launch time once; later seeks do not advance Snapback’s clock, auth expiry or jobs.
+Server scheduling proofs use the server’s own clock controls.
 
 ## 0. Summary
 

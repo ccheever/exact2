@@ -17,6 +17,7 @@ fn written(
         props: &props,
         is_root: false,
         inline_run: false,
+        symbol_color: false,
     })
 }
 
@@ -90,6 +91,7 @@ fn a_progress_with_a_value_is_htmls_progress_element() {
         props: &props,
         is_root: false,
         inline_run: false,
+        symbol_color: false,
     };
     assert_eq!(super::tag_of(&facts, false), "progress");
     assert_eq!(
@@ -135,6 +137,7 @@ fn a_progress_is_a_busy_progressbar_box_the_page_draws_a_ring_in() {
         props: &props,
         is_root: false,
         inline_run: false,
+        symbol_color: false,
     };
     assert_eq!(super::tag_of(&facts, false), "div");
     assert_eq!(super::tag_of(&facts, true), "span", "in a button");
@@ -174,6 +177,7 @@ fn a_progress_is_a_busy_progressbar_box_the_page_draws_a_ring_in() {
             props: &PropList::default(),
             is_root: false,
             inline_run: false,
+            symbol_color: false,
         };
         let css = super::host_css_of(&facts, Some(&parent), String::new(), "div");
         assert!(!css.contains("justify-self"), "{display:?}: {css}");
@@ -200,6 +204,7 @@ fn a_date_or_time_control_takes_the_field_look_unless_the_author_has_it() {
             props: &props,
             is_root: false,
             inline_run: false,
+            symbol_color: false,
         })
         .contains_key("data-exact-field")
     };
@@ -233,6 +238,7 @@ fn a_textfield_appearance_is_native_and_marked_for_the_page() {
             props: &props,
             is_root: false,
             inline_run: false,
+            symbol_color: false,
         });
         (
             out.contains_key("data-native"),
@@ -265,6 +271,7 @@ fn a_link_out_of_the_app_opens_a_new_browsing_context() {
             props: &props,
             is_root: false,
             inline_run: false,
+            symbol_color: false,
         });
         let get = |k: &str| out.get(k).cloned();
         (get("target"), get("rel"))
@@ -399,6 +406,7 @@ fn svg_geometry_attributes_preserve_css_lengths() {
             props: &props,
             is_root: false,
             inline_run: false,
+            symbol_color: false,
         };
         let mut out = super::SortedMap::new();
         super::svg_props_of(&|_, _| None, &facts, &mut out);
@@ -447,10 +455,73 @@ fn complex_svg_geometry_attributes_take_the_initial_value() {
                 props: &props,
                 is_root: false,
                 inline_run: false,
+                symbol_color: false,
             };
             let mut out = super::SortedMap::new();
             super::svg_props_of(&|_, _| None, &facts, &mut out);
             assert!(out.get(name).is_none(), "{kind:?}: {length}");
         }
     }
+}
+
+/// A browser has no layout regions (LLP 1123 D10): each is written as the
+/// safe area it resolves to on every host that reports none, its offset
+/// and any calculation around it kept.
+#[test]
+fn a_layout_region_is_the_browsers_safe_area() {
+    use exact_kernel::{StyleId, StyleValue};
+    for (text, css) in [
+        (
+            "env(-exact-layout-margins-inset-left)",
+            "padding-left:env(safe-area-inset-left)",
+        ),
+        (
+            "env(-exact-readable-content-corners-inset-right)",
+            "padding-left:env(safe-area-inset-right)",
+        ),
+        (
+            "calc(env(-exact-safe-area-corners-inset-top) + 4px)",
+            "padding-left:calc(env(safe-area-inset-top) + 4px)",
+        ),
+        (
+            "max(16px, env(-exact-layout-margins-corners-inset-bottom))",
+            "padding-left:max(16px, env(safe-area-inset-bottom))",
+        ),
+        (
+            "max(16px, env(-exact-readable-content-inset-left, 8px))",
+            "padding-left:max(16px, env(safe-area-inset-left, 8px))",
+        ),
+    ] {
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::PaddingLeft, &StyleValue::Text(text.into()))
+            .unwrap();
+        let (out, _) = crate::css::css_text(&style, &[]);
+        assert!(out.contains(css), "{text}: {out}");
+        assert!(
+            !out.contains("-exact-"),
+            "no name a browser does not know: {out}"
+        );
+    }
+}
+
+/// LLP 1116.018 D3: a live region's `aria-atomic` reaches the page.
+#[test]
+fn a_live_region_says_whether_it_is_announced_whole() {
+    let style = StyleProps::default();
+    let mut props = PropList::default();
+    props.set(PropId::AccessibilityLive, PropValue::Str("polite".into()));
+    props.set(PropId::AccessibilityAtomic, PropValue::Bool(true));
+    let facts = NodeFacts {
+        id: 1,
+        node_type: NodeType::Text,
+        style: &style,
+        props: &props,
+        is_root: false,
+        inline_run: false,
+        symbol_color: false,
+    };
+    let out = super::props_of(&facts);
+    assert_eq!(out.get("aria-live").map(String::as_str), Some("polite"));
+    assert_eq!(out.get("aria-atomic").map(String::as_str), Some("true"));
 }

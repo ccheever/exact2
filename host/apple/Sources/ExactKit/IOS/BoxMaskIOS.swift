@@ -23,6 +23,10 @@ extension NodeView {
         // (`Surface.swift`) until it ends.
         guard surface == nil else { return }
         let outline = shapedOutline(), effect = materialView, image = style["mask_image"]
+        // Most boxes are masked by nothing and never were: they keep no state
+        // (an associated object, about 0.5 KB a view) to learn so.
+        if outline == nil, effect == nil, image == nil, clipPath == nil, clipBox == nil, !hasBoxFilter,
+           layer.mask == nil, BoxMaskState.existing(self) == nil { return }
         // A material's mask view replaces the elliptical outline its radius
         // put on (`BorderPaint.clip`), so it carries that outline too.
         let effectOutline = effect == nil || image == nil ? nil : BorderPaint.uncircular(in: bounds, radii: cornerSizes(in: bounds))

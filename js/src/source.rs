@@ -3,6 +3,41 @@
 use super::*;
 
 impl DataSource for Module {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        if self.is_loaded() {
+            return Err(DataError::Unavailable(
+                "prepare snapshot before activation".into(),
+            ));
+        }
+        let module = module.ok_or_else(|| {
+            DataError::Unavailable("widget generation lacks TypeScript bytecode".into())
+        })?;
+        let admitted = Paired::module(
+            module.receipt,
+            std::sync::Arc::<[u8]>::from(module.bytecode),
+            Some((module.kind, module.plan)),
+            &self.app_id,
+            &self.grants,
+        )
+        .map_err(DataError::Unavailable)?;
+        self.bytecode = admitted.bytecode.clone();
+        self.snapshot_deadline = Some(deadline);
+        self.revision = Default::default();
+        self.snapshot = true;
+        self.native_factory = None;
+        self.native_slot = Default::default();
+        self.storage_wait = deadline.saturating_duration_since(std::time::Instant::now());
+        Ok(())
+    }
+
+    fn take_storage_changed(&mut self) -> bool {
+        std::mem::take(&mut self.host.storage_changed)
+    }
+
     fn set_document_owner(&mut self, owner: u64) {
         self.document_owner = owner;
     }
@@ -139,6 +174,8 @@ impl DataSource for Module {
                 module.directories = self.directories.clone();
                 module.document_owner = self.document_owner;
                 module.native_factory = self.native_factory;
+                // It keeps the placement (`Placed::replacement`), not `placed`'s word.
+                module.keeps_plan = self.keeps_plan;
                 module
             })
             .map_err(DataError::Unavailable)
@@ -244,7 +281,9 @@ impl DataSource for Module {
 
     /// The seam's signatures, from the plan's `sources` table (LLP 1027 D2).
     fn bind(&mut self, plan: &Plan) {
-        self.plan = Some(plan.clone());
+        if self.keeps_plan {
+            self.plan = Some(plan.clone());
+        }
         self.sigs.clear();
         for row in &plan.sources {
             let start = row.params.start as usize;

@@ -1,0 +1,61 @@
+// `sortBy` (LLP 1116.016 §5): a stable sort by one number or string key.
+// Equal keys keep their input order in both directions; NaN, -0 and +0 tie;
+// strings compare by UTF-16 code units, so "😀" (0xD83D 0xDE00) comes before
+// "～" (0xFF5E), where code-point order has it after.
+shape Song
+  title: string
+  bpm: number
+  made: number
+
+component App
+  resource songs = songs("all") as shape Song[]
+  state rows = [Song(title="b", bpm=120, made=3), Song(title="a", bpm=90, made=1), Song(title="c", bpm=120, made=2), Song(title="d", bpm=90, made=4)]
+  state nums = [3, 1, 2]
+  state desc = false
+  derive byBpm = sortBy(rows, r => r.bpm).map(r => r.title).join("")
+  derive byBpmDesc = sortBy(rows, r => r.bpm, "desc").map(r => r.title).join("")
+  derive bpmThenMade = sortBy(sortBy(rows, r => r.made), r => r.bpm, "desc").map(r => r.title).join("")
+  derive chosen = desc ? sortBy(nums, n => n, "desc") : sortBy(nums, n => n, "asc")
+  derive empty = sortBy(rows.filter(r => r.bpm > 500), r => r.title).length
+  derive zeros = sortBy([3, 0 / 0, -0, 1, 0, -1, 1 / 0, -1 / 0], n => n).map(n => `${n}`).join(" ")
+  derive zerosDesc = sortBy([0, -0, 0 / 0, 2], n => n, "desc").map(n => `${1 / n}`).join(" ")
+  derive words = sortBy(["～", "😀", "a", "ab", "", "a", "B", "é"], s => s).join(",")
+  derive wordsDesc = sortBy(["～", "😀", "a", "ab", "", "a"], s => s, "desc").join(",")
+  derive numsText = nums.map(n => `${n}`).join(" ")
+  derive reversed = sortBy(nums, (n, i) => 0 - i).map(n => `${n}`).join(" ")
+  derive source = sortBy(songs, s => s.title).map(s => s.title)
+  derive sourceSorted = source == sortBy(source, t => t)
+  derive sourceLength = sortBy(songs, s => s.bpm, "desc").length == songs.length
+  action flip()
+    desc = not desc
+  action add(n: number)
+    nums = sortBy(nums.concat([n]), x => x)
+  view
+    column
+      text byBpm testId="byBpm"
+      text `${chosen.map(n => `${n}`).join(" ")}` testId="chosen"
+      for s in sortBy(songs, s => s.made, "desc") key=s.title
+        text s.title
+      button "flip" press=flip testId="flip"
+      button "add" press=add(2) testId="add"
+
+test "stable by one key, both directions"
+  expect state byBpm == "adbc"
+  expect state byBpmDesc == "bcad"
+  expect state bpmThenMade == "cbad"
+  expect state empty == 0
+  expect state zeros == "-Infinity -1 NaN 0 0 1 3 Infinity"
+  expect state zerosDesc == "0.5 Infinity -Infinity NaN"
+  expect state words == ",B,a,a,ab,é,😀,～"
+  expect state wordsDesc == "～,😀,ab,a,a,"
+  expect state reversed == "2 1 3"
+  expect state sourceSorted == true
+  expect state sourceLength == true
+
+test "a direction chosen by state, and a sorted write"
+  expect text "chosen" == "1 2 3"
+  tap "flip"
+  expect text "chosen" == "3 2 1"
+  tap "add"
+  expect state numsText == "1 2 2 3"
+  expect text "chosen" == "3 2 2 1"

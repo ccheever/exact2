@@ -1,13 +1,10 @@
 tamber kinds
 
 theme
-  space.row = 12px
-  radius.card: length = 12px
-  type.body = -exact-body/1.35 "InterVariable"
-  weight: number = 600
+  shadow.card: box-shadow = 0 1px 2px #000
+  glow: text-shadow = 0 0 2px #fff
   motion.fast: duration = 150ms
+  motion.ease: easing = ease-in
   odd: wobbly = #000
   not.colour = rgb(1 2)
   two = #000 #fff
-  calc = calc(1px + 2px)
-

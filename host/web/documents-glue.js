@@ -63,7 +63,7 @@ const STAT_DIR = { size: 0, isFile: false, isDirectory: true, modifiedMs: 0 };
  * or empty folder, `mkdir` with its parents, `rename`, `copyFile` and
  * `realpath` refused. A Rust source reaches it through storage-request.js,
  * a TypeScript one through `files`. */
-async function operate(op, path, bytes, scope) {
+async function operate(op, path, bytes, scope, expect = null) {
   if (['rename', 'copyFile', 'realpath'].includes(op)) throw failure(`fs.${op} is not available on a document; read its bytes and write them`);
   const write = ['writeFile', 'atomicWriteFile', 'appendFile', 'mkdir', 'rm'].includes(op), grant = write ? 'fs.write' : 'fs.read';
   if (!coversPath(scope, grant, path)) throw failure(`denied: fs.${op} ${path}: needs \`${grant} doc:/\``, 'denied');
@@ -99,6 +99,12 @@ async function operate(op, path, bytes, scope) {
         // A writable commits on close, which is what makes it atomic here.
         // The chosen folder itself is a folder, as `readFile` says (review B6).
         if (found.entry?.kind === 'directory') throw failure(`fs.${op} ${path}: it is a folder`, 'EISDIR');
+        // A write that expects what it read (LLP 1069.010.000 D2a): the
+        // writable has no precondition, so the file is compared first.
+        if (expect) {
+          const now = await (found.entry ?? await found.folder.getFileHandle(found.name)).getFile();
+          if (now.lastModified !== expect.modifiedMs || now.size !== expect.size) throw failure(`document ECHANGED: ${path} changed on disk since it was read`, 'ECHANGED');
+        }
         const h = found.entry ?? await found.folder.getFileHandle(found.name, { create: true });
         const w = await h.createWritable({ keepExistingData: op === 'appendFile' });
         if (op === 'appendFile') await w.seek((await h.getFile()).size);
@@ -121,7 +127,7 @@ function base64(bytes) { let text = ''; for (let i = 0; i < bytes.length; i += 1
 
 /** A storage request's operation (storage-request.js, a Rust source's). */
 async function run(op, args, bytes, scope) {
-  const value = await operate(op.replace(/^fs\./, ''), args.path, bytes, scope);
+  const value = await operate(op.replace(/^fs\./, ''), args.path, bytes, scope, args.expect ?? null);
   return value instanceof ArrayBuffer ? { base64: base64(new Uint8Array(value)) } : value;
 }
 
@@ -130,7 +136,29 @@ async function run(op, args, bytes, scope) {
 function files(scope) {
   const copy = (data) => ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice() : new Uint8Array(ArrayBuffer.prototype.slice.call(data, 0));
   return Object.freeze(Object.fromEntries(['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath']
-    .map((op) => [op, (path, data) => operate(op, String(path), ['writeFile', 'atomicWriteFile', 'appendFile'].includes(op) ? copy(data) : null, scope)])));
+    .map((op) => [op, (path, data, options) => {
+      const writes = ['writeFile', 'atomicWriteFile', 'appendFile'].includes(op);
+      return operate(op, String(path), writes ? copy(data) : null, scope, writes ? options?.expect ?? null : null);
+    }])));
+}
+
+// Document watches (LLP 1069.010.000 D1, D2): the browser's
+// `FileSystemObserver` on the handle a watched path names, one per path and
+// scope; each change calls `changed` and the source's answer is asked
+// again. A browser without it accepts a watch that never fires, as
+// `exactPage().canWatchFiles` says.
+const observers = new Map(); // `${recursive} ${path}` -> FileSystemObserver
+async function observe(path, recursive, scope, changed) {
+  const key = `${recursive} ${path}`;
+  if (observers.has(key) || typeof globalThis.FileSystemObserver !== 'function' || !coversPath(scope, 'fs.read', path)) return;
+  observers.set(key, null);
+  try {
+    const found = await locate('watch', path);
+    const handle = found.root !== undefined ? found.handle : await entry(found);
+    const observer = new globalThis.FileSystemObserver(() => changed());
+    await observer.observe(handle, { recursive });
+    observers.set(key, observer);
+  } catch { observers.delete(key); }
 }
 
 // The driver's files as handles the page keeps (LLP 1069.007 D3): a file's
@@ -196,9 +224,15 @@ function types() {
 }
 
 globalThis.exact.documents = {
-  mint, run, files,
+  mint, run, files, observe,
   install(host) {
-    // host: { dispatch(id, kind, payload), log(line), openFile(value) }
+    // host: { dispatch(id, kind, payload), generation() (none on the JS target), log(line), openFile(value) }
+    // A view id names a view only in the generation that asked: an answer that
+    // outlives a restart, which reuses ids, is dropped. `at(g)` is these
+    // operations for generation `g`, the one the glue asked in (the module may
+    // load after a restart); each takes its `since()` before its first await.
+    let pinned;
+    const since = () => { const g = pinned ?? host.generation?.(); return (id, kind, payload) => { if (host.generation?.() === g) host.dispatch(id, kind, payload); }; };
     // The files an installed app was launched with (`file_handlers`,
     // `launchQueue`, LLP 1069.010 slice 4), each opened as a document.
     globalThis.launchQueue?.setConsumer((params) => {
@@ -206,12 +240,12 @@ globalThis.exact.documents = {
         if (!host.openFile(mint(handle))) host.log('open-file: refused: this app has no `open-file` field');
       }
     });
-    const chosen = (view, name, found) => {
-      if (!found.length) { host.log(`${name}: cancelled`); return host.dispatch(view, 27, ''); }
+    const chosen = (dispatch, view, name, found) => {
+      if (!found.length) { host.log(`${name}: cancelled`); return dispatch(view, 27, ''); }
       host.log(`${name}: chosen`);
-      host.dispatch(view, 1, found.map(mint).join('\n'));
+      dispatch(view, 1, found.map(mint).join('\n'));
     };
-    return {
+    const api = {
       /** Files dropped on the page (studio diary R19): each handle the
        * browser gave, else its File, read-only; of a declared type. */
       async dropped(handles, files) {
@@ -223,19 +257,26 @@ globalThis.exact.documents = {
       /** A picker command's ruling `r`: call the browser's picker (the
        * press's activation is still live), then report what was chosen. */
       async show(r, name) {
-        if (!r.present) return host.dispatch(r.view, 27, '');
-        if (name === 'showSaveFilePicker' && typeof globalThis.showSaveFilePicker !== 'function') return chosen(r.view, name, [downloadFile(r.suggestedName)]);
+        const dispatch = since();
+        if (!r.present) return dispatch(r.view, 27, '');
+        if (name === 'showSaveFilePicker' && typeof globalThis.showSaveFilePicker !== 'function') return chosen(dispatch, r.view, name, [downloadFile(r.suggestedName)]);
         const options = name === 'showSaveFilePicker' ? { suggestedName: r.suggestedName } : name === 'showOpenFilePicker' ? { multiple: r.multiple } : {};
         if (name !== 'showDirectoryPicker') { const t = await types(); if (t.length) options.types = t; }
-        try { const found = await globalThis[name](options); chosen(r.view, name, [found].flat()); }
-        catch (e) { if (e?.name === 'AbortError') chosen(r.view, name, []); else { host.log(`${name}: refused: ${e?.name ?? e}`); host.dispatch(r.view, 27, ''); } }
+        try { const found = await globalThis[name](options); chosen(dispatch, r.view, name, [found].flat()); }
+        catch (e) { if (e?.name === 'AbortError') chosen(dispatch, r.view, name, []); else { host.log(`${name}: refused: ${e?.name ?? e}`); dispatch(r.view, 27, ''); } }
       },
       /** The agent's answer to a held picker: the driver's files as handles. */
       answer(r, name, files) {
-        if (r.answered === 'cancel') return chosen(r.node, name, []);
+        const dispatch = since();
+        if (r.answered === 'cancel') return chosen(dispatch, r.node, name, []);
         const made = (files ?? []).map((f) => f.files ? memoryFolder(f.name, f.files.map((c) => ({ path: c.path, bytes: bytesOf(c.bytes) }))) : memoryFile(f.name, bytesOf(f.bytes)));
-        chosen(r.node, name, made);
+        chosen(dispatch, r.node, name, made);
       },
     };
+    return { ...api, at: g => pinnedTo(api, g, v => { pinned = v; }) };
   },
 };
+
+function pinnedTo(api, g, pin) {
+  return Object.fromEntries(Object.entries(api).map(([name, f]) => [name, (...args) => { pin(g); try { return f(...args); } finally { pin(undefined); } }]));
+}

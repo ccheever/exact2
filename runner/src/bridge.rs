@@ -110,38 +110,114 @@ pub fn runtime_family_members(list: &str) -> Vec<RuntimeFamilyMember> {
 pub enum BridgeError {
     UnknownProp(u16),
     UnknownStyle(u16),
-    PropKind { prop: PropId, value: Value },
+    PropKind {
+        prop: PropId,
+        value: Value,
+    },
+    /// A value that says the row has none (`backgroundMaterial="none"`):
+    /// cleared, with nothing refused.
+    Unset(PropId),
     Style(StyleValueError),
-    StyleKind { style: StyleId, value: Value },
-    FontStack { index: u32, stacks: usize },
+    StyleKind {
+        style: StyleId,
+        value: Value,
+    },
+    FontStack {
+        index: u32,
+        stacks: usize,
+    },
+}
+
+/// @ref LLP 1121 D10 — a computed `symbol:` source naming an icon token, by
+/// its name or (`sf/<name>`) by its SF Symbol, written as the source form a
+/// host reads, as the compiler writes a literal one; any other value as it is.
+pub fn icon_source(plan: &exact_plan::Plan, prop: PropId, value: PropValue) -> PropValue {
+    let PropValue::Str(text) = &value else {
+        return value;
+    };
+    let Some(name) = text
+        .strip_prefix("symbol:")
+        .filter(|_| prop == PropId::ImageSource)
+    else {
+        return value;
+    };
+    let s = |id| plan.strings.get(id as usize).unwrap_or("");
+    let icon = match name.strip_prefix("sf/") {
+        Some(sf) => plan
+            .icons
+            .iter()
+            .find(|i| !sf.is_empty() && s(i.sf.0) == sf),
+        None => plan.icons.iter().find(|i| s(i.name.0) == name),
+    };
+    match icon {
+        Some(i) => PropValue::Str(
+            format!(
+                "symbol:icon|{}|{}|{}|{}",
+                s(i.sf.0),
+                s(i.view_box.0),
+                s(i.path.0),
+                s(i.svg.0)
+            )
+            .into(),
+        ),
+        None => value,
+    }
 }
 
 /// A prop value by the prop's declared kind.
 pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeError> {
     let prop = PropId::from_wire(id).ok_or(BridgeError::UnknownProp(id))?;
+    if prop == PropId::Popover {
+        match value {
+            Value::Option(None) => return Err(BridgeError::Unset(prop)),
+            Value::Option(Some(inner)) => return prop_value(id, inner),
+            _ => {}
+        }
+    }
     let mismatch = || BridgeError::PropKind {
         prop,
         value: value.clone(),
     };
-    let out = match (prop.kind(), value) {
-        (exact_kernel::PropKind::Str, v @ exact_plan::str_value!()) => {
-            PropValue::Str(v.text().into())
+    let out = if prop == PropId::Decorations {
+        PropValue::Str(
+            crate::decorations::from_value(value)
+                .map_err(|_| mismatch())?
+                .into(),
+        )
+    } else {
+        match (prop.kind(), value) {
+            (exact_kernel::PropKind::Str, v @ exact_plan::str_value!()) => {
+                PropValue::Str(v.text().into())
+            }
+            (exact_kernel::PropKind::Str, Value::Number(n)) => {
+                PropValue::Str(crate::stdlib::format_number(*n).into())
+            }
+            (exact_kernel::PropKind::Bool, Value::Bool(b)) => PropValue::Bool(*b),
+            (exact_kernel::PropKind::Int, Value::Number(n))
+                if n.is_finite()
+                    && n.fract() == 0.0
+                    && *n >= i64::MIN as f64
+                    && *n < -(i64::MIN as f64) =>
+            {
+                PropValue::Int(*n as i64)
+            }
+            (exact_kernel::PropKind::Float, Value::Number(n)) => PropValue::Float(*n),
+            _ => return Err(mismatch()),
         }
-        (exact_kernel::PropKind::Str, Value::Number(n)) => {
-            PropValue::Str(crate::stdlib::format_number(*n).into())
-        }
-        (exact_kernel::PropKind::Bool, Value::Bool(b)) => PropValue::Bool(*b),
-        (exact_kernel::PropKind::Int, Value::Number(n))
-            if n.is_finite()
-                && n.fract() == 0.0
-                && *n >= i64::MIN as f64
-                && *n < -(i64::MIN as f64) =>
-        {
-            PropValue::Int(*n as i64)
-        }
-        (exact_kernel::PropKind::Float, Value::Number(n)) => PropValue::Float(*n),
-        _ => return Err(mismatch()),
     };
+    // `none` is no material, as CSS's `backdrop-filter: none` is no backdrop.
+    if prop == PropId::BackgroundMaterial
+        && matches!(&out, PropValue::Str(s) if s.as_str() == "none")
+    {
+        return Err(BridgeError::Unset(prop));
+    }
+    // A computed `wakelock` outside its two words is refused here, so the
+    // row is unset (`none`) and journaled (LLP 1125 D11).
+    if prop == PropId::Wakelock
+        && !matches!(&out, PropValue::Str(s) if matches!(s.as_str(), "screen" | "none"))
+    {
+        return Err(mismatch());
+    }
     Ok((prop, out))
 }
 
@@ -287,11 +363,32 @@ thread_local! {
 
 /// A token's value from now on, over the plan's (LLP 1121 D13's edit): its
 /// default tuple's and, when it varies, every tuple's. The tables are built
-/// again when next bound.
-pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&str]) {
+/// again when next bound. Whether it differs from what the token held.
+pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&str]) -> bool {
     let at = plan_at(plan);
     EDITS.with(|edits| {
         let mut edits = edits.borrow_mut();
+        let held = match edits.iter().find(|(p, n, ..)| *p == at && n == name) {
+            Some((_, _, v, s)) => Some((v.clone(), s.clone())),
+            None => plan
+                .theme
+                .iter()
+                .find(|r| plan.str(r.name) == name)
+                .map(|r| {
+                    let slices =
+                        &plan.theme_slices[r.slices.start as usize..][..r.slices.len as usize];
+                    (
+                        plan.str(r.value).to_string(),
+                        slices
+                            .iter()
+                            .map(|s| plan.str(s.value).to_string())
+                            .collect(),
+                    )
+                }),
+        };
+        let moved = held.is_none_or(|(v, s): (String, Vec<String>)| {
+            v != value || s.iter().map(String::as_str).ne(slices.iter().copied())
+        });
         edits.retain(|(p, n, ..)| *p != at || n != name);
         edits.push((
             at,
@@ -299,8 +396,9 @@ pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&s
             value.into(),
             slices.iter().map(|s| (*s).into()).collect(),
         ));
-    });
-    THEME_TABLE.with(|cache| cache.borrow_mut().take());
+        THEME_TABLE.with(|cache| cache.borrow_mut().take());
+        moved
+    })
 }
 
 /// A plan's buffers: which plan a cached table or an edit is.
@@ -308,7 +406,7 @@ fn plan_at(plan: &exact_plan::Plan) -> PlanAt {
     (
         plan.theme.as_ptr() as usize,
         plan.theme.len(),
-        plan.strings.as_ptr() as usize,
+        plan.strings.identity(),
     )
 }
 
@@ -363,24 +461,63 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
                 .cloned()
                 .collect()
         });
-        let table = exact_kernel::style::theme::table(plan.theme.iter().flat_map(|row| {
-            let (name, role) = (plan.str(row.name), plan.str(row.role));
-            let edit = edits.iter().find(|(_, n, ..)| n == name);
-            let value = match (edit, row.slices.len) {
-                (Some((_, _, value, slices)), _) => {
-                    slices.get(tuple as usize).unwrap_or(value).as_str()
-                }
-                (None, 0) => plan.str(row.value),
-                (None, len) => plan
-                    .str(plan.theme_slices[(row.slices.start + tuple.min(len - 1)) as usize].value),
-            };
-            // A tint role stays the role in its row (`ColorValue::themed`).
-            let tint = roles::role(role).is_some_and(roles::tint);
-            (!tint)
-                .then_some((name, value, false))
-                .into_iter()
-                .chain((!role.is_empty() && !tint).then_some((role, value, true)))
-        }));
+        use exact_kernel::style::theme::Kind;
+        // A type or family token's family as the plan's stack (stage 6 C):
+        // the compiler declared one for each tuple's.
+        let stacks = plan_stacks(plan);
+        let stack = |family: &str| {
+            let key = exact_kernel::style::theme::typeface::family_key_of(family);
+            stacks.iter().find(|(k, _)| *k == key).map(|(_, id)| *id)
+        };
+        let entries: Vec<_> = plan
+            .theme
+            .iter()
+            .flat_map(|row| {
+                // A kind this build does not know is no entry: its rows stand.
+                let kind = Kind::of(row.kind);
+                let (name, role) = (plan.str(row.name), plan.str(row.role));
+                let edit = edits.iter().find(|(_, n, ..)| n == name);
+                let value = match (edit, row.slices.len) {
+                    (Some((_, _, value, slices)), _) => {
+                        slices.get(tuple as usize).unwrap_or(value).as_str()
+                    }
+                    (None, 0) => plan.str(row.value),
+                    (None, len) => plan.str(
+                        plan.theme_slices[(row.slices.start + tuple.min(len - 1)) as usize].value,
+                    ),
+                };
+                // A tint role stays the role in its row (`ColorValue::themed`).
+                let tint = roles::role(role).is_some_and(roles::tint);
+                // Whether it varies by an app axis, as edited (D7: no inherited
+                // row reads such a length or number).
+                let varies =
+                    edit.map_or(row.slices.len > 0, |(_, _, _, slices)| !slices.is_empty());
+                let value: std::borrow::Cow<str> = match kind {
+                    Some(k @ (Kind::Type | Kind::Family)) => {
+                        exact_kernel::style::theme::typeface::entry(k, value, stack)
+                            .map_or(std::borrow::Cow::Borrowed(value), std::borrow::Cow::Owned)
+                    }
+                    _ => std::borrow::Cow::Borrowed(value),
+                };
+                kind.filter(|_| !tint)
+                    .map(|kind| (name, value.clone(), false, kind, varies))
+                    .into_iter()
+                    .chain(
+                        (!role.is_empty() && !tint && kind == Some(Kind::Color)).then_some((
+                            role,
+                            value,
+                            true,
+                            Kind::Color,
+                            varies,
+                        )),
+                    )
+            })
+            .collect();
+        let table = exact_kernel::style::theme::kinded(
+            entries
+                .iter()
+                .map(|(n, v, r, k, va)| (*n, v.as_ref(), *r, *k, *va)),
+        );
         if tables.len() <= slot {
             tables.resize(slot + 1, None);
         }
@@ -389,12 +526,127 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
     })
 }
 
-/// @ref LLP 1095 D4 — the roles `plan`'s theme replaces, set where the
-/// kernel resolves a role: its own defaults (unsaid text is `CanvasText`)
-/// and what crosses to a host, as well as a row naming the role. A plan with
-/// none clears them. `true` when they replace a different set another plan
-/// made (a second session's, a reload's), which the runner says.
-pub fn set_role_overrides(plan: &exact_plan::Plan) -> bool {
+/// Whether `text` names one of `plan`'s type or family tokens (stage 6 C):
+/// a `font-family` row's string the kernel reads as the token's stack,
+/// never interned as an installed family.
+pub fn names_font_token(plan: &exact_plan::Plan, text: &str) -> bool {
+    use exact_kernel::style::theme::Kind;
+    let text = text.trim();
+    plan.theme.iter().any(|r| {
+        matches!(Kind::of(r.kind), Some(Kind::Type | Kind::Family)) && plan.str(r.name) == text
+    })
+}
+
+/// Binding `b`'s value as a `font-family` row reads it (an option's
+/// inner value), and the runtime stack it names: a family list interned
+/// for the session, but never a type or family token's name, which the
+/// kernel reads as the token's stack (stage 6 C).
+pub fn family_binding<'v>(
+    plan: &exact_plan::Plan,
+    fonts: Option<&std::cell::RefCell<RuntimeFonts>>,
+    b: &exact_plan::BindingsRow,
+    value: &'v Value,
+) -> (&'v Value, Option<u16>) {
+    if b.id != StyleId::FontFamily as u16 {
+        return (value, None);
+    }
+    let value = match value {
+        Value::Option(Some(inner)) => inner.as_ref(),
+        _ => value,
+    };
+    let id = value
+        .as_str()
+        .filter(|n| !names_font_token(plan, n))
+        .and_then(|name| fonts?.borrow_mut().intern(name, plan.stacks.len()));
+    (value, id)
+}
+
+/// A refusal when binding `b`'s `value` on site `node` names a type or
+/// family token that varies by an app axis on a node whose children
+/// inherit its rows (stage 6 C, theme2's ruling): the compiler refuses a
+/// literal so; a value computed at run time is refused here, as invalid.
+pub fn inherited_varying(
+    plan: &exact_plan::Plan,
+    b: &exact_plan::BindingsRow,
+    value: &Value,
+    node: exact_plan::NodesId,
+) -> Result<(), BridgeError> {
+    use exact_kernel::style::theme::{typeface, Kind};
+    let Some(row) = StyleId::from_bit(u32::from(b.id)).filter(|r| typeface::admits_type(*r)) else {
+        return Ok(());
+    };
+    let Some(text) = value.as_str().map(str::trim) else {
+        return Ok(());
+    };
+    let varying = plan.theme.iter().any(|r| {
+        matches!(Kind::of(r.kind), Some(Kind::Type | Kind::Family))
+            && r.slices.len > 0
+            && plan.str(r.name) == text
+    });
+    // Its children: its own nodes, and a choice's or a list's under it.
+    let children = plan.nodes.iter().any(|n| n.parent == Some(node))
+        || plan.regions.iter().any(|r| r.parent == Some(node));
+    if b.kind == exact_plan::BindingKind::Style && varying && children {
+        return Err(BridgeError::StyleKind {
+            style: row,
+            value: value.clone(),
+        });
+    }
+    Ok(())
+}
+
+/// The stack of `plan`'s whose members `family` names, as the compiler
+/// declared a family token's (stage 6 C).
+pub fn plan_stack(plan: &exact_plan::Plan, family: &str) -> Option<u16> {
+    let key = exact_kernel::style::theme::typeface::family_key_of(family);
+    plan_stacks(plan)
+        .into_iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, id)| id)
+}
+
+/// `plan`'s font stacks by their members' key
+/// (`typeface::family_key`), each with its id.
+fn plan_stacks(plan: &exact_plan::Plan) -> Vec<(String, u16)> {
+    plan.stacks
+        .iter()
+        .enumerate()
+        .map(|(id, stack)| {
+            let names: Vec<(bool, &str)> = stack
+                .members
+                .iter()
+                .map(|m| {
+                    let member = plan.stack_member(m);
+                    match member.family {
+                        Some(f) => (true, plan.str(plan.familie(f).name)),
+                        None => (false, member.kind.name()),
+                    }
+                })
+                .collect();
+            (
+                exact_kernel::style::theme::typeface::family_key(names),
+                id as u16,
+            )
+        })
+        .collect()
+}
+
+/// @ref LLP 1095 D4 — the roles `plan`'s theme replaces, for the session
+/// that runs it (LLP 1121 stage 5): where the kernel resolves a role (its
+/// own defaults: unsaid text is `CanvasText`) and what crosses to a host, as
+/// well as a row naming the role. Installed on the thread for a caller that
+/// emits this one plan, while the returned table is held.
+pub fn set_role_overrides(
+    plan: &exact_plan::Plan,
+) -> std::rc::Rc<exact_kernel::style::roles::Roles> {
+    let roles = exact_kernel::style::roles::Roles::new(role_overrides(plan));
+    exact_kernel::style::roles::install(&roles);
+    roles
+}
+
+/// The role overrides `plan`'s theme sets, each as a role and its colour;
+/// the theme-table cache and a fresh boot's token edits start over for it.
+pub fn role_overrides(plan: &exact_plan::Plan) -> Vec<(u8, exact_kernel::ColorValue)> {
     // A plan this thread boots or emits is the one its rows are set from
     // next: the cached table is rebuilt for it (never another plan's whose
     // buffers it reuses).
@@ -408,19 +660,19 @@ pub fn set_role_overrides(plan: &exact_plan::Plan) -> bool {
             .iter()
             .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
     );
-    let overrides = plan
-        .theme
+    plan.theme
         .iter()
         .filter_map(|row| {
             let id = exact_kernel::style::roles::role(plan.str(row.role))?;
-            let value = plan.str(row.value);
-            let colour = exact_kernel::ColorValue::parse_light_dark(value).or_else(|| {
-                exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed)
-            })?;
-            Some((id, colour))
+            Some((id, role_colour(plan.str(row.value))?))
         })
-        .collect();
-    exact_kernel::style::roles::set_overrides(overrides)
+        .collect()
+}
+
+/// A role override's colour from its row's value text (a pair, or one).
+pub fn role_colour(value: &str) -> Option<exact_kernel::ColorValue> {
+    exact_kernel::ColorValue::parse_light_dark(value)
+        .or_else(|| exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed))
 }
 
 /// [`set_plan_style`] for one of `plan`'s style bindings, with what the
@@ -492,6 +744,21 @@ pub fn set_style(
             let initial = StyleProps::default().font_family;
             return set_style(patch, id, &Value::Number(f64::from(initial)), stacks);
         }
+        // A type or family token's name, which the kernel reads as the
+        // token's stack (stage 6 C).
+        if value
+            .as_str()
+            .is_some_and(|t| exact_kernel::style::theme::names(t.trim()))
+        {
+            let text = value.as_str().unwrap_or_default().trim();
+            patch
+                .set_dynamic(style, &StyleValue::Text(text.into()))
+                .map_err(|_| BridgeError::StyleKind {
+                    style,
+                    value: value.clone(),
+                })?;
+            return Ok(style);
+        }
         let index = match value {
             Value::Number(n) if n.is_finite() && n.fract() == 0.0 && *n >= 0.0 => *n as u32,
             _ => {
@@ -508,7 +775,13 @@ pub fn set_style(
     let style_value = match value {
         Value::Number(n) => StyleValue::Number(*n),
         v @ exact_plan::str_value!() => match v.text() {
-            "auto" if style.codec() == exact_kernel::StyleCodec::Dimension => StyleValue::Auto,
+            // CSS keywords are ASCII case-insensitive (`margin="0 Auto"`).
+            t if style.codec() == exact_kernel::StyleCodec::Dimension
+                && t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])
+                    .eq_ignore_ascii_case("auto") =>
+            {
+                StyleValue::Auto
+            }
             // A lone percentage is one; other text ending in `%` is a CSS
             // value (`transform-origin: 0 100%`), as the compiler reads it.
             t => match t
@@ -582,28 +855,6 @@ impl KeyframesTable {
         .into_iter()
         .map(|name| format!("animation-name `{name}` matches no keyframes: no animation"))
         .collect()
-    }
-}
-
-/// The thread's role overrides from before a boot, put back unless the boot
-/// succeeds and clears it (LLP 1095 D4).
-pub(crate) struct RestoreOverrides(pub(crate) Option<Vec<(u8, exact_kernel::ColorValue)>>);
-
-impl RestoreOverrides {
-    /// Set `plan`'s overrides, keeping the thread's to put back; and whether
-    /// they replace another plan's.
-    pub(crate) fn set(plan: &exact_plan::Plan) -> (RestoreOverrides, bool) {
-        let previous = exact_kernel::style::roles::overrides();
-        let replaced = set_role_overrides(plan);
-        (RestoreOverrides(Some(previous)), replaced)
-    }
-}
-
-impl Drop for RestoreOverrides {
-    fn drop(&mut self) {
-        if let Some(previous) = self.0.take() {
-            let _ = exact_kernel::style::roles::set_overrides(previous);
-        }
     }
 }
 
@@ -705,7 +956,7 @@ mod tests {
     fn a_platform_color_is_admitted_only_as_a_plan_literal() {
         let literal = "-exact-platform-color(ios bridgeTestColor, #010203)";
         let mut plan = exact_plan::Plan::default();
-        plan.strings.push(literal.into());
+        plan.strings.push(literal);
         let color = StyleId::TextColor as u16;
         let mut style = StyleProps::default();
         assert!(set_plan_style(&mut style, color, &Value::str(literal), &plan).is_ok());
@@ -785,5 +1036,52 @@ mod tests {
         )
         .unwrap();
         assert_eq!(style.rare.grid_template_columns.css(), "100%");
+    }
+
+    /// A computed `none` is no material: the row cleared, nothing journaled
+    /// (euxy's capsule, glass at rest and none while a charge holds).
+    #[test]
+    fn a_computed_none_material_clears_the_row() {
+        use crate::{DataError, DataSource, Event, Runner};
+        struct NoData;
+        impl DataSource for NoData {
+            fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+                Err(DataError::UnknownSource(source.into()))
+            }
+        }
+        let plan = contract::compile("component App\n  state on = false\n  action flip\n    on = not on\n  view\n    button press=flip testId=\"cap\" backgroundMaterial=(on ? \"none\" : \"glass\")\n      text \"x\"\n").unwrap();
+        let mut r = Runner::boot(
+            plan,
+            NoData,
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let material = |r: &Runner<NoData>| {
+            let k = r.kernel();
+            let node = k.node_by_key(k.find_by_test_id("cap")[0]).unwrap();
+            (
+                node.id,
+                node.props
+                    .str(PropId::BackgroundMaterial)
+                    .map(str::to_owned),
+            )
+        };
+        let (id, glass) = material(&r);
+        assert_eq!(glass.as_deref(), Some("glass"));
+        r.dispatch(id, Event::Press).unwrap();
+        assert_eq!(material(&r).1, None);
+        assert!(
+            !r.journal().any(|l| l.contains("invalid")),
+            "{:?}",
+            r.journal().collect::<Vec<_>>()
+        );
+        r.dispatch(id, Event::Press).unwrap();
+        assert_eq!(material(&r).1.as_deref(), Some("glass"));
+        assert_eq!(
+            prop_value(PropId::BackgroundMaterial as u16, &Value::str("none")),
+            Err(BridgeError::Unset(PropId::BackgroundMaterial))
+        );
     }
 }

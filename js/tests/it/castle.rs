@@ -45,6 +45,8 @@ component App
     send probe = refused()
   action refusedLater
     send probe = refusedLater()
+  action refusedWhy(offline: string)
+    send probe = refusedWhy(offline)
   action parallel
     send probe = parallel()
 
@@ -183,7 +185,7 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
             )
             .unwrap_err();
         assert!(
-            matches!(&error, DataError::Failed(exact_runner::failure::FailureCode::Error, message) if message.contains("maxResponseBytes")),
+            matches!(&error, DataError::Failed(exact_runner::failure::FailureCode::Error, message, _) if message.contains("maxResponseBytes")),
             "{error:?}"
         );
         assert_eq!(m.in_flight(), 0);
@@ -331,7 +333,7 @@ fn fetch_carries_its_redirect_mode_and_refuses_an_unknown_one() {
         .answer(&mut s, "redirected", &[Value::str("sideways")])
         .unwrap_err();
     assert!(
-        matches!(&error, DataError::Failed(exact_runner::failure::FailureCode::Error, message) if message.contains("redirect")),
+        matches!(&error, DataError::Failed(exact_runner::failure::FailureCode::Error, message, _) if message.contains("redirect")),
         "{error:?}"
     );
     assert_eq!(m.in_flight(), before);
@@ -353,6 +355,7 @@ fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
         id: id.into(),
         data: data.into(),
         coalesced,
+        binary: None,
     })
 }
 
@@ -561,7 +564,7 @@ fn a_failed_fetch_is_a_fetch_error_the_module_turns_into_its_own_words() {
 
 /// Hermes watches a fetch's signal through Ibex's abort hooks, which an
 /// app's listener cannot stop, and leaves no listener behind (review r4a
-/// 7, 8; the browser realm's listener is js/web/tests/browser.rs's).
+/// 7, 8; the browser realm's listener is js/web/tests/it/browser.rs's).
 #[test]
 fn a_reused_signal_gains_no_listener_per_fetch() {
     let mut m = module();
@@ -625,9 +628,36 @@ fn a_rejection_let_through_keeps_its_class() {
         };
         let err = m.parse(&mut s, "refusedLater", &[], failed).unwrap_err();
         match code {
-            Some(code) => assert_eq!(err, DataError::Failed(code, message), "{kind:?}"),
+            Some(code) => assert_eq!(
+                err,
+                DataError::Failed(code, message, String::new()),
+                "{kind:?}"
+            ),
             None => assert_eq!(err, DataError::Unavailable(message), "{kind:?}"),
         }
+    }
+}
+
+/// LLP 1109 D3, amended (the author's ruling of 2026-10-12): an error's
+/// `reason` crosses the seam as `failure(x).reason`, its code unchanged.
+#[test]
+fn a_thrown_reason_crosses_the_seam() {
+    use exact_runner::failure::FailureCode;
+    for (offline, code, reason) in [
+        ("", FailureCode::Error, "SLOT_FULL"),
+        ("yes", FailureCode::Offline, "E_OFFLINE"),
+    ] {
+        let mut m = module();
+        let mut s = store();
+        let args = [Value::str(offline)];
+        later(m.answer(&mut s, "refusedWhy", &args).unwrap());
+        let err = m
+            .parse(&mut s, "refusedWhy", &args, response(200, "{}"))
+            .unwrap_err();
+        assert_eq!(
+            err,
+            DataError::Failed(code, format!("{reason}: no"), reason.into())
+        );
     }
 }
 
@@ -637,7 +667,7 @@ fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     let mut s = store();
     assert!(matches!(
         m.answer(&mut s, "refused", &[]),
-        Err(DataError::Failed(exact_runner::failure::FailureCode::Error, ref e)) if e == "refused on purpose"
+        Err(DataError::Failed(exact_runner::failure::FailureCode::Error, ref e, _)) if e == "refused on purpose"
     ));
     later(m.answer(&mut s, "refusedLater", &[]).unwrap());
     assert!(matches!(
@@ -646,7 +676,7 @@ fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     ));
     assert!(matches!(
         m.answer(&mut s, "stuck", &[]),
-        Err(DataError::Failed(exact_runner::failure::FailureCode::Error, ref e)) if e.contains("pending on nothing")
+        Err(DataError::Failed(exact_runner::failure::FailureCode::Error, ref e, _)) if e.contains("pending on nothing")
     ));
     // A reply for nothing in flight, and a fetching source at bake.
     assert!(matches!(

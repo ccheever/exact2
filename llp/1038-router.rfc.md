@@ -527,7 +527,10 @@ as a set, so the iOS adapter sorts a batch by URL string for a stable order.
 The app still needs a navigation root to hear the event and a
 route that accepts the handler location. An unmatched URL uses D8's existing
 `location_of`. The Apple bake registers these schemes beside
-`host.<platform>.urlSchemes`; the web build copies the declarations into
+`host.<platform>.urlSchemes`. An entry's optional `distribution_only: true`
+limits its Apple scheme registration and native template to archive or
+`--distribution` builds; it defaults to false. The build-only flag is omitted
+from the native string dictionary. The web build copies the declarations into
 `manifest.json`, where browser support and scheme policy decide whether a
 link opens the installed app. Linux's first non-flag argument retains D8's
 `location_of`: it is a CLI location, not an OS protocol-handler registration.

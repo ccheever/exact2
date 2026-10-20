@@ -444,6 +444,9 @@ fn every_refused_face_row_names_the_custom_button() {
         "text-overflow=\"ellipsis\"",
         "direction=\"rtl\"",
         "-exact-press-scale=0.9",
+        "-exact-press-opacity=0.5",
+        "-exact-press-background-color=\"#eee\"",
+        "-exact-press-color=\"red\"",
         "flex-wrap=\"wrap\"",
         "align-items=\"start\"",
         "justify-content=\"space-between\"",
@@ -781,7 +784,7 @@ fn a_bare_default_style_refusal_reports_its_first_reason() {
         assert_eq!(id, "lower-button-style", "{message}");
         // LLP 1116.014 D1: the custom-face edit, and a native button's where there is one.
         assert!(message.contains(reason) && message.contains("remove `buttonStyle`") && message.contains("appearance=\"none\""), "{message}");
-        let native = message.starts_with("for a native button, keep only `text` and a symbol `image`")
+        let native = message.contains("A native button's face is `text`s and a symbol `image`")
             || message.starts_with("to keep the native button, remove `");
         assert_eq!(native, !matches!(reason, "href" | "canvas"), "{message}");
     }

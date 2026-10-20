@@ -144,6 +144,42 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertEqual(pressed, [2, 3])
     }
 
+    func testNativeButtonBubblesOutOfPresentationsAndKeepsModalInvocationsInside() throws {
+        let p = presenter(box(1) + box(2, handlers: ["press"]) + box(3, ["id": "pop", "popover": "manual"])
+                          + box(4, ["id": "form", "semanticTag": "dialog"]) + native(5, handlers: []) + native(6, handlers: [])
+                          + box(7, ["id": "outside", "popover": "manual"]) + [
+                            ["op": "children", "id": 1, "ids": [2, 7]],
+                            ["op": "children", "id": 2, "ids": [3, 4]],
+                            ["op": "children", "id": 3, "ids": [5]],
+                            ["op": "children", "id": 4, "ids": [6]],
+                            ["op": "roots", "ids": [1]],
+                            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 400],
+                            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 40, "h": 30],
+                            ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 240, "h": 100],
+                            ["op": "frame", "id": 4, "x": 0, "y": 0, "w": 240, "h": 100],
+                          ], faces: [5: face("Popover"), 6: face("Dialog")])
+        p.menus.painted = true; p.dialogs.painted = true
+        defer { p.menus.reset(); p.dialogs.reset() }
+        let ancestor = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3])
+        let dialog = try XCTUnwrap(p.views[4]), outside = try XCTUnwrap(p.views[7])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.menus.action("showPopover", ["pop"])
+        XCTAssertTrue(p.menus.isOpen(pop))
+        try XCTUnwrap(p.controls.controls[5] as? NSButton).performClick(nil)
+        XCTAssertEqual(pressed, [2], "a native action reaches the lifted popover's authored ancestor once")
+        p.menus.close(pop)
+        p.dialogCommand("showModal", "form")
+        XCTAssertTrue(p.dialogs.active === dialog)
+        XCTAssertTrue(ancestor.inert)
+        ancestor.props["popovertarget"] = "outside"
+        ancestor.props["popovertargetaction"] = "show"
+        try XCTUnwrap(p.controls.controls[6] as? NSButton).performClick(nil)
+        XCTAssertEqual(pressed, [2, 2], "modal inertness does not suppress the ancestor's handler")
+        XCTAssertFalse(p.menus.isOpen(outside), "a bubbled native action cannot invoke a target outside the modal")
+        XCTAssertTrue(p.dialogs.active === dialog)
+    }
+
     func testItIsAppKitsButtonPressingOnce() throws {
         let p = presenter(box(1, handlers: ["press"]) + native(2, ["testId": "go"]) + native(3, handlers: []) + native(4, ["disabled": "true"])
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],
@@ -253,6 +289,73 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertEqual(pressed, [4], "inside its ancestor: the ancestor's press")
         try XCTUnwrap(p.controls.controls[3] as? NativeButtonMac).performClick(nil)
         XCTAssertEqual(pressed, [4], "outside its ancestor's box: no press, as on iOS")
+    }
+
+    /// An assistive app's press (AXPress, at the cell VoiceOver lands on)
+    /// clicks the button once AppKit's request has returned, and once: run
+    /// inside it, a press that landed answered kAXErrorAttributeUnsupported
+    /// (the update it made recorded an accessibility error).
+    func testAnAssistivePressClicksOnceTheRequestReturns() throws {
+        let p = presenter(box(1) + native(2) + native(3, ["disabled": "true"])
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Go"), 3: face("Off")])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let go = try XCTUnwrap(p.controls.controls[2]?.cell)
+        XCTAssertFalse(try XCTUnwrap(p.controls.controls[3]?.cell).accessibilityPerformPress(), "a disabled button")
+        XCTAssertTrue(go.accessibilityPerformPress())
+        XCTAssertEqual(pressed, [], "nothing runs inside the request")
+        drain()
+        XCTAssertEqual(pressed, [2])
+        // AppKit's checkbox (its cell) and switch, the same.
+        for kind in ["checkbox", "switch"] {
+            window.close()
+            let props = ["type": "checkbox", "accessibilityRole": kind]
+            let p = presenter(box(1) + [["op": "create", "id": 2, "kind": "control", "props": props, "handlers": ["change"], "style": [:]],
+                                        ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 140.0, "h": 30.0],
+                                        ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]], faces: [:])
+            var checked: [Bool] = []
+            p.onChecked = { _, on in checked.append(on) }
+            let control = try XCTUnwrap(p.controls.controls[2], kind)
+            // A switch is its own element; a checkbox's is its cell.
+            XCTAssertTrue(control is NSSwitch ? control.accessibilityPerformPress() : try XCTUnwrap(control.cell, kind).accessibilityPerformPress(), kind)
+            XCTAssertEqual(checked, [], "\(kind): nothing runs inside the request")
+            drain()
+            XCTAssertEqual(checked, [true], kind)
+        }
+    }
+    /// A checkbox's or switch's own `press` runs before its `change`, as
+    /// HTML's `click` precedes them; an ancestor's does not.
+    func testACheckboxsOwnPressRunsBeforeItsChange() throws {
+        for kind in ["checkbox", "switch"] {
+            let props = ["type": "checkbox", "accessibilityRole": kind]
+            let p = presenter(box(1, handlers: ["press"]) + [["op": "create", "id": 2, "kind": "control", "props": props, "handlers": ["press", "change"], "style": [:]],
+                                                             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 140.0, "h": 30.0],
+                                                             ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]], faces: [:])
+            var heard: [String] = []
+            p.onPress = { heard.append("press \($0)") }
+            p.onChecked = { id, on in heard.append("checked \(id) \(on)") }
+            try XCTUnwrap(p.controls.controls[2], kind).performClick(nil)
+            XCTAssertEqual(heard, ["press 2", "checked 2 true"], kind)
+            p.views[2]?.handlers = ["change"]
+            try XCTUnwrap(p.controls.controls[2], kind).performClick(nil)
+            XCTAssertEqual(heard, ["press 2", "checked 2 true", "checked 2 false"], "\(kind): no press of its own, none bubbles")
+            // Bound and unchanged, its press's batch syncs the control back:
+            // the toggle reported is still the one the click made.
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["checked": "false"]]]))
+            p.views[2]?.handlers = ["press", "change"]
+            p.onPress = { heard.append("press \($0)"); p.apply(wireBatch([["op": "props", "id": 2, "set": ["checked": "false"]]])) }
+            try XCTUnwrap(p.controls.controls[2], kind).performClick(nil)
+            XCTAssertEqual(heard.suffix(2), ["press 2", "checked 2 true"], "\(kind): bound")
+            window.close()
+        }
+    }
+    /// Runs the main queue past what is on it now.
+    private func drain() {
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        let deadline = Date().addingTimeInterval(5)
+        while !drained, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
     }
 
     /// #179: a custom button's ring is AppKit's exterior one around its own

@@ -23,7 +23,9 @@ class DefaultButtonMacTests: XCTestCase {
     /// (4, id `name`), a second field (5, id `other`), a textarea (6), and
     /// three native buttons: Cancel (7, closes it), Delete (8, destructive)
     /// and OK (12). `filled` says which buttons are `buttonStyle="filled"`.
-    private func fixture(filled: Set<UInt32> = [12], fieldHandlers: [String] = [], open: Bool = true) -> Presenter {
+    /// `rows` adds to the dialog a custom `menuitem` button (13) and a native
+    /// `option` button (14), each with a `press` handler.
+    private func fixture(filled: Set<UInt32> = [12], fieldHandlers: [String] = [], open: Bool = true, rows: Bool = false) -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
         presenter = p
@@ -64,7 +66,12 @@ class DefaultButtonMacTests: XCTestCase {
         ops += native(7, ["id": "cancel", "commandfor": "form", "command": "close"], handlers: [], y: 150)
         ops += native(8, ["id": "delete", "destructive": "true"], y: 185)
         ops += native(12, ["id": "ok"], y: 220)
-        ops += [["op": "children", "id": 3, "ids": [4, 5, 6, 7, 8, 12]], ["op": "children", "id": 1, "ids": [9, 10, 11, 3]], ["op": "roots", "ids": [1]]]
+        if rows {
+            ops += [["op": "create", "id": 13, "kind": "button", "props": ["accessibilityRole": "menuitem", "id": "row"], "handlers": ["press"]],
+                    ["op": "frame", "id": 13, "x": 150, "y": 220, "w": 100, "h": 30]]
+            ops += native(14, ["id": "option", "accessibilityRole": "option"], y: 255)
+        }
+        ops += [["op": "children", "id": 3, "ids": [4, 5, 6, 7, 8, 12] + (rows ? [13, 14] : [Int]())], ["op": "children", "id": 1, "ids": [9, 10, 11, 3]], ["op": "roots", "ids": [1]]]
         p.apply(wireBatch(ops))
         p.flushKeyViewLoop()
         if open { p.dialogs.show(p.views[3]!) }
@@ -139,6 +146,28 @@ class DefaultButtonMacTests: XCTestCase {
         // One filled beside a filled destructive one: the destructive one does not count.
         let p = fixture(filled: [8, 12])
         XCTAssertTrue(p.dialogs.defaultButton(of: try XCTUnwrap(p.views[3])) === p.views[12])
+    }
+
+    /// A focused menu's row or option chooses on Return as on Space, before
+    /// the dialog's default button, as an open `NSMenu` takes Return at its
+    /// highlighted item; any other focused button still leaves Return to
+    /// the default.
+    func testAFocusedMenuRowOrOptionTakesReturnBeforeTheDefault() throws {
+        let p = fixture(rows: true)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(p.dialogs.defaultButton(of: try XCTUnwrap(p.views[3])) === p.views[12])
+        XCTAssertTrue(front.makeFirstResponder(p.views[13]))
+        deliver(p, returnKey)
+        XCTAssertEqual(pressed, [13], "the custom menu row chose, not the default")
+        deliver(p, key(" ", 49))
+        XCTAssertEqual(pressed, [13, 13])
+        XCTAssertTrue(front.makeFirstResponder(try button(p, 14)))
+        deliver(p, returnKey)
+        XCTAssertEqual(pressed, [13, 13, 14], "the native option chose, not the default")
+        XCTAssertTrue(front.makeFirstResponder(try button(p, 8)))
+        deliver(p, returnKey)
+        XCTAssertEqual(pressed, [13, 13, 14, 12], "from a button that is no row, Return is the default's")
     }
 
     /// In a dialog a single-line field with a `submit` handler takes Return

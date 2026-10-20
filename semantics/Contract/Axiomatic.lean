@@ -417,15 +417,16 @@ theorem runAction_poisoned {p o c name args rows} (h : c.poisoned = true) :
 /-- What a step that was not refused committed: the action's body ran
 (as `ExecR`) against the configuration as the event found it, its sends
 were answered, and the slots are the old ones updated by the answers and
-then the writes, in order. The commands it asked for are appended. This
-holds of a poisoned commit too: it keeps the state it committed. -/
+then the writes, in order. The commands it asked for that a host is told
+are appended. This holds of a poisoned commit too: it keeps the state it
+committed. -/
 theorem runAction_commit {p o c name args rows c' out}
     (h : runAction p o c name args rows = (c', out)) (hout : ∀ e, out ≠ .refused e) :
     ∃ a fx answered, p.actions.find? (·.name == name) = .some a ∧
       ExecR (actionEnv p c rows) (actionLocals a args) a.body {} fx ∧
       Answered o (splitSends p c fx.sends).1 answered ∧
       c'.slots = applyWrites c.slots (answered ++ fx.writes) ∧
-      c'.commands = c.commands ++ fx.commands := by
+      c'.commands = c.commands ++ hostCommands fx.commands := by
   have refused : ∀ {e}, (c, Outcome.refused e) = (c', out) → False := fun h' => by
     simp only [Prod.mk.injEq] at h'; exact hout _ h'.2.symm
   simp only [runAction] at h

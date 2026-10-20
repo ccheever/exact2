@@ -602,7 +602,7 @@ class Collection {
     const height = this.geometry ? this.geometry.port_main : f.port_main;
     this.leaveEndIfMoved(fill.velocity ?? 0);
     const extent = this.index.total;
-    const anchor = this.restoring(f) ?? this.reportAnchor(f.offset, height, padding);
+    const anchor = this.restoring(f) ?? this.reportAnchor(f.offset, height, padding, height !== f.port_main && !(fill.velocity ?? 0));
     [this.index.leading, this.index.trailing] = padding;
     this.geometry = { ...f, measurements: [] };
     this.correction = null;
@@ -620,13 +620,16 @@ class Collection {
     return [changed, this.edge()];
   }
   /** inset.rs `report_anchor`: on the old range, where the port is as far down as a grown padding
-   * before the rows moved them (none before a first report), or on the new one when only that follows the end. */
-  reportAnchor(offset, port, padding) {
+   * before the rows moved them (none before a first report), or on the new one when only that follows the end;
+   * `resized` (not by the reader) keeps an end the last report was at. */
+  reportAnchor(offset, port, padding, resized) {
     const i = this.index, down = this.geometry ? padding[0] - i.leading : 0;
+    const atEnd = resized && this.geometry && this.follows() && i.anchor(this.anchorOffset(this.geometry.offset), port, true).follows;
     let a = i.anchor(this.anchorOffset(offset + down), port, this.follows());
     const moved = padding[0] !== i.leading || padding[1] !== i.trailing;
     [i.leading, i.trailing] = padding;
     if (moved && this.follows() && !a.follows) { const b = i.anchor(this.anchorOffset(offset), port, this.follows()); if (b.follows) a = b; }
+    if (atEnd && !a.follows) a = i.anchor(this.anchorOffset(i.maxOffset(port)), port, true);
     return a;
   }
   travelWithin(f, byView, fill) {
@@ -795,7 +798,7 @@ const Refused = [];
 function intoView(list, key, block, inline, row, view, offset) {
   const refuse = why => { journal.push(`scrollIntoView ${list} refused: ${why}`); Refused.push({ list, status: "refused: " + why.replaceAll('"', "'") }); if (Refused.length > 8) Refused.shift(); };
   if (offset != null && (typeof offset !== "number" || !Number.isFinite(offset))) return refuse("offset must be a finite number of CSS pixels");
-  for (const a of [block, inline]) if (!ALIGN.includes(a)) { if (view != null) throw new Error(`no alignment ${a}: start, center, end or nearest`); return refuse(`no alignment ${a}`); }
+  for (const a of [block, inline]) if (!ALIGN.includes(a)) return refuse(`no alignment ${a}`);
   const begin = (c, k, within = offset) => { const [text, why] = c.resolve(k); if (!text) return refuse(why); c.intoView(text, c.axis === "y" ? block : inline, within); return true; };
   if (view != null) { const c = Lists.get(view); if (!c) return refuse(`view ${view} is not a mounted virtualized list`); begin(c, key); }
   else if (row == null) { const c = [...Lists.values()].find(c => !c.up && c.el.id === list); if (!c) return refuse(`no virtualized list has id ${list}`); begin(c, key); }
@@ -850,7 +853,10 @@ function load() {
     publish();
   }).catch(e => console.error("exact: collections:", e)).finally(() => inflight.n--);
   (globalThis.exact ??= {}).lists = { settle: () => Controller?.settle(), pending: () => Loading,
-    into: (view, key, block = "start", inline = "nearest") => intoView(`#${view}`, key, block, inline, null, view), intoView: intoViewState,
+    into: (view, key, block = "start", inline = "nearest") => {
+      for (const a of [block, inline]) if (!ALIGN.includes(a)) throw Object.assign(new Error(`no alignment ${a}: start, center, end or nearest`), { malformed: true });
+      return intoView(`#${view}`, key, block, inline, null, view);
+    }, intoView: intoViewState,
     // Arrange's preview, installed by reorder.js (the motion piece's chunk).
     internals: { Collection, Lists, Views, find, minEpoch, settled, controller: () => Controller } };
 }

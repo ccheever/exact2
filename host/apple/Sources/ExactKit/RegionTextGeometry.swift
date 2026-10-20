@@ -101,7 +101,8 @@ final class RegionParagraph: Sendable {
     let height: CGFloat
     let offeredWidth: CGFloat
     let shapedOnMainThread: Bool
-    var firstBaseline: CGFloat { baselines.first ?? 0 }
+    /// The C seam uses -1 when no line supplies a baseline.
+    var firstBaseline: CGFloat { baselines.first ?? -1 }
     /// Logical array payload only; font/platform internals and array slack are
     /// opaque, source storage is reported separately, not a peak RSS guarantee.
     var arrayBytes: Int {

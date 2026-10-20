@@ -35,7 +35,8 @@
  * A numeric readout is design, not a tell (LLP 1116 D3): a literal `font-size` on
  * a node that also sets `font-variant-numeric="tabular-nums"` (a timer's or a
  * total's big number) is not flagged. A line that must keep a literal ends with
- * `// no-tells: <why>`. Exit 0 when there is nothing to say, 1 with every
+ * `// no-tells: <why>`. `overflow-wrap="anywhere"` on prose is one too (LLP 1116.021
+ * D6, `brokenWordsIn`). Exit 0 when there is nothing to say, 1 with every
  * finding, 2 on a bad invocation. `apps/shelf` is held to it by its
  * `app.test.ts`.
  */
@@ -259,7 +260,113 @@ export function tellsIn(source, tokens = new Set()) {
       }
     }
   }
+  for (const b of brokenWordsIn(source)) found.push({ line: b.line, column: b.column, property: 'overflow-wrap', value: b.value, kind: 'break' });
+  return found.sort((a, b) => a.line - b.line || a.column - b.column);
+}
+
+// LLP 1116.020 D4: a font size that stays put as the reader's text size grows, which `verify` names: a bare number, px or pt,
+// whole or as a ternary's branch. `tabular-nums` excuses none of it (a readout's designed size is a rem one), and a native
+// control's own field sizes its text as the platform does. Exact's parts fixed on purpose (`RoundButton`'s title) are the
+// library's, not the app's files.
+const CONTROL_TAGS = new Set(['input', 'select', 'textarea', 'progress', 'meter']);
+function fixedSize(value) {
+  const sizes = literals(value).flatMap(word => { const m = /^(\d+(?:\.\d+)?)(px|pt)?$/.exec(word.trim()); return m ? [Number(m[1])] : []; });
+  const bare = value.replace(/"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""');
+  const whole = /^\(?\s*(\d+(?:\.\d+)?)\s*\)?$/.exec(bare.trim());
+  if (whole) sizes.push(Number(whole[1]));
+  else for (const m of bare.matchAll(/[?:]\s*(\d+(?:\.\d+)?)\s*(?=[):]|$)/g)) sizes.push(Number(m[1]));
+  return sizes.length ? Math.max(...sizes) : null;
+}
+
+/** Each fixed font size in one `.contract` source: `{ line, column, tag, value, size, testId }`, `testId` the node's literal one. */
+export function fixedSizesIn(source) {
+  const text = withoutTheme(uncomment(source)), rows = text.split('\n'), lines = source.split('\n'), heads = nodeHeads(rows), found = [];
+  const lineStarts = [0];
+  for (let i = 0; i < text.length; i++) if (text[i] === '\n') lineStarts.push(i + 1);
+  const locate = offset => { let l = 0; while (l + 1 < lineStarts.length && lineStarts[l + 1] <= offset) l++; return [l + 1, offset - lineStarts[l] + 1]; };
+  for (const { name, value, at } of attributes(text)) {
+    if (name.toLowerCase() !== 'font-size') continue;
+    const [line, column] = locate(at), head = heads[line - 1], tag = rows[head].trim().split(/\s+/)[0];
+    if (/\/\/\s*no-tells:\s*\S/.test(lines[line - 1] ?? '') || CONTROL_TAGS.has(tag)) continue;
+    const size = fixedSize(value);
+    if (size == null) continue;
+    let testId = null;
+    for (let i = head; i < rows.length && (i === head || heads[i] === head) && testId == null; i++) testId = /(?:^|\s)testId=(?:"([^"]*)"|`([^`$]*)`)/.exec(rows[i])?.slice(1).find((v) => v != null) ?? null;
+    found.push({ line, column, tag, value, size, testId });
+  }
   return found;
+}
+
+/** A node's literal `testId`, read from its head line and the attribute lines under it. */
+function testIdOf(rows, heads, head) {
+  for (let i = head; i < rows.length && (i === head || heads[i] === head); i++) {
+    const id = /(?:^|\s)testId=(?:"([^"]*)"|`([^`$]*)`)/.exec(rows[i])?.slice(1).find((v) => v != null);
+    if (id != null) return id;
+  }
+  return null;
+}
+
+/** Each attribute of `source` with what `verify` needs to place it: `{ name, value, line, column, head, tag }`. */
+function placed(source) {
+  const text = withoutTheme(uncomment(source)), rows = text.split('\n'), lines = source.split('\n'), heads = nodeHeads(rows);
+  const lineStarts = [0];
+  for (let i = 0; i < text.length; i++) if (text[i] === '\n') lineStarts.push(i + 1);
+  const locate = offset => { let l = 0; while (l + 1 < lineStarts.length && lineStarts[l + 1] <= offset) l++; return [l + 1, offset - lineStarts[l] + 1]; };
+  const out = [];
+  for (const { name, value, at } of attributes(text)) {
+    const [line, column] = locate(at), head = heads[line - 1];
+    if (/\/\/\s*no-tells:\s*\S/.test(lines[line - 1] ?? '')) continue;
+    out.push({ name: name.toLowerCase(), value, line, column, head, tag: rows[head].trim().split(/\s+/)[0] });
+  }
+  return { out, rows, heads };
+}
+
+// @ref LLP 1116.021 D6 — `overflow-wrap="anywhere"` lets a line break inside any word, and lets its box shrink below its
+// longest word, so prose, a number or a date breaks mid-word at the largest text size ("Octo/ber", "$15.2/1"): no
+// hand-built UIKit label does. It is right for a URL or a long token, which this reads by structure: on a `link`, or on text
+// set in a monospace face (a password, a hash, a key). Anything else that must keep it says why with `// no-tells: <why>`.
+// `overflow-wrap="break-word"` breaks only a word too long for a line of its own, and is not named.
+/** Each `overflow-wrap="anywhere"` that breaks prose: `{ line, column, tag, value, testId }`. */
+export function brokenWordsIn(source) {
+  const { out: attrs, rows, heads } = placed(source);
+  const mono = new Set(attrs.filter(a => (a.name === 'font-family' || a.name === 'font') && literals(a.value).some(w => /monospace|-exact-monospace/i.test(w))).map(a => a.head));
+  return attrs
+    .filter(a => a.name === 'overflow-wrap' && literals(a.value).some(w => w.trim() === 'anywhere') && a.tag !== 'link' && !mono.has(a.head))
+    .map(a => ({ line: a.line, column: a.column, tag: a.tag, value: a.value, testId: testIdOf(rows, heads, a.head) }));
+}
+
+// @ref LLP 1116.021 D6 — a symbol `image` sized in points beside text that grows stays small as Dynamic Type grows, as a
+// fixed `font-size` does: an unsized symbol follows its text, and one sized by a `font-size` in rem grows with the root.
+// "Beside text" is a `text` in the same parent box, at any depth, whose size is not fixed itself. A symbol alone (an
+// icon-only button, a hero glyph) is the author's size; Exact's parts and the platform's controls are not the app's files.
+/** Each symbol `width` or `height` in px, pt or a bare number beside text that scales: `{ line, column, property, value, size, testId }`. */
+export function fixedSymbolsIn(source) {
+  const { out: attrs, rows, heads } = placed(source);
+  const indent = i => rows[i].length - rows[i].trimStart().length;
+  const fixedFont = new Set(attrs.filter(a => a.name === 'font-size' && fixedSize(a.value) != null).map(a => a.head));
+  const symbol = head => /^image\s+(?:"symbol:|`symbol:|\(.*"symbol:)/.test(rows[head].trim());
+  // A text that scales beside the image: a sibling, or a line of a sibling `column` (a title over a subtitle). `if`, `else`,
+  // `for` and `match` lines stand between nodes without being one.
+  const flow = i => /^(if|else|for|match|case)\b/.test(rows[i].trim());
+  const besideText = head => {
+    let parent = head - 1;
+    while (parent >= 0 && (heads[parent] !== parent || !rows[parent].trim() || flow(parent) || indent(parent) >= indent(head))) parent--;
+    if (parent < 0) return false;
+    const path = [];
+    for (let i = parent + 1; i < rows.length; i++) {
+      if (!rows[i].trim() || heads[i] !== i) continue;
+      if (indent(i) <= indent(parent)) break;
+      while (path.length && indent(path.at(-1)) >= indent(i)) path.pop();
+      const nodes = path.filter(p => !flow(p));
+      const scales = /^text\b/.test(rows[i].trim()) && !fixedFont.has(i);
+      if (i !== head && scales && (nodes.length === 0 || (nodes.length === 1 && /^column\b/.test(rows[nodes[0]].trim())))) return true;
+      path.push(i);
+    }
+    return false;
+  };
+  return attrs
+    .filter(a => (a.name === 'width' || a.name === 'height') && a.tag === 'image' && symbol(a.head) && fixedSize(a.value) != null && besideText(a.head))
+    .map(a => ({ line: a.line, column: a.column, property: a.name, value: a.value, size: fixedSize(a.value), testId: testIdOf(rows, heads, a.head) }));
 }
 
 /** The `.contract` files an argument names: an app (by name under apps/ or by
@@ -334,13 +441,17 @@ screenshot had, which miss dark mode, Increased Contrast, Dynamic Type and the n
 - Colour: leave it unsaid (text, tint, backgrounds, separators and controls are the
   platform's), or name a role: CanvasText, AccentColor, -exact-secondary-label,
   -exact-separator, -exact-fill, -exact-grouped-background, -exact-system-red …
-  The one authored colour is the accent: a role, or one light-dark(light, dark) pair
-  on accent-color (docs/contract-for-agents.md, "Colours: say a role, not a value").
+  Leave the accent unsaid too (the platform's); if written, a role or one
+  light-dark(light, dark) pair on accent-color (docs/contract-for-agents.md, "Colours:
+  say a role, not a value").
   An app's own palette is its design (app.tamber, LLP 1121) or its root \`theme\`
   block, and rows name its tokens.
-- Type: leave body text unsaid; say a heading (text role="heading" aria-level=1..4) or
+- Type: leave body text unsaid; say a heading (h1 .. h4) or
   a text style (font="-exact-footnote", -exact-headline, -exact-caption1 …)
   (docs/contract-for-agents.md, "Type: say a heading, not a size").
+- Breaks: overflow-wrap="anywhere" breaks inside words (Octo/ber); wrap between words (the
+  default) or give the row room. It is for a URL or a long token: on a link, or in a
+  monospace face.
 apps/shelf is the recipe. A line that must keep a literal says why with
 \`// no-tells: <why>\`.`;
 
@@ -354,7 +465,7 @@ if (import.meta.main) {
   try { found = targets.flatMap(tells); }
   catch (error) { console.error(`no-tells: ${error.message}`); process.exit(2); }
   for (const t of found) {
-    const what = t.kind === 'colour' ? `a literal colour (${t.colour})` : 'a font size or weight that is not a text style';
+    const what = t.kind === 'colour' ? `a literal colour (${t.colour})` : t.kind === 'break' ? 'breaks inside words (Octo/ber)' : 'a font size or weight that is not a text style';
     console.log(`${relative(process.cwd(), t.file)}:${t.line}:${t.column}: ${t.property}=${t.value}: ${what}`);
   }
   if (found.length) {

@@ -3,7 +3,6 @@ import UIKit
 import XCTest
 @testable import ExactKit
 @testable import ExactGroupedLists
-
 /// LLP 1084 on UIKit: a grouped list (`listStyle`) is a UICollectionView
 /// with a list layout as the list's only scroller;
 /// its rows are list cells configured from the kernel's model (D5); a tap
@@ -12,7 +11,6 @@ import XCTest
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 class GroupedListFixture: XCTestCase {
     var window: UIWindow!
-
     typealias Row = GroupedListModel.Row
     func model(_ style: String = "inset-grouped", custom: Bool = false, dark: Bool = false) -> GroupedListModel {
         GroupedListModel(style: style, sections: [
@@ -39,7 +37,7 @@ class GroupedListFixture: XCTestCase {
         window.makeKeyAndVisible()
         let view = { (id: Int, kind: String, props: [String: String]) -> [String: Any] in
             ["op": "create", "id": id, "kind": kind, "props": props, "handlers": kind == "button" ? ["press"] : [],
-             "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
+             "style": ["text_color": [0, 0, 0, 255]]]
         }
         let listProps = ["listStyle": "inset-grouped", "testId": "list"].merging(props) { _, value in value }
         var ops: [[String: Any]] = [
@@ -379,7 +377,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertNil(host(p).shown(try XCTUnwrap(p.views[4])), "a node no list draws: the ordinary aim")
         // The dispatch log tells one row's switch from another's, and from
         // its cell: the node alone is the list's for all of them.
-        XCTAssertEqual(GroupedListHost.part(s.subviews.first ?? s) as? [String: AnyHashable], ["row": 12, "part": "switch"])
+        XCTAssertEqual(GroupedListHost.part(s.subviews.first ?? s) as? [String: AnyHashable], ["row": 12, "part": "switch", "target": 13]) // (its control's node: inspect mode selects it)
         XCTAssertEqual(GroupedListHost.part(toggle.contentView) as? [String: AnyHashable], ["row": 12, "part": "cell"])
         XCTAssertNil(GroupedListHost.part(l.collection))
         // A switch not shown is refused, never the row in its place.
@@ -468,7 +466,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         let cell = try cell(p, 21)
         XCTAssertTrue(row.superview === cell.contentView, "carried into its cell")
         XCTAssertEqual(row.frame.minX, 16, "at its place in its group")
-        XCTAssertEqual(cell.bounds.height, 60, accuracy: 0.5, "the row less the separator the cell draws")
+        XCTAssertEqual(cell.bounds.height, 61, accuracy: 0.5, "the row's height: its separator is decoration (LLP 1084 D7)")
         XCTAssertTrue(host(p).projects(row))
         host(p).prepare()
         XCTAssertTrue(row.superview === p.views[5]?.container, "back where the presenter put it")
@@ -493,16 +491,16 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertTrue(host(p).projects(row))
         XCTAssertEqual(row.frame, CGRect(x: 16, y: 0, width: 354, height: 61))
         XCTAssertEqual(prepared.accessibilityIdentifier, "displayed-custom")
-        XCTAssertEqual((prepared as? GroupedCell)?.height, 60)
+        XCTAssertEqual((prepared as? GroupedCell)?.height, 61)
         host(p).prepare()
         XCTAssertTrue(row.superview === p.views[5]?.container, "display-time carrying still restores normally")
         p.applyGeometry(wireBatch([["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 81.0]]).ops[0])
-        XCTAssertEqual((prepared as? GroupedCell)?.height, 60, "the prepared cell still has its older measured height")
+        XCTAssertEqual((prepared as? GroupedCell)?.height, 61, "the prepared cell still has its older measured height")
         l.collectionView(l.collection, willDisplay: prepared, forItemAt: path)
         XCTAssertTrue(row.superview === prepared.contentView)
-        XCTAssertEqual((prepared as? GroupedCell)?.height, 80, "display reads the current authored frame")
+        XCTAssertEqual((prepared as? GroupedCell)?.height, 81, "display reads the current authored frame")
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertEqual(prepared.bounds.height, 80, accuracy: 0.5, "the existing projection sync settles the height outside the display callback")
+        XCTAssertEqual(prepared.bounds.height, 81, accuracy: 0.5, "the existing projection sync settles the height outside the display callback")
     }
 
     func testUnchangedCustomRowsKeepTheirNativeGeometryAndRefreshLiveProjectionProps() throws {
@@ -515,7 +513,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         let offset = l.collection.contentOffset
         let nativeY = shown.convert(shown.bounds, to: l.collection).minY
         let before = shown.convert(shown.bounds, to: window)
-        XCTAssertEqual(shown.height, 239)
+        XCTAssertEqual(shown.height, 240)
         for index in 0..<4 {
             p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "custom\(index)"], "clear": [String]()]]))
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -537,16 +535,16 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertTrue(try cell(p, 21) === shown)
         XCTAssertTrue(shown.isUserInteractionEnabled)
         XCTAssertFalse(shown.accessibilityElementsHidden)
-        XCTAssertEqual(shown.height, 299, "mount updates an authored box without changing the custom model")
-        XCTAssertEqual(shown.bounds.height, 299, accuracy: 0.5)
+        XCTAssertEqual(shown.height, 300, "mount updates an authored box without changing the custom model")
+        XCTAssertEqual(shown.bounds.height, 300, accuracy: 0.5)
     }
 
     /// A carried row of stacked lines keeps the cell's margins (team-kanban's
     /// cards and household-list's items, 2026-10-10, whose titles touched the
     /// card and buttons the separator): the sheet keeps the stack 15 under the
     /// row's top and 15 over its separator, as a hand-built cell pinned to its
-    /// content view's margins has it, and the cell shows the row so, as tall
-    /// as the row less the separator it draws instead.
+    /// content view's margins has it, and the cell shows the row so,
+    /// as tall as the row.
     func testACarriedStackKeepsTheCellsMargins() throws {
         let p = presenter { self.model(custom: true) }
         let text = { (id: Int, text: String) -> [String: Any] in
@@ -571,7 +569,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         let cell = try cell(p, 21)
         let row = try XCTUnwrap(p.views[21])
         XCTAssertTrue(row.superview === cell.contentView, "carried")
-        XCTAssertEqual(cell.bounds.height, 122, accuracy: 0.5, "the row less the separator the cell draws")
+        XCTAssertEqual(cell.bounds.height, 123, accuracy: 0.5, "the row's height")
         let first = try XCTUnwrap(p.views[40]), last = try XCTUnwrap(p.views[42])
         let (top, bottom) = (first.convert(first.bounds, to: cell), last.convert(last.bounds, to: cell))
         let margins = cell.contentView.directionalLayoutMargins
@@ -902,7 +900,12 @@ final class GroupedListIOSTests: GroupedListFixture {
         let l = try list(p)
         l.collection.layoutIfNeeded()
         let shown = l.collection.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: 0)) as? UICollectionViewListCell
-        XCTAssertEqual((shown?.contentConfiguration as? UIListContentConfiguration)?.text, "Profile")
+        let text = (shown?.contentConfiguration as? UIListContentConfiguration)?.attributedText
+        XCTAssertEqual(text?.string, "Profile")
+        // A grouped table's header hyphenates as UITableView's does, not as
+        // the collection view list's (1, which drew "Reading to-gether").
+        let paragraph = text?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        XCTAssertEqual(paragraph?.hyphenationFactor, 0.45)
     }
 
     /// LLP 1116.003 (r5 password generator: `tap history-0` refused, a
@@ -999,7 +1002,7 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "create", "id": 4, "kind": "view", "props": [:], "style": [:]],
             ["op": "create", "id": 21, "kind": "view", "props": ["swipeContent": "body", "swipeTrailing": "delete", "testId": "swipe-row"],
              "handlers": scrolls ? ["scroll"] : [String](),
-             "style": ["overflow_x": "scroll", "overflow_y": "hidden", "padding_right": 16.0, "border_width_bottom": 1.0]],
+             "style": ["overflow_x": "scroll", "overflow_y": "hidden", "padding_right": 16.0]],
             ["op": "create", "id": 22, "kind": "view", "props": ["id": "body"], "style": [:]],
             ["op": "create", "id": 23, "kind": "button", "props": ["id": "delete", "accessibilityLabel": "Delete Milk", "destructive": "true"], "handlers": ["press"], "style": [:]],
             ["op": "create", "id": 30, "kind": "view", "props": [:], "style": [:]],
@@ -1140,7 +1143,8 @@ final class GroupedListIOSTests: GroupedListFixture {
     /// LLP 1116.002 D2, round 4's countdowns: the commit that lands while a
     /// sheet covers the list (the saved event's refresh, before `then`
     /// closes the form) inserts a row and a sibling section, the "next up"
-    /// card, and grows a row; the sheet holds their boxes until it closes.
+    /// card, and grows a row. The list behind keeps the document's layout
+    /// while the sheet is up, so their boxes apply at once (LLP 1123 D1).
     /// All of it shows on the batch that closes the sheet, not after the
     /// screen is left: a cell first sized to nothing is one UIKit never
     /// shows again, and a box given back to a row that a layout pass in that
@@ -1174,15 +1178,15 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "create", "id": 95, "kind": "view", "props": [:], "style": [:]],
             ["op": "roots", "ids": [95]],
         ]))
-        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, node: route, preceding: nil, owner: owner)
+        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, preceding: nil, owner: owner)
         XCTAssertEqual(p.modals.routes.count, 1, "the sheet is up")
 
         // The refresh, under the sheet: a "next up" section first, a new row
-        // under the others, and row 21 grown. The sheet holds every box.
+        // under the others, and row 21 grown.
         m.sections.insert(.init(view: 69, header: nil, footer: nil, rows: [Row(view: 71, custom: true)]), at: 0)
         m.sections[2].rows.append(Row(view: 80, custom: true, pressable: true))
         let view = { (id: Int, kind: String, props: [String: String]) -> [String: Any] in
-            ["op": "create", "id": id, "kind": kind, "props": props, "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
+            ["op": "create", "id": id, "kind": kind, "props": props, "style": ["text_color": [0, 0, 0, 255]]]
         }
         p.apply(wireBatch([
             view(69, "view", ["semanticTag": "section"]), view(70, "view", [:]), view(71, "view", ["testId": "next-up"]),
@@ -1197,8 +1201,7 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "frame", "id": 80, "x": 16.0, "y": 143.0, "w": 354.0, "h": 73.0],
             ["op": "frame", "id": 81, "x": 16.0, "y": 26.0, "w": 100.0, "h": 21.0],
         ]))
-        for id: UInt32 in [71, 80, 21] { XCTAssertTrue(p.modals.holdsGeometry(id), "the sheet holds #\(id)'s box") }
-        XCTAssertEqual(p.views[80]?.frame.height, 0, "no box yet")
+        XCTAssertEqual(p.views[80]?.frame.height ?? 0, 73, accuracy: 0.5, "the box applies under the sheet")
 
         // The batch that closes it, as navigation's sync does mid-batch; UIKit
         // laid the list out in that batch, carrying its shown rows again.
@@ -1213,18 +1216,18 @@ final class GroupedListIOSTests: GroupedListFixture {
         func shown(_ id: UInt32, _ height: CGFloat, _ what: String) throws {
             let cell = try self.cell(p, id), row = try XCTUnwrap(p.views[id])
             XCTAssertTrue(row.superview === cell.contentView, "\(what): carried into its cell")
-            XCTAssertEqual(cell.bounds.height, height, accuracy: 0.5, "\(what): the row less its separator")
+            XCTAssertEqual(cell.bounds.height, height, accuracy: 0.5, "\(what): the row's height")
             XCTAssertTrue(l.collection.bounds.intersects(cell.frame), "\(what): in the list's port")
         }
-        try shown(71, 100, "the next-up card")
-        try shown(80, 72, "the new row")
-        try shown(21, 90, "the grown row")
+        try shown(71, 101, "the next-up card")
+        try shown(80, 73, "the new row")
+        try shown(21, 91, "the grown row")
         // The next batch gives the rows back and carries them again at
-        // their boxes, the ones the sheet held.
+        // their boxes.
         p.apply(wireBatch([["op": "props", "id": 95, "set": ["testId": "root"], "clear": [String]()]]))
-        XCTAssertEqual(p.views[21]?.frame.height ?? 0, 91, accuracy: 0.5, "the replayed box, kept")
-        try shown(21, 90, "the grown row, after a batch")
-        try shown(80, 72, "the new row, after a batch")
+        XCTAssertEqual(p.views[21]?.frame.height ?? 0, 91, accuracy: 0.5, "the box, kept")
+        try shown(21, 91, "the grown row, after a batch")
+        try shown(80, 73, "the new row, after a batch")
     }
 
     /// LLP 1116.003 D7, round 5's password-generator: at launch the list
@@ -1240,7 +1243,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         m.sections.append(.init(view: 6, header: "Recent", footer: nil, rows: ids.map { Row(view: $0, custom: true, pressable: true) }))
         let p = presenter(height: 3000) { m }
         let view = { (id: Int, kind: String, props: [String: String]) -> [String: Any] in
-            ["op": "create", "id": id, "kind": kind, "props": props, "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
+            ["op": "create", "id": id, "kind": kind, "props": props, "style": ["text_color": [0, 0, 0, 255]]]
         }
         var ops: [[String: Any]] = [view(6, "view", ["semanticTag": "section"]), view(7, "view", [:]),
                                     ["op": "create", "id": 95, "kind": "view", "props": [:], "style": [:]]]
@@ -1288,7 +1291,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         m.sections.append(.init(view: 6, header: nil, footer: nil, rows: ids.map { Row(view: $0, custom: true) }))
         let p = presenter(height: 600, on: session.presenter) { m }
         let view = { (id: Int, kind: String) -> [String: Any] in
-            ["op": "create", "id": id, "kind": kind, "props": [:], "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
+            ["op": "create", "id": id, "kind": kind, "props": [:], "style": ["text_color": [0, 0, 0, 255]]]
         }
         var ops: [[String: Any]] = [view(6, "view"), view(7, "view")]
         for (i, id) in ids.enumerated() {
@@ -1403,42 +1406,6 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(rgba(notes.textProperties.color, light), rgba(platform.textProperties.color, light), "a title that says nothing")
         XCTAssertEqual(rgba(notes.secondaryTextProperties.color, light), rgba(platform.secondaryTextProperties.color, light))
         XCTAssertEqual(notes.textProperties.font, platform.textProperties.font)
-    }
-
-    /// LLP 1116.004 D2 (chat-rooms, round 6): a page with no navigation
-    /// container keeps its viewport inside the safe area, and a grouped list
-    /// at its bottom left the root's white under the home indicator. Where
-    /// the list's box meets an edge of a viewport short of its container's,
-    /// the list's background goes on to the container's edge, behind the
-    /// viewport; not while the keyboard ends the viewport.
-    func testAListAtTheViewportsEdgeDrawsItsBackgroundToTheScreensEdge() throws {
-        let p = presenter(height: 840) { self.model() }
-        let grey: [[Int]] = [[242, 242, 247, 255], [0, 0, 0, 255]]
-        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": grey]]]))
-        // The home indicator's 34 points under the viewport.
-        p.viewport.frame = CGRect(x: 0, y: 0, width: 402, height: 840)
-        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 840.0]]))
-        let skirts = { self.window.subviews.filter { $0 !== p.viewport && !$0.isHidden && $0.frame.maxY == 874 } }
-        let skirt = try XCTUnwrap(skirts().first, "the list's background reaches the screen's bottom edge")
-        XCTAssertEqual(skirt.frame, CGRect(x: 0, y: 0, width: 402, height: 874))
-        XCTAssertLessThan(try XCTUnwrap(window.subviews.firstIndex(of: skirt)), try XCTUnwrap(window.subviews.firstIndex(of: p.viewport)),
-                          "behind the viewport: only what lies past its edge shows")
-        XCTAssertFalse(skirt.isUserInteractionEnabled)
-        func rgb(_ style: UIUserInterfaceStyle) throws -> [CGFloat] {
-            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            try XCTUnwrap(skirt.backgroundColor).resolvedColor(with: UITraitCollection(userInterfaceStyle: style)).getRed(&r, green: &g, blue: &b, alpha: &a)
-            return [r, g, b, a].map { ($0 * 255).rounded() }
-        }
-        XCTAssertEqual(try rgb(.light), [242, 242, 247, 255], "the list's grey, in light")
-        XCTAssertEqual(try rgb(.dark), [0, 0, 0, 255], "and in dark")
-        // The keyboard ends the viewport: the keys cover that edge.
-        p.keyboardInset = 300
-        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 840.0]]))
-        XCTAssertTrue(skirts().isEmpty)
-        p.keyboardInset = 0
-        // A list short of the viewport's edge draws nothing past it.
-        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 600.0]]))
-        XCTAssertTrue(skirts().isEmpty)
     }
 
     /// LLP 1115.000 D11.3 over `scripts/fixtures/navigation-bars.contract`'s

@@ -6,9 +6,11 @@
 // and this file is the runner's half between them: the kernel's motion seam
 // (each registered node's targets and `transition` at every commit, rt.js
 // `mo`), the holds `motion-glue.js` asks for, and the actions they end in.
+import { inertAncestor } from './navigation.js';
 import { motionController } from './motion-glue.js';
 import { transformDrags } from './transform.js';
 import { arrangeDrags } from './arrange.js';
+import { dragTarget } from './drag-target.js';
 
 export async function engine({ clock, wall, views, viewId, hooks, say, inflight }) {
   const bytes = globalThis.__files ? globalThis.__files('motion.wasm') : await fetch(new URL('motion.wasm', document.baseURI)).then(r => r.arrayBuffer());
@@ -130,10 +132,14 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
   // first valid target, never stolen by a second).
   const handles = new Map(), heights = new Map();
   let owner = null;
-  const eligible = el => el?.isConnected && !el.closest('[inert],[disabled]') && el.getClientRects().length > 0;
+  const eligible = el => el?.isConnected && !inertAncestor(el) && !el.closest('[disabled]') && el.getClientRects().length > 0;
   function reconcileHeights() {
+    for (const b of handles.values()) {
+      const target = dragTarget(b.el, 'heightdragfor');
+      b.target = target ? viewId(target) : null;
+    }
     const valid = t => heights.has(t) && typeof heights.get(t)[0] === 'number' && eligible(views.get(t)) && getComputedStyle(views.get(t)).boxSizing === 'border-box';
-    const targets = [...handles.values()].map(b => b.target).filter(t => t != null && valid(t));
+    const targets = [...handles.values()].filter(b => eligible(b.el)).map(b => b.target).filter(t => t != null && valid(t));
     const next = owner != null && targets.includes(owner) ? owner : targets[0] ?? null;
     if (next !== owner) {
       if (owner != null && w.m_unheight(owner)) api.retire(owner, 'height');
@@ -152,8 +158,8 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
     if (n.transition !== transition) { n.transition = transition; w.m_transitions(id, put(transition ?? '')); }
     w.m_height(id, h, now() / 1000);
   }
-  const api = motionController({ views, now, generation: () => 0, request, applyBatch, inert: el => !!el.closest('[inert]') });
-  const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight });
+  const api = motionController({ views, now, generation: () => 0, request, applyBatch, inert: inertAncestor });
+  const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight, say });
   const A = arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatch, authored, holds, held, hooks, After: globalThis.exact.After });
   // A list's wrappers during a preview are motion nodes too (list.js).
   hooks.observe = observe;
@@ -178,11 +184,11 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
     // longer qualifies (glue.js `applyBatch`'s tail).
     flush() { A.before(); reconcileHeights(); applyBatch(ops([...T.reconcile(), ...lower()])); api.commit(); api.followTimelines(); A.reconcile(); },
     reorderHandle(el) { A.handle(el); A.reconcile(); },
-    transformDrag(el, target, clip) { T.attach(el, target, clip); T.reconcile(); },
+    transformDrag(el) { T.attach(el); T.reconcile(); },
     height(id, v) { heights.set(id, v); observeHeight(id, v); },
-    heightDrag(el, target) {
+    heightDrag(el) {
       const id = viewId(el);
-      handles.set(id, { el, target: target ? viewId(target) : null, published: undefined });
+      handles.set(id, { el, target: null, published: undefined });
       api.attachHeightDrag(el, id, (t, g) => el.addEventListener(t, g));
       reconcileHeights();
     },

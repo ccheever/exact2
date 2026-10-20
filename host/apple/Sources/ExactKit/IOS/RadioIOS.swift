@@ -1,6 +1,6 @@
 // `input type="radio"` on UIKit (x2apps survey #2), which has no radio
 // control: the SF Symbols pair, `circle` and, checked, `circle.inset.filled`
-// in `accent-color`, at the reader's body size, the way the checkbox is
+// in `accent-color`, scaled with the body text, the way the checkbox is
 // (`ExactCheckbox`), with its 44-point target (LLP 1115.000 D13.2). It had
 // been Safari's 16-point circle at every text size. In a grouped list's row
 // it is not drawn at all: the row shows the platform's checkmark
@@ -13,11 +13,10 @@ final class ExactRadio: ExactCheckbox {
     #if os(tvOS)
     override var intrinsicContentSize: CGSize { CGSize(width: 16, height: 16) }
     #else
-    /// The radio's symbol at the reader's body size: an empty circle, and
+    /// The radio's symbol at the checkbox's `side`: an empty circle, and
     /// checked a circle with its centre filled, in one colour.
     override func mark(on: Bool, tint: UIColor) -> UIImage? {
-        let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
-        return UIImage(systemName: on ? "circle.inset.filled" : "circle", withConfiguration: UIImage.SymbolConfiguration(font: font, scale: .large))?
+        UIImage(systemName: on ? "circle.inset.filled" : "circle", withConfiguration: UIImage.SymbolConfiguration(pointSize: side))?
             .withTintColor(tint, renderingMode: .alwaysOriginal)
     }
     #endif

@@ -41,6 +41,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.force = true;
     }
 
+    /// The reader's field `id` had real input (a finger down, a key down).
+    pub fn field_input(&mut self, id: u32, generation: u32) {
+        self.p.reader_field_input(id, generation);
+        self.force = true;
+    }
+
     /// The reader's field `id` holds `value` after its edit `seq`, its
     /// selection at `start` to `end`.
     pub fn field_edited(&mut self, id: u32, edit: (u32, u32), value: &str, selection: (u32, u32)) {
@@ -106,6 +112,7 @@ const MEASURE: (&std::ffi::CStr, &std::ffi::CStr) =
 /// # Safety
 /// `env` is the JNI call's.
 pub unsafe fn attach(env: *mut JNIEnv, scale: f32) {
+    super::time::attach(env);
     let found = READER.get_or_init(|| {
         let mut vm: *mut JavaVM = std::ptr::null_mut();
         if ((**env).GetJavaVM.expect("jni"))(env, &mut vm) != JNI_OK {
@@ -140,7 +147,10 @@ pub unsafe fn attach(env: *mut JNIEnv, scale: f32) {
 }
 
 /// A Java string of `s` (UTF-16, so every scalar crosses whole).
-unsafe fn java(env: *mut JNIEnv, s: &str) -> jstring {
+///
+/// # Safety
+/// `env` is the JNI call's.
+pub unsafe fn java(env: *mut JNIEnv, s: &str) -> jstring {
     let units: Vec<u16> = s.encode_utf16().collect();
     ((**env).NewString.expect("jni"))(env, units.as_ptr(), units.len() as i32)
 }

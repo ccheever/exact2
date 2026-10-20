@@ -1,5 +1,5 @@
-// Escapes inside templates decode as in string literals: \n \t \" \\ \` \$,
-// and `\${` is literal text, not an interpolation.
+// Escapes inside templates decode as in string literals: \n \t \" \\ \` \$
+// \u{…} \uXXXX, and `\${` is literal text, not an interpolation.
 component App
   state n = 1
   view
@@ -11,6 +11,8 @@ component App
       text `a\\b` testId="tpl-backslash"
       text `l1\nl2` testId="tpl-nl"
       text "q\"q" testId="str-quote"
+      text "non\u{2011}breaking" testId="str-code"
+      text `${n}\u2011${n}\u{1F600}` testId="tpl-code"
 
 test "escapes"
   expect text "str-tab" == "a\tb"
@@ -20,3 +22,5 @@ test "escapes"
   expect text "tpl-dollar" == "${n}"
   expect text "tpl-backslash" == "a\\b"
   expect text "tpl-nl" == "l1\nl2"
+  expect text "str-code" == "non\u2011breaking"
+  expect text "tpl-code" == "1\u{2011}1\u{1f600}"

@@ -4,6 +4,11 @@ use exact_plan::{TypeKind, Value};
 use exact_runner::{Answer, DataError, Store};
 use std::sync::{Arc, Mutex};
 
+#[path = "abi_entry_tests.rs"]
+mod entries;
+#[path = "abi_refusal_tests.rs"]
+mod refusals;
+
 fn plan(resource: Option<&str>) -> Vec<u8> {
     let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     if let Some(name) = resource {
@@ -50,11 +55,19 @@ fn the_launch_place_is_the_last_valid_one_told() {
     let mut bridge = Bridge::<StorageModule>::new();
     let told = |bridge: &mut Bridge<StorageModule>, text: &str| {
         bridge.input_write(text.as_bytes());
-        bridge.set_launch_place(text.len());
+        bridge.set_launch_place(text.len())
     };
-    told(&mut bridge, "fr-FR\0Europe/Paris\x007");
-    told(&mut bridge, "\0Europe/Paris\x007");
-    told(&mut bridge, "de-DE\0Europe/Berlin");
+    assert_eq!(told(&mut bridge, "fr-FR\0Europe/Paris\x007"), 0);
+    for invalid in [
+        "\0Europe/Paris\x007",
+        "de-DE\0Europe/Berlin",
+        "en-US\0UTC\x004294967296",
+    ] {
+        assert!(told(&mut bridge, invalid) > 0);
+        assert!(std::str::from_utf8(&bridge.output)
+            .unwrap()
+            .contains("invalid launch place"));
+    }
     let place = bridge.launch_facts.place.clone().unwrap();
     assert_eq!(
         (place.locale.as_str(), place.time_zone.as_str(), place.seed),
@@ -128,12 +141,12 @@ fn plan_and_module_reloads_keep_the_document_owner() {
                     exact_data::documents::Resolved::Real {
                         directory,
                         path,
-                        selected_file: true,
-                    } => DocumentLease::selected_file(directory, path, guard),
+                        selected_file: Some(name),
+                    } => DocumentLease::selected_file_named(directory, path, name, guard),
                     exact_data::documents::Resolved::Real {
                         directory,
                         path,
-                        selected_file: false,
+                        selected_file: None,
                     } => DocumentLease::directory(directory, path, guard),
                 }
             }),
@@ -560,7 +573,7 @@ fn candidate_delivery_precedes_initial_and_carried_resource_queries() {
 }
 
 #[test]
-fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
+fn module_replacement_keeps_pending_requests_unless_the_dev_loop_lets_them_go() {
     #[derive(Clone)]
     struct Held(Arc<Mutex<usize>>);
     impl DataSource for Held {
@@ -607,7 +620,13 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
         .contains("retry after they settle"));
     assert_eq!(bridge.host.as_ref().unwrap().runner().pending(), pending);
     bridge.input_write(&plan);
-    let count = bridge.prepare_module([plan.len(), 0, 0], source, Hooks::none(), 390.0, 844.0);
+    let count = bridge.prepare_module(
+        [plan.len(), 0, 0],
+        source.clone(),
+        Hooks::none(),
+        390.0,
+        844.0,
+    );
     assert!(
         String::from_utf8_lossy(bridge.output_bytes(count as usize)).contains("pending requests")
     );
@@ -617,6 +636,27 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
         "refusal precedes loading candidate code"
     );
     assert_eq!(bridge.host.as_ref().unwrap().runner().pending(), pending);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(count as usize))
+        .starts_with("{\"requests\":true,"));
+    // The dev loop's generation past its settle window lets the POST go (LLP 1007 §6).
+    bridge.input_write(&plan);
+    let count = bridge.prepare_module_with_delivery(
+        [plan.len(), 0, 0],
+        source,
+        Hooks::none(),
+        390.0,
+        844.0,
+        None,
+        true,
+    );
+    assert!(
+        bridge.prepared.is_some(),
+        "{}",
+        String::from_utf8_lossy(bridge.output_bytes(count as usize))
+    );
+    let count = bridge.commit_plan();
+    assert!(!String::from_utf8_lossy(bridge.output_bytes(count as usize)).contains("\"error\":\""));
+    assert!(bridge.host.as_ref().unwrap().runner().pending().is_empty());
 }
 
 #[test]
@@ -1396,3 +1436,6 @@ fn block_axis_records_distinguish_size_maximum_and_route_fitting() {
         assert_eq!(k.host_block_size(id), Some(size));
     }
 }
+
+#[path = "abi_roles_tests.rs"]
+mod roles;

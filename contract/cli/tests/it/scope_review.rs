@@ -700,6 +700,7 @@ fn a_generated_name_is_never_a_binding_of_its_own_file() {
     assert!(e.as_ref().is_none_or(|e| e.id != "type-argument"), "{e:?}");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_relative_use_is_watched_by_the_path_written() {
     let dir = Dir::new("relative-written");
@@ -707,7 +708,6 @@ fn a_relative_use_is_watched_by_the_path_written() {
         "lib/v1.contract",
         "component Card\n  view\n    text \"v1\"\n",
     );
-    #[cfg(unix)]
     std::os::unix::fs::symlink(
         dir.0.join("lib/v1.contract"),
         dir.0.join("lib/entry.contract"),
@@ -717,15 +717,12 @@ fn a_relative_use_is_watched_by_the_path_written() {
         "app.contract",
         "use Card from \"./lib/entry.contract\"\ncomponent App\n  view\n    Card()\n",
     );
-    #[cfg(unix)]
-    {
-        let graph = contract::source_graph(&root);
-        assert!(
-            graph.consulted.contains(&dir.0.join("lib/entry.contract")),
-            "{:?}",
-            graph.consulted
-        );
-    }
+    let graph = contract::source_graph(&root);
+    assert!(
+        graph.consulted.contains(&dir.0.join("lib/entry.contract")),
+        "{:?}",
+        graph.consulted
+    );
 }
 
 // Round 9 (Astra, Grok, 2026-10-05).

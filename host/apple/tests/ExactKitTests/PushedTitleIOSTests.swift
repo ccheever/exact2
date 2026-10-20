@@ -100,32 +100,36 @@ final class PushedTitleIOSTests: XCTestCase {
     }
 
     /// Whether UIKit shows `title` as a large title: a label holding it at a
-    /// large-title size, opaque and inside the window (since iOS 26 UIKit
-    /// keeps that label in the scroll view the bar follows).
+    /// large-title size, opaque, and at least half of it inside the window
+    /// and every view that clips it. UIKit keeps a pushed route's label in
+    /// the scroll view the bar follows, which clips it when it is left where
+    /// that scroller no longer reaches.
     private func largeTitleShows(_ title: String) -> Bool {
         guard let window else { return false }
         var found = false
-        func visit(_ view: UIView, _ alpha: CGFloat) {
+        func visit(_ view: UIView, _ alpha: CGFloat, _ clip: CGRect) {
             guard !view.isHidden, !found else { return }
             let a = alpha * view.alpha
+            let inside = view.clipsToBounds ? clip.intersection(view.convert(view.bounds, to: window)) : clip
             if let label = view as? UILabel, label.text == title, label.font.pointSize >= 26, a > 0.5 {
-                let frame = label.convert(label.bounds, to: window)
-                if frame.height > 1, window.bounds.contains(frame.origin) { found = true }
+                let frame = label.convert(label.bounds, to: window), shown = frame.intersection(inside)
+                if frame.height > 1, !shown.isNull, shown.height >= frame.height / 2 { found = true }
             }
-            for sub in view.subviews { visit(sub, a) }
+            for sub in view.subviews { visit(sub, a, inside) }
         }
-        visit(window, 1)
+        visit(window, 1, window.bounds)
         return found
     }
 
     /// A route's bar and scroller: the bar's height, whether its large title
     /// shows, how far the content is scrolled (CSS scrollTop), and how far
-    /// below the bar its first line (`<route>-top`) is.
-    private func state(_ nav: UINavigationController, _ route: String, _ scroller: String) throws -> (bar: CGFloat, large: Bool, scrolled: CGFloat, below: CGFloat) {
+    /// below the bar its first line (`top`, else `<route>-top`) is.
+    private func state(_ nav: UINavigationController, _ route: String, _ scroller: String, top: String? = nil) throws -> (bar: CGFloat, large: Bool, scrolled: CGFloat, below: CGFloat) {
         let node = try node(scroller)
         let sv = try XCTUnwrap(session?.presenter.navigation.shownScroll(node))
         let bar = nav.navigationBar
-        let below = find("\(route)-top").map { $0.convert($0.bounds, to: nil).minY - bar.convert(bar.bounds, to: nil).maxY } ?? 0
+        let first = try top.map { try self.node($0) } ?? find("\(route)-top")
+        let below = first.map { $0.convert($0.bounds, to: nil).minY - bar.convert(bar.bounds, to: nil).maxY } ?? 0
         return (bar.frame.height, largeTitleShows(route), sv.contentOffset.y + sv.adjustedContentInset.top, below)
     }
 
@@ -184,8 +188,8 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertFalse(long.large)
         XCTAssertEqual(long.scrolled, 300, accuracy: 0.5, "an authored scrollTop lands where the browser's does")
 
-        // Back at the top, unanimated, as the status bar's tap takes a screen
-        // there under the agent's frozen clock (`rest`).
+        // Back at the top as a reselected tab takes a screen there under the
+        // agent's frozen clock: unanimated (`restAtTop`).
         session.presenter.navigation.scrollsToTopAnimated = false
         session.presenter.navigation.scrollToTop(route)
         settle()
@@ -317,40 +321,47 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertEqual(long.scrolled, 260, accuracy: 0.5)
 
         // A `replace`: the route keeps its place and its controller, its
-        // header and scroller replaced under the collapsed bar. The new
-        // screen opens as a pushed one does.
+        // header and scroller replaced under the collapsed bar. The bar stays
+        // as it was left, as UIKit keeps it for a controller whose scroll view
+        // is replaced in place; the new screen opens at its top.
         try tap("long-replace-short", in: nav, depth: 2)
         let short = try state(nav, "short", "short-scroll")
-        XCTAssertEqual(short.bar, expanded, accuracy: 0.5, "a level-1 screen that replaces a scrolled one opens expanded")
-        XCTAssertTrue(short.large)
-        XCTAssertEqual(short.below, 0, accuracy: 0.5)
+        XCTAssertEqual(short.bar, inline, accuracy: 0.5, "a screen that replaces a scrolled one finds the bar collapsed")
+        XCTAssertFalse(short.large)
+        XCTAssertEqual(short.scrolled, 0, accuracy: 0.5)
+        XCTAssertEqual(short.below, 0, accuracy: 0.5, "its first line just below the bar")
         try back(nav, depth: 1)
 
         // A content swap under a pushed, expanded bar (LLP 1116.005 D4): the
         // scroller replaced in place, then a reason between the header and it.
         try tap("home-open-swap", in: nav, depth: 2)
-        var swap = try state(nav, "swap", "swap-first")
+        var swap = try state(nav, "swap", "swap-first", top: "swap-first-top")
         XCTAssertEqual(swap.bar, expanded, accuracy: 0.5)
         XCTAssertTrue(swap.large)
         try tap("swap-swap", in: nav, depth: 2)
-        swap = try state(nav, "swap", "swap-second")
+        swap = try state(nav, "swap", "swap-second", top: "swap-second-top")
         XCTAssertEqual(swap.bar, expanded, accuracy: 0.5, "a scroller replaced in place under an open title leaves it open")
         XCTAssertTrue(swap.large)
         XCTAssertEqual(swap.scrolled, 0, accuracy: 0.5)
-        let top = try node("swap-second-top"), bar = nav.navigationBar
-        XCTAssertEqual(top.convert(top.bounds, to: nil).minY, bar.convert(bar.bounds, to: nil).maxY, accuracy: 0.5, "its first line just below the title")
-        // …and under a collapsed one, opens it, as a new page's is.
+        XCTAssertEqual(swap.below, 0, accuracy: 0.5, "its first line just below the title")
+        // …and under a collapsed one leaves it collapsed, as UIKit does.
         try scroll("swap-second", to: 300)
         XCTAssertEqual(nav.navigationBar.frame.height, inline, accuracy: 0.5)
         try tap("swap-back", in: nav, depth: 2)
-        swap = try state(nav, "swap", "swap-first")
-        XCTAssertEqual(swap.bar, expanded, accuracy: 0.5, "a scroller replaced in place under a collapsed title opens it")
-        XCTAssertTrue(swap.large)
+        swap = try state(nav, "swap", "swap-first", top: "swap-first-top")
+        XCTAssertEqual(swap.bar, inline, accuracy: 0.5, "a scroller replaced in place under a collapsed title leaves it collapsed")
+        XCTAssertFalse(swap.large)
         XCTAssertEqual(swap.scrolled, 0, accuracy: 0.5)
+        XCTAssertEqual(swap.below, 0, accuracy: 0.5, "its first line just below the bar")
+        // Pushed again, open: a reason between the header and the scroller,
+        // which then collapses nothing; the title stays open and in sight.
+        try back(nav, depth: 1)
+        try tap("home-open-swap", in: nav, depth: 2)
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5)
         try tap("swap-fail", in: nav, depth: 2)
         XCTAssertNotNil(find("swap-reason"), "the reason shows between the header and the scroller")
         XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, "nothing collapses the title now, and it stays")
-        XCTAssertTrue(largeTitleShows("swap"))
+        XCTAssertTrue(largeTitleShows("swap"), "in sight, not left in the scroller below the reason")
     }
 }
 #endif

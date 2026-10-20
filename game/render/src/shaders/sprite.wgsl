@@ -4,6 +4,6 @@ fn quad_color(v: QuadOut) -> vec4<f32> {
     var color = textureSample(sprite_texture,sprite_sampler,v.uv) * v.color;
     if v.mode == 1. && color.a < v.cutoff { discard; }
     if v.mode < 2. { color.a = 1.; }
-    return color;
+    return vec4(height_fog(color.rgb,v.world),color.a);
 }
-@fragment fn quad_fs(v: QuadOut) -> @location(0) vec4<f32> { return quad_color(v); }
+@fragment fn quad_fs(v: QuadOut) -> @location(0) vec4<f32> { return quad_out(quad_color(v)); }

@@ -169,7 +169,9 @@ internal class Scrolling(private val view: ExactView) {
         val links = ArrayList<Link>(w[1])
         // After the claims and the count, the hosted field under the touch ([Fields.under]); then the scrollers.
         var i = 3
-        while (i + 11 <= w.size) {
+        // The words after the scrollers are the module button's ([Native.under]).
+        val end = minOf(w.size, 3 + 11 * w[1])
+        while (i + 11 <= end) {
             val s = scrollers.getOrPut(w[i]) { Scroller(w[i]) }
             if (!s.told) { s.rev = w[i + 2]; s.nowX = f(w[i + 3]); s.nowY = f(w[i + 4]); s.maxX = f(w[i + 5]); s.maxY = f(w[i + 6]) }
             s.flags = (s.flags and 3) or (w[i + 1] and 4)
@@ -317,7 +319,7 @@ internal class Scrolling(private val view: ExactView) {
             v = -(if (sideways) t.getXVelocity(pointer) else t.getYVelocity(pointer))
         }
         val edged = edged()
-        val stretched = edged != null && edged.edges.any { it != null && it.distance != 0f }
+        val stretched = edged != null && STRETCH && edged.edges.any { it != null && it.distance != 0f }
         if (edged != null) { for (e in edged.edges) e?.onRelease(); if (stretched) stretching() }
         if (stretched || abs(v) < minFling || active.isEmpty()) { mode = IDLE; return }
         mode = FLINGING
@@ -340,7 +342,7 @@ internal class Scrolling(private val view: ExactView) {
             val rest = move(d)
             if (rest != 0f) {
                 // Every scroller is at its end: what is left of the fling goes into the edge.
-                edged()?.let { s -> edge(s, toward(rest > 0f)).onAbsorb(fling.currVelocity.toInt()); stretching() }
+                if (STRETCH) edged()?.let { s -> edge(s, toward(rest > 0f)).onAbsorb(fling.currVelocity.toInt()); stretching() }
                 fling.forceFinished(true)
                 done = true
             }
@@ -348,7 +350,7 @@ internal class Scrolling(private val view: ExactView) {
         if (done) mode = IDLE else frames.postFrameCallback(flinger)
     }
 
-    // The ends: the platform's stretch.
+    // The ends: the platform's stretch. Android 12's: before it a scroller's end does not move.
 
     /** The scroller whose edge stretches: the innermost of the drag that has a node to stretch. */
     private fun edged(): Scroller? = active.firstOrNull { it.node }
@@ -368,6 +370,7 @@ internal class Scrolling(private val view: ExactView) {
 
     /** How much of [d] a stretched edge of [s] takes back as the finger returns toward it. */
     private fun relax(s: Scroller, d: Float, x: Float, y: Float): Float {
+        if (!STRETCH) return 0f
         val size = length(s)
         val start = s.edges[toward(false)]; val end = s.edges[toward(true)]
         val took = when {
@@ -381,6 +384,7 @@ internal class Scrolling(private val view: ExactView) {
 
     /** [rest] px the finger moved with every scroller at its end: [s]'s edge that way stretches. */
     private fun pull(s: Scroller, rest: Float, x: Float, y: Float) {
+        if (!STRETCH) return
         val which = toward(rest > 0f)
         edge(s, which).onPullDistance(abs(rest) / length(s), across(s, which, x, y))
         s.edges[toward(rest < 0f)]?.takeIf { !it.isFinished }?.onRelease()
@@ -506,5 +510,7 @@ internal class Scrolling(private val view: ExactView) {
         const val BOTTOM = 1
         const val LEFT = 2
         const val RIGHT = 3
+        /** An edge's stretch, and the distance it is read by, are Android 12's (`EdgeEffect.getDistance`). */
+        val STRETCH = android.os.Build.VERSION.SDK_INT >= 31
     }
 }

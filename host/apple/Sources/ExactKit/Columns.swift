@@ -74,9 +74,12 @@ extension NodeView {
     /// multi-column `text`'s: its column width). Its lines break at this
     /// width; points mapped by `paragraphPoint` are in its space.
     func paragraphBox() -> CGRect {
-        let box = contentBox()
+        // A flex text's lines go down its box as CSS's anonymous flex item (`Kernel::text_line_offset`).
+        let down = props["textOffset"].flatMap(Double.init).map { CGFloat($0) } ?? 0
+        var box = contentBox()
+        box.origin.y += down; box.size.height = max(0, box.height - down)
         guard let record = columnRecord, let first = record.fragments.first else { return box }
-        let width = record.columns.isEmpty ? first.rect.width - (bounds.width - box.width) : first.rect.width
+        let width = record.columns.isEmpty ? first.rect.width - (layoutBounds.width - box.width) : first.rect.width
         return CGRect(x: box.minX, y: box.minY, width: max(0, width), height: 1e7)
     }
 
@@ -122,7 +125,7 @@ extension NodeView {
     /// moved by its offset, with the unfragmented box and that offset (what a
     /// dirty rect in this view's space must be moved back by).
     func eachFragment(_ ctx: CGContext, _ body: (CGRect, CGPoint) -> Void) {
-        guard let frags = columnRecord?.fragments, !frags.isEmpty else { return body(contentBox(), .zero) }
+        guard let frags = columnRecord?.fragments, !frags.isEmpty else { return body(paragraphBox(), .zero) }
         let box = paragraphBox()
         for f in frags {
             ctx.saveGState()
@@ -174,22 +177,5 @@ extension NodeView {
             rule.backgroundColor = TextEngine.color(c).cgColor
             return rule
         }
-    }
-}
-
-extension TextEngine {
-    /// @ref LLP 1093 D6 — each line box's bottom, in content coordinates, of
-    /// the paragraph `request` answers: the one the presenter paints.
-    func lineBottoms(_ request: ExactMeasureRequest) -> [CGFloat] {
-        guard request.width >= 0, request.exclusion_count == 0, request.markup == 0 else { return [] }
-        return paragraph(requestSpec(request), width: CGFloat(request.width)).lineBottoms
-    }
-
-    /// The kernel's line-box hook (`exact_set_lines`); `ctx` is the engine.
-    static let linesText: ExactLinesFn = { ctx, request, out, cap in
-        guard let ctx, let request = request?.pointee else { return 0 }
-        let bottoms = Unmanaged<TextEngine>.fromOpaque(ctx).takeUnretainedValue().lineBottoms(request)
-        if let out { for (i, b) in bottoms.prefix(cap).enumerated() { out[i] = Float(b) } }
-        return bottoms.count
     }
 }

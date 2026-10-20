@@ -329,10 +329,9 @@ pub(crate) fn patterns() -> Vec<PathBuf> {
     dirs
 }
 
-/// Every pattern `exact.mjs pattern` writes compiles with no diagnostic,
-/// error or warning, and its `app.test.contract` parses.
+/// Every pattern compiles with only its documented diagnostics, and its tests parse.
 #[test]
-fn every_pattern_compiles_with_no_diagnostic_and_its_tests_parse() {
+fn every_pattern_compiles_with_expected_diagnostics_and_its_tests_parse() {
     let mut failures = Vec::new();
     let all = patterns();
     assert!(all.len() >= 5, "docs/patterns has {} patterns", all.len());
@@ -348,12 +347,8 @@ fn every_pattern_compiles_with_no_diagnostic_and_its_tests_parse() {
         if let Err(all) = contract::compile_path_all(&path, false) {
             failures.extend(all.iter().map(at));
         }
-        failures.extend(
-            contract::compile_path_all_warned(&path, false)
-                .1
-                .iter()
-                .map(at),
-        );
+        let warnings = contract::compile_path_all_warned(&path, false).1;
+        failures.extend(warnings.iter().map(at));
         match std::fs::read_to_string(dir.join("app.test.contract")) {
             Ok(tests) => match contract::tests(&tests) {
                 Ok(decls) if decls.is_empty() => {
@@ -556,4 +551,20 @@ fn wav() -> Vec<u8> {
     b.extend_from_slice(&data.to_le_bytes());
     b.resize(b.len() + data as usize, 0);
     b
+}
+
+#[test]
+fn content_design_readout_has_no_width_ceiling_warning() {
+    let block = blocks()
+        .into_iter()
+        .find(|b| b.doc.ends_with("recipes/content-design.md") && b.info == "contract")
+        .expect("content design readout");
+    let dir = std::env::temp_dir().join(format!("exact-content-design-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, block.body).unwrap();
+    let (result, warnings) = contract::compile_path_all_warned(&path, false);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(result.is_ok(), "{:?}", result.err());
+    assert!(warnings.is_empty(), "{warnings:?}");
 }

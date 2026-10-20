@@ -74,11 +74,13 @@ final class MenuFocus {
     }
     /// Navigation bars' touches set the focus aside while their items hold a
     /// menu, and the next touch on the page brings it back (`BarTouch`): one
-    /// recognizer per bar, and one on the viewport, which a presentation
-    /// carries with the page.
+    /// recognizer per bar, and one on the page the bar is over: the
+    /// viewport, or the presentation the bar's navigation is mounted in
+    /// (LLP 1123 D2).
     func watch(_ bar: UINavigationBar) {
         if !(bar.gestureRecognizers ?? []).contains(where: { $0 is BarTouch }) { bar.addGestureRecognizer(BarTouch(focus: self, bar: true)) }
-        if let view = presenter?.viewport, !(view.gestureRecognizers ?? []).contains(where: { $0 is BarTouch }) {
+        let page = presenter?.port(of: bar)
+        if let view = page, !(view.gestureRecognizers ?? []).contains(where: { $0 is BarTouch }) {
             view.addGestureRecognizer(BarTouch(focus: self, bar: false))
         }
     }
@@ -132,7 +134,7 @@ final class BarTouch: UIGestureRecognizer, UIGestureRecognizerDelegate {
 #if os(iOS)
 /// An invoker's pull-down (`MenuHost` overlays): the focus set aside while its
 /// menu shows.
-final class MenuButton: UIButton {
+final class MenuButton: InvokerButton {
     weak var focus: MenuFocus?
     weak var popover: NodeView?
     var toggled: ((Bool) -> Void)?
@@ -154,6 +156,7 @@ final class MenuButton: UIButton {
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
         super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
         guard self.menuConfiguration === configuration else { return }
+        releasePress()
         if isMenuOpen { isMenuOpen = false; toggled?(false) }
         let ended: () -> Void = { [weak self] in
             guard let self, self.menuConfiguration === configuration else { return }

@@ -23,8 +23,18 @@ extension Presenter {
         get { focusEvents.onEvent }
         set { focusEvents.onEvent = newValue }
     }
-    func focus(_ id: UInt32) { focusEvents.focus(id) }
-    func blur(_ id: UInt32) { focusEvents.blur(id) }
+    func focus(_ id: UInt32) {
+        #if os(macOS)
+        tabStart = nil
+        #endif
+        focusEvents.focus(id)
+        MainActor.assumeIsolated { HeldState.focusMoved(to: textHost(id)) } // the focus coming into a held focus's node or leaving it lets it go (HeldState.swift)
+    }
+    func blur(_ id: UInt32) {
+        focusEvents.blur(id)
+        // (After the turn: the focus that comes next, so one moving within the node keeps its hold.)
+        DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { HeldState.focusMoved(to: self?.focusedNode) } }
+    }
 }
 
 final class FocusEvents {
@@ -53,12 +63,8 @@ final class FocusEvents {
                 if node.handlers.contains("focusin") { inbound.append(node.id) }
                 if node.handlers.contains("focusout") { outbound.append(node.id) }
             }
-            #if os(macOS)
-            if let node = next as? NodeView { cursor = presenter.blocks.parent(of: node) }
-            else { cursor = next.superview }
-            #else
-            cursor = next.superview
-            #endif
+            // Its authored parent, across a native container's view (LLP 1123 D2)
+            cursor = presenter.eventParent(of: next)
         }
         return FocusSnapshot(node: id, name: (presenter.inlineText(id)?.props ?? view.props)["id"] ?? "", path: path, inbound: inbound, outbound: outbound)
     }

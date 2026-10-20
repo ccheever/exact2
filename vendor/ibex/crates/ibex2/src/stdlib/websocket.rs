@@ -65,6 +65,13 @@ pub trait MessageSender: Send + Sync {
     fn send_binary(&self, bytes: &[u8]) -> Result<(), HostError>;
     fn close(&self, code: Option<u16>, reason: &str) -> Result<(), HostError>;
     fn buffered_amount(&self) -> usize;
+    /// An observational snapshot of the transport's outbound message count.
+    /// This does not reserve admission: a concurrent or subsequent send may
+    /// change the count before a caller acts on it. Zero is the default for
+    /// transports without a message count.
+    fn buffered_messages(&self) -> usize {
+        0
+    }
 }
 
 /// An open socket. Dropping it closes the connection.
@@ -770,6 +777,14 @@ mod tests {
         );
         assert_eq!(
             opened("net.websocket ws://127.0.0.1:4350", "ws://127.0.0.1:4351/x"),
+            "denied: net.websocket"
+        );
+        assert_eq!(
+            opened("net.websocket ws:", "ws://127.0.0.1:4351/x"),
+            "reached the transport"
+        );
+        assert_eq!(
+            opened("net.websocket wss:", "ws://127.0.0.1:4351/x"),
             "denied: net.websocket"
         );
         assert!(opened(socket, "https://jetstream2.us-east.bsky.network/").contains("ws: or wss:"));

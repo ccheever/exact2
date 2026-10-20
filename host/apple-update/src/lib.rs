@@ -16,10 +16,15 @@ pub static HOOKS: exact_apple::delivery::Hooks = exact_apple::delivery::Hooks {
     last_line: store::last_line,
 };
 
-/// Instantiate an app with the update adapter linked into its archive.
+/// Instantiate an app with the update adapter linked into its archive. A
+/// fourth argument makes the data source, as `exact_apple::host!`'s factory
+/// does for a bytecode module; without it the source is `Default`.
 #[macro_export]
 macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr $(; linked = $linked:expr)?) => {
+        $crate::host!($data, $plan, $compat, || <$data as ::std::default::Default>::default() $(; linked = $linked)?);
+    };
+    ($data:ty, $plan:expr, $compat:expr, $new:expr $(; linked = $linked:expr)?) => {
         mod exact_delivery_adapter {
             use super::*;
             extern "C" fn input(n: usize) -> *mut u8 {
@@ -86,7 +91,8 @@ macro_rules! host {
             $plan,
             $compat,
             Some(&$crate::HOOKS),
-            &exact_delivery_adapter::API
+            &exact_delivery_adapter::API,
+            $new
             $(; linked = $linked)?
         );
     };

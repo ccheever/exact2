@@ -80,20 +80,41 @@ impl<G: crate::Game> crate::Sim<G> {
 }
 
 pub(crate) fn names<G: crate::Game>() -> impl Iterator<Item = &'static str> {
-    G::ASSETS.iter().copied().chain(
-        G::LEVEL
-            .filter(|level| !G::ASSETS.contains(&level.name))
-            .map(|level| level.name),
-    )
+    G::ASSETS
+        .iter()
+        .copied()
+        .chain(
+            G::LEVEL
+                .filter(|level| !G::ASSETS.contains(&level.name))
+                .map(|level| level.name),
+        )
+        .chain((!G::TABLES.is_empty()).then_some(super::TABLE_ASSET))
 }
 
 pub(crate) fn validate_declaration<G: crate::Game>() -> Result<(), String> {
-    if G::ASSETS.is_empty() && G::LEVEL.is_none() && G::STREAMED.is_empty() {
+    if G::ASSETS.is_empty() && G::LEVEL.is_none() && G::TABLES.is_empty() && G::STREAMED.is_empty()
+    {
         return Ok(());
+    }
+    let mut tables = std::collections::BTreeSet::new();
+    for table in G::TABLES {
+        if !super::asset_name(table.name)
+            || !table.name.ends_with(".json")
+            || table.name.ends_with(".level.json")
+            || table.name == super::TABLE_ASSET
+            || !tables.insert(table.name)
+        {
+            return Err(format!(
+                "table `{}`: expected a unique tuning .json path",
+                table.name
+            ));
+        }
     }
     for name in names::<G>().chain(G::STREAMED.iter().copied()) {
         if !super::asset_name(name)
-            || !(if G::LEVEL.is_some_and(|level| level.name == name) {
+            || !(if name == super::TABLE_ASSET && !G::TABLES.is_empty() {
+                true
+            } else if G::LEVEL.is_some_and(|level| level.name == name) {
                 name.ends_with(".level.json")
             } else {
                 name.ends_with(".model") || name.ends_with(".tex") || name.ends_with(".sound")

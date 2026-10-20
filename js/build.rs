@@ -27,6 +27,7 @@ fn main() {
         "src/standard.js",
         "src/prelude.js",
         "src/intl.js",
+        "tests/fixtures/harden-probe.js",
     ] {
         println!("cargo:rerun-if-changed={source}");
     }
@@ -119,6 +120,26 @@ fn main() {
     let leaked_path = out.join("prelude-with-abort-hook.js");
     std::fs::write(&leaked_path, leaked_abort_hooks).expect("write abort-hook fixture prelude");
     compile(&leaked_path, &out.join("prelude-with-abort-hook.hbc"));
+    // The hooks published behind a Proxy whose `get` trap hides them: only a
+    // descriptor read finds them.
+    let hidden_abort_hooks = prelude.replacen(
+        "  delete global.__exact_ibex2_abort_hooks;\n",
+        "  global.__exact_hidden_hooks = new Proxy({ hooks: global.__exact_ibex2_abort_hooks }, { get: function () { return undefined; } });\n  delete global.__exact_ibex2_abort_hooks;\n",
+        1,
+    );
+    let hidden_path = out.join("prelude-with-hidden-abort-hook.js");
+    std::fs::write(&hidden_path, hidden_abort_hooks)
+        .expect("write hidden abort-hook fixture prelude");
+    compile(
+        &hidden_path,
+        &out.join("prelude-with-hidden-abort-hook.hbc"),
+    );
+    let probe = std::fs::read_to_string(manifest.join("tests/fixtures/harden-probe.js"))
+        .expect("harden probe fixture");
+    let probe_path = out.join("prelude-with-harden-probe.js");
+    std::fs::write(&probe_path, prelude.clone() + "\n" + &probe)
+        .expect("write harden probe prelude");
+    compile(&probe_path, &out.join("prelude-with-harden-probe.hbc"));
 
     let rolldown = env::var("EXACT_ROLLDOWN")
         .map(PathBuf::from)
@@ -128,6 +149,10 @@ fn main() {
         "exact-js: rolldown not found at {} (run `bun install`, or set EXACT_ROLLDOWN)",
         rolldown.display()
     );
+    // The fixtures bundle as an app's data module does: `async` lowered and
+    // stepped by the answer-context helper (LLP 1133.002 D14).
+    let bake = manifest.join("bake/src/typescript.mjs");
+    println!("cargo:rerun-if-changed={}", bake.display());
     for name in [
         "caltrain",
         "castle",
@@ -140,10 +165,27 @@ fn main() {
         "spin",
         "shared-load",
         "overlay",
+        "socket",
+        "heap",
+        "snapshot",
+        "context",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());
         let script = out.join(format!("{name}.js"));
+        let config = out.join(format!("{name}.bundle.mjs"));
+        std::fs::write(
+            &config,
+            format!(
+                "import {{ asyncContext, bundleOptions, lowered }} from {:?};\n\
+                 export default {{ input: {:?}, output: {{ format: 'iife', file: {:?} }},\n\
+                 transform: {{ ...bundleOptions.transform, ...lowered }}, plugins: [asyncContext()] }};\n",
+                bake.to_str().expect("a UTF-8 path"),
+                source.to_str().expect("a UTF-8 path"),
+                script.to_str().expect("a UTF-8 path"),
+            ),
+        )
+        .expect("write the fixture bundle config");
         let mut header = [0; 128];
         let len = std::fs::File::open(&rolldown)
             .and_then(|mut file| file.read(&mut header))
@@ -163,9 +205,9 @@ fn main() {
             Command::new(&rolldown)
         };
         let status = bundler
-            .arg(&source)
-            .args(["--format", "iife", "--file"])
-            .arg(&script)
+            .arg("--config")
+            .arg(&config)
+            .args(["--configLoader", "native"])
             .status()
             .unwrap_or_else(|error| panic!("exact-js: cannot run {}: {error}", rolldown.display()));
         assert!(

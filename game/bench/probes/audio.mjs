@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { serveStatic } from '../../../host/web/serve.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
 
 function observe() {
   const contexts = [], gestures = [];
@@ -76,7 +77,7 @@ export async function audioProof({out, check, say, game = 'greybox', loop = 'win
     server = createServer((req, res) => serveStatic(dist, req, res));
     await new Promise((ok, fail) => { server.once('error', fail); server.listen(0, '127.0.0.1', ok); });
     profile = mkdtempSync(resolve(tmpdir(), `${game}-audio-`));
-    const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    const chrome = chromium({ needs: ['gpu', 'perf'] }).executable;
     child = spawnBrowser(chrome, ['--remote-debugging-pipe', `--user-data-dir=${profile}`,
       '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
       '--disable-component-update', '--window-size=1280,720', 'about:blank'],

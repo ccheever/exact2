@@ -4,7 +4,8 @@
 // coordinate space, refusing by name, and changes nothing (D4). The dispatch
 // log records each touch the window dispatched, after UIKit dispatched it
 // (D5): window dispatch only — never a recognizer's outcome, a cancellation
-// or a handled press, which `state` and `tree` answer.
+// or a handled press, which `state` and `tree` answer — and beside it which
+// touches down have reached the view they landed on (`reached`).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -12,8 +13,29 @@ import UIKit
 /// logs the touches it dispatched.
 public final class ExactWindow: UIWindow {
     public override func sendEvent(_ event: UIEvent) {
+        // Read before UIKit delivers the event: which lifts lost the view their touch began on (`TouchLog.viewGone`)
+        let gone = ExactEnv.agentMode && event.type == .touches ? TouchLog.viewGone(event) : []
+        // Inspect mode takes every touch and press (InspectIOS.swift), and
+        // knows the touches down when it begins. (It reached this window,
+        // so the agent's touch log still has it.)
+        #if EXACT_INSPECT && os(iOS)
+        InspectHost.see(event)
+        if Inspect.on || InspectHost.owning, InspectHost.take(event, in: self) {
+            if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self, gone: gone) }
+            return
+        }
+        #endif
+        // A contact going down, a native control's included, ends the live
+        // press's focus handoff of the session it lands in before anything
+        // hears it (PressHandoffIOS); one landing in none, every session's.
+        for touch in event.allTouches ?? [] where event.type == .touches && touch.phase == .began {
+            let sessions = ExactApp.shared.sessions
+            let owners = touch.view.map { view in sessions.filter { $0.presenter.mounts(view) } } ?? []
+            for session in owners.isEmpty ? sessions : owners { session.presenter.supersedePress() }
+            HeldState.input(at: touch.view) // a contact on a held node, or in it, lets its hold go (HeldState.swift)
+        }
         super.sendEvent(event)
-        if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self) }
+        if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self, gone: gone) }
     }
 }
 
@@ -25,9 +47,48 @@ enum TouchLog {
     nonisolated(unsafe) static var dropped = 0
     nonisolated(unsafe) static var ids: [ObjectIdentifier: Int] = [:]
     nonisolated(unsafe) static var nextTouch = 1
+    /// The touches down whose view's `touchesBegan` has had them, for the
+    /// views that say so (a node, a native button: `reports`). UIKit hands a
+    /// touch to its view after the window dispatched it, in a scroll view
+    /// only once `delaysContentTouches` lets it go (about 150 ms), and a
+    /// read inside a held touch waits for that (`touches.mjs`).
+    nonisolated(unsafe) static var reached: Set<Int> = []
     static let capacity = 256
+    /// The touches down that began on a view (`viewGone`), held weakly: a cancelled touch never lifts here
+    nonisolated(unsafe) static let viewed = NSHashTable<UITouch>.weakObjects()
 
-    static func record(_ event: UIEvent, in window: UIWindow) {
+    /// The lifts in `event` whose touch began on a view and has none now, read before the window delivers the event:
+    /// the view left the window first (a list cell's detail button UIKit rebuilds while it loads its accessibility), so
+    /// it never has the lift. A view UIKit removes as it handles a lift (a switch's lens) still has the touch then, and a
+    /// touch a system recognizer takes has no view from the start.
+    static func viewGone(_ event: UIEvent) -> Set<UITouch> {
+        var gone: Set<UITouch> = []
+        for touch in event.allTouches ?? [] {
+            if touch.phase == .began, touch.view != nil {
+                viewed.add(touch)
+            } else if touch.phase == .ended, viewed.contains(touch) {
+                viewed.remove(touch)
+                if touch.view == nil { gone.insert(touch) }
+            }
+        }
+        return gone
+    }
+
+    /// Outside a scroll view a view's `touchesBegan` runs inside the
+    /// window's `sendEvent`, before `record` sees the touch: either names it.
+    static func reach(_ touches: Set<UITouch>) {
+        for touch in touches { reached.insert(number(touch)) }
+    }
+
+    private static func number(_ touch: UITouch) -> Int {
+        let key = ObjectIdentifier(touch)
+        if let id = ids[key] { return id }
+        defer { nextTouch += 1 }
+        ids[key] = nextTouch
+        return nextTouch
+    }
+
+    static func record(_ event: UIEvent, in window: UIWindow, gone: Set<UITouch>) {
         for touch in event.allTouches ?? [] {
             let phase: String
             switch touch.phase {
@@ -37,13 +98,16 @@ enum TouchLog {
             default: continue // stationary, and cancelled, which reaches views and not this window
             }
             let key = ObjectIdentifier(touch)
-            let id = ids[key] ?? { defer { nextTouch += 1 }; ids[key] = nextTouch; return nextTouch }()
-            if phase == "ended" { ids[key] = nil }
+            let id = number(touch)
+            if phase == "ended" { ids[key] = nil; reached.remove(id) }
             let p = touch.location(in: window)
             seq += 1
             var entry: [String: Any] = ["seq": seq, "touch": id, "phase": phase, "t": touch.timestamp,
                                         "at": [Agent.r2(p.x), Agent.r2(p.y)], "type": touch.type == .direct ? "direct" : "\(touch.type.rawValue)"]
-            for (key, value) in landing(touch.view) { entry[key] = value }
+            // A touch a system recognizer takes (iOS 26's tab bar selects with
+            // one on the window) has no view: where the window's hit test put it.
+            for (key, value) in landing(touch.view ?? window.hitTest(p, with: nil)) { entry[key] = value }
+            if gone.contains(touch) { entry["viewGone"] = true }
             entries.append(entry)
             if entries.count > capacity { entries.removeFirst(); dropped += 1 }
         }
@@ -56,6 +120,8 @@ enum TouchLog {
         var at = view
         while let v = at, !(v is NodeView) { at = v.superview }
         out["node"] = (at as? NodeView).map { Int($0.id) } ?? NSNull()
+        // Whether the view says when the touch reaches it (`reach`).
+        out["reports"] = view is NodeView || view is NativeButtonIOS
         // In a grouped list's cell, which row and which part of it: the
         // node alone is the list's for every row (LLP 1084).
         if let projected = GroupedListsLink.part?(view) { out["projected"] = projected }
@@ -74,7 +140,7 @@ enum TouchLog {
         let oldest = entries.first.map { $0["seq"] as! Int } ?? seq + 1
         let after = entries.filter { ($0["seq"] as! Int) > s }
         // `lost`: entries after `s` fell out of the ring before this read.
-        return ["log": Array(after.prefix(32)), "next": seq, "dropped": dropped,
+        return ["log": Array(after.prefix(32)), "next": seq, "dropped": dropped, "reached": reached.sorted(),
                 "lost": s + 1 < oldest, "truncated": after.count > 32]
     }
 }
@@ -94,8 +160,8 @@ extension Agent {
         if nav.tabController != nil, !nav.tablistAppearanceNone, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
             return "is in the authored tablist \(shown) UIKit's tab bar"
         }
-        for controller in nav.allNavigations where nav.stacks[ObjectIdentifier(controller)]?.showsBar == true {
-            for case let route as RouteController in controller.viewControllers {
+        for routes in nav.barStackRoutes {
+            for case let route as RouteController in routes {
                 guard let shape = HeaderShape.bar(of: route.node) else { continue }
                 let replaced = shape.authored.isEmpty ? [shape.header] : shape.placed
                 if replaced.contains(where: { v === $0 || v.isDescendant(of: $0) }) {
@@ -152,6 +218,32 @@ extension Agent {
         guard UIApplication.shared.applicationState == .active, scene?.activationState == .foregroundActive, win.isKeyWindow else {
             return ["error": "tap #\(v.id): the app is not the foreground, key window"]
         }
+        // A row of a menu UIKit shows (native presentation): the finger
+        // aims at UIKit's row, never at the hidden node.
+        if let (pop, row) = presenter.menus.nativeRow(v) {
+            guard let space = scene?.coordinateSpace else { return ["error": "tap #\(v.id): no scene"] }
+            let box: CGRect
+            switch shownRow(row, of: pop, in: win) {
+            case .failure(let refusal): return ["error": "tap #\(v.id): \(refusal.why)"]
+            case .success(let shown): box = shown
+            }
+            let p = CGPoint(x: box.midX, y: box.midY), vp = presenter.viewport, q = vp.convert(p, from: nil)
+            let label = presenter.menus.given[pop.id]?.first { $0.row == row.id }?.label ?? ""
+            return aimed(v, at: p, local: CGPoint(x: q.x - vp.pageOrigin.x, y: q.y - vp.pageOrigin.y), in: win, space: space,
+                         hit: nil, native: ["kind": "menuItem", "label": label, "row": Int(row.id)])
+        }
+        // A button of the alert or action sheet UIKit presents: its button there.
+        if let shown = presenter.menus.shownAction(v) {
+            guard let space = scene?.coordinateSpace else { return ["error": "tap #\(v.id): no scene"] }
+            let box: CGRect, title: String
+            switch shown.flatMap({ shown in Agent.shownButton(shown.action, of: shown.alert, in: win).map { ($0, shown.title) } }) {
+            case .failure(let refusal): return ["error": "tap #\(v.id): \(refusal.why)"]
+            case .success(let found): (box, title) = found
+            }
+            let p = CGPoint(x: box.midX, y: box.midY), vp = presenter.viewport, q = vp.convert(p, from: nil)
+            return aimed(v, at: p, local: CGPoint(x: q.x - vp.pageOrigin.x, y: q.y - vp.pageOrigin.y), in: win, space: space,
+                         hit: nil, native: ["kind": "alertAction", "label": title])
+        }
         // The point: the request's, else the middle of the target — of a
         // visible shaped fragment for an inline id, as `tap` aims.
         var at = req
@@ -187,6 +279,13 @@ extension Agent {
             guard case .success(let (bar, frame)) = item else { return ["error": "tap #\(v.id): its bar item is not placed in the navigation bar; `clock settle` first waits out a push or sheet still moving"] }
             target = bar; region = frame; barred = true
         }
+        // A tab UIKit's tab bar shows: its item there.
+        if target === v, let item = tabItem(v) {
+            switch item {
+            case .failure(let refusal): return ["error": "tap #\(v.id): \(refusal.why)"]
+            case .success(let control): target = control; region = control.bounds; barred = true
+            }
+        }
         let drawnBox = target === v ? nil : box(target, region: region)
         // A point from the top left of what is drawn: UIKit's cell for a row a list draws.
         if let pair = at["at"] as? [Double] {
@@ -201,9 +300,10 @@ extension Agent {
             return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"]
         }
         let vp = presenter.viewport
-        var p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
+        var p = vp.convert(CGPoint(x: local.x + vp.pageOrigin.x, y: local.y + vp.pageOrigin.y), to: nil)
+        awaitAppOverlay(at: p, in: win)
         var seen = win.hitTest(p, with: nil)
-        if !CGRect(origin: .zero, size: vp.bounds.size).contains(local) || seen == nil {
+        if !presenter.reach(of: v).contains(local) || seen == nil {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]
         }
         if let why = obscured(target, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
@@ -216,7 +316,7 @@ extension Agent {
                 if let middle {
                     avoided = middle
                     local = q
-                    p = vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil)
+                    p = vp.convert(CGPoint(x: q.x + vp.pageOrigin.x, y: q.y + vp.pageOrigin.y), to: nil)
                     seen = win.hitTest(p, with: nil)
                 }
             }
@@ -228,7 +328,7 @@ extension Agent {
                 return ["error": "tap #\(v.id): the point is outside the list's port; scroll it into view first"]
             }
             guard seen === target || seen!.isDescendant(of: target) else {
-                return ["error": "tap #\(v.id): \((seen as? NodeView).map { "node #\($0.id)" } ?? String(describing: Swift.type(of: seen!))) covers its middle"]
+                return ["error": "tap #\(v.id): \(Agent.covers(seen!))"]
             }
         }
         // Stage 3's boundary, over the target, every node enclosing it (an
@@ -240,23 +340,176 @@ extension Agent {
             }
         }
         guard let space = scene?.coordinateSpace else { return ["error": "tap #\(v.id): no scene"] }
-        let s = win.convert(p, to: space)
-        let origin = vp.convert(CGPoint(x: vp.contentOffset.x, y: vp.contentOffset.y), to: space)
-        return ["aim": [
+        return aimed(v, at: p, local: local, in: win, space: space, hit: seen, avoided: avoided)
+    }
+
+    /// The aim's reply: the window point `p` in the scene's space (`local`
+    /// in the viewport's), and where the dispatch log must see it land: the
+    /// Exact node `seen` is in, or no node for UIKit's own row (`native`).
+    private func aimed(_ v: NodeView, at p: CGPoint, local: CGPoint, in win: UIWindow, space: UICoordinateSpace, hit seen: UIView?,
+                       avoided: PressReach? = nil, native: [String: Any]? = nil) -> [String: Any] {
+        let vp = presenter.viewport, s = win.convert(p, to: space), fixed = win.convert(p, to: win.screen.fixedCoordinateSpace)
+        let origin = vp.convert(vp.pageOrigin, to: space)
+        var aim: [String: Any] = [
             "seq": TouchLog.seq, "session": session.label, "generation": session.generation,
-            "orientation": Agent.orientation(scene),
+            "orientation": Agent.orientation(win.windowScene),
             "screen": ["w": Agent.r2(space.bounds.width), "h": Agent.r2(space.bounds.height), "x": Agent.r2(origin.x), "y": Agent.r2(origin.y)],
             "point": [Agent.r2(s.x), Agent.r2(s.y)], "node": Int(v.id),
+            "fixed": [Agent.r2(fixed.x), Agent.r2(fixed.y)], // the screen's portrait space, where XCTest's synthesizer presses (touches.swift)
+            // The size of the window's screen, by which the touch runner finds its display on a device with more than one
+            "display": [Agent.r2(win.screen.bounds.width), Agent.r2(win.screen.bounds.height)],
+            // A window point's unit steps right and down in that space, by which a drag's end is found there
+            "fixedAxes": [CGPoint(x: p.x + 1, y: p.y), CGPoint(x: p.x, y: p.y + 1)].map { step in
+                let f = win.convert(step, to: win.screen.fixedCoordinateSpace)
+                return [Agent.r2(f.x - fixed.x), Agent.r2(f.y - fixed.y)]
+            },
             "at": [Agent.r2(local.x), Agent.r2(local.y)], // the viewport point, as `tap` replies it
             "window": [Agent.r2(p.x), Agent.r2(p.y)], // the window point, as the dispatch log records touches
-            "viewport": [Agent.r2(vp.bounds.width), Agent.r2(vp.bounds.height)], // where a drag must end
+            "viewport": [Agent.r2(vp.pageSize.width), Agent.r2(vp.pageSize.height)], // where a drag must end
             // The Exact node the window's hit test finds there: where the dispatch log must see the touch land.
             "hit": TouchLog.landing(seen)["node"] ?? NSNull(),
             // In a grouped list, the row and part it must land on too.
             "projected": TouchLog.landing(seen)["projected"] ?? NSNull(),
             // Its middle reaches a control inside it: aimed beside it.
             "avoided": avoided.map { ["pressing": $0.pressing ?? NSNull(), "what": $0.described] as [String: Any] } ?? NSNull(),
-        ] as [String: Any]]
+        ]
+        if let native { aim["native"] = native }
+        return ["aim": aim]
+    }
+
+    /// Where UIKit shows `row` of the menu it presents for `pop`, or why a
+    /// finger cannot pick it. UIKit puts no identifier on the element it
+    /// shows for an action, so the row is found by its popover and place:
+    /// `pop` must be the menu UIKit was last given to present, or one of its
+    /// submenus (`MenuHost.presentedMenu`), and its rows (`MenuHost.given`) must
+    /// read as exactly one run of the rows shown (in a menu that scrolls,
+    /// the rows it shows as one slice of them); the row is the one at its
+    /// place there. A row of another popover, however alike its rows read,
+    /// is refused, and so are two popovers of the presented menu that read
+    /// the same, a menu shown twice, and a row scrolled out of its menu.
+    func shownRow(_ row: NodeView, of pop: NodeView, in window: UIWindow) -> Result<CGRect, AimRefusal> {
+        let menus = presenter.menus, name = Agent.popoverName(pop)
+        guard let given = menus.given[pop.id], menus.presentedMenu[pop.id] == pop.incarnation,
+              let place = given.firstIndex(where: { $0.row == row.id && $0.incarnation == row.incarnation }) else {
+            let shown = menus.presentedMenu.keys.sorted().first.flatMap { presenter.views[$0] }.map { " (UIKit was last given \(Agent.popoverName($0))'s)" } ?? ""
+            return .failure(AimRefusal(why: "it is a row of the menu of \(name), which is not the menu UIKit shows\(shown): tap its invoker first"))
+        }
+        let labels = given.map(\.label)
+        if let twin = menus.presentedMenu.keys.sorted().first(where: { $0 != pop.id && menus.given[$0]?.map(\.label) == labels }) {
+            return .failure(AimRefusal(why: "\(name) and popover #\(twin) are both in the menu UIKit shows and read the same; give their rows different titles"))
+        }
+        // Where the menu shows: a run of all its rows, or, in a list that
+        // scrolls, the rows the list shows as one slice of them (`first`:
+        // the place of the slice's first row).
+        var found: [(rows: [(label: String, box: CGRect)], first: Int)] = []
+        for group in Agent.menuGroups(in: window) {
+            if group.scrolls, !group.rows.isEmpty, group.rows.count <= labels.count {
+                for k in 0...(labels.count - group.rows.count) where zip(group.rows, labels[k...]).allSatisfy({ $0.label == $1 }) { found.append((group.rows, k)) }
+                continue
+            }
+            for i in group.rows.indices where i + labels.count <= group.rows.count && zip(group.rows[i...], labels).allSatisfy({ $0.label == $1 }) {
+                found.append((Array(group.rows[i..<i + labels.count]), 0))
+            }
+        }
+        guard found.count == 1 else {
+            return .failure(AimRefusal(why: found.isEmpty
+                ? "the menu of \(name) does not show its rows: tap its invoker first, then `clock settle`"
+                : "\(found.count) places UIKit shows read as the menu of \(name) (another menu, or a scrolled slice whose rows repeat); close the others first, or drive it without --touch platform"))
+        }
+        let (rows, first) = found[0]
+        guard place >= first, place < first + rows.count else {
+            return .failure(AimRefusal(why: "its row is scrolled out of the menu of \(name), and the agent's finger picks only rows the menu shows: drive it without --touch platform, where `tap` opens the menu painted"))
+        }
+        return .success(rows[place - first].box)
+    }
+
+    /// Where `alert` shows its button for `action`, in `window`, or why a
+    /// finger cannot press it. UIKit gives an action's button no public
+    /// geometry; the view it draws one with names the action it draws, so
+    /// the button is found by its action, never by a title the alert may
+    /// show twice or as its title or message. That read of UIKit's private
+    /// view is a development build's alone (`EXACT_INSPECT`, Package.swift):
+    /// a production one contains neither its class name nor its key.
+    static func shownButton(_ action: UIAlertAction, of alert: UIAlertController, in window: UIWindow) -> Result<CGRect, AimRefusal> {
+        #if EXACT_INSPECT
+        func find(_ view: UIView) -> UIView? {
+            if NSStringFromClass(Swift.type(of: view)).hasPrefix("_UIAlertControllerActionView"), view.responds(to: NSSelectorFromString("action")),
+               view.value(forKey: "action") as AnyObject? === action { return view }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        guard alert.view.window === window, let button = find(alert.view) else {
+            return .failure(AimRefusal(why: "the alert shows no button for it"))
+        }
+        let box = button.convert(button.bounds, to: window), middle = CGPoint(x: box.midX, y: box.midY)
+        for view in sequence(first: button as UIView, next: { $0 === alert.view ? nil : $0.superview }) {
+            if view.isHidden || view.alpha < 0.01 { return .failure(AimRefusal(why: "the alert hides its button")) }
+            if let scroll = view as? UIScrollView, !scroll.convert(scroll.bounds, to: window).contains(middle) {
+                return .failure(AimRefusal(why: "its button is scrolled out of the alert, and the agent's finger picks only a button the alert shows"))
+            }
+        }
+        return window.bounds.contains(middle) ? .success(box) : .failure(AimRefusal(why: "its button is off the window"))
+        #else
+        return .failure(AimRefusal(why: "a production build does not find an alert's buttons for a finger: drive a development build"))
+        #endif
+    }
+
+    static func popoverName(_ pop: NodeView) -> String { "popover #\(pop.id)\(pop.props["id"].map { " (\($0))" } ?? "")" }
+
+    /// Whether UIKit shows the menu it was last given (`shownRow`'s match),
+    /// whatever presents it: a pull-down, a popover.
+    func menuShown(in window: UIWindow) -> Bool {
+        let groups = Agent.menuGroups(in: window).map { ($0.scrolls, $0.rows.map(\.label)) }
+        return presenter.menus.presentedMenu.keys.contains { id in
+            guard let labels = presenter.menus.given[id]?.map(\.label), !labels.isEmpty else { return false }
+            return groups.contains { scrolls, group in
+                // All of its rows; in a list that scrolls, a slice of them.
+                let (whole, part) = scrolls ? (labels, group) : (group, labels)
+                return !part.isEmpty && whole.indices.contains { $0 + part.count <= whole.count && Array(whole[$0..<$0 + part.count]) == part }
+            }
+        }
+    }
+
+    /// The labelled accessibility elements the window shows outside every
+    /// session, as VoiceOver finds them (none inside another), grouped by
+    /// the scroll view that holds them (a menu's list) and in reading order
+    /// within each: what a menu UIKit shows reads as. `scrolls`: the list
+    /// holds more than it shows, and rows off the screen are not among these.
+    static func menuGroups(in window: UIWindow) -> [(scrolls: Bool, rows: [(label: String, box: CGRect)])] {
+        var groups: [ObjectIdentifier: (list: UIView, rows: [(label: String, box: CGRect)])] = [:], order: [ObjectIdentifier] = []
+        func visit(_ v: UIView, in list: UIView) {
+            guard !v.isHidden, v.alpha > 0.01, !(v is NodeView), !routes.contains(where: { shows($0.1, v) }) else { return }
+            if v.isAccessibilityElement {
+                let box = v.convert(v.bounds, to: window), middle = CGPoint(x: box.midX, y: box.midY)
+                // In a list, only a row it shows: not one scrolled under its edge.
+                let shown = (list as? UIScrollView).map { $0.convert($0.bounds, to: window) } ?? window.bounds
+                guard let label = v.accessibilityLabel, !label.isEmpty, box.width > 0, box.height > 0,
+                      window.bounds.contains(middle), shown.contains(middle) else { return }
+                let key = ObjectIdentifier(list)
+                if groups[key] == nil { order.append(key); groups[key] = (list, []) }
+                groups[key]?.rows.append((label, box))
+                return
+            }
+            for sub in v.subviews { visit(sub, in: v is UIScrollView ? v : list) }
+        }
+        for sub in window.subviews where !routes.contains(where: { $0.1.view.map { $0.isDescendant(of: sub) } == true }) { visit(sub, in: sub) }
+        return order.compactMap { groups[$0] }.map { group in
+            let scrolls = (group.list as? UIScrollView).map { $0.contentSize.height > $0.bounds.height + 1 } ?? false
+            return (scrolls, group.rows.sorted { ($0.box.minY, $0.box.minX) < ($1.box.minY, $1.box.minX) })
+        }
     }
 }
+
+/// A row given to a menu UIKit shows: its node, and the label UIKit's row
+/// reads (its title, then its subtitle after a comma).
+struct GivenRow {
+    let row: UInt32, incarnation: UInt64, label: String
+    init(_ node: NodeView, title: String, subtitle: String?) {
+        row = node.id; incarnation = node.incarnation
+        label = subtitle.map { $0.isEmpty ? title : "\(title), \($0)" } ?? title
+    }
+}
+
+/// Why a finger cannot aim at what UIKit shows for a node (a menu's row,
+/// a tab's item).
+struct AimRefusal: Error { let why: String }
 #endif

@@ -47,7 +47,7 @@ impl Collection {
         &self,
         view: ViewId,
         path: &mut Vec<InstanceStep>,
-    ) -> Option<NodesId> {
+    ) -> Option<(NodesId, u32)> {
         for row in &self.mounted {
             path.push(InstanceStep::Row {
                 region: self.region,

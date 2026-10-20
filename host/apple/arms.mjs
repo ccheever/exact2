@@ -1,6 +1,6 @@
 // The Apple build's compiled arms, cached by key in a directory every app's build shares.
-import { readdirSync, rmSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { copyFileSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 
 /** An arm's cached copies (`<key>-<name>`) beyond the three last used for
  * `name`, removed: different arguments (a development build, a production
@@ -16,4 +16,25 @@ export function evictArms(dir, name) {
   for (const tmp of entries.filter((f) => f.endsWith('.tmp'))) {
     if (Date.now() - at(tmp) > 86_400_000) rmSync(resolve(dir, tmp), { force: true });
   }
+}
+
+/** The app's own sources copied into `dir` as they are when the build begins: the
+ * arms compile the copies, so an edit made while the build runs lands in the next
+ * build instead of failing this one (swiftc: "input file … was modified during the
+ * build"). `key` names a copy by its author's path, so the arm cache keys as before;
+ * `authored` puts the author's paths back into a compiler's output. */
+export function snapshotSources(files, dir) {
+  mkdirSync(dir, { recursive: true });
+  const real = realpathSync(dir), authored = new Map();
+  const copies = files.map((file) => {
+    const copy = resolve(dir, basename(file));
+    copyFileSync(file, copy);
+    authored.set(resolve(real, basename(file)), file).set(copy, file); // the longer /private/var… first
+    return copy;
+  });
+  return {
+    copies,
+    key: (arg) => authored.get(arg) ?? arg,
+    authored: (text) => [...authored].reduce((out, [copy, file]) => out.replaceAll(copy, file), text),
+  };
 }

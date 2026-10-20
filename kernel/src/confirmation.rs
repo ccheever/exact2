@@ -4,7 +4,11 @@
 //! that also close it) and its cancel (a button that only closes it). With
 //! explanatory text, one cancel and at most three buttons it is an **alert**:
 //! `UIAlertController(.alert)`, `NSAlert`, Material's basic dialog. Anything
-//! else is a chooser (an action sheet, a menu) or stays as authored.
+//! else is a chooser (an action sheet, a menu) or stays as authored. A
+//! **prompt** is an alert whose rows include text fields (a rename's): its
+//! fields count with its text, since what it asks explains it, and only an
+//! alert takes them (`UIAlertController.addTextField`, `NSAlert`'s accessory
+//! view); the Apple hosts present it, the Linux host paints it as authored.
 //!
 //! Three readers hold one rule here: lowering, which implies an alert-shaped
 //! dialog's `closedby` (LLP 1115.000 D13.4: an alert has no outside); the
@@ -14,7 +18,7 @@
 //! `exact_confirmation_is_alert` (`ConfirmationShape.swift`).
 
 /// The alert shape: explanatory text, one cancel, and at most three buttons
-/// with it.
+/// with it. `texts` counts a prompt's text fields with its lines.
 pub fn is_alert(texts: usize, actions: usize, cancels: usize) -> bool {
     texts > 0 && cancels == 1 && actions + cancels <= 3
 }

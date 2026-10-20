@@ -116,7 +116,10 @@ export async function hostSections(s, { host, tree, state, check }) {
     await s.type('station-search', { key: 'Enter' });
     state = await s.state();
     tree = await s.tree();
-    check(state.slots.lastKey === 'Enter' && byTestId(tree, 'search-hint')?.props.text === 'searching · last key Enter', `Enter at the field: lastKey ${JSON.stringify(state.slots.lastKey)}, hint ${JSON.stringify(byTestId(tree, 'search-hint')?.props.text)}`);
+    // The field hears the key; on iOS Return then puts the keyboard away from
+    // a single-line field (LLP 1115.000 D9.2), so the hint goes with the focus.
+    const hint = byTestId(tree, 'search-hint')?.props.text;
+    check(state.slots.lastKey === 'Enter' && (host === 'ios' ? state.slots.searchFocused === false && hint === undefined : hint === 'searching · last key Enter'), `Enter at the field: lastKey ${JSON.stringify(state.slots.lastKey)}, searchFocused ${state.slots.searchFocused}, hint ${JSON.stringify(hint)}`);
     check(byTestId(tree, 'station-search')?.props.value === 'Palo', `Enter changed the field's text to ${JSON.stringify(byTestId(tree, 'station-search')?.props.value)}`);
   }
   return { state, tree };

@@ -60,10 +60,12 @@ const resources = resolve(appleArtifacts(app, {destination:'macos', trust:'devel
 mkdirSync(resources, {recursive:true});
 writeFileSync(join(resources, 'receipt.json'), JSON.stringify({development:admission}));
 const page = 'http://192.168.1.20:8765/deep?q=1#x';
-assert.deepEqual(developmentLinks(app, page), [{destination:'macos', href:`${scheme}://open?url=${encodeURIComponent(page)}&token=${admission.token}`}]);
-assert.deepEqual(developmentLinks(app, 'http://192.168.1.21:8765/'), []);
+assert.deepEqual(developmentLinks(app, page, {local:true}), [{destination:'macos', href:`${scheme}://open?url=${encodeURIComponent(page)}&token=${admission.token}`}]);
+assert.deepEqual(developmentLinks(app, 'http://192.168.1.21:8765/', {local:true}), []);
+// Only to a local request: a LAN peer's, a proxied one's or an unsaid one's has none.
+for (const access of [{local:false}, {allowed:true, local:false}, undefined]) assert.deepEqual(developmentLinks(app, page, access), []);
 writeFileSync(join(resources, 'receipt.json'), JSON.stringify({development:null}));
-assert.deepEqual(developmentLinks(app, page), []);
+assert.deepEqual(developmentLinks(app, page, {local:true}), []);
 const html = developmentOpenPage(app);
 assert.ok(!html.includes(app.displayName)); assert.ok(html.includes('&lt;img'));
 assert.ok(!html.includes('<script>bad')); assert.ok(html.includes(scheme + '://open?url='));
@@ -91,7 +93,7 @@ try {
   mkdirSync(resources, {recursive:true});
   writeFileSync(join(resources, 'receipt.json'), JSON.stringify({development:admission}));
   const page = 'http://192.168.1.20:8765/deep?q=x%26y#frag';
-  process.stdout.write(JSON.stringify({plist:macInfoPlist(app, {development:admission}), link:developmentLinks(app, page)[0].href, page}));
+  process.stdout.write(JSON.stringify({plist:macInfoPlist(app, {development:admission}), link:developmentLinks(app, page, {local:true})[0].href, page}));
 } finally { rmSync(dir, {recursive:true, force:true}); }
 "#);
     // Compile the actual Foundation-only opening code, not a parallel parser.
@@ -269,6 +271,22 @@ fn a_build_is_stamped_with_its_time_commits_and_kind() {
     let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["test", "./host/apple/buildinfo.test.mjs"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
+fn a_production_build_compiles_no_inspect_mode() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+        .current_dir(root)
+        .args(["test", "./host/apple/inspect-gate.test.mjs"])
         .output()
         .unwrap();
     assert!(

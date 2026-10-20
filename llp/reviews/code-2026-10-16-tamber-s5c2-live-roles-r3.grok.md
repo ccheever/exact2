@@ -1,0 +1,24 @@
+# Code review: role overrides go live (Tamber stage 5, commit 2), round 3, 2026-10-16 (grok)
+
+- **Family:** xAI. `grok-4.7` via the Grok CLI, reasoning effort xhigh, no subagents, edits denied, a throwaway worktree.
+- **Scope:** HEAD, the second round over the change.
+- **Method:** one brief (sha256 `95a94b7776129d3dd55707bbba53778006d73f4792037fa7aaa5351e34bdc703`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the CLI's output, unedited (its progress lines run into the first paragraph).
+- **Verdict:** as transcribed below.
+- **Disposition:** applied without re-review (the last round).
+
+---
+
+I'll review round 3 of the role-overrides commit read-only, starting with the review instructions and the brief so the findings stay tied to what round 2 actually changed.The brief is commit 2: a role-override value edit must go live on every host. I'll read the three commits and the round-2 fixes against that, without touching the worktree.HEAD’s message matches the round-2 fixes, but the commit stat is huge. I’ll isolate the source diff and read the files round 2 named.Round 2’s source diff is nine files. I’ll read those fixes in place and trace whether a role edit still misses a host, a bind, the release JS, or a held colour.Auto-compacting conversation (80% full)...
+Conversation compacted.
+The four round-2 fixes are still open questions until I re-read the remaining host paths. I'll finish those checks read-only and then give the verdict.[P2] A live role edit does not restyle Apple surfaces that read `ThemeRoles` outside `applyThemeTint` — `host/apple/Sources/ExactKit/ThemeRoles.swift:119`
+
+`applyThemeTint` installs a new tint, sheet and window ground, and bar titles. `ThemeRoles.color` captures the role's channels in the `UIColor`/`NSColor` it returns, so a later table edit does not change a colour already handed out. A grouped list only bakes `label`, `secondary-label`, `grouped-background`, and `secondary-grouped-background` when `GroupedListView.update` runs (`GroupedListIOS.swift:472`, `484`, `805`, `841`). `Presenter.apply` treats a view as changed only for create, props, style, children, paragraph, flow, or frame (`PresenterIOS.swift:812`), and `sync` then skips a list that was not in that set (`GroupedListIOS.swift:195`). A value edit sends `{"op":"roles"}` and touches every node, but the crossed style bytes are unchanged, so the host emits no style op (`host/apple/src/paragraph.rs:377`) and no frame. The cells keep the old colours.
+
+A Mac native text area fails the same way: `Field` and `placeholder` are applied only in `styleTextArea` (`TextAreaMac.swift:309`, `314`), which runs from `applyStyle`. Edit `Field` from `#ccffcc` to `#ff0000` and the fill stays green. An iOS grouped list whose rows do not author a secondary colour keeps the old `secondary-label` while the bar subtitle, which `retheme` does set, updates.
+
+The four round-2 fixes hold. Web events bind the host's own roles in `batch_from` (`host/web/src/host.rs:901`) before any receipt crosses CSS, including the fulfill receipts inside that scope; `theme` still skips an empty sheet (`host/web/src/batch.rs:344`). Mac `applyThemeTint` retints each page root and adopted sheet and walks their descendants (`ThemeRoles.swift:137`, `NodeColorMac.swift:52`), so a nested fill that names `@tint` is repainted even though the style op is still `@tint`. iOS `retheme` sets the subtitle's `textColor` (`NavigationTitleIOS.swift:202`), which recolors the whole attributed string, and a later unchanged `update` returns without rebuilding it. `titleInk` replaces `foregroundColor` only when it is missing or is the theme ink last stored (`NavigationBarIOS.swift:514`), so a hatch font or a hatch colour stays.
+
+Nothing else in `HEAD~2..HEAD` is blocking. Role value edits update the session table in place and mark every node; web, Apple, Linux, and terminal production paint and event paths bind that session. The boxed-gradient resolver binds an empty table on purpose, after the batch has already baked the session's overrides into the CSS. Release JS is unchanged: `themeRule` and the tint branch sit in the `dev-only` region that the release copy strips, and release emit does not turn on live properties. `Roles::set` registers the new wide-colour keep before the old one drops, and a drop removes only that holder's mark.
+
+The web two-session test only checks that the counter becomes `"1"`. Both sessions override `CanvasText`, so the emitted scheme reset is the same either way; a debug build asserts if the resolve is unbound, and a release build would not. It does not show that the first session's `#111111` was the colour used. The Mac accent test does fail if the retint is removed, and it checks a nested fill, but it calls `applyThemeTint` directly and does not cover the symbol or the `{"op":"roles"}` wire. Nothing covers the grouped-list or `Field` miss above.

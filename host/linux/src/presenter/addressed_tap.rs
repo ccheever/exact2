@@ -29,7 +29,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(result) = self.bar_tap(id) {
             return result;
         }
-        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
+        if !self.alert_allows(id) || self.host.route_visibility(id).1 || self.placement_hidden(id) {
             return Err(format!("view {id} is hidden or inert"));
         }
         if !self.has_windows() && crate::navigation::popover_invoker(self.host.kernel(), id) {
@@ -116,6 +116,39 @@ impl<D: DataSource> Presenter<D> {
             ));
         }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
+        // The pointer's `pointerdown` and `pointerup` there before the press,
+        // in DOM's order, as `pointer_down` and `pointer_up` send a real one's.
+        // What they do to the tree never sends the press elsewhere: the
+        // target is the one the pointer went down on, as a real contact keeps
+        // it, and a tap whose target they took away or replaced presses nothing.
+        let target = |p: &mut Self| {
+            let hit = p.hit(x, y)?;
+            let pressed = p
+                .control_target(hit)
+                .or_else(|| p.handler_target(hit, EventKind::Press))
+                .unwrap_or(hit);
+            p.host.kernel().node(pressed).map(|n| n.key)
+        };
+        let before = target(self);
+        // While the pointer is held (a contact, a button) this press is
+        // another finger's: the hold keeps its own `pointerup`, and the
+        // driver refuses an agent's press then (one finger at a time).
+        let free = self.pointer_held.is_none() && self.contact_position().is_none();
+        if free {
+            let down = self.pointer_pressed(x, y, now);
+            let up = self.pointer_lifted(Some((x, y)), now);
+            if let Some(error) = down.or(up) {
+                return Err(error);
+            }
+        }
+        if free && target(self) != before {
+            self.hatch_tapped(mark, x, y);
+            return Ok(format!(
+                "{{\"tapped\":{id},\"at\":[{},{}],\"pressed\":null}}",
+                num(r2(x)),
+                num(r2(y))
+            ));
+        }
         let activated = self.press_at(x, y, now);
         self.hatch_tapped(mark, x, y);
         if actual.is_some() && activated.is_none() {
@@ -160,6 +193,74 @@ impl<D: DataSource> Presenter<D> {
                 .contains(&EventKind::Press)
     }
 
+    /// What a press at (`x`, `y`), released where the painted boxes put
+    /// `hit`, activates under the Material look: Android's minimum touch
+    /// size (LLP 1115.001 D9; LLP 1115.001.001 §5 Q5, Charlie, 2026-10-19).
+    /// A press that lands in something that takes a press (a link run
+    /// among them) stays there; else it reaches the enabled control whose
+    /// touch box ([`crate::paint::material::touch_box`]) it is in, the
+    /// nearest middle where two are, as iOS's checkbox answers 44 points
+    /// round it (LLP 1115.000 D13.2). A control is a candidate only where a
+    /// press at its own middle would hit it (shown, taking the pointer,
+    /// uncovered, in this route and above any dialog), the press is not on
+    /// a cover over its own box, no ancestor of it is disabled, and it is
+    /// drawn square to the screen. A finger's alone:
+    /// hover, wheels, gestures, a mouse and an agent's named tap keep the
+    /// painted hit.
+    pub(crate) fn touch_target(&self, hit: Option<ViewId>, x: f32, y: f32) -> Option<ViewId> {
+        if !crate::paint::look::material() || hit.is_some_and(|h| self.lands_in_press(h, x, y)) {
+            return hit;
+        }
+        let kernel = self.host.kernel();
+        let nearest = (self.boxes.iter())
+            // A press on a control's own box that hit something else is on
+            // what covers it there; one in its margin may reach it.
+            .filter(|b| !inside(b.rect, x, y) || hit.is_some_and(|h| self.is_inside(h, b.id)))
+            .filter(|b| {
+                kernel.node(b.id).is_some_and(|n| {
+                    crate::paint::material::answers_touch(&n)
+                        && n.props.bool(PropId::Disabled) != Some(true)
+                        && self.input_live(n.key)
+                })
+            })
+            .filter(|b| b.flat() && inside(crate::paint::material::touch_box(b.rect), x, y))
+            .filter(|b| b.clip.is_none_or(|c| inside(c, x, y)))
+            .filter(|b| {
+                // What a press at its middle hits is it, or inside it: shown,
+                // taking the pointer, uncovered, in this route.
+                let (cx, cy) = (b.rect.0 + b.rect.2 / 2.0, b.rect.1 + b.rect.3 / 2.0);
+                self.display.contains(cx, cy)
+                    && (self.painted_hit(cx, cy, false))
+                        .is_some_and(|h| h == b.id || self.is_inside(h, b.id))
+            })
+            .map(|b| {
+                let (cx, cy) = (b.rect.0 + b.rect.2 / 2.0, b.rect.1 + b.rect.3 / 2.0);
+                ((cx - x).powi(2) + (cy - y).powi(2), b.id)
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        nearest.map(|(_, id)| id).or(hit)
+    }
+
+    /// Whether a press at (`x`, `y`) on `id` is taken on its way up: by a
+    /// link run under it, by `id` or a node round it, or stopped by a
+    /// disabled one.
+    fn lands_in_press(&self, id: ViewId, x: f32, y: f32) -> bool {
+        if self.run_link(id, x, y).is_some() {
+            return true;
+        }
+        let mut at = Some(id);
+        while let Some(n) = at {
+            let Some(node) = self.host.kernel().node(n) else {
+                return false;
+            };
+            if self.takes_press(n) || node.props.bool(PropId::Disabled) == Some(true) {
+                return true;
+            }
+            at = node.parent;
+        }
+        false
+    }
+
     /// Whether a press reaching `id` is taken by `id` itself, as `press_at`
     /// delivers it: its own press, a popover invoker, a form control (a
     /// checkbox, radio, switch, select, file input or range toggles, opens or
@@ -169,13 +270,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = self.host.kernel().node(id) else {
             return false;
         };
-        let invoker = (node.node_type == NodeType::Pressable
-            || exact_kernel::ControlKind::of(node.node_type, node.props)
-                == Some(exact_kernel::ControlKind::Button))
-            && node
-                .props
-                .str(PropId::Popovertarget)
-                .is_some_and(|t| !t.is_empty());
+        let invoker = exact_kernel::Invocation::of(self.host.kernel(), &node).is_some();
         let control = node.node_type == NodeType::Control
             && !matches!(node.props.str(PropId::Type), Some("button" | "progress"));
         invoker
@@ -326,4 +421,9 @@ fn addressed_refusal(id: ViewId, inner: Option<Reach>, own: bool) -> String {
     } else {
         format!("tap #{id} would press {d} inside it; #{id} has no press of its own, and a tap that names it never presses a control inside it; {how}")
     }
+}
+
+/// Whether (`x`, `y`) is in `rect`.
+fn inside(rect: crate::paint::Rect4, x: f32, y: f32) -> bool {
+    x >= rect.0 && y >= rect.1 && x < rect.0 + rect.2 && y < rect.1 + rect.3
 }

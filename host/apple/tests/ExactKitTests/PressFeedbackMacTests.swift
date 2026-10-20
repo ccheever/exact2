@@ -50,6 +50,44 @@ final class PressFeedbackMacTests: XCTestCase {
         XCTAssertEqual(pressed, [1], "the click is the tap it was")
     }
 
+    func testABubbledPopoverPressReleasesItsAncestorsScaleAsAnInPagePressDoes() throws {
+        let (p, ancestor) = fixture()
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        func click(_ source: NodeView) {
+            source.mouseDown(with: event(source, .leftMouseDown, source.bounds.midX, source.bounds.midY))
+            XCTAssertTrue(ancestor.pressed)
+            XCTAssertEqual(ancestor.press.to, 0.97)
+            ancestor.press.start -= 1 // The down has settled before the lift.
+            source.mouseUp(with: event(source, .leftMouseUp, source.bounds.midX, source.bounds.midY))
+            XCTAssertFalse(ancestor.pressed)
+            XCTAssertFalse(ancestor.press.idle, "the release eases instead of resetting to identity")
+            XCTAssertFalse(ancestor.press.releaseHeld)
+            XCTAssertEqual(ancestor.press.from, 0.97)
+            XCTAssertEqual(ancestor.press.to, 1)
+            let halfway = ancestor.press.factor(at: ancestor.press.start + PressFeedback.duration / 2)
+            XCTAssertGreaterThan(halfway, 0.97)
+            XCTAssertLessThan(halfway, 1)
+        }
+        click(ancestor)
+        p.menus.painted = true
+        p.apply(wireBatch([
+            ["op": "create", "id": 2, "kind": "view", "props": ["popover": "manual", "id": "feedback"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 160, "h": 80],
+            ["op": "frame", "id": 3, "x": 10, "y": 10, "w": 140, "h": 40],
+        ]))
+        defer { p.menus.reset() }
+        p.menus.action("showPopover", ["feedback"])
+        let popover = try XCTUnwrap(p.views[2]), source = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(p.menus.isOpen(popover))
+        XCTAssertFalse(source.isDescendant(of: ancestor))
+        click(source)
+        XCTAssertNil(p.mouseChain.bubbledPress, "completion clears the contact, keeping the release")
+        XCTAssertEqual(presses, [1, 1])
+    }
+
     /// A `text` with its own `press` is clicked, as a `<span onClick>` is,
     /// rather than selected (spreadsheet F12).
     func testATextWithAPressIsClicked() throws {

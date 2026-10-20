@@ -482,5 +482,35 @@ final class FieldSelectionIOSTests: XCTestCase {
         }
     }
 
+    /// An `input` in a closed dialog has no UIKit field until its box is laid
+    /// out (`MenuHost.waitingFields`); a selection or a range set meanwhile
+    /// makes it, and stands, as it did when the field was made at once.
+    func testASelectionInAClosedDialogsFieldStands() throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "form", "semanticTag": "dialog"]],
+            ["op": "create", "id": 3, "kind": "input", "props": ["id": "name", "value": "hello"], "handlers": ["input", "select"]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+        ]))
+        let node = try XCTUnwrap(p.views[3])
+        XCTAssertNil(node.field, "it waits for its box")
+        p.fieldSelections.setSelectionRange(["name", 0, 4])
+        XCTAssertNotNil(node.field)
+        XCTAssertEqual(p.fieldSelections.current(node), FieldSelection(start: 0, end: 4))
+        p.fieldSelections.setRangeText(["name", "J", 0, 1])
+        XCTAssertEqual(node.fieldText, "Jello")
+        // Its box laid out: the field it has is kept, with its selection.
+        let field = node.field
+        p.apply(wireBatch([["op": "frame", "id": 3, "x": 10.0, "y": 10.0, "w": 200.0, "h": 30.0]]))
+        XCTAssertTrue(node.field === field)
+        XCTAssertEqual(p.fieldSelections.current(node), FieldSelection(start: 0, end: 4))
+    }
 }
 #endif

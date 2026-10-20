@@ -3,6 +3,23 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    /// Every node, parents before children: the order a whole tree's views
+    /// are made in.
+    pub(super) fn preorder(&self) -> Vec<ViewId> {
+        let kernel = self.runner.kernel();
+        let mut stack: Vec<ViewId> = self.runner.roots().into_iter().rev().collect();
+        let mut order = Vec::new();
+        while let Some(id) = stack.pop() {
+            order.push(id);
+            if let Some(node) = kernel.node(id) {
+                let mut children = node.children();
+                children.reverse();
+                stack.extend(children);
+            }
+        }
+        order
+    }
+
     /// An `option` or a run in one (LLP 1069.001 D2): a select's menu item,
     /// which the presenter reads from the kernel (`exact_select_options`),
     /// never a view. A native button's title and image, or a run in its
@@ -41,8 +58,7 @@ impl<D: DataSource> Host<D> {
     fn face_box_size(&self, id: ViewId) -> Option<String> {
         let kernel = self.runner.kernel();
         let node = kernel.node(id)?;
-        // A childless box is decoration (a dot), not a face, and stays a
-        // flat leaf (`FlatLeavesIOS` admits no props but `dataset`).
+        // A childless box is decoration (a dot), not a face.
         if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
             return None;
         }
@@ -179,7 +195,7 @@ impl<D: DataSource> Host<D> {
                 // A run painting an inherited `color` that moves (LLP 1062 D5).
                 let mut shown = style::Shown::default();
                 shown.set(Property::Color, self.paint.runs.get(&id).copied());
-                let (style, _) = style::style_json_presented(&run, &kernel.env(), &shown);
+                let (style, _) = style::style_json_inherited(&run, &kernel.env(), &shown);
                 let handlers: Vec<_> = self
                     .inline_runs
                     .get(&id)
@@ -293,13 +309,15 @@ impl<D: DataSource> Host<D> {
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
         batch.create(id, kind, &pairs, &style, &handlers);
+        // Kept to compare with the next update, as `update` keeps it.
+        let style = self.style_texts.share(style);
         self.mirror.insert(
             id,
-            Mirror {
+            Box::new(Mirror {
                 props,
                 style,
                 ..Mirror::default()
-            },
+            }),
         );
         self.keys.insert(key, id);
     }
@@ -353,10 +371,11 @@ impl<D: DataSource> Host<D> {
             batch.props(id, &set, &clear);
             m.props = props;
         }
-        if style != m.style {
+        if *m.style != *style {
             batch.style(id, &style);
-            m.style = style;
+            m.style = self.style_texts.share(style);
         }
+        self.emit_separators_beside(id, batch);
     }
 
     pub(super) fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
@@ -371,7 +390,7 @@ impl<D: DataSource> Host<D> {
             batch.controls = true;
             return;
         }
-        let children = self.runner.kernel().node(id).expect("live").children();
+        let mut children = self.runner.kernel().node(id).expect("live").children();
         if self.mirror.get(&id).is_none_or(|m| m.children != children) {
             // Retained children still inherit from the same parent. Only an
             // arriving subtree needs its descendants' spelling hints revisited;
@@ -398,7 +417,6 @@ impl<D: DataSource> Host<D> {
         if self.native_protected_id(id) || self.paragraph_owner(id).is_some() {
             return;
         }
-        let mut children = children;
         if self.native_mode() {
             children.retain(|child| {
                 !self.native_protected_id(*child) || self.native_selected_id(*child)
@@ -442,7 +460,7 @@ impl<D: DataSource> Host<D> {
                 if let Some((owner, _)) = self.inline_runs.get(&child) {
                     runs.push((child, *owner));
                 } else {
-                    restyled.push((child, style::style_json_presented(&c, &env, &inherited).0));
+                    restyled.push((child, style::style_json_inherited(&c, &env, &inherited).0));
                 }
                 stack.extend(c.children());
             }
@@ -463,9 +481,9 @@ impl<D: DataSource> Host<D> {
             let Some(m) = self.mirror.get_mut(&id) else {
                 continue;
             };
-            if m.style != style {
+            if *m.style != *style {
                 batch.style(id, &style);
-                m.style = style;
+                m.style = self.style_texts.share(style);
             }
         }
         if !self.dirty_paragraphs.is_empty() {
@@ -511,8 +529,11 @@ impl<D: DataSource> Host<D> {
     /// A node's props as Swift gets them: a hatch word the plan does not give
     /// this platform is sent as `hatchOff`, so the node is an ordinary one
     /// there and Swift lists the word as unhandled.
-    pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> BTreeMap<String, String> {
+    pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
         let mut props = props_for(node);
+        if let Some(line) = super::layout::separator::json(self.runner.kernel(), node.id) {
+            props.insert(super::layout::separator::PROP.into(), line);
+        }
         if !self.hatches.off.is_empty() {
             if let Some(word) = props.get(PropId::Hatch.name()) {
                 if self.hatches.off.contains(word) {
@@ -522,5 +543,91 @@ impl<D: DataSource> Host<D> {
             }
         }
         props
+    }
+}
+
+/// Props by their own names, including derived text advances.
+pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
+    let mut out = exact_kernel::SortedMap::default();
+    for (id, value) in node.props.iter() {
+        let text = match value {
+            PropValue::Str(_) if id == PropId::Href && node.props.link().is_none() => continue,
+            PropValue::Str(s) => s.to_string(),
+            PropValue::Bool(b) => b.to_string(),
+            PropValue::Int(i) => i.to_string(),
+            PropValue::Float(f) if matches!(id, PropId::Datetime | PropId::Start | PropId::End) => {
+                f.to_string()
+            }
+            PropValue::Float(f) => style::num(*f as f32),
+        };
+        out.insert(id.name().to_string(), text);
+    }
+    // Swift paints the measured paragraph with text-transform applied (LLP 1064 D5).
+    if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
+        out.insert(PropId::Text.name().to_string(), shown);
+    }
+    style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
+    if let Some(scale) = fit_scale(node) {
+        out.insert("fitScale".into(), scale);
+    }
+    if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
+        // The runner preserves collection anchors and follows the end using
+        // sequence-checked corrections. Eager native autoscroll would compete.
+        out.remove(PropId::ScrollFollowEnd.name());
+    }
+    if node.node_type == NodeType::TextInput {
+        out.remove("spellcheck");
+        if let Some(value) = node.spellcheck() {
+            out.insert("spellcheck".into(), value.to_string());
+        }
+    }
+    if node.node_type == NodeType::Image {
+        if let Some(role) = node
+            .props
+            .str(PropId::ImageSource)
+            .and_then(|s| s.strip_prefix("symbol:"))
+        {
+            out.insert(
+                "symbolName".into(),
+                exact_kernel::apple_symbol_name(role).into(),
+            );
+            // @ref LLP 1121 D10 — an svg-only icon's path, which Apple draws (stage 9 A).
+            if let Some((d, view_box)) = crate::icon_path::commands(role) {
+                out.insert("symbolPath".into(), d);
+                out.insert("symbolViewBox".into(), view_box.into());
+            }
+            // Untinted, it draws in its `color` (LLP 1121 stage 9 B).
+            if node.symbol_color_said() {
+                out.insert("symbolColorWritten".into(), "1".into());
+            }
+        }
+    }
+    out
+}
+
+/// The style texts the mirrors hold, one allocation per distinct text: a
+/// grid's cells and a list's rows repeat one style hundreds of times
+/// (euxy's first screen: 212 texts of 877 bytes, one of them). A text no
+/// mirror holds any more leaves at the next sweep, which runs when the
+/// table has doubled since the last.
+#[derive(Debug, Default)]
+pub(crate) struct StyleTexts {
+    texts: std::collections::HashSet<std::rc::Rc<str>>,
+    sweep_at: usize,
+}
+
+impl StyleTexts {
+    /// `text` as the one shared allocation of its content.
+    pub(crate) fn share(&mut self, text: String) -> std::rc::Rc<str> {
+        if let Some(found) = self.texts.get(text.as_str()) {
+            return found.clone();
+        }
+        if self.texts.len() >= self.sweep_at {
+            self.texts.retain(|t| std::rc::Rc::strong_count(t) > 1);
+            self.sweep_at = (self.texts.len() * 2).max(256);
+        }
+        let shared: std::rc::Rc<str> = text.into();
+        self.texts.insert(shared.clone());
+        shared
     }
 }

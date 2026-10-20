@@ -40,6 +40,9 @@ objc2-metal = "0.3"
 # workspace that would link the published one.
 wgpu-hal = { version = "30", default-features = false }
 
+[target.'cfg(target_os = "android")'.dependencies]
+wgpu-hal = { version = "30", default-features = false }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu"] }
 wasm-bindgen = "0.2"

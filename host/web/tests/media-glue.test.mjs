@@ -8,10 +8,10 @@ globalThis.IntersectionObserver ??= class { observe() {} disconnect() {} };
 await import('../media-glue.js');
 
 /** An `<audio>` as the glue drives it: seeks, loads and plays are counted. */
-function audio(props, { readyState = 4, error = null, handlers = ['error', 'seeked', 'loadedmetadata'] } = {}) {
+function audio(props, { readyState = 4, error = null, handlers = ['error', 'seeked', 'loadedmetadata'], duration = NaN, played = 0, position = null, takes = () => true } = {}) {
   const listeners = {}, el = {
-    localName: 'audio', readyState, error, isConnected: true, paused: true, seeks: [], loads: 0, plays: 0, attrs: new Set(),
-    exactMedia: { props, handlers }, duration: NaN,
+    localName: 'audio', readyState, error, isConnected: true, paused: true, seeks: position == null ? [] : [position], loads: 0, plays: 0, attrs: new Set(),
+    exactMedia: { props, handlers }, duration, played: { length: played },
     set currentTime(t) { this.seeks.push(t); }, get currentTime() { return this.seeks.at(-1) ?? 0; },
     addEventListener(name, f) { (listeners[name] ??= []).push(f); },
     toggleAttribute(name, on) { if (on) this.attrs.add(name); else this.attrs.delete(name); },
@@ -21,7 +21,7 @@ function audio(props, { readyState = 4, error = null, handlers = ['error', 'seek
     fire(name) { for (const f of listeners[name] ?? []) f(); },
   };
   const sent = [];
-  globalThis.exact.installMedia(el, text => sent.push(text));
+  globalThis.exact.installMedia(el, text => takes() ? void sent.push(text) : false); // false: a report the host cannot take yet
   el.sent = sent;
   return el;
 }
@@ -100,4 +100,37 @@ test('a player with metadata but no data yet makes its opening seek on attaching
   expect(el.sent).toEqual(['loadedmetadata\n', 'seeking\n', 'seeked\n']);
   // No bound time: no seek, as the wasm host makes none.
   expect(audio({ src: 'a.mp3' }, { readyState: 1 }).seeks).toEqual([]);
+});
+
+test('attaching reports what the element already has, and does not report again only what the host took', () => {
+  // The wasm page attaches once its data executor settles: a duration the
+  // element reached before then is reported on attaching, and its queued
+  // event is not reported again unless the duration changed since.
+  const handlers = ['loadedmetadata', 'durationchange', 'error'];
+  const loaded = audio({ src: 'a.mp3' }, { readyState: 1, duration: 10, handlers });
+  expect(loaded.sent).toEqual(['loadedmetadata\n', 'durationchange\n10']);
+  loaded.fire('durationchange');
+  expect(loaded.sent).toEqual(['loadedmetadata\n', 'durationchange\n10']);
+  const grown = audio({ src: 'a.mp3' }, { readyState: 1, duration: 10, handlers });
+  grown.duration = 20; grown.fire('durationchange');
+  expect(grown.sent).toEqual(['loadedmetadata\n', 'durationchange\n10', 'durationchange\n20']);
+  // A report the host refused leaves its event to be reported when it comes.
+  let ready = false;
+  const early = audio({ src: 'a.mp3' }, { readyState: 1, duration: 10, handlers, takes: () => ready });
+  ready = true; early.fire('durationchange');
+  expect(early.sent).toEqual(['durationchange\n10']);
+  // A source that failed after its metadata reports its error on attaching.
+  const failed = audio({ src: 'a.mp3' }, { readyState: 1, error: { code: 3 }, handlers });
+  failed.fire('error'); // its queued event
+  expect(failed.sent).toEqual(['loadedmetadata\n', 'error\ndecode']);
+});
+
+test('attaching does not rewind a playhead the element moved itself', () => {
+  // An autoplaying element can play while the data executor loads; the bound
+  // opening time is not assigned over that. One it has not played to still seeks.
+  expect(audio({ src: 'a.mp3', currentTime: '0' }, { played: 1, position: 0.5 }).seeks).toEqual([0.5]);
+  expect(audio({ src: 'a.mp3', currentTime: '0' }, { position: 0.5 }).seeks).toEqual([0.5, 0]);
+  expect(audio({ src: 'a.mp3', currentTime: '5' }, { played: 1, position: 0.5 }).seeks).toEqual([0.5, 5]);
+  // Nor when its data ran out after playing (readyState 1, the metadata-only opening seek).
+  expect(audio({ src: 'a.mp3', currentTime: '0' }, { readyState: 1, played: 1, position: 0.5 }).seeks).toEqual([0.5]);
 });
