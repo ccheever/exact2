@@ -28,13 +28,17 @@ function pagingOf(client: object): Paging {
  * the focused one first (where the page's actions land); scoping to a project asks only the servers holding that id;
  * a repository two servers hold is listed by one, and a server left with nothing of its own is not read.
  */
-export function environmentQueries(client: T3Client, projectId: string): { environmentId: string; projectIds?: string[] }[] {
-  const environments = prEnvironments(client).filter(environment => environment.connected && readsPullRequests(environment));
+export function environmentQueries(client: T3Client, projectId: string, environmentId = ''): { environmentId: string; projectIds?: string[] }[] {
+  // The Server filter (the route's `environmentId`) narrows the servers read to one capable server, connected or not, as
+  // the menu lists them (usePullRequestScope); a server none of them is reads all.
+  const capable = prEnvironments(client).filter(readsPullRequests);
+  const server = capable.some(environment => environment.id === environmentId) ? environmentId : '';
+  const environments = capable.filter(environment => environment.connected && (!server || environment.id === server));
   const ids = environments.map(environment => environment.id);
   // The Scratch folder is never a repository, so no server is asked about it.
   const projects = environments.flatMap(environment => environment.projects.filter(project => !isScratchProject(project, scratchRoot(environment.config)))
     .map(project => ({ ...project, id: str(project.id), environmentId: environment.id })));
-  const scoped = projectId ? findScopedProject(projects, client.environmentId, projectId) : undefined;
+  const scoped = projectId ? findScopedProject(projects, server || client.environmentId, projectId) : undefined;
   const asked = resolveQueryEnvironmentIds(ids, projects, scoped, projectId || undefined, true);
   if (projectId) return asked.map(environmentId => ({ environmentId }));
   const assignment = assignProjectsToEnvironments(projects, asked, asked[0] ?? null);

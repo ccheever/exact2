@@ -8,6 +8,8 @@ import { deviceStateEvent, deviceStateOf } from '../../src/device/device-surface
 import { savedPanel, adoptRightPanels, restoreRightPanel } from '../../src/panel/saved-panel';
 import { adoptClosedViews, captureClosedView, closedViews, rememberClosedView, planNextReopen, type ClosedView, type ReopenOwner } from '../../src/panel/closed-views';
 import { contractComponent } from '../support/contract-action-fixture';
+import { appPath } from '../support/app-files';
+const root = () => contractComponent('app.contract', 'T3Code');
 
 const file = (name: string): Surface => ({ id: `file:${name}`, kind: 'file', path: name, line: 3, reveal: 0 });
 const state = (): PanelState => ({ surfaces: [file('a.ts'), file('b.ts'), file('c.ts')], active: 'file:b.ts', visible: true, userRevision: 4 });
@@ -165,5 +167,57 @@ describe('window actions keep close-history effects separate from selection', ()
         shell: { panel: { tabs: [], key: 'env:t1', count: 0, open: false }, terminalAvailable: false }, command: (...args: unknown[]) => calls.push(args) }, [what, id]);
       expect(calls).toHaveLength(1); expect(calls[0]![0]).toBe(expected);
     }
+  });
+});
+
+describe('reopen a file tab on a paired environment', () => {
+  // A thread of a non-primary environment, its stream not yet live (`ready` false, as openThread leaves it until the
+  // resume marker): the file tab still comes back, at the end and active, and its history entry is consumed.
+  function lane(projects = [{ id: 'p1', workspaceRoot: '/repo' }]): T3Client {
+    const requests: unknown[] = [];
+    return { local: {}, environmentId: 'lane', threadId: 't1', projectId: 'p1', diffOpen: true, ready: false, scopes: ['filesystem:read'], requests,
+      shell: { projects, threads: [{ id: 't1', projectId: 'p1' }] }, config: {}, presentation: {},
+      get draftKey() { return `lane:${this.threadId}`; },
+      restAccess: () => ({ request: async (method: string, payload: unknown) => { requests.push([method, payload]); return { entries: [], contents: '' }; }, call: async () => ({}) }) } as unknown as T3Client;
+  }
+  test('⌘⇧T reopens README.md at the end of the strip, active, and consumes its entry', async () => {
+    const app = lane(), panel = panelState(app);
+    Object.assign(panel, { surfaces: [{ id: 'diff', kind: 'diff', path: '', line: 0, reveal: 0 }, file('README.md')], active: 'file:README.md', visible: true });
+    await surfaceLocal(app, native, 'close', 'file:README.md', '');
+    expect(panel.surfaces.map(tab => tab.id)).toEqual(['diff']);
+    expect(closedViews(app).map(view => view.key)).toEqual(['lane:t1']);
+    expect(await surfaceCommand(app, native, {} as never, 'reopen', '', '')).toBe('');
+    expect(panel.surfaces.map(tab => tab.id)).toEqual(['diff', 'file:README.md']);
+    expect([panel.active, panel.visible, app.diffOpen]).toEqual(['file:README.md', true, false]);
+    expect(closedViews(app)).toEqual([]);
+  });
+  test('with no project the entry is deferred, not reopened and not an error', async () => {
+    const app = lane([]), panel = panelState(app);
+    Object.assign(panel, { surfaces: [], active: '', visible: false });
+    rememberClosedView(app, entry('old.ts', 'lane:t1')); rememberClosedView(app, entry('a.ts', 'lane:t1'));
+    expect(await surfaceCommand(app, native, {} as never, 'reopen', '', '')).toBe('');
+    expect(panel.surfaces).toEqual([]);
+    expect(closedViews(app).map(view => view.id)).toEqual(['old.ts', 'a.ts']);
+  });
+});
+
+describe('"Add panel surface" while the panel has no tab', () => {
+  // RightPanelTabs draws the "+" whenever the panel is open (`props.open !== false`), so the launcher's bar has it too.
+  test('the empty panel bar has panel-add-surface at its left, before its controls', async () => {
+    const source = await Bun.file(appPath('shell-panels.contract')).text();
+    const launcher = source.slice(source.indexOf('testId="panel-tabbar"'), source.indexOf('SurfaceLauncher(surfaces='));
+    expect(launcher.indexOf('AddSurfaceMenu(')).toBeGreaterThan(0);
+    expect(launcher.indexOf('AddSurfaceMenu(')).toBeLessThan(launcher.indexOf('testId="maximize-right-panel"'));
+    const header = await Bun.file(appPath('panel.contract')).text();
+    expect(header).not.toContain('if panel.count > 0');
+  });
+  test('⌘T with the launcher open and no tab opens add-surface-menu at its first available row', () => {
+    const done: unknown[][] = [];
+    const slots = { rightPanelAt: 'env:t1', settingsOpen: false, utilityPage: '', draftOwner: '', jumpRequest: 0, commandPending: false };
+    root().call('panelUi', slots, { data: { diffOpen: false, threadId: 't1', projectId: 'p1' }, rightPanel: true,
+      shell: { panel: { tabs: [], key: 'env:t1', count: 0, open: false }, terminalAvailable: true, surfaces: [{ id: 'browser', available: true }] },
+      showPopover: (...args: unknown[]) => done.push(['showPopover', ...args]), focus: (...args: unknown[]) => done.push(['focus', ...args]),
+      command: (...args: unknown[]) => done.push(['command', ...args]) }, ['new', '']);
+    expect(done).toEqual([['showPopover', 'add-surface-menu', { source: 'panel-add-surface' }], ['focus', 'add-surface-browser']]);
   });
 });
