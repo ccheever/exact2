@@ -184,6 +184,16 @@ whose design the port serves.
   at `propose` an edit is held for review. The canvas comes through the
   server's gateway on its own origin (a grant in the frame's `#g=`, dropped
   once entered); revoked, the tool says so and sends nothing more.
+- Several live copies (T7, LLP 1122 §4 item 10): the canvas shows one copy,
+  a grid of modes (Light, then dark at each value of an axis, at the app's
+  own text size and larger; 6 copies by default, 4 or 8), or the selected
+  view's states side by side (at rest, pressed, hovered, focused). Each copy
+  is pinned on its own build, at `exact-copy-<n>.localhost` on the dev
+  loop's port, with its own storage. A pinned copy holds its mode, scheme
+  and text size over the app's own and says what the app asked. With Mirror
+  navigation, a copy you move leads the others (`navigate`, or a reload
+  where its build can't). Through a paired server's gateway, at most 4
+  show.
 - Exact's base scale and packages (LLP 1121 stage 11): `space.*` and
   `radius.*` are listed read-only, each platform's value and its source,
   the columns the app ships first; a package's tokens under their package.

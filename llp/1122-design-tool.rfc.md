@@ -1526,3 +1526,80 @@ ruling). exact2 main at `29ec5ae613` (`~/x2theme/t6-gate-dlines.mjs`).
 **First final run:** 21 of 22. (5, D) read the frame's first `src` after the entry word had already dropped the
 grant: a timing fault in the gate's check, not the tool. The check now records each `src` as the tool sets it,
 and the re-run met every line.
+
+### T7, several live copies (T7a `f3dba4c097`..`04232cb3bd`; T7a-2 `6f5f5dd3ba`..`0739d2c4e7`; T7b `d287ba04c6`..`244db8615c`; *1.14*)
+
+- **Which frame is which build** (theme2's 18:11Z Q1, 18:14Z): no URL marker. Each copy is an iframe the tool names
+  `exact-copy-<n>`. The dev page posts `{type: "exact-build", id}` to its parent each time it registers. The tool
+  takes the word only from its own child frame of that name (`window.frames[name]`, the message's source), from
+  that tile's origin, and only while the frame shows the page the tool gave it. A copy keeps its build id under
+  its frame's name, which the page only reads.
+- **Copies at loopback names of their own** (the gate's F1, theme2's 21:04Z ruling):
+  - Each local copy is at `http://exact-copy-<n>.localhost:<port>/`, because a browser carries six HTTP/1.1
+    connections a host and each copy holds a stream. The dev loop admits those names (`n` 1 to 99), never as local.
+  - Each copy is its own origin, with its own storage (Q3 as ruled then: "each copy starts with its own data").
+  - Through a paired server's gateway the copies share its one origin, and at most 4 show, as the grid says.
+- **`navigate`** (Q2): a fifth build-channel command and a write method.
+  - It routes one build in place to a location (a path, query and fragment on its own origin, spelled as URLs and
+    the router write it, at most 2 KiB) through the app's navigation root, else its router's `go`, with no reload
+    and the app's state kept.
+  - A build without the capability is 409 `unsupported`, and a page that can't route answers `unsupported` later.
+    Either way the tool reloads that copy's frame at the location instead and says so.
+  - It holds nothing on the build; it is journaled with its client. A status says its `location`.
+- **The grid** (S1): Light, then dark at each value of an axis (the first by default), at the build's own text size
+  and again larger (22 px by default, and a third size where 8 copies are asked for). The default is 6 copies (4, 6
+  or 8). Each copy is pinned on its own build only, once that build has said which it is. The grid gives back
+  only what it set and still holds: a pin by the revision the server gave it, a hold by its state and instance.
+  One reconciling pass runs at a time, bound to its server run.
+- **The states side by side** (S2): the selection as it was when chosen, at rest, pressed, hovered and focused, every
+  copy in its mode. Each copy is held on the selection's site in the selection's plan, once it shows the
+  selection's screen. The views are exclusive, so the states' copies are never the grid's pins.
+- **Mirror navigation**: a copy the person moves leads, and the others are sent `navigate`. A copy sent somewhere
+  has gone once it reports any new place (a router's rewrite, a Back), or five passes on, and isn't sent there
+  again. A copy's first report never leads. Mirror off moves nothing.
+- **A pinned copy holds its pin over the app's own** (the gate's F2, theme2's 21:04Z ruling; D3 is amended for
+  pinned grid copies alone):
+  - The app's `setScheme`, `setMode` on a pinned axis and `setRootFontSize` are kept as asked and not applied: in
+    the runner on the wasm page (`hold_facts`, ABI `exact_hold_facts`; no host mirrors a held command), and at
+    the command sites on the JS page.
+  - A smaller pin releases what it drops, and hand-back releases all, each to the app's latest choice, in one
+    commit that is rolled back whole if refused.
+  - What the app asked against the pin is said in the copy's status (`app`) and on its tile.
+  - The single canvas and every native build keep D3.
+- **Tests:**
+  - `scripts/dev-copies.test.mjs`, both web loops in Chrome:
+    - ids per frame, surviving a reload of all frames and of one;
+    - `navigate` in place with state kept, a redirect, and a later refusal;
+    - leader moves by a link, Back and a fragment;
+    - six copies at their own names all registering and reporting;
+    - a pinned copy holding its scheme, mode and root size over the app's own (what paints included), a smaller
+      pin, and hand-back.
+  - `contract/cli/tests/it/tamber_held.rs` covers the runner's held facts.
+  - The contract tests cover the grid (copies registering out of order, the leader, both fallbacks, Mirror off, a
+    smaller grid and the hand-back, the app's own choice on a tile) and the states, against the stub's copies
+    served from a dev-loop origin of its own.
+- **Known limits:**
+  - A dev reload (JS, or the wasm loop's resident reload) forgets a choice the app made by a press before it. Its
+    launch choices are asked again.
+  - While a hand-back the runner refused waits for its retry, the page shows the release.
+  - The server's `pin` has no revision condition, so another client's pin landing during the grid's own release
+    can be cleared.
+  - A listing has no hold revision: another client's identical hold reads as the grid's.
+  - Native copies (several simulators) and `navigate` on the native hosts are QUEUE (Q4).
+
+### T7's gate: met (2026-10-20; the run is `~/x2theme/t7-gate-run.txt`)
+
+The Bluesky clone's JS dev loop, the tool's grid in headed Chrome, exact2 main at `244db8615c` (the run took
+T7b's tool at `a51522a217` with the app-note line). The scrub was through the wire as the tool sends it: one
+request in flight, the latest value next, 60 Hz gestures. It changed `contrast_0`'s light and dark sides and its
+`dark-style=black` line each step.
+
+| Gate line | Result |
+|---|---|
+| Six live copies of the clone update together on a scrub | **Met**: at 4, 6 and 8 copies every copy showed about 41 values a second (the scrub's own request rate, 263 requests in 6 s), its last value the scrub's last. |
+| Each shows its own mode's value | **Met**: Light, Dim and Black at 16, 22 and 28 px each showed only its mode's values, none of another's. Black held over the clone's own `setMode("dark-style", "dim")` at launch (F2). |
+| Q5: the default is the largest count that holds a sustained 60 fps scrub | **6**: frame p50 16.7 ms at 4, 6 and 8; p95 18.8 ms at 4 and 6, 23.6–25.5 ms at 8 (14–19 frames over 25 ms). Chrome 99%/141%/217% CPU and 3.6/4.9/6.0 GB; the dev loop 54–93% CPU, about 1 GB. |
+
+**Findings on the way, now fixed:** six copies of one origin starved their own reports (F1), and the clone's own
+`setMode` beat the Black copy's pin (F2). Headless Chrome on this Mac composites six large frames at about 15 fps
+idle, so the gate runs headed.
