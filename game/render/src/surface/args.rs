@@ -1,4 +1,5 @@
-//! Rust argument defaults and atomic timed binding for world surfaces.
+//! Rust argument defaults and atomic timed binding for world surfaces, and
+//! the quality ladder's rung the first binding resolves (LLP 1139.003 D3).
 use super::{observer, Clock, Executor, Game, Perf, Sim, SurfaceError, Value, WorldSurface};
 use exact_game::Args;
 
@@ -55,6 +56,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             if let Some(at) = at_ms {
                 sim.advance(at, Clock::Seekable);
             }
+            // The quality ladder's rung (LLP 1139.003 D3): read once, from the
+            // first arguments and the device's tier, before any renderer exists.
+            self.rung
+                .get_or_insert_with(|| crate::quality::Rung::resolve(G::quality(sim.args()), exact_gpu::tier()));
             self.sim = Some(sim);
         }
         if let Err(error) = self.check_primitive_assets() {

@@ -82,6 +82,7 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     hidden: bool,
     interrupted: bool,
     look: look::Look<ASSETS>,
+    rung: Option<crate::quality::Rung>,
 }
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     /// Bake-owned development capability; production modules refuse live edits.
@@ -296,9 +297,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     for WorldSurface<G, P, ASSETS, H>
 {
     fn render_scale(&self) -> f32 {
-        self.sim
+        let game = self
+            .sim
             .as_ref()
-            .map_or(1.0, |sim| G::render_scale(sim.args()))
+            .map_or(1.0, |sim| G::render_scale(sim.args()));
+        self.rung.map_or(game, |rung| rung.scale(game))
     }
     fn clock(&mut self, seekable: bool) {
         self.seekable = seekable;
@@ -442,7 +445,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                     device,
                     queue,
                     format,
-                    G::SAMPLES,
+                    crate::quality::samples(self.rung, G::SAMPLES),
                     G::DEPTH_PREPASS,
                 )
                 .with_matte_models(G::MATTE_MODELS),
@@ -858,6 +861,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             } else {
                 ",\"device\":false"
             });
+            crate::quality::row(self.rung, G::SAMPLES, G::render_scale(sim.args()), &mut reply);
             self.perf.append(&mut reply);
             reply.pop();
             reply.push_str(",\"tickSpans\":");

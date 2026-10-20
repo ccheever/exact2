@@ -181,6 +181,29 @@ impl SceneSamples {
         }
     }
 }
+/// How much the renderer may spend on what the game left unsaid
+/// (`Game::quality`): read once, before the renderer is made, and never saved.
+/// A rung clamps the scene samples (one under `Low`; `Game::SAMPLES` is the
+/// ceiling), the sun's shadow cascades (none under `Low`, one under `Mid`)
+/// unless the game inserted `Shadows`, the resolution scale (0.5 under `Low`,
+/// 0.75 under `Mid`) unless `render_scale` returns less than one, and the
+/// quality of an inserted `AmbientOcclusion` (`Low` under `Low`). `High`
+/// clamps nothing. Nothing in the world reads it: the world hash is the same
+/// on every rung.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Quality {
+    /// The device's GPU tier chooses the rung (`exactViewport().gpuTier`:
+    /// `low`, `mid` or `high`; always `high` under the agent).
+    #[default]
+    Auto,
+    /// The cheapest rung, for a phone GPU of the Adreno 600 class.
+    Low,
+    /// The middle rung.
+    Mid,
+    /// Everything the game asks for.
+    High,
+}
+
 /// Height fog, or near/far fog along the camera's forward axis.
 #[derive(Clone, Copy, Debug, PartialEq, Data)]
 pub struct Fog {

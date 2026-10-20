@@ -156,6 +156,7 @@ impl Abi {
                         .get::<*const ()>(name.as_bytes())
                         .map_err(|e| format!("GPU ABI {name}: {e}"))?;
                 }
+                agent_tier(&abi);
                 if abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_load")() != 0 {
                     return Err(abi.error().unwrap_or("GPU initialization failed".into()));
                 }
@@ -1428,3 +1429,17 @@ mod tests;
 #[cfg(test)]
 #[path = "surface_controls_tests.rs"]
 mod control_tests;
+
+/// Under the agent the GPU tier is the drive's `high`, told before the
+/// device is made, so a world's rung and look frames do not follow the
+/// machine (LLP 1139.003 D2); otherwise the module chooses from its adapter.
+fn agent_tier(abi: &Abi) {
+    if std::env::var("EXACT_AGENT").as_deref() != Ok("1") {
+        return;
+    }
+    // SAFETY: `gpu_tier(u32) -> u32` as gpu/src/native.rs declares it; a
+    // module built before it has none, and keeps its own choice.
+    if let Ok(tier) = unsafe { abi.library.get::<unsafe extern "C" fn(u32) -> u32>(b"gpu_tier") } {
+        unsafe { tier(0) };
+    }
+}

@@ -111,7 +111,12 @@ impl<D: DataSource> Runner<D> {
         let mut fields = Vec::with_capacity(ty.fields.len as usize);
         for f in ty.fields.iter() {
             let name = self.plan.str(self.plan.field(f).name);
-            match self.viewport.field(name) {
+            let value = if name == "gpuTier" {
+                Some(Value::str(self.page.gpu_tier()))
+            } else {
+                self.viewport.field(name)
+            };
+            match value {
                 Some(v) => fields.push(v),
                 None => {
                     return Err(DataError::Unavailable(format!(

@@ -8,8 +8,9 @@
 //! none), whether the page's window has the system's focus
 //! (`document.hasFocus()`, #114), and how the browser loaded the page
 //! (Navigation Timing's `type`). The host observes them; the app reads them
-//! by field name from one reserved source.
-//! @ref LLP 1069.000 D2; LLP 1069.003 D5; LLP 1069.010 D2; LLP 1125 D12
+//! by field name from one reserved source. The word also carries the
+//! device's GPU tier, which an app reads as `exactViewport().gpuTier`.
+//! @ref LLP 1069.000 D2; LLP 1069.003 D5; LLP 1069.010 D2; LLP 1125 D12; LLP 1139.003 D2
 
 use exact_plan::Value;
 
@@ -31,6 +32,9 @@ pub const FIELDS: &[&str] = &[
 /// `PerformanceNavigationTiming.type`, or none where the app is no page a
 /// browser loaded (a native app's launch).
 pub const NAVIGATION_TYPES: [&str; 4] = ["", "navigate", "reload", "back_forward"];
+
+/// The GPU tier's words, by their wire code (bits 10–11; 3 reads `low`).
+pub const GPU_TIERS: [&str; 4] = ["high", "mid", "low", "low"];
 
 /// What the host last said. The default is the bake's answer: a visible,
 /// online page with focus and no share sheet.
@@ -67,6 +71,11 @@ pub struct Page {
     /// background, unless a `playback` session keeps it running): a
     /// sequence stops (LLP 1125 D4). No `exactPage` field reads it.
     pub suspended: bool,
+    /// The device's GPU tier as an index into [`GPU_TIERS`]: chosen once,
+    /// before the GPU device is made, from the adapter's facts or the
+    /// screen's class; `high` (0) under the agent until `prefer gpu-tier`
+    /// (LLP 1139.003 D2). Read as `exactViewport().gpuTier`.
+    pub gpu_tier: u8,
 }
 
 impl Default for Page {
@@ -81,6 +90,7 @@ impl Default for Page {
             has_focus: true,
             navigation: 0,
             suspended: false,
+            gpu_tier: 0,
         }
     }
 }
@@ -89,8 +99,9 @@ impl Page {
     /// The hosts' wire form: bit 0 hidden, bit 1 offline, bit 2 can share,
     /// bit 3 can open files, bit 4 without focus, bits 5–6 the navigation
     /// type, bit 7 about to be suspended, bit 8 shares files, bit 9 shares
-    /// an element's picture; other bits are ignored. Zero is visible,
-    /// online, focused, no share sheet, no pickers, no navigation.
+    /// an element's picture, bits 10–11 the GPU tier (0 high, 1 mid, 2 low);
+    /// other bits are ignored. Zero is visible, online, focused, no share
+    /// sheet, no pickers, no navigation, a `high` GPU tier.
     pub fn from_bits(bits: u32) -> Self {
         Self {
             hidden: bits & 1 != 0,
@@ -102,6 +113,7 @@ impl Page {
             suspended: bits & 128 != 0,
             can_share_files: bits & 256 != 0,
             can_share_pictures: bits & 512 != 0,
+            gpu_tier: ((bits >> 10) & 3) as u8,
         }
     }
 
@@ -116,6 +128,12 @@ impl Page {
             | (u32::from(self.suspended) << 7)
             | (u32::from(self.can_share_files) << 8)
             | (u32::from(self.can_share_pictures) << 9)
+            | (u32::from(self.gpu_tier & 3) << 10)
+    }
+
+    /// The GPU tier's word: `low`, `mid` or `high`.
+    pub fn gpu_tier(&self) -> &'static str {
+        GPU_TIERS[usize::from(self.gpu_tier & 3)]
     }
 
     /// How the browser loaded the page, the web's word, or `""` in a
@@ -156,9 +174,13 @@ mod tests {
     #[test]
     fn bits_round_trip_and_zero_is_the_default() {
         assert_eq!(Page::from_bits(0), Page::default());
-        for bits in 0..1024 {
+        for bits in 0..3072 {
             assert_eq!(Page::from_bits(bits).bits(), bits);
         }
+        // LLP 1139.003 D2: bits 10–11, zero `high`.
+        assert_eq!(Page::default().gpu_tier(), "high");
+        assert_eq!(Page::from_bits(1 << 10).gpu_tier(), "mid");
+        assert_eq!(Page::from_bits(2 << 10).gpu_tier(), "low");
         let page = Page::from_bits(0b1111);
         assert!(page.hidden && !page.on_line && page.can_share && page.can_open_files);
         assert!(!Page::from_bits(0b111).can_open_files);

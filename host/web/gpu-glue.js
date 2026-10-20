@@ -13,6 +13,8 @@
 import { pacer } from "./pace.js";
 import { assetDelivery } from "./gpu-assets.js";
 import { inertAncestor } from "./navigation.js";
+import { chooseTier, TIERS } from "./gpu-tier.js";
+import { showRefusal } from "./gpu-refusal.js";
 const artifact = new URL(import.meta.url).searchParams.get("artifact");
 const stem = artifact ?? "gpu";
 let gpu;
@@ -76,6 +78,7 @@ let pendingCutover;
 const RECOVERY_LIMIT = 5;
 let recoveryTimer, recoveryFailures = 0, recoveryErrorLogged = false, recoveryTerminalLogged = false, lossDuringRecovery = false;
 let terminalDevice = false;
+let tierCode = 0; // the GPU tier this page told its modules (gpu-tier.js `TIERS`)
 let raf = null;
 let finishReady;
 const ready = new Promise((resolve) => { finishReady = resolve; });
@@ -263,6 +266,8 @@ function resetRecovery() {
 function fallback(entry) {
   if (entry.fallbackApplied) return;
   entry.fallbackApplied = true;
+  // No adapter: the canvas's box says why, and world requests are refused by type (LLP 1139.003 D1).
+  if (api.recovery?.code === "no-adapter") { showRefusal(entry); entry.unsupported = refusal(api.recovery.error); }
   entry.terminal = true;
   entry.wants = false;
   for (const row of entry.children ?? []) restoreChild(row);
@@ -276,8 +281,8 @@ function fallback(entry) {
 function terminalRecovery(outcome) {
   terminalDevice = true;
   recoveryFailures = RECOVERY_LIMIT;
-  for (const entry of surfaces.values()) fallback(entry);
   api.recovery = outcome;
+  for (const entry of surfaces.values()) fallback(entry);
 }
 function reportRecovery(error, terminal) {
   if (!recoveryErrorLogged || (terminal && !recoveryTerminalLogged)) {
@@ -814,7 +819,7 @@ const api = {
   handle(request, ask, tagged) {
     if (trapped()) return trapped();
     const entry = live(request.id);
-    if (!entry) return surfaces.get(request.id)?.refused ?? refusal(`view ${request.id} has no world`, "canvas");
+    if (!entry) return surfaces.get(request.id)?.refused ?? surfaces.get(request.id)?.unsupported ?? refusal(`view ${request.id} has no world`, "canvas");
     if (request.op === "tap" && request.contact !== undefined) {
       entry.resampleHeld?.();
       const owner = entry.controls?.get(request.contact);
@@ -867,6 +872,8 @@ const api = {
     if (request.op !== "logs") { const failed = [...surfaces.values()].find(e => e.refused); if (failed) return failed.refused; }
     if (api.answers(request)) return restoreReply(reply);
     if (request.op === "tree") for (const node of reply.nodes ?? []) {
+      const page = surfaces.get(node.id)?.refusalPage;
+      if (page) node.status = page.text; // the refusal page's role=status (LLP 1139.003 D1)
       const summary = agent(node.id, { op: "tree", summary: true });
       if (summary?.world) node.world = summary.world;
     }
@@ -1030,6 +1037,19 @@ const api = {
     schedule();
     return worlds;
   },
+  /// The agent's `prefer gpu-tier` (LLP 1139.003 D2): the module's surfaces
+  /// are made again, each carrying its world, so their renderers read the new
+  /// tier's rung; a rung is otherwise read once, when a renderer is made.
+  retier(tier) {
+    tierCode = Math.max(0, TIERS.indexOf(tier));
+    if (!loaded || terminalDevice) return;
+    gpu.gpu_tier?.(tierCode);
+    const kept = [...surfaces.values()].filter(e => live(e.view) === e).map(e => [e.view, e.name, e.values]);
+    if (!kept.length) return;
+    this.reset(true);
+    for (const [view, name, values] of kept) this.surface(view, name, values);
+    this.finishRestart();
+  },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
   schedule() { for (const entry of surfaces.values()) if (entry.id && !entry.terminal && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
 };
@@ -1083,6 +1103,7 @@ async function swap(version) {
   const start = performance.now(), next = guardedModule(await loadModule(version)), staged = [];
   const carrier = { worldCarry: exact.worldCarry };
   try {
+    next.gpu_tier?.(tierCode);
     await next.gpu_load();
     if (exact.now) next.gpu_seekable(true);
     if (sentPeriod) next.gpu_period(sentPeriod);
@@ -1137,7 +1158,10 @@ async function swap(version) {
 const t0 = performance.now();
 try {
   const version = (stem === "gpu" ? exact.gpuVersion : exact.gpuVersions?.[stem]) ?? 0;
+  // The tier is chosen before the device is made, from the adapter's facts (LLP 1139.003 D2).
+  tierCode = Math.max(0, TIERS.indexOf(await chooseTier(exact.pageFacts)));
   gpu = guardedModule(await loadModule(version));
+  gpu.gpu_tier?.(tierCode);
   await gpu.gpu_load();
   if (exact.now) gpu.gpu_seekable(true);
   replaceShaders(await loadShaders(gpu));

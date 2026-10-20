@@ -32,8 +32,20 @@ package enum PageFacts {
     /// What the build channel's `pin` set (LLP 1122 D4), over the platform's
     /// and the agent's; nil hands it back.
     nonisolated(unsafe) static var pinnedRootFontSize: Double?
+    /// The device's GPU tier (LLP 1139.003 D2) as the page facts' bits 10–11
+    /// code: 0 `high`, 1 `mid`, 2 `low`. The GPU module's answer from its
+    /// Metal device once it loads (`high` before, as on a Mac); under the
+    /// agent the drive's, `high` until `prefer gpu-tier`, which the module is
+    /// told before its device is made.
+    nonisolated(unsafe) package static var gpuTier: UInt32 = 0 {
+        didSet { if gpuTier != oldValue { changed() } }
+    }
+    nonisolated(unsafe) package static var agentGpuTier: UInt32 = 0 {
+        didSet { if agentGpuTier != oldValue { changed() } }
+    }
+    package static var tier: UInt32 { substituted ? agentGpuTier : gpuTier }
     /// The drive's values stand in for the machine's (LLP 1069.007 D2, D8).
-    static let substituted = ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real"
+    package static let substituted = ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real"
     private static let agentChanged = Notification.Name("ExactPageFactsChanged")
     private static func changed() { NotificationCenter.default.post(name: agentChanged, object: nil) }
 
@@ -193,11 +205,11 @@ package enum PageFacts {
     /// The ABI's form (`exact_set_page`) for a session in `window`: bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet, bit 3 the document
     /// pickers, bit 4 without focus, bit 7 about to be suspended, bits 8 and
-    /// 9 a share takes files and pictures. A session whose plan does not read
+    /// 9 a share takes files and pictures, bits 10–11 the GPU tier. A session whose plan does not read
     /// `onLine` starts no monitor for it.
     static func bits(_ window: FocusWindow?, readsOnLine: Bool = true) -> UInt32 {
         let online = readsOnLine ? onLine : lastOnLine
-        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0)
+        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0) | (tier & 3) << 10
     }
 
     /// Calls `changed` on the main queue when any reading may have changed;

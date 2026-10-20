@@ -53,6 +53,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
             hidden: false,
             interrupted: false,
             look: Default::default(),
+            rung: None,
         }
     }
 }
@@ -156,7 +157,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                     device,
                     queue,
                     format,
-                    G::SAMPLES,
+                    crate::quality::samples(self.rung, G::SAMPLES),
                     G::DEPTH_PREPASS,
                 )
                 .with_matte_models(G::MATTE_MODELS),
@@ -253,6 +254,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             feed.unshown_motion(sim.unshown_motion());
         }
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
+        if let Some(rung) = self.rung {
+            let authored = sim.world().try_resource::<exact_game::Shadows>().is_some();
+            rung.clamp(&mut input, authored);
+        }
         // Every pixel the renderer stores has alpha one: each clear of the
         // output stores one, opaque draws write one, and every blend composes
         // alpha OVER, which keeps a destination alpha of one at one (tests

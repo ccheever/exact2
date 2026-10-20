@@ -76,6 +76,9 @@ pub async fn load_gpu(
         })
         .await
         .map_err(|e| DeviceFailure::new(DeviceFailureKind::NoAdapter, e.to_string()))?;
+    // The web host tells the tier from GPUAdapterInfo, which wgpu does not carry.
+    #[cfg(not(target_arch = "wasm32"))]
+    crate::tier::choose(&adapter.get_info());
     let available = adapter.limits();
     let required_limits = requested_limits(available);
     let (device, queue) = adapter

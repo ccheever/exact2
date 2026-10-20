@@ -54,6 +54,8 @@ pub use input::{InputEvent, PointerKind, PointerPhase};
 pub mod json;
 pub mod shaders;
 mod target;
+pub mod tier;
+pub use tier::{set_tier, tier, GpuTier};
 mod uniform;
 #[cfg(windows)]
 mod window;

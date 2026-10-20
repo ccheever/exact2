@@ -706,6 +706,10 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("can-share-pictures", v @ ("true" | "false")) => page.can_share_pictures = v == "true",
             ("can-open-files", v @ ("true" | "false")) => page.can_open_files = v == "true",
             ("has-focus", v @ ("true" | "false")) => page.has_focus = v == "true",
+            // @ref LLP 1139.003 D2 — the fact; the rung stays the one the renderer was made at.
+            ("gpu-tier", v @ ("high" | "mid" | "low")) => {
+                page.gpu_tier = exact_runner::page::GPU_TIERS.iter().position(|t| *t == v).unwrap_or(0) as u8
+            }
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
                 root_font_size = v.parse::<f64>().ok()
             }
@@ -775,6 +779,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "has-focus": page.has_focus,
         "root-font-size": p.host().runner().root_font_size(),
         "display-scale": p.host().runner().display_scale(),
+        "gpu-tier": page.gpu_tier(),
     }, "fold": {
         "device-posture": fold.posture.keyword(),
         "horizontal-viewport-segments": fold.cols,

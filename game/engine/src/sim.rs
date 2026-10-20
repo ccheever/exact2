@@ -53,6 +53,12 @@ pub trait Game: 'static {
     fn render_scale(_args: &Self::Args) -> f32 {
         1.0
     }
+    /// The renderer's rung of the quality ladder, read once before the
+    /// renderer is made: [`Quality::Auto`](crate::Quality::Auto) follows the
+    /// device's GPU tier. A setting a player chooses is an argument read here.
+    fn quality(_args: &Self::Args) -> crate::Quality {
+        crate::Quality::Auto
+    }
     /// Discoverable controls.
     fn actions() -> Actions {
         Actions::default()

@@ -593,6 +593,13 @@ macro_rules! module {
             $crate::web::period(period_ms)
         }
 
+        /// The page's GPU tier, told before `gpu_load` (`GpuTier::code`: 0
+        /// high, 1 mid, 2 low).
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_tier(code: u32) {
+            $crate::set_tier($crate::GpuTier::from_code(code))
+        }
+
         /// Whether a canvas has unrendered inputs.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_dirty(id: u32) -> bool {

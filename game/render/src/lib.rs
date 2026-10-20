@@ -36,6 +36,7 @@ mod placed;
 #[cfg(test)]
 mod quad_tests;
 mod quads;
+pub mod quality;
 mod renderer;
 mod shadows;
 pub mod shapes;
