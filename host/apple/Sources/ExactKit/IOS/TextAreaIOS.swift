@@ -408,7 +408,10 @@ extension NodeView {
         #endif
         f.isSelectable = !disabled
         let content = Autofill.contentType(props["autocomplete"], fallback: nil)
-        let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.smartQuotesType != inputSmartQuotes || f.smartDashesType != inputSmartDashes || f.textContentType != content
+        // Unsaid, a textarea's Return inserts a line break under UIKit's default label.
+        let returnKey = NodeView.returnKey(props["enterKeyHint"], unsaid: .default)
+        let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.smartQuotesType != inputSmartQuotes || f.smartDashesType != inputSmartDashes || f.textContentType != content || f.returnKeyType != returnKey
+        f.returnKeyType = returnKey
         f.autocapitalizationType = inputCapitalization
         f.autocorrectionType = inputCorrection
         f.spellCheckingType = inputSpellChecking

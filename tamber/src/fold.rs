@@ -82,6 +82,12 @@ pub(crate) enum Named {
 /// The names a value may use, answered by the checker.
 pub(crate) trait Names {
     fn named(&mut self, name: &str) -> Result<Named, FoldError>;
+
+    /// Whether `name` is a base name the design leaves unset, which an
+    /// expression keeps (LLP 1121 D11, stage 12 B2).
+    fn base(&mut self, _name: &str) -> bool {
+        false
+    }
 }
 
 impl Half {

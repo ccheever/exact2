@@ -314,6 +314,53 @@ fn css_strike_through_changes_pixels_without_changing_layout() {
 }
 
 #[test]
+fn a_box_draws_its_lines_through_nested_text_in_its_own_colour() {
+    // CSS Text Decoration 3 §2.1: the paragraph's lines cross its blue child
+    // in the paragraph's red; the paragraph has no text of its own.
+    let mut p = fixture(
+        "      text text-decoration=\"underline line-through\" color=\"#ff0000\" font-size=24\n        text \"MMMM\" color=\"#0000ff\"\n",
+    );
+    let frame = p.frame();
+    let (mut red, mut blue) = (0, 0);
+    for px in frame.data().chunks_exact(4) {
+        match (px[0], px[1], px[2], px[3]) {
+            (200.., ..160, ..160, 200..) => red += 1,
+            (..160, ..160, 200.., 200..) => blue += 1,
+            _ => {}
+        }
+    }
+    assert!(blue > 0, "the child's glyphs keep their colour");
+    // Two lines across four glyphs at 24 px; in the child's colour, none.
+    assert!(
+        red >= 100,
+        "the lines are the paragraph's colour: {red} red pixels, {blue} blue"
+    );
+}
+
+#[test]
+fn the_nearest_box_line_shows_and_hidden_text_draws_none() {
+    // As Chrome: the green box's line-through shows over the red
+    // paragraph's on the blue text, and the hidden text has no line.
+    let mut p = fixture(
+        "      text text-decoration=\"line-through\" color=\"#ff0000\" font-size=24\n        text text-decoration=\"line-through\" color=\"#00ff00\"\n          text \"MMMM\" color=\"#0000ff\"\n        text \"WWWW\" visibility=\"hidden\"\n",
+    );
+    let frame = p.frame();
+    let (mut red, mut green) = (0, 0);
+    for px in frame.data().chunks_exact(4) {
+        match (px[0], px[1], px[2], px[3]) {
+            (200.., ..160, ..160, 200..) => red += 1,
+            (..160, 200.., ..160, 200..) => green += 1,
+            _ => {}
+        }
+    }
+    assert_eq!(red, 0, "no line of the paragraph's shows");
+    assert!(
+        green >= 40,
+        "the nearer box's line shows: {green} green pixels"
+    );
+}
+
+#[test]
 fn html_maxlength_is_enforced_by_linux_typing() {
     let plan = contract::compile("component App\n  state draft = \"\"\n  action edit(value: string)\n    draft = value\n  view\n    input value=draft input=edit maxlength=3 testId=\"limited\"\n").unwrap();
     let (mut p, error) = Presenter::boot_with(

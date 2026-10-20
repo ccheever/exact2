@@ -60,12 +60,16 @@ impl Lowerer<'_> {
             let mut faces = Vec::new();
             for face in &font.faces {
                 if seen.insert((face.weight, face.italic), ()).is_some() {
+                    let weight = match face.weight {
+                        Some([low, high]) if low == high => format!("weight {low}"),
+                        Some([low, high]) => format!("weights {low} {high}"),
+                        None => "its file's weights".into(),
+                    };
                     return err(
                         "lower-font-face-duplicate",
                         format!(
-                            "font `{}` declares weight {}{} twice",
+                            "font `{}` declares {weight}{} twice",
                             font.name,
-                            face.weight,
                             if face.italic { " italic" } else { "" }
                         ),
                         face.span,
@@ -150,7 +154,29 @@ impl Lowerer<'_> {
                         face.span,
                     );
                 }
-                faces.push((face.source.as_str(), face.weight, face.italic));
+                // `@font-face`'s `auto` descriptors are the file's own
+                // ranges: a static face is normal width at 400.
+                let axes = std::fs::read(&canonical)
+                    .map(|bytes| crate::font_axes::read(&bytes))
+                    .unwrap_or_default();
+                let weight = face.weight.unwrap_or_else(|| {
+                    axes.wght.map_or([400, 400], |[low, high]| {
+                        [
+                            low.round().clamp(1.0, 1000.0) as u16,
+                            high.round().clamp(1.0, 1000.0) as u16,
+                        ]
+                    })
+                });
+                let stretch = axes.wdth.map_or([1000, 1000], |[low, high]| {
+                    let tenths = |p: f32| (p * 10.0).round().clamp(1.0, u16::MAX as f32) as u16;
+                    [tenths(low), tenths(high)]
+                });
+                faces.push(exact_plan::builder::Face {
+                    source: face.source.as_str(),
+                    weight,
+                    stretch,
+                    italic: face.italic,
+                });
             }
             let family = self.b.font_family(&font.name, &faces);
             let stack = self
@@ -161,7 +187,7 @@ impl Lowerer<'_> {
                 font.name.clone(),
                 DeclaredFont {
                     stack,
-                    faces: faces.iter().map(|(_, w, i)| (*w, *i)).collect(),
+                    faces: faces.iter().map(|f| (f.weight[1], f.italic)).collect(),
                 },
             );
         }

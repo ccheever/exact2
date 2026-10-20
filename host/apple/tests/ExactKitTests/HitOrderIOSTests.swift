@@ -212,6 +212,27 @@ final class HitOrderIOSTests: XCTestCase {
         XCTAssertNil(dock.accessibilityElements, "a clipped empty box is not passed through")
     }
 
+    /// CSS computes `overflow-y: auto` beside `overflow-x: hidden`, so a
+    /// truncating title is a scroll container with nothing to scroll. On the
+    /// web a click on it reaches its button; a `UIScrollView` keeps a touch
+    /// from the responder chain, so one that cannot scroll hands the hit to
+    /// its node, whose touch bubbles to the button.
+    func testATitleThatCannotScrollPassesTheTouchToItsButton() throws {
+        let p = presenter(raised: 2)
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view", "props": ["testId": "title"], "style": ["overflow_x": "hidden", "overflow_y": "auto", "text_color": [0, 0, 0, 255]]],
+            ["op": "children", "id": 2, "ids": [6]],
+            ["op": "frame", "id": 6, "x": 0.0, "y": 0.0, "w": 44.0, "h": 20.0],
+            ["op": "content", "id": 6, "w": 44.0, "h": 20.0],
+        ]))
+        window.layoutIfNeeded()
+        let title = try XCTUnwrap(p.views[6])
+        let scroller = try XCTUnwrap(title.scrollView)
+        XCTAssertTrue(hit(p, CGPoint(x: 360, y: 10)) === title, "the title's node, not its scroll view")
+        scroller.contentSize = CGSize(width: 44, height: 200)
+        XCTAssertTrue(hit(p, CGPoint(x: 360, y: 10)) === scroller, "a scroller with somewhere to go keeps the touch for its pan")
+    }
+
     func testInFlowTheLaterSiblingIsOnTop() throws {
         let p = presenter(raised: 0)
         let list = try XCTUnwrap(p.views[3])

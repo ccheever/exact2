@@ -32,6 +32,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("chat-thread"),
     recipe!("content-design"),
     recipe!("dates-and-days"),
+    recipe!("edit-sheet"),
     recipe!("editable-rows"),
     recipe!("error-alert"),
     recipe!("fetch-loading-error"),

@@ -283,7 +283,12 @@ pub fn import(
         // One other kind in every block it wins (a colour in one, or a
         // value of no kind, is no token of either kind).
         let (coloured, uniform) = seen_as[var.as_str()];
-        let kind = kinds.other_kind(var, value);
+        // (Only a declaration that is no colour has one: a colour's chain is
+        // not walked again for each link of it.)
+        let kind = match fate {
+            Fate::NotColour => kinds.other_kind(var, value),
+            _ => None,
+        };
         let one_kind = !coloured && uniform.is_none_or(|u| u == Some(kind));
         if let (Fate::NotColour, Some(kind), true) = (fate, kind, one_kind) {
             others.push((i, kind));
