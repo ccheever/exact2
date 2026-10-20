@@ -4,68 +4,33 @@
 // --url`). The tool shows the server's hello, and an agent's write arrives
 // on its long poll attributed. Its stub-server tests are
 // apps/design-tool/app.test.contract.
-import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { spawn, spawnSync } from 'node:child_process';
+import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
-import { TOOL_DIST, TOOL_ORIGIN } from './tamber-server.mjs';
-import { takePort } from './port-lock.mjs';
+import { spawnOwned } from './test-children.mjs';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+import { DRIVEN, drive, lines, proxied, ROOT, stop, STUB_APP, TOOL_DIST, TOOL_ORIGIN, toolTurns } from './design-tool-harness.mjs';
+import { suiteBrowser } from './agent-launch.mjs';
 
-// The tool's port, in turn with other runs (the contract tests' stub, other
-// checkouts'): each test takes it, and a tool that took no turn there (one
-// run by hand) is said by its pid.
-let givePort = () => {};
-beforeEach(async () => {
-  const port = Number(new URL(TOOL_ORIGIN).port);
-  givePort = await takePort(port, { label: `scripts/design-tool.test.mjs in ${ROOT}` });
-  const pid = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).stdout.trim().split('\n')[0];
-  if (pid) {
-    givePort();
-    const command = spawnSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).stdout.trim().slice(0, 80);
-    throw new Error(`${TOOL_ORIGIN} already answers (pid ${pid}: ${command}), and took no turn (a design tool run by hand?): stop it (kill ${pid}) and run these again`);
-  }
-}, 25 * 60_000); // as long as the turn may take (its wait is 20 minutes)
-afterEach(() => givePort());
-
-/** Lines of `child`'s stdout as they come; `until(pass)` waits for one. */
-function lines(child) {
-  const seen = [];
-  let buf = '';
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', d => { buf += d; const all = buf.split('\n'); buf = all.pop(); seen.push(...all); });
-  const until = async (pass, ms) => {
-    const end = Date.now() + ms;
-    while (!seen.some(pass)) { if (Date.now() > end || child.exitCode !== null) throw new Error(`not seen: ${seen.join('\n')}`); await Bun.sleep(50); }
-    return seen.find(pass);
-  };
-  return { seen, until };
-}
-
-const stop = async child => {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exit = new Promise(ok => child.once('exit', ok));
-  child.kill('SIGTERM');
-  if (!(await Promise.race([exit.then(() => true), Bun.sleep(15_000).then(() => false)]))) child.kill('SIGKILL');
-};
+toolTurns();
 
 test('the tool opens on the theme fixture, shows its hello, and an agent\'s write arrives attributed; a second tool reuses it or is refused', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-'));
   for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
-  const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  const tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '';
   tool.stderr.on('data', d => { said = (said + d).slice(-4000); });
   let drive, other;
   try {
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000).catch(e => { throw new Error(`${e.message}\n${said}`); });
-    drive = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-${process.pid}`, '--json',
-      'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'state'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-${process.pid}`, '--json',
+      'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'state'], { cwd: ROOT, env: DRIVEN.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
     drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
     const out = lines(drive);
@@ -79,7 +44,7 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(drive.exitCode, driveSaid).toBe(0);
     const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const { hello, changes } = replies.findLast(r => r.resources).resources;
-    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.11', app });
+    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.14', app });
     expect(hello.files.map(f => f.path)).toEqual(['app.contract', 'app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
     // One tool per machine: while it runs, another app's is refused, naming
@@ -116,7 +81,7 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
   const [mine, other] = [copy(), copy()];
   const run = args => spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', ...args, '--no-open'], { cwd: ROOT, encoding: 'utf8' });
   // The design server for `mine` alone, as a dev loop would hold it.
-  const serve = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'serve', mine], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  const serve = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'serve', mine], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool;
   try {
     const at = new URL(await lines(serve).until(l => /^http:\/\/127\.0\.0\.1:\d+\/__tamber$/.test(l), 600_000)).origin;
@@ -128,7 +93,7 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
     const wrong = run([other, '--via', at]);
     expect(wrong.status).toBe(1);
     expect(wrong.stderr).toContain(`the design of ${mine}`);
-    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', mine, '--via', at, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', mine, '--via', at, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     const { token } = await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json();
     const hello = await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
@@ -154,8 +119,8 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
 test('every control on the dials panel comes from the design as describe gives it', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-dials-'));
   cpSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), join(app, 'app.tamber'));
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
-  const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
+  const tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   try {
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     const { token } = await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json();
@@ -168,13 +133,13 @@ test('every control on the dials panel comes from the design as describe gives i
       expect(canned.resolve[t.name]).toEqual(await ask({ method: 'resolve', token: t.name }));
       expect(canned.explain[t.name]).toEqual(await ask({ method: 'explain', token: t.name }));
     }
-    const drive = spawnSync(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-dials-${process.pid}`, '--json',
+    const drive = spawnSync(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-dials-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', 'tap more-Colour', 'tap more-Tone', 'tree dials',
       // The sliders' own range and step, which the page keeps a value to:
       // a step of 0.001 to 0.005, a value past the end held at it.
       'type dial-fine-slider 0.004', 'state', 'type dial-fine-slider 1', 'state', 'type dial-lift-slider 0.374', 'state', 'type dial-chroma-slider -1', 'state',
       // A length dial's value, written in px, which the real server takes (stage 6).
-      'type dial-gap-slider 10', 'clock data', 'tap apply', 'clock data'], { cwd: ROOT, encoding: 'utf8' });
+      'type dial-gap-slider 10', 'clock data', 'tap apply', 'clock data'], { cwd: ROOT, env: DRIVEN.env, encoding: 'utf8' });
     expect(drive.status, drive.stderr).toBe(0);
     const out = drive.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const tree = out.find(r => r.nodes);
@@ -235,51 +200,6 @@ test('every control on the dials panel comes from the design as describe gives i
   }
 }, 900_000);
 
-/** `bun scripts/agent.mjs web --url <url>` running `ops`, each reply parsed
- * (spawned, not run synchronously: the proxy below answers in this
- * process). */
-async function drive(url, storage, ops, { keepStorage = false } = {}) {
-  const child = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', storage, ...(keepStorage ? ['--keep-storage'] : []), '--json', ...ops], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
-  let said = '';
-  child.stderr.on('data', d => { said = (said + d).slice(-4000); });
-  const out = lines(child);
-  const code = await new Promise(ok => child.once('close', ok));
-  if (code !== 0) throw new Error(`the drive failed: ${said}\n${out.seen.slice(-3).join('\n').slice(0, 3000)}`);
-  return out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
-}
-
-/** The tool on `app` through `tamber tool --via` to a proxy in front of
- * the app's design server: the proxy records each write's file as the
- * server left it (read once its reply is in, so in the order written), and
- * calls `before(request)` before forwarding a request, so a hand edit lands
- * exactly between two of the tool's requests, with no timing. */
-async function proxied(app, before = () => {}) {
-  const serve = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'serve', app], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
-  const origin = new URL(await lines(serve).until(l => /^http:\/\/127\.0\.0\.1:\d+\/__tamber$/.test(l), 600_000)).origin;
-  const writes = [];
-  const proxy = Bun.serve({ hostname: '127.0.0.1', port: 0, idleTimeout: 0, fetch: async req => {
-    const url = new URL(req.url);
-    const body = req.method === 'POST' ? await req.text() : undefined;
-    let request = {};
-    try { request = url.pathname === '/__tamber' && body ? JSON.parse(body) : {}; } catch { /* not ours */ }
-    await before(request);
-    const headers = new Headers(req.headers);
-    headers.delete('host'); headers.delete('content-length');
-    const res = await fetch(`${origin}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
-    const bytes = await res.arrayBuffer();
-    if (request.method === 'transaction' || request.method === 'undo' || request.method === 'accept') {
-      const reply = JSON.parse(new TextDecoder().decode(bytes));
-      writes.push({ method: request.method, ok: !!reply.ok, error: reply.error, after: readFileSync(join(app, 'app.tamber'), 'utf8') });
-    }
-    const out = new Headers(res.headers);
-    out.delete('content-encoding'); out.delete('content-length');
-    return new Response(bytes, { status: res.status, headers: out });
-  } });
-  const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', `http://127.0.0.1:${proxy.port}`, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
-  const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
-  return { url, origin, writes, close: async () => { await stop(tool); proxy.stop(true); await stop(serve); } };
-}
-
 /** Where two texts differ, in order: the first line that differs, the
  * lines taken out there and the lines put in. */
 const edit = (a, b) => {
@@ -297,7 +217,7 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
   // A second design file that sorts before the app's: a write to the app's
   // design still carries the app's digest.
   writeFileSync(join(app, 'accent.tamber'), original.replace('tamber dials', 'tamber accent'));
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   let undos = 0;
@@ -336,6 +256,114 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
   }
 }, 900_000);
 
+test('T3: a re-scope reads the branch it moves: the alias there, the param that aliases a token there, a role by its spelling, none toward a value that names its destination, none from another revision', async () => {
+  const { paramInfoOf, rescopeOf, tokenOfIn } = await import('../apps/design-tool/rescope.ts');
+  const ir = { tokens: [{ name: 'radius.md' }, { name: 'radius.sm' }, { name: '-exact-label', role: 'label' }], components: [{ params: [
+    { name: 'a#Card.radius', short: 'Card.radius', kind: 'length', default: 'radius.md', set: { value: 'radius.md', whens: 1 } },
+    { name: 'a#Card.ink', short: 'Card.ink', kind: 'color', default: 'Label', set: null },
+    { name: 'a#Chip.radius', short: 'Chip.radius', kind: 'length', default: '4px', set: { value: '4px', whens: 1 } },
+  ] }] };
+  const params = paramInfoOf(ir), tokenOf = tokenOfIn(ir);
+  const compact = [{ axis: 'density', value: 'compact' }];
+  const files = { 'app.tamber': 'd1' }, key = JSON.stringify([['app.tamber', 'd1']]);
+  const branches = {
+    'a#Card.radius': { value: 'radius.md', whens: [{ when: compact, value: 'radius.sm' }], files },
+    'a#Card.ink': { value: 'Label', whens: [], files },
+    // Chip's compact branch names radius.sm too.
+    'a#Chip.radius': { value: '4px', whens: [{ when: compact, value: 'radius.sm' }], files },
+    'radius.sm': { value: '2px', whens: [], files },
+    'radius.md': { value: '12px', whens: [], files },
+    '-exact-label': { value: '#000', whens: [], files },
+  };
+  const explain = async name => branches[name] ?? null;
+  // Card.radius's compact branch aliases radius.sm, not radius.md: moved there, on compact.
+  const m = await rescopeOf({ op: 'set-param', name: 'Card.radius', when: compact, value: '8px' }, params, tokenOf, explain, key);
+  expect(m).toEqual({ text: 'Apply to the token radius.sm instead', ops: [
+    { op: 'set-param', name: 'Card.radius', when: compact, value: 'radius.sm' },
+    { op: 'set-token', name: 'radius.sm', when: compact, value: '8px' },
+  ] });
+  // A role override by its role's spelling.
+  expect((await rescopeOf({ op: 'set-param', name: 'Card.ink', when: [], value: '#111' }, params, tokenOf, explain, key)).text).toBe('Apply to the token -exact-label instead');
+  // Toward a value that names the destination: none (an alias loop).
+  expect(await rescopeOf({ op: 'set-param', name: 'Card.radius', when: [], value: 'radius.md' }, params, tokenOf, explain, key)).toBe(null);
+  // radius.sm on compact is aliased by two params there: none.
+  expect(await rescopeOf({ op: 'set-token', name: 'radius.sm', when: compact, value: '3px' }, params, tokenOf, explain, key)).toBe(null);
+  // radius.md, unconditionally, by Card.radius alone: moved to it, its own line kept.
+  expect(await rescopeOf({ op: 'set-token', name: 'radius.md', when: [], value: '10px' }, params, tokenOf, explain, key)).toEqual({ text: 'Apply to Card.radius instead', ops: [
+    { op: 'set-token', name: 'radius.md', when: [], value: '12px' },
+    { op: 'set-param', name: 'Card.radius', when: [], value: '10px' },
+  ] });
+  // A copy a shorter `when` covers (Grok's case): on dim+compact, Fill shows paper (its dim line), so an
+  // edit of ink there moves nowhere, and Fill's Only-this-mode edit there moves to paper.
+  const two = { tokens: [{ name: 'ink' }, { name: 'paper' }], components: [{ params: [{ name: 'a#Card.fill', short: 'Card.fill', kind: 'color', default: 'ink', set: { value: 'ink', whens: 1 } }] }] };
+  const dim = [{ axis: 'dark-style', value: 'dim' }], both = [...dim, ...compact];
+  const twoBranches = {
+    'a#Card.fill': { value: 'ink', whens: [{ when: dim, value: 'paper' }], files },
+    ink: { value: '#010101', whens: [{ when: both, value: '#222222' }], files },
+    paper: { value: '#ffffff', whens: [], files },
+  };
+  const ex2 = async name => twoBranches[name] ?? null;
+  expect(await rescopeOf({ op: 'set-token', name: 'ink', when: both, value: '#abcdef' }, paramInfoOf(two), tokenOfIn(two), ex2, key)).toBe(null);
+  expect((await rescopeOf({ op: 'set-param', name: 'Card.fill', when: both, value: '#abcdef' }, paramInfoOf(two), tokenOfIn(two), ex2, key)).text).toBe('Apply to the token paper instead');
+  // A line of the param more specific than the edit's keeps its copies either way: on dim, Fill shows ink.
+  const wider = { 'a#Card.fill': { value: 'ink', whens: [{ when: both, value: 'paper' }], files }, ink: { value: '#010101', whens: [], files } };
+  expect((await rescopeOf({ op: 'set-token', name: 'ink', when: dim, value: '#abcdef' }, paramInfoOf(two), tokenOfIn(two), async n => wider[n] ?? null, key)).text).toBe('Apply to Card.fill instead');
+  // An explain of another revision than the edit's: none.
+  expect(await rescopeOf({ op: 'set-param', name: 'Card.ink', when: [], value: '#111' }, params, tokenOf, async n => ({ ...branches[n], files: { 'app.tamber': 'd2' } }), key)).toBe(null);
+});
+
+test('T3: Reset gives a param\'s line back byte for byte in one undo; a param edit re-scoped to the token it aliases is one transaction, undone a level at a time; a re-scope after another write is refused', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-params-'));
+  const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
+  writeFileSync(join(app, 'app.tamber'), original);
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
+  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  let transactions = 0;
+  // Before the fifth transaction (the second re-scope), a hand edit of the component's default.
+  const tool = await proxied(app, request => {
+    // (The component's own source: no file the move edits, but one it was worked out on.)
+    if (request.method === 'transaction' && ++transactions === 5) writeFileSync(join(app, 'app.contract'), readFileSync(join(app, 'app.contract'), 'utf8').replace('fill: color = "accent.fill"', 'fill: color = "surface.card"'));
+  });
+  try {
+    const replies = await drive(tool.url, `design-tool-params-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      // Reset: the line goes; undo gives it back.
+      'tap param-Card.pad-reset', 'clock data', 'state', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tap undo', 'clock data',
+      // A param edit, applied; moved to the token it aliases; undone twice.
+      'clock +1', 'clock data', 'type dial-app.contract#Card.fill-field #ff0000', 'type dial-app.contract#Card.fill-field key Enter', 'clock data', 'state',
+      'tap apply', 'clock data', 'clock +1', 'clock data', 'state', 'tap rescope', 'clock data', 'clock +1', 'clock data', 'state', 'tap undo', 'clock data', 'clock +1', 'clock data', 'tap undo', 'clock data',
+      // Again, but the file moves between the edit and the move: refused.
+      'clock +1', 'clock data', 'type dial-app.contract#Card.fill-field #00ff00', 'type dial-app.contract#Card.fill-field key Enter', 'clock data',
+      'tap apply', 'clock data', 'clock +1', 'clock data', 'tap rescope', 'clock data', 'state',
+    ]);
+    const states = replies.filter(r => r.resources);
+    expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true });
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['transaction', true], ['undo', true], ['transaction', true], ['transaction', true], ['undo', true], ['undo', true], ['transaction', true], ['transaction', false]]);
+    const pad = '  Card.pad = 12px';
+    expect(edit(original, tool.writes[0].after)).toEqual({ at: original.split('\n').indexOf(pad), removed: [pad], added: [] });
+    expect(tool.writes[1].after).toBe(original);
+    // The param edit: one new line in the params block.
+    expect(edit(original, tool.writes[2].after).added).toEqual(['  Card.fill = #ff0000']);
+    expect(states[2].derives.stack.rescope).toBe('Apply to the token accent.fill instead');
+    // Re-scoped: the param's line gone and the token's value the edit's, in one write.
+    const moved = tool.writes[3].after;
+    expect(moved).not.toContain('Card.fill =');
+    expect(moved).toContain('  accent.fill = #ff0000\n');
+    expect(edit(original, moved).removed).toEqual(['  accent.fill = accent']);
+    // One undo: the param edit as it was; another: the design as it was.
+    expect(tool.writes[4].after).toBe(tool.writes[2].after);
+    expect(tool.writes[5].after).toBe(original);
+    expect(states[3].derives.stack.rescope).toBe('');
+    // The move found the file changed since the edit: nothing written, said so.
+    expect(tool.writes[7].error.message).toContain('changed since');
+    expect(states.at(-1).derives.stack.error).toContain('Not moved:');
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
 test('expressions are kept unless pinned, "only this mode" adds a when, redo writes it again, and tokens are added, renamed and removed; undo restores an unformatted line', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-ops-'));
   // Not in fmt's layout: undo must give these bytes back, not fmt's.
@@ -343,7 +371,7 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
   const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8').replace('  text.primary = light-dark(#0f1419, #e7e9ea)  pair=surface.page', primary);
   expect(original).toContain(primary);
   writeFileSync(join(app, 'app.tamber'), original);
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const tool = await proxied(app);
   try {
     const replies = await drive(tool.url, `design-tool-ops-${process.pid}`, [
@@ -415,7 +443,7 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
 function repo(name) {
   const app = mkdtempSync(join(tmpdir(), `exact-design-tool-${name}-`));
   writeFileSync(join(app, 'app.tamber'), readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8'));
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app, encoding: 'utf8' });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   // Who the server's commit is by, here, whatever this machine's git says.
@@ -521,7 +549,7 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
   let tool, accepts = 0;
   const agentWrite = async () => {
     const digest = createHash('sha256').update(readFileSync(join(app, 'app.tamber'))).digest('hex');
-    const op = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'op', tool.origin, JSON.stringify({ method: 'transaction', client: 'agent:codex', files: { 'app.tamber': digest }, ops: [{ op: 'set-token', name: 'surface.card', value: 'light-dark(#f1f3f5, #17191d)' }] })], { cwd: ROOT, stdio: 'ignore' });
+    const op = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'op', tool.origin, JSON.stringify({ method: 'transaction', client: 'agent:codex', files: { 'app.tamber': digest }, ops: [{ op: 'set-token', name: 'surface.card', value: 'light-dark(#f1f3f5, #17191d)' }] })], { cwd: ROOT, stdio: 'ignore' });
     expect(await new Promise(ok => op.once('close', ok))).toBe(0);
   };
   let explains = 0;
@@ -559,10 +587,10 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
     expect(first.resources.lit).toMatchObject({ names: ['surface.card'], whos: ['agent:codex'] });
     // Only the cells that moved: the dark side, where the default applies.
     expect(first.resources.lit.cells).toEqual(['surface.card|0-dark', 'surface.card|1-dark']);
-    // Each with the tokens it changes (a role that follows one among them).
+    // Each with the tokens it changes (a role that follows one among them, the params that alias one, in full).
     expect(first.resources.changes.held.map(h => [h.proposal, h.client, [...h.tokens].sort(), h.items.map(i => i.text)])).toEqual([
       [p1, 'agent:codex', ['-exact-label', 'ink.on-brand', 'text.primary'], ['text.primary = light-dark(#101010, #e7e9ea) (app.tamber)', 'ink.on-brand = #fefefe (app.tamber)']],
-      [p2, 'agent:claude', ['accent.fill'], ['accent.fill = #2070f0 (app.tamber)']],
+      [p2, 'agent:claude', ['accent.fill', 'app.contract#Card.fill', 'app.tamber#MapCard.pin'], ['accent.fill = #2070f0 (app.tamber)']],
     ]);
     expect(part.slots.written.note).toContain(`as ${id(3)}`);
     const recomputed = part.resources.changes.held.find(h => h.proposal === id(3));
@@ -731,13 +759,13 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-dist-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool, other, driving = true, saidPlan = null;
   try {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
-    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     other = await polledBuild(base, 'linux-1');
     // A build's report reaches the tool on its long poll.
@@ -838,13 +866,13 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-scrub-dist-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool;
   try {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
-    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     // What the dev loop serves its builds now (`/__dev/design`), the frame's
     // build (its id, and the design it reports running), how many pages
@@ -868,7 +896,7 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
       }
     };
     const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
-    const drive = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-scrub-${process.pid}`, '--json',
+    const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-scrub-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', ...wait,
       // accent.fill, the default branch: a value, its proposal live (the
       // moment before any scrub), then scrubbed to another.
@@ -888,7 +916,7 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
       // one is live: D7's retention.)
       'type new-name -exact-label', 'type new-value #ff0000', 'tap add-token', 'clock data', 'state',
       'tree proposal', 'clock +6000 real',
-    ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    ], { cwd: ROOT, env: DRIVEN.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
     drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
     const out = lines(drive);
@@ -988,13 +1016,13 @@ async function kindsOnTheJsLoop() {
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-kinds-dist-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   let tool;
   try {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
-    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     const seen = [];
     const connects = () => devSaid.seen.filter(l => l.startsWith('page connected')).length;
@@ -1017,7 +1045,7 @@ async function kindsOnTheJsLoop() {
       }
     };
     const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
-    const drive = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-kinds-${process.pid}`, '--json',
+    const drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-kinds-${process.pid}`, '--json',
       'type name Ada', 'tap save-name', 'clock data', ...wait,
       // The length, by its amount field: proposed live, then scrubbed.
       'tap cell-space.card-0-light', 'clock data', 'type part-amount-field 14', 'clock data', 'state', 'tree typed', 'clock +6000 real',
@@ -1027,7 +1055,7 @@ async function kindsOnTheJsLoop() {
       'tap cell-duration.card-0-light', 'clock data', 'type branch-value 300ms', 'type branch-value key Enter', 'clock data', 'state', 'tree branch', 'clock +2000 real',
       // The font-weight token: inline on the JS target.
       'tap cell-weight.title-0-light', 'clock data', 'type part-amount-field 700', 'clock data', 'state', 'tree icons', 'clock +2000 real',
-    ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    ], { cwd: ROOT, env: DRIVEN.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
     drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
     const out = lines(drive);
@@ -1081,15 +1109,14 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-inspect-dist-'));
-  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-  const { chromium } = await import('playwright-core');
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const browser = await suiteBrowser();
   let tool;
   try {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes('plan ready'), 600_000);
-    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', resolve(ROOT, 'apps/theme-fixture'), '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', resolve(ROOT, 'apps/theme-fixture'), '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
     const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
     await page.goto(url);
@@ -1275,7 +1302,7 @@ test('typed fields write one line through set-token for each kind: a length, a n
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-typed-'));
   const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
   writeFileSync(join(app, 'app.tamber'), original);
-  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  writeFileSync(join(app, 'app.contract'), STUB_APP);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   // Each: the cell, its field edits, the line before and after.

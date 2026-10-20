@@ -148,7 +148,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadDragTimeline { .. } => "expected none, or a `--name` and an optional axis (`x` or `y`)".into(),
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
-        StyleValueError::BadPositionTryFallbacks { .. } => "expected none, or comma-separated flip-block/flip-inline combinations; flip-start and named rules are not implemented".into(),
+        StyleValueError::BadPositionTryFallbacks { .. } => "expected none, or comma-separated attempts, each one to three of flip-block, flip-inline and flip-start, applied in order; flip-x, flip-y and named rules are not implemented".into(),
         StyleValueError::BadTimelineScope { .. } => "expected none, all, or `--name`s separated by commas".into(),
         StyleValueError::BadTransition { .. } => "unsupported transition property or invalid timing components; exact2 supports transform components, opacity, paint and SVG properties, and admitted numeric height transitions; general layout interpolation is not implemented".into(),
         StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
@@ -174,162 +174,6 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
 pub(crate) fn four_sided(rows: &[StyleId]) -> bool {
     box_sides::FAMILIES.iter().any(|f| rows == f)
         || super::shorthands::PAIRS.iter().any(|p| rows == p)
-}
-/// A computed value that builds a list for a box shorthand (a template
-/// such as `` `${pad}px 0` ``, a concatenation, or a `fn` returning one): no
-/// host splits a list at run time, since an overriding longhand, an
-/// `env()` and the rows' own grammars would each split it differently
-/// (LLP 1001 §1). Refused, naming the longhands. A literal (or a literal
-/// arm) is split here; a computed single value (`padding=pad`) is every
-/// side's, and a computed list that reaches a row is refused there.
-pub(crate) fn computed_list<'e>(
-    name: &str,
-    value: &'e Expr,
-    body: &dyn Fn(&str) -> Option<&'e Expr>,
-) -> Result<(), LowerError> {
-    // The text a computed value spells, a computed part as one word.
-    fn shape<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>, depth: u8) -> String {
-        match e {
-            Expr::Str(s, _) => s.clone(),
-            Expr::Template(parts, _) => parts
-                .iter()
-                .map(|p| match p {
-                    contract_syntax::TemplatePart::Text(t) => t.clone(),
-                    contract_syntax::TemplatePart::Expr(e) => shape(e, body, depth),
-                })
-                .collect(),
-            Expr::Binary(contract_syntax::BinOp::Add, l, r, _) => {
-                shape(l, body, depth) + &shape(r, body, depth)
-            }
-            Expr::Call(f, _, _) if depth < 8 => {
-                body(f).map_or_else(|| "x".into(), |b| shape(b, body, depth + 1))
-            }
-            _ => "x".into(),
-        }
-    }
-    fn lists<'e>(e: &'e Expr, body: &dyn Fn(&str) -> Option<&'e Expr>) -> Option<Span> {
-        match e {
-            // A literal is split at compile time.
-            Expr::Str(..) => None,
-            Expr::Ternary(_, yes, no, _) => lists(yes, body).or_else(|| lists(no, body)),
-            Expr::Match { some, none, .. } => lists(some, body).or_else(|| lists(none, body)),
-            Expr::Let { body: b, .. } => lists(b, body),
-            e => (box_sides::values(&shape(e, body, 0)).len() > 1).then(|| e.span()),
-        }
-    }
-    let Some(span) = lists(value, body) else {
-        return Ok(());
-    };
-    let longhands: Vec<String> = super::shorthands::longhands(name)
-        .iter()
-        .map(|l| format!("`{l}`"))
-        .collect();
-    err(
-        "lower-css-shorthand",
-        format!(
-            "`{name}` is computed here as a list of values, which no host splits at run time; write {} (each may be computed), or a literal `{name}`",
-            longhands.join("/")
-        ),
-        span,
-    )
-}
-
-/// A box shorthand (`padding: <length>{1,4}`, `border-color: <color>{1,4}`,
-/// …) as four longhand expressions (top, right, bottom, left), or a pair
-/// (`gap`, `overflow`, `overscroll-behavior`) as two: every literal the
-/// value can produce — a string, or an arm of a conditional — is split into
-/// its rows, and a computed leaf is one value for all of them. `None` when
-/// no literal names more than one value, so the shorthand stays one binding
-/// for its rows.
-pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<Vec<Expr>>, LowerError> {
-    let rows = super::shorthands::longhands(name).len();
-    fn widest(name: &str, rows: usize, e: &Expr) -> Result<usize, LowerError> {
-        Ok(match e {
-            Expr::Str(s, span) => {
-                let n = box_sides::values(s).len();
-                if name == "border-radius" && box_sides::elliptical(s) {
-                    return err(
-                        "lower-attr-value",
-                        format!("`border-radius` takes one to four corners, each one length (top-left, top-right, bottom-right, bottom-left); \"{s}\" is an elliptical radius (`/`), which no host draws"),
-                        *span,
-                    );
-                }
-                if n > rows {
-                    let (count, order) = match name {
-                        "border-radius" => ("one to four", "top-left, top-right, bottom-right, bottom-left; no `/` elliptical radii"),
-                        "gap" => ("one or two", "row, column"),
-                        _ if rows == 2 => ("one or two", "x, y"),
-                        _ => ("one to four", "top, right, bottom, left"),
-                    };
-                    return err(
-                        "lower-attr-value",
-                        format!("`{name}` takes {count} values ({order}); \"{s}\" has {n}"),
-                        *span,
-                    );
-                }
-                n
-            }
-            Expr::Ternary(_, yes, no, _) => widest(name, rows, yes)?.max(widest(name, rows, no)?),
-            Expr::Match { some, none, .. } => {
-                widest(name, rows, some)?.max(widest(name, rows, none)?)
-            }
-            Expr::Let { body, .. } => widest(name, rows, body)?,
-            _ => 1,
-        })
-    }
-    fn side(e: &Expr, i: usize) -> Expr {
-        match e {
-            Expr::Str(s, span) => {
-                let v = box_sides::values(s);
-                if v.is_empty() {
-                    return e.clone();
-                }
-                let pick = box_sides::pick(v.len(), i);
-                // A length in pixels is the number it would be on its own
-                // (`border-width` takes only numbers).
-                let piece = v[pick];
-                match piece.strip_suffix("px").unwrap_or(piece).parse::<f64>() {
-                    Ok(n) if n.is_finite() => Expr::Number(n, *span),
-                    _ => Expr::Str(piece.to_string(), *span),
-                }
-            }
-            Expr::Ternary(c, yes, no, span) => Expr::Ternary(
-                c.clone(),
-                Box::new(side(yes, i)),
-                Box::new(side(no, i)),
-                *span,
-            ),
-            Expr::Match {
-                subject,
-                var,
-                some,
-                none,
-                span,
-            } => Expr::Match {
-                subject: subject.clone(),
-                var: var.clone(),
-                some: Box::new(side(some, i)),
-                none: Box::new(side(none, i)),
-                span: *span,
-            },
-            Expr::Let {
-                name,
-                value,
-                body,
-                span,
-            } => Expr::Let {
-                name: name.clone(),
-                value: value.clone(),
-                body: Box::new(side(body, i)),
-                span: *span,
-            },
-            other => other.clone(),
-        }
-    }
-    if widest(name, rows, value)? < 2 {
-        return Ok(None);
-    }
-    Ok(Some((0..rows).map(|i| side(value, i)).collect()))
 }
 /// A literal style value is checked now by the kernel's own parser
 /// (`StyleProps::set_dynamic`), so `width=true` and `align-items="middle"`
@@ -498,7 +342,7 @@ fn style_value(
         super::shorthands::portable_literal(&a.value, &a.name)?;
     }
     if four_sided(rows) {
-        if let Some(sides) = sides(&a.name, &a.value)? {
+        if let Some(sides) = super::shorthands::sides(&a.name, &a.value)? {
             for (row, value) in rows.iter().zip(sides) {
                 let side = Attr { value, ..a.clone() };
                 check_style_value(&side, std::slice::from_ref(row), ty, fonts, scope, shapes)?;
@@ -799,6 +643,11 @@ fn style_value(
                                 .to_string()
                         })
                         .or_else(|| match value {
+                            // A notification haptic reports a task's outcome, which a
+                            // press has not had at touch-down.
+                            Expr::Str(t, _) if rows == [StyleId::PressHaptic] && matches!(t.as_str(), "success" | "warning" | "error") => {
+                                Some(format!("; \"{t}\" is an outcome, which a press has not had at touch-down: play it from the action that has it, `haptic(\"{t}\")`"))
+                            }
                             Expr::Str(t, _) => {
                                 edits::role_hint(t, false).map(|e| format!("; {}", e.clause()))
                             }
@@ -1059,6 +908,11 @@ pub(crate) fn check_prop_value(
 ) -> Result<(), LowerError> {
     media::check(name, value, span)?;
     let want = tags::prop_ty(prop);
+    if prop == PropId::Popover
+        && matches!(ty, Ty::Option(inner) if matches!(**inner, Ty::String | Ty::Enum(_) | Ty::Unknown))
+    {
+        return Ok(());
+    }
     // An app's browsing contexts are its window and new ones: `_parent` and
     // `_top` name frames an app does not have, a name one it cannot open.
     if prop == PropId::Target

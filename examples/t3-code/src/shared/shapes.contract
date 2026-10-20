@@ -1,3 +1,4 @@
+use InlineDocument from "../timeline/inline-documents.contract"
 use CommandSpan from "../timeline/command-output.contract"
 use SecretCardView from "../timeline/secret-card.contract"
 use CodeToken from "../timeline/markdown.contract"
@@ -112,7 +113,6 @@ shape Activity
   linkTitle: string
   linkThreadId: string
 shape Message
-  secret: SecretCardView[]
   id: string
   kind: string
   title: string
@@ -159,6 +159,7 @@ shape Message
   collapsible: bool
   code: CodeHighlight[]
   diagrams: MermaidDiagram[]
+  inlineDocuments: InlineDocument[]
   setup: WorktreeSetupView[]
   timeTip: string
   actionsTimeTip: string
@@ -169,6 +170,7 @@ shape Message
   attachFiles: MessageFile[]
   // Code font/size, word wrap and the message's chips (message-chips.ts).
   md: MarkdownEnv
+  secret: SecretCardView[]
 shape Provider
   id: string
   name: string
@@ -197,6 +199,7 @@ shape Approval
   mono: bool
   detail: string
   canRespond: bool
+  operable: bool
   live: bool
   responding: bool
   responseReason: string
@@ -215,6 +218,7 @@ shape Question
   question: string
   multiSelect: bool
   canRespond: bool
+  operable: bool
   live: bool
   responding: bool
   dismissible: bool

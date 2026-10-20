@@ -26,7 +26,7 @@ extension ExactSession {
     /// This session's number in the library's document table.
     var documentOwner: UInt64 { UInt64(runtime.rt) }
 
-    private func documentCall(_ request: [String: Any]) -> [String: Any] {
+    func documentCall(_ request: [String: Any]) -> [String: Any] {
         var request = request
         request["owner"] = documentOwner
         let d = (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
@@ -55,6 +55,14 @@ extension ExactSession {
         picker.scoped = []
     }
 }
+
+#if !os(macOS)
+extension ExactSession {
+    /// Nothing is kept across launches here (LLP 1069.010.000: iOS keeps
+    /// nothing until an iOS document app asks).
+    func restoreKeptDocuments() {}
+}
+#endif
 
 #if canImport(UIKit)
 extension ExactSession {
@@ -119,7 +127,11 @@ extension Picker {
 
     func documentsChosen(_ view: UInt32, _ urls: [URL], _ name: String) {
         answerHold(view, urls.isEmpty ? nil : urls)
+        #if os(macOS)
+        let docs = urls.compactMap { session.keptChoice($0) ?? session.mintDocument($0) }
+        #else
         let docs = urls.compactMap { session.mintDocument($0) }
+        #endif
         guard !docs.isEmpty else { session.log("\(name): refused: nothing to open"); documentCancelled(view, name); return }
         session.log("\(name): chosen")
         #if os(macOS)
@@ -164,10 +176,9 @@ extension Picker {
 #elseif canImport(UIKit)
 extension Picker {
     func presentDocument(_ name: String, view: UInt32, multiple: Bool, suggestedName: String) {
-        guard var controller = session.presenter.root.window?.rootViewController else {
+        guard let controller = ViewPresentation.presenter(for: session.presenter.views[view] ?? session.presenter.root) else {
             session.log("\(name): refused: no window"); documentCancelled(view, name); return
         }
-        while let presented = controller.presentedViewController { controller = presented }
         let picker: UIDocumentPickerViewController
         switch name {
         case "showDirectoryPicker":

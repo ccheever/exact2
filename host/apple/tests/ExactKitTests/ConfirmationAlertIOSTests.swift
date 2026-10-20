@@ -260,7 +260,8 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         settle { !p.menus.inTransition }
         let box = alert.view.convert(alert.view.bounds, to: nil)
         print("alert: \(box) in \(window!.bounds)")
-        XCTAssertEqual(box.midX, window!.bounds.midX, accuracy: 2, "centred")
+        // UIKit centres it between the window's side insets: the iPhone Duo's status column reaches into this window
+        XCTAssertEqual(box.midX, window!.bounds.inset(by: window!.safeAreaInsets).midX, accuracy: 2, "centred")
         XCTAssertEqual(box.midY, window!.bounds.midY, accuracy: 40, "centred")
     }
 
@@ -674,6 +675,53 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         p.dialogCommand("close", "confirm")
         settle { p.menus.observation() == nil && controller.presentedViewController == nil }
         XCTAssertEqual(pressed, [3])
+    }
+
+    /// Text and its one closing button (Charlie, 2026-10-18): the
+    /// one-button alert, which tells. Its button is the cancel UIKit keeps
+    /// (a hardware keyboard's Escape), and choosing it presses nothing.
+    func testTextAndOneClosingButtonIsTheOneButtonAlert() throws {
+        let (p, controller, scene) = confirmation(label: "Couldn't save", texts: ["The disk is full."], actions: [], cancel: true)
+        defer { dismiss(p, controller) }
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.dialogCommand("showModal", "confirm")
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        XCTAssertEqual(alert.preferredStyle, .alert)
+        XCTAssertEqual(alert.title, "Couldn't save")
+        XCTAssertEqual(alert.message, "The disk is full.")
+        XCTAssertEqual(alert.actions.map(\.title), ["Cancel"])
+        XCTAssertEqual(alert.actions.map(\.style), [.cancel])
+        XCTAssertEqual(p.menus.observation()?["presentation"] as? String, "alert")
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        settle { !p.menus.inTransition }
+        try choose(alert.actions[0])
+        settle { p.menus.observation() == nil }
+        XCTAssertEqual(pressed, [])
+    }
+
+    /// The one button follows its own `disabled`, and a batch that changes
+    /// it ends the alert, as one that changes an action does. Only an
+    /// alertdialog is the one-button alert: a plain `dialog` of the same
+    /// rows, or one that asks for the dismissible form, is its own sheet.
+    func testTheOneButtonFollowsItsDisabledAndOnlyAnAlertdialogIsTheAlert() throws {
+        let (p, controller, _) = confirmation(label: "Couldn't save", texts: ["The disk is full."], actions: [], cancel: true)
+        defer { dismiss(p, controller) }
+        let dialog = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch([["op": "props", "id": 9, "set": ["disabled": "true"], "clear": []]]))
+        p.dialogCommand("showModal", "confirm")
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        XCTAssertEqual(alert.actions.map(\.isEnabled), [false])
+        p.apply(wireBatch([["op": "props", "id": 9, "set": ["disabled": "false"], "clear": []]]))
+        XCTAssertNil(p.menus.observation(), "the alert no longer shows what is there")
+
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["semanticTag": "dialog"], "clear": ["popover"]],
+                           ["op": "props", "id": 9, "set": ["commandfor": "confirm", "command": "close"], "clear": ["popovertarget", "popovertargetaction"]]]))
+        XCTAssertFalse(p.menus.isSheet(dialog), "an alertdialog of text and one button is the alert")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["closedby": "any"], "clear": []]]))
+        XCTAssertFalse(p.menus.isSheet(dialog), "closedby=any: still the alert, which UIKit has no dismissible form of")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": [String: String](), "clear": ["closedby", "accessibilityRole"]]]))
+        XCTAssertTrue(p.menus.isSheet(dialog), "a plain dialog is its own sheet")
     }
 
     // MARK: the native fixture

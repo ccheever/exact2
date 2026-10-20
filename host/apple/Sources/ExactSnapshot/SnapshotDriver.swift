@@ -7,6 +7,7 @@
 import SwiftUI
 import WidgetKit
 import ExactCore
+import os
 
 /// What the system supplies around one render: the family, whether this is
 /// the placeholder (redacted by the system; nothing in it is account
@@ -20,11 +21,16 @@ public struct SnapshotEnvironment {
     public enum Family: String, Sendable {
         case systemSmall, systemMedium, systemLarge, systemExtraLarge
         case accessoryRectangular, accessoryCircular, accessoryInline, accessoryCorner
+        /// A Live Activity's placement (LLP 1126.001 WP10), named by `placement`.
+        case liveActivity
         /// The Home Screen families, whose container background the system
         /// draws; the accessory families have none.
         public var isSystem: Bool { rawValue.hasPrefix("system") }
     }
+    public var entryName: String
     public var family: Family
+    /// The placement a `liveActivity` render is of; nil for a widget.
+    public var placement: ActivityPlacement?
     public var placeholder: Bool
     /// The app's origin or scheme a route path (`/prompt/3`) is a URL under.
     public var linkBase: URL?
@@ -42,11 +48,23 @@ public struct SnapshotEnvironment {
     public var rootFontSize: CGFloat?
     /// The timeline entry's date: where a `countdown` starts from.
     public var entryDate: Date
+    /// An agent read freezes live leaves at its clock; WidgetKit leaves this nil.
+    public var frozenDate: Date?
 
-    public init(family: Family, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil,
-                rasters: SnapshotRasters = SnapshotRasters(), contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now) {
-        self.family = family; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots; self.appGroup = appGroup
-        self.rasters = rasters; self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate
+    public init(family: Family, entryName: String = "snapshot", placement: ActivityPlacement? = nil, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil,
+                rasters: SnapshotRasters = SnapshotRasters(), contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now, frozenDate: Date? = nil) {
+        self.entryName = entryName; self.family = family; self.placement = placement; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots; self.appGroup = appGroup
+        self.rasters = rasters; self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate; self.frozenDate = frozenDate
+    }
+
+    /// Whether a nested link draws as a `Link` (D7): the medium and larger
+    /// Home Screen families, the Lock Screen and the expanded Island.
+    package var takesLinks: Bool {
+        switch family {
+        case .systemMedium, .systemLarge, .systemExtraLarge: return true
+        case .liveActivity: return placement?.takesLinks ?? false
+        default: return false
+        }
     }
 }
 
@@ -78,6 +96,8 @@ public enum SnapshotDriver {
     public static func rootFontSize(for size: DynamicTypeSize) -> CGFloat {
         #if os(macOS)
         return 13 * bodySize(for: size) / 17
+        #elseif os(watchOS)
+        return 16 * bodySize(for: size) / 17
         #else
         return bodySize(for: size)
         #endif
@@ -99,11 +119,29 @@ public enum SnapshotDriver {
         SnapshotView(source: .snapshot(snapshot), environment: environment)
     }
 
-    /// The URL a snapshot opens: the first link's, in document order; a
-    /// `display: none` subtree has none.
-    public static func url(_ snapshot: HeadlessSession.Snapshot, environment: SnapshotEnvironment) -> URL? {
+    /// A paragraph's styled runs remain one leaf. Hidden subtrees contribute none.
+    package static func admitsInline(_ snapshot: HeadlessSession.Snapshot) -> Bool {
+        var stack = snapshot.roots, text = 0, images = 0, other = 0
+        while let id = stack.popLast() {
+            guard let node = snapshot.nodes[id], node.style["display"]?.string != "none" else { continue }
+            switch node.kind {
+            case "text", "time": text += 1
+            case "image": images += 1
+            case "view", "pressable":
+                if node.props["type"] != "progress" && ["", "main", "section", "header", "footer", "article", "aside"].contains(node.props["semanticTag"] ?? "") {
+                    stack.append(contentsOf: node.children)
+                } else { other += 1 }
+            default: other += 1
+            }
+        }
+        return text == 1 && images <= 1 && other == 0
+    }
+
+    /// The URL a snapshot opens: the first link's, in document order, under
+    /// `roots` (the tree's when nil); a `display: none` subtree has none.
+    public static func url(_ snapshot: HeadlessSession.Snapshot, from roots: [UInt32]? = nil, environment: SnapshotEnvironment) -> URL? {
         guard !environment.placeholder else { return nil }
-        var stack = Array(snapshot.roots.reversed())
+        var stack = Array((roots ?? snapshot.roots).reversed())
         while let id = stack.popLast() {
             guard let node = snapshot.nodes[id], node.style["display"]?.string != "none" else { continue }
             if let url = SnapshotLinks.url(node.props["href"], base: environment.linkBase) { return url }
@@ -149,15 +187,18 @@ public struct SnapshotView: View {
     public var body: some View {
         let snapshot = snapshot
         let roots = snapshot.roots.compactMap { snapshot.nodes[$0] }
-        FrameLayout(frames: roots.map(\.frame), size: snapshot.size) {
-            ForEach(roots, id: \.id) { SnapshotNodeView(node: $0, tree: snapshot, environment: environment, isRoot: true) }
+        Group {
+            if environment.family == .accessoryInline && !SnapshotDriver.admitsInline(snapshot) {
+                let _ = Logger(subsystem: "dev.exact.widgets", category: "inline").error("entry \(environment.entryName, privacy: .public): accessoryInline requires one text/time leaf and at most one image")
+                Text("Open \(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "the app")")
+            } else {
+                FrameLayout(frames: roots.map(\.frame), size: snapshot.size) {
+                    ForEach(roots, id: \.id) { SnapshotNodeView(node: $0, tree: snapshot, environment: environment, isRoot: true) }
+                }
+            }
         }
         .frame(width: snapshot.size.width, height: snapshot.size.height, alignment: .topLeading)
         .padding(margins)
-        // D8: account content by default. A `privacySensitive` modifier makes
-        // its subtree ignore placeholder redaction (stage 0), so the
-        // placeholder carries none.
-        .privacySensitive(!environment.placeholder)
         .widgetURL(SnapshotDriver.url(snapshot, environment: environment))
         .containerBackground(for: .widget) { ContainerBackground(root: roots.first) }
     }

@@ -10,14 +10,33 @@ shape NextTrainsProps
   station: string
   departures: WidgetDeparture[]
 
+shape WidgetViewport
+  width: number
+  height: number
+
 component NextTrains
+  inject
+    snapshot_viewport: WidgetViewport
   props
     station: string
     departures: WidgetDeparture[]
   view
-    column gap=8
-      text station font-weight=600 line-clamp=1
-      for departure in departures key=departure.id
-        row gap=8
-          text departure.headsign flex=1 line-clamp=1
-          time datetime=departure.at format="countdown" font-variant-numeric="tabular-nums"
+    view
+      if snapshot_viewport.height < 40 && (snapshot_viewport.width >= 100 || snapshot_viewport.height < 20)
+        if departures.length == 0
+          text "No departures"
+        else
+          for departure in departures.slice(0, 1) key=departure.id
+            time datetime=departure.at format="countdown" font-variant-numeric="tabular-nums"
+      else if snapshot_viewport.width < 100
+        column width=snapshot_viewport.width height=snapshot_viewport.height align-items="center" justify-content="center" gap=0
+          text "Train" font-size=10 line-clamp=1
+          for departure in departures.slice(0, 1) key=departure.id
+            time datetime=departure.at format="countdown" font-size=12 font-variant-numeric="tabular-nums"
+      else
+        column gap=(snapshot_viewport.height < 70 ? 4 : 8)
+          text station font-weight=600 line-clamp=1
+          for departure in departures key=departure.id
+            row gap=8
+              text departure.headsign flex=1 line-clamp=1
+              time datetime=departure.at format="countdown" font-variant-numeric="tabular-nums"

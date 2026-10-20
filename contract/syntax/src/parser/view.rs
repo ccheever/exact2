@@ -14,13 +14,13 @@ impl Parser {
         if self.at_ident("else") {
             self.next();
             // `else if` is an `else` whose one node is the next `if`.
-            if self.at_ident("if") {
+            if self.at_ident("if") || self.at_ident("when") {
+                let retired = self.at_ident("when");
+                let first = self.retired.len();
                 otherwise = vec![self.node()?];
-            } else if self.at_ident("when") {
-                return self.err(
-                    "syntax-else-keyword",
-                    "a view branches with `if`: write `else if`",
-                );
+                if retired {
+                    self.retired[first].id = "syntax-else-keyword";
+                }
             } else {
                 self.after_else("if")?;
                 otherwise = self.required_block(span, "else", |p| p.node())?;
@@ -136,13 +136,35 @@ impl Parser {
             self.expect_punct("(")?;
             let var = self.named_ident(span)?;
             self.expect_punct(")")?;
-            self.newline()?;
+            self.case_end(Some(&var), "elements")?;
             Ok((Some(var), case_span))
         } else {
             self.expect_word("none")?;
-            self.newline()?;
+            self.case_end(None, "elements")?;
             Ok((None, case_span))
         }
+    }
+
+    /// The end of a block `match`'s `case some(var)` or `case none` line,
+    /// whose arm (`what` it holds) is the indented lines under it. `=>` is
+    /// the inline `match`'s, so it is named with the form to write.
+    pub(super) fn case_end(&mut self, var: Option<&str>, what: &str) -> R<()> {
+        if !self.at_punct("=>") {
+            return self.newline();
+        }
+        let case = var.map_or("case none".to_string(), |v| format!("case some({v})"));
+        let inline = if what == "statements" {
+            "`x = match subject { case some(v) => v, case none => 0 }`"
+        } else {
+            "`text (match subject { case some(v) => v, case none => \"\" })`"
+        };
+        self.err(
+            "syntax-case-arrow",
+            format!(
+                "a block `match` takes no `=>`: end the line at `{case}` and write its {what} on \
+                 the indented lines under it; `=>` is the inline `match`'s, which is a value: {inline}"
+            ),
+        )
     }
     #[inline(never)]
     pub(super) fn node_use(&mut self, word: String, span: Span) -> R<Node> {

@@ -10,19 +10,16 @@
 // what is left of the stack it showed (LLP 1035.001 D1), so a closed sheet
 // never leaves the route beneath it inert.
 import { test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 // A root with two tabs. The first tab's stack: a root, a pushed route, one
@@ -80,13 +77,9 @@ async function inChrome(test, html = page) {
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'navigation.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-app-bar-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=600,900', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const suite = await cdpBrowser({ args: ['--window-size=600,900'] }), { cdp } = suite;
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     const call = (method, params) => cdp.send(method, params, sessionId);
     await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] }); // the light look these checks expect, in whatever appearance this machine has
     const evaluate = async (expression) => {
@@ -97,9 +90,8 @@ async function inChrome(test, html = page) {
     await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     await test(evaluate, call);
   } finally {
-    child.kill();
+    await suite.close();
     server.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }
 
@@ -131,6 +123,36 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
     .toEqual(['navigate /', 'navigate /', 'host back 2']);
   // A control elsewhere in the route is what Back presses; only the shown route's Back acts.
   expect(await evaluate(`select('3'); press('r3'); press('r2'); calls.splice(0)`)).toEqual(['pressed r3']);
+}), 60000);
+
+check('Escape closes a sheet as its Cancel does; with no Cancel the root names, as the app bar\'s Back does', () => inChrome(async (evaluate, call) => {
+  const escape = async () => {
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    return evaluate('calls.splice(0)');
+  };
+  await evaluate(`document.querySelector('#r4 #back').addEventListener('click', () => calls.push('pressed r4')); select('4'); calls.splice(0)`);
+  expect(await escape()).toEqual(['pressed r4']);
+  // A Cancel whose id the root does not name (LLP 1129's probe): the runner's own back, as iOS's swipe down takes it.
+  await evaluate(`document.querySelector('#r4 #back').id = 'cancel'; select('4')`);
+  expect(await escape()).toEqual(['host back 4']);
+  // The innermost shown sheet is the one Escape closes, and one that closes only by its own buttons stays: a sheet
+  // inside it that says `closedby="none"` is not passed over for this one.
+  await evaluate(`document.getElementById('r4').insertAdjacentHTML('beforeend', '<main id="inner" navigationKey="31" navigationBack="back"><div navigationKey="30"></div><div navigationKey="31" navigationPresentation="modal" closedby="none"></div></main>'); select('4')`);
+  expect(await escape()).toEqual([]);
+  await evaluate(`document.getElementById('inner').remove(); select('4')`);
+  // A sheet that is not shown is passed over for the one that is.
+  await evaluate(`document.getElementById('r4').insertAdjacentHTML('beforeend', '<div id="hidden" style="visibility:hidden"><main navigationKey="51" navigationBack="back"><div navigationKey="50"></div><div navigationKey="51" navigationPresentation="modal"></div></main></div>'); select('4')`);
+  expect(await escape()).toEqual(['host back 4']);
+  await evaluate(`document.getElementById('hidden').remove(); select('4')`);
+  // Nor an inert one.
+  await evaluate(`nav.inert = true`);
+  expect(await escape()).toEqual([]);
+  await evaluate(`nav.inert = false; document.getElementById('r4').setAttribute('closedby', 'none'); select('4')`);
+  expect(await escape()).toEqual([]);
+  // A sheet with nothing beneath it is closed by its named control.
+  await evaluate(`select('2'); document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<main navigationKey="40" navigationBack="back"><div navigationKey="40" navigationPresentation="fullscreen"><button id="back">Close</button></div></main>'); document.querySelector('[navigationKey="40"] > #back').addEventListener('click', () => calls.push('pressed 40'))`);
+  expect(await escape()).toEqual(['pressed 40']);
 }), 60000);
 
 check('a block link of text is in the accent and points; the author\'s look wins', () => inChrome(async (evaluate) => {

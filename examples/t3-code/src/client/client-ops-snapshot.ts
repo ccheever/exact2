@@ -8,7 +8,7 @@ import { removeAttachmentReferences } from '../composer/composer-attachments';
 import { isSnapshotPermissionMessage } from '../snapshot/snapshot-settings';
 import { shortcutInput } from '../settings/keybinding-settings';
 import { obj, str, arr } from './domain';
-import { ClientError, type Native, type Files } from './protocol';
+import { ClientError, nativeFiles, type Native, type Files } from './protocol';
 import { letGo } from './let-go';
 
 /** Draft captures and the SnapShot settings: shortcut, sound, setup and options. */
@@ -20,18 +20,19 @@ export async function snapshotOps(this: T3Client, op: string, id: string, value:
       const previous = this.snapshotDrafts;
       const image = previous.find(image => image.id === id);
       if (!image) throw new ClientError('That draft attachment is unavailable.');
-      const key = this.draftKey, prompt = this.local.drafts[key];
-      this.local.snapshotDrafts[key] = previous.filter(image => image.id !== id);
-      await removeAttachmentReferences(this, native, key, 'image', id); // every chip goes with it (composerDraftStore removeImage)
-      try { await this.persist(storage); } catch (error) { this.local.snapshotDrafts[key] = previous; if (prompt !== undefined) this.local.drafts[key] = prompt; throw error; }
-      this.local.snapshotReleases.push(id);
-      await this.flushSnapshotReleases(native, storage);
-      // A confirmed removal from a focused Remove names the element the focus moves to now that the tile is gone.
-      if (value) resultMessage = `focus:${value}`;
-      if (str(image.uploadId)) {
-        try { await this.request(native, 'attachments.delete', { attachmentId: image.uploadId }); }
-        catch { resultMessage = 'Removed from draft. Server upload cleanup failed; the server will expire unused uploads.'; }
-      }
+      const key = this.draftKey;
+      const changedSource = await removeAttachmentReferences(this, native, key, 'image', id, { focus: value, removedImage: id, applied: async current => {
+        const files = nativeFiles(current), latest = this.local.snapshotDrafts[key] ?? [];
+        this.local.snapshotDrafts[key] = latest.filter(entry => entry.id !== id);
+        try { await this.persist(files); } catch (error) { this.local.snapshotDrafts[key] = latest; throw error; }
+        this.local.snapshotReleases.push(id);
+        await this.flushSnapshotReleases(current, files);
+        if (str(image.uploadId)) {
+          try { await this.request(current, 'attachments.delete', { attachmentId: image.uploadId }); }
+          catch { this.error = 'Removed from draft. Server upload cleanup failed; the server will expire unused uploads.'; }
+        }
+      } });
+      if (!changedSource && value && !this.snapshotDrafts.some(entry => entry.id === id)) resultMessage = `focus:${value}`;
     } else if (op === 'snapshot-shortcut-record') {
       await this.call(native, { op: 'snapshotRecordShortcut', record: value === 'true' });
     } else if (op === 'snapshot-shortcut-save') {

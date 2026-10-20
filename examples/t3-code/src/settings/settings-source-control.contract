@@ -112,6 +112,7 @@ shape SourceControlPage
   scope: string
   repositories: ScopedRow[]
   text: ScopedRow[]
+  vcsTitle: string
   scanned: bool
   scanError: string
   vcs: DiscoveryRow[]
@@ -430,7 +431,7 @@ component SourceControlPanel
         if data.vcs.length > 0
           column width="100%" gap="0.625rem" testId="source-control-vcs"
             row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between"
-              SectionTitle(title="Version Control")
+              SectionTitle(title=data.vcsTitle)
               button press=restLocal("rescan", "") disabled=busy aria-label="Rescan server environment" testId="rescan-source-control" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 LucideRefreshCw(size=14, color="light-dark(#71717b, #818181)")
             Card()

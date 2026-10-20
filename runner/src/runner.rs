@@ -27,8 +27,10 @@ pub use intersect::Intersection;
 pub use shown::BlockPlacement;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
+mod held;
 mod live;
 mod mode;
+pub use held::Asked;
 mod root_font;
 mod shown;
 mod sounds;
@@ -56,7 +58,7 @@ mod source;
 mod tabs;
 pub use source::{
     Announce, BackgroundState, DataError, DataSource, InFlight, Interrupt, Native, NativeCall,
-    NativeHandler, Overlaid, PreloadWake, Target, Write, BACKGROUND,
+    NativeHandler, Overlaid, PreloadWake, SnapshotModule, Target, Write, BACKGROUND,
 };
 mod delivery;
 mod links;
@@ -89,9 +91,11 @@ pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod sockets;
 pub use sockets::{SocketReader, SocketState};
+mod activities;
 mod apply;
 mod live_time;
 pub mod midi;
+mod modules;
 mod split;
 mod surface_record;
 mod time;
@@ -360,8 +364,8 @@ type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
-    /// The plan's string pool, interned once (`vm::intern`).
-    strings: Vec<Value>,
+    /// The plan's strings as values, made as they are read (`vm::intern`).
+    strings: vm::Strings,
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,
@@ -497,6 +501,8 @@ pub struct Runner<D: DataSource> {
     keeping: kept::Keeping,
     /// Resources asked again and again with new arguments (a development build's warning).
     churn: query::Churn,
+    /// The agent's preferred answers of native modules' sources (LLP 1124 D7).
+    extensions: modules::Extensions,
     poisoned: bool,
     /// Evaluate every site on every update (the incremental update's
     /// reference; `set_full_evaluation`).
@@ -515,6 +521,7 @@ pub struct Runner<D: DataSource> {
     settled: Option<settlement::Settled>,
     /// Per derive: its value depends on the durable store (bake provenance).
     derive_store_dependent: Vec<bool>,
+    activities: activities::Activities,
     /// What this binary and its update store know about delivery (LLP 1030
     /// D4, D7): the embedded answer until a host says otherwise.
     delivery: crate::delivery::Delivery,
@@ -549,6 +556,8 @@ pub struct Runner<D: DataSource> {
     midi: crate::midi::Midi,
     /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
     root_font: root_font::RootFont,
+    /// What a development host holds over the app's own, and what the app asked of it (LLP 1122 T7).
+    held: held::Held,
     fonts: std::rc::Rc<std::cell::RefCell<crate::bridge::RuntimeFonts>>,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
@@ -724,7 +733,7 @@ impl<D: DataSource> Runner<D> {
             _ => None,
         };
         let now_ms = match seed {
-            Seed::Fresh => 0.0,
+            Seed::Fresh => crate::time::launch_clock(),
             Seed::At(now_ms) => now_ms,
             Seed::Carried(carried) => carried.now_ms,
             Seed::Checkpoint(checkpoint) => checkpoint.now_ms,
@@ -869,6 +878,7 @@ impl<D: DataSource> Runner<D> {
             commands: Vec::new(),
             sounds: Default::default(),
             root_font: Default::default(),
+            held: Default::default(),
             fonts: Default::default(),
             into_view: Vec::new(),
             scrolled: Default::default(),
@@ -914,6 +924,8 @@ impl<D: DataSource> Runner<D> {
             awaiting: Vec::new(),
             keeping: Default::default(),
             churn: Default::default(),
+            activities: activities::Activities::default(),
+            extensions: Default::default(),
             delivery,
             viewport,
             page: Default::default(),

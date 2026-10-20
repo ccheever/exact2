@@ -341,6 +341,41 @@ final class AgentCheckIOSTests: XCTestCase {
         for id in [3, 4] { XCTAssertNil(items.first { $0["id"] as? Int == id }?["outX"], "#\(id) is held: \(items)") }
     }
 
+    /// Round 21's event-rsvp at the largest text size: a centred caption wider than its flex column runs past both of
+    /// the column's sides (`spill`, the web's rule), and where its line is drawn (`ink`) is observed where that is not its
+    /// box, so the driver finds two texts running into each other; one in a column that clips is held.
+    func testATextPastItsColumnAndWhereItsLineIsDrawnAreObserved() throws {
+        let caption: [String: Any] = ["font_size": 17, "text_align": "center"]
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view", "style": ["background_color": [255, 255, 255, 255]]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["press"], "style": ["display": "flex"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Going"], "style": caption],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Maybe"], "style": caption],
+            ["op": "create", "id": 5, "kind": "view", "handlers": ["press"], "style": ["display": "flex", "overflow_x": "hidden", "overflow_y": "hidden"]],
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Held"], "style": caption],
+            ["op": "children", "id": 1, "ids": [2, 4, 5]], ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 5, "ids": [6]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 40.0, "y": 100.0, "w": 20.0, "h": 40.0],
+            ["op": "frame", "id": 3, "x": -10.0, "y": 0.0, "w": 40.0, "h": 22.0],   // 10 past each side of its column
+            ["op": "frame", "id": 4, "x": 16.0, "y": 200.0, "w": 368.0, "h": 22.0],  // a short word centred in a wide box
+            ["op": "frame", "id": 5, "x": 40.0, "y": 300.0, "w": 20.0, "h": 40.0],
+            ["op": "frame", "id": 6, "x": -10.0, "y": 0.0, "w": 40.0, "h": 22.0],
+        ])
+        let reply = agent.check([:])
+        XCTAssertNil(reply["error"], "\(reply)")
+        let items = try XCTUnwrap(reply["items"] as? [[String: Any]])
+        func item(_ id: Int) throws -> [String: Any] { try XCTUnwrap(items.first { $0["id"] as? Int == id }, "#\(id) in \(items)") }
+        let spill = try XCTUnwrap(try item(3)["spill"] as? [String: Any], "\(items)")
+        XCTAssertEqual(spill["by"] as? Int, 2)
+        XCTAssertEqual(spill["dx"] as? Double, 10)
+        let ink = try XCTUnwrap(try item(4)["ink"] as? [String: Any], "\(items)")
+        let x = try XCTUnwrap(ink["x"] as? Double), w = try XCTUnwrap(ink["w"] as? Double)
+        XCTAssertLessThan(w, 100, "the word, not its box: \(ink)")
+        XCTAssertEqual(x + w / 2, 200, accuracy: 1, "centred in its box: \(ink)")
+        XCTAssertNil(try item(6)["spill"], "a column that clips holds it")
+    }
+
     /// LLP 1116.006 D5: a text stands on the nearest fill painted under it —
     /// its own box's (a rounded bubble, whose corners show the page), a
     /// bubble column's, the page's — in each scheme; and a row its scroller
@@ -539,6 +574,101 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertEqual(last["by"] as? Int, 10)
     }
 
+    /// A row under iOS 26's floating bar (a bottom search field) is covered by the bar's glass, not by the container
+    /// UIKit hangs it in, which is as large as the window and sits in the app's root node: judged on the root node, a
+    /// row a short scroll clears from under the glass would need its middle carried past the screen's top. Left, a
+    /// scroller that can still move: scrolling clears its row from under the glass. Right, a scroller at its end:
+    /// nothing clears its last row, which the bar covers. Beside the glass, a text is neither covered nor cut.
+    func testARowUnderTheFloatingBarIsCoveredByItsGlassAndScrollingClearsIt() throws {
+        let scrolls: [String: Any] = ["overflow_y": "scroll"]
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view", "style": scrolls],
+            ["op": "create", "id": 3, "kind": "view", "handlers": ["press"], "props": ["testId": "row"]],
+            ["op": "create", "id": 6, "kind": "view", "style": scrolls],
+            ["op": "create", "id": 8, "kind": "view", "handlers": ["press"], "props": ["testId": "last"]],
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "A"], "style": ["font_size": 12]],
+            ["op": "children", "id": 1, "ids": [2, 6]],
+            ["op": "children", "id": 2, "ids": [3, 9]],
+            ["op": "children", "id": 6, "ids": [8]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 800.0],
+            ["op": "content", "id": 2, "w": 200.0, "h": 1200.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 720.0, "w": 200.0, "h": 60.0],
+            ["op": "frame", "id": 6, "x": 200.0, "y": 0.0, "w": 200.0, "h": 800.0],
+            ["op": "content", "id": 6, "w": 200.0, "h": 1600.0],
+            ["op": "frame", "id": 8, "x": 0.0, "y": 1540.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 9, "x": 2.0, "y": 740.0, "w": 16.0, "h": 16.0],
+        ])
+        let p = try XCTUnwrap(session).presenter
+        try XCTUnwrap(p.views[6]?.scroll).setContentOffset(CGPoint(x: 0, y: 800), animated: false)
+        p.settlePump()
+        p.viewport.layoutIfNeeded()
+        // UIKit's arrangement: the container and its hosting view as large as the window, the glass at the bottom
+        let container = _UIFloatingBarContainerView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let host = FloatingBarHostingView(frame: container.bounds)
+        let glass = UIPlatformGlassInteractionView(frame: CGRect(x: 20, y: 720, width: 360, height: 60))
+        host.addSubview(glass)
+        container.addSubview(host)
+        try XCTUnwrap(p.views[1]).addSubview(container)
+        XCTAssertTrue(window?.hitTest(CGPoint(x: 100, y: 750), with: nil) === host, "a touch on the glass meets the hosting view")
+        XCTAssertTrue(window?.hitTest(CGPoint(x: 100, y: 400), with: nil)?.isDescendant(of: try XCTUnwrap(p.views[2])) == true, "elsewhere a touch passes the bar")
+        let items = try XCTUnwrap(agent.check([:])["items"] as? [[String: Any]])
+        func cover(_ id: Int) -> [String: Any]? { items.first { $0["id"] as? Int == id }?["cover"] as? [String: Any] }
+        // 400 points of room: enough to carry the row's middle past the glass's top, 30 points up, and not past the
+        // root node's, 750 up
+        XCTAssertNotNil(items.first { $0["id"] as? Int == 3 }, "\(items)")
+        XCTAssertNil(cover(3), "the row's middle is 30 points under the glass's top, and its scroller moves it clear: \(items)")
+        let last = try XCTUnwrap(cover(8), "at the scroller's end nothing clears the last row: \(items)")
+        XCTAssertEqual(last["kind"] as? String, "bar")
+        XCTAssertEqual(last["name"] as? String, "UIKit's floating bar")
+        let beside = try XCTUnwrap(items.first { $0["id"] as? Int == 9 }, "\(items)")
+        XCTAssertNil(beside["vis"], "a text beside the glass, below its top, is presented whole: \(beside)")
+        XCTAssertNil(beside["cover"], "\(beside)")
+    }
+
+    /// A touch the floating bar takes away from its glass (a toolbar it holds) is judged by what it met, not by glass
+    /// elsewhere: measured from glass below the row, any scroll would have seemed to clear it. A bar inside a floating
+    /// bar whose glass is found cuts nothing beside the glass.
+    func testAFloatingBarsGlassCoversOnlyWhereItLies() throws {
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 3, "kind": "view", "handlers": ["press"], "props": ["testId": "row"]],
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "A"], "style": ["font_size": 12]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3, 9]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "content", "id": 2, "w": 400.0, "h": 820.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 640.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 9, "x": 2.0, "y": 740.0, "w": 16.0, "h": 16.0],
+        ])
+        let p = try XCTUnwrap(session).presenter
+        p.settlePump()
+        p.viewport.layoutIfNeeded()
+        let container = _UIFloatingBarContainerView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let host = FloatingBarHostingView(frame: container.bounds)
+        host.addSubview(UIPlatformGlassInteractionView(frame: CGRect(x: 20, y: 720, width: 360, height: 60)))
+        let toolbar = UIToolbar(frame: CGRect(x: 0, y: 640, width: 400, height: 60))
+        container.addSubview(host)
+        container.addSubview(toolbar)
+        try XCTUnwrap(p.views[1]).addSubview(container)
+        let hit = try XCTUnwrap(window?.hitTest(CGPoint(x: 200, y: 670), with: nil))
+        XCTAssertTrue(hit.isDescendant(of: toolbar), "the row's middle meets the toolbar: \(hit)")
+        let items = try XCTUnwrap(agent.check([:])["items"] as? [[String: Any]])
+        // 20 points of room, short of the 30 that carry the row's middle past the toolbar's top
+        let row = try XCTUnwrap(items.first { $0["id"] as? Int == 3 }, "\(items)")
+        let cover = try XCTUnwrap(row["cover"] as? [String: Any], "\(row)")
+        XCTAssertEqual(cover["kind"] as? String, "bar")
+        XCTAssertEqual(cover["name"] as? String, "UIToolbar")
+        let beside = try XCTUnwrap(items.first { $0["id"] as? Int == 9 }, "\(items)")
+        XCTAssertNil(beside["vis"], "a text below the toolbar, beside the glass, is presented whole: \(beside)")
+        XCTAssertNil(beside["cover"], "\(beside)")
+    }
+
     /// LLP 1116.007 D3.8: what lies under UIKit's navigation bar (a row scrolled there, round 9's book-club and
     /// mood-journal) is covered, not presented: its `vis` is empty, or only the part below the bar's edge, so the
     /// driver judges no contrast or overlap there; a text wholly below the bar has none.
@@ -668,4 +798,19 @@ final class AgentCheckIOSTests: XCTestCase {
 
 /// A stand-in with the name of iOS 26's edge-effect view, which `check` knows UIKit's by.
 private final class ScrollEdgeEffectView: UIView {}
+
+/// Stand-ins for iOS 26's floating bar, named as UIKit's are: the container, which takes no touch of its own; the
+/// hosting view, which takes one only over the glass it draws; and the glass.
+private final class _UIFloatingBarContainerView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        return hit === self ? nil : hit
+    }
+}
+private final class FloatingBarHostingView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        subviews.contains { $0.frame.contains(point) } ? self : nil
+    }
+}
+private final class UIPlatformGlassInteractionView: UIView {}
 #endif

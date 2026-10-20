@@ -288,9 +288,343 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(MarkupCommands.plain("**source** [link](https://example.com)"), "source link")
     }
 
+    /// A Markdown textarea built as a batch builds it, so the commands find it by `id`.
+    private func markdownField(_ source: String) -> (Presenter, NodeView, TextArea, NSWindow) {
+        _ = NSApplication.shared
+        let p = Presenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": source, "markup": "markdown"], "handlers": ["input", "select", "selectionchange", "beforeinput"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 300.0, "h": 120.0],
+        ]))
+        let node = p.views[2]!, f = node.textArea as! TextArea
+        XCTAssertNotNil(f.markup)
+        return (p, node, f, window)
+    }
+
+    /// LLP 1045 D6: the editor's storage is its source, so its native
+    /// selection is the source selection its `input` and `selectionchange`
+    /// report and `setSelectionRange` sets; its `select` stays its formats.
+    func testSourceSelectionIsReportedAndSetLikeAPlainFields() throws {
+        let (p, node, f, window) = markdownField("a **b** c")
+        defer { window.close() }
+        var selects = 0, changes: [FieldSelection] = []
+        p.fieldSelections.onSelect = { _, _, _ in selects += 1 }
+        p.fieldSelections.onChange = { _, _, s in changes.append(s) }
+        window.makeFirstResponder(f)
+        p.fieldSelections.setSelectionRange(["editor", 2, 7, "backward"])
+        XCTAssertEqual(f.selectedRange(), NSRange(location: 2, length: 5))
+        let reported = try XCTUnwrap(p.fieldSelections.reported(2, f.string))
+        XCTAssertEqual([reported.start, reported.end], [2, 7])
+        XCTAssertEqual(reported.direction, "backward")
+        XCTAssertEqual(f.markup?.bookmark, NSRange(location: 2, length: 5), "a format applies to it")
+        let deadline = Date().addingTimeInterval(2)
+        while changes.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: deadline) }
+        XCTAssertEqual(changes.last.map { [$0.start, $0.end] }, [2, 7])
+        // The person's own range selects natively; HTML's `select` (kind 42) is never the editor's.
+        f.setSelectedRange(NSRange(location: 0, length: 3))
+        XCTAssertEqual(selects, 0)
+        // A caret anywhere in the source, hidden syntax included: AppKit draws every character.
+        p.fieldSelections.setSelectionRange(["editor", 3, 3])
+        XCTAssertEqual(f.selectedRange(), NSRange(location: 3, length: 0))
+        p.fieldSelections.setSelectionRange(["editor", 99, 99])
+        XCTAssertEqual(f.selectedRange(), NSRange(location: 9, length: 0), "clamped as HTML clamps it")
+    }
+
+    /// Each `setRangeText` is one native undo step of its own (LLP 1045 D1,
+    /// issue #792): two in one action are two, and the typing before them,
+    /// whose event group is still open, stays a step of its own.
+    func testEachRangeEditIsOneUndoStep() throws {
+        let (p, node, f, window) = markdownField("")
+        defer { window.close() }
+        var replaced: [String] = []
+        p.fieldSelections.onReplacement = { id, value, s in
+            replaced.append("\(value) \(s.start)-\(s.end) \(p.fieldSelections.input(id)?.data ?? "nil")")
+            node.props["value"] = value
+            node.applyTextArea()
+        }
+        window.makeFirstResponder(f)
+        let manager = try XCTUnwrap(f.undoManager)
+        XCTAssertTrue(manager.groupsByEvent)
+        f.insertText("hello", replacementRange: NSRange(location: 0, length: 0))
+        XCTAssertEqual(manager.groupingLevel, 1, "the typing's event group is open")
+        p.fieldSelections.setRangeText(["editor", "!", 5, 5, "end"])
+        p.fieldSelections.setRangeText(["editor", "?", 6, 6, "end"])
+        XCTAssertEqual(f.string, "hello!?")
+        XCTAssertEqual(f.selectedRange(), NSRange(location: 7, length: 0))
+        XCTAssertEqual(replaced, ["hello! 6-6 !", "hello!? 7-7 ?"])
+        XCTAssertTrue(manager.groupsByEvent, "the manager groups by event again")
+        // The end of the event closes the group it opened, and keeps no empty step.
+        let deadline = Date().addingTimeInterval(2)
+        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        XCTAssertEqual(manager.groupingLevel, 0)
+        f.undo(nil)
+        XCTAssertEqual(f.string, "hello!")
+        f.undo(nil)
+        XCTAssertEqual(f.string, "hello")
+        f.redo(nil)
+        XCTAssertEqual(f.string, "hello!")
+        f.undo(nil)
+        f.undo(nil)
+        XCTAssertEqual(f.string, "", "the typing is a step of its own")
+        // One call after typing in the same event: its own step, and no empty one.
+        f.redo(nil)
+        f.setSelectedRange(NSRange(location: 5, length: 0))
+        f.insertText("X", replacementRange: NSRange(location: 5, length: 0))
+        p.fieldSelections.setRangeText(["editor", "@", 0, 0, "end"])
+        XCTAssertEqual(f.string, "@helloX")
+        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        XCTAssertEqual(manager.groupingLevel, 0)
+        f.undo(nil)
+        XCTAssertEqual(f.string, "helloX")
+        f.undo(nil)
+        XCTAssertEqual(f.string, "hello")
+        // One call in an event of its own: one step.
+        p.fieldSelections.setRangeText(["editor", "!", 5, 5, "end"])
+        XCTAssertEqual(manager.groupingLevel, 0)
+        f.undo(nil)
+        XCTAssertEqual(f.string, "hello")
+        // A replacement and a selection mode, its history intact for typing after it.
+        p.fieldSelections.setRangeText(["editor", "[a.ts]", 0, 5, "select"])
+        XCTAssertEqual(f.string, "[a.ts]")
+        XCTAssertEqual(f.selectedRange(), NSRange(location: 0, length: 6))
+        f.undo(nil)
+        XCTAssertEqual(f.string, "hello")
+        // While an input method composes, refused: nothing changes.
+        f.setSelectedRange(NSRange(location: 5, length: 0))
+        f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 5, length: 0))
+        let composing = f.string
+        replaced.removeAll()
+        p.fieldSelections.setRangeText(["editor", "x", 0, 0])
+        p.fieldSelections.setSelectionRange(["editor", 0, 0])
+        XCTAssertEqual(f.string, composing)
+        XCTAssertTrue(f.hasMarkedText())
+        XCTAssertEqual(f.markedRange(), NSRange(location: 5, length: 1))
+        XCTAssertEqual(replaced, [])
+        f.unmarkText()
+    }
+
+    /// The app's `beforeinput` comes before the editor's own handling: a
+    /// cancelled Return continues no list, an allowed one is heard first
+    /// with the source as it was, then as one `input`. A format is the
+    /// app's own command, not an edit it is asked about.
+    func testReturnAsksTheAppBeforeTheListContinues() throws {
+        let (p, node, f, window) = markdownField("- one")
+        defer { window.close() }
+        var heard: [String] = [], prevent = true
+        p.fieldSelections.onBeforeInput = { _, value, s, edit in
+            heard.append("before \(value) \(s.start) \(edit.inputType) \(edit.cancelable)")
+            p.defaultPrevented = prevent
+        }
+        p.onInput = { id, value in
+            let s = p.fieldSelections.reported(id, value)
+            heard.append("input \(value) \(s?.start ?? -1) \(p.fieldSelections.input(id)?.inputType ?? "")")
+            node.props["value"] = value
+            node.applyTextArea()
+        }
+        window.makeFirstResponder(f)
+        f.setSelectedRange(NSRange(location: 5, length: 0))
+        f.insertNewline(nil)
+        XCTAssertEqual(f.string, "- one")
+        prevent = false
+        f.insertNewline(nil)
+        XCTAssertEqual(f.string, "- one\n- ")
+        XCTAssertEqual(heard, ["before - one 5 insertLineBreak true", "before - one 5 insertLineBreak true", "input - one\n-  8 insertLineBreak"])
+        f.undoManager?.undo()
+        XCTAssertEqual(f.string, "- one")
+        heard.removeAll()
+        f.setSelectedRange(NSRange(location: 2, length: 3))
+        XCTAssertTrue(node.formatMarkup("bold"))
+        XCTAssertEqual(f.string, "- **one**")
+        XCTAssertEqual(heard, ["input - **one** 4 "])
+    }
+
+    /// Tab and Shift-Tab leave the editor along the key-view loop with its
+    /// source as it was, as a plain textarea's do; an app that prevents the
+    /// `key` keeps the focus and makes its own edit.
+    func testTabMovesTheFocusUnlessTheAppTakesTheKey() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = p.viewport
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "input", "props": ["value": "before"]],
+            ["op": "create", "id": 3, "kind": "textarea", "props": ["id": "editor", "value": "- one", "markup": "markdown"], "handlers": ["input", "key"]],
+            ["op": "create", "id": 4, "kind": "input", "props": ["value": "after"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 24.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 40.0, "w": 300.0, "h": 120.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 180.0, "w": 200.0, "h": 24.0],
+        ]))
+        let f = try XCTUnwrap(p.views[3]?.textArea as? TextArea)
+        let before = try XCTUnwrap(p.views[2]?.field), after = try XCTUnwrap(p.views[4]?.field)
+        XCTAssertNotNil(f.markup)
+        var heard: [String] = [], prevent = false
+        p.onKey = { _, press in
+            heard.append(press.chord)
+            guard prevent else { return }
+            p.defaultPrevented = true
+            p.fieldSelections.setRangeText(["editor", "\t"])
+        }
+        p.fieldSelections.onReplacement = { _, value, _ in heard.append("input \(value)") }
+        // As the session's monitor routes a key, then AppKit when it was not taken.
+        func tab(shift: Bool) throws {
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? .shift : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                       windowNumber: window.windowNumber, context: nil, characters: shift ? "\u{19}" : "\t",
+                                                       charactersIgnoringModifiers: shift ? "\u{19}" : "\t", isARepeat: false, keyCode: 48))
+            p.flushKeyViewLoop()
+            if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
+        }
+        let caret = NSRange(location: 2, length: 0)
+        for (shift, target) in [(false, after), (true, before)] {
+            XCTAssertTrue(window.makeFirstResponder(f))
+            f.setSelectedRange(caret)
+            try tab(shift: shift)
+            XCTAssertTrue(window.firstResponder === target.currentEditor(), shift ? "Shift-Tab reaches the field before" : "Tab reaches the field after")
+            XCTAssertEqual(f.string, "- one")
+        }
+        XCTAssertEqual(heard, ["Tab", "Shift+Tab"])
+        heard.removeAll()
+        prevent = true
+        XCTAssertTrue(window.makeFirstResponder(f))
+        f.setSelectedRange(caret)
+        try tab(shift: false)
+        XCTAssertTrue(window.firstResponder === f, "the app took the key")
+        XCTAssertEqual(f.string, "- \tone")
+        XCTAssertEqual(heard, ["Tab", "input - \tone"])
+    }
+
     func testCommandSeamRejectsBrokenRangesInsteadOfSplittingSurrogates() {
         XCTAssertNil(MarkupEdit(source: "🎉", object: ["replacements": [[1, 2, "x"]], "selection": [0, 0]]))
         XCTAssertNil(MarkupEdit(source: "abcd", object: ["replacements": [[1, 3, "x"], [2, 4, "y"]], "selection": [0, 0]]))
+    }
+}
+#endif
+
+#if os(iOS)
+import UIKit
+
+/// LLP 1045 D6 on UIKit: the Markdown editor's source selection and range
+/// edits, each `setRangeText` one undo step of its own, and Return asking the
+/// app before the list continues. A simulator runs it:
+///   bun host/apple/build.mjs --test --ios
+final class MarkupEditorIOSTests: XCTestCase {
+    private var window: UIWindow!
+
+    override func setUp() {
+        super.setUp()
+        ExactMarkdown.install()
+    }
+
+    private func markdownField(_ source: String) -> (Presenter, NodeView, TextArea) {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": source, "markup": "markdown"], "handlers": ["input", "select", "selectionchange", "beforeinput"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 300.0, "h": 120.0],
+        ]))
+        let node = p.views[2]!, f = node.textArea as! TextArea
+        XCTAssertNotNil(f.markup)
+        return (p, node, f)
+    }
+
+    func testSourceSelectionAndEachRangeEditIsOneUndoStep() throws {
+        let (p, node, f) = markdownField("")
+        var selects = 0, replaced: [String] = []
+        p.fieldSelections.onSelect = { _, _, _ in selects += 1 }
+        p.fieldSelections.onReplacement = { id, value, s in
+            replaced.append("\(value) \(s.start)-\(s.end) \(p.fieldSelections.input(id)?.data ?? "nil")")
+            node.props["value"] = value
+            node.applyTextArea()
+        }
+        XCTAssertTrue(f.becomeFirstResponder())
+        let manager = try XCTUnwrap(f.undoManager)
+        manager.removeAllActions()
+        f.insertText("hello")
+        p.fieldSelections.setRangeText(["editor", "!", 5, 5, "end"])
+        p.fieldSelections.setRangeText(["editor", "?", 6, 6, "end"])
+        XCTAssertEqual(f.text, "hello!?")
+        XCTAssertEqual(f.selectedRange, NSRange(location: 7, length: 0))
+        XCTAssertEqual(replaced, ["hello! 6-6 !", "hello!? 7-7 ?"])
+        let deadline = Date().addingTimeInterval(2)
+        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        XCTAssertEqual(manager.groupingLevel, 0)
+        manager.undo()
+        XCTAssertEqual(f.text, "hello!")
+        manager.undo()
+        XCTAssertEqual(f.text, "hello")
+        manager.redo()
+        XCTAssertEqual(f.text, "hello!")
+        manager.undo()
+        manager.undo()
+        XCTAssertEqual(f.text, "", "the typing is a step of its own")
+        manager.redo()
+        // One call after typing in the same event: its own step, and no empty one.
+        f.selectedRange = NSRange(location: 5, length: 0)
+        f.insertText("X")
+        p.fieldSelections.setRangeText(["editor", "@", 0, 0, "end"])
+        XCTAssertEqual(f.text, "@helloX")
+        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        manager.undo()
+        XCTAssertEqual(f.text, "helloX")
+        manager.undo()
+        XCTAssertEqual(f.text, "hello")
+        p.fieldSelections.setSelectionRange(["editor", 1, 4, "backward"])
+        XCTAssertEqual(f.selectedRange, NSRange(location: 1, length: 3))
+        let reported = try XCTUnwrap(p.fieldSelections.reported(2, f.text))
+        XCTAssertEqual([reported.start, reported.end], [1, 4])
+        XCTAssertEqual(reported.direction, "backward")
+        XCTAssertEqual(selects, 0, "the editor's `select` is its formats, never HTML's")
+        // Refused while an input method composes.
+        f.selectedRange = NSRange(location: 5, length: 0)
+        f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0))
+        let composing = f.text
+        replaced.removeAll()
+        p.fieldSelections.setRangeText(["editor", "x", 0, 0])
+        XCTAssertEqual(f.text, composing)
+        XCTAssertNotNil(f.markedTextRange)
+        XCTAssertEqual(replaced, [])
+        f.unmarkText()
+    }
+
+    func testReturnAsksTheAppBeforeTheListContinues() throws {
+        let (p, node, f) = markdownField("- one")
+        var heard: [String] = [], prevent = true
+        p.fieldSelections.onBeforeInput = { _, value, s, edit in
+            heard.append("before \(value) \(s.start) \(edit.inputType)")
+            p.defaultPrevented = prevent
+        }
+        p.onInput = { id, value in
+            heard.append("input \(value) \(p.fieldSelections.reported(id, value)?.start ?? -1) \(p.fieldSelections.input(id)?.inputType ?? "")")
+            node.props["value"] = value
+            node.applyTextArea()
+        }
+        XCTAssertTrue(f.becomeFirstResponder())
+        f.selectedRange = NSRange(location: 5, length: 0)
+        f.insertText("\n")
+        XCTAssertEqual(f.text, "- one")
+        prevent = false
+        f.insertText("\n")
+        XCTAssertEqual(f.text, "- one\n- ")
+        XCTAssertEqual(heard, ["before - one 5 insertLineBreak", "before - one 5 insertLineBreak", "input - one\n-  8 insertLineBreak"])
     }
 }
 #endif

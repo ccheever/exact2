@@ -4,7 +4,7 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { Cdp, chromium, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
+import { Cdp, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
 
 test('drive clock warnings compare explicit and default epochs with the actual backend clock', async () => {
@@ -103,16 +103,22 @@ test('--epoch now is the machine clock read once at launch, reported as that ins
   expect(time(60000)).toEqual([facts.epoch, 0]);
 });
 
-test('Windows browser discovery accepts an installed Chrome and explicit executable paths with spaces', () => {
+test('the pinned headless shell by default, the full build for a need, and CHROME over both, with spaces in a path', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact browser paths-'));
   try {
-    const chrome = resolve(dir, 'Google/Chrome/Application/chrome.exe');
-    mkdirSync(dirname(chrome), {recursive:true});
-    writeFileSync(chrome, '');
-    chmodSync(chrome, 0o755);
-    expect(chromium({ProgramFiles:dir}, 'win32').executable).toBe(chrome);
-    expect(chromium({CHROME:chrome}, 'win32').unavailable).toBe(null);
-    expect(chromium({CHROME:resolve(dir, 'missing.exe')}, 'win32').unavailable).toBeTruthy();
+    const full = resolve(dir, 'ms-playwright/chromium-1248/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing');
+    const shell = resolve(dir, 'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell');
+    const at = (environment, needs) => chromium({ needs, environment, platform: 'darwin', arch: 'arm64', full });
+    expect(at({}).unavailable).toMatch(/headless shell is missing .*install chromium-headless-shell/);
+    for (const path of [full, shell]) { mkdirSync(dirname(path), {recursive:true}); writeFileSync(path, ''); chmodSync(path, 0o755); }
+    expect(at({})).toEqual({ executable: shell, unavailable: null });
+    expect(at({}, ['gpu'])).toEqual({ executable: full, unavailable: null });
+    expect(at({CHROME: shell}, ['gpu']).executable).toBe(shell);
+    expect(at({CHROME: resolve(dir, 'missing')}).unavailable).toBeTruthy();
+    expect(() => at({}, ['webgl'])).toThrow(/unknown need webgl/);
+    expect(chromiumBuilds('C:\\pw\\chromium-1248\\chrome-win64\\chrome.exe', 'win32', 'x64').shell)
+      .toBe('C:\\pw\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe');
+    expect(chromiumBuilds('/pw/chromium-1248/chrome-linux/chrome', 'linux', 'riscv64').shell).toBe(null);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 // App farm wave 1 (21 builds): a builder on a shared machine keeps every listener in its assigned range.
@@ -164,9 +170,9 @@ test('a web test run asks the backend its app fetches first', async () => {
     mkdirSync(resolve(dist, 'assets'));
     writeFileSync(resolve(dist, 'assets/snapback4.wasm'), wasm);
     writeFileSync(resolve(dist, 'assets/snapback4.wasm.json'), JSON.stringify({engineVersion: engineVersion(), sha256: deviceHash(wasm)}));
-    await expect(backendPreflight(snapback, dist)).rejects.toThrow(`no backend at ${down}: nothing listens there`);
+    await expect(backendPreflight(snapback, dist)).rejects.toThrow(`no backend at ${down} (source: built net.fetch grant (rebuild after changing the backend selection)): nothing listens there`);
     await backendPreflight({ manifest: {} }, dist, (line) => said.push(line));
-    expect(said).toEqual([`note: no backend at ${down}: nothing listens there, and app.ts fetches it (a net.fetch grant); a test that loads from it fails`]);
+    expect(said).toEqual([`note: no backend at ${down} (source: built net.fetch grant): nothing listens there, and app.ts fetches it (a net.fetch grant); a test that loads from it fails`]);
     grants(`net.fetch ${up}`);
     await backendPreflight(snapback, dist);
     expect(loopbackOrigins(resolve(dist, 'none'))).toEqual([]);
@@ -504,7 +510,7 @@ test('mutation requests issued by an automatic clock step receive their own mill
 
 test('web freshness tracks backend selection creation, edits and deletion',async()=>{
   const {webChanges,webInputDigests}=await import('./agent-launch.mjs');
-  const {mkdtempSync,mkdirSync,writeFileSync,rmSync}=await import('node:fs');
+  const {mkdtempSync,mkdirSync,writeFileSync,rmSync,utimesSync}=await import('node:fs');
   const {tmpdir}=await import('node:os');const {join}=await import('node:path');
   const dir=mkdtempSync(join(tmpdir(),'exact-origin-freshness-'));
   const app={dir,manifest:{}},dist=join(dir,'dist'),selection=join(dir,'.exact/backend-origin');
@@ -517,5 +523,104 @@ test('web freshness tracks backend selection creation, edits and deletion',async
     writeFileSync(selection,'http://127.0.0.1:4413');expect(webChanges(dist,app).app).toEqual([selection]);
     bake();rmSync(selection);expect(webChanges(dist,app).app).toEqual([selection]);
     bake();expect(webChanges(dist,app).all).toEqual([]);
+    // A source the build read, deleted since: a change, though nothing is newer than the build.
+    const source=join(dir,'dials.ts');writeFileSync(source,'export {};\n');bake();expect(webChanges(dist,app).all).toEqual([]);
+    rmSync(source);expect(webChanges(dist,app).app).toEqual([source]);
+    // A source edited while the build compiled (after it read its inputs, before its marker): a change.
+    writeFileSync(source,'export {};\n');
+    const inputsAt=Date.now()-10_000;writeFileSync(join(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true),inputsAt}));
+    writeFileSync(source,'export const edited = 1;\n');utimesSync(source,new Date(inputsAt+5_000),new Date(inputsAt+5_000));
+    expect(webChanges(dist,app).app).toEqual([source]);
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('widget variants address the gallery without changing viewport flags', () => {
+  const { flags, rest } = parseFlags(['ios', 'widget', 'next-trains', '--family', 'systemMedium', '--mode', 'accented', '--scheme', 'dark', '--size', 'xxxl', '--sim', 's1126-wp6', 'tree', 'screenshot shot.png', 'state']);
+  expect(flags.widget).toEqual({ entry: 'next-trains', family: 'systemMedium', mode: 'accented', scheme: 'dark', size: 'xxxl' });
+  expect(flags.size).toBeUndefined();
+  expect(flags.sim).toBe('s1126-wp6');
+  expect(rest).toEqual(['ios', 'tree', 'screenshot shot.png', 'state']);
+  expect(parseFlags(['macos', '--size', '420x900', 'tree']).flags.size).toEqual([420, 900]);
+  expect(() => parseFlags(['web', 'widget', 'next-trains', 'tree'])).toThrow('ios or macos');
+  expect(() => parseFlags(['ios', 'widget', '--mode', 'dark'])).toThrow('name an entry');
+});
+
+
+test('widget addresses occupy the command word and accept only strict reads or app clock', async () => {
+  const { widgetStep } = await import('./agent-widget.mjs');
+  expect(parseFlags(['--app', 'caltrain', 'ios', 'widget', 'tree', '--props', '{"station":"Given"}', 'tree']).flags.widget).toEqual({entry:'tree', props:'{"station":"Given"}'});
+  expect(parseFlags(['macos', '--open', 'widget', 'tree']).flags.widget).toBeUndefined();
+  for (const line of ['tags', 'logs', 'tap entry', 'screenshot a.png window', 'screenshot a.png compare b.png', 'screenshot a.png over 600 every 50', 'screenshot a.apng']) {
+    expect(() => parseFlags(['ios', 'widget', 'next-trains', line])).toThrow('widget: tree, state');
+  }
+  expect(() => parseFlags(['ios', 'widget', 'next-trains', '--scale', '2', 'tree'])).toThrow('--scale is unavailable');
+  for (const size of ['xxxl', '390xNaN', '0x900']) expect(() => parseFlags(['ios', '--size', size, 'tree'])).toThrow('--size:');
+  expect(() => parseFlags(['ios', 'widget', 'next-trains', '--props', '[]', 'tree'])).toThrow('JSON object');
+  const calls = [], session = { clock: async value => {calls.push(value); return {clock:60000};}, op: async request => {calls.push(request); return request;} };
+  expect(await widgetStep(session, {entry:'next-trains'}, 'clock +60000')).toEqual(['clock', {clock:60000}]);
+  await widgetStep(session, {entry:'next-trains'}, 'clock +60000');
+  expect(calls).toEqual([{op:'state', widget:{entry:'next-trains'}, availability:true}, '+60000', '+60000']);
+  expect((await widgetStep(session, {entry:'next-trains'}, 'screenshot a.png'))[1].path).toBe(resolve('a.png'));
+  await widgetStep(session, {entry:'next-trains'}, 'clock +60000', 'activity');
+  await widgetStep(session, {entry:'departure'}, 'clock +60000', 'activity');
+  expect(calls.filter(c => c.availability)).toEqual([
+    {op:'state', widget:{entry:'next-trains'}, availability:true},
+    {op:'state', activity:{entry:'next-trains'}, availability:true},
+    {op:'state', activity:{entry:'departure'}, availability:true},
+  ]);
+  const refused = {clock: async () => { throw Error('the refused address must not move the clock'); }, op: async () => ({error:'no gallery'})};
+  await expect(widgetStep(refused, {entry:'next-trains'}, 'clock +60000')).rejects.toThrow('no gallery');
+});
+
+test('backend diagnostics name the selected source and warn when a saved selection shadows the literal', async () => {
+  const {backendOriginSelection, backendOriginWarning} = await import('../js/bake/src/typescript.mjs');
+  const {backendOriginSource, resetBackends} = await import('./agent-test.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-origin-source-'));
+  const literal='http://127.0.0.1:1', saved='http://127.0.0.1:2', explicit='http://127.0.0.1:3';
+  const code=`const origin = '${literal}';`;
+  try {
+    writeFileSync(resolve(dir,'app.ts'),code);
+    expect(backendOriginSelection(dir,{})).toBe(null);
+    expect(backendOriginSource(dir,literal,{})).toBe('app.ts origin literal');
+    mkdirSync(resolve(dir,'.exact'));
+    writeFileSync(resolve(dir,'.exact/backend-origin'),saved);
+    const selection=backendOriginSelection(dir,{});
+    expect(selection).toEqual({origin:saved,source:'.exact/backend-origin'});
+    expect(backendOriginSource(dir,saved,{})).toBe('.exact/backend-origin');
+    expect(backendOriginSource(dir,explicit,{EXACT_BACKEND_ORIGIN:explicit})).toBe('EXACT_BACKEND_ORIGIN');
+    expect(backendOriginSource(dir,'http://127.0.0.1:4',{})).toContain('rebuild');
+    expect(backendOriginWarning(code,selection,parseSync)).toContain(`overriding the app.ts origin literal "${literal}"`);
+    expect(backendOriginWarning(`const origin = '${saved}/';`,selection,parseSync)).toBe(null);
+    expect(backendOriginWarning(code,backendOriginSelection(dir,{EXACT_BACKEND_ORIGIN:explicit}),parseSync)).toBe(null);
+    rmSync(resolve(dir,'.exact/backend-origin'));
+    await expect(resetBackends([literal],null,1000,{dir})).rejects.toThrow('(source: app.ts origin literal)');
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+
+test('activity addresses use the gallery reads and keep state separate from the app', async () => {
+  const { widgetStep } = await import('./agent-widget.mjs');
+  const state = '{"train":233}';
+  const parsed = parseFlags(['--app', 'caltrain', 'ios', 'activity', 'departure', '--placement', 'expanded', '--state', state, '--sim', 'lane', 'tree', 'screenshot activity.png', 'state']);
+  expect(parsed.flags.activity).toEqual({entry:'departure', placement:'expanded', state});
+  expect(parsed.rest).toEqual(['ios', 'tree', 'screenshot activity.png', 'state']);
+  expect(parseFlags(['macos', 'activity', 'service-alert', 'state']).flags.activity.placement).toBe('lockScreen');
+  for (const json of ['[]', 'null', '3', '{']) expect(() => parseFlags(['ios', 'activity', 'departure', '--state', json, 'state'])).toThrow('JSON object');
+  expect(() => parseFlags(['ios', 'activity', 'departure', '--placement', 'wrong', 'tree'])).toThrow('activity --placement');
+  expect(() => parseFlags(['ios', 'activity', 'departure', 'tap follow'])).toThrow('activity: tree, state');
+  const calls = [], session = {op: async req => { calls.push(req); return req; }, clock: async value => value};
+  await widgetStep(session, parsed.flags.activity, 'tree', 'activity');
+  await widgetStep(session, parsed.flags.activity, 'clock +60000', 'activity');
+  expect(calls).toEqual([{op:'tree', activity:parsed.flags.activity}, {op:'state', activity:parsed.flags.activity, availability:true}]);
+});
+
+
+test('permission and bind values do not occupy the gallery command word', async () => {
+  const {widgetArguments} = await import('./agent-widget.mjs');
+  for (const flag of ['--permission', '--bind']) {
+    const parsed = widgetArguments([flag, 'fixture', 'ios', 'activity', 'departure', 'state']);
+    expect(parsed.activity).toEqual({entry:'departure', placement:'lockScreen'});
+    expect(parsed.argv).toEqual([flag, 'fixture', 'ios', 'state']);
+  }
 });

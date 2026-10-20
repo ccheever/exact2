@@ -60,6 +60,11 @@ pub enum Request {
     /// `hatches/reader.rs` writes them. Queued with no wake: the reader
     /// takes them with its requests after each turn.
     Hatch(Vec<i32>),
+    /// A call of a module the reader's extensions implement (LLP 1133.001
+    /// D5), its body as the runner wrote it (`{"extension", "source"|"send",
+    /// "args"}` or `{"extension", "release"}`): answered with the reply's
+    /// JSON, which is the call's.
+    Module(String),
 }
 
 /// What a picker is opened with, each value as HTML writes it and empty
@@ -96,6 +101,7 @@ impl Request {
             Request::KeepScreenOn(_) => 8,
             Request::Pick(_) => 9,
             Request::Hatch(_) => 10,
+            Request::Module(_) => 11,
         }
     }
 }
@@ -165,6 +171,10 @@ enum Waiting {
     Pick(ViewId),
 }
 
+/// Module calls' bodies and replies, handed over from the native slot's
+/// handler on any thread.
+type Inbox = std::sync::Arc<std::sync::Mutex<Vec<(Vec<u8>, exact_runner::Reply)>>>;
+
 /// What the presenter keeps of its shell's requests.
 #[derive(Default)]
 pub(super) struct State {
@@ -184,6 +194,11 @@ pub(super) struct State {
     wakelock: Option<bool>,
     wakelock_epoch: Option<u64>,
     wakelock_said: bool,
+    /// Module calls the runner handed the native slot, from any thread,
+    /// until a turn queues them (`modules_in`).
+    inbox: Inbox,
+    /// Module calls the shell took, by id, until it answers.
+    modules: BTreeMap<u32, exact_runner::Reply>,
 }
 
 /// `EXACT_LOG_REQUESTS=1`: each request and each answer on stderr (a
@@ -207,7 +222,7 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
     let at = out.len();
     out.extend([request.kind(), id as i32, 0]);
     match request {
-        Request::Open(text) | Request::Copy(text) => string(out, text),
+        Request::Open(text) | Request::Copy(text) | Request::Module(text) => string(out, text),
         Request::Haptic(haptic) => out.push(*haptic as i32),
         Request::Share(share) => {
             // Which of the three the app gave (bit 0 the title, 1 the text,
@@ -246,6 +261,37 @@ impl<D: DataSource> Presenter<D> {
     pub fn serve_requests(&mut self) {
         self.requests.shell = true;
         (self.requests.wakelock, self.requests.wakelock_epoch) = (None, None);
+        // The shell's extensions answer the module calls the runner hands
+        // the native slot, once their names are bound (`bind_extensions`).
+        let (inbox, wake) = (self.requests.inbox.clone(), self.executor.waker());
+        let handler: exact_runner::NativeHandler = std::sync::Arc::new(move |body, reply| {
+            inbox
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((body, reply));
+            wake();
+        });
+        self.host.runner().native_slot().host(Some(handler));
+    }
+
+    /// The module calls handed over since the last turn, queued for the
+    /// shell, each answered by its id (`answer_request`).
+    pub(super) fn modules_in(&mut self) {
+        let calls = std::mem::take(
+            &mut *self
+                .requests
+                .inbox
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+        );
+        if calls.is_empty() {
+            return;
+        }
+        for (body, reply) in calls {
+            let id = self.queue(Request::Module(String::from_utf8_lossy(&body).into_owned()));
+            self.requests.modules.insert(id, reply);
+        }
+        self.executor.notify();
     }
 
     /// Whether a shell takes requests.
@@ -402,6 +448,20 @@ impl<D: DataSource> Presenter<D> {
     pub fn answer_request(&mut self, id: u32, answer: Option<&str>) -> bool {
         if *LOG {
             eprintln!("exact: answer {id}: {answer:?}");
+        }
+        if let Some(reply) = self.requests.modules.remove(&id) {
+            reply.send(match answer {
+                Some(json) => exact_runner::Outcome::Response(exact_runner::Response {
+                    status: 200,
+                    headers: Vec::new(),
+                    body: json.as_bytes().to_vec(),
+                }),
+                None => exact_runner::Outcome::Failed {
+                    kind: exact_runner::FailureKind::Aborted,
+                    message: "the reader's extension did not answer".into(),
+                },
+            });
+            return true;
         }
         let Some(waiting) = self.requests.waiting.remove(&id) else {
             return false;
@@ -618,6 +678,19 @@ impl<D: DataSource> Presenter<D> {
     /// opens (a path is a location in the app, which `navigate` takes).
     pub(super) fn open_url(&mut self, args: &[exact_plan::Value]) {
         let url = args.first().and_then(exact_plan::Value::as_str);
+        // The app's page in Settings (LLP 1133.002 D11), the shell's to open;
+        // under the agent, journaled only.
+        if url == Some("app-settings:") {
+            let agent = std::env::var("EXACT_AGENT").is_ok_and(|v| v == "1");
+            self.host.log(format!(
+                "openURL app-settings: opens the app's page in Settings{}",
+                if agent { " (not under the agent)" } else { "" }
+            ));
+            if !agent {
+                self.request(Request::Open("app-settings:".into()));
+            }
+            return;
+        }
         match url.and_then(|url| self.leave(url).then_some(())) {
             Some(()) => {}
             None => self.host.log(format!(

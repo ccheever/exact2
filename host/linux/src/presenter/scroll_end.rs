@@ -74,6 +74,19 @@ impl<D: DataSource> Presenter<D> {
         false
     }
 
+    pub(super) fn scroll_end_input(
+        &mut self,
+        view: ViewId,
+        before: (f32, f32),
+        completion: Completion,
+    ) {
+        if self.scroll_of(view) == before {
+            self.scroll_end_requested(view, before, completion);
+        } else {
+            self.scroll_end_moved(view, completion);
+        }
+    }
+
     /// Called only for an actual user/API move, before its scroll handler.
     pub(super) fn scroll_end_moved(&mut self, view: ViewId, mut completion: Completion) {
         if self.booting || !self.tracks_scroll_end(view) {

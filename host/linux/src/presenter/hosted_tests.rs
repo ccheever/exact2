@@ -596,3 +596,50 @@ fn scroll_end_distinguishes_field_navigation_from_keyboard_insets() {
         assert_eq!(p.window(), Some(&typing));
     }
 }
+
+#[test]
+fn a_hosted_field_accepts_agent_arrows_without_painted_geometry() {
+    let (_shell, _hosting) = shell();
+    let mut p = boot(FORM);
+    let notes = id(&p, "notes");
+    p.set_focus(Some(notes), 0.);
+    for name in ["a", "b", "c", "ArrowLeft", "X"] {
+        p.type_key(notes, name, name, true, false).unwrap();
+        p.type_key(notes, name, name, false, false).unwrap();
+    }
+    assert!(!p.brush.field_text.contains_key(&notes));
+    assert_eq!(p.field_text(notes), "abXc");
+    for (name, at) in [("ArrowRight", 4), ("Home", 0), ("End", 4)] {
+        p.type_key(notes, name, name, true, false).unwrap();
+        p.type_key(notes, name, name, false, false).unwrap();
+        assert_eq!(p.field_selection(notes).start, at, "{name}");
+    }
+    p.hold_modifier("ShiftLeft", true);
+    p.type_key(notes, "ArrowLeft", "ArrowLeft", true, false)
+        .unwrap();
+    p.type_key(notes, "ArrowLeft", "ArrowLeft", false, false)
+        .unwrap();
+    p.hold_modifier("ShiftLeft", false);
+    assert_eq!(
+        (p.field_selection(notes).start, p.field_selection(notes).end),
+        (3, 4)
+    );
+}
+
+#[test]
+fn a_hosted_field_keeps_scalar_steps_for_agent_edits() {
+    let (_shell, _hosting) = shell();
+    let mut p = boot(FORM);
+    for name in ["name", "notes"] {
+        let field = id(&p, name);
+        p.type_text(field, "e\u{301}").unwrap();
+        for (key, at) in [("ArrowLeft", 1), ("Home", 0)] {
+            p.type_key(field, key, key, true, false).unwrap();
+            p.type_key(field, key, key, false, false).unwrap();
+            assert_eq!(p.field_selection(field).start, at, "{name} {key}");
+        }
+        p.type_key(field, "Delete", "Delete", true, false).unwrap();
+        p.type_key(field, "Delete", "Delete", false, false).unwrap();
+        assert_eq!(p.field_text(field), "\u{301}", "{name}");
+    }
+}

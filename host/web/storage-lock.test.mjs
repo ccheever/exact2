@@ -1,10 +1,9 @@
 // Actual Web Locks: wait for a competing owner, cancel bounded waits, and
 // release ancestor locks after a partial acquisition fails.
 import { expect, test } from 'bun:test';
-import { chromium as browserType } from 'playwright-core';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { chromium } from '../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
 test('storage locks queue and time out without retaining acquired ancestors', async () => {
   const server = Bun.serve({hostname: '127.0.0.1', port: 0, fetch(request) {
@@ -12,7 +11,7 @@ test('storage locks queue and time out without retaining acquired ancestors', as
     if (path.endsWith('.js')) return new Response(readFileSync(resolve(import.meta.dirname, path.slice(1))), {headers: {'content-type': 'text/javascript'}});
     return new Response('<!doctype html>');
   }});
-  const browser = await browserType.launch({executablePath: chromium().executable, args: ['--no-sandbox']});
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${server.port}`);

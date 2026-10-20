@@ -21,6 +21,7 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'nod
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng } from '../../scripts/png.mjs';
+import { chromium } from '../../scripts/agent-launch.mjs';
 
 const here = resolve(new URL('.', import.meta.url).pathname);
 const root = resolve(here, '../..');
@@ -210,7 +211,7 @@ async function browserParity() {
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const chrome = chromium().executable;
   // A page target over the DevTools pipe, not `--dump-dom`: a drag timeline's
   // oracle is a scroll timeline, which moves only when the page renders
   // frames, and a dumped page renders none.

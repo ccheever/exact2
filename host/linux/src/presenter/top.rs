@@ -183,6 +183,9 @@ pub(super) struct State {
     last: u32,
     /// The surface the shell shows as it was last told: serial and revision.
     told: Option<(u32, u32)>,
+    /// How many long presses a node has taken ([`Presenter::long_press`]):
+    /// a reader that compares it across a contact knows whether its own was.
+    long_presses: u32,
 }
 
 /// The open surface, for a driver and a test.
@@ -945,6 +948,7 @@ impl<D: DataSource> Presenter<D> {
         let Some((id, names, hears)) = found else {
             return false;
         };
+        self.top.long_presses = self.top.long_presses.wrapping_add(1);
         if let Err(e) = self.pointer_cancel(now_ms) {
             self.host.log(e);
         }
@@ -961,6 +965,12 @@ impl<D: DataSource> Presenter<D> {
             self.present(menu, &name, Some(id), Some((x, y)), false, now_ms);
         }
         true
+    }
+
+    /// How many long presses a node has taken, wrapping.
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn long_presses(&self) -> u32 {
+        self.top.long_presses
     }
 
     /// Before the shell is told: an open surface whose node is gone, whose

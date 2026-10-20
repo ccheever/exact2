@@ -29,6 +29,27 @@ pub(crate) fn app(tag: &str, design: &str) -> std::path::PathBuf {
     dir
 }
 
+/// An import planned alone, as the wire plans one (`contract tamber
+/// import-plan`, stage 10b): the app's design on stdin; its reply.
+pub(crate) fn plan_alone(dir: &std::path::Path, request: Value) -> (Value, Vec<Value>) {
+    let design = dir.join("app.tamber");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "import-plan", design.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let text = std::fs::read_to_string(&design).ok();
+    writeln!(
+        child.stdin.take().unwrap(),
+        "{}",
+        json!({"request": request, "design": text})
+    )
+    .unwrap();
+    let out = child.wait_with_output().unwrap();
+    (serde_json::from_slice(&out.stdout).unwrap(), Vec::new())
+}
+
 pub(crate) struct Serve {
     child: Child,
     input: ChildStdin,
@@ -105,7 +126,7 @@ fn reads_answer_on_the_clones_design() {
     let dir = app("reads", CLONE);
     let mut s = Serve::start(&dir, &[]);
     let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.11");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.14");
     assert_eq!(hello["ok"]["builds"], json!([]));
     assert_eq!(
         hello["ok"]["files"]["app.tamber"],
@@ -393,7 +414,7 @@ fn requests_are_typed_bounded_and_attributed() {
         assert!(v["error"].is_object(), "{v}");
     }
     let (hello, _) = s.ask(json!({"method": "hello"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.11");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.14");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -578,7 +599,7 @@ fn compare_revert_plan_and_import_plan() {
     assert_eq!(guarded["error"]["conflict"], true, "{guarded}");
     assert_eq!(guarded["error"]["stale"], json!(["brand.tamber"]));
     let css = include_str!("../../../../tamber/tests/import/shadcn-neutral.css");
-    let (imported, _) = s.ask(json!({"method": "import-plan", "kind": "shadcn", "source": css}));
+    let (imported, _) = plan_alone(&dir, json!({"kind": "shadcn", "source": css}));
     assert_eq!(
         imported["ok"]["counted"],
         json!({"source": 47, "mapped": 47, "reported": 0})
@@ -594,20 +615,39 @@ fn compare_revert_plan_and_import_plan() {
             json!({"name": p.file_name().unwrap().to_str().unwrap(), "text": std::fs::read_to_string(&p).unwrap()})
         })
         .collect();
-    let (figma, _) = s.ask(json!({"method": "import-plan", "kind": "dtcg", "sources": sources}));
+    let (figma, _) = plan_alone(&dir, json!({"kind": "dtcg", "sources": sources}));
     assert_eq!(
         figma["ok"]["counted"],
         json!({"source": 104, "mapped": 101, "reported": 3}),
         "{figma}"
     );
     // A file name of any characters is no way to stop the server.
-    let (named, _) =
-        s.ask(json!({"method": "import-plan", "kind": "dtcg", "name": "日本語", "source": "{}"}));
+    let (named, _) = plan_alone(
+        &dir,
+        json!({"kind": "dtcg", "name": "日本語", "source": "{}"}),
+    );
     assert!(
         named.get("ok").is_some() || named.get("error").is_some(),
         "{named}"
     );
-    let (astryx, _) = s.ask(json!({"method": "import-plan", "kind": "astryx", "source": "{}"}));
+    // The serve itself reads no source: only a held re-import's marks.
+    let (refused, _) = s.ask(json!({"method": "import-plan", "kind": "shadcn", "source": css}));
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no method"),
+        "{refused}"
+    );
+    let (riding, _) = s.ask(json!({"method": "import-plan", "marks": [], "source": css}));
+    assert!(
+        riding["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no method"),
+        "{riding}"
+    );
+    let (astryx, _) = plan_alone(&dir, json!({"kind": "astryx", "source": "{}"}));
     assert!(astryx["error"]["message"]
         .as_str()
         .unwrap()
@@ -755,27 +795,72 @@ fn a_synthetic_token_that_comes_to_fold_is_rebuild_then_live() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// An icon naming another in the design too, with and without params:
+/// with them the write's check read nothing of such a design and let the
+/// write through, without them the design was refused (stage 9's alias
+/// fix).
 #[test]
 fn a_write_that_makes_a_role_vary_by_an_axis_is_refused_as_the_build_would() {
-    let dir = app(
-        "role-axis",
-        "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink = #000000\n  -exact-label = ink\n",
-    );
+    let design =
+        "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink = #000000\n  -exact-label = ink\n";
+    let aliased =
+        format!("{design}\nicons\n  icon.house = icon(sf \"house\")\n  icon.home = icon.house\n");
+    let view = "component App\n  params\n    gap: length = \"4px\"  range=\"0..40\"\n  view\n    column gap=\"param.gap\"\n";
+    for (tag, design, params) in [
+        ("role-axis", design, false),
+        ("role-axis-alias", &aliased, false),
+        ("role-axis-params", &aliased, true),
+    ] {
+        let dir = app(tag, design);
+        if params {
+            std::fs::write(dir.join("app.contract"), view).unwrap();
+        }
+        let file = dir.join("app.tamber");
+        let before = std::fs::read_to_string(&file).unwrap();
+        let mut s = Serve::start(&dir, &[]);
+        let op = json!({"op": "set-token", "name": "ink", "when": [{"axis": "mode", "value": "b"}], "value": "#111111"});
+        let (proposed, _) = s.ask(json!({"method": "propose", "ops": [op]}));
+        assert_eq!(
+            proposed["error"]["diagnostics"][0]["id"], "tamber-role-axis",
+            "{tag}: {proposed}"
+        );
+        let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+        assert_eq!(
+            done["error"]["diagnostics"][0]["id"], "tamber-role-axis",
+            "{tag}: {done}"
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// A write that sets a base name to anything but a length is refused by
+/// the shared checker before it lands, as the build would (stage 11 B
+/// round 2, Astra 3): not only at lowering.
+#[test]
+fn a_write_that_makes_a_base_name_a_colour_is_refused() {
+    let dir = app("base-kind", "tamber t\n\ntheme\n  ink = #000000\n");
     let file = dir.join("app.tamber");
     let before = std::fs::read_to_string(&file).unwrap();
     let mut s = Serve::start(&dir, &[]);
-    let op = json!({"op": "set-token", "name": "ink", "when": [{"axis": "mode", "value": "b"}], "value": "#111111"});
+    // `set-token` sets a base name for this app (theme2's 17:09 ruling: `add-token` refuses one).
+    let op = json!({"op": "set-token", "name": "space.md", "value": "#ff0000"});
     let (proposed, _) = s.ask(json!({"method": "propose", "ops": [op]}));
     assert_eq!(
-        proposed["error"]["diagnostics"][0]["id"], "tamber-role-axis",
+        proposed["error"]["diagnostics"][0]["id"], "tamber-base-kind",
         "{proposed}"
     );
     let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
     assert_eq!(
-        done["error"]["diagnostics"][0]["id"], "tamber-role-axis",
+        done["error"]["diagnostics"][0]["id"], "tamber-base-kind",
         "{done}"
     );
     assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+    // A length is the app's to set.
+    let length = json!({"op": "set-token", "name": "space.md", "value": "12px"});
+    let (ok, _) = s.ask(json!({"method": "propose", "ops": [length]}));
+    assert!(ok.get("ok").is_some(), "{ok}");
+    drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -948,14 +1033,21 @@ fn export_gives_the_dtcg_text_and_keeps_its_baseline_for_import() {
     assert!(again["ok"]["text"].is_string(), "{again}");
     assert_eq!(std::fs::read_to_string(&design).unwrap(), before);
     // The unedited export, imported, plans nothing against its baseline.
-    let (planned, _) = s.ask(
-        json!({"method": "import-plan", "kind": "dtcg", "source": text, "name": "app.tokens.json"}),
+    let (planned, _) = plan_alone(
+        &dir,
+        json!({"kind": "dtcg", "source": text, "name": "app.tokens.json"}),
     );
     assert_eq!(planned["ok"]["ops"], json!([]), "{planned}");
     assert_eq!(
         planned["ok"]["counted"]["source"],
         planned["ok"]["counted"]["mapped"]
     );
+    // `keep: false` (a client below write): the text, and nothing kept.
+    std::fs::remove_dir_all(dir.join(".exact/tamber-dtcg")).unwrap();
+    let (unkept, _) = s.ask(json!({"method": "export", "kind": "dtcg", "keep": false}));
+    assert_eq!(unkept["ok"]["text"], exported["ok"]["text"], "{unkept}");
+    assert!(unkept["ok"]["baseline"].is_null(), "{unkept}");
+    assert!(!dir.join(".exact/tamber-dtcg").exists());
 }
 
 /// LLP 1121 D10 (stage 6 F): an icon's sources in the IR and from

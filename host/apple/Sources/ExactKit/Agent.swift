@@ -24,6 +24,10 @@ public final class Agent {
     /// The held contact on a `pan` node, recognized (LLP 1057 §10.6).
     var panContact: AgentPan?
     #endif
+    #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
+    var widgetPreview: WidgetPreview?
+    var activityPreview: ActivityPreview?
+    #endif
     let session: ExactSession
     init(session: ExactSession) {
         self.session = session
@@ -173,6 +177,21 @@ public final class Agent {
             Agent.reply(["error": "session \(session.label): destroyed (runtime \(session.runtime.rt): no such runtime)"])
             return
         }
+        if req["widget"] != nil || req["activity"] != nil {
+            #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
+            if op != "clock" {
+                Agent.reply(req["activity"] != nil ? ActivityAgent.answer(op, request: req, agent: self) : WidgetGallery.answer(op, request: req, agent: self))
+                return
+            }
+            #else
+            #if os(iOS)
+            Agent.reply(["error": "widget gallery is unavailable; rebuild: bun host/apple/build.mjs --ios --widget-gallery"])
+            #else
+            Agent.reply(["error": "widget gallery is unavailable; rebuild: bun host/apple/build.mjs --widget-gallery"])
+            #endif
+            return
+            #endif
+        }
         guard session.canvases.waitUntilReady() else {
             Agent.reply(["error": "canvas creation is still in flight"])
             return
@@ -268,6 +287,7 @@ public final class Agent {
         // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
         // @ref LLP 1125 §4 — the MIDI ports the agent names, and a message from one: the runner's.
         case "prefer" where req["midi"] != nil: Agent.reply(tagged(midi(req)))
+        case "prefer" where req["extension"] != nil || req["permission"] != nil: Agent.reply(tagged(preferExtension(req)))
         case "midi": Agent.reply(tagged(midi(req)))
         case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
@@ -298,8 +318,8 @@ public final class Agent {
             var nativeSections = stateSections()
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
             nativeSections["decorations"] = presenter.views.values.sorted { $0.id < $1.id }.compactMap { node -> [String: Any]? in
-                guard let editor = node.fieldDecorations else { return nil }
-                return ["id": Int(node.id), "applied": editor.state]
+                guard let decorations = (node.textArea as? TextArea)?.decorations else { return nil }
+                return ["id": Int(node.id), "applied": decorations.state]
             }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
@@ -316,9 +336,7 @@ public final class Agent {
             nativeSections["contentRegion"] = session.regions.diagnostics
             nativeSections["readerParagraphs"] = session.text.readerParagraphs.values.map(\.diagnostics)
             #endif
-            let world = session.canvases.worlds(["op": "state"])
-            nativeSections = session.canvases.restoreReply(nativeSections)
-            if !world.isEmpty { nativeSections["world"] = world }
+            nativeSections = session.canvases.decorate(req, nativeSections)
             // A session that plays fills in its output (LLP 1096 D10); under the agent none plays.
             if !ExactEnv.agentMode, let output = try? JSONSerialization.data(withJSONObject: session.sound.state) { reply = reply.replacingOccurrences(of: "\"output\":\"agent\"", with: "\"output\":" + String(decoding: output, as: UTF8.self)) }
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
@@ -433,6 +451,19 @@ public final class Agent {
         return ["midi": true]
     }
 
+    /// `prefer extension` (LLP 1124 D7) and `prefer permission` (LLP
+    /// 1133.002 §6), as the runner answers them: a native module source's
+    /// preferred value, or its permission's state; readers asked again.
+    func preferExtension(_ req: [String: Any]) -> [String: Any] {
+        var forward = req
+        forward.removeValue(forKey: "session")
+        guard let data = try? JSONSerialization.data(withJSONObject: forward) else { return ["malformed": true, "error": "prefer extension: the request is not JSON"] }
+        let batch = session.runtime.preferExtension(String(decoding: data, as: UTF8.self))
+        session.apply(batch)
+        if let error = batch.error { return ["error": error] }
+        return req["permission"] != nil ? ["permission": req["permission"]!] : ["extension": req["extension"] ?? [:]]
+    }
+
     /// Move both clocks to one instant: the runner's (timers, each fired at
     /// its own due time) and the motion engine's (a seek). The clock lands
     /// where the runner says (`batch.clock`), never behind where it stood
@@ -469,6 +500,7 @@ public final class Agent {
         var dark: Bool?
         var displayMode = session.displayModeOverride
         var (gamut, high) = (DisplayPreferences.gamut, DisplayPreferences.highDynamicRange)
+        var input = DisplayPreferences.input
         for (name, value) in media ?? [:] {
             switch (name, value) {
             case ("prefers-reduced-motion", "reduce"), ("prefers-reduced-motion", "no-preference"): motion = value == "reduce"
@@ -480,6 +512,12 @@ public final class Agent {
             // @ref LLP 1100 D9
             case ("color-gamut", "srgb"), ("color-gamut", "p3"), ("color-gamut", "rec2020"): gamut = value
             case ("dynamic-range", "standard"), ("dynamic-range", "high"): high = value == "high"
+            // @ref LLP 1132 D10 — the primary input, the wire's bits 5–7.
+            case ("pointer", "fine"), ("pointer", "coarse"), ("pointer", "none"):
+                input.subtract([.coarsePointer, .noPointer])
+                input.formUnion(value == "coarse" ? .coarsePointer : value == "none" ? .noPointer : [])
+            case ("hover", "hover"), ("hover", "none"):
+                if value == "none" { input.insert(.noHover) } else { input.remove(.noHover) }
             default:
                 let message = "prefer: \(name): \(value) is not a preference this host sets"
                 // A real preference this host does not set stays a delivery refusal.
@@ -529,6 +567,7 @@ public final class Agent {
         }
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
+        if input != DisplayPreferences.input { DisplayPreferences.agentInput = input }
         if page != nil { PageFacts.agent = facts }
         if let boldText { DisplayPreferences.agentBoldText = boldText }
         if let mode {
@@ -555,7 +594,9 @@ public final class Agent {
                           "prefers-color-scheme": systemDark ? "dark" : "light",
                           "display-mode": DisplayPreferences.displayModes[Int(session.displayModeOverride ?? DisplayPreferences.displayMode(session.view))],
                           "color-gamut": DisplayPreferences.gamut,
-                          "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
+                          "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard",
+                          "pointer": DisplayPreferences.input.contains(.noPointer) ? "none" : DisplayPreferences.input.contains(.coarsePointer) ? "coarse" : "fine",
+                          "hover": DisplayPreferences.input.contains(.noHover) ? "none" : "hover"],
                 "page": pageFacts,
                 "fold": presenter.fold.env]
         if let modes { reply["mode"] = modes }
@@ -672,7 +713,7 @@ public final class Agent {
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
         #if os(iOS) || os(tvOS)
-        var wallDeadline: Date?
+        var wallDeadline: Date?, scrollDeadline: Date?
         #endif
         var world = WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
@@ -753,9 +794,20 @@ public final class Agent {
                 // The app's own native motion on the wall clock ends first,
                 // within 1.5 s for the whole call, or the call is not settled;
                 // what its completion starts is checked below.
-                let wallUntil = wallDeadline ?? Date(timeIntervalSinceNow: 1.5)
+                var wallUntil = wallDeadline ?? Date(timeIntervalSinceNow: 1.5)
                 wallDeadline = wallUntil
-                if !awaitWallMotion(until: wallUntil) { return reply(landed, false, reason: "motion") }
+                // …and a scroll view a finger left moving, within 4 s for the
+                // whole call; what its glide's end starts is the app's motion
+                // again, with its own 1.5 s.
+                let scrollUntil = scrollDeadline ?? Date(timeIntervalSinceNow: 4)
+                scrollDeadline = scrollUntil
+                while true {
+                    if !awaitWallMotion(until: wallUntil) { return reply(landed, false, reason: "motion") }
+                    guard let glided = awaitScrollRest(until: scrollUntil) else { return reply(landed, false, reason: "scroll") }
+                    if !glided { break }
+                    wallUntil = Date(timeIntervalSinceNow: 1.5)
+                    wallDeadline = wallUntil
+                }
                 #endif
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn

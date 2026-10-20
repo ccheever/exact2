@@ -84,6 +84,53 @@ fn symbol_identity_and_inherited_font_cross_the_image_boundary() {
     assert!(changed.contains("\"font_weight\":600"), "{changed}");
 }
 
+/// LLP 1121 stage 9 B (D10): a symbol whose `color` its author wrote, on
+/// it or on the nearest ancestor that sets one, says so
+/// (`symbolColorWritten`) beside the colour its style carries; one under no
+/// written colour does not.
+#[test]
+fn a_symbol_under_a_written_colour_says_so() {
+    let plan = contract::compile(
+        r##"component App
+  action pick
+  view
+    column
+      column color="#ff0000"
+        image "symbol:star" testId="under"
+        row role="tablist"
+          button appearance="none" role="tab" aria-label="Library" aria-selected=true press=pick
+            image "symbol:book" testId="tab"
+        column color="AccentColor"
+          image "symbol:star" testId="accent"
+      image "symbol:star" testId="bare"
+"##,
+    )
+    .unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.,
+        874.,
+    )
+    .unwrap();
+    let under = op(&first, view(&host, "under"));
+    assert!(under.contains("\"symbolColorWritten\":\"1\""), "{under}");
+    assert!(under.contains("\"text_color\":[255,0,0,255]"), "{under}");
+    let accent = op(&first, view(&host, "accent"));
+    assert!(accent.contains("\"symbolColorWritten\":\"1\""), "{accent}");
+    assert!(
+        accent.contains("\"text_color\":{\"sys\":\"@tint\""),
+        "{accent}"
+    );
+    // A tab's image is the page's too: where it is shown as a segment, the
+    // host draws the segment in the control's tint (`faceImage`).
+    let tab = op(&first, view(&host, "tab"));
+    assert!(tab.contains("\"symbolColorWritten\":\"1\""), "{tab}");
+    let bare = op(&first, view(&host, "bare"));
+    assert!(!bare.contains("symbolColorWritten"), "{bare}");
+}
+
 #[test]
 fn raw_symbol_names_cross_the_boundary_without_a_catalog() {
     let plan = contract::compile(

@@ -128,7 +128,7 @@ check('setRangeText follows Chrome selection modes and emits one replacement inp
   expect(await evaluate(`(() => {
     const root = document.getElementById('exact-root'); root.innerHTML = '<textarea id="editor" markup="markdown">before</textarea>';
     logs.length = 0; replace('js', ['editor', 'after', 0, 6]); return [document.getElementById('editor').value, logs.length];
-  })()`)).toEqual(['before', 1]);
+  })()`)).toEqual(['after', 0]); // before its editor loads, a Markdown textarea is a plain source editor
   // No native undo transaction is introduced by the command.
   expect(await evaluate(`(() => {
     const root = document.getElementById('exact-root'); root.innerHTML = '<textarea id="editor">before</textarea>';

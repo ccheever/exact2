@@ -5,10 +5,12 @@ use serde_json::json;
 
 fn widget() -> Widget {
     Widget {
+        requires_secrets: false,
         kind: "next-trains".into(),
         title: None,
         description: None,
         families: vec!["systemSmall".into()],
+        watch_families: vec![],
         component: "Card".into(),
         props: "Props".into(),
         refresh: "refreshCard".into(),
@@ -79,6 +81,109 @@ fn entry_shares_route_urls_and_only_reachable_types_and_helpers() {
     for name in ["Unused", "appOnly", "app-only-helper", "appPages"] {
         assert!(!plan.strings.iter().any(|s| s == name), "{name}");
     }
+}
+
+#[test]
+fn the_family_size_is_injected_and_no_resource_is_declared() {
+    let shape = "shape Viewport\n  width: number\n  height: number\n  prefersColorScheme: string";
+    let inject = "  inject\n    snapshot_viewport: Viewport\n";
+    let src = source(
+        "    column\n      if snapshot_viewport.height < 100\n        text title testId=\"short\"\n      else\n        text `${title} ${snapshot_viewport.width}` testId=\"tall\"",
+        shape,
+        inject,
+    );
+    let entry = compile(&src, &widget()).unwrap();
+    assert_eq!(entry.resources.len(), 1);
+    assert_eq!(entry.str(entry.resources[0].source), "exactViewport");
+    // The app's own plan is untouched: the unused component's inject is not demanded.
+    let app = crate::compile(&src).unwrap();
+    assert!(app.resources.is_empty());
+    for (members, id, edit) in [
+        (
+            "  resource viewport = exactViewport() as shape Viewport\n",
+            "snapshot-request",
+            "snapshot_viewport",
+        ),
+        (
+            "  resource viewport = exactViewport() as shape Viewport else remoteViewport()\n",
+            "snapshot-request",
+            "snapshot_viewport",
+        ),
+        (
+            "  resource other = other() as shape Props\n",
+            "snapshot-request",
+            "refresh function",
+        ),
+        (
+            "  inject\n    snapshot_viewport: string\n",
+            "snapshot-viewport",
+            "one shape",
+        ),
+    ] {
+        let child = "component Other\n  inject\n    snapshot_viewport: Viewport\n  view\n    text snapshot_viewport.width.toString()";
+        let errors = compile(
+            &source(
+                "    column\n      text title\n      Other()",
+                &format!("{shape}\n{child}"),
+                members,
+            ),
+            &widget(),
+        )
+        .unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == id && e.message.contains(edit)),
+            "{members}: {errors:?}"
+        );
+    }
+    // A sole inject is checked as a written `exactViewport()` is at bake:
+    // a field the fact does not supply, or of another type, is refused.
+    for (shape, edit) in [
+        (
+            "shape Viewport\n  width: number\n  title: string",
+            "does not supply",
+        ),
+        (
+            "shape Viewport\n  width: string",
+            "declare it `width: number`",
+        ),
+        (
+            "shape Viewport\n  prefersReducedMotion: string",
+            "declare it `prefersReducedMotion: bool`",
+        ),
+    ] {
+        let errors = compile(
+            &source(
+                "    column\n      text title",
+                shape,
+                "  inject\n    snapshot_viewport: Viewport\n",
+            ),
+            &widget(),
+        )
+        .unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == "snapshot-viewport" && e.message.contains(edit)),
+            "{shape}: {errors:?}"
+        );
+    }
+    let errors = compile(
+        &source(
+            "    column\n      text title",
+            "",
+            "  inject\n    snapshot_viewport: Props\n",
+        ),
+        &widget(),
+    )
+    .unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.id == "snapshot-viewport" && e.message.contains("`title`")),
+        "{errors:?}"
+    );
 }
 
 #[test]
@@ -176,7 +281,6 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
     };
     assert!(empty.widgets().unwrap().is_empty());
     for value in [
-        json!({"live_activities":[]}),
         json!({"widgets":null}),
         json!({"widgets":[{"kind":"../escape"}]}),
     ] {
@@ -218,7 +322,9 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
             .unwrap()
             .remove(key);
     }
+    labels.json["widgets"][0]["families"] = json!(["accessoryCorner"]);
     let entries = labels.widgets().unwrap();
+    assert_eq!(entries[0].families, ["accessoryCorner"]);
     assert!(entries[0].title.is_none() && entries[0].description.is_none());
     let src = source("    text title", "", "");
     let mut w = widget();
@@ -245,7 +351,7 @@ fn manifest_entries_do_not_change_the_app_plan() {
     json["widgets"] = json!([{"kind":"next-trains","families":["systemSmall"],"component":"Card","props":"Props","refresh":"refreshCard","preview":{"title":"Next train"}}]);
     std::fs::write(dir.join("app.json"), json.to_string()).unwrap();
     let manifest = Manifest::read(dir).unwrap();
-    let entries = compile_widgets(dir, &manifest).unwrap();
+    let entries = compile_entries(dir, &manifest).unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries["next-trains"].plan.app_id, "test.snapshot");
     assert_eq!(before, crate::compile_path(&path).unwrap().encode());
@@ -255,13 +361,31 @@ fn manifest_entries_do_not_change_the_app_plan() {
 fn caltrain_entry_reaches_only_its_departure_card() {
     let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/caltrain");
     let manifest = Manifest::read(&app).unwrap();
-    let entries = compile_widgets(&app, &manifest).unwrap();
+    let entries = compile_entries(&app, &manifest).unwrap();
+    let out = TempDir::new();
+    write_entries(&entries, &out.0).unwrap();
+    let registry: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out.0.join("plans/widgets.json")).unwrap()).unwrap();
+    assert_eq!(
+        registry[0]["families"],
+        json!(["systemSmall", "systemMedium", "accessoryRectangular"])
+    );
+    assert_eq!(
+        registry[0]["watchFamilies"],
+        json!([
+            "accessoryRectangular",
+            "accessoryCircular",
+            "accessoryInline",
+            "accessoryCorner"
+        ])
+    );
     let entry = &entries["next-trains"].plan;
     assert!(entry.strings.iter().any(|s| s == "Mountain View"));
     for app_only in ["board-north", "seededEpoch", "change-station", "Caltrain"] {
         assert!(!entry.strings.iter().any(|s| s == app_only), "{app_only}");
     }
-    assert_eq!(entry.resources.len(), 0);
+    assert_eq!(entry.resources.len(), 1);
+    assert_eq!(entry.str(entry.resources[0].source), "exactViewport");
     assert_eq!(entry.actions.len(), 0);
     assert_eq!(entry.slots.len(), 1);
 }
@@ -332,6 +456,9 @@ fn images_are_local_and_clock_reads_are_refused_even_on_live_leaves() {
         "\"assets/train.png\"",
         "\"app:/widgets/train.png\"",
         "\"symbol:sf/train\"",
+        // An empty name is no symbol, the host's as an empty `sf/` one is.
+        "\"symbol:\"",
+        "\"symbol:sf/\"",
         "`app:/widgets/${title}.png`",
     ] {
         compile(
@@ -394,7 +521,7 @@ fn fonts_keep_only_reachable_literal_families() {
             source(&format!("    text title font-family={family}"), fonts, ""),
         )
         .unwrap();
-        let entries = compile_widgets(&temp.0, &manifest).unwrap();
+        let entries = compile_entries(&temp.0, &manifest).unwrap();
         assert_eq!(entries["next-trains"].plan.faces.len(), count);
     }
 }
@@ -429,7 +556,7 @@ fn refresh_sources_are_typed_and_data_changes_fail_the_bake() {
     std::fs::write(temp.0.join("app.json"), manifest.to_string()).unwrap();
     let app = crate::compile_path(&path).unwrap();
     let plan =
-        &compile_widgets(&temp.0, &Manifest::read(&temp.0).unwrap()).unwrap()["next-trains"].plan;
+        &compile_entries(&temp.0, &Manifest::read(&temp.0).unwrap()).unwrap()["next-trains"].plan;
     let source = plan.source(plan.snapshot_refresh.unwrap());
     assert_eq!(plan.str(source.name), "refreshCard");
     assert_eq!(source.params.len, 1);
@@ -616,7 +743,7 @@ fn refresh_checks_distinguish_pending_sources_and_result_mismatches() {
     let entries = std::collections::BTreeMap::from([(
         "next-trains".into(),
         Entry {
-            widget: widget(),
+            declaration: Declaration::Widget(widget()),
             plan,
         },
     )]);
@@ -914,6 +1041,7 @@ fn snapshot_v1_classes_components_and_families_cannot_bypass_limits() {
         "accessoryCircular",
         "accessoryRectangular",
         "accessoryInline",
+        "accessoryCorner",
     ] {
         let mut w = widget();
         w.families = vec!["systemMedium".into(), family.into()];
@@ -997,5 +1125,28 @@ fn round3_border_none_literals_slash_radii_and_template_images() {
                 .any(|e| e.id == id && e.message.contains(edit)),
             "{view}: {errors:?}"
         );
+    }
+}
+
+#[test]
+fn inline_admission_evaluates_size_branches_with_preview_props() {
+    let mut w = widget();
+    w.families = vec!["accessoryRectangular".into()];
+    w.watch_families = vec!["accessoryInline".into()];
+    let shape = "shape Viewport\n  width: number\n  height: number";
+    let inject = "  inject\n    snapshot_viewport: Viewport\n";
+    let valid = "    column\n      if snapshot_viewport.height < 40\n        text title\n        image \"symbol:sf/tram\"\n      else\n        text title\n        text \"Rectangular\"";
+    let admitted = compile(&source(valid, shape, inject), &w);
+    assert!(admitted.is_ok(), "{admitted:?}");
+    for view in [
+        "    row\n      text title\n      text \"Extra\"",
+        "    column\n      if snapshot_viewport.height >= 20\n        text title\n        text \"Extra\"\n      else\n        text title",
+        "    row\n      text title\n      hr",
+        "    row\n      text title\n      progress value=0.5 max=1",
+        "    view",
+        "    row\n      text title\n      image \"symbol:sf/tram\"\n      image \"symbol:sf/tram\"",
+    ] {
+        let errors = compile(&source(view, shape, inject), &w).unwrap_err();
+        assert!(errors.iter().any(|e| e.id == "snapshot-inline" && e.message.contains("emit exactly one")), "{errors:?}");
     }
 }

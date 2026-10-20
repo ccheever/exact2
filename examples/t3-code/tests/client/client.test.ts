@@ -19,10 +19,15 @@ describe('desktop presentation and model options', () => {
     arr(arr(client.config.providers)[0]?.models)[0]!.capabilities = capabilities;
     client.modelOptions = [{ id: 'serviceTier', value: 'priority' }];
     expect(snapshot(client).optionLabel).toBe('Medium');
+    const picked = native.committed.length;
     await command('model-option', 'reasoningEffort', 'high');
-    expect(native.committed.at(-1)?.modelSelection).toEqual({ instanceId: 'codex-personal', model: 'model-a',
-      options: [{ id: 'serviceTier', value: 'priority' }, { id: 'reasoningEffort', value: 'high' }] });
+    expect(native.committed.length).toBe(picked); // kept for the next send (persistThreadSettingsForNextTurn)
     expect(snapshot(client).optionLabel).toBe('High');
+    expect(client.modelOptions).toEqual([{ id: 'serviceTier', value: 'priority' }, { id: 'reasoningEffort', value: 'high' }]);
+    await command('send', '', 'With high effort');
+    // The send carries the model's own descriptors only (dispatchSelection).
+    expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', modelSelection: { instanceId: 'codex-personal', model: 'model-a',
+      options: [{ id: 'reasoningEffort', value: 'high' }] } });
     const count = native.committed.length;
     await command('model-option', 'reasoningEffort', 'unknown');
     expect(native.committed.length).toBe(count);
@@ -171,8 +176,7 @@ describe('desktop presentation and model options', () => {
     expect(obj(native.config.settings).favorites).toEqual([{ provider: 'second', model: 'other-model' }]);
     const before = native.committed.length;
     await command('model', 'other-model', 'second');
-    expect(native.committed.slice(before)).toEqual([expect.objectContaining({ type: 'thread.model-selection.set',
-      modelSelection: { instanceId: 'second', model: 'other-model' } })]);
+    expect(native.committed.slice(before)).toEqual([]); // the pick goes with the next message
     expect(client.providerId).toBe('second');
     await command('favorite-model', 'second', 'other-model');
     expect(modelCatalog(client, 'favorites', '').models).toEqual([]);

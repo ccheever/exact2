@@ -23,6 +23,10 @@ public struct Batch {
     public let busy: Bool
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
+    /// Store refresh acknowledged no runner commit; keep the current timers.
+    public var unchanged = false
+    public var storeReadPending = false
+    public var storeActivationPending = false
     public var pending = false
     /// A module generation refused while requests are in flight: ask again (LLP 1007 §6).
     public var requests = false
@@ -245,10 +249,20 @@ package final class Runtime {
         }
         return islands(batch)
     }
-    package func entryTimeline(at now: Double) -> Data {
+    package func previewTimeline(at now: Double) -> Data {
         on(busy: Data()) {
-            let count = exact_entry_timeline(rt, now)
+            let count = exact_refresh_entry(rt, now)
             return Data(bytes: exact_out(rt), count: Int(count))
+        }
+    }
+    package func entryTimeline(at now: Double, deadline: DispatchTime, receipt: Data = Data(), module: Data = Data()) -> Data {
+        on(busy: Data()) {
+            let current = DispatchTime.now().uptimeNanoseconds
+            let remaining = Double(deadline.uptimeNanoseconds > current ? deadline.uptimeNanoseconds - current : 0) / 1_000_000
+            return receipt.withUnsafeBytes { receipt in module.withUnsafeBytes { module in
+                let count = exact_entry_timeline(rt, now, remaining, receipt.bindMemory(to: UInt8.self).baseAddress, receipt.count, module.bindMemory(to: UInt8.self).baseAddress, module.count)
+                return Data(bytes: exact_out(rt), count: Int(count))
+            } }
         }
     }
     package func preparePlan(_ bytes: Data, width: CGFloat, height: CGFloat, token: UInt64 = 0) -> Batch {
@@ -269,6 +283,7 @@ package final class Runtime {
         }
     }
     package func dataReady() -> Batch { on { read(exact_data_ready(rt)) } }
+    package func storeChanged(retryOnly: Bool = false) -> Batch { on { read(exact_store_changed(rt, retryOnly ? 1 : 0)) } }
     package func discardPlan() { on { exact_discard_plan(rt) } }
     package func trim() { on { exact_trim(rt) } }
 
@@ -547,6 +562,16 @@ package final class Runtime {
     package func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
 
     package func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
+    /// A placement root's resolved margins (left, top, right, bottom) and 1 for an authored width, then the resolved minimum width
+    /// (LLP 1126.001 WP10); nil when the view is not laid out.
+    package func placementBox(_ view: UInt32) -> [CGFloat]? {
+        on(busy: nil as [CGFloat]?) {
+            let count = exact_placement_box(rt, view)
+            let bytes = Data(bytes: exact_out(rt), count: Int(count))
+            guard let values = try? JSONSerialization.jsonObject(with: bytes) as? [Double], values.count == 6 else { return nil }
+            return values.map { CGFloat($0) }
+        }
+    }
     package func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
     package func setLaunchTime(epochAtZero: Double, utcOffset: Double) { on { () -> Void in _ = exact_set_launch_time(rt, epochAtZero, utcOffset) } }
     @discardableResult
@@ -574,8 +599,13 @@ package final class Runtime {
             return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
+    package func linkActivities() { on { exact_link_activities(rt) } }
+    /// Activity snapshots or a send completion from the demand-loaded arm.
+    package func activities(_ json: String) -> Batch { on { read(exact_activities(rt, write(json))) } }
     /// A MIDI message (LLP 1125 D6–D8): the arm's ports or inputs, or the agent's `prefer midi` and `tap midi`.
     package func midi(_ json: String) -> Batch { on { read(exact_midi(rt, write(json))) } }
+    package func preferExtension(_ json: String) -> Batch { on { read(exact_extension(rt, write(json))) } }
+    package func bindExtensions(_ names: [String]) { on { exact_bind_extensions(rt, write(names.joined(separator: "\n"))) } }
     package func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     package func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     package func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) } }
@@ -599,6 +629,12 @@ package final class Runtime {
     package func regions(_ insets: [CGFloat]?) -> Batch {
         let values = (insets ?? []).map(Float.init)
         return on { read(values.withUnsafeBufferPointer { exact_regions(rt, $0.baseAddress, UInt32($0.count)) }) }
+    }
+    /// The title-bar area beside the window's controls (Window Controls
+    /// Overlay): x, y, width, height, or none, when every `titlebar-area-*` is undefined.
+    package func titlebarArea(_ rect: [CGFloat]?) -> Batch {
+        let values = (rect ?? []).map(Float.init)
+        return on { read(values.withUnsafeBufferPointer { exact_titlebar_area(rt, $0.baseAddress, UInt32($0.count)) }) }
     }
     /// What changed of the view at once (`exact_view`): each part given is
     /// told, the window's size (`.some(nil)` clears it), the safe-area

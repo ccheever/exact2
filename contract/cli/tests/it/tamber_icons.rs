@@ -6,6 +6,9 @@
 
 use std::path::PathBuf;
 
+/// The SVG every host but the web draws (`contract_lower`'s `icons::TEMPLATE`).
+const TEMPLATE: &str = "filled `<path>`s in one opaque colour under the `<svg>`'s viewBox, with no stroke, transform, opacity or other element";
+
 const REPLY: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24"><path d="M760-200v-160H200Z"/></svg>"#;
 const TWO: &str =
     r#"<svg viewBox="0 0 24 24"><path fill="red" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#;
@@ -55,10 +58,44 @@ fn a_shipped_target_without_a_source_is_refused() {
     );
     let e = contract::compile_path(&path).unwrap_err();
     assert_eq!(e.id, "tamber-icon-missing", "{e:?}");
+    // It names both forms that build: an SVG, or (the euxy port, Apple-only with none) a bare SF Symbol.
+    assert_eq!(
+        e.message,
+        format!("icon.share has no source for web, which draws an icon only from an `svg` source: add `svg \"icons/share.svg\"`, with `assets/icons/share.svg` drawn as {TEMPLATE} (a Material Symbols SVG is). With no SVG for it, declare no icon and write `symbol:sf/square.and.arrow.up.circle` where it is used: Apple draws it, and the web draws it blank, which the build says in one warning"),
+    );
+    let path = app(
+        "missing-linux",
+        "\"ios\": {}, \"linux\": {}, \"web\": {}",
+        "  icon.share = icon(sf \"square.and.arrow.up.circle\")\n",
+        &view("symbol:icon.share"),
+    );
+    let Err(all) = contract::compile_path_all(&path, false) else {
+        panic!("compiled")
+    };
     assert!(
-        e.message.contains("icon.share has no source for web"),
+        all.iter().any(|e| e.message.contains("linux and the web draw it blank, with a warning at each use. Not shipping linux? `bun exact.mjs update --without linux` removes it")),
+        "{all:?}"
+    );
+    // An SF Symbol that is a role's Apple name is that role, drawn everywhere: no "blank" advice.
+    let path = app(
+        "missing-role",
+        "\"ios\": {}, \"web\": {}",
+        "  icon.play = icon(sf \"play.fill\")\n",
+        &view("symbol:icon.play"),
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert!(
+        e.message.ends_with("declare no icon and write `symbol:play-fill`, the role Apple draws as `play.fill`, which every host draws")
+            && !e.message.contains("blank"),
         "{e:?}"
     );
+    let advised = app(
+        "advised-role",
+        "\"ios\": {}, \"web\": {}",
+        "",
+        &view("symbol:play-fill"),
+    );
+    contract::compile_path(&advised).unwrap_or_else(|e| panic!("{e:?}"));
     // Several colours: the web alone draws it as the file.
     let design = "  icon.two = icon(svg \"icons/two.svg\")\n";
     let path = app(
@@ -73,13 +110,35 @@ fn a_shipped_target_without_a_source_is_refused() {
         e.message.contains("linux") && e.message.contains("more than one colour"),
         "{e:?}"
     );
-    // Apple draws the SF Symbol: an SVG alone is no source there.
+    // Apple draws a template's path too (stage 9 A): an SVG alone is a
+    // source there; a file of more than one colour needs an SF Symbol.
     let svg_only = "  icon.svg = icon(svg \"icons/reply.svg\")\n";
     let path = app("apple", "\"ios\": {}", svg_only, &view("symbol:icon.svg"));
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        plan.strings.iter().any(|s| s.starts_with("symbol:icon||")),
+        "an svg-only icon, no sf"
+    );
+    let two = "  icon.two = icon(svg \"icons/two.svg\")\n";
+    let path = app("apple-two", "\"ios\": {}", two, &view("symbol:icon.two"));
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-icon-svg", "{e:?}");
+    assert!(
+        e.message.contains("ios") && e.message.contains("an SF Symbol"),
+        "{e:?}"
+    );
+    // A watch draws only the SF Symbol yet: a one-colour SVG alone is no source there, said so.
+    let path = app(
+        "watch",
+        "\"watchos\": {}",
+        svg_only,
+        &view("symbol:icon.svg"),
+    );
     let e = contract::compile_path(&path).unwrap_err();
     assert_eq!(e.id, "tamber-icon-missing", "{e:?}");
     assert!(
-        e.message.contains("icon.svg has no source for ios"),
+        e.message
+            .contains("a watch draws an icon only as an SF Symbol"),
         "{e:?}"
     );
     let path = app("web-only", "\"web\": {}", design, &view("symbol:icon.two"));
@@ -287,10 +346,66 @@ fn the_platform_warning_names_what_ships_and_how_to_stop() {
     ] {
         assert!(pencil.contains(part), "{part}: {pencil}");
     }
-    assert!(
-        !flag.contains("The role") && flag.contains("Declare an icon token"),
-        "{flag}"
+    // The advice is said once a build; a later use is a line.
+    assert_eq!(
+        flag,
+        "symbol `sf/flag.checkered` is blank on linux and web too: declare `icon.flag-checkered` as the first `lower-symbol-platform` warning shows, and write `symbol:icon.flag-checkered`"
     );
+}
+
+/// The euxy port's forty SF Symbols printed forty paragraphs and filled the
+/// cap, so the warnings after them were not printed: the later uses are a
+/// line each, and a later warning still prints. The group is outside the
+/// cap, the advice its lines point at too, after a full cap of warnings.
+#[test]
+fn later_platform_symbols_are_a_line_each_outside_the_cap() {
+    let uses: String = (0..contract_lower::MAX_WARNINGS + 5)
+        .map(|i| format!("      image \"symbol:sf/flag.{i}\"\n"))
+        .collect();
+    let view = format!("component App\n  view\n    column\n{uses}      image \"symbol:sf/pencil\"\n      image \"symbol:gearshape\"\n");
+    let aliases: String = (0..contract_lower::MAX_WARNINGS)
+        .map(|_| "      image \"symbol:gearshape\"\n")
+        .collect();
+    let late = view.replace("    column\n", &format!("    column\n{aliases}"));
+    let path = app("repeats", "\"ios\": {}, \"web\": {}", "", &view);
+    let (plan, warnings) = contract::compile_path_all_warned(&path, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    let platform: Vec<&str> = warnings
+        .iter()
+        .filter(|w| w.id == "lower-symbol-platform")
+        .map(|w| w.message.as_str())
+        .collect();
+    assert_eq!(
+        platform.len(),
+        contract_lower::MAX_WARNINGS + 6,
+        "{platform:?}"
+    );
+    assert!(
+        platform[0].contains("in app.tamber's `icons`"),
+        "{}",
+        platform[0]
+    );
+    assert!(
+        platform[1..].iter().all(|m| !m.contains("app.tamber")),
+        "{platform:?}"
+    );
+    assert_eq!(
+        platform.last().copied(),
+        Some("symbol `sf/pencil` is blank on web too: write `symbol:pencil`, the role, which draws on every host")
+    );
+    assert!(
+        warnings.iter().any(|w| w.id == "lower-symbol-alias"),
+        "{warnings:?}"
+    );
+    let path = app("repeats-late", "\"ios\": {}, \"web\": {}", "", &late);
+    let (plan, warnings) = contract::compile_path_all_warned(&path, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    let advice = warnings
+        .iter()
+        .filter(|w| w.id == "lower-symbol-platform")
+        .find(|w| w.message.contains("in app.tamber's `icons`"));
+    let line = 4 + contract_lower::MAX_WARNINGS as u32;
+    assert_eq!(advice.map(|w| w.span.line), Some(line), "{warnings:?}");
 }
 
 /// Review round 1: a nested template of literals folds too, and a template
@@ -329,4 +444,235 @@ fn a_refused_icons_uses_are_not_refused_again() {
     };
     let ids: Vec<&str> = errors.iter().map(|e| e.id.as_str()).collect();
     assert_eq!(ids, ["tamber-icon-svg"], "{errors:?}");
+}
+
+/// Stage 9 A2: a grouped row led by an svg-only icon is a standard cell
+/// whose symbol is "" and whose icon is its token form, which Apple draws
+/// as the cell's template image; an `sf` icon's row names its symbol and
+/// carries no icon.
+#[test]
+fn a_grouped_row_carries_an_svg_only_icon() {
+    struct NoData;
+    impl exact_runner::DataSource for NoData {
+        fn query(
+            &mut self,
+            source: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::UnknownSource(source.into()))
+        }
+    }
+    let path = app(
+        "grouped",
+        "\"ios\": {}",
+        "  icon.svg = icon(svg \"icons/reply.svg\")\n  icon.sf = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n",
+        "component App\n  action go\n  view\n    column testId=\"root\" width=402 height=874\n      list appearance=\"auto\" testId=\"list\" flex=1\n        section\n          button press=go\n            image \"symbol:icon.svg\"\n            text \"Reply\"\n          button press=go\n            image \"symbol:icon.sf\"\n            text \"Answer\"\n",
+    );
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+    k.compute_layout(root, exact_kernel::Offer::definite(402.0, 874.0))
+        .unwrap();
+    let k = r.kernel();
+    let list = k.node_by_key(k.find_by_test_id("list")[0]).unwrap().id;
+    let rows = &k.grouped_list(list).unwrap().sections[0].rows;
+    assert!(!rows[0].custom, "{:?}", rows[0]);
+    assert_eq!(rows[0].symbol.as_deref(), Some(""));
+    assert_eq!(
+        rows[0].icon.as_deref(),
+        Some("icon||0 -960 960 960|M760-200v-160H200Z|icons/reply.svg")
+    );
+    assert_eq!(rows[0].title.as_deref(), Some("Reply"));
+    assert_eq!(rows[1].symbol.as_deref(), Some("bubble.left"));
+    assert_eq!(rows[1].icon, None);
+}
+
+/// A design icon naming another builds in an app with params, an icon
+/// param's default naming the alias too (beside `tamber_cli`'s test of an
+/// app without params, theme2 22:12).
+#[test]
+fn an_icon_alias_builds_beside_params() {
+    let design =
+        "  icon.house = icon(sf \"house\", svg \"icons/reply.svg\")\n  icon.home = icon.house\n";
+    let view = "component App\n  params\n    glyph: icon = \"icon.home\"\n    gap: length = \"4px\"  range=\"0..40\"\n  view\n    column  gap=\"param.gap\"\n      image \"symbol:icon.home\"\n      image \"symbol:param.glyph\"\n";
+    let path = app("alias-params", "\"ios\": {}, \"web\": {}", design, view);
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let form = "symbol:icon|house|0 -960 960 960|M760-200v-160H200Z|icons/reply.svg";
+    assert!(plan.strings.iter().any(|s| s == form), "{:?}", plan.strings);
+}
+
+/// A build's warnings come in rank order (`contract::warning_rank`): what
+/// changes the native app first, symbols only the web draws blank last, and
+/// as text those are one line, which `--json` lists each of. The euxy port's
+/// header warning was one of 43, behind 21 of them and 13 aliases.
+#[test]
+fn warnings_that_change_the_native_app_come_first_and_web_only_symbols_are_one_line() {
+    let view = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      image \"symbol:sf/flag.one\"\n      image \"symbol:gearshape\"\n      image \"symbol:sf/flag.two\"\n      button press=go\n        image \"symbol:add\"\n";
+    let path = app("ranked", "\"ios\": {}, \"web\": {}", "", view);
+    let (plan, warnings) = contract::compile_path_all_warned(&path, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    let ids: Vec<&str> = warnings.iter().map(|w| w.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "lower-button-unlabelled",
+            "lower-symbol-alias",
+            "lower-symbol-platform",
+            "lower-symbol-platform"
+        ],
+        "{warnings:#?}"
+    );
+    assert!(warnings[2..].iter().all(contract::web_only));
+    let run = |json: bool| {
+        let mut args = vec!["build", path.to_str().unwrap()];
+        if json {
+            args.push("--json");
+        }
+        std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(&args)
+            .output()
+            .unwrap()
+    };
+    let json: serde_json::Value = serde_json::from_slice(&run(true).stdout).unwrap();
+    let listed: Vec<&str> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(listed, ids);
+    let text = String::from_utf8(run(false).stderr).unwrap();
+    let said: Vec<&str> = text.lines().filter(|l| l.contains(" warning [")).collect();
+    assert_eq!(said.len(), 3, "{text}");
+    assert!(said[0].contains("[lower-button-unlabelled]"), "{text}");
+    assert!(
+        said[2].ends_with("warning [lower-symbol-platform] 2 SF Symbol uses draw blank on the web, here first: an icon token or a role draws on every host (`contract build --json` says each, and how)"),
+        "{text}"
+    );
+    // With Linux shipped too, a blank symbol is a native host's, said each.
+    let path = app(
+        "ranked-linux",
+        "\"ios\": {}, \"web\": {}, \"linux\": {}",
+        "",
+        view,
+    );
+    let (_, warnings) = contract::compile_path_all_warned(&path, false);
+    assert!(!warnings.iter().any(contract::web_only), "{warnings:#?}");
+}
+
+/// `contract tamber check` and `eval` read a design's icon SVGs under its
+/// app's `assets/`, as its build does, whatever directory they are run from
+/// and however the design is named: a design with no params is admitted by
+/// compiling a copy, which sees the app's own assets.
+#[test]
+fn the_tamber_verbs_read_icon_svgs_under_the_apps_assets() {
+    let path = app(
+        "verbs",
+        "\"ios\": {}, \"web\": {}",
+        "  icon.reply = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n",
+        &view("symbol:icon.reply"),
+    );
+    let dir = path.parent().unwrap();
+    for (cwd, design) in [
+        (std::env::temp_dir(), dir.join("app.tamber")),
+        (dir.to_path_buf(), PathBuf::from("app.tamber")),
+        (dir.to_path_buf(), PathBuf::from(".")),
+    ] {
+        for verb in ["check", "eval"] {
+            let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+                .args(["tamber", verb])
+                .arg(&design)
+                .current_dir(&cwd)
+                .output()
+                .unwrap();
+            let said = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                out.status.success(),
+                "{verb} {} from {}: {said}",
+                design.display(),
+                cwd.display()
+            );
+            assert!(!said.contains("tamber-icon-svg"), "{said}");
+        }
+    }
+    // A design app.json names in another directory: the app's assets, not
+    // the design's directory's.
+    std::fs::create_dir_all(dir.join("design")).unwrap();
+    std::fs::rename(dir.join("app.tamber"), dir.join("design/theme.tamber")).unwrap();
+    let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
+    std::fs::write(
+        dir.join("app.json"),
+        manifest.replacen('{', "{\"tamber\": \"design/theme.tamber\", ", 1),
+    )
+    .unwrap();
+    for input in [
+        dir.to_path_buf(),
+        dir.join("app.contract"),
+        dir.join("design/theme.tamber"),
+    ] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(["tamber", "check"])
+            .arg(&input)
+            .current_dir(std::env::temp_dir())
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}: {}",
+            input.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    std::fs::rename(dir.join("design/theme.tamber"), dir.join("app.tamber")).unwrap();
+    std::fs::write(dir.join("app.json"), manifest).unwrap();
+    // The SVG is the app's still, its bytes as they were (copied, never
+    // moved or linked).
+    assert_eq!(
+        std::fs::read_to_string(dir.join("assets/icons/reply.svg")).unwrap(),
+        REPLY
+    );
+    // A read-only SVG two icons share is read once into the copy.
+    let svg = dir.join("assets/icons/reply.svg");
+    let mut perms = std::fs::metadata(&svg).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&svg, perms.clone()).unwrap();
+    let design = std::fs::read_to_string(dir.join("app.tamber")).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("{design}  icon.again = icon(sf \"star\", svg \"icons/reply.svg\")\n"),
+    )
+    .unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "check"])
+        .arg(dir.join("app.tamber"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    std::fs::set_permissions(&svg, perms).unwrap();
+    // An SVG the app lacks is still refused.
+    std::fs::remove_file(dir.join("assets/icons/reply.svg")).unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "eval"])
+        .arg(dir.join("app.tamber"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("tamber-icon-svg"));
+    let _ = std::fs::remove_dir_all(dir);
 }

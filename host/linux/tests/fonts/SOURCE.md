@@ -33,3 +33,9 @@ Reproduce with fonttools 4.67.0:
 ```sh
 pyftsubset NotoSansCJKsc-Regular.otf --unicodes=U+4E2D,U+65E5 --output-file=NotoSansCJKsc-subset.otf
 ```
+
+# Variable weight fixture
+
+The declared-weight tests reuse `host/apple/tests/fonts/InterVariable.ttf`
+in place, with its `Inter-LICENSE` beside it. Its `wght` axis spans 100–900
+and defaults to 400.

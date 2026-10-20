@@ -1,0 +1,139 @@
+shape ComposerCodeHeader
+  start: number
+  end: number
+  infoStart: number
+  infoEnd: number
+  info: string
+  language: string
+  label: string
+
+shape ComposerCodeLanguage
+  id: string
+  label: string
+
+shape ComposerSourceChip
+  kind: string
+  start: number
+  end: number
+  source: string
+  label: string
+  name: string
+  path: string
+  href: string
+  contextKind: string
+  contextId: string
+  image: bool
+  comment: string
+  quote: string
+  face: ComposerChipFace
+
+shape ComposerChipFace
+  kind: string
+  label: string
+  suffix: string
+  icon: string
+  fileToken: string
+  imageId: string
+  available: bool
+  interactive: bool
+  comment: bool
+  tip: string
+
+shape ComposerSourceBlock
+  kind: string
+  start: number
+  end: number
+  contentStart: number
+  bodyStart: number
+  bodyEnd: number
+  bodyLine: bool // false: a fence closed on the next line, projected where its body would be
+
+// Deferred input metadata; field source and undo remain owned by the textarea.
+shape ComposerIntentMetadata
+  serial: number
+  kind: string
+  text: string
+  key: string
+  shift: bool
+  command: bool
+  start: number
+  end: number
+  inputSerial: number
+
+shape ComposerIntentReply
+  owner: string
+  value: string
+  mode: string
+  serial: number
+  kind: string
+  start: number
+  end: number
+  text: string
+  selectionStart: number
+  selectionEnd: number
+  preserveSelection: bool
+
+shape ComposerRichView
+  generation: number
+  historyPrevious: bool
+  historyNext: bool
+  languages: ComposerCodeLanguage[]
+  owner: string
+  value: string
+  mode: string
+  headers: ComposerCodeHeader[]
+  blocks: ComposerSourceBlock[]
+  chips: ComposerSourceChip[]
+
+shape ComposerFieldObservation
+  generation: number
+  snapshotOwner: string
+  owner: string
+  value: string
+  start: number
+  end: number
+  composing: bool
+  live: bool
+  focused: bool
+  inputSerial: number
+
+shape ComposerFieldCommand
+  generation: number
+  snapshotOwner: string
+  owner: string
+  value: string
+  start: number
+  end: number
+  text: string
+  selectionStart: number
+  selectionEnd: number
+  focus: bool
+  then: string
+  seq: number
+  ready: bool
+  history: number
+  citation: number
+  completion: number
+
+shape ComposerFieldResult
+  applied: bool
+  reason: string
+  value: string
+  start: number
+  end: number
+
+shape ComposerFieldAcknowledgement
+  applied: bool
+  reason: string
+  value: string
+  start: number
+  end: number
+  generation: number
+  snapshotOwner: string
+  owner: string
+  seq: number
+  then: string
+  send: bool
+  focus: string
+  removedImage: string
+  inputSerial: number

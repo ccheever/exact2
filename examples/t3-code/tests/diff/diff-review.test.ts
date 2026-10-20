@@ -1,3 +1,4 @@
+import { observeComposer, acceptComposerEdit } from '../support/composer-field-fixture';
 // The Diff panel's tree, large-diff loading, hidden-line expansion and line comments, driven through
 // T3Client.command as the Contract drives them (diff-review.ts), against a scripted server.
 import { describe, test, expect } from 'bun:test';
@@ -5,6 +6,9 @@ import { T3Client } from '../../src/client/client';
 import { snapshot } from '../../src/client/presentation';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
+import { citationField } from '../timeline/citation-field.fixture';
+import { composerChipCurrent } from '../../src/composer/composer-chip-bridge';
+import { collectAssistantCitations } from '../../src/timeline/diff-citations';
 
 const filePatch = (path: string, extra = '') => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1,2 +1,3 @@\n one\n+added in ${path}\n two\n${extra}`;
 const stats = Array.from({ length: 10 }, (_, index) => ({ path: index < 6 ? `src/ui/f${index}.ts` : `docs/d${index}.md`, previousPath: null, additions: 1, deletions: 0 }));
@@ -28,7 +32,8 @@ function harness(large: boolean) {
           : { kind: 'branch-range', diff: smallPatch, truncated: false, diffHash: 'h2', baseRef: 'main', headRef: 'feat', files: [{ path: 'a.ts', previousPath: null, additions: 2, deletions: 1 }] }] } };
     }
     if (request.op === 'request' && request.method === 'review.getDiffFileContents') return { ok: true, generation: 1, value: contents };
-    if (request.op === 'editorInsert' || request.op === 'editorEdit') return { ok: true, generation: 1, value: { applied: true } };
+    if (request.op === 'editorInsert') return { ok: true, generation: 1, value: { applied: true } };
+    if (request.op === 'editorEdit') return { ok: true, generation: 1, value: { applied: acceptComposerEdit(client, request) } };
     return { ok: true, generation: 1, value: {} };
   } };
   const storage: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('missing'); }, async atomicWriteFile() {} } };
@@ -77,7 +82,7 @@ describe('diff review engine', () => {
     const { client, command, calls } = harness(false);
     await command('diff'); await command('diffreview', 'reveal', 'a.ts');
     let gaps = snapshot(client).diffItems.filter(item => item.kind === 'gap');
-    expect(gaps.map(item => [item.label, item.expandable])).toEqual([['2 unmodified lines', true], ['4 unmodified lines', true]]);
+    expect(gaps.map(item => [item.label, item.expandable])).toEqual([['2 unmodified lines', true], ['4 unmodified lines', true], ['More unchanged context may be available', true]]);
     await command('diffreview', 'expand', 'a.ts', 1);
     expect(calls.filter(call => call.method === 'review.getDiffFileContents').map(call => call.payload)).toEqual([
       { cwd: '/repo', sourceKind: 'branch-range', changeType: 'change', baseRef: 'main', headRef: 'feat', oldPath: 'a.ts', newPath: 'a.ts' }]);
@@ -111,7 +116,7 @@ describe('diff review engine', () => {
     const insert = calls.filter(call => call.op === 'editorInsert').at(-1)!;
     const id = /review-comment\/([^)]+)\)/.exec(String(insert.text))![1]!;
     expect(insert.text).toBe(`[a.ts 3 to 5](t3-context://v1/review-comment/${id}) `);
-    client.local.drafts[client.draftKey] = `Please look ${insert.text}`;
+    client.local.drafts[client.draftKey] = `Please look ${insert.text}`; observeComposer(client, client.draft);
     expect(snapshot(client).diffItems.find(item => item.kind === 'note')).toMatchObject({ text: 'Why this order?', entry: id });
     const sent = (await import('../../src/composer/composer-editor')).messageContext(client, client.draft);
     expect(sent).toMatchObject({ version: 1, records: [{ kind: 'review-comment', contextId: id, label: 'a.ts 3 to 5', sectionId: 'branch', sectionTitle: 'Changes', filePath: 'a.ts',
@@ -210,27 +215,40 @@ describe('what sits under a selected line is painted selected (Pierre\'s renderS
 });
 
 describe('Cite', () => {
-  test('a selection across two answer blocks becomes an Assistant quote chip whose href parses back', async () => {
-    const { client, command, calls } = harness(false);
-    const stream = 'First paragraph of the answer.\nSecond block with more words.';
-    // Block 2 starts after the line break at 31; the reader selected "answer." and "Second".
-    await command('diffreview', 'cite:["t1","turn-item:provider:codex:native-item:a1"]', `23-30,31-37|412,180.5,540,22|${stream}`);
-    const insert = calls.filter(call => call.op === 'editorInsert').at(-1)!;
-    const href = /^\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)$/.exec(String(insert.text))![1]!;
-    const { parseAssistantCitationHref } = await import('../../src/timeline/diff-citations');
-    expect(parseAssistantCitationHref(href)).toEqual({ version: 1, environmentId: 'env', threadId: 't1', messageId: 'message:provider:codex:native-item:a1',
+  test('a selection across answer blocks inserts once and opens through independent ACK', async () => {
+    const { client, command, calls, native } = harness(false);
+    const state = citationField('', 0, 0, client, { ...native, later: native.later.bind(native) });
+    native.later = state.native.later;
+    const stream = 'First paragraph of the answer.\nSecond block with more words.', waiting = () => state.next();
+    const pending = command('diffreview', 'cite:["t1","turn-item:provider:codex:native-item:a1"]', `23-30,31-37|412,180.5,540,22|${stream}`);
+    await pending;
+    const insertion = waiting();
+    const citations = collectAssistantCitations(insertion.text);
+    expect(citations).toHaveLength(1);
+    expect(citations[0]?.citation).toEqual({ version: 1, environmentId: 'env', threadId: 't1', messageId: 'message:provider:codex:native-item:a1',
       text: 'answer.\nSecond', start: 23, end: 37, prefix: 'First paragraph of the ', suffix: ' block with more words.' });
-    // Then its comment opens under the cited text's last part (ChatComposer citeAssistantText).
-    const open = calls.filter(call => call.op === 'editorCiteOpen');
-    expect(open).toEqual([{ op: 'editorCiteOpen', href, source: [412, 180.5, 540, 22] }]);
-    expect(calls.indexOf(open[0]!)).toBeGreaterThan(calls.indexOf(insert));
+    expect(insertion.citation).toBeGreaterThan(0);
+    state.input(insertion);
+    expect(composerChipCurrent(client)).toBeNull();
+    expect((await state.ack(insertion)).applied).toBe(true);
+    expect(composerChipCurrent(client)).toMatchObject({ kind: 'citation', open: true, anchor: 'source', anchorFrame: [412, 180.5, 540, 22] });
+    await pending;
+    expect(collectAssistantCitations(state.current().value)).toHaveLength(1);
+    expect(calls.filter(call => String(call.op).startsWith('editor'))).toEqual([]);
   });
 
-  test('no chip, no comment: a composer that refuses the quote opens nothing (citeAssistantText returns false)', async () => {
-    const { command, calls, native } = harness(false);
-    const later = native.later;
-    native.later = async (input: unknown) => obj(input).op === 'editorInsert' ? { ok: true, generation: 1, value: { applied: false } } : later(input);
-    await command('diffreview', 'cite:["t1","a1"]', '0-5||Hello world');
-    expect(calls.filter(call => call.op === 'editorCiteOpen')).toEqual([]);
+  test('shared input refusal opens nothing and does not append a fallback quote', async () => {
+    const { client, command, calls, native } = harness(false);
+    const state = citationField('kept', 4, 4, client, { ...native, later: native.later.bind(native) });
+    native.later = state.native.later;
+    const waiting = () => state.next();
+    const pending = command('diffreview', 'cite:["t1","a1"]', '0-5|10,20,80,18|Hello world');
+    await pending;
+    const insertion = waiting();
+    expect((await state.ack(insertion, false)).applied).toBe(false);
+    await pending;
+    expect(state.current().value).toBe('kept');
+    expect(composerChipCurrent(client)).toBeNull();
+    expect(calls.filter(call => String(call.op).startsWith('editor'))).toEqual([]);
   });
 });

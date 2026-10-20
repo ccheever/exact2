@@ -509,6 +509,112 @@ fn number_only_style_choices_accept_valid_css_wide_keywords() {
     }
 }
 
+/// The `style=` hint's suggestion is read back as a node's attributes and
+/// compiled: what it suggests must compile (the euxy port, review round 2).
+#[test]
+fn the_style_hint_suggests_only_what_compiles() {
+    let hint = |style: &str| {
+        let src = format!("component A\n  view\n    text \"a\" style={style:?}\n");
+        let e = contract::compile(&src).expect_err("`style=` is refused");
+        let message = e.to_string();
+        assert!(message.contains("has no attribute `style`"), "{message}");
+        message
+    };
+    let compiles = |node: &str| {
+        let src = format!("style Title\n  font-weight=600\n\ncomponent A\n  view\n    {node}\n");
+        contract::compile(&src).unwrap_or_else(|e| panic!("{node}: {e}"));
+    };
+    let suggested = |message: &str, lead: &str| -> String {
+        let at = message
+            .find(lead)
+            .unwrap_or_else(|| panic!("{lead:?} in {message}"))
+            + lead.len();
+        message[at..].split('`').next().unwrap().to_string()
+    };
+    for (style, attrs) in [
+        // Split at `;` outside quotes and parentheses (a string attribute
+        // keeps CSS's quotes, as a quoted family name does).
+        (
+            "font-family: \"Helvetica Neue\", Arial; color: red",
+            "font-family=\"\\\"Helvetica Neue\\\", Arial\" color=\"red\"",
+        ),
+        (
+            "aria-label: \"Save; later\"; color: red",
+            "aria-label=\"\\\"Save; later\\\"\" color=\"red\"",
+        ),
+        (
+            "aria-label: f(a; b); width: calc(100% - 16px)",
+            "aria-label=\"f(a; b)\" width=\"calc(100% - 16px)\"",
+        ),
+        // `!important` is dropped from a property written once.
+        (
+            "color: red !important; padding: 8px ! important",
+            "color=\"red\" padding=\"8px\"",
+        ),
+        (
+            "font-size: 14px; font-weight: 600; line-height: 1.4",
+            "font-size=\"14px\" font-weight=600 line-height=1.4",
+        ),
+        // A custom property is not an attribute; the others are.
+        ("--gap: 8px; padding: 8px", "padding=\"8px\""),
+        // A plain number is unquoted, as the lexer wants it.
+        (
+            "-exact-press-scale: 0.97; opacity: 0.5; flex: 1; color: red",
+            "-exact-press-scale=0.97 opacity=0.5 flex=1 color=\"red\"",
+        ),
+    ] {
+        let message = hint(style);
+        assert_eq!(
+            suggested(&message, "write the declarations as attributes, `"),
+            attrs,
+            "{style}: {message}"
+        );
+        compiles(&format!("text \"a\" {attrs}"));
+    }
+    let message = hint("Title");
+    assert_eq!(suggested(&message, "write `"), "class=Title");
+    compiles("text \"a\" class=Title");
+    // No rewrite for properties that may overlap, which CSS resolves by
+    // importance and order and attributes do not: one written twice, a
+    // shorthand beside a longhand of its own, by prefix or by family.
+    for style in [
+        "padding: 8px !important; padding: 0",
+        "padding: 8px; padding: 0",
+        "padding-left: 16px !important; padding: 0",
+        "flex-direction: column; flex: 1 !important",
+        "border-top: 1px solid red; border-top-left-radius: 8px",
+        "border-radius: 8px; border-top-left-radius: 0",
+        "font: 14px Inter; line-height: 1.4",
+        "top: 4px; inset: 0",
+        "row-gap: 4px; gap: 8px",
+    ] {
+        let message = hint(style);
+        assert!(!message.contains("write "), "{style}: {message}");
+        assert!(
+            message.contains("a look nodes share is a `style Name` block"),
+            "{style}: {message}"
+        );
+    }
+    // Nothing to suggest: a custom property alone, a name with a quote or
+    // brace, a reserved word.
+    for style in [
+        "--gap: 8px",
+        "a\"b: 1",
+        "a{b}: 1",
+        "none",
+        "if",
+        "true",
+        "8px",
+    ] {
+        let message = hint(style);
+        assert!(!message.contains("write "), "{style}: {message}");
+        assert!(
+            message.contains("a look nodes share is a `style Name` block"),
+            "{style}: {message}"
+        );
+    }
+}
+
 #[test]
 fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     let app = |state: &str, node: &str| {
@@ -535,6 +641,9 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         (app("", "text \"a\" font-size=\"-2px\""), "lower-attr-value", "`font-size=\"-2px\"` is not a valid `font-size`: expected a nonnegative length"),
         (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
         (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),
+        // The euxy port's `style=`: the word is `class=`, or the declarations are attributes.
+        (app("", "text \"a\" style=\"title\""), "lower-unknown-attr", "`text` has no attribute `style`; write `class=title`: a look nodes share is a `style Name` block in the file, named with `class=Name`, and a node's own look is its attributes"),
+        (app("", "text \"a\" style=\"padding: 8px; color: red;\""), "lower-unknown-attr", "`text` has no attribute `style`; write the declarations as attributes, `padding=\"8px\" color=\"red\"`: a node's look is its attributes, and a look nodes share is a `style Name` block in the file, named with `class=Name`"),
         (
             app("  state n = 0\n", "text n"),
             "lower-attr-type",
@@ -544,6 +653,12 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
             app("", "if draft = \"x\"\n        text \"a\""),
             "syntax-expected-newline",
             "expected end of line, found `=`; `==` compares, and only a statement assigns",
+        ),
+        // The euxy port's `after(0, …)`: 0 would be due in the commit that armed it.
+        (
+            app("  task t mount\n    after(0, tick)\n  action tick\n    draft = \"x\"\n", "text draft"),
+            "lower-timer-interval",
+            "`after` needs a whole number of milliseconds, at least 1; given 0: write `after(1, …)`, the soonest, which runs a commit after the one that armed it, as the web's `setTimeout(f, 0)` runs after the current task",
         ),
         (
             app("", "button press={add}"),
@@ -571,6 +686,58 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     }
 }
 
+/// A prop written with a default (the euxy port's) is told props have none,
+/// and the `option` form the refusal names compiles.
+#[test]
+fn a_prop_default_is_refused_naming_the_option_form() {
+    let app = |props: &str, read: &str, pass: &str| {
+        format!("component A\n  view\n    Toggle({pass})\ncomponent Toggle\n  props\n    {props}\n  view\n    button \"x\" disabled={read}\n")
+    };
+    let e =
+        contract::compile(&app("disabled: bool = false", "disabled", "disabled=true")).unwrap_err();
+    assert_eq!(
+        (e.id.as_str(), e.message.as_str()),
+        ("syntax-expected-newline", "a prop has no default: pass `disabled=<value>` at every use, or declare `disabled: option<bool>`, pass `disabled=none` where it is unset, and read it as `match disabled { case some(v) => v, case none => <default> }`"),
+    );
+    contract::compile(&app(
+        "disabled: option<bool>",
+        "(match disabled { case some(v) => v, case none => false })",
+        "disabled=none",
+    ))
+    .unwrap();
+    // The other form it names, `disabled=<value>` with a value, compiles too.
+    contract::compile(&app("disabled: bool", "disabled", "disabled=true")).unwrap();
+}
+
+/// `style=`'s declarations come back as attributes that compile: a quote, a
+/// backslash or another control character in a value escaped as a string
+/// literal takes it, and a run of whitespace (a newline) one space, as CSS
+/// reads it.
+#[test]
+fn style_declarations_are_suggested_as_attributes_that_compile() {
+    let app = |attrs: &str| format!("component A\n  view\n    text \"a\" {attrs}\n");
+    for (written, suggested) in [
+        (
+            r#"style="font-family: \"Times New Roman\", serif; color: red""#,
+            r#"font-family="\"Times New Roman\", serif" color="red""#,
+        ),
+        (
+            r#"style="padding: 8px\n 16px;\tmargin:\u{d}\n4px""#,
+            r#"padding="8px 16px" margin="4px""#,
+        ),
+        (r#"style="aria-label: a\u{1}b""#, r#"aria-label="a\u{1}b""#),
+    ] {
+        let e = contract::compile(&app(written)).unwrap_err();
+        let edit = e
+            .message
+            .split('`')
+            .nth(5)
+            .unwrap_or_else(|| panic!("{}", e.message));
+        assert_eq!(edit, suggested, "{written}");
+        contract::compile(&app(edit)).unwrap_or_else(|e| panic!("{edit}: {e}"));
+    }
+}
+
 #[test]
 fn the_element_lint_finds_nothing_in_any_app() {
     let apps = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps");
@@ -592,6 +759,7 @@ fn the_element_lint_finds_nothing_in_any_app() {
                     text,
                     source_id: 1,
                     bindable: false,
+                    package: None,
                 });
         let found = contract_lower::lint(&file);
         assert!(found.is_empty(), "{}: {found:?}", path.display());
@@ -700,6 +868,54 @@ fn one_run_reports_every_independent_mistake_call_sites_first() {
             .collect::<String>()
     );
     assert_eq!(compile_all("cap", &many).len(), contract::MAX_DIAGNOSTICS);
+}
+
+/// A refused member is skipped and the passes after the syntax check the
+/// rest; what they say about a refused name is left out, since it may only
+/// be that the name is missing.
+#[test]
+fn a_refused_member_does_not_hide_the_other_passes_refusals() {
+    let source = "component App\n  state n = 0\n  action pick\n    match none\n      case some(r) => n = r\n      case none => n = 0\n  action bump\n    n = n + \"x\"\n  view\n    button \"go\" press=pick color=missingName\n";
+    let found = compile_all("member", source);
+    let ids: Vec<(&str, u32)> = found
+        .iter()
+        .map(|(id, line, _)| (id.as_str(), *line))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            ("syntax-case-arrow", 5),
+            ("type-operand", 8),
+            ("type-unknown-name", 10)
+        ],
+        "{found:#?}"
+    );
+    assert!(
+        found[0].2.contains("end the line at `case some(r)`"),
+        "{}",
+        found[0].2
+    );
+    // A refused member's name is still its own: a call of it is no method's free form.
+    let named = "component App\n  state n = \"\"\n  action trim(s: string)\n    n =\n  view\n    button \"go\" press=trim(\"x\")\n";
+    let ids: Vec<String> = compile_all("named", named)
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(ids, ["syntax-expected-expression"]);
+    // A state only a refused action wrote cannot be inferred now: that is not said.
+    let written = "component App\n  state selected = none\n  action pick\n    selected = some(1) +\n  view\n    button \"go\" press=pick color=missingName\n";
+    let ids: Vec<String> = compile_all("written", written)
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(ids, ["syntax-expected-expression", "type-unknown-name"]);
+    // A refused first component would make another the app: nothing else is checked.
+    let first = "component App\n  props\n    x number\n  view\n    Card()\ncomponent Card\n  view\n    text \"a\" color=missingName\n";
+    let ids: Vec<String> = compile_all("first", first)
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(ids, ["syntax-expected"]);
 }
 
 #[test]

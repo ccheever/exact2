@@ -94,8 +94,7 @@ pub static LISTS: ListLinks = ListLinks {
 };
 
 /// A list engine's state where the plan has no way to reach it: admission
-/// refused the plan, so this is the runner's defect, named rather than
-/// trapped on.
+/// refused the plan, so this is the runner's defect, named rather than trapped on.
 fn unlinked() -> InstanceError {
     InstanceError::Collection(
         "a list engine is in use but this artifact doesn't link lists (LLP 1047 D6)".into(),
@@ -252,8 +251,7 @@ pub enum InstanceStep {
 #[derive(Debug, Default)]
 pub struct Ids {
     next: ViewId,
-    /// Every instance node's view and site, destroyed ones included until
-    /// [`Ids::retain`] drops them.
+    /// Every instance node's view and site, destroyed ones kept till [`Ids::retain`] drops them.
     sites: exact_kernel::id::IdMap<ViewId, NodesId>,
     /// Each plan site's work across its instances' lifetimes, by node
     /// index; empty while nothing is measured (LLP 1079 D1).
@@ -461,6 +459,8 @@ pub struct Update<'a> {
     pub scroll_padding: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
     /// Resolved CSS target outsets, top/right/bottom/left.
     pub scroll_margin: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
+    /// Row margins as the kernel lays them out, under a terminal's rule.
+    pub cell_margins: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
     /// The app modes around the nodes being visited (LLP 1121 D5).
     pub theme: theme::Around,
 }
@@ -498,6 +498,7 @@ impl<'a> Update<'a> {
             frame_buffers: Vec::new(),
             scroll_padding: None,
             scroll_margin: None,
+            cell_margins: None,
             theme,
         }
     }
@@ -632,8 +633,9 @@ pub struct SiteIndex {
     resolve_keyframes: bridge::KeyframesLink,
     /// A binding that reads nothing (a literal style row in a list row's
     /// template) has one value for the plan's life: evaluated once, by
-    /// binding index, instead of once per instance.
-    constants: Vec<std::cell::OnceCell<Value>>,
+    /// binding index, instead of once per instance; kept for the bindings
+    /// evaluated (a plan has thousands, a screen evaluates hundreds).
+    constants: RefCell<BTreeMap<u32, Value>>,
     projections: Vec<vm::Prepared>,
 }
 
@@ -681,9 +683,7 @@ impl SiteIndex {
             deps: Deps::default(),
             keyframes: bridge::keyframes(plan),
             resolve_keyframes: keyframes,
-            constants: (0..plan.bindings.len())
-                .map(|_| Default::default())
-                .collect(),
+            constants: RefCell::default(),
             projections: plan
                 .bindings
                 .iter()
@@ -1003,12 +1003,13 @@ impl NodeInst {
             let reads = &deps.bindings[b.0 as usize];
             let evaluated = u.work.bindings_evaluated;
             let value = if reads.is_constant() {
-                match u.sites.constants[b.0 as usize].get() {
-                    Some(value) => value.clone(),
+                let known = u.sites.constants.borrow().get(&b.0).cloned();
+                match known {
+                    Some(value) => value,
                     None => {
                         u.work.bindings_evaluated += 1;
                         let value = u.eval_binding(b, binding.expr, frames)?;
-                        u.sites.constants[b.0 as usize].get_or_init(|| value.clone());
+                        u.sites.constants.borrow_mut().insert(b.0, value.clone());
                         value
                     }
                 }

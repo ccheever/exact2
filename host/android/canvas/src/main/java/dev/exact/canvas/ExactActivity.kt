@@ -81,6 +81,8 @@ open class ExactActivity : Activity() {
         edgeToEdge()
         // exact2's thread, made before the assets are checked: it loads exact2's library meanwhile.
         owner()
+        // The modules' implementations the APK carries answer their names (LLP 1133.001 D5).
+        Extensions.bind(this)
         installAssets(File(storage, "app"))
         // What the host asks of the platform (LLP 1115.001 D5), acted on here, on the main thread.
         requests = Requests(this).also { it.back = { goes -> takeBack(goes) } }
@@ -452,10 +454,23 @@ open class ExactActivity : Activity() {
         super.onStop()
     }
 
-    /** In front again: a share sheet that was up and chose nothing was dismissed ([Requests.resumed]). */
+    /** In front again: a share sheet that was up and chose nothing was dismissed ([Requests.resumed]); an extension
+     * reads again what the person may have changed in Settings ([Extensions.resumed]). */
     override fun onResume() {
         super.onResume()
         requests.resumed()
+        Extensions.resumed()
+    }
+
+    override fun onPause() {
+        Extensions.paused()
+        super.onPause()
+    }
+
+    /** A permission an extension asked for ([ExtensionContext.requestPermissions], LLP 1133.002 D9). */
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        Extensions.permissionsResult(requestCode)
     }
 
     override fun onDestroy() {

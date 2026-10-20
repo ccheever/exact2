@@ -285,7 +285,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     now_ms: f64,
 ) -> Result<Rendered, String> {
     let direct = direct_for(plan, ids, projection)?;
-    let page = settle_at(
+    let mut page = settle_at(
         plan, data, viewport, location, deadline, direct, now_ms, None,
     )?;
     let settled_tree = if direct {
@@ -300,7 +300,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
             // would have refused: the page renders again, with a kernel,
             // which writes it or reports the refusal as ever.
             Err(why) if projection == Projection::Auto => {
-                println!("render {location}: with a kernel ({why})");
+                crate::log(format_args!("render {location}: with a kernel ({why})"));
                 retire(page, data);
                 return render_with_at(
                     plan,
@@ -386,7 +386,7 @@ fn render_time() -> f64 {
 
 /// What sees a render's runner as it boots, before its first answer (a
 /// route's boot document, LLP 1048.005).
-pub(crate) type OnBoot<'a, D> = &'a mut dyn FnMut(&Runner<Anonymous<D>>);
+pub(crate) type OnBoot<'a, D> = &'a mut dyn FnMut(&mut Runner<Anonymous<D>>);
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
@@ -471,7 +471,7 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     // The boot document, before any answer: a route's `paint=boot`
     // (LLP 1048.005).
     if let Some(on_boot) = on_boot {
-        on_boot(&runner);
+        on_boot(&mut runner);
     }
     let settled = match if booted_late {
         Ok(Settled::Deadline)
@@ -1062,19 +1062,7 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
                 return ExitCode::FAILURE;
             }
         };
-        println!("serving http://{}/", server.addr());
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-        drain_on_signal(server.stopper());
-        return match server.run(data) {
-            Ok(()) => {
-                println!("drained");
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                eprintln!("render: serve: {e}");
-                ExitCode::FAILURE
-            }
-        };
+        return run_server(server, data);
     }
     if build {
         match build_locations(&decoded) {
@@ -1176,6 +1164,33 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
     }
 }
 
+// Losing the log reader must not interrupt a response or SIGTERM's drain.
+fn log(line: std::fmt::Arguments<'_>) {
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{line}");
+    let _ = stdout.flush();
+}
+
+fn run_server<D: DataSource + 'static>(server: Server, data: fn() -> D) -> std::process::ExitCode {
+    use std::process::ExitCode;
+    log(format_args!("serving http://{}/", server.addr()));
+    drain_on_signal(server.stopper());
+    match server.run(data) {
+        Ok(()) => {
+            log(format_args!("drained"));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("render: serve: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod stdout_tests;
+
 /// SIGTERM or SIGINT drains the server (D10): a restart loses no render
 /// in flight.
 fn drain_on_signal(stopper: Stopper) {
@@ -1195,8 +1210,7 @@ fn drain_on_signal(stopper: Stopper) {
             while !SIGNALLED.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(20));
             }
-            println!("draining");
-            let _ = std::io::Write::flush(&mut std::io::stdout());
+            log(format_args!("draining"));
             stopper.stop();
         });
 }

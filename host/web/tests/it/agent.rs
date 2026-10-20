@@ -97,11 +97,17 @@ fn state_is_typed_json_with_field_names() {
     ] {
         assert!(state.contains(slot), "{slot} in {state}");
     }
-    assert!(
-        state.contains(
-            "\"derives\":{\"selectedId\":\"mv\",\"tv\":false,\"skyOn\":true,\"canvasColor\":\"#05081a\"}"
-        ),
-        "{state}"
+    let json: serde_json::Value = serde_json::from_str(&state).unwrap();
+    let derives = &json["derives"];
+    assert_eq!(derives["selectedId"], "mv");
+    assert_eq!(derives["tv"], false);
+    assert_eq!(derives["skyOn"], true);
+    assert_eq!(derives["canvasColor"], "#05081a");
+    assert_eq!(derives["tracked"], serde_json::Value::Null);
+    assert_eq!(derives["trackedId"], "");
+    assert_eq!(
+        derives["departureState"],
+        serde_json::json!({"station":"Mountain View","headsign":"San Francisco","train":101,"at":1787916000000_u64,"status":"On time"})
     );
     assert!(
         state.contains("\"station\":{\"id\":\"mv\",\"name\":\"Mountain View\",\"zone\":"),

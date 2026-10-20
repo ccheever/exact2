@@ -60,7 +60,7 @@ pub use easing::{Easing, EasingError, LinearStop, StepPosition};
 pub use engine::{
     AnimationPlay, Change, Engine, EngineError, EngineLinks, HoldEnd, HoldStart, HoldToken,
     NamedTimeline, PlayedCurve, PlayedTransition, Presentation, SpringDescriptor, SpringFrames,
-    TransformHold,
+    TransformHold, TransitionEnds,
 };
 pub use parse::ParseError;
 pub use path::{PathCommand, PathValue};

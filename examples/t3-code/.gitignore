@@ -34,7 +34,6 @@
 /src/panel/panel-icons.contract
 /src/providers/provider-icons.contract
 /src/diff/diff-glyphs.contract
-/assets/composer-icons.json
 /assets/mermaid/vendor/
 /data/pierre-icons.tsv
 /macos/tests/terminal/vectors.json

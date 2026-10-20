@@ -28,7 +28,7 @@ impl Lowerer<'_> {
                 let Expr::Number(ms, _) = &t.timer.0 else {
                     return Err(err_one(
                         "lower-timer-literal",
-                        format!("`{word}` needs a literal number of milliseconds"),
+                        format!("`{word}` needs a literal number of milliseconds (`{word}(1000, …)`). For a computed wait, gate an `every(frame, check)` task on waiting and have `check` compare `performanceNow()` with the wait; one that follows the tempo follows the transport (docs/contract-for-agents.md, \"Following the transport\")"),
                         t.timer.2,
                     ));
                 };
@@ -37,7 +37,7 @@ impl Lowerer<'_> {
                     // in the commit that armed it; the web's `setTimeout(f, 0)`
                     // runs after the current task, as 1 does here.
                     let soonest = match t.kind {
-                        TaskKind::After if *ms < 1.0 => ": the soonest is `after(1, …)`, a commit after the one that armed it, as the web's `setTimeout(f, 0)` runs after the current task",
+                        TaskKind::After if *ms < 1.0 => ": write `after(1, …)`, the soonest, which runs a commit after the one that armed it, as the web's `setTimeout(f, 0)` runs after the current task",
                         TaskKind::Every if *ms < 1.0 => ": a tick each display frame is `every(frame, …)`",
                         _ => "",
                     };

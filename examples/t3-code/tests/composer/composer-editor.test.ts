@@ -3,10 +3,13 @@ import {
   contextId, contextLink, contextReferences, emptyText, entryIcon, expandCitations, fileLink, historyEntries, pathRows, promptLengthMessage,
   recallablePrompt, scoreQueryMatch, skillChipLabels, skillRows, slashRows, threadRows,
 } from '../../src/composer/composer-editor-menu';
-import { composerEditorView, messageContext, threadContextRecords, withMessageContext } from '../../src/composer/composer-editor';
+import { composerEditorView, editorLocal, messageContext, threadContextRecords, withMessageContext } from '../../src/composer/composer-editor';
+import { composerRichSource } from '../../src/composer/composer-rich-source';
 import { T3Client } from '../../src/client/client';
 import { Backend, storage } from '../support/client-fixture';
 import { arr } from '../../src/client/domain';
+import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
+import { composerFieldObserved } from '../../src/composer/composer-field-bridge';
 
 const codexCommands = [
   { name: 'compact', description: 'Summarize the conversation and reduce context usage' },
@@ -15,6 +18,71 @@ const codexCommands = [
 ];
 const slash = (overrides: object = {}) => slashRows({ query: '', atPromptStart: true, planModeUiEnabled: false, compactAvailable: true,
   driver: 'codex', slashCommands: codexCommands, skills: [], showSkillsInSlashMenu: true, ...overrides });
+
+describe('command menus from the shared field', () => {
+  async function opened() {
+    const client = new T3Client(), native = new Backend(), disk = storage();
+    await client.refresh(native, disk.files);
+    await client.command('select-thread', 't1', '', 0, native, disk.files);
+    await client.refresh(native, disk.files);
+    let serial = 0;
+    const observe = (value: string, start = value.length, end = start, composing = false) => {
+      const owner = composerFieldOwner(client);
+      composerFieldObserved(client, [{ generation: client.generation, snapshotOwner: client.snapshotOwner, owner,
+        value, start, end, composing, live: true, focused: true, inputSerial: ++serial }, true], owner);
+    };
+    return { client, native, observe };
+  }
+  test('menus use accepted field text ahead of persisted draft and close for selections/composition', async () => {
+    const { client, native, observe } = await opened();
+    client.local.drafts[client.draftKey] = 'older saved prompt';
+    observe('/mod');
+    expect((await composerEditorView(client, native)).menu.rows.map(row => row.label)).toContain('/model');
+    expect((await composerEditorView(client, null)).menu.rows.map(row => row.label)).toContain('/model');
+    expect(client.draft).toBe('older saved prompt');
+    observe('/mod', 1, 4);
+    expect((await composerEditorView(client, native)).menu.open).toBe(false);
+    observe('/mod', 4, 4, true);
+    expect((await composerEditorView(client, native)).menu.open).toBe(false);
+    observe('/mod');
+    expect((await composerEditorView(client, native)).menu.open).toBe(true);
+    client.threadId = 't2';
+    expect((await composerEditorView(client, native)).menu.open).toBe(false);
+  });
+  test('Escape keeps the same token dismissed until the caret leaves it', async () => {
+    const { client, native, observe } = await opened();
+    observe('/m');
+    expect((await composerEditorView(client, native)).menu.open).toBe(true);
+    await editorLocal(client, native, 'dismiss', '', '');
+    observe('/mo');
+    expect((await composerEditorView(client, native)).menu.open).toBe(false);
+    observe('/mo ');
+    expect((await composerEditorView(client, native)).menu.open).toBe(false);
+    observe('/mod');
+    expect((await composerEditorView(client, native)).menu.open).toBe(true);
+  });
+  test('rich code suppresses menus while plain mode treats the same source literally', async () => {
+    const { client, native, observe } = await opened();
+    const value = '```\n/mod\n```';
+    observe(value, 8);
+    expect((await composerEditorView(client, native)).menu.open).toBe(false);
+    client.local.clientSettings.composerRichTextEnabled = false;
+    expect((await composerEditorView(client, native)).menu.rows.map(row => row.label)).toContain('/model');
+  });
+  test('menus use live fence policy only for the exact observed field owner and source', async () => {
+    const { client, native, observe } = await opened(), owner = composerFieldOwner(client), value = '```\n/mod';
+    const project = (owner: string, value: string, inputType = '') => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value, inputType });
+    project(owner, '\n/mod');
+    project(owner, value, 'insertText');
+    observe(value);
+    expect((await composerEditorView(client, native)).menu.rows.map(row => row.label)).toContain('/model');
+    project(owner, value + 'x', 'insertText');
+    expect((await composerEditorView(client, native)).menu.open).toBe(false);
+    project('other', '\n/mod');
+    project('other', value, 'insertText');
+    expect((await composerEditorView(client, native)).menu.open).toBe(false);
+  });
+});
 
 describe('slash command menu', () => {
   test('lists /model then the provider commands, as the served build does', () => {
@@ -189,7 +257,7 @@ describe('skill chip labels', () => {
     // Exact names, as the reference's `find`: a chip `$imagegen` does not take `ImageGen`'s label.
     expect(skillChipLabels([{ name: 'ImageGen', displayName: 'Other' }])).toEqual({ ImageGen: 'Other' });
   });
-  test("the editor is synced with the selected provider's labels, the workspace's own list first", async () => {
+  test("the shared source uses selected workspace labels without sending a native stylist policy", async () => {
     const client = new T3Client(), native = new Backend(), disk = storage();
     const codex = arr(native.config.providers)[0]!;
     codex.skills = skills;
@@ -197,11 +265,16 @@ describe('skill chip labels', () => {
     await client.refresh(native, disk.files);
     await client.command('select-thread', 't1', '', 0, native, disk.files);
     await client.refresh(native, disk.files);
-    const synced = async () => { await composerEditorView(client, native); return native.calls.findLast(call => call.op === 'editorSync')!.skills; };
+    const synced = async () => {
+      await composerEditorView(client, native);
+      expect(native.calls.findLast(call => call.op === 'editorSync')).not.toHaveProperty('skills');
+      const view = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: composerFieldOwner(client), value: '$imagegen $openai-docs $frontend-design ' });
+      return Object.fromEntries(view.chips.map(chip => [chip.name, chip.face.label]));
+    };
     expect(await synced()).toEqual({ imagegen: 'Image Gen', 'openai-docs': 'OpenAI Docs', 'frontend-design': 'Frontend Design' });
     // The thread's workspace (the project root, /repo) has its own discovered list: it wins.
     native.emit('config', { type: 'providerStatuses', payload: { providers: [{ ...codex, workspaceSnapshots: [{ cwd: '/repo', skills: [{ name: 'imagegen', displayName: 'Repo Image Gen' }] }] }] } });
     await client.refresh(native, disk.files);
-    expect(await synced()).toEqual({ imagegen: 'Repo Image Gen' });
+    expect(await synced()).toEqual({ imagegen: 'Repo Image Gen', 'openai-docs': 'Openai Docs', 'frontend-design': 'Frontend Design' });
   });
 });

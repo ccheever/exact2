@@ -98,3 +98,18 @@ test('large JPEGs use app files, retain only the latest queued frame and remove 
   await retainServerStreams(run.client, []); expect(run.files.size).toBe(0);
   expect(run.sent.filter(frame => frame.type === 'ack')).toHaveLength(3);
 });
+
+test('the refused state\'s Reconnect clears the refusal and asks for new stream access', async () => {
+  const run = fixture(); await prepareServerStream(run.client, native, 'one', 'thread', 'tab');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // The access is asked for again after the backoff (the first prepare after a close starts its clock).
+    if (attempt) for (const at of [100000 * attempt, 100000 * attempt + 50000]) { noteNow(run.client, at); await prepareServerStream(run.client, native, 'one', 'thread', 'tab'); }
+    withSocket(run.client, 'one', run.socket, event => { event({ type: 'close', code: 4401 }); });
+  }
+  expect(serverStreamFrame(run.client, 'one').refused).toBe(true);
+  const tickets = run.tickets;
+  noteNow(run.client, 900000); await prepareServerStream(run.client, native, 'one', 'thread', 'tab'); expect(run.tickets).toBe(tickets);
+  serverStreamInput(run.client, 'one', 'retry', {});
+  expect(serverStreamFrame(run.client, 'one').refused).toBe(false);
+  await prepareServerStream(run.client, native, 'one', 'thread', 'tab'); expect(run.tickets).toBe(tickets + 1);
+});

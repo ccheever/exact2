@@ -182,3 +182,62 @@ fn uses_finds_a_hover_looks_token() {
     assert_eq!(sites.len(), 4, "a border colour's four sides: {sites:?}");
     assert!(sites.iter().all(|s| s["state"] == "hover"), "{sites:?}");
 }
+
+/// LLP 1122 D8 (stage 9 E): `layout <node>` says a node's looks' rows as it
+/// says its own: each row's value and the token it read, so inspect on a
+/// held hover names the look's tokens; a literal row reads none.
+#[test]
+fn a_nodes_layout_says_its_looks_rows_and_their_tokens() {
+    let view = VIEW.replace(
+        "        border-color = \"ink\"\n",
+        "        border-color = \"ink\"\n        opacity = 0.5\n",
+    );
+    let path = app(
+        "looks-layout",
+        &[("app.tamber", DESIGN), ("app.contract", &view)],
+    );
+    let r = booted(contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}")));
+    let k = r.kernel();
+    let id = k.node_by_key(k.find_by_test_id("card")[0]).unwrap().id;
+    let node: serde_json::Value = serde_json::from_str(&exact_runner::agent::node(&r, id)).unwrap();
+    let hover = &node["looks"]["hover"];
+    assert_eq!(
+        hover["border_color_top"]["token"]["names"],
+        serde_json::json!(["ink"]),
+        "{hover}"
+    );
+    assert_eq!(hover["border_color_top"]["value"], "#111111", "{hover}");
+    assert_eq!(hover["opacity"]["value"], 0.5, "{hover}");
+    assert!(
+        hover["opacity"].get("token").is_none(),
+        "a literal reads no token: {hover}"
+    );
+    assert!(
+        node["looks"].get("focus_visible").is_none(),
+        "only the states it has"
+    );
+    // A look's clear (`unset`) is said, not dropped.
+    let cleared = VIEW.replace(
+        "        border-color = \"ink\"\n",
+        "        border-color = \"ink\"\n        opacity = \"unset\"\n",
+    );
+    let path = app(
+        "looks-unset",
+        &[("app.tamber", DESIGN), ("app.contract", &cleared)],
+    );
+    let r2 = booted(contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}")));
+    let k2 = r2.kernel();
+    let id2 = k2.node_by_key(k2.find_by_test_id("card")[0]).unwrap().id;
+    let node2: serde_json::Value =
+        serde_json::from_str(&exact_runner::agent::node(&r2, id2)).unwrap();
+    assert_eq!(
+        node2["looks"]["hover"]["opacity"],
+        serde_json::json!({"value": "unset"}),
+        "{node2}"
+    );
+    // The press's rows are the node's own, with their token as before.
+    assert_eq!(
+        node["style"]["press_background_color"]["token"]["names"],
+        serde_json::json!(["accent.soft"])
+    );
+}

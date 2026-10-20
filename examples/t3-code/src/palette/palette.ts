@@ -18,6 +18,7 @@ import { linkMode } from './palette-linkpr';
 import { scratchRoot, isScratchProject } from '../pages/pages-home';
 import { pickerProjects } from './palette-projects'; // Project order
 import { openPanelPullRequestUrl, threadReferenceTarget } from '../sidebar/thread-reference';
+import { addProjectEnvironments, projectLocation } from './palette-environments';
 
 export type PalettePart = { id: string; text: string; hit: boolean; cls: string };
 export type PaletteRow = {
@@ -28,6 +29,8 @@ export type PaletteRow = {
   publishHost: string; publishHostLabel: string; publishHosts: { value: string; label: string; selected: boolean }[];
   terminalCount: number; prNumber: string; prState: string; prLabel: string;
   badge: string; badgeOp: string; checkbox: boolean; checked: boolean; project: string; projectInk: string; projectSurface: string; env: string;
+  /** A remote environment's machine glyph before `env` on a project row ('' for none). */
+  envMachine: string;
   branch: string; provider: string; current: boolean; matchLabel: string; matchParts: PalettePart[]; titleParts: PalettePart[]; line: string; orbs: Orb[]; top: number; height: number;
 };
 type Orb = ReturnType<typeof themeCards>[number]['orbs'][number];
@@ -43,7 +46,7 @@ export type PaletteView = {
 
 export const RECENT_THREAD_LIMIT = 12;
 const blankRow: PaletteRow = { key: '', index: -1, header: '', headerGap: false, kind: 'action', op: '', arg: '', arg2: '', icon: '', prefix: '', title: '', bold: '',
-  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, prNumber: '', prState: '', prLabel: '', description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
+  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, prNumber: '', prState: '', prLabel: '', description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '', envMachine: '',
   branch: '', provider: '', current: false, matchLabel: '', matchParts: [], titleParts: [], line: '', orbs: [], top: 0, height: 32 };
 export function row(fields: Partial<PaletteRow>): PaletteRow { return { ...blankRow, ...fields }; }
 
@@ -101,7 +104,7 @@ export function filterGroups(active: Group[], query: string, inSubmenu: boolean,
 export function rowHeight(entry: PaletteRow): number {
   if (entry.kind === 'line') return 28;
   if (entry.kind === 'file-header') return 32;
-  const meta = entry.env && entry.icon !== 'project' ? 18 : entry.description || entry.titleParts.length ? 16 : 0;
+  const meta = entry.env && entry.icon !== 'project' ? 18 : entry.description || entry.env || entry.titleParts.length ? 16 : 0;
   return 12 + 20 + meta + (entry.matchLabel ? 16 : 0);
 }
 /** Flatten groups into rows: every selectable row numbered in display order, each group's label on its first row. */
@@ -159,6 +162,8 @@ export function sortedThreads(threads: Obj[]): Obj[] {
 }
 export function threadItems(client: T3Client, now: number, matches: Map<string, Obj>, query: string): Item[] {
   const providers = arr(client.config.providers);
+  // ThreadCommandSubtitle's environmentLabel: these are the focused environment's threads.
+  const environmentLabel = projectLocation(client, client.environmentId).label;
   return sortedThreads(client.shell.threads).map(thread => {
     const project = client.shell.projects.find(candidate => candidate.id === thread.projectId);
     const projectTitle = str(project?.title);
@@ -171,7 +176,7 @@ export function threadItems(client: T3Client, now: number, matches: Map<string, 
     return { recency: Date.parse(str(thread.updatedAt ?? thread.createdAt)) || 0,
       terms: [str(thread.title), ...pullRequestSearchTerms(thread), projectTitle, str(thread.branch), str(match?.snippet), str(thread.id)],
       row: row({ key: str(thread.id), op: 'thread', arg: str(thread.id), icon: 'message-square', title: str(thread.title, 'Untitled thread'), timestamp: relativeLabel(stampIso, now),
-        project: projectTitle ? identity.projectMark : '', projectInk: identity.projectInk, projectSurface: identity.projectSurface, description: projectTitle, env: projectTitle ? 'Local' : '',
+        project: projectTitle ? identity.projectMark : '', projectInk: identity.projectInk, projectSurface: identity.projectSurface, description: projectTitle, env: projectTitle ? environmentLabel : '',
         terminalCount: terminalProcessCount(client, str(thread.id)), ...palettePullRequest(client, thread, query), branch: str(thread.branch), provider: str(instance?.driver), current: thread.id === client.threadId,
         matchLabel: content.length ? (source === 'user' ? 'You:' : 'Agent:') : '', matchParts: content }) };
   });
@@ -197,11 +202,23 @@ export function contentParts(snippet: string, query: string): PalettePart[] {
   if (cursor < text.length) parts.push({ id: String(cursor), text: text.slice(cursor), hit: false, cls: '' });
   return parts;
 }
-export function projectItems(client: Pick<T3Client, 'shell'>, prefix: string, op: string): Item[] {
-  return client.shell.projects.map(project => {
-    const title = str(project.title), identity = projectIdentity(title), root = str(project.workspaceRoot);
-    return { terms: [title, title, root, title, root, 'Local'], row: row({ key: `${prefix}:${str(project.id)}`, op, arg: str(project.id), icon: 'project', title,
-      project: identity.projectMark, projectInk: identity.projectInk, projectSurface: identity.projectSurface, env: 'Local', description: root }) };
+/**
+ * buildProjectActionItems over pickerProjects: the group's name as title, the target's own title for its mark
+ * (ProjectFavicon), and its environment's location (projectEnvironmentLocationById) beside the path. On the
+ * Projects search a grouped project names its members' environments instead (ProjectSearchDescription).
+ */
+export function projectItems(client: T3Client, projects: Obj[], prefix: string, op: string, search = false): Item[] {
+  return projects.map(project => {
+    const title = str(project.title), identity = projectIdentity(str(project.memberTitle) || title), root = str(project.workspaceRoot);
+    const members = Array.isArray(project.memberProjects) ? project.memberProjects.map(obj) : [project];
+    const location = projectLocation(client, str(project.environmentId));
+    const labels = [...new Set(members.map(member => projectLocation(client, str(member.environmentId)).label))];
+    const grouped = search && members.length > 1;
+    const terms = [title, str(project.memberTitle) || title, root, ...(search ? members.flatMap(member => [str(member.title), str(member.workspaceRoot), projectLocation(client, str(member.environmentId)).label])
+      : [...members.flatMap(member => [str(member.title), str(member.workspaceRoot)]), location.label])];
+    return { terms, row: row({ key: `${prefix}:${str(project.id)}`, op, arg: str(project.id), icon: 'project', title,
+      project: identity.projectMark, projectInk: identity.projectInk, projectSurface: identity.projectSurface,
+      env: grouped ? labels.join(' · ') : location.label, envMachine: !grouped && location.remote ? location.machine : '', description: grouped ? '' : root }) };
   });
 }
 
@@ -236,8 +253,9 @@ export function rootActions(client: T3Client): Item[] {
   action('open-file-picker', ['go to file', 'open file', 'file picker', 'find file', 'quick open'], { op: 'mode', arg: 'files', icon: 'file-search', title: 'Go to file', shortcut: commandShortcut(client, 'filePicker.toggle') });
   action('search-project-contents', ['search project', 'find in files', 'grep', 'content search', 'text search'], { op: 'mode', arg: 'content', icon: 'text-search', title: 'Search project contents', shortcut: commandShortcut(client, 'projectSearch.toggle') });
   if (str(client.config.newProjectsRoot)) action('new-project', ['new project', 'create project', 'empty', 'repository', 'repo', 'git init'], { op: 'page', arg: 'new-project', icon: 'folder-git', title: 'New project' });
+  // openAddProjectFlow: with no connected environment, Settings › Connections.
   action('add-project', ['add project', 'folder', 'directory', 'browse', 'clone', 'remote', 'repository', 'repo', 'git', 'github', 'gitlab', 'forgejo', 'bitbucket', 'azure', 'devops', 'url', 'environment'],
-    { op: 'page', arg: 'add-project', icon: 'folder-plus', title: 'Add project' });
+    addProjectEnvironments(client).length ? { op: 'page', arg: 'add-project', icon: 'folder-plus', title: 'Add project' } : { op: 'settings', arg: 'connections', icon: 'folder-plus', title: 'Add project' });
   action('change-theme', ['change theme', 'appearance', 'colors', 'palette'], { kind: 'submenu', op: 'page', arg: 'theme', icon: 'palette', title: 'Change theme', shortcut: commandShortcut(client, 'theme.select') });
   action('change-appearance', ['change appearance', 'light', 'dark', 'system', 'mode', 'toggle'], { kind: 'submenu', op: 'page', arg: 'appearance', icon: 'monitor', title: 'Change appearance', shortcut: commandShortcut(client, 'appearance.cycle') });
   action('theme-editor', ['theme', 'appearance', 'colors', 'palette', 'customize'], { op: 'theme-editor', icon: 'palette', title: 'Toggle theme editor', shortcut: commandShortcut(client, 'themeEditor.toggle') });
@@ -260,7 +278,7 @@ export function rootActions(client: T3Client): Item[] {
 export function newThreadInItems(client: T3Client): Item[] {
   const root = scratchRoot(client.config), picked = pickerProjects(client);
   const ordered = picked.filter(project => !isScratchProject(project, root));
-  const items = enumerateJumps(client, projectItems({ shell: { ...client.shell, projects: ordered } }, 'new-thread-in', 'new-thread'));
+  const items = enumerateJumps(client, projectItems(client, ordered, 'new-thread-in', 'new-thread'));
   if (!root) return items;
   const at = picked[0] !== undefined && isScratchProject(picked[0], root) ? 0 : 1;
   items.splice(at, 0, { terms: ['No project', 'no project', 'without project', 'none'],
@@ -318,7 +336,7 @@ export function commandView(client: T3Client, context: CommandContext): PaletteV
         : [{ value: 'actions', label: 'Actions', items: rootActions(client) },
           { value: 'recent-threads', label: 'Recent Threads', items: threadItems(client, context.now, new Map(), '').slice(0, RECENT_THREAD_LIMIT) }].filter(group => group.items.length);
   const threads = submenu ? [] : context.linkedThreads ?? threadItems(client, context.now, context.matches, context.matchQuery);
-  const filtered = filterGroups(groups, context.query, submenu, { projects: submenu ? [] : projectItems({ shell: { ...client.shell, projects: pickerProjects(client) } }, 'project', 'open-project'), settings: submenu ? [] : settingsItems(client, context.query), threads });
+  const filtered = filterGroups(groups, context.query, submenu, { projects: submenu ? [] : projectItems(client, pickerProjects(client), 'project', 'open-project', true), settings: submenu ? [] : settingsItems(client, context.query), threads });
   const rows = flatten(filtered);
   const actionsOnly = context.query.startsWith('>');
   return { ...closedView, open: true, page, parent: '', back: submenu, addon: submenu ? 'back' : 'search', placeholder: submenu ? 'Search...' : 'Search commands, projects, and threads...',

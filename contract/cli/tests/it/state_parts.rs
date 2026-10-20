@@ -299,19 +299,35 @@ fn a_state_its_node_never_meets_is_linted() {
     assert_eq!(dead[0].span.line, 13, "at its row: {dead:?}");
 }
 
-/// A node's own `:active` where it has no `press` (nor `href`) never holds:
-/// the host's press needs one (theme2's 07:06 question); a lint.
+/// A node's own `:active` where it has no `press` never holds: the host's
+/// press needs one (theme2's 07:06 question); a lint. A link with no `press`
+/// is linted as unreliable: only Apple presses it (theme2's 11:48).
 #[test]
 fn an_active_part_without_a_press_is_linted() {
-    let src = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"dead\"\n        :active\n          opacity = 0.5\n        text \"d\"\n      column press=go testId=\"live\"\n        :active\n          opacity = 0.5\n        text \"l\"\n      text \"link\" href=\"https://example.com\"\n        :active\n          opacity = 0.5\n";
+    let src = "component App\n  state n = 0\n  state url = \"https://example.com\"\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"dead\"\n        :active\n          opacity = 0.5\n        text \"d\"\n      column press=go testId=\"live\"\n        :active\n          opacity = 0.5\n        text \"l\"\n      text \"link\" href=\"https://example.com\"\n        :active\n          opacity = 0.5\n      link href=\"https://example.com\"\n        :active\n          opacity = 0.5\n        text \"l\"\n      link href=url\n        :active\n          opacity = 0.5\n        text \"b\"\n";
     let (plan, warnings) = contract::compile_warned(src);
     assert!(plan.is_ok(), "{plan:?}");
     let dead: Vec<_> = warnings
         .iter()
         .filter(|w| w.id == "lower-state-dead")
         .collect();
-    assert_eq!(dead.len(), 1, "{warnings:?}");
-    assert_eq!(dead[0].span.line, 9, "at its row: {dead:?}");
+    // The column and the `text` link never hold; the pressable links are unreliable.
+    assert_eq!(dead.len(), 4, "{warnings:?}");
+    let at = |line| {
+        dead.iter()
+            .find(|w| w.span.line == line)
+            .unwrap_or_else(|| panic!("{dead:?}"))
+    };
+    assert!(at(10).message.contains("never holds"), "{dead:?}");
+    assert!(
+        at(18).message.contains("never holds"),
+        "a text link: {dead:?}"
+    );
+    assert!(at(21).message.contains("only on Apple"), "{dead:?}");
+    assert!(
+        at(25).message.contains("only on Apple"),
+        "a bound href: {dead:?}"
+    );
 }
 
 /// Review round 1: a state that leaves a row unwritten in some arm keeps
@@ -369,8 +385,10 @@ fn round_one_refusals_and_typing() {
     // As a list's row first, then elsewhere: the row is refused, the other is not
     // judged as one (the refusal names the row, at its instance).
     assert_eq!(refused(&format!("component App\n  view\n    column\n      Card()\n      list flex=1\n        Card()\n\n{card}")), "lower-state-target");
-    // A computed list in a state's border-color, as on the node.
+    // A computed list in a state's border-color, as on the node: a template of
+    // interpolations alone and a concatenation are refused.
     assert_ne!(refused("component App\n  state c = \"#ff0000\"\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        border-color=`${c} ${c}`\n      text \"b\"\n"), "compiled");
+    assert_ne!(refused("component App\n  state c = \"#ff0000\"\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        border-color=c + \" \" + c\n      text \"b\"\n"), "compiled");
     // A row typed as the node's own rows are: `none` an arm.
     assert_eq!(refused("component App\n  state on = false\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        opacity=(on ? 0.5 : none)\n      text \"b\"\n"), "compiled");
     // A child in a state.

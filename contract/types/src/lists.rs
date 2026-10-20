@@ -486,9 +486,14 @@ fn infer_sort_by(
     }
     if let Some(dir) = args.get(2) {
         if !matches!(dir, Expr::Str(d, _) if d == "asc" || d == "desc") {
+            let computed = if matches!(dir, Expr::Str(..)) {
+                ""
+            } else {
+                "; a direction held in state picks one of two sorts: `dir == \"desc\" ? sortBy(xs, f, \"desc\") : sortBy(xs, f)`"
+            };
             return err(
                 "type-argument",
-                "argument 3 of `sortBy` is the direction, written `\"asc\"` (the default) or `\"desc\"`",
+                format!("argument 3 of `sortBy` is the direction, written `\"asc\"` (the default) or `\"desc\"`{computed}"),
                 dir.span(),
             );
         }

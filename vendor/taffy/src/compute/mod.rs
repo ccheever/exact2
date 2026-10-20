@@ -158,7 +158,7 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
         Size::NONE
     };
 
-    let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, root, parent_size);
+    let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, root, parent_size, None);
     let known_dimensions = known_dimensions.map_width(|width| width.maybe_max(ratio_min));
 
     let available_space = available_space.maybe_sub(non_auto_margin.sum_axes());

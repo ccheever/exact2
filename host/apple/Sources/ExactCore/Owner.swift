@@ -14,8 +14,11 @@ package final class Owner: @unchecked Sendable {
         var body: (() -> Void)?
         var done = false
         /// Signalled when the job is done, or when a call waits for main.
-        let wake = DispatchSemaphore(value: 0)
-        init(_ body: @escaping () -> Void) { self.body = body }
+        let wake: DispatchSemaphore
+        init(_ body: @escaping () -> Void, wake: DispatchSemaphore = DispatchSemaphore(value: 0)) {
+            self.body = body
+            self.wake = wake
+        }
     }
     private final class MainCall {
         var body: (() -> Void)?
@@ -33,6 +36,12 @@ package final class Owner: @unchecked Sendable {
     /// Notifications (T5): run after the job that posted them.
     private var later: [Job] = []
     private var mailbox: [MainCall] = []
+    /// Wakes `sync` waited on, kept for the next: a semaphore makes its
+    /// kernel object at its first wait, a Mach call that a frame task's
+    /// sixty syncs a second each paid. A wake is signalled only under the
+    /// lock, and drained under it before it goes back, so none comes back
+    /// holding a count.
+    private var spareWakes: [DispatchSemaphore] = []
     /// The job main is waiting on: a call for main wakes it.
     private var mainWaits: Job?
     private var thread: pthread_t?
@@ -78,8 +87,8 @@ package final class Owner: @unchecked Sendable {
             lock.lock()
             job.body = nil
             job.done = true
-            lock.unlock()
             job.wake.signal()
+            lock.unlock()
         }
     }
 
@@ -95,8 +104,8 @@ package final class Owner: @unchecked Sendable {
         }
         return withoutActuallyEscaping(body) { body in
             var result: T?
-            let job = Job { result = body() }
             lock.lock()
+            let job = Job({ result = body() }, wake: spareWakes.popLast() ?? DispatchSemaphore(value: 0))
             jobs.append(job)
             if main { mainWaits = job }
             lock.unlock()
@@ -105,6 +114,8 @@ package final class Owner: @unchecked Sendable {
                 lock.lock()
                 if job.done {
                     if main { mainWaits = nil }
+                    while job.wake.wait(timeout: .now()) == .success {}
+                    spareWakes.append(job.wake)
                     lock.unlock()
                     break
                 }
@@ -134,6 +145,14 @@ package final class Owner: @unchecked Sendable {
         jobs.append(Job(body))
         lock.unlock()
         work.signal()
+    }
+
+    /// Give the stack pages under the boot back. A boot's decode, realize
+    /// and first layout reach some 180 KB down this thread's 8 MB stack,
+    /// which then idles near its top. Posted as a job, so everything under
+    /// its frame is dead.
+    package func releaseIdleStack() {
+        post { releaseStackBelowCaller() }
     }
 
     /// A notification (T5): on the owner, now; from anywhere else, queued
@@ -168,9 +187,8 @@ package final class Owner: @unchecked Sendable {
             let call = MainCall { result = body() }
             lock.lock()
             mailbox.append(call)
-            let waiting = mainWaits
+            mainWaits?.wake.signal()
             lock.unlock()
-            waiting?.wake.signal()
             // Main may be about to wait on a job; the wait loop checks the
             // mailbox first, and this hop covers main not waiting at all.
             DispatchQueue.main.async { [self] in
@@ -202,4 +220,22 @@ package final class Owner: @unchecked Sendable {
         lock.unlock()
         call.done.signal()
     }
+}
+
+/// Give back the pages of the calling thread's stack below the caller's
+/// frame, which the caller knows hold only dead frames. Pages a call touched
+/// stay dirty, in the footprint, until released; a later call that reaches
+/// as deep gets them back zero-filled. One page stays under this frame for
+/// the red zone and `madvise`'s own callees.
+@inline(never)
+package func releaseStackBelowCaller() {
+    var marker = 0
+    let frame = withUnsafeMutablePointer(to: &marker) { UInt(bitPattern: $0) }
+    let me = pthread_self()
+    let top = UInt(bitPattern: pthread_get_stackaddr_np(me))
+    let low = top - UInt(pthread_get_stacksize_np(me))
+    let page = UInt(vm_page_size)
+    let end = (frame & ~(page - 1)) - page
+    guard end > low, let start = UnsafeMutableRawPointer(bitPattern: low) else { return }
+    _ = madvise(start, Int(end - low), MADV_FREE_REUSABLE)
 }

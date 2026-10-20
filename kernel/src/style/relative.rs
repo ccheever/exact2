@@ -41,6 +41,10 @@ pub enum Unit {
     TextStyle(u8),
     /// One device pixel (`-exact-hairline`): 1 px over the display's scale.
     Hairline,
+    /// A length ramp's length at the root font size, by its index in
+    /// [`crate::LENGTH_RAMPS`] (LLP 1137): a platform metric that grows with
+    /// the text size as a text style does.
+    Ramp(u8),
 }
 
 impl Unit {
@@ -53,6 +57,9 @@ impl Unit {
             Unit::Em => reference,
             Unit::TextStyle(id) => text_style_size(id, root),
             Unit::Hairline => device,
+            Unit::Ramp(id) => crate::LENGTH_RAMPS
+                .get(usize::from(id))
+                .map_or(0.0, |(_, sizes)| ramp(sizes, root)),
         }
     }
 }
@@ -72,10 +79,16 @@ pub fn named_length(name: &str) -> Option<Unit> {
         .get(..7)
         .filter(|p| p.eq_ignore_ascii_case("-exact-"))
         .map(|_| &name[7..])?;
-    crate::NAMED_LENGTHS
+    if crate::NAMED_LENGTHS
         .iter()
-        .find(|n| exact.eq_ignore_ascii_case(n))
-        .map(|_| Unit::Hairline)
+        .any(|n| exact.eq_ignore_ascii_case(n))
+    {
+        return Some(Unit::Hairline);
+    }
+    crate::LENGTH_RAMPS
+        .iter()
+        .position(|(n, _)| exact.eq_ignore_ascii_case(n))
+        .map(|i| Unit::Ramp(i as u8))
 }
 
 /// A text style's id by its written name: `-exact-<name>` or its WebKit
@@ -113,7 +126,9 @@ fn same_role(written: &str, name: &str) -> bool {
 pub fn column_index(column: crate::style::metrics::Column) -> usize {
     use crate::style::metrics::Column;
     match column {
-        Column::Web => 0,
+        // Android's type is the device's reported ramp, never a table's
+        // (LLP 1115.001.001 D2.5): its look reads the web's until that lands.
+        Column::Web | Column::Material | Column::Terminal => 0,
         Column::Ios => 1,
         Column::Mac => 2,
         Column::Neutral => 3,
@@ -141,11 +156,17 @@ pub fn text_style_leading(id: u8, column: crate::style::metrics::Column) -> crat
 /// sizes it interpolates; below the first or above the last, the nearest
 /// row scales with the root.
 pub fn text_style_size(id: u8, root: f32) -> f32 {
+    crate::TEXT_STYLES
+        .get(usize::from(id))
+        .map_or(root, |style| ramp(style.sizes, root))
+}
+
+/// A ramp of sizes, one per [`crate::TEXT_STYLE_BODIES`] body size, read
+/// where the root font size is `root`: between two body sizes it
+/// interpolates; below the first or above the last, the nearest size scales
+/// with the root.
+fn ramp(sizes: &[f32], root: f32) -> f32 {
     let bodies = crate::TEXT_STYLE_BODIES;
-    let Some(style) = crate::TEXT_STYLES.get(usize::from(id)) else {
-        return root;
-    };
-    let sizes = style.sizes;
     let last = bodies.len() - 1;
     if root <= bodies[0] {
         return sizes[0] * root / bodies[0];
@@ -221,6 +242,7 @@ impl Relative {
                 Unit::Em => out.push(1),
                 Unit::TextStyle(id) => out.extend_from_slice(&[2, *id]),
                 Unit::Hairline => out.push(3),
+                Unit::Ramp(id) => out.extend_from_slice(&[4, *id]),
             }
             out.extend_from_slice(&n.to_bits().to_le_bytes());
         }
@@ -298,7 +320,9 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
             expected: "a length: a text style is a `font-size`",
         });
     }
-    if unit == Unit::Hairline && matches!(id, StyleId::FontSize | StyleId::LineHeight) {
+    if matches!(unit, Unit::Hairline | Unit::Ramp(_))
+        && matches!(id, StyleId::FontSize | StyleId::LineHeight)
+    {
         return Err(StyleValueError::WrongKind {
             style: id,
             expected: "a size of text: `-exact-hairline` is a width",
@@ -443,6 +467,47 @@ impl StyleProps {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// LLP 1137: a length ramp is its length at the root font size, read
+    /// along the body sizes as a text style's size is, and is no font's size.
+    #[test]
+    fn a_length_ramp_is_its_length_at_the_root_font_size() {
+        let unit = named_length("-exact-accessory-checkmark-width").expect("a ramp");
+        assert!(matches!(unit, Unit::Ramp(_)));
+        for (root, px) in [
+            (17.0, 19.0),
+            (28.0, 31.33),
+            (40.0, 36.0),
+            (53.0, 48.0),
+            (13.0, 14.55),
+        ] {
+            assert!(
+                (unit.basis(root, 99.0, 1.0) - px).abs() < 0.01,
+                "{root}: {}",
+                unit.basis(root, 99.0, 1.0)
+            );
+        }
+        assert!(
+            (unit.basis(18.0, 0.0, 1.0) - 20.335).abs() < 0.01,
+            "between two bodies it interpolates"
+        );
+        assert!(of(
+            StyleId::FontSize,
+            &StyleValue::Text("-exact-accessory-checkmark-width".into())
+        )
+        .is_err());
+        assert_eq!(
+            of(
+                StyleId::Width,
+                &StyleValue::Text("-exact-accessory-checkmark-height".into())
+            )
+            .unwrap(),
+            Some((
+                named_length("-exact-accessory-checkmark-height").unwrap(),
+                1.0
+            ))
+        );
+    }
 
     #[test]
     fn length_dispatch_preserves_conversions_and_refusals_for_every_row() {

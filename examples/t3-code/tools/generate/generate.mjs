@@ -8,7 +8,7 @@
 //   gen-css-words.mjs  src/highlight/css-words.ts and mobile/shared/r7-polish-css-words.ts: the CSS grammar's word lists
 //   gen-icons.mjs      src/settings/settings-b-lucide.ts (and mobile/shared/'s copy), src/shared/pages-icons.contract (Lucide);
 //                      src/shared/timeline-files.contract and timeline-files-tables.ts, data/pierre-icons.tsv,
-//                      assets/composer-icons.json (Pierre); the icon tables of icon-tables.mjs and
+//                      the icon tables of icon-tables.mjs and
 //                      icon-marks.mjs (src/shared/icons.contract and nine more in their features' folders)
 //   gen-morph.mjs      src/shell/shell-morph.contract: morphicons' plan for each icon pair
 //   gen-vectors.mjs    macos/tests/terminal/vectors.json: the buffer cases and their committed expectations

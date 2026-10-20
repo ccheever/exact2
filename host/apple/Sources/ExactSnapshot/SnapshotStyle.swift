@@ -183,15 +183,23 @@ enum SnapshotColor {
     }
 }
 
-/// The bundles an entry's resources come from: this process's, and the
-/// containing app's when this is its extension (`App.app/PlugIns/X.appex`).
-enum SnapshotBundles {
-    static let all: [Bundle] = {
-        var bundles = [Bundle.main]
-        let url = Bundle.main.bundleURL
-        if url.pathExtension == "appex", let app = Bundle(url: url.deletingLastPathComponent().deletingLastPathComponent()) { bundles.append(app) }
-        return bundles
-    }()
+/// Bundle and loose-file lookup share the containing app, including a Mac appex's extra Contents level.
+public enum SnapshotBundles {
+    public static func containingApp(of bundle: Bundle) -> Bundle? {
+        var url = bundle.bundleURL
+        guard url.pathExtension == "appex" else { return nil }
+        #if os(macOS)
+        url.deleteLastPathComponent()
+        #endif
+        return Bundle(url: url.deletingLastPathComponent().deletingLastPathComponent())
+    }
+    public static func all(for bundle: Bundle) -> [Bundle] {
+        [bundle] + (containingApp(of: bundle).map { [$0] } ?? [])
+    }
+    public static func imageRoots(for bundle: Bundle) -> [URL] {
+        all(for: bundle).compactMap(\.resourceURL)
+    }
+    static let all = all(for: .main)
 }
 
 /// A box's rounded outline with elliptical corners (CSS Backgrounds 3 §5),
@@ -318,6 +326,16 @@ struct SnapshotPaint {
             if !layers.isEmpty {
                 SnapshotGradients(layers: layers, box: box, dark: dark).frame(width: rect.width, height: rect.height).clipShape(shape)
             }
+        }
+    }
+
+    /// The gradient layers alone, over whatever holds the colour (a Live
+    /// Activity's tint, LLP 1126.001 WP10), positioned on `rect`.
+    @ViewBuilder
+    func gradients(in rect: CGRect) -> some View {
+        let layers = style.gradients("background_image")
+        if !layers.isEmpty {
+            SnapshotGradients(layers: layers, box: rect, dark: dark).frame(width: rect.width, height: rect.height)
         }
     }
 

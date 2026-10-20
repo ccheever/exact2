@@ -107,9 +107,13 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   if (carrier.touches) {
     let r;
     // A still drag's ops first wait up to `REACH_MS` for the touch to reach its view, inside the finger's time: the
-    // runner holds that much longer, and the reply says the hold asked.
+    // runner holds that much longer, and the reply says the hold asked. The hold also moves the agent's clock by its
+    // length, so the app's `every` and `after` run while the finger is held (euxy FRICTION 10), as `tap down`,
+    // `clock +<ms> real`, `tap up` does; the finger is held only as long as asked (`heldTick`). Under platform timing
+    // the clock is the wall's already.
     const reach = !moves && during.length ? REACH_MS : 0;
-    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, hold: hold + reach, during: during.map(held) } }); }
+    const tick = hold > 0 && timing !== 'platform' ? heldTick(s, s.now + hold, target) : undefined;
+    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, hold: hold + reach, during: during.map(held), ...(tick ? { tick } : {}) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
     return noted(await s.landed({ ...r, ...(r.drag ? { drag: { ...r.drag, hold } } : {}), target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing }), await reorderNotes(s, mark));
   }
@@ -178,6 +182,25 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   }
   return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), [...new Set(phaseNotes), ...await reorderNotes(s, mark)]);
 }
+
+/** A real drag's clock while its finger is held: `realTap` passes `until`, when the finger lifts less its
+ *  `TICK_MARGIN`, and `down`, which reads the dispatch log. While the finger is down the clock moves with real time
+ *  toward `to` in steps of at most `TICK_STEP` ms until `until`, then the rest at once; once it has lifted, or the
+ *  runner has ended, nothing more. What the drag's `during` ops moved it already counts, so a hold is never counted
+ *  twice. Input is refused meanwhile. */
+export const heldTick = (s, to, target) => async (until, down) => {
+  s.held = target;
+  try {
+    for (let left; s.now < to && (left = Math.floor(Math.min(to - s.now, until - Date.now(), TICK_STEP))) > 0;) {
+      if (!await down()) return;
+      await s.clock(`+${left} real`);
+    }
+    if (s.now < to && await down()) await s.clock(`+${to - s.now}`);
+  } finally { s.held = null; }
+};
+
+/** The longest real-time clock step of a hold (`heldTick`) between two reads that the finger is still down. */
+export const TICK_STEP = 100;
 
 /** How much longer than its holds a played contact with steps inside stays down: `HELD_LEAD` to see the touch begin
  *  in the dispatch log and to end the clock's real run, `REACH_MS` for the longest wait for it to reach its view (the
@@ -328,4 +351,13 @@ async function toward(s, node, { to, at, from }) {
   const start = from ? [a.x + from[0], a.y + from[1]] : [a.x + a.w / 2, a.y + a.h / 2];
   const point = at ? [b.x + at[0], b.y + at[1]] : [b.x + b.w / 2, b.y + b.h / 2];
   return { dx: point[0] - start[0], dy: point[1] - start[1] };
+}
+
+/** A held state (LLP 1122 D8, LLP 1121 stage 8 E): `holdState` on the node,
+ * which the host holds as the real one (no input event), or null to let it
+ * go; its reply as a tap's. */
+export async function holdTap({ s, node, target, host, timing, tapRefusal, scrolled }, holdState) {
+  const r = await s.op({ op: 'tap', id: node.id, holdState });
+  if (r.error) throw await tapRefusal(s, target, new Error(r.error));
+  return s.landed({ ...r, tapped: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? 'recognized', carrier: host, mode: r.mode ?? timing });
 }

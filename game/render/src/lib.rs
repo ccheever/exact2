@@ -23,6 +23,8 @@ mod ibl;
 mod lights;
 mod local_shadows;
 mod lod;
+mod look;
+mod look_bounds;
 mod model_pipeline;
 mod models;
 mod node_poses;
@@ -40,8 +42,11 @@ pub mod shapes;
 mod skinning;
 mod ssao;
 mod surface;
+pub mod tells;
 mod timing;
 mod trace;
+#[cfg(test)]
+mod translucent_tests;
 pub mod world;
 
 /// Simulation vocabulary, also used by module! without a direct dependency.
@@ -543,11 +548,20 @@ macro_rules! module {
                 <$game as $crate::exact_game::Game>::NAME,
                 <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
                     .len(),
-                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default()),
+                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default().development_edits($crate::development_build())),
             )],
             shaders: $shaders,
         };
         $crate::exact_gpu::module!(REGISTRY);
+        #[cfg(target_arch = "wasm32")]
+        #[wasm_bindgen::prelude::wasm_bindgen]
+        pub fn exact_game_tables(text: &str) -> Result<String, wasm_bindgen::JsValue> {
+            if text.is_empty() {
+                return $crate::exact_game::json::to_string(&<$game as $crate::exact_game::Game>::TABLES.iter().map(|t| t.name.to_owned()).collect::<Vec<_>>()).map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()));
+            }
+            $crate::exact_game::asset::validate_tables::<$game>(text).map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+            Ok(text.into())
+        }
     };
 }
 
@@ -575,3 +589,12 @@ mod test_device;
 
 #[cfg(test)]
 mod visibility_tests;
+
+/// Whether this build answers development requests: every build but one
+/// baked with `EXACT_UPDATE_TRUST=production`. build.rs passes the trust to
+/// rustc (unset as `development`, as `scripts/app.mjs` and
+/// `bake/src/compat.rs` take it), so a rebake with another trust recompiles
+/// this crate.
+pub fn development_build() -> bool {
+    env!("EXACT_UPDATE_TRUST") != "production"
+}

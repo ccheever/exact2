@@ -49,9 +49,12 @@ LLP 1115.000 D6's dim; a disabled button takes no hover.
 - **Where:** `element.rs` adds `background-color` to the button's `data-exact-said` words
   (merged with the words already there). `neutral.css`'s rule is the unsaid hover's
   selector with that word added, so it outranks the 4% rule by one attribute.
-- **Limit:** a fill computed at run time (`background-color=(on ? "accent" : …)`) is not
-  seen when the mark is made and keeps the 4% wash, as today. The JS target writes such a
-  row at run time with no mark; carrying one is a follow-up if a probe shows it matters.
+- **Limit (amended 2026-10-19):** a fill computed at run time (`background-color=(on ? "accent" : …)`)
+  is not seen when the mark is made. On the JS target, `host/web-js/said.js` marks it on the page:
+  as a pointer comes over, presses or clicks such a button, its bound fill is read as the page
+  resolves it and the word follows its alpha, `light-dark()` filled when either half is
+  (a1ca9de9be; conform interaction-gallery). The wasm page's marks are made from the running tree,
+  so they see it already. Native hosts take no D1 hover: see the last bullet.
 - **Stage 8 B's handoff:** the unsaid washes are `background-image`s, which an authored
   `:hover { background-color }` does not replace. Tamber D8 already says a declared state
   replaces the host's default for that state; on the web that means stage 8 B's `:hover`

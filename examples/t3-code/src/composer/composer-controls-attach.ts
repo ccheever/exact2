@@ -14,6 +14,7 @@ import { acceptAttachedFile, attachStagingLimit, imagesGetChips, insertFileChips
 import type { DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from './image-attachment-size';
+import { composerFieldOwner } from './auto-balance-owner';
 
 export const MAX_ATTACHMENTS = 100; // PROVIDER_SEND_TURN_MAX_ATTACHMENTS
 
@@ -42,12 +43,15 @@ export async function attachFiles(client: T3Client, native: Native): Promise<str
  * them for; once another draft is open they are let go. Files Paste as Text took (`asText`) give their images no
  * inline chip (`skipImageInlineChip`); a take holding both kinds of paste follows Paste as Text.
  */
-export async function takePastedFiles(client: T3Client, native: Native, key = client.draftKey): Promise<void> {
+export async function takePastedFiles(client: T3Client, native: Native, key = client.draftKey,
+  identity = { snapshotOwner: client.snapshotOwner, fieldOwner: composerFieldOwner(client) }): Promise<void> {
+  const generation = client.generation;
+  if (key !== client.draftKey || identity.snapshotOwner !== client.snapshotOwner || identity.fieldOwner !== composerFieldOwner(client)) return;
   const prose = imagesGetChips(client);
-  const files = arr(obj(await client.restAccess(native).call({ op: 'composerPasteTake', fileLimit: attachStagingLimit(client), imageMaxEdge: IMAGE_ATTACHMENT_MAX_EDGE })).files);
+  const files = arr(obj(await client.restAccess(native).call({ op: 'composerPasteTake', ...identity, fileLimit: attachStagingLimit(client), imageMaxEdge: IMAGE_ATTACHMENT_MAX_EDGE })).files);
   const imageChips = prose && !files.some(file => file.asText === true);
   if (!files.length) return;
-  if (key !== client.draftKey || !client.projectId) {
+  if (generation !== client.generation || key !== client.draftKey || identity.snapshotOwner !== client.snapshotOwner || identity.fieldOwner !== composerFieldOwner(client) || !client.projectId) {
     for (const file of files) {
       if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id));
       await releaseStagedFile(native, file);
@@ -66,10 +70,17 @@ export async function takePastedFiles(client: T3Client, native: Native, key = cl
  */
 export async function addAttachedFiles(client: T3Client, native: Native, files: Obj[], imageChips = imagesGetChips(client), owner = ''): Promise<void> {
   const key = client.draftKey;
+  const identity = { generation: client.generation, snapshotOwner: client.snapshotOwner, fieldOwner: composerFieldOwner(client) };
+  const current = () => identity.generation === client.generation && identity.snapshotOwner === client.snapshotOwner && identity.fieldOwner === composerFieldOwner(client) && key === client.draftKey;
   let error = '';
   const accepted: Obj[] = [], chips: DraftFile[] = [];
   let reserved = reservedAttachments(client);
   for (const file of files) {
+    if (!current()) {
+      if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id));
+      await releaseStagedFile(native, file);
+      continue;
+    }
     const name = str(file.name, 'file');
     if (reserved >= MAX_ATTACHMENTS) {
       if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id)); // staged bytes nothing will reference
@@ -86,6 +97,6 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
     reserved += 1;
   }
   if (accepted.length) client.local.snapshotDrafts[key] = [...(client.local.snapshotDrafts[key] ?? []), ...accepted];
-  await insertFileChips(client, native, chips, imageChips ? accepted : [], owner);
-  client.error = error;
+  const inserted = await insertFileChips(client, native, chips, imageChips ? accepted : [], owner || identity.snapshotOwner);
+  if (current()) client.error = error || (!inserted ? 'The prompt changed before attachment references could be inserted. Attach the files again.' : '');
 }

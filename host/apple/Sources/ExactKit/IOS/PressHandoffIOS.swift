@@ -62,7 +62,7 @@ final class PressHandoff {
         destinations.removeAll { d in
             guard let route = d.route, let presenter, presenter.views[route.id] === route else { return true }
             guard let controller = presenter.navigation.controllers[route.id], controller.node === route else { return false }
-            return controller.navigationController == nil
+            return controller.stack == nil
         }
     }
     func settle() {

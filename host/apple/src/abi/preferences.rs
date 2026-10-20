@@ -165,6 +165,15 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// What a boot is told at launch: the date and place last told, and a
+    /// live clock's reading now, where a fresh runner's clock starts.
+    pub(super) fn launch(&self) -> exact_runner::time::Launch {
+        exact_runner::time::Launch {
+            clock: self.live_clock.map(|wall| wall()),
+            ..self.launch_facts.clone()
+        }
+    }
+
     /// The presenter's clock owns time (`Some`), or the agent's seekable one
     /// does (`None`): the running runner and every one booted later take it.
     pub fn set_live_clock(&mut self, wall: Option<LiveClockFn>) {
@@ -176,8 +185,22 @@ impl<D: DataSource> Bridge<D> {
 }
 
 impl<D: DataSource> Bridge<D> {
-    /// A MIDI message in the input buffer (LLP 1125 D6–D8): the arm's
-    /// report of the ports or the inputs, or the agent's (`Host::midi`).
+    /// Declare the packaged arm for this handle’s boots and reloads.
+    pub fn link_activities(&mut self) {
+        self.links.activities = true;
+    }
+
+    /// Activity facts or one send completion in the input buffer.
+    pub fn activities(&mut self, len: usize) -> u32 {
+        let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.activities(&text));
+        self.emit(out)
+    }
+
+    /// MIDI ports or messages in the input buffer.
     pub fn midi(&mut self, len: usize) -> u32 {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
             .unwrap_or("")
@@ -186,6 +209,29 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.midi(&text));
+        self.emit(out)
+    }
+
+    /// The extensions the app's module composes, a name a line.
+    pub fn bind_extensions(&mut self, len: usize) {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let names: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().bind_extensions(&names);
+        }
+    }
+
+    /// The agent's `prefer extension` in the input buffer (`Host::extension`).
+    pub fn extension(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.extension(&text));
         self.emit(out)
     }
 }

@@ -9,9 +9,10 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createApp } from '../game/new.mjs';
 import { HELP, helpText, indexText, knownFlags } from './help.mjs';
+import { scriptFlags } from './help-parity.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'feedback'];
+const APP_VERBS = ['status', 'web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'lock', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'docs', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };
@@ -80,7 +81,7 @@ test('the scripts a verb runs answer --help and refuse a flag they do not take, 
     ['verify', ['scripts/verify.mjs', 'web', '--app', 'caltrain']],
     ['ios', ['host/apple/build.mjs', '--ios', 'caltrain-apple']], ['mac', ['host/apple/build.mjs', 'caltrain-apple']],
     ['linux', ['scripts/build-linux.mjs', 'caltrain']], ['android', ['scripts/agent-android.mjs', 'build', 'caltrain']],
-    ['feedback', ['scripts/feedback.mjs', 'send']], ['hatch', ['scripts/exact.mjs', 'hatch', 'avatar']], ['pattern', ['scripts/exact.mjs', 'pattern', 'list-detail']],
+    ['feedback', ['scripts/feedback.mjs', 'send']], ['hatch', ['scripts/exact.mjs', 'hatch', 'avatar']], ['add', ['scripts/exact.mjs', 'add', 'geolocation']], ['pattern', ['scripts/exact.mjs', 'pattern', 'list-detail']],
     ['contract', ['scripts/exact.mjs', 'contract', 'build']], ['new', ['scripts/exact.mjs', 'new', 'x']],
   ]) {
     const help = timed([...args, '--help'], { cwd: ROOT, env });
@@ -94,32 +95,9 @@ test('the scripts a verb runs answer --help and refuse a flag they do not take, 
   }
 });
 
-/** The flags a script's own parsing reads, by its idioms: `args.includes('--x')`, `arg('--x', …)`,
- * `argv[i] === '--x'` and a literal list matched against the arguments. */
-function parsed(...sources) {
-  const flags = new Set();
-  for (const source of sources) {
-    for (const re of [/\b(?:args|argv|rest|process\.argv)\.(?:includes|indexOf)\('(--[a-z-]+)'\)/g, /\barg\('(--[a-z-]+)'/g, /argv\[i\] === '(--[a-z-]+)'/g]) for (const [, flag] of source.matchAll(re)) flags.add(flag);
-    for (const [, list] of source.matchAll(/\[((?:'--[a-z-]+'(?:, )?)+)\]\.(?:find|includes)\(/g)) for (const [, flag] of list.matchAll(/'(--[a-z-]+)'/g)) flags.add(flag);
-  }
-  return [...flags].sort();
-}
-
 test('each verb\'s help names exactly the flags its script parses, in a short text', () => {
-  const read = (file) => readFileSync(resolve(ROOT, file), 'utf8');
-  const exact = read('scripts/exact.mjs'), between = (from, to) => exact.slice(exact.indexOf(from), exact.indexOf(to, exact.indexOf(from)));
-  const apple = parsed(read('host/apple/build.mjs'), read('host/apple/devices.mjs'), read('host/apple/link.mjs'));
-  for (const [verb, flags] of [
-    ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'))],
-    ['web-build', parsed(read('host/web/build.mjs'))],
-    ['agent', parsed(read('scripts/agent-launch.mjs'))], ['test', parsed(read('scripts/agent-launch.mjs'))], ['verify', parsed(read('scripts/verify.mjs'))],
-    ['ios', apple], ['mac', apple],
-    ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))],
-    ['feedback', parsed(read('scripts/feedback.mjs'))],
-    ['hatch', parsed(between('export function hatch(', '\nexport function pattern('))],
-    ['pattern', parsed(between('export function pattern(', '\nasync function main('))],
-    ['new', parsed(between("if (verb === 'new')", '\n  }'))],
-  ]) assert.deepEqual([...knownFlags(verb).keys()].sort(), flags, `${verb}: the help's flags (documented and internal) against its script's`);
+  // The verbs' scripts and the flags each parses, read as caps.mjs reads them before a push (help-parity.mjs).
+  for (const [verb, flags] of scriptFlags(ROOT)) assert.deepEqual([...knownFlags(verb).keys()].sort(), flags, `${verb}: the help's flags (documented and internal) against its script's`);
   for (const verb of Object.keys(HELP)) {
     const lines = helpText(verb, { all: true }).split('\n').length;
     assert.ok(lines <= 36, `${verb}'s help is ${lines} lines; it is replayed in an agent's context, so keep it short`);
@@ -152,7 +130,8 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
 // The index is the one read: each verb, then the forms a build uses, in one screen, and every flag a form names is one its
 // verb's script parses (a form never names a flag that does not exist).
 test('help is the one read: the verbs and the forms a build uses, in one screen, naming only flags the verbs parse', () => {
-  const text = indexText({ verbs: Object.keys(HELP).filter((v) => v !== 'new') });
+  assert.doesNotMatch(helpText('status'), /undefined/);
+  const text = indexText({ verbs: Object.keys(HELP).filter((v) => !['new', 'add'].includes(v)) });
   assert.ok(text.split('\n').length <= 36, `the index is ${text.split('\n').length} lines`);
   assert.ok(Buffer.byteLength(text) <= 2800, `the index is ${Buffer.byteLength(text)} bytes`);
   // What builders used across rounds 10 and 11: verify's platform and `--shots`, test's platform, agent's `--storage`, `--size`

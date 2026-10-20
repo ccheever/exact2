@@ -23,6 +23,7 @@ extension BatchReader {
         var seq: (UInt64, UInt64)?
         var modes: [String: String]?
         var live: String?, unsupported = false, design: String?, facts = false, wakelock: Bool?
+        var unchanged = false, storeReadPending = false, storeActivationPending = false
         var seen: Set<String> = []
         try object { r, key in
             guard seen.insert(key).inserted else { try r.skip(); return }
@@ -37,6 +38,9 @@ extension BatchReader {
             case "controls": controls = try r.bool()
             case "layoutProvisional": layoutProvisional = try r.bool()
             case "canvasImages": images = try r.array { try $0.string() }
+            case "unchanged": unchanged = try r.bool()
+            case "storeReadPending": storeReadPending = try r.bool()
+            case "storeActivationPending": storeActivationPending = try r.bool()
             case "pending": pending = try r.bool()
             case "requests": requests = try r.bool()
             case "busy": busy = try r.bool()
@@ -57,6 +61,9 @@ extension BatchReader {
             }
         }
         var batch = Batch(ops: ops, timers: timers, motion: motion, clock: clock, error: error, timerDueMs: due, pending: pending, busy: busy)
+        batch.unchanged = unchanged
+        batch.storeReadPending = storeReadPending
+        batch.storeActivationPending = storeActivationPending
         batch.spatial = spatial
         batch.requests = requests
         batch.canvas = canvas
@@ -159,7 +166,8 @@ extension BatchReader {
         try object { r, key in
             switch key {
             case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric",
-                 "text_shadow", "text_stroke_width", "text_stroke_color", "visibility":
+                 "text_shadow", "text_stroke_width", "text_stroke_color", "visibility",
+                 "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left":
                 try style.set(key, r.value(), colorChannels: r.colorChannels)
             case "line_height": height = try r.value()
             default: try r.skip()
@@ -296,6 +304,11 @@ extension InlineStyle {
                 run.background = try a.map(BatchFields.number); darkBackground = run.background
             }
             guard run.background?.count == 4, darkBackground?.count == 4 else { throw BatchReader.Invalid.wire }
+        case "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left":
+            let corners = ["border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left"]
+            if run.backgroundRadii.isEmpty { run.backgroundRadii = Array(repeating: InlineRadius(), count: 4) }
+            let i = corners.firstIndex(of: key)!
+            run.backgroundRadii[i] = InlineRadius(value)
         default: paint.set(key, value)
         }
     }

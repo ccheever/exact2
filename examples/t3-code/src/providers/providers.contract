@@ -538,7 +538,7 @@ component ProviderModels
       PvSectionTitle(title="Models")
       PvGroup()
         column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem"
-          text "Favorites, visibility, ordering, and custom models are saved on the selected environment." font-size="0.75rem" line-height="1rem" margin-bottom="0.75rem" color="light-dark(#71717b, #818181)"
+          text "Model preferences and custom models are saved on the selected environment and shared across connected devices." font-size="0.75rem" line-height="1rem" margin-bottom="0.75rem" color="light-dark(#71717b, #818181)"
           row width="100%" gap="0.5rem" align-items="center" justify-content="space-between" flex-wrap="wrap"
             row gap="0.5rem" align-items="center"
               if editor.bulkLabel != ""

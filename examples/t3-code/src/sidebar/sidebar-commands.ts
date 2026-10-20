@@ -504,7 +504,8 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'new-thread-click') {
     // routes/_chat.tsx chat.new: the legacy sidebar keeps the immediate contextual create; ⇧-click (`value` "shift", the
     // press's own MouseEvent, app.contract sidebarNewThread) creates at once.
-    if (value !== 'shift' && client.projectGroups().length > 1 && !legacyEnabled(client)) return 'sidebar:palette-new-thread';
+    // The picker opens when the sidebar holds several projects, across every environment (projectScopes).
+    if (value !== 'shift' && projectScopes(client).length > 1 && !legacyEnabled(client)) return 'sidebar:palette-new-thread';
     try { await (client as unknown as Navigator).openDraft?.(nativeHandle, client.projectId); }
     catch (error) { toast(client, 'Could not create thread', error); return ''; }
     return 'sidebar:new-thread';

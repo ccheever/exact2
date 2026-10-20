@@ -22,7 +22,8 @@ const distFor = target => {
 };
 
 const originalChrome = process.env.CHROME;
-const installed = chromium();
+// The full build: with --disable-gpu it has no WebGPU adapter, while the headless shell keeps SwiftShader's fallback one.
+const installed = chromium({ needs: ['gpu'] });
 let wrapperDir = null;
 if (process.env.EXACT_NO_GPU_CHROME) process.env.CHROME = process.env.EXACT_NO_GPU_CHROME;
 else if (!installed.unavailable) {

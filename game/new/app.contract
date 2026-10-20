@@ -3,11 +3,19 @@ shape Hud
   total: number
   near: string
 
+shape Viewport
+  pointer: string
+
 component SmallGame
   state playing = false
   state again = false
   state paused = false
   resource hud = exactSurface("world") as shape Hud
+  resource viewport = exactViewport() as shape Viewport
+  // The on-screen stick and buttons follow the primary input: shown on a
+  // touch screen (`pointer: coarse`), hidden under a mouse or trackpad.
+  // "always" or "never" decides instead.
+  state touchControls = "auto"
 
   action play
     playing = true
@@ -32,13 +40,14 @@ component SmallGame
               text (paused ? "Resume" : "Pause")
           if hud.near != ""
             text "Press E or tap Light" testId="near-prompt" position="absolute" top=76 left=24 padding=12 border-radius=12 background-color="#202731cc"
-          button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
-            text "Move" color="#ffffff"
-          row position="absolute" right=24 bottom=24 gap=12
-            button action="jump" testId="jump" padding=16 border-radius=12 background-color="#354751"
-              text "Jump" color="#ffffff"
-            button action="light" testId="light" padding=16 border-radius=12 background-color="#e8ad61"
-              text "Light" color="#202731"
+          if touchControls == "always" or (touchControls == "auto" and viewport.pointer == "coarse")
+            button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
+              text "Move" color="#ffffff"
+            row position="absolute" right=24 bottom=24 gap=12
+              button action="jump" testId="jump" padding=16 border-radius=12 background-color="#354751"
+                text "Jump" color="#ffffff"
+              button action="light" testId="light" padding=16 border-radius=12 background-color="#e8ad61"
+                text "Light" color="#202731"
           if hud.total > 0 and hud.lit == hud.total
             column testId="victory" position="absolute" inset=0 align-items="center" justify-content="center" gap=20
               text "All beacons lit" font-size=32
@@ -50,6 +59,6 @@ component SmallGame
           column width="100%" max-width=320 align-items="center" gap=8
             text "Move with WASD or arrow keys" width="100%" text-align="center"
             text "Space jumps · E lights" width="100%" text-align="center"
-            text "Touch controls appear during play" width="100%" text-align="center"
+            text "On a touch screen, touch controls appear during play" width="100%" text-align="center"
           button press=play autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
             text "Play" font-size=20 color="#202731"

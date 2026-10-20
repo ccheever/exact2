@@ -1,3 +1,5 @@
+import { composerFieldCurrent } from '../composer/composer-field-bridge';
+import { composerFieldOwner } from '../composer/auto-balance-owner';
 // The pull request panel's hand-offs: "Ask a question", "Explain this
 // PR", "Fix findings", the Check out menu ("In a separate worktree", "In this repository"), a
 // finding's own Fix on the Summary tab, and Resolve conflicts — the panel's startAsk/startHandoff
@@ -76,10 +78,11 @@ export function findingFor(key: string, detail: Obj, activity: Obj | null): Pull
 }
 
 /** writeTaskToComposer into the composer on screen: one edit of its prompt, chips included. */
-async function writeToComposer(client: T3Client, native: Native, task: HandoffTask): Promise<void> {
-  const prompt = writeTaskToDraft(client, client.draftKey, task);
-  try { await replaceComposerPrompt(client, native, prompt); }
-  catch (error) { if (letGo(error)) throw error; /* the draft holds it; the composer reads it when it shows */ }
+async function writeToComposer(client: T3Client, native: Native, task: HandoffTask, applied: () => void = () => {}): Promise<void> {
+  const field = composerFieldCurrent(client, composerFieldOwner(client));
+  if (!field) throw new ClientError('The composer is not ready.');
+  const key = client.draftKey, prompt = writeTaskToDraft(client, key, task, false, field.value);
+  await replaceComposerPrompt(client, native, prompt, { applied: () => { prState(client).lastHandoff.set(key, task.prompt); applied(); } }, field.value);
 }
 
 /**
@@ -103,9 +106,8 @@ export async function prHandoffCommand(client: T3Client, native: Native, ctx: Ha
   if (kind === 'ask' || kind === 'explain') {
     const task = kind === 'ask' ? buildAskAboutPullRequestHandoff(contextMetadata(detail)) : buildExplainPullRequestHandoff(contextMetadata(detail));
     if (attach) {
-      await writeToComposer(client, native, task);
-      pushToast(client, { kind: 'success', title: 'Added to the composer', description: task.prompt.length > 0
-        ? 'The question is in the composer — read it over, then send.' : 'The pull request is in the composer — type your question, then send.' });
+      await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: task.prompt.length > 0
+        ? 'The question is in the composer — read it over, then send.' : 'The pull request is in the composer — type your question, then send.' }));
       return '';
     }
     if (elsewhere) return elsewhere(kind, task, 'worktree', detail);
@@ -125,8 +127,7 @@ export async function prHandoffCommand(client: T3Client, native: Native, ctx: Ha
     task = buildFixFindingHandoff({ ...subject, finding });
   } else throw new ClientError(`Unknown hand-off: ${kind}`);
   if (attach && task) {
-    await writeToComposer(client, native, task);
-    pushToast(client, { kind: 'success', title: 'Added to the composer', description: 'The task is in the composer — read it over, then send.' });
+    await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: 'The task is in the composer — read it over, then send.' }));
     return '';
   }
   if (elsewhere) return elsewhere(kind, task, mode, detail);
@@ -145,9 +146,8 @@ export async function prSelectionHandoff(client: T3Client, native: Native, detai
   const { pullRequest: _none, ...lines } = comment;
   const task = buildAddSelectionToAgentHandoff({ ...contextMetadata(detail), comment: lines, request });
   if (surface === 'thread') {
-    await writeToComposer(client, native, task);
-    pushToast(client, { kind: 'success', title: 'Added to the composer', description: task.prompt.length > 0
-      ? 'The question is in the composer — read it over, then send.' : 'The pull request is in the composer — type your question, then send.' });
+    await writeToComposer(client, native, task, () => pushToast(client, { kind: 'success', title: 'Added to the composer', description: task.prompt.length > 0
+      ? 'The question is in the composer — read it over, then send.' : 'The pull request is in the composer — type your question, then send.' }));
     return '';
   }
   return (await askInThread(client, native, `selection:${comment.id}`, task, str(detail.projectId))) ? 'sidebar:new-thread' : '';

@@ -1,3 +1,4 @@
+import { requestComposerField } from '../composer/composer-field-request';
 // The chrome row's Annotate, Capture (Shift-click records) and Float preview
 // buttons, the More menu's separate window, their toasts and the floating player's browser source (MIT reference,
 // see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/PreviewView.tsx `handlePickElement`,
@@ -23,7 +24,13 @@ import { activeRef } from '../terminal/terminal-drawer-view';
 import { serverStreamUrl, serverStreamFrame } from './server-browser-runtime';
 import { previewRuntimeTabId } from './browser-state';
 import { BrowserRecordings, type RecordingArtifact, type RecordingBlob, type RecordingHost, type RecordingRecorder, type RecordingStream } from './browser-recording';
-import { isPreviewAnnotationPayload, markAnnotationSend, previewAnnotationLink, savePreviewAnnotation, type PreviewAnnotationPayload } from './browser-annotation';
+import { isPreviewAnnotationPayload, previewAnnotationLink, savePreviewAnnotation, type PreviewAnnotationPayload } from './browser-annotation';
+import { composerFieldOwner } from '../composer/auto-balance-owner';
+import { composerFieldCurrent, composerFieldInputSerial } from '../composer/composer-field-bridge';
+import type { ComposerFieldSnapshot } from '../composer/composer-field-commands';
+import { composerFieldReplacement } from '../composer/composer-field-edit';
+import { composerSourceSession } from '../composer/composer-rich-state';
+import { finishAttachmentEffect, prepareAttachmentEffect } from '../composer/composer-attachment-receipts';
 import { browserMiniPlayerSource, previewMiniPlayerSourceKey } from '../device/previewMiniPlayerStore';
 import { deviceThreadId, miniStoreOf } from '../device/device-session'; // the thread's floating player (previewMiniPlayerStore)
 import { contextReferences } from '../composer/composer-editor-menu';
@@ -53,6 +60,7 @@ type Host = {
   applied: Map<string, number>;
   /** Picks whose submission was ⌘Return: the window's task sends the composer (onSendAnnotation). */
   sendSerial: number;
+  sendTarget: AnnotationDispatch | null;
   /** Runtime tab → the settled-pick serial whose active pick was cancelled because the panel stopped showing the tab. */
   cancelled: Map<string, number>;
   /** The scheme the overlay was last started in (the recording's decorations use its primary colour). */
@@ -64,7 +72,7 @@ const hosts = new WeakMap<T3Client, Host>();
 export function captureHost(client: T3Client): Host {
   let host = hosts.get(client);
   if (!host) {
-    const fresh: Host = { native: null, recordings: null as unknown as BrowserRecordings, applied: new Map(), sendSerial: 0, cancelled: new Map(), scheme: 'light', miniSize: null };
+    const fresh: Host = { native: null, recordings: null as unknown as BrowserRecordings, applied: new Map(), sendSerial: 0, sendTarget: null, cancelled: new Map(), scheme: 'light', miniSize: null };
     fresh.recordings = new BrowserRecordings(nativeRecordingHost(client, fresh));
     hosts.set(client, fresh);
     host = fresh;
@@ -216,6 +224,28 @@ export function browserCaptureView(client: T3Client, ref: ScopedThreadRef, tabId
  *  a pick finished in the floating player or with the panel closed sends at once, as onSendAnnotation does (review of
  *  2026-10-10: projected in the Browser tab's view only, such a send waited until a Browser tab showed again). */
 export function annotationSendSerial(client: T3Client): number { return captureHost(client).sendSerial; }
+export type AnnotationDispatch = ComposerFieldSnapshot & { serial: number; draftKey: string; inputSerial: number };
+export function commitAnnotationSend(client: T3Client): void {
+  const current = composerFieldCurrent(client, composerFieldOwner(client));
+  if (!current || current.composing) return;
+  const host = captureHost(client);
+  host.sendTarget = { ...current, draftKey: client.draftKey, serial: ++host.sendSerial, inputSerial: composerFieldInputSerial(client) };
+}
+export function annotationDispatchCurrent(client: T3Client, target: AnnotationDispatch): boolean {
+  const current = composerFieldCurrent(client, composerFieldOwner(client));
+  return !!current && !current.composing && target.generation === client.generation && target.snapshotOwner === client.snapshotOwner
+    && target.owner === current.owner && target.draftKey === client.draftKey && target.value === current.value && target.inputSerial === composerFieldInputSerial(client);
+}
+export function takeAnnotationDispatch(client: T3Client, serial: number): AnnotationDispatch | null {
+  const host = captureHost(client), target = host.sendTarget;
+  if (!target || target.serial !== serial) return null;
+  host.sendTarget = null;
+  return annotationDispatchCurrent(client, target) ? { ...target } : null;
+}
+export function annotationDispatchView(client: T3Client) {
+  const target = captureHost(client).sendTarget;
+  return { annotationOwner: target?.owner ?? '', annotationValue: target?.value ?? '', annotationSnapshot: target?.snapshotOwner ?? '', annotationGeneration: target?.generation ?? -1 };
+}
 
 // ── The chrome row's ops (`surface-browser-annotate`, `-capture`, `-float`, `-window`) ─────────────
 export type CaptureTarget = { ref: ScopedThreadRef; tabId: string; runtimeId: string };
@@ -338,9 +368,12 @@ export async function applyCaptureResults(client: T3Client, native: Native, live
   for (const { runtimeId, threadKey } of liveTabs) {
     const pick = obj(report(client, runtimeId).pick), serial = num(pick.serial);
     if (pick.ready !== true || serial <= (host.applied.get(runtimeId) ?? 0)) continue;
+    const ref = parseScopedThreadKey(threadKey), open = activeRef(client);
+    const key = !ref || open && scopedThreadKey(open) === threadKey ? client.draftKey : `${ref.environmentId}:${ref.threadId}`;
+    const origin = { generation: client.generation, environmentId: client.environmentId, snapshotOwner: client.snapshotOwner, fieldOwner: composerFieldOwner(client), key, foreground: key === client.draftKey };
     const reply = await nativeCall(host, { op: 'browserAnnotate', tab: runtimeId, action: 'take', serial });
     const result = obj(reply.result);
-    const outcome = !reply.result || result.cancelled === true ? 'cancelled' : await applyAnnotation(client, native, host, threadKey, result);
+    const outcome = !reply.result || result.cancelled === true ? 'cancelled' : await applyAnnotation(client, native, origin, result);
     host.applied.set(runtimeId, serial);
     // The module's log says what became of each pick (`t3.browser: annotate applied <serial> <outcome>`).
     await nativeCall(host, { op: 'browserAnnotate', tab: runtimeId, action: 'applied', serial, outcome }).catch(error => { if (letGo(error)) throw error; });
@@ -362,12 +395,12 @@ export async function cancelHiddenPicks(client: T3Client, native: Native, shownR
   }
 }
 
-async function applyAnnotation(client: T3Client, native: Native, host: Host, threadKey: string, result: Obj): Promise<string> {
+type AnnotationOrigin = { generation: number; environmentId: string; snapshotOwner: string; fieldOwner: string; key: string; foreground: boolean };
+async function applyAnnotation(client: T3Client, native: Native, origin: AnnotationOrigin, result: Obj): Promise<string> {
   const annotation = result.annotation;
   if (!isPreviewAnnotationPayload(annotation)) return 'invalid'; // PickedElementPayload's validator: a malformed pick is dropped silently
-  // The open thread's composer (a new thread's draft included, whose tab names its allocated id), else that thread's draft.
-  const ref = parseScopedThreadKey(threadKey), open = activeRef(client);
-  const draftKey = !ref || (open && scopedThreadKey(open) === threadKey) ? client.draftKey : `${ref.environmentId}:${ref.threadId}`;
+  if (origin.generation !== client.generation || origin.environmentId !== client.environmentId) return 'refused';
+  const draftKey = origin.key;
   const screenshot = obj(result.screenshot), imageId = str(screenshot.id);
   // The crop goes on the shelf as a draft image the send uploads; a full shelf drops it, as a failed crop does.
   const room = draftKey !== client.draftKey || reservedAttachments(client) < MAX_ATTACHMENTS;
@@ -375,25 +408,39 @@ async function applyAnnotation(client: T3Client, native: Native, host: Host, thr
   const cropDropped = result.screenshotFailed === true || (!!imageId && !image);
   savePreviewAnnotation(client, annotation, image?.id ?? '');
   if (image) client.local.snapshotDrafts[draftKey] = [...(client.local.snapshotDrafts[draftKey] ?? []).filter(entry => str(entry.id) !== image.id), image];
-  const placed = await insertAnnotationChip(client, native, draftKey, annotation);
+  const placed = await insertAnnotationChip(client, native, origin, annotation, result.submission === 'send');
   if (cropDropped) pushToast(client, { kind: 'error', title: 'Could not capture the picked element', description: 'The annotation was kept without the screenshot.', stacked: true });
-  if (result.submission === 'send' && draftKey === client.draftKey) { markAnnotationSend(client); host.sendSerial += 1; } // a foreground send (browser-annotation.ts)
-  return `${placed}${image ? '+image' : ''}${cropDropped ? ' crop-dropped' : ''}${result.submission === 'send' ? ' send' : ''}`;
+  return `${placed}${image ? '+image' : ''}${cropDropped ? ' crop-dropped' : ''}${result.submission === 'send' && placed === 'chip' ? ' send' : ''}`;
 }
 
 /** addPreviewAnnotation: the chip at the composer's caret (once), else at the end of the stored draft. */
-async function insertAnnotationChip(client: T3Client, native: Native, draftKey: string, annotation: PreviewAnnotationPayload): Promise<string> {
+async function insertAnnotationChip(client: T3Client, native: Native, origin: AnnotationOrigin, annotation: PreviewAnnotationPayload, send: boolean): Promise<string> {
   const link = previewAnnotationLink(annotation), id = link.slice(link.lastIndexOf('/') + 1, -1);
   const present = (text: string) => contextReferences(text).some(reference => reference.kind === 'preview-annotation' && reference.id === id);
-  if (draftKey === client.draftKey) {
-    const state = await bridgeReply(native, { op: 'editorState' }).catch(() => null);
-    if (state?.ok && present(str(obj(state.value).text))) return 'chip';
-    const inserted = await bridgeReply(native, { op: 'editorInsert', text: link }).catch(() => null);
-    if (inserted?.ok && obj(inserted.value).applied === true) { await bridgeReply(native, { op: 'editorFocus' }).catch(() => null); return 'chip'; }
+  const refuse = () => {
+    if (origin.generation === client.generation && origin.snapshotOwner === client.snapshotOwner && origin.fieldOwner === composerFieldOwner(client) && origin.key === client.draftKey)
+      pushToast(client, { kind: 'info', title: 'Annotation was not added', description: 'The prompt changed. The annotation was kept; insert it again when the prompt is ready.', hideCopy: true });
+    return 'refused';
+  };
+  if (origin.foreground) {
+    if (origin.snapshotOwner !== client.snapshotOwner || origin.fieldOwner !== composerFieldOwner(client) || origin.key !== client.draftKey) return 'refused';
+    const snapshot = composerFieldCurrent(client, origin.fieldOwner), session = composerSourceSession(client);
+    if (!snapshot || snapshot.composing) return refuse();
+    if (present(snapshot.value)) { if (send) commitAnnotationSend(client); return 'chip'; }
+    const request = { op: 'editorInsert', text: link, focus: true, value: snapshot.value, snapshotOwner: snapshot.snapshotOwner, fieldOwner: snapshot.owner };
+    const edit = composerFieldReplacement(request, { snapshot, draftOwner: client.draftKey, mode: session.mode, chips: session.chips });
+    if (edit.kind === 'refused') return refuse();
+    const expected = edit.edit.value.slice(0, edit.edit.start) + edit.edit.text + edit.edit.value.slice(edit.edit.end);
+    const completion = send ? prepareAttachmentEffect(client, snapshot, expected, { kind: 'annotation-send', draftKey: origin.key }) : 0;
+    if (send && !completion) return refuse();
+    const inserted = await requestComposerField(native, { ...request, completion }).catch(() => null);
+    if (completion && !inserted?.queued) finishAttachmentEffect(client, { ...edit.edit, completion }, inserted?.applied === true, composerFieldCurrent(client, origin.fieldOwner));
+    return inserted?.queued ? 'queued' : inserted?.applied ? 'chip' : refuse();
   }
-  const prompt = client.local.drafts[draftKey] ?? '';
+  if (origin.key === client.draftKey) return refuse();
+  const prompt = client.local.drafts[origin.key] ?? '';
   if (present(prompt)) return 'draft';
-  client.local.drafts[draftKey] = `${prompt}${prompt && !/\s$/.test(prompt) ? ' ' : ''}${link} `;
+  client.local.drafts[origin.key] = `${prompt}${prompt && !/\s$/.test(prompt) ? ' ' : ''}${link} `;
   return 'draft';
 }
 

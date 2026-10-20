@@ -392,7 +392,7 @@ fn write_case(dir: &std::path::Path, plan: &Plan, steps: &[&str]) {
     std::fs::create_dir_all(dir).unwrap();
     let emitted = crate::emit::emit(plan, false, false).unwrap();
     let (mut host, _) = exact_web::Host::boot(&plan.encode(), (), Default::default(), "/").unwrap();
-    let tree = host.runner().document_tree().unwrap();
+    let tree = host.runner_mut().document_tree().unwrap();
     let (document, _) =
         exact_web::document::project_tree(&tree, host.runner(), Default::default()).unwrap();
     assert_eq!(document.root, host.document().unwrap().root);

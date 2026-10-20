@@ -55,16 +55,19 @@ final class T3SnapShot {
     private var soundChoice = "soft-pop"
     private var flashEnabled = true
     private var animationsEnabled = true
-    /// The attachment's image area: an aspect-fill (object-cover) thumbnail,
-    /// hidden while its capture's flight is still in the air.
+    private enum TileMode: String { case shelf, thumb, contain, preview, fit }
+    /// Each view owns its image; only a shelf hides beneath its capture flight.
     private final class Tile {
         weak var view: NSView?
         let image: NSView
+        let file: String
+        let mode: TileMode
         var loaded = false
-        init(view: NSView, contain: Bool) {
-            self.view = view
+        init(view: NSView, file: String, mode: TileMode) {
+            self.view = view; self.file = file; self.mode = mode
+            let contain = mode != .shelf && mode != .thumb
             image = PassiveImage(frame: view.bounds); image.autoresizingMask = [.width, .height]; image.wantsLayer = true
-            image.layer?.contentsGravity = contain ? .resizeAspect : .resizeAspectFill; image.layer?.masksToBounds = true; image.layer?.cornerRadius = contain ? 0 : 9
+            image.layer?.contentsGravity = contain ? .resizeAspect : .resizeAspectFill; image.layer?.masksToBounds = true; image.layer?.cornerRadius = mode == .shelf ? 9 : 0
             view.addSubview(image, positioned: .below, relativeTo: nil)
         }
     }
@@ -73,7 +76,8 @@ final class T3SnapShot {
     private final class PassiveImage: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
-    private var tiles: [String: Tile] = [:]
+    private var tiles: [ObjectIdentifier: Tile] = [:]
+    private(set) var tileLoadsInFlight = 0
     private var deferredAcks = Set<String>()
     /// The painted composer: its draft identity (data-snapshot-owner) and Exact focus.
     private struct Composer { let key: ObjectIdentifier; let owner: String; weak var view: NSView?; let focus: () -> Void }
@@ -81,32 +85,45 @@ final class T3SnapShot {
     func setComposer(key: ObjectIdentifier, owner: String, view: NSView?, focus: @escaping () -> Void) { composer = Composer(key: key, owner: owner, view: view, focus: focus) }
     func removeComposer(key: ObjectIdentifier) { if composer?.key == key { composer = nil } }
     func removeTile(view: NSView) {
-        for (id, tile) in tiles where tile.view === view { tile.image.removeFromSuperview(); tiles.removeValue(forKey: id) }
+        tiles.removeValue(forKey: ObjectIdentifier(view))?.image.removeFromSuperview()
     }
-    /// `contain:<id>` shows the draft image whole (object-contain, up to 2048 px), not the shelf's square thumbnail: a
-    /// preview annotation's screenshot (`w-full object-contain`). `preview:<id>` is the same for a composer image chip's
-    /// expanded preview, its own key since a tile is kept per key and a second view under one key takes the picture from
-    /// the first. `fit:<id>` is that preview's at most at its natural size (an image's CSS pixels are its pixels), for an
-    /// image whose size was not read (ExpandedImageDialog's `max-w`/`max-h`).
+    /// Only a bare-id shelf can receive a capture flight; inline thumbs and full previews never do.
+    func captureTileView(id: String) -> NSView? {
+        let shelves = tiles.values.filter { $0.mode == .shelf && $0.file == id && $0.view != nil }
+        return (shelves.first { $0.loaded && $0.view?.window?.isVisible == true && ($0.view?.bounds.width ?? 0) > 0 } ?? shelves.first)?.view
+    }
+    private func revealShelfTiles(id: String) {
+        for tile in tiles.values where tile.mode == .shelf && tile.file == id { tile.image.isHidden = false }
+    }
+    /// `thumb:` is the inline square crop, `contain:` and `preview:` show the whole image,
+    /// and `fit:` also avoids upscaling. Each view owns its picture, even for repeated source atoms.
     func installTile(id: String, view: NSView) {
-        let fit = id.hasPrefix("fit:"), contain = fit || id.hasPrefix("contain:") || id.hasPrefix("preview:")
-        let file = contain ? String(id[id.index(after: id.firstIndex(of: ":")!)...]) : id
+        let mode: TileMode, file: String
+        if let colon = id.firstIndex(of: ":") {
+            guard let requested = TileMode(rawValue: String(id[..<colon])), requested != .shelf else { return }
+            mode = requested; file = String(id[id.index(after: colon)...])
+        } else { mode = .shelf; file = id }
         guard UUID(uuidString: file) != nil else { return }
-        if tiles[id]?.view === view { return }
+        let key = ObjectIdentifier(view)
+        if let tile = tiles[key], tile.view === view, tile.file == file, tile.mode == mode { return }
         removeTile(view: view)
-        tiles[id]?.image.removeFromSuperview()
-        let tile = Tile(view: view, contain: contain); tiles[id] = tile
-        tile.image.isHidden = !contain && feedback.flights[id] != nil
+        let tile = Tile(view: view, file: file, mode: mode); tiles[key] = tile
+        tile.image.isHidden = mode == .shelf && feedback.flights[file] != nil
         let path = directory.appendingPathComponent("drafts/\(file).png")
+        tileLoadsInFlight += 1
         DispatchQueue.global(qos: .userInitiated).async { [weak self, weak tile] in
-            guard let bytes = try? Data(contentsOf: path), bytes.count <= 10 * 1024 * 1024,
-                  let source = CGImageSourceCreateWithData(bytes as CFData, nil),
-                  let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 2048] as CFDictionary),
-                  let image = contain ? decoded : Self.composerThumbnail(decoded) else { return }
+            let image: CGImage? = {
+                guard let bytes = try? Data(contentsOf: path), bytes.count <= 10 * 1024 * 1024,
+                      let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+                      let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 2048] as CFDictionary) else { return nil }
+                return mode == .shelf || mode == .thumb ? Self.composerThumbnail(decoded) : decoded
+            }()
             DispatchQueue.main.async {
-                guard let self, let tile, self.tiles[id] === tile, tile.view?.window != nil else { return }
+                guard let self else { return }
+                self.tileLoadsInFlight -= 1
+                guard let image, let tile, self.tiles[key] === tile, tile.view?.window != nil else { return }
                 tile.image.layer?.contents = image; tile.loaded = true
-                if fit, let bounds = tile.view?.bounds, CGFloat(image.width) <= bounds.width, CGFloat(image.height) <= bounds.height {
+                if mode == .fit, let bounds = tile.view?.bounds, CGFloat(image.width) <= bounds.width, CGFloat(image.height) <= bounds.height {
                     tile.image.layer?.contentsGravity = .center; tile.image.layer?.contentsScale = 1
                 }
             }
@@ -143,7 +160,7 @@ final class T3SnapShot {
     }
     private func acknowledge(_ id: String, capture: Capture, focusOwner: String?, deadline: TimeInterval) {
         guard !closing, pending[id]?.owner == capture.owner else { deferredAcks.remove(id); return }
-        let tile = tiles[id], painted = tile?.loaded == true && tile?.view?.window?.isVisible == true && (tile?.view?.bounds.width ?? 0) > 0
+        let tile = captureTileView(id: id).flatMap { tiles[ObjectIdentifier($0)] }, painted = tile?.loaded == true && tile?.view?.window?.isVisible == true && (tile?.view?.bounds.width ?? 0) > 0
         if !painted && ProcessInfo.processInfo.systemUptime < deadline {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.acknowledge(id, capture: capture, focusOwner: focusOwner, deadline: deadline) }; return
         }
@@ -166,7 +183,7 @@ final class T3SnapShot {
         self.agent = agent
         self.changed = changed
         // A tile hidden under its flight is shown however that flight ends.
-        feedback.ended = { [weak self] id in if self?.feedback.flights[id] == nil { self?.tiles[id]?.image.isHidden = false } }
+        feedback.ended = { [weak self] id in if self?.feedback.flights[id] == nil { self?.revealShelfTiles(id: id) } }
     }
     private func persistedDraftIds() -> Set<String>? {
         let preference = directory.deletingLastPathComponent().appendingPathComponent("t3-code.json")
@@ -327,7 +344,9 @@ final class T3SnapShot {
                   let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
                   width > 0, height > 0 else { fail("Could not read the saved draft image."); return }
             let scale = min(1, 2048 / Double(max(width, height)))
-            complete(["width": (Double(width) * scale).rounded(), "height": (Double(height) * scale).rounded()])
+            var facts: [String: Any] = ["width": (Double(width) * scale).rounded(), "height": (Double(height) * scale).rounded()]
+            if let average = T3ComposerImageChip.average(at: path) { facts["average"] = average }
+            complete(facts)
         case "snapshotRead":
             guard let id = request["id"] as? String, let capture = pending[id], capture.owner == (request["owner"] as? String ?? "") else { fail("This snapshot is no longer available."); return }
             do { complete(capture.metadata.merging(["id": id, "owner": capture.owner, "mimeType": "image/png", "base64": try Data(contentsOf: capture.path).base64EncodedString()]) { _, new in new }) }
@@ -386,7 +405,7 @@ final class T3SnapShot {
             // Reference dismissSnapShotAnimation: end this capture's flight now; the
             // capture stays pending. An acknowledged landing is never cut short.
             guard let id = request["id"] as? String, let capture = pending[id], capture.owner == (request["owner"] as? String ?? "") else { fail("This snapshot is no longer available."); return }
-            if !deferredAcks.contains(id) { feedback.dismiss(id: id); tiles[id]?.image.isHidden = false }
+            if !deferredAcks.contains(id) { feedback.dismiss(id: id); revealShelfTiles(id: id) }
             complete(["dismissed": id])
         case "snapshotCancel":
             guard let id = request["id"] as? String, let child = children[id], child.lifetime.cancel(owner: request["owner"] as? String ?? "") else { fail("This capture is no longer running in this draft."); return }

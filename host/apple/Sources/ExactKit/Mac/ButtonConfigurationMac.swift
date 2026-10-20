@@ -100,12 +100,17 @@ enum ButtonConfigurationMac {
         let symbolFont = font(titleFont, rows: rows.symbol)
         let symbolWeight = rows.symbol["font_weight"]?.number.map(Int.init) ?? TextEngine.controlWeight(titleFont)
         button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: symbolFont.pointSize, weight: weight(symbolWeight))
-        var image = face.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
+        // An svg-only icon's path (stage 9 A2): a template image at the symbol's point size.
+        var image = face.symbol.flatMap { FaceSymbol.image($0, points: symbolFont.pointSize) }
         if let tint = color(rows.symbol["tint_color"], appearance: appearance, accent: accent), let source = image {
-            // Palette colours belong to the symbol, independently of the label.
-            let config = button.symbolConfiguration!.applying(NSImage.SymbolConfiguration(paletteColors: [tint]))
-            image = source.withSymbolConfiguration(config)
-            image?.isTemplate = false
+            if face.symbol.map(FaceSymbol.isPath) == true {
+                image = FaceSymbol.tinted(source, tint) // (a path has no palette)
+            } else {
+                // Palette colours belong to the symbol, independently of the label.
+                let config = button.symbolConfiguration!.applying(NSImage.SymbolConfiguration(paletteColors: [tint]))
+                image = source.withSymbolConfiguration(config)
+                image?.isTemplate = false
+            }
         }
         button.image = image
         if image == nil { button.imagePosition = .noImage }
