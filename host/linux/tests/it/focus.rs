@@ -334,3 +334,53 @@ fn detached_focusout_survives_autofocus_during_blur_commit() {
     assert_eq!(log(&p), "focus;wrapper;");
     assert_eq!(p.focus(), Some(id(&p, "c")));
 }
+
+/// DOM's order for a tap that takes the focus from an edited field: the
+/// pointer's down blurs the field, whose `change` runs first, and the press
+/// comes on the release. So `change` is no "submit on Return": a form that
+/// submits on it submits on every tap away (the Bluesky clone's sign-in).
+/// And a `change` that removes the tapped button leaves nothing to press.
+#[test]
+fn a_tap_away_from_an_edited_field_runs_its_change_before_the_press() {
+    let boot = |source: &str| {
+        let (p, error) = Presenter::boot_with(
+            &contract::compile(source).unwrap().encode(),
+            (),
+            (400., 400.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p
+    };
+    let source = r#"component App
+  state log = ""
+  state shown = true
+  action committed(v: string)
+    log = `${log}change:${v};`
+  action gone(v: string)
+    log = `${log}change:${v};`
+    shown = false
+  action pressed
+    log = `${log}press;`
+  view
+    column width=200
+      input testId="f" change=committed height=32
+      input testId="g" change=gone height=32
+      if shown
+        button "Go" press=pressed testId="go" height=32
+      text log testId="log"
+"#;
+    let mut p = boot(source);
+    p.type_text(id(&p, "f"), "typed").unwrap();
+    p.tap(id(&p, "go")).unwrap();
+    assert_eq!(log(&p), "change:typed;press;");
+    // The change removes the button the pointer went down on: no press.
+    let mut p = boot(source);
+    p.type_text(id(&p, "g"), "typed").unwrap();
+    let go = id(&p, "go");
+    let _ = p.tap(go);
+    assert_eq!(log(&p), "change:typed;");
+}
