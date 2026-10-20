@@ -117,9 +117,11 @@ export function sourceMapReader(locator) {
         const part = b.origin === undefined ? b.states?.find(p => p.state === 'active') : null;
         if (b.origin === undefined && !part) continue;
         style.origin = part ? part.origin : b.origin;
+        if (part) style.state = part.state;
+        // (Its place where it has one: a conditional class's part has none.)
         const written = part?.at;
         const placed = written && typeof written.file === 'string' && ['line', 'col', 'end_col'].every(k => Number.isSafeInteger(written[k]));
-        if (placed) Object.assign(style, {state: part.state, at: {file: written.file, line: written.line, col: written.col, end_col: written.end_col}});
+        if (placed) style.at = {file: written.file, line: written.line, col: written.col, end_col: written.end_col};
       }
     },
   };

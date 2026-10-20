@@ -187,7 +187,8 @@ const authored = name => AUTHORED[name] ?? String(name).replace(/_/g, '-');
 const writtenAs = (lines, at, name) => {
   const side = /^border_color_(top|right|bottom|left)$/.exec(name)?.[1];
   if (!side) return authored(name);
-  const said = /^[a-z-]+/.exec((lines[at.line - 1] ?? '').slice(at.col - 1))?.[0];
+  // (At the map's UTF-8 byte column, as `plainAt` reads it.)
+  const said = /^[a-z-]+/.exec(Buffer.from(lines[at.line - 1] ?? '', 'utf8').subarray(Math.max(0, at.col - 1)).toString('utf8'))?.[0];
   return said === 'border-color' || said === `border-${side}-color` ? said : null;
 };
 
@@ -433,7 +434,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       // compiled: `set-row`'s address (LLP 1122 D6, tamber/1.12).
       const sha = f => (map.sources ?? []).find(s => s.file === f)?.sha256;
       const written = b?.at && !b.state ? { at: { ...b.at, ...(sha(b.at.file) ? { sha256: sha(b.at.file) } : {}) }, attr: b.attr, ...(b.layout ? { layout: true } : {}) } : {};
-      const part = b?.state ? { state: b.state, at: b.at ?? null } : written;
+      const part = b?.state ? { state: b.state, ...(b.at ? { at: b.at } : {}) } : written;
       const { unread, ...row } = r;
       const offered = editable({ ...row, ...part }, origin, params, unread, stateRung(row, b, app, read, own), rowRung(row, b, map, app, copies, read, own));
       return { ...row, origin, ...part, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.param ?? offered.token ?? null } : offered };

@@ -50,6 +50,14 @@ test('an `:active` row lowered to the press paint carries its part and where it 
   reader.attach(node);
   expect(node.style.press_background_color).toMatchObject({ origin: 'own', state: 'active', at: part });
   expect(node.style.background_color.state).toBeUndefined();
+  // A conditional class's part says no place (either style's): its state still, and no `at`.
+  const either = 'd'.repeat(64);
+  reader.add({ digest: either, nodes: [{ file: '/app/app.contract', line: 4, col: 5, end_col: 11, component: 'App', chain: [],
+    bindings: [{ row: 'press_background_color', states: [{ state: 'active', origin: 'class:A/B' }] }] }] });
+  const other = { id: 2, type: 'Pressable', site: 0, planDigest: either, props: {}, style: { press_background_color: { value: '#00f', source: 'authored' } } };
+  reader.attach(other);
+  expect(other.style.press_background_color).toMatchObject({ origin: 'class:A/B', state: 'active' });
+  expect(other.style.press_background_color.at).toBeUndefined();
 });
 
 test('malformed bare metadata cannot supply a reason', () => {

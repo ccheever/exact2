@@ -103,6 +103,11 @@ test('a held `:hover` or `:focus-visible` row is joined at its part, keyed by ro
     expect(hover.held.rows[3].editable).toMatchObject({ rung: 'template', row: 'border-left-color', state: 'hover', text: '#333333', at: { line: 12 } });
     // A held row the map gives no part in that state (opacity's is focus-visible's): no rung, never the base's.
     expect(hover.held.rows[4].editable.rung).toBe(null);
+    // A part's place is the map's UTF-8 byte column: a wider character before it on its line moves no name.
+    const wide = joinPath(dir, 'wide.contract'), before = '    -exact-label="é" ';
+    writeFileSync(wide, ['style Wide', '  :hover', `${before}border-color="#555555"`, ''].join('\n'));
+    const col = Buffer.byteLength(before) + 1;
+    expect(stateRung({ name: 'border_color_left' }, { state: 'hover', origin: 'class:Wide', at: { file: wide, line: 3, col, end_col: col + 12 } }, dir)).toEqual({ rung: 'state', style: 'Wide', state: 'hover', row: 'border-color', file: 'wide.contract', text: '#555555' });
     // A side whose place says neither its longhand nor `border-color` is offered nothing a write could get wrong.
     expect(stateRung({ name: 'border_color_top' }, { state: 'hover', origin: 'class:Card', at: place(2, 'background-color') }, dir)).toBe(null);
     const focus = hold('focus-visible', [{ name: 'opacity', value: 0.5 }]);
@@ -276,8 +281,9 @@ test('a style\'s state part row joins on the state rung for set-state, the defau
     const state = { rung: 'state', style: 'Card', state: 'active', file: 'post.contract' };
     expect(s.rows[0].editable).toEqual({ ...state, row: 'background-color', text: 'primary_600', token: 'primary_600' });
     expect(s.rows[1].editable).toEqual({ ...state, row: 'opacity', text: '0.8' });
-    // Under a conditional class: no one style to edit.
+    // Under a conditional class: no one style to edit, and no place said (either style's), not even a null one.
     expect(s.rows[2].editable.rung).toBe(null);
+    expect([s.rows[2].state, 'at' in s.rows[2]]).toEqual(['active', false]);
     // A package's style: read-only, said so.
     expect(s.rows[3].editable).toMatchObject({ rung: null, reason: expect.stringContaining("a package's style") });
     // Held, where the build names the held node (stage 9 E's site): offered there; else shown only.

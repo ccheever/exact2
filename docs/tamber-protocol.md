@@ -113,7 +113,8 @@ on macOS and Linux.
   place as `source`, and the state rung or the template rung with `state`, as a held `:active`
   row does; and `uses` names a look's row at its part's line, not its node's (a correction). The
   source map behind them (development only, never on the wire) keys each state part by its row and
-  state: a binding's `states`, `[{state, origin, at}]`.
+  state: a binding's `states`, `[{state, origin, at?}]` (no `at` for a conditional class's part,
+  either style's).
 
 ## Where it runs
 
@@ -1406,7 +1407,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
   offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit).
   A row an `:active` part lowered to
-  the press paint (*1.11*) carries `state` and `at`, its part's place (its edit, the state rung
+  the press paint (*1.11*) carries `state` and `at`, its part's place (none for a conditional
+  class's part, either style's; since *1.14*) (its edit, the state rung
   above for a style's part, the template rung with `state` for one written under the node). A row its author wrote on the node or in its class's `style` (*1.12*)
   carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
@@ -1419,10 +1421,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
   (the press it resolved to, named on a node inside it) and the rows that state shows (`active`:
   the press paint's; a look's otherwise), each with its value, the token it read, `state` and
   `source` (its part's place: an `:active` row's, and since *1.14* a `:hover` or `:focus-visible`
-  look's row's; the node's for a row the map gives no part in that state), joined at the held
+  look's row's; the node's for a row the map gives no part in that state, or a part no place: a
+  conditional class's, either style's), joined at the held
   node's site, and `editable` as a row's above: a look's row is edited as an `:active` row is (the
   state rung on a style's part, the template rung with its `state` on one written under the node),
-  a border side as the `border-color` its part writes whole. An `:active` row is named as its author wrote it under the part (`background-color`), the
+  a border side by the name written at its part: `border-color` (its four sides whole) or the
+  side's own longhand (`border-top-color`). An `:active` row is named as its author wrote it under the part (`background-color`), the
   press row it lowered to beside it (`row`, *1.12*). A host that cannot name a row's token says
   `provenance: "incomplete"`. Each file the join reads is
   checked against the digest the map says it was compiled from (`sources`): one that moved since

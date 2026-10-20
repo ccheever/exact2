@@ -396,18 +396,20 @@ pub fn sites(
             if let Some(part) = bound
                 .filter(|b| b["row"] == row.name())
                 .find_map(|b| b["states"].as_array()?.iter().find(|p| p["state"] == state))
-                .filter(|p| p.get("at").is_some())
             {
-                for key in ["file", "line", "col", "end_col"] {
-                    at[key] = part["at"][key].clone();
+                // (A part with no place, a conditional class's, keeps the
+                // node's, in its state.)
+                if part.get("at").is_some() {
+                    for key in ["file", "line", "col", "end_col"] {
+                        at[key] = part["at"][key].clone();
+                    }
                 }
                 at["state"] = part["state"].clone();
             }
             if !via.is_null() {
                 at["via"] = via;
             }
-            // (A look's row the map gives no part, or a part no place (a
-            // conditional class's), keeps the node's place, in its state.)
+            // (A look's row the map gives no part keeps the node's place, in its state.)
             if let Some(state) = look {
                 at["state"] = state.into();
             }
