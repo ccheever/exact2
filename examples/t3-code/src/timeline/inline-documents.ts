@@ -16,7 +16,7 @@ import { makeDocumentRuntime, drainDocumentRuntime, disposeDocumentRuntime, type
 import { htmlRenderFromToolItem, mcpAppFromToolItem } from './inline-tool-output';
 
 export type InlineReference = { kind: 'html'; reference: HtmlRenderReference } | { kind: 'mcp'; reference: McpAppReference };
-export type InlineDocumentView = { key: string; kind: string; title: string; src: string; ready: boolean; error: string; height: number; posts: { key: string; text: string }[]; permission: string; permissionSerial: number; fullscreen: boolean; closed: boolean; shortcut: string; shortcutSerial: number; outline: { key: string; kind: string; x: number; y: number; width: number; height: number; lines: number }[] };
+export type InlineDocumentView = { key: string; kind: string; title: string; server: string; src: string; ready: boolean; error: string; height: number; posts: { key: string; text: string }[]; permission: string; permissionSerial: number; fullscreen: boolean; closed: boolean; shortcut: string; shortcutSerial: number; outline: { key: string; kind: string; x: number; y: number; width: number; height: number; lines: number }[] };
 type Frame = { token: string; url: string; expiresAt: number; src: string; ready: boolean; error: string; height?: number; reading: boolean; lastTheme?: string; lastShortcuts?: string; shortcut?: string; shortcutSerial?: number; posts: { key: string; text: string }[]; serial: number; runtime?: DocumentRuntime; fullscreen?: boolean; width?: number; inlineWidth?: number; viewportHeight?: number };
 type State = { systemScheme: string; generation: number; environment: string; origin: string; frames: Map<string, Frame>; posted: number };
 const states = new WeakMap<T3Client, State>();
@@ -133,7 +133,7 @@ export async function syncInlineDocuments(client: T3Client, native: Native, now:
 export function inlineDocumentView(client: T3Client, key: string, ref: InlineReference, width = 728): InlineDocumentView {
   const frame = state(client).frames.get(key);
   const inlineWidth = frame?.inlineWidth ?? width;
-  return { key, kind: ref.kind, title: ref.kind === 'html' ? ref.reference.title : ref.reference.tool, src: frame?.src ?? '', ready: frame?.ready ?? false, error: frame?.error ?? '',
+  return { key, kind: ref.kind, title: ref.kind === 'html' ? ref.reference.title : ref.reference.tool, server: ref.kind === 'mcp' ? ref.reference.server : '', src: frame?.src ?? '', ready: frame?.ready ?? false, error: frame?.error ?? '',
     height: ref.kind === 'html' ? htmlRenderFrameHeight(ref.reference, inlineWidth, frame?.height) : clampMcpAppHeight(frame?.height ?? 320),
     posts: frame?.posts ?? [], permission: frame?.runtime?.permission?.text ?? '', permissionSerial: frame?.runtime?.permission?.serial ?? 0, fullscreen: frame?.runtime?.fullscreen ?? frame?.fullscreen ?? false, closed: frame?.runtime?.closed ?? false, shortcut: frame?.shortcut ?? '', shortcutSerial: frame?.shortcutSerial ?? 0,
     outline: ref.kind === 'html' ? htmlRenderOutlineBoxes(ref.reference, inlineWidth).map((box, index) => ({ ...box, key: String(index) })) : [] };
