@@ -84,6 +84,12 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
   bake, not by Cargo. Fix: run `bun exact.mjs test-rust`, which regenerates the member
   first, or `bun exact.mjs shells` before a direct Cargo command in `.shells/`.
   (Fishslop runs 1 and 2, 2026-10-18; LLP 1132.000 F17.)
+- **A phone's world frame rate read in the first seconds after Play is far below its
+  steady rate.** The scaffold's starter on a Pixel 5 drew 2.2 fps over the 10 s after
+  Play and 16 fps from 20 s on, at the same rung. The renderer makes each pipeline
+  variant when it is first drawn; which start-up work dominates was not measured.
+  Fix: let the world run 20 s before resetting `perf` and measuring
+  (`state … perf_reset`, then `perf frames`). (LLP 1139.003 profile, 2026-10-19.)
 - **`exact setup` keeps reporting `MISSING wasm-bindgen` after installing it, and `test web`
   fails with "wasm-bindgen not on PATH".** Cause: setup installs it with `cargo install`,
   whose binaries land in `~/.cargo/bin`, and then looks for it on PATH; a rustup from
