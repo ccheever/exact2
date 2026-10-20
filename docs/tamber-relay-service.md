@@ -74,6 +74,10 @@ relay:     CLIENT <name> <address>\n              then the client's bytes, both 
 
 Paths are relative to the config file.
 
+## R4's lines, on loopback
+
+`bun scripts/tamber-relay-gate.mjs` runs the relay, two accounts' design servers (the real connector, each wildcard by ACME through the relay's TXT records, against the ACME stand-in) and a client on loopback, and prints each line MET or FAILED with its evidence: a paired propose client reads and can't write; revocation cuts its long poll and its next request; plain HTTP is closed at the relay; a capture at the relay holds no token, code or design text; one account's names reach only its own server and its TXT records are refused to another; a cookie grants nothing; one session's pairing flood leaves another's untouched. The deployed R4 runs the same lines against the real host.
+
 ## What waits on hosting (the seams)
 
 - **Domain:** `domain`. It needs wildcard DNS for `*.<label>.<domain>` pointing at the relay, and a way to set TXT records under it (`dns.command`, a script for the DNS provider's API).

@@ -296,3 +296,11 @@ test('accounts add prints a token once and keeps its hash; revoke is for good; -
   for (const key of ['domain', 'listen', 'tls.cert', 'tls.key', 'accounts', 'dns.command', 'perIpPerSession', 'streamsPerSession', 'sessionsPerAccount', 'txtPerAccount', 'greetingsPerIp', 'waitMs', 'graceMs', 'helloMs']) expect(help).toContain(key);
   expect(CONFIG_HELP.length).toBe(11);
 });
+
+test('R4\'s lines on loopback (scripts/tamber-relay-gate.mjs): every one met', async () => {
+  const { gate } = await import('./tamber-relay-gate.mjs');
+  const said = [];
+  const results = await gate({ say: l => said.push(l) });
+  expect(results.filter(r => !r.met).map(r => r.gate), said.join('\n')).toEqual([]);
+  expect(results.length).toBe(7);
+}, 120_000);
