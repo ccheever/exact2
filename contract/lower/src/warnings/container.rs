@@ -7,7 +7,8 @@
 //! each step's cell, and every light sat at the cell's left edge. A
 //! `button` or `link` is a block too, as Chrome's `<button>` lays out its
 //! content, so `button appearance="none" flex-direction="row"` stacks its
-//! children (the euxy port's ~50 painted buttons).
+//! children (the euxy port's ~50 painted buttons). A button that may be
+//! the platform's own is not named (`bare`).
 //!
 //! Only the certain case is named: the box's `display` is `block`, written
 //! or its tag's. A computed `display`, a `class` the walk cannot see
@@ -37,6 +38,14 @@ const BOTH: &[&str] = &[
     "row-gap",
     "column-gap",
 ];
+
+/// A button that says `appearance="none"`: a bare box, laid out as written.
+/// Any other may be the platform's own (`buttons.rs`, LLP 1104 D1, D2),
+/// whose lowering gives it `display: flex` and reads these rows for its
+/// face, so only the bare one is certain.
+fn bare(rows: &[&Attr]) -> bool {
+    matches!(last(rows, "appearance"), Some(Attr { value: Expr::Str(v, _), .. }) if v == "none")
+}
 
 /// The tags that are a block box unless they say otherwise: the plain
 /// boxes, `scroll`, and the pressables (`tags.rs`'s `button`).
@@ -94,7 +103,7 @@ fn check(
     seen: &mut BTreeSet<(u32, u32, u32, u32)>,
     out: &mut Vec<LowerError>,
 ) {
-    if !block_tag(tag) {
+    if !block_tag(tag) || tag == "button" && !bare(rows) {
         return;
     }
     let display = match last(rows, "display") {

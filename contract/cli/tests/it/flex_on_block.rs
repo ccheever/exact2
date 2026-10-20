@@ -92,6 +92,22 @@ fn a_flex_property_on_a_block_is_named_with_its_repair() {
     assert!(
         flagged("button appearance=\"none\" display=\"flex\" flex-direction=\"row\"").is_empty()
     );
+    // A button that may be the platform's own lays out its face as a flex
+    // container (LLP 1104): only `appearance="none"` is certain.
+    for native in [
+        "button appearance=\"auto\" buttonStyle=\"filled\" flex-direction=\"column\"",
+        "button flex-direction=\"row\" gap=4",
+        "button buttonStyle=\"gray\" align-items=\"center\"",
+    ] {
+        let src =
+            format!("component App\n  view\n    column\n      {native}\n        text \"a\"\n");
+        let (plan, warnings) = contract::compile_warned(&src);
+        plan.unwrap();
+        assert!(
+            warnings.iter().all(|w| w.id != ID),
+            "{native}: {warnings:?}"
+        );
+    }
     let grid = flagged("view grid-template-columns=\"1fr 1fr\"");
     assert!(grid[0].ends_with("write `display=\"grid\"`"), "{grid:?}");
     // The repairs it names lay the child out as the author meant.
