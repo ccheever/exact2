@@ -58,6 +58,7 @@ mod fns;
 mod fonts;
 mod format;
 mod function_graph;
+mod gallery;
 mod geometry;
 mod grouped_list;
 mod grouped_margins;
