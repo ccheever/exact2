@@ -158,10 +158,10 @@ font "Castle Display" = "assets/CastleDisplay-Variable.ttf"
 ```
 
 A single path is a whole family (a variable font, or a one-weight face).
-**A `faces` row of `weight: u16, italic: bool, path` cannot express that
-shorthand** — Sol's catch — so either the compiler inspects the file's axes at
-build time and records a range, or v1 declares itself static-only and the
-variable shorthand waits. Decide it in the table (D2), not in prose.
+**Decided in §13:** the compiler reads the file's `fvar` axes at build time and
+records each face's weight and width ranges in its `faces` row, so the
+shorthand is `@font-face` with its descriptors left `auto`; a block face
+names one weight (`600 = …`) or a range (`100 900 = …`).
 A block names faces by weight and optional `italic`, which is exact1's
 weight-map source form as syntax rather than an object literal. Paths are
 portable relative paths under the app's `assets/` directory. The compiler
@@ -392,11 +392,11 @@ web (which already does CSS matching if you emit `font-family` and
 `font-weight` and do not snap) would *create* divergence. Linux may keep it as
 a local clamp, per family, and must not snap a real `wght` axis.
 
-**Two domain questions this opens.** The kernel carries `font_weight: u16`
-defaulting to 400 (`kernel/tables/schema.json:152`) while CSS Fonts 4 is
-1–1000 and a `wght` axis is continuous; and there is no `font_stretch` row at
-all, though stretch is part of CSS matching. Each needs a decision or an
-LLP 1001 deviation, not silence.
+**Two domain questions this opens**, both answered in §13: a `wght` axis is
+continuous while `font_weight` is a whole number (a whole weight is
+indistinguishable at any text size, and CSS's computed weights are what an
+author writes), and stretch is part of CSS matching (the `font_stretch` row,
+D8).
 
 ### D7 — `font-style` lands in the same change
 
@@ -528,8 +528,8 @@ Each of these is declared here so it is not silently assumed:
 
 - **Remote fonts and `display` policy** — D5. A URL source is a `resource`
   if it ever matters.
-- **`font-feature-settings`, `font-variation-settings`, small caps,
-  `font-variant-caps`** — `font_variant_numeric` (bit 75) is the one
+- **`font-feature-settings`, `font-variation-settings`, `font-optical-sizing`,
+  small caps, `font-variant-caps`** (`font-stretch` is in: §13) — `font_variant_numeric` (bit 75) is the one
   OpenType row that exists, and it is also unreachable from Contract; it
   should get an attribute with this work or be declared unreachable on
   purpose.
@@ -779,3 +779,73 @@ list is likewise unbuilt by choice, not by accident.
 `.otf` exists in Weird Castle or exact2 outside the DejaVu fixture pair, so the
 brand face remains an open product choice — which typeface, and whether its
 licence permits bundling into a shipped binary.
+
+## 13. Variable faces and `font-stretch` (2026-10-19)
+
+A variable file is one face that covers a range of weights and widths. A
+browser draws it from `@font-face`'s range descriptors (CSS Fonts 4 §4.5,
+§4.6): a request inside `font-weight: 100 900` is set on the `wght` axis at
+that value, and one outside is matched at the range's nearer end. Exact now
+does the same on every host.
+
+### D2, decided — a face carries its ranges
+
+A `faces` row is one source, a weight range (`weight` to `weight_max`), a width
+range in tenths of a percent (`stretch_min` to `stretch_max`, 1000 normal) and
+italic: `@font-face`'s `font-weight`, `font-stretch` and `font-style`. One
+weight is a range of one value and pins `wght` there, as a single
+descriptor does.
+
+- **The shorthand is `auto`.** `font "Name" = "path"` reads the file's `fvar`
+  at compile time (`contract/lower/src/font_axes.rs`): a `wght` axis is the
+  face's weight range and a `wdth` axis its width range. A static face is 400,
+  normal width. CSS Fonts 4's `auto` would take a static face's weight from
+  its OS/2 class; Exact keeps 400, which the identity rule (D3) already
+  required of a face whose name table disagrees with its declaration.
+- **A block face names one weight or a range:** `600 = "…"` pins, `100 900 =
+  "…"` covers. Its width range is always the file's, as `auto`.
+- **No host infers a range.** The plan holds them, so web emits them as
+  descriptors and native hosts read the same rows.
+
+### D8 — `font-stretch`
+
+`font_stretch` is a kernel row (bit 216): an inherited percentage, default
+100, written as CSS writes it (`75%`, `condensed`; a bare number is refused, as
+CSS refuses it). It is the first criterion of face matching (§5.2: the nearest
+width, narrower first at or below 100%, wider first above it), then style,
+then weight; a face declared over a `wdth` range draws the request on that
+axis, clamped to the range. Fonts 4 renames the property `font-width`; the
+compiler takes the name browsers implement.
+
+### Optical size
+
+`font-optical-sizing: auto` (CSS Fonts 4 §2.7) sets a face's `opsz` to the
+font size in px, and it decides more than letterforms: Roboto Flex's width
+range grows with `opsz` (at weight 944 and 168 px, `wdth` 50–150 spans 1047 to
+1241 px at `opsz` 14, 887 to 1564 at 144). Every host sets it: the browser
+itself; Apple in `RegisteredFace.drawn`, since CoreText stops choosing `opsz`
+once a descriptor carries a variation; Linux as a Parley style variation after
+fontique's synthesis (`text::shaping::push_style`), which Android's
+`FONT_AXES` carries to the reader.
+
+### How each host draws it
+
+| Host | Weight and width |
+|---|---|
+| Web | `@font-face { font-weight: 100 900; font-stretch: 25% 151% }`; the browser sets the axes. |
+| Apple | `RegisteredFace` holds both ranges; `matched` is §5.2 over them; `drawn` sets `wght` and `wdth` on the descriptor per request (one declared weight stays pinned at registration). |
+| Linux, Android | fontique's `FontInfo::with_declared_ranges` (`vendor/fontique/EXACT-PATCHES.md` §5): matching takes a range at its value nearest the request, and synthesis always emits the clamped coordinate. Android draws the axes fontique chose. |
+
+A platform family (`system-ui`) draws at its normal width on Apple: San
+Francisco's widths are `UIFont.Width`, which this change does not map. Text
+fields' and Canvas 2D's faces take no stretch. Neither has a consumer yet.
+
+### Not here
+
+`font-variation-settings` (any axis by tag) is a list on every text run, where
+these two rows are numbers each host already carries; CSS recommends the
+high-level properties wherever one exists. `font-optical-sizing` stays
+`auto` and is not authorable. Animating any of
+these rows is a layout property per frame, which `rules/DEFERRED.md` §Motion
+keeps out.
+

@@ -811,13 +811,22 @@ const api = {
     messages(entry);schedule();
   },
   // postMessage(id, text) from Contract: one input event, stamped at the call,
-  // delivered in order; held until the canvas's surface exists.
+  // delivered in order; held until the canvas's surface exists. The refusal, or null.
   post(name, text, at) {
     const queued = posts.get(name) ?? posts.set(name, []).get(name);
-    if (queued.length >= (exact.postBound ?? 64)) { console.warn(`exact: postMessage: dropped: ${exact.postBound ?? 64} posts already wait for surface "${name}"`); return; }
+    if (queued.length >= (exact.postBound ?? 64)) { const refused = `postMessage: dropped: ${exact.postBound ?? 64} posts already wait for surface "${name}"`; console.warn(`exact: ${refused}`); return refused; }
     queued.push(JSON.stringify({ t: "message", text, at }));
     deliverPosts(name);
+    return null;
   },
+  // The driver's `post` (LLP 1139.004 D1): a canvas's surface name, the page's
+  // one world's, and whether posts to a name still wait for its canvas.
+  surfaceOf: (view) => surfaces.get(view)?.name,
+  liveSurface() {
+    const names = [...new Set([...surfaces.values()].filter(e => !e.terminal && exact.views.get(e.view) === e.host).map(e => e.name))]; // a canvas on the page, its world live or loading
+    return names.length === 1 ? names[0] : names.length ? {error:`post: ${names.length} worlds are live (${names.join(", ")}); name one: post <surface> <text>`} : undefined;
+  },
+  waiting: (name) => posts.has(name),
   wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true || request.contact !== undefined,
   handle(request, ask, tagged) {

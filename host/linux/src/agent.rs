@@ -28,6 +28,39 @@ pub(crate) fn refusal(subsystem: &str, message: &str) -> serde_json::Value {
     serde_json::json!({"error":message, "refused":{"host":host, "subsystem":subsystem, "message":message}})
 }
 
+/// The driver's `post` (LLP 1139.004 D1): `postMessage(text, surface)` as the
+/// page sends it, into canvas `view`'s surface, the named one, or the page's
+/// one world. A surface with no live canvas holds it, as it holds the page's.
+fn post<D: DataSource>(
+    p: &mut Presenter<D>,
+    view: Option<u32>,
+    surface: Option<String>,
+    text: &str,
+) -> String {
+    let name = match (view, surface) {
+        (Some(view), _) => match p.surfaces.surface_of(view) {
+            Some(name) => name.to_owned(),
+            None => return error(&format!("view {view} has no world")),
+        },
+        (None, Some(name)) => name,
+        (None, None) => {
+            let names: Vec<_> = p.surfaces.surface_names().into_iter().collect();
+            match names[..] {
+                [name] => name.to_owned(),
+                [] => return error("post: no world is live; name its surface (post <surface> <text>) to hold the message until one is"),
+                _ => return error(&format!("post: {} worlds are live ({}); name one: post <surface> <text>", names.len(), names.join(", "))),
+            }
+        }
+    };
+    match p.post_message(&name, text) {
+        Ok(()) if p.surfaces.waiting(&name) => {
+            serde_json::json!({"posted": name, "delivery": "posted", "held": true}).to_string()
+        }
+        Ok(()) => serde_json::json!({"posted": name, "delivery": "posted"}).to_string(),
+        Err(refused) => error(&format!("post refused: {refused}")),
+    }
+}
+
 fn malformed(message: &str) -> String {
     serde_json::json!({ "error": message, "malformed": true }).to_string()
 }
@@ -497,6 +530,12 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             r.unwrap_or_else(|e| error(&e))
         }
+        Some("type") if field_str(line, "message").is_some() => post(
+            p,
+            id(),
+            field_str(line, "surface"),
+            &field_str(line, "message").unwrap_or_default(),
+        ),
         Some("type") => {
             let Some(id) = id() else {
                 return malformed("type needs an id");

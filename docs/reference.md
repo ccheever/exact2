@@ -196,8 +196,12 @@ origin (`own`, `class:<Name>`, or `tag`) and, where an author wrote it, `at`
 and `attr`; and `states`, one `{state, origin, at}` per state part that
 writes the row: `:active`'s (on the press paint row it lowers to), `:hover`'s
 and `:focus-visible`'s (LLP 1121 D8, LLP 1122); a conditional class's
-(`class=(c ? A : B)`) says no `at`, as its base row says none. A row only a
-state part writes, a press row among them, has no base fields. Slots, derives and actions retain their declarations,
+(`class=(c ? A : B)`) says no `at`, as its base row says none; a row a
+`:disabled` or `:checked` part folds over its base says the base's attribute
+as its base and each folded part in `states`. A row only a state part
+writes, a press row among them, has no base fields. Each source is listed
+with its digest, and a Contract source with its `home`, as its components'
+identities name it (a param's full name is `<home>#<component>.<param>`). Slots, derives and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside
@@ -275,7 +279,15 @@ have, sets `"keepRunning": true` in `app.json`'s `host.macos.window`. ⌘W,
 File ▸ Close Window and the red button then hide the window without asking
 `beforeunload`, and the app keeps running with its session and native module
 alive. A Dock click or `open -a` shows the window again as it was, and a
-document routed to the app shows it too. ⌘Q quits as before, and the app's own
+document routed to the app shows it too. While the window is hidden,
+`exactPage().visibilityState` is `hidden`, as for a minimized window, and it
+is `visible` again when the window shows. The close and the reopen are also the
+web's back/forward cache: `exactPage().persisted` is `true` from the close (a
+`pagehide` with `persisted`) until the reopen, and `exactPage().restores`
+counts the reopens (each a `pageshow` with `persisted`). A minimize, ⌘H, a
+covering window or a locked screen changes neither. So an app that opens
+something new on a reopen, as a Mac app makes a new window there, keys a task
+on the count: `task fresh when page.restores > 0 key=page.restores`. ⌘Q quits as before, and the app's own
 `close()` still closes the window and ends the app. A `navigate-new` app
 (`launch_handler`) already outlives its last window, and the key changes
 nothing there. The agent's `state.documents.windows[].visible` says whether

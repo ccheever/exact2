@@ -88,6 +88,7 @@ extension NodeView {
         let night = drawsDark, contrast = drawsHighContrast, elevated = drawsElevated
         // The view's own tint, read once, where anything here names it (LLP 1095 D8).
         let tint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) ? viewTint : nil
+        let ink = textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
@@ -104,9 +105,25 @@ extension NodeView {
             runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night, contrast: contrast, elevated: elevated, tint: tint))
         } else {
             runs = inlineText.filter(\.paints).map { $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint) }
+            let decorates = inlineText.contains(where: { !$0.paints && !$0.lightRun.decoration.isEmpty })
+            let backs = inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil })
+            let byId = decorates || backs ? Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) : [:]
+            // An inline container's lines reach its descendants' text, as the
+            // paragraph's own do below, whatever the box's own visibility:
+            // a hidden run paints neither its glyphs nor their lines.
+            if decorates {
+                for (i, leaf) in inlineText.filter(\.paints).enumerated() {
+                    var up = byId[leaf.parent]
+                    while let run = up {
+                        up = byId[run.parent]
+                        guard !run.lightRun.decoration.isEmpty else { continue }
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        runs[i].propagate(paint.decoration, color: paint.color ?? ink)
+                    }
+                }
+            }
             // A container's background covers its descendants' fragments (CSS).
-            if inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil }) {
-                let byId = Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            if backs {
                 // A leaf paints one background, its nearest, and a box's ends
                 // are read from the characters that paint it: a box inside
                 // another visible background, and that outer box, keep square
@@ -136,8 +153,13 @@ extension NodeView {
                 for i in runs.indices { runs[i].backgroundBox = 0; runs[i].backgroundRadii = [] }
             }
         }
+        // The paragraph's own lines reach every run its children paint
+        // (CSS Text Decoration 3 §2.1); its own text's run already has them.
+        if props["text"] == nil || props["markup"] == "markdown", let lines = style["text_decoration_line"]?.string, !lines.isEmpty {
+            for i in runs.indices { runs[i].propagate(lines, color: ink) }
+        }
         var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: textRun(""),
-                                  color: textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast),
+                                  color: ink,
                                   language: presenter?.documentLanguage ?? "")
         // One shadow over the paragraph when its runs agree (LLP 1077 D3).
         spec.gatherShadows()

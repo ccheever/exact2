@@ -648,8 +648,9 @@ component Card
 
 /// Review round 1: a row the compiler composed or renamed, or a
 /// conditional class's, says nowhere: an animation's longhands composed,
-/// a symbol's tint from its `color`, a folded `:disabled` shorthand, a
-/// `class=(c ? A : B)` row.
+/// a symbol's tint from its `color`, a `class=(c ? A : B)` row; a folded
+/// `:disabled` or `:checked` row says its base's attribute (a shorthand's
+/// for a side), its parts beside it (LLP 1122's queue item (2)).
 #[test]
 fn a_composed_or_renamed_row_says_nowhere() {
     let app = App::new("composed");
@@ -687,13 +688,18 @@ component App
             .unwrap()
             .clone()
     };
-    // A folded `:checked` row won the base's place: it says nowhere.
+    // A folded `:checked` row (LLP 1122's queue item (2)): its base's
+    // attribute is its base place, its part in `states`, never one for the
+    // other.
     let chk = rows("chk");
     let ground = chk.iter().find(|r| r["row"] == "background_color").unwrap();
-    assert!(
-        ground.get("attr").is_none() && ground.get("at").is_none(),
+    assert_eq!(
+        (ground["attr"].as_str(), ground["at"]["line"].as_u64()),
+        (Some("background-color"), Some(20)),
         "{ground}"
     );
+    assert_eq!(ground["states"][0]["state"], "checked", "{ground}");
+    assert_eq!(ground["states"][0]["at"]["line"], 22, "{ground}");
     let bad: Vec<_> = ["col", "anim", "sym", "btn", "chk"]
         .iter()
         .flat_map(|id| rows(id).into_iter().map(move |r| (id.to_string(), r)))
@@ -871,4 +877,211 @@ component App
     assert_eq!(bg["states"][0]["state"], "hover", "{bg}");
     assert_eq!(bg["states"][0]["origin"], "class:A/B", "{bg}");
     assert!(bg["states"][0].get("at").is_none(), "{bg}");
+}
+
+/// LLP 1122's queue item (2): a row a `:disabled` or `:checked` part folds
+/// over its base says the base's attribute as its base place, where an
+/// author wrote it, and each part folded over it in `states`: a param's
+/// base, both parts on one row, a class's base and part; none for a base
+/// the node takes unwritten (a link's colour) or a conditional class's.
+#[test]
+fn a_folded_row_says_its_base_and_its_parts() {
+    let app = App::new("folds-map");
+    app.write(
+        "app.contract",
+        r##"component App
+  state flag = true
+  view
+    column
+      Pill(off=flag)
+      box background-color="#ffffff" aria-checked=flag disabled=flag role="checkbox" testId="both"
+        :checked
+          background-color = "#00ff00"
+        :disabled
+          background-color = "#999999"
+      box class=Card aria-checked=flag role="checkbox" testId="card"
+      link href="/x" disabled=flag testId="lnk"
+        :disabled
+          color = "#999999"
+        text "x"
+      box class=(flag ? A : B) aria-checked=flag role="checkbox" testId="cond"
+        :checked
+          background-color = "#00ff00"
+
+style Card
+  background-color="#ffffff"
+  :checked
+    background-color="#00ff00"
+
+style A
+  background-color="#ffffff"
+
+style B
+  background-color="#ffffff"
+
+component Pill
+  params
+    fill: color = "#0a7aff"
+  props
+    off: bool
+  view
+    button appearance="none" disabled=off background-color="param.fill" testId="pill"
+      :disabled
+        background-color = "#999999"
+      text "Go"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let row = |id: &str, name: &str| {
+        let rows = at(&runner, &map, id)["bindings"]
+            .as_array()
+            .unwrap()
+            .clone();
+        rows.into_iter()
+            .find(|r| r["row"] == name)
+            .unwrap_or_else(|| panic!("{id} {name}"))
+    };
+    let parts = |r: &serde_json::Value| {
+        r["states"].as_array().map_or_else(Vec::new, |p| {
+            p.iter()
+                .map(|p| {
+                    (
+                        p["state"].as_str().unwrap().to_string(),
+                        p["origin"].as_str().unwrap().to_string(),
+                        p["at"]["line"].as_u64(),
+                    )
+                })
+                .collect()
+        })
+    };
+    let base = |r: &serde_json::Value| {
+        (
+            r["origin"].as_str().map(str::to_string),
+            r["attr"].as_str().map(str::to_string),
+            r["at"]["line"].as_u64(),
+        )
+    };
+    // A param's base: the attribute that names it, never its part's place.
+    let pill = row("pill", "background_color");
+    assert_eq!(
+        base(&pill),
+        (
+            Some("own".into()),
+            Some("background-color".into()),
+            Some(37)
+        )
+    );
+    assert_eq!(parts(&pill), [("disabled".into(), "own".into(), Some(39))]);
+    // Both parts on one row, `:checked` under `:disabled`.
+    let both = row("both", "background_color");
+    assert_eq!(base(&both).2, Some(6));
+    assert_eq!(
+        parts(&both),
+        [
+            ("checked".into(), "own".into(), Some(8)),
+            ("disabled".into(), "own".into(), Some(10))
+        ]
+    );
+    // A class's base and part.
+    let card = row("card", "background_color");
+    assert_eq!(
+        base(&card),
+        (
+            Some("class:Card".into()),
+            Some("background-color".into()),
+            Some(21)
+        )
+    );
+    assert_eq!(
+        parts(&card),
+        [("checked".into(), "class:Card".into(), Some(23))]
+    );
+    // A base the node takes unwritten (a link's colour): no base fields.
+    let lnk = row("lnk", "text_color");
+    assert_eq!(base(&lnk), (None, None, None), "{lnk}");
+    assert_eq!(parts(&lnk), [("disabled".into(), "own".into(), Some(14))]);
+    // A conditional class's base is either style's: no place.
+    let cond = row("cond", "background_color");
+    assert_eq!(
+        base(&cond),
+        (Some("class:A/B".into()), None, None),
+        "{cond}"
+    );
+}
+
+/// Two parts of one state on one row each stay in `states`: the node's
+/// `:disabled border-top-color` with a `none` arm leaves its class's
+/// `:disabled border-color` showing on that side when it is `none`
+/// (Astra and Grok, round 2 of LLP 1122's queue item (2)).
+#[test]
+fn a_folded_row_keeps_each_part_of_a_state() {
+    let app = App::new("folds-two-parts");
+    app.write(
+        "app.contract",
+        r##"component App
+  state flag = true
+  view
+    box class=Card disabled=flag testId="card"
+      :disabled
+        border-top-color = (flag ? "#999999" : none)
+      text "c"
+
+style Card
+  border-color="#ffffff"
+  :disabled
+    border-color="#111111"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = at(&runner, &map, "card")["bindings"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let parts = |name: &str| {
+        let r = rows
+            .iter()
+            .find(|r| r["row"] == name)
+            .unwrap_or_else(|| panic!("{name}: {rows:?}"));
+        r["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| {
+                (
+                    p["state"].as_str().unwrap().to_string(),
+                    p["origin"].as_str().unwrap().to_string(),
+                    p["at"]["line"].as_u64(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        parts("border_color_top"),
+        [
+            ("disabled".to_string(), "class:Card".to_string(), Some(12)),
+            ("disabled".to_string(), "own".to_string(), Some(6))
+        ]
+    );
+    assert_eq!(
+        parts("border_color_right"),
+        [("disabled".to_string(), "class:Card".to_string(), Some(12))]
+    );
+}
+
+/// Each source says its home, as its components' identities name it
+/// (LLP 1121 D15), so a reader names a param by its full name from the
+/// file it reads it in (LLP 1122's queue item (2)).
+#[test]
+fn each_source_says_its_home() {
+    let app = App::new("homes");
+    app.write(
+        "app.contract",
+        "component App\n  view\n    Card()\n\ncomponent Card\n  params\n    fill: color = \"#0a7aff\"\n  view\n    box background-color=\"param.fill\" testId=\"card\"\n",
+    );
+    let (_, map) = app.compile();
+    let sources = map["sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 1, "{sources:?}");
+    assert_eq!(sources[0]["home"], "app.contract", "{sources:?}");
 }

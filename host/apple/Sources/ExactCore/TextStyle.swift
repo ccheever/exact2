@@ -22,7 +22,8 @@ package enum TextStyle {
         return Run(text: text, size: CGFloat(size), weight: Int(style["font_weight"]?.number ?? 400),
                    family: Int(style["font_family"]?.number ?? 0), italic: style["font_style"]?.string == "italic",
                    lineHeight: height, letterSpacing: CGFloat(Float(style["letter_spacing"]?.number ?? 0)),
-                   numeric: Int(style["font_variant_numeric"]?.number ?? 0))
+                   numeric: Int(style["font_variant_numeric"]?.number ?? 0),
+                   stretch: CGFloat(Float(style["font_stretch"]?.number ?? 100)))
     }
     package static func spec(runs input: [Run], style: NodeStyle, props: [String: String], strut: Run,
                              color: [Double] = [0, 0, 0, 255], language: String = "") -> Spec {

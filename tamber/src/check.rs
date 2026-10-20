@@ -1126,17 +1126,23 @@ impl<'a> Checker<'a> {
         match folded {
             Ok(v) => {
                 // An unset base name it reads bare, noted on the token folding.
-                let named = match &v {
-                    Value::Length(Length::Named(n)) => Some(n),
+                // And each an expression over base names reads (stage 12 B2).
+                let named: Vec<&str> = match &v {
+                    Value::Length(Length::Named(n)) => vec![n],
+                    Value::Length(Length::Base(r)) => r.bases(),
                     Value::Type(t) => match &t.size {
-                        Length::Named(n) => Some(n),
-                        _ => None,
+                        Length::Named(n) => vec![n],
+                        _ => Vec::new(),
                     },
-                    _ => None,
+                    _ => Vec::new(),
                 };
-                if let (Some(n), Some(&i)) = (named, self.stack.last()) {
-                    if self.bases.contains(n) && !self.based[i].contains(n) {
-                        self.based[i].push(n.clone());
+                if let Some(&i) = self.stack.last() {
+                    for n in named {
+                        if self.bases.iter().any(|b| b == n)
+                            && !self.based[i].iter().any(|b| b == n)
+                        {
+                            self.based[i].push(n.to_string());
+                        }
                     }
                 }
                 Some(v)
@@ -1320,17 +1326,31 @@ struct Scope<'c, 'a> {
 }
 
 impl Names for Scope<'_, '_> {
-    fn named(&mut self, name: &str) -> Result<Named, FoldError> {
+    // A read, recorded on the token folding: one a later term cancels
+    // (`space.md - space.md + 3px`) is still read.
+    fn base(&mut self, name: &str) -> bool {
         let c = &mut *self.checker;
-        // A base name the design leaves unset, read inside an expression (a
-        // bare one is a named length, which never comes here): its length is
-        // each host's, so nothing folds it. One the design sets is its token.
-        if c.bases.iter().any(|b| b == name) && !c.names.contains_key(name) {
+        let base = c.bases.iter().any(|b| b == name) && !c.names.contains_key(name);
+        if let (true, Some(&i)) = (base, c.stack.last()) {
+            if !c.based[i].iter().any(|b| b == name) {
+                c.based[i].push(name.to_string());
+            }
+        }
+        base
+    }
+
+    fn named(&mut self, name: &str) -> Result<Named, FoldError> {
+        // A base name the design leaves unset, read where no length's
+        // function keeps it (a bare one is a named length, and a length's
+        // `calc()` asks [`Names::base`] first): its length is each host's,
+        // so nothing folds it. One the design sets is its token.
+        if self.base(name) {
             return Err(FoldError {
                 id: "tamber-base-expression",
-                message: format!("`{name}` is a base length, each platform's own: a value names it bare (`card.pad = {name}`), never inside an expression (`calc()`, a shadow), unless the design sets it; an expression over a base name is QUEUE's"),
+                message: format!("`{name}` is a base length, each platform's own: a length names it (`card.pad = {name}`, `calc({name} * 2)`), but a shadow or any other value can't yet, unless the design sets it (QUEUE: shadows over base names)"),
             });
         }
+        let c = &mut *self.checker;
         let lower = name.to_ascii_lowercase();
         // Silence: a refused token or dial said so where it is written.
         let quiet = || FoldError {

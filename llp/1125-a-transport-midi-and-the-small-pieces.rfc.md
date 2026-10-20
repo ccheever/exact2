@@ -306,7 +306,17 @@ resource midi = exactMIDI() as shape MIDI
 -- { state: "prompt" | "granted" | "denied" | "unavailable",
 --   inputs: MIDIPort[], outputs: MIDIPort[] }
 -- MIDIPort: { id, name, manufacturer, state: "connected" | "disconnected" }
+-- sent (declared or not): { output, data: number[], timeStamp }[]
 ```
+
+- **`sent`** is the last 128 messages that went out by the runner's clock
+  (due, not taken back), in the order they went: by time, then by id. It is
+  kept apart from the queue's record, which lets a handed message go when
+  1,024 more are queued. Timing Clock (`F8`) is never listed, clock out's
+  or an app's own. A reader that declares it is answered again at each
+  message's time, a commit with no app action; one that does not is not
+  (2026-10-20: euxy's activity log, which ports 11–14 rebuilt from the
+  pattern).
 
 - **Names are Web MIDI's** (`MIDIAccess.inputs`, `MIDIPort.id` and so on).
 - **`id` is stable across replug**: on Apple, `kMIDIPropertyUniqueID`, not the

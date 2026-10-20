@@ -45,7 +45,7 @@ impl GpuTier {
         }
     }
 
-    /// The hosts' wire code (`gpu_tier`, and bits 10–11 of the page facts
+    /// The hosts' wire code (`gpu_tier`, and bits 11–12 of the page facts
     /// word): 0 high, 1 mid, 2 low, so a host that says nothing says `high`.
     pub fn code(self) -> u32 {
         match self {

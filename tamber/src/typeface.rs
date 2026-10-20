@@ -171,6 +171,13 @@ fn size(
                 "tamber-kind",
                 format!("`{word}` is `{n}`, which no font size takes"),
             ),
+            Named::Length(l @ Length::Base(_)) => fail(
+                "tamber-kind",
+                format!(
+                    "`{word}` is `{}`, over a base length, which no font size takes",
+                    l.css()
+                ),
+            ),
             Named::Length(l) => Ok(l),
             Named::Unknown => fail(
                 "tamber-unknown-token",

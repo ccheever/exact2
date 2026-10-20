@@ -68,8 +68,11 @@ fn image_with_draws(
 ) -> Option<fixture::Pixels> {
     let gpu = crate::test_device::device_or_skip(exact_gpu::fixture::device())?;
     let mut sim = Sim::<Test>::new(()).unwrap();
-    sim.asset("panels.model", Some(&bin::to_vec(model)))
-        .unwrap();
+    sim.asset(
+        "panels.model",
+        Some(&exact_game::asset::encode_model(model)),
+    )
+    .unwrap();
     *sim.world().get_mut::<Transform>("model").unwrap() = pose;
     if let Some(tint) = tint {
         let e = sim.world().named("model").unwrap();
@@ -344,8 +347,11 @@ fn blended_behind_wall(marked: bool) -> Option<[u8; 4]> {
         ..Default::default()
     };
     let mut sim = Sim::<Test>::new(()).unwrap();
-    sim.asset("panels.model", Some(&bin::to_vec(&model)))
-        .unwrap();
+    sim.asset(
+        "panels.model",
+        Some(&exact_game::asset::encode_model(&model)),
+    )
+    .unwrap();
     let w = sim.world_mut();
     w.spawn((
         Transform {
@@ -427,8 +433,11 @@ fn node_materials_tint_and_light_named_nodes_of_one_instance() {
         });
     }
     let mut sim = Sim::<Test>::new(()).unwrap();
-    sim.asset("panels.model", Some(&bin::to_vec(&model)))
-        .unwrap();
+    sim.asset(
+        "panels.model",
+        Some(&exact_game::asset::encode_model(&model)),
+    )
+    .unwrap();
     let e = sim.world().named("model").unwrap();
     sim.world_mut().insert(
         e,
@@ -526,8 +535,11 @@ fn static_parts_sharing_a_material_draw_once_and_look_the_same() {
     let render = |separate: bool| {
         let model = if separate { &apart } else { &model };
         let mut sim = Sim::<Test>::new(()).unwrap();
-        sim.asset("panels.model", Some(&bin::to_vec(model)))
-            .unwrap();
+        sim.asset(
+            "panels.model",
+            Some(&exact_game::asset::encode_model(model)),
+        )
+        .unwrap();
         let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         renderer.prepare_model("panels.model", model).unwrap();
         let mut feed = Feed::default();
@@ -652,7 +664,8 @@ fn animated_rigid_parts_sharing_a_material_draw_once_and_follow_their_nodes() {
     let render = |separate: bool, looks: bool| {
         let model = if separate { &apart } else { &model };
         let mut sim = Sim::<Swing>::new(()).unwrap();
-        sim.asset("arm.model", Some(&bin::to_vec(model))).unwrap();
+        sim.asset("arm.model", Some(&exact_game::asset::encode_model(model)))
+            .unwrap();
         sim.run(100.);
         if looks {
             let e = sim.world().named("model").unwrap();
@@ -810,8 +823,11 @@ fn material_overrides_recolour_one_material_and_keep_instances_together() {
     }]);
     let render = |looks: Option<&MaterialOverrides>, second: bool| {
         let mut sim = Sim::<Test>::new(()).unwrap();
-        sim.asset("panels.model", Some(&bin::to_vec(&model)))
-            .unwrap();
+        sim.asset(
+            "panels.model",
+            Some(&exact_game::asset::encode_model(&model)),
+        )
+        .unwrap();
         let e = sim.world().named("model").unwrap();
         if let Some(looks) = looks {
             sim.world_mut().insert(e, looks.clone());
@@ -884,14 +900,20 @@ fn a_team_colour_written_from_present_recolours_only_the_armour() {
     let model = armoured();
     // Setup ends with a present, so the unit already wears its team's colour.
     let mut sim = Sim::<Teams>::new(()).unwrap();
-    sim.asset("panels.model", Some(&bin::to_vec(&model)))
-        .unwrap();
+    sim.asset(
+        "panels.model",
+        Some(&exact_game::asset::encode_model(&model)),
+    )
+    .unwrap();
     assert!(sim.world().get::<MaterialOverrides>("model").is_some());
     let (_, pixels) = draw_armoured(&gpu, &model, sim.world());
     // The same unit with no present: its authored look.
     let mut plain = Sim::<Test>::new(()).unwrap();
     plain
-        .asset("panels.model", Some(&bin::to_vec(&model)))
+        .asset(
+            "panels.model",
+            Some(&exact_game::asset::encode_model(&model)),
+        )
         .unwrap();
     let (_, authored) = draw_armoured(&gpu, &model, plain.world());
     let armour = pixels.at(32, 32);

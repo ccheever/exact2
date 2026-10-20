@@ -10,7 +10,10 @@
 //!   any base name as a length, and none when it can't ([`named`]: theme2's
 //!   all-nine-or-none, B2 round 2);
 //! - a bound row's value naming one reads that property (`measures::map`),
-//!   an SVG attribute its length.
+//!   an SVG attribute its length;
+//! - a length token over base names (stage 12 B2) is a `calc()` over their
+//!   properties (`calc(var(--exact-space-md) * 2)`, [`expression`]), and in
+//!   an SVG attribute that column's px ([`folded`]).
 //!
 //! A design that defines a base name makes it its own token, which the
 //! token path writes (`modes`, `measures`). The web has no iOS or Mac look
@@ -26,7 +29,8 @@ use std::collections::BTreeSet;
 /// none when it can't (theme2, B2 round 2: declaring all nine is safe,
 /// missing one is not, and a switch between two base names then never needs
 /// a property the sheet lacks). It may read one when:
-/// - a length token aliases one (`card.pad: length = space.md`);
+/// - a length token aliases one (`card.pad: length = space.md`), or is an
+///   expression over one (`calc(space.md * 2)`, stage 12 B2);
 /// - a length row's value may be one, through `?:`, `match` and `let` (its
 ///   bytecode's string constants, trimmed as the page's lookup trims,
 ///   [`returns`]);
@@ -82,11 +86,11 @@ fn reads(plan: &Plan) -> Vec<&'static str> {
         let slices = plan.theme_slices[row.slices.start as usize..][..row.slices.len as usize]
             .iter()
             .map(|s| s.value);
-        said.extend(
-            std::iter::once(row.value)
-                .chain(slices)
-                .map(|v| js_trim(plan.str(v))),
-        );
+        for v in std::iter::once(row.value).chain(slices) {
+            let v = js_trim(plan.str(v));
+            said.insert(v);
+            said.extend(scale::named_in(v));
+        }
     }
     // Each binding's node's arm: the regions whose frames its code reads
     // (`LoadItem`, `LoadBound`), innermost first.
@@ -522,6 +526,28 @@ fn walk(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>, nested: u8) -
         }
     }
     out
+}
+
+/// A length token's expression over base names (stage 12 B2) as the CSS
+/// the page writes: each base name its property, inside the expression's
+/// own `calc()`, `min()`, `max()` or `clamp()`. `None` for any other text.
+pub fn expression(value: &str) -> Option<String> {
+    let value = value.trim();
+    if !value.contains('(') || scale::named_in(value).is_empty() {
+        return None;
+    }
+    scale::substitute_with(value, |name| Some(format!("var({})", property(name))))
+}
+
+/// [`expression`]'s px in this build's column, where no property is read
+/// (an SVG attribute).
+pub fn folded(value: &str) -> Option<String> {
+    let value = value.trim();
+    if !value.contains('(') || scale::named_in(value).is_empty() {
+        return None;
+    }
+    let px = scale::evaluate(value, metrics::column())?;
+    Some(format!("{px}px"))
 }
 
 /// A base name's custom property: `--exact-space-md`.

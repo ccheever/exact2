@@ -66,9 +66,10 @@ export function pointerArguments(phase, opts) {
   if (opts.ms !== undefined && (!Number.isFinite(opts.ms) || opts.ms < 0)) throw new MalformedOperation('pointer: expected a nonnegative finite duration');
 }
 
-export function resizeArguments(size) {
-  const m = /^(\d+)x(\d+)$/.exec(size);
-  if (!m) throw new MalformedOperation('resize <w>x<h>, as resize 800x600');
+/** `resize <w>x<h>` or `resize <w> <h>`: the words after the op. */
+export function resizeArguments(words) {
+  const m = /^(\d+)(?:x|\s+)(\d+)$/.exec([words].flat().join(' ').trim());
+  if (!m) throw new MalformedOperation('resize <w>x<h> or resize <w> <h>, as resize 800x600');
   return [Number(m[1]), Number(m[2])];
 }
 
@@ -543,6 +544,9 @@ export function typeCommand(line) {
   // A paste's text is a tail as typed text is: its newlines are the clipboard's.
   const pasted = /^paste\s+([\s\S]*\S[\s\S]*)$/.exec(rest);
   if (pasted) return [target, { clipboard: 'paste', text: decodeTypeText(pasted[1]) }];
+  // A world surface's message (LLP 1139.004 D1), what `post` is short for: the rest of the line.
+  const message = /^message\s+([\s\S]*\S[\s\S]*)$/.exec(rest);
+  if (message) return [target, { message: decodeTypeText(message[1]) }];
   if (head === 'key' || head === 'copy' || head === 'cut' || head === 'paste') return typeArguments([target, ...rest.trim().split(/\s+/)]);
   return [target, decodeTypeText(rest)];
 }
@@ -566,4 +570,28 @@ export function typeArguments(args) {
     return [args[0], {key:args[2], for:Number(args[4])}];
   }
   return [args[0], {key:args[2], ...(args[3] != null ? {phase:args[3]} : {})}];
+}
+
+/** The CLI `post [<surface>] <text>` (LLP 1139.004 D1): `type <surface> message <text>` with the surface
+ * optional, so the text is one word or one quoted string ("…" as JSON, '…' as a shell's). One argument is
+ * the text for the page's one world; two are the surface and the text. */
+export function postCommand(line) {
+  const body = String(line).trim().replace(/^post(?:\s+|$)/, ''), words = [];
+  for (const m of body.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g)) words.push(m[1] != null ? inputJSON(`"${m[1]}"`) : m[2] ?? m[3]);
+  if (words.length === 1) return [null, { message: words[0] }];
+  if (words.length === 2) return [words[0], { message: words[1] }];
+  throw new MalformedOperation(words.length ? `post [<surface>] <text>: quote text of several words, as post world "spawn gulper"; type <surface> message <text…> takes the rest of the line` : 'post [<surface>] <text>: the text a world reads from Input::messages, as post spawn-gulper');
+}
+
+/** Post `message` into a world surface, as the page's `postMessage(text, surface)` does (LLP 1139.004 D1):
+ * `target` is a canvas the tree finds (a testId, a label) or a surface's name; none, the page's one world.
+ * The host queues it as `InputEvent::Message`, the next tick reads it, and a surface with no live canvas
+ * holds it, as it holds the page's posts. */
+export async function postInto(s, target, message, { host, timing }) {
+  if (typeof message !== 'string' || !message) throw new MalformedOperation('post: expected the text to post');
+  if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
+  const node = target == null ? null : await s.find(target, false);
+  const where = target == null ? {} : node?.world ? { id: node.id } : { surface: String(target) };
+  const r = await s.op({ op: 'type', message, ...where });
+  return s.landed({ ...r, ...(target == null ? {} : { target }), delivery: r.delivery ?? 'posted', carrier: host, mode: timing });
 }

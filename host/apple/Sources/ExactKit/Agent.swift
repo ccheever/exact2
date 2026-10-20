@@ -278,6 +278,10 @@ public final class Agent {
             if req["aim"] == nil, req["log"] == nil { r = completingInput(r) }
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
+        case "type" where req["message"] != nil:
+            let r = completingInput(post(req))
+            session.canvases.settle(now: session.now())
+            Agent.reply(tagged(r))
         case "type":
             let r = completingInput(releaseCanvasKey(req) ?? type(req))
             session.canvases.settle(now: session.now())
@@ -870,6 +874,31 @@ public final class Agent {
         out["settled"] = false
         out["reason"] = "transition"
         return out
+    }
+
+    /// The driver's `post` (LLP 1139.004 D1): `postMessage(text, surface)` as
+    /// the app sends it, into canvas `id`'s surface, the named one, or the
+    /// page's one world. A surface with no live canvas holds it, as it holds
+    /// the app's posts.
+    func post(_ req: [String: Any]) -> [String: Any] {
+        let canvases = session.canvases, text = req["message"] as? String ?? ""
+        let name: String
+        if let id = (req["id"] as? NSNumber)?.uint32Value {
+            guard let n = canvases.surfaceName(id) else { return ["error": "view \(id) has no world"] }
+            name = n
+        } else if let n = req["surface"] as? String {
+            name = n
+        } else {
+            let names = canvases.surfaceNames()
+            guard names.count == 1 else {
+                return ["error": names.isEmpty ? "post: no world is live; name its surface (post <surface> <text>) to hold the message until one is"
+                    : "post: \(names.count) worlds are live (\(names.joined(separator: ", "))); name one: post <surface> <text>"]
+            }
+            name = names[0]
+        }
+        if session.webviews.hasFrame(name) { return ["error": "post: \(name) is an iframe's id, not a world surface"] }
+        if let refused = canvases.post(name, text) { return ["error": "post refused: \(refused)"] }
+        return ["posted": name, "delivery": "posted", "held": canvases.waiting(name) ? true : nil].compactMapValues { $0 }
     }
 
     /// To `to`, and what is in flight lands before a timer fires — the

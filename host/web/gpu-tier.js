@@ -6,7 +6,7 @@
 // gpu/src/tier.rs `classify`, which native modules use on their own adapter.
 import { handheld } from "./navigation.js";
 
-/** The tiers by wire code (`gpu_tier`, the page facts' bits 10–11). */
+/** The tiers by wire code (`gpu_tier`, the page facts' bits 11–12). */
 export const TIERS = ["high", "mid", "low"];
 
 /** gpu/src/tier.rs `classify` over GPUAdapterInfo's words. */

@@ -302,7 +302,10 @@ fn skinned_bounds_follow_the_palette_on_the_blended_and_direct_routes() {
         let mut s = WorldSurface::<Deformed, crate::ModelExecutor, true>::default();
         s.device_ready(exact_gpu::wgpu::Features::empty());
         s.bind(&[exact_gpu::Value::Bool(blend)], None).unwrap();
-        s.asset("deformed.model", Ok(&exact_game::bin::to_vec(&model)));
+        s.asset(
+            "deformed.model",
+            Ok(&exact_game::asset::encode_model(&model)),
+        );
         fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
         if direct {
             // As a device without indirect draws culls: every group drawn whole.

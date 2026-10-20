@@ -79,6 +79,7 @@
   ],
   "materials": [
     {
+      "name": "Crate",
       "pbrMetallicRoughness": {
         "baseColorTexture": {
           "index": 0

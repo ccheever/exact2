@@ -33,7 +33,27 @@ package class ScrollView: UIScrollView {
     }
     package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event) else { return nil }
-        return NodeView.hitChildren(in: self, at: point, with: event) ?? hit
+        if let child = NodeView.hitChildren(in: self, at: point, with: event) { return child }
+        // A paragraph's scroller with nothing to scroll is its node, as on the
+        // web, where a click on it bubbles to the button around it: a
+        // `UIScrollView` keeps a touch from the responder chain. CSS makes one
+        // beside every `overflow-x: hidden` (`overflow-y` computes to `auto`),
+        // so a truncating title is one. A scroller holding nodes (a page) keeps
+        // its blank ground: its bounce, and the tap there that ends editing.
+        if hit === self, !hasRange, !subviews.contains(where: { $0 is NodeView }), let owner = superview as? NodeView { return owner }
+        return hit
+    }
+
+    /// Whether its content reaches past its port on an axis it scrolls, or a
+    /// pull-to-refresh hangs above it.
+    var hasRange: Bool {
+        let inset = adjustedContentInset
+        if scrollsX && contentSize.width + inset.left + inset.right > bounds.width + 0.5 { return true }
+        if scrollsY && contentSize.height + inset.top + inset.bottom > bounds.height + 0.5 { return true }
+        #if os(iOS)
+        if refreshControl != nil { return true }
+        #endif
+        return false
     }
 
     package var scrollsX = true

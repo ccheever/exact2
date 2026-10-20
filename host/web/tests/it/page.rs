@@ -283,7 +283,7 @@ fn the_plans_fonts_are_declared_for_a_reader_without_javascript() {
     assert!(family.starts_with("ExactPlanStack"), "{head}");
     assert!(
         head.contains(&format!(
-            r#"<style>@font-face{{font-family:"{family}";src:url("assets/ExcitingLilt-Bold.ttf");font-weight:700;font-style:normal}}</style>"#
+            r#"<style>@font-face{{font-family:"{family}";src:url("assets/ExcitingLilt-Bold.ttf");font-weight:700;font-stretch:100%;font-style:normal}}</style>"#
         )),
         "{head}"
     );

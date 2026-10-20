@@ -756,6 +756,11 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     quote(media.display_mode.keyword(), &mut s);
     s.push_str(",\"navigationType\":");
     quote(page.navigation_type(), &mut s);
+    let _ = write!(
+        s,
+        ",\"persisted\":{},\"restores\":{}",
+        page.persisted, page.restores
+    );
     s.push_str(",\"gpuTier\":");
     quote(page.gpu_tier(), &mut s);
     s.push('}');

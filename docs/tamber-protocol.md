@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.14`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.15`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.14"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.15"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -115,6 +115,14 @@ on macOS and Linux.
   source map behind them (development only, never on the wire) keys each state part by its row and
   state: a binding's `states`, `[{state, origin, at?}]` (no `at` for a conditional class's part,
   either style's).
+- `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
+  values for a length over unset base names (stage 12 D1). Stage 12's other wire changes add under the
+  same version, and so do LLP 1122's: its queue item (2) reads a selection row the runtime calls
+  `dynamic` because a `:disabled` or `:checked` part folds it over its base as that base, where the
+  source map says both (its `editable` the base's rung, its `at` and `attr` the base attribute's),
+  with `states: [{state, source, editable}]`, each folded part's place and its own edit; the
+  development-only source map lists each Contract source's `home`, from which a param's full name
+  is built.
 
 ## Where it runs
 
@@ -242,7 +250,21 @@ statuses:
   address as the relay says it, shown in logs only. Names under a relay's domain aren't secret
   (certificate transparency publishes them), and until that domain is a public suffix another
   account's names there are same-site to yours: nothing here relies on site isolation. The
-  canvas through the relay is R1's follow-up; until then its name is closed unanswered. The
+  canvas comes through the relay on its second name (R1b): a gateway of its own for the
+  session's pair (`https://<canvas name>` framed by `https://<tool name>` only), its requests'
+  `Host` bound to the name the client's TLS asked for; `canvas` through the relay's door mints
+  from it, through the TLS door from that door's, and a grant of one pair never opens the
+  other's; a revoke ends the client's canvas on both, its live streams cut. The mint limit (six
+  grants a minute a client) is one across both gateways; the per-client caps on held grants (8),
+  sessions (16) and open requests (32) are each gateway's. Because a relay's accounts may be
+  same-site to each other (until its domain is a public suffix), no other origin may include a
+  canvas's resources: each answer says `Cross-Origin-Resource-Policy: same-origin`, and a request
+  whose Fetch metadata says another origin made it (`Sec-Fetch-Site` neither `same-origin` nor
+  `none`) is refused unless it is a navigation; and every answer, an SVG or any other document
+  the loop sends without the HTML's header included, says `frame-ancestors 'self' <tool origin>`.
+  One session a run: a connection the relay
+  greets with other names is not taken. Every remote request's `access.door` (`tls`, `tunnel`,
+  `relay`, `local`) is set where the server accepted the stream, never read from a request. The
   relay's word for a client's name is checked against the client's own ClientHello before any
   request is read; a relay's refusal on any connection, at any time, stops the connector and cuts
   every stream it carries (a revoked account; the relay closes the streams it pipes too). At most
@@ -485,6 +507,16 @@ tuple:
 - **A base name** (*1.14*) answers `{kind: "base", name, base, files}`, its base row. One the app
   sets also carries its line's fields as any token's (`token, value, whens, dials, names`), so a
   tool reads and edits its `when` lines.
+- **A length over unset base names** (*1.15*, stage 12 D1): an alias of one, or an expression
+  (`calc(space.md * 2)`, stage 12 B2), whose value is each host's, adds `columns` on `explain`'s
+  value and on each `when` line, as the first tuple that chooses that line folds it (a line no
+  tuple chooses, the default included, has none), and on each of `resolve`'s tuples:
+  `{ios, mac, neutral, material, terminal: {value}}`, each the expression folded for that column
+  by the kernel's own per-column evaluator, written as the base rows write a column's value
+  (`"32px"`; the terminal's `"2cell"`, `"1.5cell"` or `"0"`, in column-width cells before its
+  layout rounds a space to whole cells on the axis it spaces); a column it doesn't fold in is left
+  out. An app-set base name folds into its own value, so one whose fold reaches no unset base name
+  is one value and has none (`space.md = space.sm` still reaches `space.sm`, and has them).
 - **A token whose values name base names** (*1.14*), an overridden base name's own line included,
   adds `bases`: each base name any of its lines reaches, `when` lines no tuple selects included (an
   unset one named bare, a set one as the token it names), and those any line of each token it
@@ -604,7 +636,9 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   two lines; the `params` block is made at the end when there is none, indented as its lines are,
   and goes when its last line does. A `when` line needs the param's own line first. After any
   write to an app with params, every param folds with the design and is inside its range, each
-  value written (a `when`'s too) at its own line (`tamber-param-range`, `tamber-range-unit`), so an
+  value written (a `when`'s too) at its own line (`tamber-param-range`, `tamber-range-unit`; a
+  length over a base name the design leaves unset, bare or in an expression, in every column of
+  the scale, the refusal naming the first column outside), so an
   unset that unmasks a default out of range is refused. The inverse is the preimage, so undoing
   the first `set-param` restores absence. A param's value is `live` where the plan folds it, as a
   token's is, `rebuild` for a duration or easing param (a motion param is written into its rows at
@@ -1403,8 +1437,18 @@ The tool drives no input into an app; a command changes only what `prefer` would
   token, the token rung. An `:active` part's rows (lowered to the press paint) carry their part's
   place in the map, and so, held (*1.14*, LLP 1122's queue item (1)), do a `:hover` or
   `:focus-visible` part's: the map keys each part by its row and state, never by its row alone, so
-  a look's row is never offered at its base row's place. A `:disabled` or `:checked` part's are
-  offered no state rung yet. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  a look's row is never offered at its base row's place. A row a `:disabled` or `:checked` part
+  folds over its base (one value, `disabled ? D : B`, the runtime's `dynamic`) is read through the
+  map (*1.15*, LLP 1122's queue item (2)) where it says both the base and the parts: its `editable`
+  is its base's rung, whichever branch the runtime shows now (param, one `param.<name>` as written,
+  by its full name among the params read for the component it is written in, a package's included,
+  its template address the base attribute's, never a part's; template, style or token), and it adds `states: [{state, source, editable}]`, one per folded part
+  (`disabled`, `checked`; two of one state, a class's and the node's, each),
+  `source` the part's place in the form a held row's has (its node's for a part with none: a
+  conditional class's), `editable` that part's own edit: `set-state` on a style's part or
+  `set-row` with `state` on the node's own, never a param it names (the base's and every other
+  use's). A fold the map can't explain (no base an author wrote: a link's colour, `none`, a
+  metric) stays `dynamic`, read-only. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit).
   A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place (none for a conditional
@@ -1414,8 +1458,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
   `padding` for `padding_top`; and `layout: true` where that attribute writes a layout row (LLP
   1122 D14: `set-row` refuses it, by the same test), so a client offers it no `set-row` edit (a
-  param or token it reads whole is still offered). A tag's row, one the compiler derived, a conditional class's, a
-  folded `:disabled` or `:checked` row, and one the compiler composed or renamed (an animation's
+  param or token it reads whole is still offered). A tag's row, one the compiler derived, a conditional class's, and one the compiler composed or renamed (an animation's
   longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, node?, site?, instance?, rows}`
   (*1.11*; `node`, `site`, `instance` and a row's `token` *1.12*): the node the state is held on
   (the press it resolved to, named on a node inside it) and the rows that state shows (`active`:

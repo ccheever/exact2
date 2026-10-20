@@ -1,0 +1,12 @@
+// @exact/scale-fixture-cards — a fixture package for LLP 1121 stage 11's gate (D11's
+// packages): a card that reads only its own tokens (scale-fixture-cards.tamber), whose
+// padding and corner are the base names space.md and radius.md, so an app
+// that sets space.md restyles it with every other package that reads it.
+
+component Card
+  props
+    title: string
+  view
+    column testId="cards-card" padding="scale-fixture-cards.pad" border-radius="scale-fixture-cards.corner" background-color="scale-fixture-cards.fill"
+      view testId="cards-inner" width=40 height=16 background-color="scale-fixture-cards.ink"
+      text title color="scale-fixture-cards.ink" testId="cards-title"
