@@ -23,7 +23,7 @@ describe('a modal dialog is modal once the focus is in it', () => {
       focus() {}, stopPropagation() {}, chipFocusChanged() {},
     };
     expect(await source('app-window.contract')).toContain('\n  state dialogSeated: string[] = []\n');
-    const state: Env = { dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
+    const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
     window.call('windowFocused', state, scope, [{ target: 'composer' }]);
     // Mounted (DialogFinalFocus's dialogOpened) with the focus still outside: not yet modal.
     window.call('dialogOpened', state, scope, ['legacy-rename-project']);

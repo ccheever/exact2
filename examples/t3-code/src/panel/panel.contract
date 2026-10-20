@@ -276,7 +276,7 @@ component PanelTabNameField
     name = value
   view
     FieldOpenSelect(target=`tab-name-${tab.id}`, length=tab.renameValue.length)
-    input hatch="t3-anchor" data-anchor=`tab-editor:${tab.id}` id=`tab-name-${tab.id}` value=name input=edit blur=local("surface-rename-commit", tab.id, name) submit=local("surface-rename-commit", tab.id, name) autofocus=true aria-label="Device tab name" testId=`tab-name-${tab.id}` width="6rem" min-width=0 height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" background-color="#00000000" font-size="0.75rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" data-focus-stop="enabled"
+    input hatch="t3-anchor" data-anchor=`tab-editor:${tab.id}` id=`tab-name-${tab.id}` value=name input=edit blur=local("surface-rename-commit", tab.id, name) submit=local("surface-rename-commit", tab.id, name) autofocus=true aria-label="Device tab name" testId=`tab-name-${tab.id}` width="6rem" min-width=0 height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" background-color="#00000000" font-size="0.75rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" data-focus-stop="enabled" data-editable="yes"
 
 // "Add panel surface": a 24pt ghost-muted "+" and the menu of every surface,
 // unavailable ones at 64% with their reason.
@@ -407,7 +407,7 @@ component LinkedPrsList
         scroll flex=1 min-height=0
           column width="100%" padding="0.375rem" box-sizing="border-box"
             for row in prs.rows key=row.key
-              LinkedPrRowView(row=row, speedMode=prs.speedMode, local=local, command=command)
+              LinkedPrRowView(row=row, local=local, command=command)
         row flex-shrink=0 align-items="center" justify-content="space-between" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)"
           text prs.footer font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="linked-prs-footer"
           button press=link testId="linked-prs-link-footer" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="#00000000"
@@ -420,10 +420,10 @@ component LinkedPrsList
 component LinkedPrRowView
   inject
     rem: number
+    prSpeedMode: bool // Shift alone (app.contract modifierKey)
     dialogMenuEntered: action
   props
     row: LinkedPrRow
-    speedMode: bool
     local: action
     command: action
   state over = false
@@ -524,7 +524,7 @@ component LinkedPrRowView
           box flex=1 min-width=0
           if row.age != ""
             text row.age flex-shrink=0 font-size="0.6875rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
-      if row.speed.length > 0 and (speedMode or row.speedPending)
+      if row.speed.length > 0 and (prSpeedMode or row.speedPending)
         PrQuickActions(actions=row.speed, number=row.number, pending=row.speedPending, act=quick, sweepDown=ignoreDown, sweepMove=ignoreMove, sweepUp=ignoreMove)
       row position="absolute" right=0 bottom="0.125rem" opacity=(over or menuOpen ? 1 : 0) padding-left="1.25rem" padding-right="0.25rem" align-items="center" border-radius="0.375rem" background-color="light-dark(#f7f7f8, #101010)"
         button id=`linked-pr-actions-${row.key}` popovertarget=`linked-pr-menu-${row.key}` key=menuKey aria-label=`Actions for #${row.number}` aria-haspopup="menu" aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""

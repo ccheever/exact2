@@ -94,7 +94,7 @@ test('permissions collapse every fullscreen guest, queue by unique serial and re
 
 test('a replaced permission keeps its outside focus lineage until the final confirmation closes', () => {
   const helpers = contractFns('dialog-trap.contract', ['DialogFocusFrame', 'DialogFocusReturn']);
-  const state = { documentPermissionFocusOwner: '', documentPermissionReturnKey: '', documentPermissionReturnSource: '', dialogFrames: [], dialogSeated: [], dialogFocusOwner: '', dialogFocusId: 'guest-frame', dialogFocusPopup: '', dialogFocusInvoker: '' };
+  const state = { focusEditable: false, documentPermissionFocusOwner: '', documentPermissionReturnKey: '', documentPermissionReturnSource: '', dialogFrames: [], dialogSeated: [], dialogFocusOwner: '', dialogFocusId: 'guest-frame', dialogFocusPopup: '', dialogFocusInvoker: '' };
   let owner = 'doc-a:1', live = [owner];
   const focused: string[] = [];
   const scope = () => ({ ...helpers, activeDocumentPermissions: [], data: { messages: [] }, documentPermissionOwner: owner, stopPropagation() {}, chipFocusChanged() {}, focus: (id: string) => focused.push(id),
@@ -119,7 +119,7 @@ test('a replaced permission keeps its outside focus lineage until the final conf
 
 function nativeFocusFixture(prior = '') {
   const helpers = contractFns('dialog-trap.contract', ['DialogFocusFrame', 'DialogFocusReturn']);
-  const state = { documentPermissionFocusOwner: '', documentPermissionReturnKey: '', documentPermissionReturnSource: '', dialogFrames: [], dialogSeated: [], dialogFocusOwner: '', dialogFocusId: prior, dialogFocusPopup: '', dialogFocusInvoker: '' };
+  const state = { focusEditable: false, documentPermissionFocusOwner: '', documentPermissionReturnKey: '', documentPermissionReturnSource: '', dialogFrames: [], dialogSeated: [], dialogFocusOwner: '', dialogFocusId: prior, dialogFocusPopup: '', dialogFocusInvoker: '' };
   const documents = [{ key: 'a', src: 'adapter#a-generation1', permissionSerial: 1 }, { key: 'b', src: 'adapter#b-generation1', permissionSerial: 2 }];
   const nodes = new Set(['inline-frame-a', 'inline-frame-b', ...(prior ? [prior] : [])]);
   const live = new Set<string>(), focused: string[] = [];

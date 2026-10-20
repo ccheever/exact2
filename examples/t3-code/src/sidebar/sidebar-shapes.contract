@@ -211,7 +211,7 @@ shape SidebarView
   dialogReturn: string
   // Custom snooze's date button and its calendar popover (snooze-calendar.ts).
   calendar: SnoozeCalendar
-  jumpHints: bool
+  jumpModifiers: string[]
   pillKey: string
   pillTone: string
   pillTitle: string
