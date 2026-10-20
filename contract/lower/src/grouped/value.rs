@@ -7,7 +7,9 @@
 //! expense-tracker).
 //!
 //! The title and its value are boxed in a row that wraps: the value keeps
-//! the far edge while both fit, and below that starts under the title, at
+//! the far edge while both fit (on iOS through the largest standard size:
+//! the gap between them, `grouped-value-gap`, is wider than any line at the
+//! accessibility sizes), and below that starts under the title, at
 //! its leading edge, while a leading symbol or control and a trailing
 //! accessory stay centred in the row's height, as the cell's are. How the
 //! title is sized in the row (its `flex`, its `min-width`, the author's or
@@ -131,7 +133,7 @@ pub(super) fn boxed(
         s("flex-direction", "row", span),
         m("flex-wrap", "value-wrap", span),
         s("align-items", "center", span),
-        m("column-gap", "row-gap", span),
+        m("column-gap", "value-gap", span),
         m("row-gap", "stack-gap", span),
         attr("flex-grow", grow, span),
         n("flex-shrink", 1.0, span),

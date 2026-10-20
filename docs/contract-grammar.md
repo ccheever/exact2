@@ -1057,7 +1057,10 @@ length ramps ([LLP 1137](../llp/1137-length-ramps.rfc.md)): UIKit's list-cell
 checkmark at the root font size, growing with the text size as a text style
 does (19 × 17.33 at the default size, 48 × 43.33 at the largest). They are
 taken where `-exact-hairline` is; a grouped list's checkmark in a row of your
-own already has them on iOS.
+own already has them on iOS. `-exact-accessibility-stack-gap` is 8 through the
+largest standard size and wider than any line at the accessibility sizes: as
+the `column-gap` of a row that wraps, it stacks the row's items there, as
+UIKit's cells do (a grouped row's title and value already take it on iOS).
 
 `-exact-row-look="platform"` on an element says its box's look (its
 `background`, `border`, `padding` and `box-shadow` rows) is its own where it stands
