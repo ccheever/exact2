@@ -288,8 +288,14 @@ export async function mobileAddProjectBrowse(owner: string, id: string, director
     const path = selectedName ? appendBrowsePathSegment(directory, selectedName) : directory;
     const next = value.repositoryName && selectedName ? getCloneDestinationBrowsePath({ browseDirectoryPath: directory,
       selectedDirectoryName: selectedName, cloneDirectoryName: value.repositoryName, caseSensitive: !isWindowsPlatform(selected(state, value)?.platform ?? '') }) : getCloneDestinationPath(path, value.repositoryName);
-    const reply = await settingsCall(endpoint, { op: 'request', method: 'filesystem.browse', payload: { partialPath: path } });
-    check(); value.input = next; value.entries = arr(reply.entries); value.browseKey = `${endpoint.source.key}:${endpoint.generation}:${getFilesystemBrowsePath(next, selected(state, value)?.platform ?? '').directoryPath}`;
+    let entries: Obj[] = [], browseError = '';
+    try { entries = arr((await settingsCall(endpoint, { op: 'request', method: 'filesystem.browse', payload: { partialPath: path } })).entries); }
+    catch (error) {
+      if (letGo(error) || !settingsEndpointCurrent(endpoint) || error instanceof ClientError && error.kind === 'stale') throw error;
+      browseError = message(error);
+    }
+    check(); value.input = next; value.entries = entries; value.browseError = browseError;
+    value.browseKey = `${endpoint.source.key}:${endpoint.generation}:${getFilesystemBrowsePath(next, selected(state, value)?.platform ?? '').directoryPath}`;
   } catch (error) { if (letGo(error)) throw error; if (current(state, value, owner) && serial === value.browseSerial) value.browseError = message(error); }
   finally { if (current(state, value, owner) && serial === value.browseSerial) { value.browsing = false; touch(state); } }
   return mobileAddProjectSnapshot();
