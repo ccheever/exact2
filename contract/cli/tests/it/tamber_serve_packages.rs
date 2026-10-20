@@ -838,7 +838,7 @@ fn a_contract_only_write_is_refused_when_the_servers_state_is_a_packages() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Stage 11's window (a fix): a site's file is the app's name for it,
+/// tamber/1.15: a site's file is the app's name for it,
 /// `node_modules/@acme/reading/index.contract`, as `explain` gives it, never
 /// the machine's absolute path, which a remote client must not see: no
 /// answer holds the app's directory, as given or canonical.

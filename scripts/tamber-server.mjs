@@ -168,7 +168,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // What `commit` needs of the session, and who last changed each file.
   const session = designSession(appDir), lastBy = new Map();
   const design = basename(designPath(appDir) ?? 'app.tamber');
-  // What a client reads of this machine's files (stage 11's window, a fix):
+  // What a client reads of this machine's files (tamber/1.15):
   // every `file` named by one rule (`tamber-paths.mjs`, the design server's
   // too), for every client; and a client that is not local (paired, through
   // B's doors or a tunnel) gets machine-written messages with this machine's

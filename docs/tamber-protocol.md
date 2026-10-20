@@ -116,8 +116,12 @@ on macOS and Linux.
   state: a binding's `states`, `[{state, origin, at?}]` (no `at` for a conditional class's part,
   either style's).
 - `tamber/1.15` (LLP 1121 stage 12, after stage 11 closed) adds `resolve`'s and `explain`'s per-column
-  values for a length over unset base names (stage 12 D1). Stage 12's other wire changes add under the
-  same version, and so do LLP 1122's: its queue item (2) reads a selection row the runtime calls
+  values for a length over unset base names (stage 12 D1); and names this machine's files in no answer:
+  every `file` field and file name in an answer or event is app-relative, or `<package>/<path inside it>`
+  for a package's file (a package linked from outside the app included), never absolute, `hello`'s `app`
+  is absolute only for the local client, and a client that is not local gets machine-written messages
+  (an error's, a refusal's, `down`'s) with no directory of this machine in them (see `hello`'s `app`).
+  Stage 12's other wire changes add under the same version, and so do LLP 1122's: its queue item (2) reads a selection row the runtime calls
   `dynamic` because a `:disabled` or `:checked` part folds it over its base as that base, where the
   source map says both (its `editable` the base's rung, its `at` and `attr` the base attribute's),
   with `states: [{state, source, editable}]`, each folded part's place and its own edit; the
@@ -385,8 +389,7 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
   else `<outside>/<its name>`; never by its path on this machine. A client that is not local gets
   machine-written messages (an error's, a refusal's, the `down` event's) with the app's directory
   as `<app>` and the home directory as `~`, at whole paths only. What an author wrote (a token's
-  value, a commit's message, a file's text) comes back as written to every client (a fix in 1.14's
-  window, no new version);
+  value, a commit's message, a file's text) comes back as written to every client (*1.15*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
 - `live` (*1.2*): true when a dev loop serves the wire, whose running builds take a value-only edit in
   place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).

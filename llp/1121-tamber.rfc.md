@@ -4605,7 +4605,7 @@ the loopback rewrite is functional, not a security boundary; the hosted relay is
 
 **Stage 10 is closed.** The `tamber/1.13` window is closed; the next wire change takes `tamber/1.14` (stage 11).
 
-**A fix after the close (in stage 11's window, no version change): no answer names the machine's directories.**
+**A fix after the close, under `tamber/1.15` (it opens the version; stage 11 closed `tamber/1.14`): no answer names the machine's directories.** It changes what every client reads in a `file` field (a local one too: app-relative or `<package>/<path>`, no longer absolute), so it is a version, not a fix inside 1.14. `hello` reports `tamber/1.15`; docs/tamber-protocol.md opens its bullet.
 `uses` gave a site's `file` as the source map's absolute path for a package's file and, past a link such as macOS's
 `/tmp`, for the app's own. A remote client saw the machine's directories. Every site file in `uses` and in
 `explain`'s icon sites is now named from the app's directory, as `explain` names a param's file
@@ -4675,10 +4675,15 @@ still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it)
 - **A linked package's directory in a message is its name.** A compile or load refusal names a file by its path: a
   missing named design (`sources/packages.rs`), an unreadable `use` target (`sources.rs`), resolution
   (`resolve.rs`), and a transaction's diagnostics, which `uses`, `explain` and the others carry as `the app does
-  not build: …`. Besides the app and the home directory, the message scrubber now rewrites each package the app links
-  (`packageRoots`: every entry of its `node_modules`, an `@scope`'s too, with a named `package.json`), at its path
-  there and its real path, to its name. That rewrite is at path boundaries, longest first, and read again for each
-  message, so `/var/…/linked/missing.tamber` becomes `@acme/linked/missing.tamber`. The local tool reads the path.
+  not build: …`. Round 2 rewrote each package root found under the app's `node_modules`. Its quick re-check found
+  that misses a nested dependency, a `node_modules` installed above the app, and Bun's per-file links (whose files
+  link into a store). So the scrubber no longer lists roots. In a machine message to a client that is not local,
+  every absolute path (a run from `/`, `~/` or a drive letter, up to white space, a quote, a backtick, `)` or a `:`
+  before a line number) that names something there (it, or its directory, exists) is named by `pathName`: from the
+  file itself, app-relative, its package's `<name>/<path inside>`, or `<outside>/<name>`. A `:line:col` after it
+  stays, and so does a sentence's full stop. The app's directory itself reads `<app>`, the home directory `~`, and
+  the app and home rule stays as a backstop for any other mention. A path that names nothing there (a route,
+  `/__tamber/subscribe`) is left.
 - **Motion sites through a linked package keep their site.** `motion_sites` named its files for the reply before
   `motion_instances` joined them against the elements' paths, so a linked package's duration or easing use lost its
   instance (`site: null`) and its outline. It keeps the loader's path through the join; the finished reply is named
@@ -4689,9 +4694,13 @@ still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it)
 - **The rest named too:** the subscribe snapshot (named, and scrubbed for a client that is not local), the long
   poll's `proposals`, and export's `baseline` (`shown`, no `unwrap_or` to the absolute path).
 - **Tests:**
-  - `tamber-paths.test.mjs`: a linked package's real path and its `node_modules` path, in a message, become
-    `@acme/linked/…`; a longer name beside it does not.
-  - `tamber-remote.test.mjs`: `@acme/linked`, outside the app and the home directory, names a design that is not
+  - `tamber-paths.test.mjs`: each path in a message is named and keeps its `:line:col` (`app.contract:3:7`); a
+    longer name, `<home>istrator`, and a route are left. A package's file is `<name>/…` however it is installed: a
+    link outside the app, a dependency nested in its `node_modules`, a `node_modules` above the app, and a Bun-style
+    per-file link into a store.
+  - `tamber-remote.test.mjs`: a design server that is down, whose stderr names a package's file outside the app
+    and the home directory, reads `… writes <app> (it read @acme/far/index.contract:2:1)` to a remote client, in the
+    503s and the `down` event. `@acme/linked`, outside the app and the home directory, names a design that is not
     there. The local client's `uses` refusal holds the path; a paired client's refusals (`uses`, `explain`) hold
     neither the outside directory nor the app's nor the home's, and `uses` says `@acme/linked/missing.tamber`. It
     fails without the package rewrite.

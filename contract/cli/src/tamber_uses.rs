@@ -598,7 +598,7 @@ pub fn shown(path: &std::path::Path, dir: &std::path::Path) -> String {
 }
 
 /// Every `file` in an answer's `sites` (any depth) as [`shown`] names it
-/// (stage 11's window: an absolute path leaked the machine's directories).
+/// (tamber/1.15: an absolute path leaked the machine's directories).
 pub fn relative_files(sites: &mut [Value], dir: &std::path::Path) {
     sites.iter_mut().for_each(|v| relative(v, dir));
 }

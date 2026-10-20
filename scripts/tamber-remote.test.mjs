@@ -656,7 +656,7 @@ test('round 3 of E1: the real wire through the tunnel to a sandboxed page: the l
   } finally { await doors.close(); await wire.close(); }
 });
 
-// Stage 11's window (a fix; round 1's rework): what a client reads of this
+// tamber/1.15 (round 1's rework): what a client reads of this
 // machine's files. Every `file` is named by one rule (from the app, from its
 // package, or `<outside>/…`); a client that is not local (paired, through B's
 // door or a tunnel) gets machine-written messages without this machine's
@@ -771,6 +771,7 @@ test('no answer to a remote client names this machine\'s directories; authored t
     for (const [who, request] of asked) replies.push([request, await app.remote(who, request)]);
     const body = i => JSON.parse(replies[i][1].text);
     expect(body(0).ok.app).toBe(basename(dir));
+    expect(body(0).ok.protocol).toBe('tamber/1.15'); // this change opened 1.15
     const sites = body(4).ok.sites;
     expect(sites.length).toBeGreaterThan(0);
     const linkedName = sites[0].file;
@@ -815,11 +816,15 @@ test('a design server that is down says so to a remote client without this machi
   const { homedir } = await import('node:os');
   const { realpathSync } = await import('node:fs');
   const dir = mkdtempSync(join(new URL('..', import.meta.url).pathname, 'target', 'tamber-down-'));
+  // And a package's file outside the app and the home directory, as a stderr line might name it.
+  const outside = mkdtempSync(join(tmpdir(), 'tamber-down-pkg-'));
+  writeFileSync(join(outside, 'package.json'), '{"name":"@acme/far"}');
+  writeFileSync(join(outside, 'index.contract'), 'x');
   // A design server that stops at once, saying the app's path as the real one does.
   const dying = () => {
     const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null });
     child.kill = () => {};
-    setTimeout(() => { child.stderr.write(`contract tamber serve: another tamber server writes ${realpathSync(dir)}\n`); child.exitCode = 1; child.emit('exit', 1); }, 20);
+    setTimeout(() => { child.stderr.write(`contract tamber serve: another tamber server writes ${realpathSync(dir)} (it read ${realpathSync(outside)}/index.contract:2:1)\n`); child.exitCode = 1; child.emit('exit', 1); }, 20);
     return child;
   };
   let doors = null;
@@ -843,17 +848,20 @@ test('a design server that is down says so to a remote client without this machi
     const poll = await send(true, port, { method: 'POST', path: '/__tamber/events', headers, body: '{"wait":false}' });
     // One from the start: the `down` event, its message without the paths too.
     const all = await send(true, port, { method: 'POST', path: '/__tamber/events', headers, body: '{"after":0,"wait":false}' });
-    expect(JSON.parse(all.text).events.find(e => e.event === 'down').message).toContain('<app>');
-    for (const m of new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir())])) expect(all.text.includes(m)).toBe(false);
+    expect(JSON.parse(all.text).events.find(e => e.event === 'down').message).toBe('contract tamber serve: another tamber server writes <app> (it read @acme/far/index.contract:2:1)');
+    const machine = new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir()), outside, realpathSync(outside)]);
+    for (const m of machine) expect(all.text.includes(m)).toBe(false);
     for (const r of [subscribe, poll]) {
       expect(r.status).toBe(503);
       expect(JSON.parse(r.text).error.message).toContain('<app>');
-      for (const m of new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir())])) expect(r.text.includes(m)).toBe(false);
+      for (const m of machine) expect(r.text.includes(m)).toBe(false);
+      expect(r.text).toContain('@acme/far/index.contract:2:1');
     }
   } finally {
     await doors.close();
     await wire.close();
     rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   }
 });
 
