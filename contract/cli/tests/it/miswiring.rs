@@ -486,7 +486,7 @@ fn a_select_after_a_push_is_named_with_the_forms_that_land_the_visit() {
     assert_eq!(warned(&src), [(SELECT.to_string(), 8)]);
     let m = &messages(&src)[0];
     assert!(
-        m.contains("this `select` shows \"patterns\" as it was: `go` adds its visit to the selected tab's stack")
+        m.contains("this `select` does not land the visit on \"patterns\": where `go` pushes, it pushes onto the selected tab's stack, whatever tab declares the route, so the visit stays on the tab being left; where the location is already \"patterns\"'s top, `go` selects \"patterns\" itself and this `select` pops it to its root")
             && m.contains("write `open(nav, url)`, which puts the route's declared chain in place of that tab's stack"),
         "{m}"
     );
