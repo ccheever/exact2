@@ -122,8 +122,8 @@ test('the accounts: a label never given out again, nor one account\'s names anot
     expect(() => loadAccounts(path, DOMAIN)).toThrow('one account\'s names may not be, or be under or over, another\'s');
     write({ accounts: { a: { token_sha256: t }, b: { token_sha256: t, names: ['x.relay.test'] } }, revoked: ['old'] });
     expect(() => loadAccounts(path, DOMAIN)).toThrow('is the relay\'s own domain, under it or over it');
-    write({ accounts: { a: { token_sha256: t }, b: { token_sha256: t, names: ['test'] } }, revoked: ['old'] });
-    expect(() => loadAccounts(path, DOMAIN)).toThrow('is the relay\'s own domain, under it or over it');
+    write({ accounts: { a: { token_sha256: t }, b: { token_sha256: t, names: ['relay.test'] } }, revoked: ['old'] });
+    expect(() => loadAccounts(path, 'edge.relay.test')).toThrow('is the relay\'s own domain, under it or over it');
     write({ accounts: { a: { token_sha256: 'nope' }, b: { token_sha256: t } }, revoked: ['old'] });
     expect(() => loadAccounts(path, DOMAIN)).toThrow('token_sha256 is not 64 hex digits');
   } finally { rmSync(dir, { recursive: true, force: true }); }
