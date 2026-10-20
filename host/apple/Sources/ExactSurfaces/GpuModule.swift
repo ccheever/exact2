@@ -303,7 +303,9 @@ final class GpuModule {
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
         if let tier, !PageFacts.substituted { PageFacts.gpuTier = tier(3) }
         if let tier, let retier = sym("gpu_retier", RetierFn.self) {
-            PageFacts.retiers.append { code in _ = tier(code); retier() }
+            PageFacts.retiers[artifact] = { code in _ = tier(code); retier() }
+        } else {
+            PageFacts.retiers[artifact] = nil
         }
         module.recover = sym("gpu_recover", LoadFn.self)
         module.deviceID = sym("gpu_device_registry_id", DeviceIDFn.self)

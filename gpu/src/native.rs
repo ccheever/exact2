@@ -107,9 +107,6 @@ pub fn load(registry: &'static Registry, artifact: &'static str) -> u32 {
     };
     match prepared.unwrap_or_else(create_gpu) {
         Ok(gpu) => {
-            // The module's own tier, from its adapter, unless its host told one
-            // (LLP 1139.003 D2); a fixture's device never chooses for the process.
-            crate::tier::choose(&gpu.adapter.get_info());
             let mut module = Module::new(registry);
             module.cache_artifact = Some(artifact);
             module.set_gpu(gpu);
@@ -129,7 +126,7 @@ fn create_gpu() -> Result<crate::Gpu, crate::DeviceFailure> {
         flags: crate::device::instance_flags(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
-    crate::block_on(crate::load_gpu(instance, None))
+    crate::block_on(crate::device::load_gpu_as(instance, None, true))
 }
 
 enum Prepared {

@@ -187,7 +187,10 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 // — never a string in the wasm.
 copyShaders(app, resolve(stage, 'shaders'));
 // The neutral sheet follows the browser resets (LLP 1115.000 D4 part B; look.mjs).
-writeFileSync(resolve(stage, 'index.html'), withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8')));
+// A game's page says so (`data-exact-game`): its GPU surfaces are worlds, which a browser without WebGPU replaces
+// with the refusal page (gpu-refusal.js, LLP 1139.003 D1); an app's are decoration its content stays live over.
+const shellPage = withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8'));
+writeFileSync(resolve(stage, 'index.html'), game ? shellPage.replace('<html lang="en">', '<html lang="en" data-exact-game>') : shellPage);
 // A production bake never enters agent mode (LLP 1069.007 D2, ruled): every
 // host file that reads `?agent` declares `AGENT_ADMITTED`, and this build
 // ships it false, so the minifier drops the agent's paths from a release.

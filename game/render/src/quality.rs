@@ -38,22 +38,12 @@ impl Rung {
         }
     }
 
-    /// The world raster's scale: the game's `render_scale` when it returns
-    /// one, else ([`AUTO_RENDER_SCALE`], the default) the rung's.
+    /// The world raster's scale: the rung's when `render_scale` keeps its
+    /// default, [`AUTO_RENDER_SCALE`]; any other value the game returns,
+    /// unchanged.
     pub fn scale(self, game: f32) -> f32 {
-        if game == AUTO_RENDER_SCALE {
-            self.factor(game)
-        } else {
-            game
-        }
-    }
-
-    /// What the rung scales a full-size raster by: its own scale when the
-    /// game left `render_scale` to it, else 1. A look frame, drawn at the
-    /// size its request names, takes this.
-    pub fn factor(self, game: f32) -> f32 {
         if game != AUTO_RENDER_SCALE {
-            return 1.0;
+            return game;
         }
         match self.level {
             GpuTier::Low => 0.5,
@@ -168,7 +158,6 @@ mod tests {
         assert_eq!(high.scale(AUTO_RENDER_SCALE), 1.0);
         assert_eq!(low.scale(0.8), 0.8, "a game's own render_scale stands");
         assert_eq!(low.scale(1.0), 1.0, "an explicit full size stands too");
-        assert_eq!((low.factor(1.0), low.factor(AUTO_RENDER_SCALE)), (1.0, 0.5));
     }
 
     #[test]

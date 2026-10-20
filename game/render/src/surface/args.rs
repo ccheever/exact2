@@ -19,7 +19,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
     }
     /// The device's tier changed (`prefer gpu-tier`): the rung is resolved
     /// again, and a renderer made at another rung is released, as on a lost
-    /// device, to be made again under the same world. True when released.
+    /// device, to be made again under the same world; a look frame's own
+    /// renderer and a readback in flight go with it. The placed children's
+    /// textures are the host's on the same device and stay. True when a live
+    /// renderer was released.
     pub(super) fn retier_rung(&mut self) -> bool {
         let Some(sim) = &self.sim else { return false };
         let next = crate::quality::Rung::resolve(G::quality(sim.args()), exact_gpu::tier());
@@ -27,10 +30,20 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             return false;
         }
         self.rung = Some(next);
+        self.look.retiered();
         if self.render.is_none() {
             return false;
         }
+        let children: Vec<_> = self
+            .placed
+            .children
+            .iter()
+            .map(|c| c.texture.clone())
+            .collect();
         exact_gpu::Surface::device_lost(self);
+        for (child, texture) in self.placed.children.iter_mut().zip(children) {
+            child.texture = texture;
+        }
         true
     }
     pub(super) fn surface_arguments(&self) -> Vec<(&'static str, Value)> {

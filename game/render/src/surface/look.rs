@@ -41,6 +41,20 @@ pub(super) struct Look<const ASSETS: bool> {
     /// This build answers look requests (`crate::development_build`).
     development: bool,
 }
+impl<const ASSETS: bool> Look<ASSETS> {
+    /// A new rung: the stashed look renderer (made at the old one's samples)
+    /// and a readback in flight are dropped, to be made again at the new one.
+    pub(super) fn retiered(&mut self) {
+        self.stash = None;
+        self.stash_format = None;
+        self.pending = None;
+    }
+    /// The stashed look renderer's scene samples.
+    #[cfg(test)]
+    pub(super) fn stashed_samples(&self) -> Option<u32> {
+        self.stash.as_ref().map(|b| b.0.pipelines.samples)
+    }
+}
 impl<const ASSETS: bool> Default for Look<ASSETS> {
     fn default() -> Self {
         Self {
@@ -429,9 +443,12 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         });
         // A look frame is the world's picture: its rung's samples, clamps and
         // scale, as the live frame has them (LLP 1139.003 D3).
+        let game = G::render_scale(sim.args());
         let factor = self
             .rung
-            .map_or(1., |rung| rung.factor(G::render_scale(sim.args())));
+            .map_or(crate::quality::unresolved_scale(game), |rung| {
+                rung.scale(game)
+            });
         let frame = Frame {
             width: points.0,
             height: points.1,

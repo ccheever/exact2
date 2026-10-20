@@ -950,7 +950,7 @@ const api = {
   },
   destroy(view) {
     const entry = surfaces.get(view);
-    if (entry) { cancelAssets(entry); for (const row of entry.children ?? []) restoreChild(row); }
+    if (entry) { cancelAssets(entry); for (const row of entry.children ?? []) restoreChild(row); entry.refusalPage?.remove(); }
     if (entry?.id) { retainEdits(entry); gpu.gpu_destroy(entry.id); }
     // The observer would fire once more as the element leaves the page, for
     // a surface the module no longer has (found by the agent smoke, which

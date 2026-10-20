@@ -274,19 +274,23 @@ Canvas arguments keep the app's current bindings when a world is restored. Use l
 arguments for app-owned settings; keep choices that should travel with a game save
 in components or resources.
 
-`Game::render_scale(args)` optionally reduces the world's presented raster relative
-to canvas device pixels. Return a finite value in `(0, 1]`; the default is `1`.
-The compositor stretches that raster to the same canvas box. Camera layout and
-input coordinates stay in CSS pixels, and ordinary Contract HUD children keep
-native resolution. Bind a `#[live]` argument through this method for an app setting.
-Explicit fixture and readback sizes still render at the caller's requested size.
+`Game::render_scale(args)` sets the world's presented raster relative to canvas
+device pixels: return a finite value in `(0, 1]`, which stands on every rung of the
+quality ladder below. The default, `AUTO_RENDER_SCALE`, leaves the scale to the
+rung (full size on `High`). The compositor stretches that raster to the same canvas
+box. Camera layout and input coordinates stay in CSS pixels, and ordinary Contract
+HUD children keep native resolution. Bind a `#[live]` argument through this method
+for an app setting. This is the presented raster's size, and a look frame's; a
+fixture's or a readback's size is the one its caller asks for.
 
 `Game::quality(args)` picks the renderer's rung of the quality ladder, read once,
 when the renderer is made, and never saved: the world hash is the same on every
 rung. The default `Quality::Auto` follows the device's GPU tier
-(`exactViewport().gpuTier`, chosen before the GPU device from what the adapter
-reports, else the screen's class; `high` under the agent until `prefer gpu-tier
-low|mid|high`). A rung clamps only what the game left unsaid:
+(`exactViewport().gpuTier`, `high` under the agent until `prefer gpu-tier
+low|mid|high`). The web chooses it before the GPU device from `GPUAdapterInfo`,
+else the screen's class; a native module chooses it from the adapter it requests,
+before it makes the device, and its host reports that as the page fact once the
+module loads (`high` until then). A rung clamps only what the game left unsaid:
 
 | rung | scene samples | sun shadows | raster scale |
 |---|---|---|---|
@@ -306,14 +310,15 @@ display's 90 under `Low`; the world's `state` reports its row as `quality`
 remakes each world's renderer at the new rung, on the same device and under the
 same world, on every host.
 
-On a browser without WebGPU (or with no adapter) the web host shows, in the
-canvas's box, a `role=status` page that names WebGPU and the browsers that have
+On a browser without WebGPU (or with no adapter) a game's web page (its build
+marks it `data-exact-game`) shows, in each world canvas's box, a `role=status` page that names WebGPU and the browsers that have
 it, and the game's iOS and macOS installs when `app.json`'s `install` lists any;
 the canvas's own HUD is inert under it, the rest of the app keeps working, and a
 world request answers `host web refused (gpu): no adapter: …`, which the proof's
-web leg reports as its result. A canvas whose content flows inside it (a decorative
-backdrop, such as Caltrain's sky) shows no page: its content stays live over the
-empty canvas. No WebGL renderer
+web leg reports as its result. The page waits at most a second for the install
+data, and goes, with the HUD's inertness, when its surface does. An app's GPU
+surface (a decorative backdrop, such as Caltrain's sky) shows no page: its content
+stays live over the empty canvas. No WebGL renderer
 exists (LLP 1128 I6).
 
 After the first GPU build, the compiler and dev loop check surface names and

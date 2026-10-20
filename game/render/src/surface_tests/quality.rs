@@ -119,7 +119,7 @@ fn bound(q: u32) -> WorldSurface<Ladder> {
         .unwrap();
     s
 }
-fn state(s: &mut WorldSurface<Ladder>) -> serde_json::Value {
+fn state<G: Game>(s: &mut WorldSurface<G>) -> serde_json::Value {
     serde_json::from_str::<serde_json::Value>(&s.agent(r#"{"op":"state"}"#).unwrap()).unwrap()
         ["world"]
         .clone()
@@ -227,4 +227,121 @@ fn a_new_tier_remakes_the_renderer_under_the_same_world() {
     assert_eq!((tick, rung.as_deref()), (Some(600), Some("high")));
     assert_eq!((retick, rerung.as_deref()), (Some(600), Some("low")));
     assert_eq!(hash, rehash, "the world went on through the new renderer");
+}
+
+#[derive(Default, exact_game::Args)]
+struct PlacedArgs {}
+struct WithLabel;
+impl Game for WithLabel {
+    const ID: &'static str = "quality-placed";
+    type Args = PlacedArgs;
+    fn quality(_: &PlacedArgs) -> Quality {
+        Quality::Auto
+    }
+    fn setup(w: &mut World, _: &PlacedArgs) {
+        w.spawn((Transform::at(0., 0., -4.), exact_game::Placed::child(0)));
+        w.spawn((Transform::at(0., 0., 6.), Camera::default()));
+    }
+    fn tick(_: &mut World, _: &Input, _: &PlacedArgs) {}
+}
+
+/// LLP 1139.003 D2: a new rung remakes the renderer and keeps the textures
+/// the host captured for its placed children (an in-world label): the host
+/// does not capture them again, and they stay on screen.
+#[test]
+fn a_new_tier_keeps_the_placed_childrens_textures() {
+    let Some(gpu) = gpu() else { return };
+    exact_gpu::set_thread_tier(Some(exact_gpu::GpuTier::High));
+    let mut s = WorldSurface::<WithLabel>::default();
+    s.bind(&[], None).unwrap();
+    let label = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("placed label"),
+        size: wgpu::Extent3d {
+            width: 16,
+            height: 8,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let view = label.create_view(&Default::default());
+    exact_gpu::Surface::child(&mut s, 0, "label", Some(&view), [0., 0., 16., 8.]);
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    exact_gpu::set_thread_tier(Some(exact_gpu::GpuTier::Low));
+    assert!(exact_gpu::Surface::retier(&mut s));
+    exact_gpu::set_thread_tier(None);
+    assert!(
+        s.placed.children[0].texture.is_some(),
+        "the label's texture stays"
+    );
+    fixture::render(&gpu, &mut s, &frame(100.)).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    assert_eq!(state(&mut s)["quality"]["rung"], "low");
+}
+
+/// LLP 1139.003 D2: a world that has drawn no live frame keeps its look
+/// renderer between look frames; a new tier drops it, so the next look is made
+/// at the new rung's samples, in either direction.
+#[test]
+fn a_new_tier_remakes_a_headless_look_renderer() {
+    let Some(gpu) = gpu() else { return };
+    let request = r#"{"op":"screenshot","form":"look","width":64,"height":64}"#;
+    for (from, to, samples) in [
+        (exact_gpu::GpuTier::High, exact_gpu::GpuTier::Low, [4, 1]),
+        (exact_gpu::GpuTier::Low, exact_gpu::GpuTier::High, [1, 4]),
+    ] {
+        exact_gpu::set_thread_tier(Some(from));
+        let mut s = bound(2);
+        let width = |s: &mut WorldSurface<Ladder>| {
+            let reply: serde_json::Value =
+                serde_json::from_str(&s.agent(request).unwrap()).unwrap();
+            reply["width"].as_u64()
+        };
+        let before = width(&mut s);
+        assert_eq!(s.look.stashed_samples(), Some(samples[0]));
+        exact_gpu::set_thread_tier(Some(to));
+        assert!(
+            !exact_gpu::Surface::retier(&mut s),
+            "no live renderer to release"
+        );
+        exact_gpu::set_thread_tier(None);
+        let after = width(&mut s);
+        assert_eq!(
+            s.look.stashed_samples(),
+            Some(samples[1]),
+            "{from:?} to {to:?}"
+        );
+        assert_ne!(before, after, "the look's size follows the rung");
+        let _ = &gpu;
+    }
+}
+
+/// LLP 1139.003 D3: through the module, a Low world's drawable is half its
+/// canvas's device pixels: `Module::render_scale` is what `Module::render`
+/// sizes the drawable by (gpu/src/hdr_tests.rs) and what the web glue sizes
+/// the canvas's backing store by.
+#[test]
+fn the_module_sizes_a_low_worlds_drawable_by_half() {
+    static REGISTRY: exact_gpu::Registry = exact_gpu::Registry {
+        surfaces: &[("world", 2, || Box::<WorldSurface<Ladder>>::default())],
+        shaders: &[],
+    };
+    let mut module = exact_gpu::Module::new(&REGISTRY);
+    let (low, high) = (
+        module.create_headless("world").unwrap(),
+        module.create_headless("world").unwrap(),
+    );
+    exact_gpu::set_thread_tier(Some(exact_gpu::GpuTier::Low));
+    assert!(module.bind_json(low, r#"{"q":2}"#, Some(0.)));
+    exact_gpu::set_thread_tier(Some(exact_gpu::GpuTier::High));
+    assert!(module.bind_json(high, r#"{"q":2}"#, Some(0.)));
+    exact_gpu::set_thread_tier(None);
+    assert_eq!(
+        (module.render_scale(low), module.render_scale(high)),
+        (0.5, 1.0)
+    );
 }

@@ -177,6 +177,8 @@ impl crate::Module {
             if !inst.surface.retier() {
                 continue;
             }
+            // Drawn again at once: the agent's clock need not move to show the new rung.
+            inst.dirty = true;
             if let Some(gpu) = &self.gpu {
                 inst.surface.device_ready(gpu.device.features());
                 if let Some(config) = &inst.config {

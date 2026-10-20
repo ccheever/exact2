@@ -3,24 +3,22 @@
 // nowhere else, as a `role=status` the driver's `tree` names; the canvas's
 // own HUD is inert under it, so a control that leads nowhere cannot be
 // pressed, and the app's title, menus and other canvases keep working around
-// it. A canvas whose content flows inside it is a backdrop to that content
-// (Caltrain's optional sky): it shows no page and its content stays live, over
-// the empty canvas. Loaded with gpu-glue.js.
+// it. Only a game's surfaces are worlds (its page carries `data-exact-game`,
+// written by its web build); an app's GPU surface is decoration (Caltrain's
+// optional sky), which shows no page, its content live over the empty canvas.
+// Loaded with gpu-glue.js.
 
 /** What the page says: the requirement and the browsers that meet it. */
 export const REFUSAL_TEXT = "This game needs WebGPU, which this browser does not have.";
 export const BROWSERS_TEXT = "It runs in Chrome 121 or later on Android 12 or later, Safari 26 or later, and Chrome or Edge 113 or later on a computer.";
 
-/** Whether the canvas's children are all overlays (absolutely or fixed positioned): a world and its HUD, not content the canvas backs. */
-export function overlaysOnly(entry, platform = globalThis) {
-  return [...(entry.host?.children ?? [])].every(child => child === entry.el || child.dataset?.gpuRefusal !== undefined
-    || ["absolute", "fixed"].includes(platform.getComputedStyle?.(child).position));
-}
+/** Whether this page's GPU surfaces are a game's worlds (its web build marks the page). */
+export const worlds = (platform = globalThis) => platform.document?.documentElement?.hasAttribute?.("data-exact-game") === true;
 
 /** Show the page in `entry`'s canvas box: `host` is the node the canvas and its HUD children are in. */
 export function showRefusal(entry, platform = globalThis) {
   const host = entry.host, doc = platform.document;
-  if (!host || entry.refusalPage || !doc?.createElement || !overlaysOnly(entry, platform)) return;
+  if (!host || entry.refusalPage || !doc?.createElement || !worlds(platform)) return;
   const page = doc.createElement("div");
   page.setAttribute("role", "status");
   page.dataset.gpuRefusal = "";
@@ -32,20 +30,37 @@ export function showRefusal(entry, platform = globalThis) {
   if (!painted) page.style.color = "CanvasText";
   const line = (text, weight) => { const p = doc.createElement("p"); p.textContent = text; Object.assign(p.style, { margin: "0", maxWidth: "36em", fontWeight: weight ?? "" }); page.append(p); return p; };
   line(REFUSAL_TEXT, "600"); line(BROWSERS_TEXT);
-  // The canvas's own HUD (its other children, and any it gains) is inert while the page stands.
-  const quiet = () => { for (const child of host.children ?? []) if (child !== entry.el && child !== page && !child.inert) child.inert = true; };
-  quiet(); if (platform.MutationObserver) new platform.MutationObserver(quiet).observe(host, { childList: true });
-  if (platform.getComputedStyle?.(host).position === "static") host.style.position = "relative";
+  // The canvas's own HUD (its other children, and any it gains) is inert while the page stands; each
+  // child's own inertness comes back when it goes. Another refusal page is never quieted.
+  const quieted = new Set();
+  const quiet = () => { for (const child of host.children ?? []) if (child !== entry.el && child.dataset?.gpuRefusal === undefined && !child.inert) { child.inert = true; quieted.add(child); } };
+  quiet();
+  const observer = platform.MutationObserver ? new platform.MutationObserver(quiet) : null;
+  observer?.observe(host, { childList: true });
+  const positioned = platform.getComputedStyle?.(host).position === "static";
+  if (positioned) host.style.position = "relative";
   host.append(page);
-  entry.refusalPage = { text: `${REFUSAL_TEXT} ${BROWSERS_TEXT}` };
-  // The agent's settle waits for the links, so a `tree` names them.
-  entry.refusalPage.ready = nativeBuilds(page, doc, platform).then(extra => { if (extra) entry.refusalPage.text += ` ${extra}`; }, () => {});
+  const abort = typeof platform.AbortController === "function" ? new platform.AbortController() : null;
+  entry.refusalPage = { text: `${REFUSAL_TEXT} ${BROWSERS_TEXT}`, remove() {
+    abort?.abort(); observer?.disconnect(); page.remove();
+    for (const child of quieted) child.inert = false;
+    if (positioned) host.style.position = "";
+  } };
+  // The agent's settle waits for the links, so a `tree` names them, but never past INSTALL_WAIT_MS:
+  // install data that stalls leaves the page without them.
+  const timer = abort ? platform.setTimeout?.(() => abort.abort(), INSTALL_WAIT_MS) : undefined;
+  entry.refusalPage.ready = nativeBuilds(page, doc, platform, abort?.signal)
+    .then(extra => { if (extra) entry.refusalPage.text += ` ${extra}`; }, () => {})
+    .finally(() => platform.clearTimeout?.(timer));
 }
 
+/** How long the page waits for the app's install data. */
+export const INSTALL_WAIT_MS = 1000;
+
 /** The app's native builds, when its install data (`/.exact/install.json`, scripts/install-page.mjs) lists any. */
-async function nativeBuilds(page, doc, platform) {
+async function nativeBuilds(page, doc, platform, signal) {
   if (typeof platform.fetch !== "function") return "";
-  const response = await platform.fetch(new URL("/.exact/install.json", doc.baseURI));
+  const response = await platform.fetch(new URL("/.exact/install.json", doc.baseURI), { signal });
   if (!response.ok) return "";
   const data = await response.json();
   const methods = ["ios", "macos"].flatMap(p => (data?.platforms?.[p]?.methods ?? []).filter(m => typeof m.url === "string" && /^(https:|itms-services:)/.test(m.url)));

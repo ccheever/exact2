@@ -190,7 +190,9 @@ pub const AUTO_RENDER_SCALE: f32 = 0.999_999_9;
 /// A rung clamps the scene samples (one under `Low`; `Game::SAMPLES` is the
 /// ceiling), the sun's shadow cascades (none under `Low`, one under `Mid`)
 /// unless the game inserted `Shadows`, and the resolution scale (0.5 under
-/// `Low`, 0.75 under `Mid`) unless the game's `render_scale` returns one.
+/// `Low`, 0.75 under `Mid`) when `render_scale` keeps its default,
+/// [`AUTO_RENDER_SCALE`]; any value the game returns instead, 0.8 or 1
+/// alike, stands on every rung.
 /// An inserted `AmbientOcclusion` is the game's and stands. `High` clamps
 /// nothing. Nothing in the world reads it: the world hash is the same
 /// on every rung.
