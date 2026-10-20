@@ -22,14 +22,48 @@ export const PREDICATE = `process == "SpringBoard" AND category == "DisplayConte
 /** How long after a cloak goes up a touch is held: the longest measured, 3.0 s to its overlays' drop, with a margin */
 export const CLOAK_MS = 4000;
 
-/** The time (ms since the epoch) until which logged cloaks cover a display: `before`, extended when `line`, one of `log stream --style ndjson`, is a cloak going up */
-export function until(before, line) {
+/** One line of `log stream --style ndjson` as `{ t, message }` (`t` in ms since the epoch), or null for its header or anything else */
+export function logEntry(line) {
   let entry;
-  try { entry = JSON.parse(line); } catch { return before; }
+  try { entry = JSON.parse(line); } catch { return null; }
   // "2026-10-19 16:22:07.182859-0700": the local time with its offset
   const m = /^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d\.\d{3})\d*([+-]\d\d)(\d\d)$/.exec(entry?.timestamp ?? '');
-  if (!m || !String(entry.eventMessage).startsWith(UP)) return before;
-  return Math.max(before, Date.parse(`${m[1]}T${m[2]}${m[3]}:${m[4]}`) + CLOAK_MS);
+  if (!m || typeof entry.eventMessage !== 'string') return null;
+  return { t: Date.parse(`${m[1]}T${m[2]}${m[3]}:${m[4]}`), message: entry.eventMessage };
+}
+
+/** The time (ms since the epoch) until which logged cloaks cover a display: `before`, extended when `line`, one of `log stream --style ndjson`, is a cloak going up */
+export function until(before, line) {
+  const entry = logEntry(line);
+  return entry?.message.startsWith(UP) ? Math.max(before, entry.t + CLOAK_MS) : before;
+}
+
+/**
+ * Follows simulator `udid`'s log for `predicate` from now on, handing each
+ * line of `log stream --style ndjson` to `onLine`. `ready()` resolves once
+ * the stream is reading, or after 5 s; `close()` ends it.
+ */
+export function logStream(udid, predicate, onLine) {
+  let buf = '';
+  // End the stream when the shell's stdin closes, on `close()` or when this process dies by any signal, SIGKILL included
+  const child = spawn('/bin/sh', ['-c', 'xcrun simctl spawn "$0" log stream --style ndjson --predicate "$1" & read -r _; kill $!', udid, predicate], { stdio: ['pipe', 'pipe', 'ignore'] });
+  child.on('error', () => {});
+  child.stdin.on('error', () => {});
+  // `log stream` prints its filter first, once it is reading
+  const ready = new Promise((r) => { child.stdout.once('data', r); child.once('exit', r); });
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    buf += chunk;
+    for (let i; (i = buf.indexOf('\n')) >= 0; buf = buf.slice(i + 1)) onLine(buf.slice(0, i));
+  });
+  return {
+    async ready() {
+      let timer;
+      await Promise.race([ready, new Promise((r) => { timer = setTimeout(r, 5000); })]);
+      clearTimeout(timer);
+    },
+    close() { child.stdin.end(); },
+  };
 }
 
 /**
@@ -39,29 +73,15 @@ export function until(before, line) {
  * it waited.
  */
 export function watchCloak(udid) {
-  let covered = 0, buf = '';
-  // End the stream when the shell's stdin closes, on `close()` or when this process dies by any signal, SIGKILL included
-  const child = spawn('/bin/sh', ['-c', 'xcrun simctl spawn "$0" log stream --style ndjson --predicate "$1" & read -r _; kill $!', udid, PREDICATE], { stdio: ['pipe', 'pipe', 'ignore'] });
-  child.on('error', () => {});
-  child.stdin.on('error', () => {});
-  // `log stream` prints its filter first, once it is reading
-  const ready = new Promise((r) => { child.stdout.once('data', r); child.once('exit', r); });
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => {
-    buf += chunk;
-    for (let i; (i = buf.indexOf('\n')) >= 0; buf = buf.slice(i + 1)) covered = until(covered, buf.slice(0, i));
-  });
+  let covered = 0;
+  const stream = logStream(udid, PREDICATE, (line) => { covered = until(covered, line); });
   return {
-    async ready() {
-      let timer;
-      await Promise.race([ready, new Promise((r) => { timer = setTimeout(r, 5000); })]);
-      clearTimeout(timer);
-    },
+    ready: stream.ready,
     async clear() {
       const start = Date.now();
       while (Date.now() < covered) await new Promise((r) => setTimeout(r, 20));
       return Date.now() - start;
     },
-    close() { child.stdin.end(); },
+    close: stream.close,
   };
 }
