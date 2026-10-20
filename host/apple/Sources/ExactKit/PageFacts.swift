@@ -75,19 +75,58 @@ package enum PageFacts {
     }
 
     /// Nothing of the app can be seen: iOS in the background; macOS hidden,
-    /// or every window on screen or in the Dock minimized or fully occluded
-    /// (Chrome reads a window minimized with ⌘M as hidden; AppKit's
-    /// `isVisible` is false for it). A window behind another is visible.
+    /// or every window on screen, in the Dock or hidden by its close
+    /// minimized, fully occluded or ordered out (Chromium reads a
+    /// window minimized with ⌘M or fully covered as hidden; AppKit's
+    /// `isVisible` is false for a minimized window). A window behind another
+    /// is visible. A window not yet shown counts for nothing, so a page boots
+    /// visible, as a browser's does.
     static var hidden: Bool {
         if substituted { return agent.hidden }
         #if os(macOS)
         if NSApp.isHidden { return true }
-        let windows = NSApp.windows.filter { $0.isVisible || $0.isMiniaturized }
-        return !windows.isEmpty && windows.allSatisfy { $0.isMiniaturized || !$0.occlusionState.contains(.visible) }
+        let windows = NSApp.windows.filter { $0.isVisible || $0.isMiniaturized || closeHid.contains($0) }
+        return !windows.isEmpty && windows.allSatisfy { !$0.isVisible || $0.isMiniaturized || !$0.occlusionState.contains(.visible) }
         #else
         return AppBackground.now
         #endif
     }
+
+    #if os(macOS)
+    /// The windows a close hid rather than closed (LLP 1069.010 D8). Ordered
+    /// out, each is neither on screen nor in the Dock, but its page is still
+    /// there and reads `hidden` until the window shows again.
+    nonisolated(unsafe) private static var closeHid = NSHashTable<NSWindow>.weakObjects()
+    /// What hears each such window show again, whoever shows it (the
+    /// reopen, a routed document, an app's own module): its `isVisible`,
+    /// observed. AppKit posts no public notification for a window ordered
+    /// in, nor need its occlusion or key status change.
+    nonisolated(unsafe) private static var showWatch: [ObjectIdentifier: NSKeyValueObservation] = [:]
+    /// Orders `window` out for a close that keeps its page, and tells the
+    /// page it can no longer be seen.
+    package static func hideForClose(_ window: NSWindow) {
+        closeHid.add(window)
+        window.orderOut(nil)
+        let id = ObjectIdentifier(window)
+        if showWatch[id] == nil {
+            showWatch[id] = window.observe(\.isVisible) { window, _ in
+                // Read again once AppKit has finished ordering it.
+                DispatchQueue.main.async {
+                    guard window.isVisible || window.isMiniaturized, closeHid.contains(window) else { return }
+                    forgetHidden(window)
+                    changed()
+                }
+            }
+        }
+        changed()
+    }
+    /// `window` closed for good: it counts for nothing again.
+    package static func closed(_ window: NSWindow) { forgetHidden(window) }
+    private static func forgetHidden(_ window: NSWindow) {
+        closeHid.remove(window)
+        showWatch.removeValue(forKey: ObjectIdentifier(window))?.invalidate()
+    }
+    #endif
     static var onLine: Bool {
         if substituted { return agent.onLine }
         startMonitor()
