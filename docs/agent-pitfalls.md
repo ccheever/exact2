@@ -314,6 +314,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   action writes, saved through the mutation) only removes the wait for storage, which
   shortens what a person meets. (Authoring bench, LLP
   1087, r26 and r29 t4-kanban, 2026-10-05.)
+- **A white band over a grey list: a seam across the screen.** Cause: an inset-grouped
+  `list` under content on the plain page (a readout and its buttons over a stopwatch's
+  laps). Its ground is the grouped grey, and the page above it stays white; a hand-built
+  `UITableView(style: .insetGrouped)` under a white view shows the same seam, and
+  round 30's grader named it. Fix: rows under a screen's own content are a
+  `listStyle="plain"` list on the page's white, as the Clock's laps are; keep
+  inset-grouped for a list that is the whole screen.
 
 ## Native presentation and navigation (iOS)
 
