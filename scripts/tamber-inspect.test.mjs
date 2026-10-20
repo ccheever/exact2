@@ -3,7 +3,7 @@
 // editability, and the sites to outline.
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel } from './tamber-builds.mjs';
@@ -684,16 +684,17 @@ test('an own or class row carries the attribute it came from, with that file\'s 
 
 test('a library node\'s selection names its exported component and part, apart from the call site\'s component; a fill\'s does not (LLP 1139 D5, *1.15*)', () => {
   const map = { digest: 'p1', sources: [], nodes: [
-    { file: 'node_modules/@acme/lib/index.contract', line: 4, col: 5, end_col: 11, component: 'Box', library: '@acme/lib/index.contract#Card', part: 'body', chain: [{ file: 'app.contract', line: 5, col: 5, component: 'App' }], bindings: [{ row: 'padding', origin: 'own' }] },
-    { file: 'node_modules/@acme/lib/index.contract', line: 3, col: 5, end_col: 11, component: 'Box', library: '@acme/lib/index.contract#Card', chain: [], bindings: [] },
+    { file: 'node_modules/@acme/lib/index.contract', line: 4, col: 5, end_col: 11, component: 'Card', library: '@acme/lib/index.contract#Card', part: 'body', chain: [{ file: 'app.contract', line: 5, col: 5, component: 'App' }], bindings: [{ row: 'padding', origin: 'own' }] },
+    { file: 'node_modules/@acme/lib/index.contract', line: 3, col: 5, end_col: 11, component: 'Card', library: '@acme/lib/index.contract#Card', chain: [], bindings: [] },
     { file: 'app.contract', line: 6, col: 7, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'color', origin: 'own' }] },
   ] };
   const read = () => '';
   const on = (site, rows) => join({ id: 'web-1' }, { node: 1, site, instance: [], tuple: {}, rows }, map, { read });
   const part = on(0, [{ name: 'padding', value: 8, source: 'authored' }, { name: 'color', value: '#000', source: 'inherited', from: 3 }]);
-  // (the call site's use-site name stays `component`; `library` is the declaring identity)
-  expect(part.source).toMatchObject({ component: 'Box', library: { identity: '@acme/lib/index.contract#Card', part: 'body' } });
-  expect(part.rows.map(r => [r.name, r.library ?? null])).toEqual([['padding', { identity: '@acme/lib/index.contract#Card', part: 'body' }], ['color', null]]);
+  // (`component` stays the map's bare name; `library` is the declaring identity)
+  expect(part.source).toMatchObject({ component: 'Card', library: { identity: '@acme/lib/index.contract#Card', part: 'body' } });
+  expect(part.rows[0].library).toEqual({ identity: '@acme/lib/index.contract#Card', part: 'body' });
+  expect(part.rows[1].library).toBeUndefined(); // (no map origin: inherited)
   // A node of the library's view that is no part: its identity, part null.
   expect(on(1, []).source.library).toEqual({ identity: '@acme/lib/index.contract#Card', part: null });
   // The slot's fill (the caller's own nodes): none.
@@ -712,12 +713,13 @@ test('end to end: a compiled library app\'s own source map names a package compo
     writeFileSync(joinPath(lib, 'index.contract'), 'component Card\n  slot\n  parts\n    surface: paint shape space\n  view\n    column part="surface" padding="lib.pad"\n      children\n');
     writeFileSync(joinPath(lib, 'lib.tamber'), 'tamber lib\n\ntheme\n  lib.pad = 4px\n');
     writeFileSync(joinPath(dir, 'app.tamber'), 'tamber app\n');
-    // (by an alias: the call site's name is `Box`, the declaring identity still `Card`'s)
+    // (by an alias, `Box`: the map's `component` and the declaring identity are still `Card`'s)
     writeFileSync(joinPath(dir, 'app.contract'), 'use Card as Box from "@acme/lib"\n\ncomponent App\n  view\n    Box()\n      text "fill" color="#000000"\n');
     // Built as a dev loop builds it, with its map (`contract build --map`).
     const { spawnSync } = await import('node:child_process');
     const root = new URL('..', import.meta.url).pathname;
     const bin = joinPath(process.env.CARGO_TARGET_DIR ?? joinPath(root, 'target'), 'debug', 'contract');
+    if (!existsSync(bin)) throw new Error(`${bin} is missing: build it first (cargo build -p contract)`);
     const built = spawnSync(bin, ['build', joinPath(dir, 'app.contract'), '-o', joinPath(dir, 'app.plan'), '--map'], { encoding: 'utf8' });
     expect(built.status, built.stderr).toBe(0);
     const map = JSON.parse(readFileSync(joinPath(dir, 'app.plan.map.json'), 'utf8'));
@@ -725,17 +727,28 @@ test('end to end: a compiled library app\'s own source map names a package compo
     const surface = map.nodes.findIndex(n => n.part === 'surface');
     const fill = map.nodes.findIndex(n => n.file.endsWith('app.contract') && n.line === 6);
     expect([surface >= 0, fill >= 0]).toEqual([true, true]);
-    const on = site => join({ id: 'web-1' }, { node: 1, site, instance: [], tuple: {}, rows: [{ name: site === surface ? 'padding' : 'color', value: 4, source: 'authored' }] }, map);
+    // Each node's row as the map binds it (the column's `padding_top`, the text's `text_color`), not a name made up here.
+    const rowOf = site => (site === surface ? 'padding_top' : 'text_color');
+    expect([surface, fill].map(site => map.nodes[site].bindings.find(b => b.row === rowOf(site))?.origin)).toEqual(['own', 'own']);
+    const on = (site, held) => join({ id: 'web-1' }, { node: 1, site, instance: [], tuple: {}, rows: [{ name: rowOf(site), value: 4, source: 'authored' }], ...(held ? { held } : {}) }, map);
     const card = on(surface);
-    expect(card.source.library).toEqual({ identity: map.nodes[surface].library, part: 'surface' });
-    expect(card.source.library.identity).toMatch(/^@acme\/lib\/index\.contract#Card$/);
-    expect(on(fill).source.library).toBeUndefined();
+    const library = { identity: map.nodes[surface].library, part: 'surface' };
+    expect(card.source).toMatchObject({ component: 'Card', library });
+    expect(library.identity).toMatch(/^@acme\/lib\/index\.contract#Card$/);
+    expect(card.rows[0].library).toEqual(library);
+    const text = on(fill);
+    expect(text.source.library).toBeUndefined();
+    expect(text.rows[0].library).toBeUndefined();
+    // The fill selected, a state held on the part (its site): the held rows and their source are the part's.
+    const held = on(fill, { state: 'active', node: 2, site: surface, instance: [], rows: [{ name: 'padding_top', value: 4 }] });
+    expect(held.held.rows[0].library).toEqual(library);
+    expect(held.held.rows[0].source).toMatchObject({ component: 'Card', library });
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 600_000);
 
 test('round 1: a held state on a library node gives its rows and its source the held node\'s library; a library the host report carries is never published', () => {
   const map = { digest: 'p1', sources: [], nodes: [
-    { file: 'node_modules/@acme/lib/index.contract', line: 4, col: 5, end_col: 11, component: 'Box', library: '@acme/lib/index.contract#Card', part: 'face', chain: [], bindings: [{ row: 'background_color', origin: 'own', states: [{ state: 'active', origin: 'own' }] }] },
+    { file: 'node_modules/@acme/lib/index.contract', line: 4, col: 5, end_col: 11, component: 'Card', library: '@acme/lib/index.contract#Card', part: 'face', chain: [], bindings: [{ row: 'background_color', origin: 'own', states: [{ state: 'active', origin: 'own' }] }] },
     { file: 'app.contract', line: 6, col: 7, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'color', origin: 'own' }] },
   ] };
   const read = () => '';
@@ -744,7 +757,15 @@ test('round 1: a held state on a library node gives its rows and its source the 
   expect(s.source.library).toBeUndefined(); // (the fill is the caller's)
   expect(s.rows[0].library).toBeUndefined(); // (the host's own `library` dropped)
   expect(s.held.rows[0].library).toEqual({ identity: '@acme/lib/index.contract#Card', part: 'face' });
-  // No map: nothing of the host's either.
-  const none = join({ id: 'web-1' }, { node: 2, site: 1, instance: [], tuple: {}, rows: [{ name: 'color', value: '#000', source: 'authored', library: { identity: 123 } }] }, null, { read });
-  expect(none.rows[0].library).toBeUndefined();
+  // A held row the map gives no origin: no library.
+  const bare = join({ id: 'web-1' }, { node: 2, site: 1, instance: [], tuple: {}, rows: [], held: { state: 'active', node: 1, site: 0, instance: [], rows: [{ name: 'opacity', value: 1 }] } }, map, { read });
+  expect(bare.held.rows[0].library).toBeUndefined();
+  // No map, or a site the map lacks: nothing of the host's either, on the rows, the held rows or the held state.
+  const forged = { node: 2, instance: [], tuple: {}, rows: [{ name: 'color', value: '#000', source: 'authored', library: { identity: 123 } }], held: { state: 'active', node: 1, site: 0, instance: [], library: 'forged', rows: [{ name: 'background_color', value: '#00f', library: 'forged' }] } };
+  for (const [m, site] of [[null, 1], [map, 9]]) {
+    const out = join({ id: 'web-1' }, { ...forged, site }, m, { read });
+    expect(out.rows[0].library).toBeUndefined();
+    expect(out.held.library).toBeUndefined();
+    expect(out.held.rows[0].library).toBeUndefined();
+  }
 });

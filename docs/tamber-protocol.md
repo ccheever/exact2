@@ -1477,8 +1477,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
   event: `source` `{file, line, col, end_col, component, chain, library?}` (the component call sites above
   it; `library` *1.15*, stage 12 D4, LLP 1139 D5: `{identity, part}` on a node of an exported library
   component's own view, its declaring identity (`@scope/pkg/file.contract#Name`) and the part it is
-  named as, or null, joined from the map since `part=` never reaches a host, apart from
-  `component`, the call site's name; absent outside one, a slot's fill being the caller's), and each row with its map `origin`
+  named as, or null, joined from the map since `part=` never reaches a host, beside
+  `component`, the bare name the map gives (the declared one, which two packages can share; an alias
+  the app imports it by is in neither); absent outside one, a slot's fill being the caller's), and each row with its map `origin`
   (with the node's `library` too, on a row whose map `origin` isn't null, where the node has one;
   a held state's rows the held node's) (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
   "token", token, modes}` only for a row the node itself sets (`authored`, `own`) whose whole

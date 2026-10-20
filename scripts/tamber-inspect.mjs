@@ -18,6 +18,11 @@
 //   offered beside; a style's state part, the state rung (T4); a row reached
 //   by inheritance is a link to its token, never this node's edit; anything
 //   else is read-only, with its reason.
+// - **Library** (*1.15*, LLP 1139 D5). A node of an exported library
+//   component's own view names its declaring identity and part
+//   (`source.library`, and each row with a map origin, a held state's rows
+//   the held node's), from the map only: one the host's report carries is
+//   dropped on every path.
 // - **Outline.** Each build that can inspect is told the sites of its own
 //   plan at the selection's source location (`outline {sites}`), every copy
 //   of the node.
@@ -180,9 +185,10 @@ export function published(selected, params) {
   if (!selected?.rows) return selected;
   return { ...selected, rows: scrubbed(selected.rows, params), ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
 }
-const scrubbed = (rows, params) => (rows ?? []).map(r => (r.token ? { ...r, token: named(r.token, params).token } : r));
+// (a `library` is the map's to say, never the host report's: dropped from what the host sent, on every path)
+const scrubbed = (rows, params) => (rows ?? []).map(({ library: _host, ...r }) => (r.token ? { ...r, token: named(r.token, params).token } : r));
 // A held state's rows (LLP 1121 stage 8 E), scrubbed as the selection's.
-const heldOf = (held, params) => ({ ...held, rows: scrubbed(held.rows, params) });
+const heldOf = ({ library: _host, ...held }, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
 // A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below).
 const authored = name => AUTHORED[name] ?? WRITTEN[name] ?? String(name).replace(/_/g, '-');
@@ -407,8 +413,8 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   const files = [...new Set([...placed(node), ...(owner !== node ? placed(owner) : [])])];
   const readOnly = files.map(f => moved(map, f, read, app)).find(Boolean) || designMoved(map, build, served, design, read, app) || null;
   // The exported library component whose own view the node is of, and its part (LLP 1139 D5, *1.15*): from the map
-  // (`part=` never reaches a host), apart from `component`, the call site's name; absent outside one (a slot's fill is
-  // the caller's).
+  // (`part=` never reaches a host), beside `component`, the map's bare declared name (two packages can share one; an
+  // alias the app imports it by is in neither); absent outside one (a slot's fill is the caller's).
   const libraryOf = n => (typeof n?.library === 'string' ? { identity: n.library, part: typeof n.part === 'string' ? n.part : null } : null);
   const library = libraryOf(node);
   const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [], ...(library ? { library } : {}) };
@@ -436,8 +442,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       // (Whether it reads a param not yet read: from the host's own report, before its names were scrubbed.)
       const unread = named(selected.held.rows?.[i]?.token, params).unread;
       const offered = !heldHere || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, unread, stateRung(r, b, app, read, own), b?.state ? rowRung(r, b, map, app, copiesOf(owner), read, own) : null);
-      const { library: _host, ...held } = r;
-      return { ...held, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state && b.at ? b.at : ownerSource ?? null, ...(ownerLibrary ? { library: ownerLibrary } : {}), ...(offered ? { editable: offered } : {}) };
+      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state && b.at ? b.at : ownerSource ?? null, ...(b?.origin && ownerLibrary ? { library: ownerLibrary } : {}), ...(offered ? { editable: offered } : {}) };
     }) };
   }
   return {
