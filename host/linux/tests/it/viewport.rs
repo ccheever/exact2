@@ -54,7 +54,7 @@ fn resolved_language_switches_native_paragraph_direction() {
     plan.locale = Some(exact_plan::SlotsId(0));
     for rtl in [false, true] {
         let name = exact_plan::StrId(plan.strings.len() as u32);
-        plan.strings.push(if rtl { "ar" } else { "en" }.into());
+        plan.strings.push(if rtl { "ar" } else { "en" });
         plan.locales.push(exact_plan::LocalesRow {
             name,
             rtl,

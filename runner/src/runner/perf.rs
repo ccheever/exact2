@@ -40,6 +40,25 @@ impl<D: DataSource> Runner<D> {
         self.measure(!compat.is_some_and(crate::delivery::production), moves);
     }
 
+    /// Measure from the host's first ask ([`Runner::measure_from_now`])
+    /// rather than from boot, unless the bake's trust is production: until
+    /// then a `perf` read says so, not that this build measures nothing.
+    pub fn measure_later(&mut self, compat: Option<&str>) {
+        self.ids.work.later = !compat.is_some_and(crate::delivery::production);
+    }
+
+    /// [`Runner::measure_unless_production`] begun after boot, at a host's
+    /// first ask for `perf`: the transactions before it were not measured,
+    /// so the next batch trailer's `seq` ([`Runner::seq_range`]) starts after
+    /// them. Once measuring, a call changes nothing.
+    pub fn measure_from_now(&mut self, compat: Option<&str>, moves: bool) {
+        let began = self.ids.work.sites.is_empty();
+        self.measure_unless_production(compat, moves);
+        if began && !self.ids.work.sites.is_empty() {
+            self.ids.work.reported.set(self.batch);
+        }
+    }
+
     /// The nodes a layout pass moved (its `LayoutReceipt::changed`): each
     /// measured site's `moved` counts the pass once per instance.
     pub fn moved(&mut self, changed: &[exact_kernel::NodeKey]) {

@@ -1,9 +1,23 @@
 # Vendored Ibex split crates — Exact integration ledger
 
+## Mac widget Keychain (LLP 1126.001 WP16)
+
+`crates/ibex2/src/secrets/darwin_keychain.mm` selects the restricted
+`ExactKeychainAccessGroup` in the data-protection Keychain for a provisioned
+Apple widget cohort. Ordinary Mac apps keep the login Keychain. The containing
+app migrates its service's login items on its first provisioned launch;
+copy failure keeps the old item, and an existing shared item wins. Migration
+runs once per process, from `prepare` only. An unreadable item is skipped;
+errors are logged without withholding the app's I/O. Retained items can be
+retried on the next launch. The move is one-way. Extensions never migrate.
+The Objective-C fixture in
+`host/apple/tests/fixtures/keychain-migration.mm` exercises retries and failures
+with substituted Security calls; signed Keychain access still needs profiles.
+
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `e742c7284a767edbfb711db3333f7610c24f99f8` (2026-10-14).
+  `bbf47f380c138d1138581c299f298e3b1bd9cb9c` (2026-10-18).
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.
@@ -33,6 +47,22 @@ transport tunnels through the environment's proxy as fetch does
 (`transport/websocket.rs` and its tests, the only vendored inputs that changed
 since `e60b3e0`). Manifests, locks and integration seams are unchanged.
 
+The October 18 refresh compared that `e742c72` upstream tree, Exact
+`a28fc4f18fda0da187f0a8e564f8407c57748dd8`'s vendor tree, and the new
+`bbf47f3` upstream tree before replacement. Upstream now supplies the socket
+queue count, scheme-wide grants, allocation-reduced descriptor reads and the
+collection between the hardening guard and `harden.js`; their active local
+patches are retired below. The refresh also adopts fail-closed portable fetch
+for an unsupported environment SOCKS proxy, including a `NO_PROXY` bypass and
+one proxy snapshot per transport. The eight changed upstream inputs are
+`bindings/install.cc`, `grant.rs`, `stdlib/websocket.rs`, the two Darwin
+WebSocket files, `rustls_http.rs`, `transport/websocket.rs`, and its tests.
+The v5 engine trust table, manifests, data inputs and standalone locks did not
+change. After replacement, the complete Exact delta apart from this ledger is
+ten files: the two locks, three workspace boundaries, two stub build seams,
+the app-facing storage declaration, Keychain group selection and read-only
+directory snapshots.
+
 For another refresh, export the four named crate trees and all three data inputs
 from the selected commit into a temporary directory. Recover the current local
 delta against the pin above before replacing them; classify each difference
@@ -57,10 +87,10 @@ bun -e 'const fs=require("node:fs"),read=p=>Bun.TOML.parse(fs.readFileSync(p,"ut
 
 Numbers preserve the former ledger so a patch never disappears without its
 replacement and consumer evidence. Rows 3–7 and 9–13 retire the corresponding
-local source patches. The evidence below qualifies the macOS consumers and
-portable adapter; platform-specific limits are named rather than inferred from
-source replacement. The consumer deltas are two explicit stub build scripts, two standalone locks,
-and the workspace boundaries below.
+October 13 source patches. The four named rows added on October 18 retire the
+last reusable source patches. Platform-specific limits are named rather than
+inferred from source replacement. The remaining consumer deltas are the seams
+listed below.
 
 | Former Exact patch | Upstream replacement | Exact consumer evidence |
 |---|---|---|
@@ -75,6 +105,15 @@ and the workspace boundaries below.
 | 12. Bounded native filesystem results | Explicit `ResultLimits`; bounded reads/enumeration and batched recursive removal | Exact 16 MiB native/app/document cap tests pass, preserving the typed result-limit error |
 | 13. Async fetch | Fallible preparation, infallible accepted activation, terminal retirement, bounded portable workers | Admission refusal, physical retirement, all six base-start failure positions and bounded-worker lifetime tests pass |
 | Windows chosen-document EISDIR | Same retained-handle native document executor | Source patch retired against upstream native Windows tests; native Windows Exact storage, document and ordinary TypeScript host requalification is recorded below |
+| Socket queued-message count | `MessageSender::buffered_messages`, implemented by the portable sender and the Darwin sender under its lock; the Darwin source test observes a paused native send complete | Exact's native executor checks a batch whole before the transport's 256-message limit; `executor_socket_tests::a_batch_is_refused_whole_past_the_buffer_or_after_a_close` is the direct consumer |
+| Scheme-wide network grants | Ibex `GrantSet` owns `http:`/`https:` fetch grants and `ws:`/`wss:` socket grants, with independent family admission tests | `exact-grants` compares Ibex and Exact against `host/web/tests/fixtures/grants.json`; the web matcher consumes that same corpus |
+| Allocation-reduced descriptor reads | Ibex captures `hasOwnProperty` and reuses property identifiers while still walking captured own-property descriptors | The linked-lean `exact-js` bootstrap tests refuse Proxy-hidden abort hooks and prove every descriptor-reachable payload is frozen |
+| Collection after the hardening guard | Ibex collects only after a trusted bootstrap guard ran, before evaluating `harden.js` | The same linked-lean bootstrap tests exercise the guarded and unguarded paths with production bindings |
+
+Upstream `f28b08d`'s portable-fetch tests run the unsupported SOCKS cases in
+child processes, prove refusal before DNS or a direct connection, prove
+`NO_PROXY` bypass, and prove a pooled transport retains one supported proxy
+snapshot. Exact's render and non-Apple executors consume that portable path.
 
 Patch 9's app interface stays Exact's and is replayed on a refresh:
 `bindings/storage.d.ts` declares `compressImage(from, to, {maxDimension,
@@ -170,6 +209,22 @@ configuration and emits empty engine/compiler metadata with no native link.
 Normal builds still validate and link the receipted lean VM. These remain
 Exact-only; paired `HERMESC_PATH` export is now generic upstream support.
 
+`secrets/darwin_keychain.mm` selects the bundle's
+`ExactKeychainAccessGroup` only when `ExactAppIdentifier` equals the Keychain
+service. Exact's app and WidgetKit extension can therefore read the app's
+granted secrets through their shared group without changing another Ibex
+consumer's service. `host/apple/bundle.mjs` publishes the two values, and
+`host/apple/widget-keychain.test.mjs` is the opt-in simulator integration
+witness. This is Exact application policy and remains local.
+
+On Unix, `AppDirectories::snapshot` pins only roots that already exist and
+leaves the others absent for that invocation. A read-only widget refresh can
+therefore run first-launch application logic without creating the app's data,
+cache or temporary directories. `exact-js` selects it only for a snapshot;
+`missing_snapshot_roots_do_not_prevent_activation_or_create_app_directories`
+is the direct consumer test. This is LLP 1126 D8 application policy and
+remains local.
+
 The standalone locks above remain local. Application policy stays in Exact:
 request scheduling and byte budgets, whole-exchange deadlines, source grants,
 document session identity, JSON result vocabulary, native image codec, and
@@ -190,6 +245,49 @@ The existing Snapback consumer proves partitioned storage, durable operation
 queues, reconnect and account retirement. There is no Snapback asset-upload API
 in this checkout: the deterministic losing-cancellation output witness is Exact's
 native storage adapter. No new Snapback media feature or qualification is claimed.
+
+## Local patch 14, Exact's app interface: document watches and expected writes
+
+`bindings/storage.d.ts` declares `fs.watch(path, {recursive})` and the
+`options` argument of `writeFile`, `atomicWriteFile` and `appendFile`
+(`{expect: {modifiedMs, size}}`), as exact2 LLP 1069.010.000 D1 and D2a give
+them. Declarations only: no Ibex source runs either. Exact's prelude
+(`js/src/prelude.js`) records a watch as an LLP 1016.002 topic and does an
+expected write as a `stat`, a comparison and the write, queued together; the
+web glue and Exact's Rust storage do the same. Replay the declarations on a
+refresh.
+
+## Local patch 15, Exact's kept documents: a selected file named as chosen
+
+`stdlib/documents.rs` adds `DocumentLease::selected_file_named(directory,
+leaf, name, guard)`: a selected file the guest path names `name` while its
+leaf in the retained parent is `leaf`. `selected_file` is that with the two
+equal. Exact keeps a chosen file across launches under the name it was
+chosen by (exact2 LLP 1069.010.000 D4), and a Mac bookmark follows the file
+when it is renamed, so the two differ after a rename. The provider still
+decides what the name admits; Ibex still opens only `leaf`, refuses every
+path beneath it, and refuses `rm`, `mkdir` and `readdir` on it. `bindings/storage.d.ts` declares
+`fs.recentDocuments()` and `fs.forgetDocument(path)`, which Exact's prelude
+answers from the host's kept list; no Ibex source runs either. Replay both on
+a refresh.
+
+## Local patch 16, bindings' bytecode read where it is linked
+
+`bindings.rs` links each binding's `.hbc` and `HARDEN_BYTECODE` at a 16-byte
+boundary (`aligned_bytecode!`), and `bindings/install.cc`'s `CompiledBytes`
+lends such a span to Hermes instead of copying it, since Hermes keeps a
+module's buffer for the runtime's life and the statics live as long; a span
+not so aligned is still copied. `include/ibex2_jsi.h` says so at
+`CompiledScript`. In euxy on iOS the copies were 81 KB of malloc at idle.
+Replay on a refresh.
+
+## Local patch 17, a host-task worker gives its stack back when idle
+
+`pool.rs`: on Apple platforms a worker that finishes a job with none queued
+releases its stack pages below its frame (`MADV_FREE_REUSABLE`). The two
+workers kept through a quiet spell otherwise keep every page a job reached
+dirty for the process's life: 80 KB in euxy on iOS after its launch's reads.
+Replay on a refresh.
 
 ## Qualification boundaries
 

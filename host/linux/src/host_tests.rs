@@ -89,7 +89,8 @@ fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
 
 /// b6 review C1: a fresh drive whose scratch tree cannot be emptied boots
 /// with nothing, not with the secret the last drive left. A child, as
-/// above.
+/// above. Unix only: it makes the tree unwritable with mode bits.
+#[cfg(unix)]
 #[test]
 fn a_fresh_tree_that_cannot_be_emptied_is_not_read() {
     const CHILD: &str = "EXACT_LINUX_FRESH_WIPE_TEST";

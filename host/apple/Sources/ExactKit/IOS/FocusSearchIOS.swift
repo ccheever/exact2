@@ -33,14 +33,14 @@ enum FocusSearch {
         // focus items; a route's navigation container holds exact2's nodes,
         // whose own foreign views join the nodes themselves.
         if view is NodeView || view is PlainView || view is ScrollView || view is MetalView
-            || view is UIImageView || view is UIVisualEffectView || view.next is UINavigationController
+            || view is UIImageView || view is UIVisualEffectView || view.next is UINavigationController || view.next is HeldStack
             || view is NativeButtonIOS { return } // a native button's node keeps the focus (LLP 1069.011 D4)
         candidates.add(view)
     }
 
     /// The focus items `container` gives UIKit's focus search: the views
     /// UIKit may focus inside it, shown and in `rect`.
-    fileprivate static func items(_ container: UIView, in rect: CGRect) -> [any UIFocusItem] {
+    static func items(_ container: UIView, in rect: CGRect) -> [any UIFocusItem] {
         guard let window = container.window else { return [] }
         return candidates.allObjects.filter { view in
             guard view.window === window, view.isDescendant(of: container) else { return false }
@@ -52,7 +52,23 @@ enum FocusSearch {
 }
 /// A session's viewport (`Presenter.viewport`), which answers the search.
 final class Viewport: ScrollView {
+    /// Its bands past the page's area (`Presenter.pageMargins`, LLP 1130 D1).
+    var pageMargins = UIEdgeInsets.zero
+    /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
+    var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
     // tvOS focuses exact2's own nodes (RemoteTVOS), so its search sees every view.
+    #if !os(tvOS)
+    override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
+    #endif
+}
+/// What a presentation mounts its navigation in (`ModalHost.present`): the
+/// other way into a session's views, which answers the search as the
+/// viewport does (LLP 1123 D2).
+final class PresentationMount: UIView {
+    #if os(iOS)
+    /// What the route's logical ancestors listen for (`MountRelay`).
+    var relay: MountRelay?
+    #endif
     #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif

@@ -375,6 +375,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "exact-tamber",
+ "libc",
  "serde_json",
  "sha2",
 ]
@@ -399,6 +400,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-route",
  "exact-tamber",
  "icu_locale",
  "serde_json",
@@ -873,6 +875,7 @@ name = "exact-color"
 version = "0.1.0"
 dependencies = [
  "exact-num",
+ "libm",
 ]
 
 [[package]]
@@ -882,6 +885,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "getrandom 0.3.4",
+ "libc",
  "p256",
  "same-file",
  "serde_json",
@@ -915,6 +919,7 @@ dependencies = [
 name = "exact-game"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
  "exact-game-derive",
  "exact-motion",
  "exact-plan",
@@ -1039,6 +1044,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-js-value"
+version = "0.1.0"
+dependencies = [
+ "exact-num",
+ "exact-plan",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-kernel"
 version = "0.1.0"
 dependencies = [
@@ -1096,6 +1110,7 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "unicode-segmentation",
  "vello",
  "wgpu 29.0.4",
  "windows-sys 0.61.2",
@@ -1147,11 +1162,13 @@ version = "0.1.0"
 dependencies = [
  "exact-canvas",
  "exact-grants",
+ "exact-js-value",
  "exact-kernel",
  "exact-motion",
  "exact-num",
  "exact-plan",
  "exact-route",
+ "serde_json",
  "sha2",
 ]
 
@@ -1171,7 +1188,9 @@ name = "exact-tamber"
 version = "0.1.0"
 dependencies = [
  "exact-color",
+ "exact-motion",
  "exact-num",
+ "serde_json",
 ]
 
 [[package]]
@@ -1204,6 +1223,8 @@ dependencies = [
  "exact-route",
  "exact-runner",
  "exact-textflow",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

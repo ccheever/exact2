@@ -175,12 +175,12 @@ theorem settleEnvOK {p : Program} (hp : WellTyped p) {slots : List (String × Va
 legitimately (never `pending`) and settles well-typed values, every derive
 and resource; rendering fails only legitimately and renders a well-typed
 view and row store. -/
-theorem update_good {p : Program} (hp : WellTyped p) {o slots store now prev force}
+theorem update_good {p : Program} (hp : WellTyped p) {o slots store now prev force view}
     (hs : SlotsOK p slots) (hpres : SlotsPresent p slots) (hstore : StoreOK p store)
     (hprev : SettledOK p prev) :
     GoodW Strict (fun r => SettledOK p r.1 ∧ Complete p r.1 ∧
         GoodW Strict (fun r => ViewOK p r.1 ∧ StoreOK p r.2) r.2)
-      (update p o slots store now prev force) := by
+      (update p o slots store now prev force view) := by
   have N := Names.of hp.names
   unfold update
   cases hst : settle p o slots now prev force with
@@ -192,8 +192,8 @@ theorem update_good {p : Program} (hp : WellTyped p) {o slots store now prev for
     have hok := settle_settledOK N.resources hprev hst
     have hc := settle_complete hst
     refine ⟨hok, hc, ?_⟩
-    exact (render_good hp (E := Strict) (fun _ h hn => ⟨h, hn⟩) fuel).1 ⟨rfl, hs, hpres, RowsOK.nil, hok⟩
-      (.inl hc) hstore StoreOK.nil LocalsOK.nil hp.view
+    exact renderTabs_good hp (E := Strict) (fun _ h hn => ⟨h, hn⟩) fuel
+      ⟨rfl, hs, hpres, RowsOK.nil, hok⟩ (.inl hc) hstore
 
 theorem mapM_goodW {α β} {E : Err → Prop} {f : α → Result β} : ∀ {xs : List α},
     (∀ x ∈ xs, GoodW E (fun _ => True) (f x)) → GoodW E (fun _ => True) (xs.mapM f)
@@ -329,7 +329,7 @@ theorem runAction_sound {p : Program} (hp : WellTyped p) {o c name args rows c' 
         simp only [hty, conforms]
         simpa using hconf
     · exact hw w (List.mem_append_left _ hw')
-  have hup := update_good (o := o) (now := c.now) (force := fx.refreshes) hp hok hpres'
+  have hup := update_good (view := c.view) (o := o) (now := c.now) (force := fx.refreshes) hp hok hpres'
     (hc.store.applyRowWrites (rows := rows) hrow) hc.settled
   split at h
   · next e he => rw [he] at hup; exact keep h hup
@@ -393,7 +393,7 @@ theorem nextCommit_sound {p : Program} (hp : WellTyped p) {o c m c' out}
   have hpres' : SlotsPresent p (setSlot c.slots m (.some v)) := hpres.of_keys (setSlot_keys _ _ _)
   split at h
   · exact keep h (hc' c.queued _) (refusedS _)
-  have hup := update_good (o := o) (now := c.now) (prev := c.settled) (force := []) hp hok hpres' hc.store
+  have hup := update_good (view := c.view) (o := o) (now := c.now) (prev := c.settled) (force := []) hp hok hpres' hc.store
     hc.settled
   split at h
   · next e he => rw [he] at hup; exact keep h (hc' c.queued _) hup
@@ -791,11 +791,10 @@ theorem boot_configOK {p : Program} (hp : WellTyped p) (o : Oracle) : ConfigOK p
   · next view live hr =>
     simp only [Prod.mk.injEq] at hb
     obtain ⟨rfl, -⟩ := hb
-    have hrender := (render_good hp (E := Legit) (fun _ h _ => h) fuel).1
+    have hrender := renderTabs_good hp (E := Legit) (fun _ h _ => h) fuel
       (cx := { env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 },
-               store := [] })
-      ⟨rfl, hs, hpres, RowsOK.nil, hsettled.1, hsettled.2⟩ (.inr trivial) StoreOK.nil StoreOK.nil LocalsOK.nil
-      hp.view
+               store := [], tabs := { every := o.everyTab } })
+      ⟨rfl, hs, hpres, RowsOK.nil, hsettled.1, hsettled.2⟩ (.inr trivial) StoreOK.nil
     rw [hr] at hrender
     exact ⟨hs, .inl ⟨hpres, hcomp⟩, hsettled, hrender.2, hrender.1, htimers⟩
   · exact empty hb

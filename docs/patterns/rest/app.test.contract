@@ -1,10 +1,10 @@
 // Run by `test` or `verify`: the app's server, empty, for the whole run.
 test "an item is added for everyone, and another person's arrives on the next poll; a refusal and a lost server are said in words, in place; a locked one can't be deleted; who is signed in is kept"
-  expect text "items-empty" == "Nothing yet. Tap + to add the first item."
+  expect tree has "empty-add"
   tap "add-item"
   clock settle
-  tap "add-save"
-  expect text "add-error" == "Enter a title."
+  expect disabled "add-save"
+  expect text "add-hint" == "Enter a title to save."
   type "add-title" "Milk"
   type "add-notes" "Two litres"
   tap "add-save"
@@ -31,8 +31,9 @@ test "an item is added for everyone, and another person's arrives on the next po
   expect state lib.items.1 .title == "Milk"
   fail fetch "http://127.0.0.1:8787"
   clock +4000
+  expect tree has "item-2"
   clock data
-  expect text "list-error" == "Can’t reach the server. Check that it’s running, then try again."
+  expect text "list-error" == "Can't reach the server. Check your connection and try again."
   expect state lib.items.1 .title == "Milk"
   pass fetch "http://127.0.0.1:8787"
   clock +4000
@@ -61,8 +62,42 @@ test "an item is added for everyone, and another person's arrives on the next po
   expect state lib.items.1 .title == "Eggs"
   back
   clock settle
-  expect state persona == "Ada"
-  tap "persona-Grace"
-  expect state persona == "Grace"
+  expect state persona == "ada"
+  expect text "persona" == "Ada Lovelace"
+  tap "persona"
+  fail fetch "http://127.0.0.1:8787"
+  tap "persona-grace"
+  expect state persona == "grace"
+  expect text "persona" == "Grace Hopper"
+  expect text "persona-grace" == "Grace Hopper"
+  expect tree missing "item-2"
+  expect tree has "retry"
+  clock data
+  expect state lib.owner == "ada"
+  expect tree missing "item-2"
+  expect tree has "retry"
+  pass fetch "http://127.0.0.1:8787"
+  tap "retry"
+  clock data
+  expect state lib.owner == "grace"
+  request PATCH "/items/2" {"locked": false} as grace
+  request DELETE "/items/2" as grace
+  request DELETE "/items/3" as grace
+  clock +4000
+  clock data
+  expect state lib.items.length == 0
+  expect tree has "empty-add"
+  fail fetch "http://127.0.0.1:8787"
+  clock +4000
+  expect tree has "empty-add"
+  clock data
+  expect tree has "list-error"
+  expect tree has "retry-list"
+  expect tree has "empty-add"
+  pass fetch "http://127.0.0.1:8787"
+  tap "retry-list"
+  clock data
+  expect tree missing "list-error"
+  expect tree has "empty-add"
   reload
-  expect state persona == "Grace"
+  expect state persona == "grace"

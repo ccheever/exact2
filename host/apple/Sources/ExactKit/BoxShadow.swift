@@ -338,13 +338,17 @@ extension NodeView {
             #endif
             box.clipsToBounds = true
             GlassGroups.moving(in: self) {
-                for child in subviews where child is NodeView || child === glassGroupView { child.removeFromSuperview(); box.addSubview(child) }
+                // The box is in the window before the children move into it,
+                // so they never leave it: UIKit cancels the touches of a
+                // view that does, and AppKit its first responder.
+                let children = subviews.filter { $0 is NodeView || $0 === glassGroupView }
                 addSubview(box)
+                for child in children { box.addSubview(child) }
             }
             clipBox = box
         } else if !wanted, let box = clipBox {
             GlassGroups.moving(in: self) {
-                for child in box.subviews where child is NodeView || child === glassGroupView { child.removeFromSuperview(); addSubview(child) }
+                for child in box.subviews where child is NodeView || child === glassGroupView { addSubview(child) }
                 box.removeFromSuperview()
             }
             clipBox = nil

@@ -185,7 +185,7 @@ impl<D: DataSource> Host<D> {
                 return After::Continue;
             }
         }
-        if let Some((top, _)) = self.layers.last().copied() {
+        if let Some((top, ..)) = self.layers.last().copied() {
             if key == Key::Named("Escape") {
                 let none = self
                     .kernel()

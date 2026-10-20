@@ -157,7 +157,7 @@ fn a_free_spelling_of_the_webs_method_names_the_method_form() {
 
 /// LLP 1088 D1, D2: calendar's end-after-start and calc's Backspace in the
 /// view — two strings compare in code-unit order, and `slice`,
-/// `replaceAll` and `toLowerCase` are the web's (`end` may be left out).
+/// `replaceAll`, `toLowerCase` and `toUpperCase` are the web's (`end` may be left out).
 #[test]
 fn strings_compare_and_cut_as_the_web_does() {
     let plan = contract::compile(&corpus("strings.contract")).unwrap();
@@ -176,6 +176,7 @@ fn strings_compare_and_cut_as_the_web_does() {
         "an omitted end is the string's end"
     );
     assert_eq!(text(&r, "lower"), "οδος paris", "a final sigma");
+    assert_eq!(text(&r, "upper"), "ΟΔΟΣ PARIS");
     r.act("setEnd", vec![Value::str("09:00")]).unwrap();
     assert_eq!(text(&r, "valid"), "end before start");
     r.act("backspace", vec![]).unwrap();
@@ -221,6 +222,12 @@ fn string_order_and_slice_are_typed() {
             "(1).toLowerCase()",
             "type-argument",
             "expects `string`",
+        ),
+        (
+            "query.toUpperCase()",
+            "toUpperCase(query)",
+            "syntax-method-form",
+            "write `query.toUpperCase()`",
         ),
     ] {
         assert!(src.contains(from), "{from}");

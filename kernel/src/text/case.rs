@@ -28,18 +28,21 @@ static LINKED: std::sync::OnceLock<Shown> = std::sync::OnceLock::new();
 #[cfg(target_arch = "wasm32")]
 type Shown = for<'t> fn(TextTransform, &'t str, WordBoundary) -> Cow<'t, str>;
 
-/// [`lowercase_bounded`], once linked: the roster's `toLowerCase` reaches
-/// the case tables only through this pointer on the web (LLP 1088 D2).
+/// [`lowercase_bounded`] and [`uppercase_bounded`], once linked: the
+/// roster's `toLowerCase` and `toUpperCase` reach the case tables only
+/// through these pointers on the web (LLP 1088 D2).
 #[cfg(target_arch = "wasm32")]
-static LOWERCASE: std::sync::OnceLock<Lowercase> = std::sync::OnceLock::new();
+static LOWERCASE: std::sync::OnceLock<CaseMapping> = std::sync::OnceLock::new();
+#[cfg(target_arch = "wasm32")]
+static UPPERCASE: std::sync::OnceLock<CaseMapping> = std::sync::OnceLock::new();
 
-/// [`lowercase_bounded`]'s signature.
-pub type Lowercase = fn(&str, usize) -> Option<String>;
+/// [`lowercase_bounded`]'s and [`uppercase_bounded`]'s signature.
+pub type CaseMapping = fn(&str, usize) -> Option<String>;
 
 /// Link `text-transform`'s case mapping (LLP 1047 D2, linked by use): its
 /// Unicode case tables are ~3–6 KiB of a web core, and an app's `<option>`
 /// label reaches them through its runs. A web artifact links it when its
-/// plan binds the row or calls `toLowerCase` (LLP 1088 D2), and a plan that
+/// plan binds the row or calls `toLowerCase` or `toUpperCase` (LLP 1088 D2), and a plan that
 /// does either unlinked is refused at boot (D6), so an unlinked artifact
 /// never holds a transform but `none`. Native artifacts and the compiler map
 /// without it.
@@ -48,17 +51,26 @@ pub fn link() {
     {
         let _ = LINKED.set(TextTransform::apply_after);
         let _ = LOWERCASE.set(lowercase_bounded);
+        let _ = UPPERCASE.set(uppercase_bounded);
     }
 }
 
 /// The roster's `toLowerCase`, once [`link`]ed on the web, directly
 /// elsewhere; `None` when an artifact never linked the case tables (the
 /// runner traps — the plan was refused at boot first).
-pub fn linked_lowercase() -> Option<Lowercase> {
+pub fn linked_lowercase() -> Option<CaseMapping> {
     #[cfg(target_arch = "wasm32")]
     return LOWERCASE.get().copied();
     #[cfg(not(target_arch = "wasm32"))]
     Some(lowercase_bounded)
+}
+
+/// The roster's `toUpperCase`, linked as [`linked_lowercase`] is.
+pub fn linked_uppercase() -> Option<CaseMapping> {
+    #[cfg(target_arch = "wasm32")]
+    return UPPERCASE.get().copied();
+    #[cfg(not(target_arch = "wasm32"))]
+    Some(uppercase_bounded)
 }
 
 /// JavaScript's `toLowerCase` (Unicode's default mapping with final
@@ -78,6 +90,21 @@ pub fn lowercase_bounded(text: &str, max_bytes: usize) -> Option<String> {
         }
     }
     Some(text.to_lowercase())
+}
+
+/// JavaScript's `toUpperCase` (Unicode's default full mapping, no language
+/// tailoring: `"ß"` is `"SS"`), or `None` when the result would pass
+/// `max_bytes` of UTF-8, counted first as [`lowercase_bounded`] counts.
+/// Uppercasing has no context rule, so each character's count is exact.
+pub fn uppercase_bounded(text: &str, max_bytes: usize) -> Option<String> {
+    let mut bytes = 0usize;
+    for c in text.chars() {
+        bytes += c.to_uppercase().map(char::len_utf8).sum::<usize>();
+        if bytes > max_bytes {
+            return None;
+        }
+    }
+    Some(text.to_uppercase())
 }
 
 /// `text` as `transform` shows it in a run: [`TextTransform::apply_after`],
@@ -265,6 +292,30 @@ mod tests {
         assert_eq!(
             linked_lowercase().map(|f| f("ABC", 3)),
             Some(Some("abc".into()))
+        );
+    }
+
+    /// `"ß"` and `"ﬃ"` expand, `"ΐ"` to three characters; the bound is exact.
+    #[test]
+    fn uppercase_bounded_is_to_uppercase_within_its_bound() {
+        assert_eq!(uppercase_bounded("straße", 64).as_deref(), Some("STRASSE"));
+        assert_eq!(
+            uppercase_bounded("ﬃ ΐ", 64).as_deref(),
+            Some("FFI \u{399}\u{308}\u{301}")
+        );
+        assert_eq!(uppercase_bounded("", 0).as_deref(), Some(""));
+        for text in ["MiXeD àé", "straße", "ŉ ǆ", "ᾷ", "i\u{307}"] {
+            let want = text.to_uppercase();
+            assert_eq!(
+                uppercase_bounded(text, want.len()),
+                Some(want.clone()),
+                "{text}"
+            );
+            assert_eq!(uppercase_bounded(text, want.len() - 1), None, "{text}");
+        }
+        assert_eq!(
+            linked_uppercase().map(|f| f("abc", 3)),
+            Some(Some("ABC".into()))
         );
     }
 

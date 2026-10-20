@@ -51,6 +51,8 @@ struct Link {
     mark: u32,
     stale: bool,
     local: Option<[u32; 10]>,
+    // Unchanged child transforms need no conversion when an ancestor moves.
+    affine: Affine3A,
 }
 impl Default for Link {
     fn default() -> Self {
@@ -61,6 +63,7 @@ impl Default for Link {
             mark: 0,
             stale: false,
             local: None,
+            affine: Affine3A::IDENTITY,
         }
     }
 }
@@ -268,12 +271,14 @@ impl Hierarchy {
         if self.involved[i / 64] & (1 << (i % 64)) == 0 {
             self.involved[i / 64] |= 1 << (i % 64);
             self.links[i].local = local.map(bits);
+            self.links[i].affine = affine(local);
         }
     }
     fn release(&mut self, i: usize) {
         if !self.member(i) && self.links[i].first == NONE {
             self.involved[i / 64] &= !(1 << (i % 64));
             self.links[i].local = None;
+            self.links[i].affine = Affine3A::IDENTITY;
         }
     }
     fn link(&mut self, parent: usize, child: usize) {
@@ -449,6 +454,7 @@ impl Hierarchy {
             self.release(d);
             if self.involves(d as u32) {
                 self.links[d].local = poses.row(d).map(bits);
+                self.links[d].affine = affine(poses.row(d));
             }
         }
         self.despawned.clear();
@@ -484,6 +490,7 @@ impl Hierarchy {
                         let now = poses.row(i).map(bits);
                         if now != self.links[i].local {
                             self.links[i].local = now;
+                            self.links[i].affine = affine(poses.row(i));
                             self.source(i);
                         }
                     }
@@ -519,10 +526,10 @@ impl Hierarchy {
                 let i = i as usize;
                 let base = match self.nodes[i].parent {
                     Some(p) if self.member_entity(p) => self.nodes[p.index() as usize].global,
-                    Some(p) => affine(poses.row(p.index() as usize)),
+                    Some(p) => self.links[p.index() as usize].affine,
                     None => Affine3A::IDENTITY,
                 };
-                self.nodes[i].global = base * affine(poses.row(i));
+                self.nodes[i].global = base * self.links[i].affine;
                 self.mark_page(i);
                 let mut c = self.links[i].first;
                 while c != NONE {

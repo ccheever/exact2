@@ -15,7 +15,8 @@
 // host's `documentHead` writes them (document-glue.js). Where no head sets a
 // title it is the selected route's header's heading, else the app's name
 // (navigation.js `pageTitle`, both web targets': LLP 1115.000 D4.1).
-import { unselected, unselectedForHead, pageTitle } from "./navigation.js";
+import { unselected, unselectedForHead, pageTitle, panelsOf } from "./navigation.js";
+import { scope, owner, onEnd, adopting } from "./rt.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
  * reads (render.mjs), and the agent's `state.head`. */
@@ -73,10 +74,10 @@ function publish() {
  * rt.js `After`), as the web host projects after every batch; Escape on a
  * modal route presses its back, and `navigate` takes a popstate's location
  * (unheard, `hostBack` and `hostGo` are the router's own). */
-export function projectRoots(history, navigate, say, after, hostBack, hostGo) {
+export function projectRoots(history, navigate, say, after, hostBack, hostGo, routeMatches) {
   const root = document.getElementById("exact-root"), project = () => history.project(root, say);
-  history.connect(root, navigate, say, hostBack, hostGo);
-  after.push(project); project();
+  history.connect(root, navigate, say, hostBack, hostGo, routeMatches, true);
+  after.push(project); history.activate(root, say);
 }
 
 /** The elements that may be the page's scroller: `<html data-scrolldocument>`
@@ -88,4 +89,48 @@ export function markDocument() {
   Marked = false;
   for (const e of Docs) if (!e.isConnected) Docs.delete(e); else Marked ||= e.getAttribute("data-scrolldocument") === "true";
   document.documentElement?.toggleAttribute?.("data-scrolldocument", Marked);
+}
+
+// @ref LLP 1075.003 §3.7 — a navigation tab is built the first time it is
+// selected, as the runner builds it (runner/src/instance/tabs.rs): a panel the
+// compiler names (emit.rs, `panel_sites`) is made empty, and its contents are
+// made after the tree update of the commit whose tree first selects it (rt.js
+// `commit` runs `openTabs`), before its paint. The selection is the projection's: the panel whose
+// routes hold the root's `navigationKey`; while no built panel holds it, the
+// panel whose tab is `aria-selected` is built, else the first waiting one.
+// A page rendered ahead holds every panel, as its renderer builds them all
+// (`Runner::build_every_tab`; a render here likewise): the boot that adopts
+// it builds every one, and none waits for the page's life.
+const Waiting = new Map();
+let Every = false;
+/** Panel `e` waits; `build` makes its contents, in the scope in force here, when it is first selected. */
+export function tp(e, build) {
+  if ((Every ||= !!globalThis.__exactRender || adopting())) return scope(build, owner());
+  const up = owner(); Waiting.set(e, () => scope(build, up)); onEnd(() => Waiting.delete(e));
+}
+/** Whether `e` is a panel whose tab has never been selected: the agent's `unopened`. */
+export const unopened = e => Waiting.has(e);
+/** Build each waiting panel its root now selects, and any no root's tablist names. */
+export function openTabs() {
+  for (let open = toOpen(); open.length; open = toOpen()) for (const e of open) { const build = Waiting.get(e); Waiting.delete(e); build(); }
+}
+function toOpen() {
+  const open = [], roots = new Set();
+  for (const e of Waiting.keys()) {
+    let root = e.parentElement;
+    while (root && !root.hasAttribute("navigationKey")) root = root.parentElement;
+    if (!root?.hasAttribute("navigationBack")) root = null;
+    const panels = root ? panelsOf(root) : [];
+    if (!panels.includes(e)) { open.push(e); continue; }
+    if (roots.has(root)) continue;
+    roots.add(root);
+    const key = root.getAttribute("navigationKey");
+    // A panel holds the key once this runtime built it: an adopted page's
+    // waiting panel already shows its rendered routes, which only `build` wires.
+    if (panels.some(p => !Waiting.has(p) && [...p.children].some(r => r.getAttribute("navigationKey") === key))) continue;
+    const named = [...root.getElementsByTagName("*")].filter(t => t.getAttribute("aria-selected") === "true").map(t => t.getAttribute("aria-controls"));
+    const waiting = panels.filter(p => Waiting.has(p)), chosen = waiting.find(p => named.includes(p.getAttribute("id"))) ?? waiting[0];
+    if (chosen) open.push(chosen);
+  }
+  return open;
 }

@@ -19,14 +19,20 @@ use std::{
 #[cfg(target_os = "android")]
 #[path = "surfaces/android.rs"]
 mod android;
+#[cfg(any(target_os = "android", test))]
+mod retry;
 #[cfg(target_os = "android")]
-pub use android::buffer_frame;
+pub(crate) use android::acquire_fd;
+#[cfg(target_os = "android")]
+pub use android::{buffer_frame, window_ready};
 #[cfg(target_os = "android")]
 pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu};
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
 mod pixels;
 mod shaders;
+#[cfg(windows)]
+mod window;
 
 const LIMIT: usize = 256 * 1024 * 1024;
 type Read = unsafe extern "C" fn(u32) -> u32;
@@ -117,6 +123,7 @@ impl Abi {
                 "gpu_agent",
                 "gpu_input",
                 "gpu_wants_input",
+                "gpu_presentation_flags",
                 "gpu_published",
                 "gpu_assets",
                 "gpu_asset",
@@ -138,6 +145,12 @@ impl Abi {
                 crate::android::release_module_pages_too(*at as *const std::ffi::c_void);
             }
             if abi.rendered {
+                #[cfg(windows)]
+                for name in ["gpu_window_frame", "gpu_window_detach"] {
+                    abi.library
+                        .get::<*const ()>(name.as_bytes())
+                        .map_err(|e| format!("GPU ABI {name}: {e}"))?;
+                }
                 for name in ["gpu_load", "gpu_readback", "gpu_seekable", "gpu_lifecycle"] {
                     abi.library
                         .get::<*const ()>(name.as_bytes())
@@ -300,6 +313,8 @@ fn artifact_of(compat: &Value, name: &str) -> String {
         .map(|(module, _)| module.clone())
         .unwrap_or_default()
 }
+mod digest;
+
 fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Result<(), String> {
     let card = gpu_card(compat, artifact);
     let refuse = |reason: &str| format!("GPU module {}: {reason}", path.display());
@@ -312,12 +327,12 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
         }
     }
     let receipt;
-    let identity = if card["receipt"] == true
+    let development = card["receipt"] == true
         && card["trust"] == "development"
         // No-delivery apps omit trust from the cohort; their baked GPU card
         // still records the explicit development build trust.
-        && (compat["inputs"]["trust"].is_null() || compat["inputs"]["trust"] == "development")
-    {
+        && (compat["inputs"]["trust"].is_null() || compat["inputs"]["trust"] == "development");
+    let identity = if development {
         let bytes = std::fs::read(format!("{}.proof.json", path.display()))
             .map_err(|e| refuse(&format!("completed GPU receipt: {e}")))?;
         receipt = serde_json::from_slice::<Value>(&bytes).map_err(|e| refuse(&e.to_string()))?;
@@ -331,113 +346,18 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
     } else {
         &card["sha256"]
     };
-    if identity.as_str() != Some(file_digest(path).map_err(|e| refuse(&e))?.as_str()) {
+    if identity.as_str()
+        != Some(
+            digest::file(path, !development)
+                .map_err(|e| refuse(&e))?
+                .as_str(),
+        )
+    {
         return Err(refuse("digest mismatch"));
     }
     Ok(())
 }
 
-/// The SHA-256 of the file at `path`, hashed once per process while the
-/// file stays the same one (inode, length, modification time): the host
-/// opens a module that its boot already verified on another thread
-/// (`prepare_gpu`), and a module is megabytes.
-fn file_digest(path: &std::path::Path) -> Result<String, String> {
-    use sha2::{Digest, Sha256};
-    use std::sync::Mutex;
-    type Stamp = (u64, u64, Option<std::time::SystemTime>);
-    static DIGESTS: Mutex<Vec<(PathBuf, Stamp, String)>> = Mutex::new(Vec::new());
-    let stamp = |m: &std::fs::Metadata| -> Stamp {
-        #[cfg(unix)]
-        let inode = std::os::unix::fs::MetadataExt::ino(m);
-        #[cfg(not(unix))]
-        let inode = 0;
-        (inode, m.len(), m.modified().ok())
-    };
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let before = stamp(&file.metadata().map_err(|e| e.to_string())?);
-    let known = DIGESTS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((.., digest)) = known.iter().find(|(p, s, _)| p == path && *s == before) {
-        return Ok(digest.clone());
-    }
-    drop(known);
-    #[cfg(target_os = "android")]
-    let stored = digest_store(path, &before);
-    #[cfg(target_os = "android")]
-    if let Some(digest) = stored.as_ref().and_then(|s| s.found.clone()) {
-        let mut known = DIGESTS.lock().unwrap_or_else(|e| e.into_inner());
-        known.retain(|(p, ..)| p != path);
-        known.push((path.to_path_buf(), before, digest.clone()));
-        return Ok(digest);
-    }
-    let mut bytes = Vec::with_capacity(before.1 as usize);
-    std::io::Read::read_to_end(&mut &file, &mut bytes).map_err(|e| e.to_string())?;
-    let digest = format!("{:x}", Sha256::digest(&bytes));
-    // Remembered only when nothing changed the file while it was read.
-    if stamp(&file.metadata().map_err(|e| e.to_string())?) == before && before.2.is_some() {
-        let mut known = DIGESTS.lock().unwrap_or_else(|e| e.into_inner());
-        known.retain(|(p, ..)| p != path);
-        known.push((path.to_path_buf(), before, digest.clone()));
-        #[cfg(target_os = "android")]
-        if let Some(store) = stored {
-            store.save(&digest);
-        }
-    }
-    Ok(digest)
-}
-
-/// On Android, a digest [`file_digest`] computed is kept across launches
-/// beside the font cache (`exact/digests-<path hash>` under
-/// `$XDG_CACHE_HOME` or `$HOME/.cache`), for the same file (path, inode,
-/// length, modification time): a module ships in the APK's library
-/// directory, which only an install replaces, and hashing its megabytes was
-/// ~35 ms of every cold start before the GPU device could be made.
-#[cfg(target_os = "android")]
-struct DigestStore {
-    file: PathBuf,
-    key: String,
-    found: Option<String>,
-}
-
-#[cfg(target_os = "android")]
-fn digest_store(
-    path: &std::path::Path,
-    stamp: &(u64, u64, Option<std::time::SystemTime>),
-) -> Option<DigestStore> {
-    use std::hash::{Hash, Hasher};
-    let modified = stamp
-        .2?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_nanos();
-    let base = std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?;
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    path.hash(&mut h);
-    let file = base
-        .join("exact")
-        .join(format!("digests-{:016x}", h.finish()));
-    let key = format!("{} {} {} {modified}", path.display(), stamp.0, stamp.1);
-    let found = std::fs::read_to_string(&file).ok().and_then(|text| {
-        let (k, digest) = text.trim_end().rsplit_once(' ')?;
-        (k == key && digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()))
-            .then(|| digest.to_owned())
-    });
-    Some(DigestStore { file, key, found })
-}
-
-#[cfg(target_os = "android")]
-impl DigestStore {
-    fn save(&self, digest: &str) {
-        if let Some(parent) = self.file.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let partial = self.file.with_extension("partial");
-        if std::fs::write(&partial, format!("{} {digest}\n", self.key)).is_ok() {
-            let _ = std::fs::rename(&partial, &self.file);
-        }
-    }
-}
 #[derive(Clone)]
 pub(crate) struct ControlBinding {
     pub(crate) view: Option<u32>,
@@ -495,10 +415,15 @@ impl Canvas {
 }
 #[derive(Default)]
 pub(crate) struct Surfaces {
+    #[cfg(windows)]
+    window_layers: Option<window::Layers>,
+    #[cfg(windows)]
+    window_artifact: Option<String>,
     /// Each opened artifact by name, "" the primary; each is tried once.
     abis: BTreeMap<String, Abi>,
     attempted: BTreeSet<String>,
     canvases: BTreeMap<u32, Canvas>,
+    edits_admitted: bool,
     restore: Option<Result<Vec<u8>, String>>,
     restore_read: bool,
     pub(crate) error: Option<String>,
@@ -592,6 +517,9 @@ impl Surfaces {
             .collect();
         for view in dead {
             let c = self.canvases.remove(&view).unwrap();
+            self.edits_admitted |= self.abis[&c.artifact].agent(c.id, &json!({"op":"state"}))
+                ["world"]["developmentEdits"]
+                == true;
             self.abis[&c.artifact].destroy(c.id);
             #[cfg(target_os = "android")]
             self.windows.remove(&view);
@@ -683,6 +611,9 @@ impl Surfaces {
                 .is_some_and(|c| c.name != update.name)
             {
                 let old = self.canvases.remove(&update.view).unwrap();
+                self.edits_admitted |= self.abis[&old.artifact]
+                    .agent(old.id, &json!({"op":"state"}))["world"]["developmentEdits"]
+                    == true;
                 self.abis[&old.artifact].destroy(old.id);
                 if old.owner {
                     self.error = self.error.take().or(host.surface_record(&old.name, None));
@@ -1100,6 +1031,12 @@ impl Surfaces {
             }
         }
     }
+    #[cfg(target_os = "android")]
+    pub(crate) fn opaque(&self, view: u32) -> bool {
+        self.canvases.get(&view).is_some_and(|c| unsafe {
+            self.abis[&c.artifact].symbol::<Read>(b"gpu_presentation_flags")(c.id) == 3
+        })
+    }
     pub(crate) fn wants_input(&self, view: u32) -> bool {
         self.canvases.get(&view).is_some_and(|c| unsafe {
             self.abis[&c.artifact].symbol::<Read>(b"gpu_wants_input")(c.id) != 0
@@ -1265,6 +1202,9 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn agent_finger(&mut self, on: bool) {
         self.surfaces.finger = on;
     }
+    pub(crate) fn contact_is_direct(&self) -> bool {
+        self.direct() || self.surfaces.finger
+    }
     pub(crate) fn has_raw_motion(&self) -> bool {
         self.surfaces.motion.is_some()
     }
@@ -1331,7 +1271,7 @@ impl<D: DataSource> Presenter<D> {
                 q["y"] = (v - f64::from(y)).into();
             }
         }
-        if q["op"] == "screenshot" {
+        if q["op"] == "screenshot" && q["form"] != "look" {
             if q["form"] != "save" {
                 return json!({"unavailable":true,"device":false,"reason":"canvas pixels require a device"});
             }
@@ -1346,10 +1286,19 @@ impl<D: DataSource> Presenter<D> {
             };
         }
         if q["op"] == "logs" {
-            q["since"] = c.since.into();
+            q["since"] = if q["all"] == true { 0 } else { c.since }.into();
         }
         let mut r = abi.agent(c.id, &q);
+        if q["op"] == "state" && r["entities"].is_array() {
+            self.surfaces.edits_admitted |= r["developmentEdits"] == true;
+            r["sessionDevelopmentEdits"] = self.surfaces.edits_admitted.into();
+        }
         if q["op"] == "logs" {
+            r["dropped"] = r["from"]
+                .as_u64()
+                .unwrap_or(0)
+                .saturating_sub(q["since"].as_u64().unwrap_or(0))
+                .into();
             c.since = r["next"].as_u64().unwrap_or(c.since);
             if !c.restore_logged {
                 if let Some(e) = c.restore_error.as_ref() {
@@ -1361,6 +1310,12 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         if let Some(world) = r.get_mut("world").and_then(Value::as_object_mut) {
+            self.surfaces.edits_admitted |=
+                world.get("developmentEdits") == Some(&Value::Bool(true));
+            world.insert(
+                "sessionDevelopmentEdits".into(),
+                self.surfaces.edits_admitted.into(),
+            );
             world.insert("canvas".into(), view.into());
             world.insert("device".into(), false.into());
             if let Some(e) = &c.restore_error {
@@ -1399,13 +1354,15 @@ impl<D: DataSource> Presenter<D> {
                 if r["world"].is_object() {
                     r = r["world"].take();
                 }
+                self.surfaces.edits_admitted |= r["developmentEdits"] == true;
+                r["sessionDevelopmentEdits"] = self.surfaces.edits_admitted.into();
                 r["canvas"] = view.into();
                 Some(r)
             })
             .collect()
     }
     pub(crate) fn merge_surfaces(&mut self, line: &str, reply: String) -> String {
-        if self.surfaces.canvases.is_empty() {
+        if self.surfaces.canvases.is_empty() && !self.surfaces.edits_admitted {
             return reply;
         }
         let q: Value = serde_json::from_str(line).unwrap_or(Value::Null);
@@ -1442,8 +1399,13 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
             }
-            Some("state") => r["world"] = self.worlds(json!({"op":"state"})).into(),
-            Some("logs") => r["world"] = self.worlds(json!({"op":"logs"})).into(),
+            Some("state") => {
+                r["world"] = self
+                    .worlds(json!({"op":"state","trace_export":q["trace_export"]}))
+                    .into();
+                r["sessionDevelopmentEdits"] = self.surfaces.edits_admitted.into();
+            }
+            Some("logs") => r["world"] = self.worlds(json!({"op":"logs","all":q["all"]})).into(),
             Some("screenshot")
                 if self.surfaces.canvases.values().any(|canvas| {
                     self.surfaces

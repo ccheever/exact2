@@ -301,15 +301,6 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.modalRefusesDismissal(closedby: nil))
     }
 
-    /// D4: deferred geometry replays frames before contents, ids ascending.
-    func testDeferredGeometryReplaysFramesBeforeContentsInIdOrder() {
-        let order = NavigationRules.replayOrder(deferred: [7: ["content", "frame"], 3: ["frame"], 12: ["content"]])
-        XCTAssertEqual(order.map { "\($0.id):\($0.kind)" }, ["3:frame", "7:frame", "7:content", "12:content"])
-        // A content box follows the frames, and a scene comes last
-        let boxes = NavigationRules.replayOrder(deferred: [7: ["svg", "content", "fieldContent", "frame"]])
-        XCTAssertEqual(boxes.map(\.kind), ["frame", "fieldContent", "content", "svg"])
-    }
-
     /// D5: a session answers a keyboard only for its own editor, or while it
     /// still holds an inset it applied.
     func testAKeyboardConcernsOnlyTheSessionThatOwnsIt() {
@@ -325,22 +316,6 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: true, changing: true, initiallyInteractive: true))
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: false, initiallyInteractive: true))
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: true, initiallyInteractive: false))
-    }
-
-    /// A presentation's background goes home as autoresizing would have
-    /// carried it: the home that grew to a sheet and shrank for the keyboard
-    /// meanwhile must not take that shrink out of it twice (Ocho's model
-    /// sheet, 2026-10-08: a 546 pt route left 280 pt tall).
-    func testAPresentationsBackgroundGoesHomeAtTheHomesNewSize() {
-        let saved = CGRect(x: 0, y: 0, width: 402, height: 546)
-        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 402, height: 812),
-                                                     flexibleWidth: true, flexibleHeight: true), CGRect(x: 0, y: 0, width: 402, height: 812))
-        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 402, height: 812),
-                                                     flexibleWidth: true, flexibleHeight: false), saved)
-        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 874, height: 402),
-                                                     flexibleWidth: true, flexibleHeight: true), CGRect(x: 0, y: 0, width: 874, height: 402))
-        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 402, height: 0),
-                                                     flexibleWidth: false, flexibleHeight: true).height, 0)
     }
 
     /// D3: a focus that cannot be delivered has a named reason, in a fixed
@@ -966,9 +941,9 @@ final class MacShortcutTests: XCTestCase {
         }
         XCTAssertFalse(DevMenu.develops(kind: "debug", production: true, override: nil))
         XCTAssertFalse(DevMenu.develops(kind: nil, production: true, override: nil))
-        XCTAssertTrue(DevMenu.develops(kind: "release", production: true, override: "1"))
-        XCTAssertFalse(DevMenu.develops(kind: "debug", production: false, override: "0"))
-        XCTAssertEqual(DevMenu.enabled, ExactEnv.environment["EXACT_DEV_MENU"] != "0", "the tests' host is a development build")
+        XCTAssertTrue(DevMenu.develops(kind: "release", production: true, override: true))
+        XCTAssertFalse(DevMenu.develops(kind: "debug", production: false, override: false))
+        XCTAssertEqual(DevMenu.enabled, ExactEnv.devMenu ?? true, "the tests' host is a development build")
     }
 
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {

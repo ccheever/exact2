@@ -4,9 +4,8 @@
 //! host lays it out as no box, so a phone's list never draws it. On a route
 //! it would hide the route, so it is refused there.
 //!
-//! LLP 1116.007 D3.7: the web's split reads a row that draws the disclosure
-//! chevron as one that pushes, so a route whose every chevron row presses an
-//! action that writes no router is written `navigationSplit="none"`.
+//! LLP 1115.002 D4/stage 6d: chevrons are paint. The host reads the shared
+//! list/press rule; the compiler must not invent an author opt-out.
 
 use exact_kernel::{Display, Kernel, PropId};
 use exact_plan::Value;
@@ -133,7 +132,7 @@ fn split_of(src: &str) -> Option<String> {
 }
 
 #[test]
-fn a_chevron_on_rows_that_push_nowhere_is_decoration_and_keeps_one_column() {
+fn decorative_chevrons_do_not_write_a_navigation_split_opt_out() {
     // event-rsvp (round 9): invitations that select into a panel, a chevron
     // on each, and a Create button elsewhere that does push.
     let decorative = [
@@ -146,7 +145,19 @@ fn a_chevron_on_rows_that_push_nowhere_is_decoration_and_keeps_one_column() {
         "button press=open(\"x\")\n  text \"Create\"\ncolumn\n  if true\n    row press=pick(\"a\")\n      text \"A\"\n      image \"symbol:forward-chevron\"",
     ];
     for body in decorative {
-        assert_eq!(split_of(&rows("", body)).as_deref(), Some("none"), "{body}");
+        assert_eq!(split_of(&rows("", body)), None, "{body}");
+    }
+}
+
+#[test]
+fn a_link_without_a_chevron_beside_decoration_keeps_only_the_authors_split_choice() {
+    let body = "list\n  link href=\"/item\"\n    text \"Item\"\n  button press=pick(\"a\")\n    text \"Decoration\"\n    image \"symbol:forward-chevron\"";
+    assert_eq!(split_of(&rows("", body)), None);
+    for (attribute, expected) in [
+        ("navigationSplit=\"none\"", "none"),
+        ("navigationSplit=280", "280"),
+    ] {
+        assert_eq!(split_of(&rows(attribute, body)).as_deref(), Some(expected));
     }
 }
 

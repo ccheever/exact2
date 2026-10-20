@@ -827,8 +827,9 @@ extension NodeView: NSServicesMenuRequestor {
         guard let presenter else { return false }
         var next: NSView? = self
         while let view = next {
-            next = view.superview
-            guard let node = view as? NodeView, presenter.views[node.id] === node, !node.disabled, !node.inert else { continue }
+            next = presenter.eventParent(of: view)
+            guard let node = view as? NodeView, presenter.views[node.id] === node, !node.formDisabled,
+                  !(node === self ? node.inert : node.authoredInert) else { continue }
             if node.handlers.contains("contextmenu") || node.props["contextPopover"]?.isEmpty == false { return true }
         }
         return false

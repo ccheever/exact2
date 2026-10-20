@@ -1,48 +1,10 @@
-// @ref LLP 1044.000 §6 S1 — textual descendants are paragraph values.
+import ExactCore
 import Foundation
 import CoreText
 
-struct InlineText {
-    let id: UInt32
-    let parent: UInt32
-    let props: [String: String]
-    private let lightRun: Run
-    private let darkColor: [Double]?
-    private let darkBackground: [Double]?
-    private let colorRef: BatchValue?
-    private let backgroundRef: BatchValue?
-    /// Its `color` is one its author fixed (`BatchValue.fixesInk`).
-    private let fixedInk: Bool
-    private let paint: RunPaintRows
-    let hasSchemeColor: Bool
+extension InlineText {
     /// Whether a colour here is the view's tint (LLP 1095 D8).
     var namesTint: Bool { colorRef?.namesTint == true || backgroundRef?.namesTint == true || paint.namesTint }
-    let handlers: Set<String>
-    let paints: Bool
-    /// Its computed `visibility: hidden`: its text is no target
-    /// (`inlineTarget`), though it hears a visible run's click inside it.
-    var hidden: Bool { lightRun.hidden }
-    var range: NSRange = NSRange(location: 0, length: 0)
-
-    init(id: UInt32, parent: UInt32, props: [String: String], style: InlineStyle,
-         handlers: Set<String>, paints: Bool) {
-        self.id = id; self.parent = parent; self.props = props
-        var value = style.run
-        value.text = props["text"] ?? ""
-        value.href = props["href"] ?? ""
-        lightRun = value
-        darkColor = style.darkColor
-        darkBackground = style.darkBackground
-        colorRef = style.colorRef; backgroundRef = style.backgroundRef
-        fixedInk = style.fixedInk
-        paint = style.paint
-        hasSchemeColor = style.paired || style.paint.paired
-        self.handlers = handlers; self.paints = paints
-    }
-
-    var text: String { lightRun.text }
-    /// A run with an `href`: the web's `<a>` in its paragraph.
-    var isLink: Bool { !(props["href"] ?? "").isEmpty }
     /// The run in its paragraph owner's traits: `contrast` and `elevated`
     /// as `BatchValue.channels` takes them (LLP 1095 D5).
     func run(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> Run {
@@ -55,7 +17,6 @@ struct InlineText {
                                                      color: value.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
         return value
     }
-
     static func run(_ text: String, style: NodeStyle, href: String = "", dark: Bool, contrast: Bool? = nil, elevated: Bool = false,
                     tint: PlatformColor? = nil) -> Run {
         func number(_ key: String, _ fallback: Double = 0) -> Double { style[key]?.number ?? fallback }
@@ -68,6 +29,7 @@ struct InlineText {
                       family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
                       lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
                       numeric: Int(number("font_variant_numeric")),
+                      stretch: CGFloat(Float(number("font_stretch", 100))),
                       color: style["text_color"]?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint),
                       decoration: style["text_decoration_line"]?.string ?? "", href: href)
         (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
@@ -91,21 +53,6 @@ extension Run {
     #else
     static let linksUnderlined = false
     #endif
-}
-
-// Resolved while reading a paragraph; no dictionary of unused layout rows.
-struct InlineStyle {
-    var run = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
-    var darkColor: [Double]?
-    var darkBackground: [Double]?
-    /// A platform colour by name, resolved when the run is read (LLP 1095 D5).
-    var colorRef: BatchValue?
-    var backgroundRef: BatchValue?
-    /// Whether `color` is one its author fixed, not a platform colour by name.
-    var fixedInk = false
-    /// `text-shadow` and `-webkit-text-stroke`, computed for the run (LLP 1077).
-    var paint = RunPaintRows()
-    var paired = false
 }
 
 extension Presenter {
@@ -247,8 +194,8 @@ extension NodeView {
         guard kind == "button", !handlers.contains("press"), let url = props["href"], !url.isEmpty else { return nil }
         return url
     }
-    func activateLink(_ url: String) -> Bool {
-        guard let session = presenter?.session, !disabled, !inert else { return false }
+    func activateLink(_ url: String, bubbled: Bool = false) -> Bool {
+        guard let session = presenter?.session, !disabled, !(bubbled ? authoredInert : inert) else { return false }
         if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
         session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
     }

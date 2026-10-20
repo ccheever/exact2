@@ -202,6 +202,46 @@ fn a_child_may_not_own_a_resource() {
 }
 
 #[test]
+fn a_childs_task_is_moved_to_the_root_keyed_on_what_opens_it() {
+    // The euxy port: "scroll the selected icon into view when the sheet
+    // opens" is the root's gated task, keyed on the route.
+    let src = "component A\n  view\n    Sheet()\ncomponent Sheet\n  state n = 0\n  task reveal mount\n    after(1, bump)\n  action bump\n    n = n + 1\n  view\n    text \"x\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "type-child-resource");
+    assert!(
+        e.message.starts_with(
+            "only the root, the root file's first component (`A`), may declare a `task`"
+        ) && e.message.contains(
+            "`task reveal when top(nav).name == \"icons\" key=top(nav).id` with `after(1, reveal)`"
+        ),
+        "{}",
+        e.message
+    );
+    // The repair it names compiles, in the root.
+    let fixed = "routes nav\n  home \"/\"\n  icons \"/icons\"\ncomponent A\n  state n = 0\n  task reveal when top(nav).name == \"icons\" key=top(nav).id\n    after(1, reveal)\n  action reveal\n    n = n + 1\n  view\n    text \"x\"\n";
+    contract::compile(fixed).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
+fn a_childs_timer_is_moved_to_the_root_with_its_state_and_action_props() {
+    // The euxy port: a capsule charged by a press-and-hold `every(16)`.
+    let src = "component A\n  view\n    Capsule()\ncomponent Capsule\n  state charge = 0\n  state holding = false\n  task charging when holding\n    every(16, step)\n  action step\n    charge = charge + 2\n  action hold(on: bool)\n    holding = on\n  view\n    button pointerdown=hold(true) pointerup=hold(false)\n      text `${charge}`\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "type-child-resource");
+    for part in [
+        "`task charging when holding` with `every(16, step)`",
+        "`Capsule(charge=charge, down=hold(true), up=hold(false))`",
+        "`pointerdown=down pointerup=up`",
+        "docs/recipes/timer-in-a-component.md",
+    ] {
+        assert!(e.message.contains(part), "{part}: {}", e.message);
+    }
+    // The repair it names compiles.
+    let fixed = "component A\n  state charge = 0\n  state holding = false\n  task charging when holding\n    every(16, step)\n  action step\n    charge = charge + 2\n  action hold(on: bool)\n    holding = on\n  view\n    Capsule(charge=charge, down=hold(true), up=hold(false))\ncomponent Capsule\n  props\n    charge: number\n    down: action\n    up: action\n  view\n    button pointerdown=down pointerup=up\n      text `${charge}`\n";
+    contract::compile(fixed).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
 fn child_derives_resolve_in_either_order_without_capturing_the_parent() {
     let src = "component App\n  state a = 100\n  view\n    column\n      Forward()\n      Ordered()\ncomponent Forward\n  state n = 2\n  derive b = a * 2\n  derive a = n + 1\n  view\n    text `${a} ${b}` testId=\"forward\"\ncomponent Ordered\n  state n = 2\n  derive a = n + 1\n  derive b = a * 2\n  view\n    text `${a} ${b}` testId=\"ordered\"\n";
     let plan = contract::compile(src).unwrap();
@@ -221,6 +261,18 @@ fn child_derives_resolve_in_either_order_without_capturing_the_parent() {
         contract::compile(cycle).unwrap_err().id,
         "type-derive-cycle"
     );
+}
+
+#[test]
+fn a_derive_that_reads_a_refused_one_is_not_called_a_cycle() {
+    let src = "component App\n  state text = \"1\"\n  derive bill = Number(text)\n  derive tip = bill / 10\n  derive total = bill + tip\n  view\n    text `${total}`\n";
+    let Err(errors) =
+        contract::compile_path_source_all(std::path::Path::new("app.contract"), src, false)
+    else {
+        panic!("`Number` compiled");
+    };
+    let all: Vec<_> = errors.iter().map(|e| e.id.to_string()).collect();
+    assert_eq!(all, ["type-refused-idiom"]);
 }
 
 #[test]

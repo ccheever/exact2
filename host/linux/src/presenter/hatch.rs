@@ -83,6 +83,14 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// A view the reader's hatches host was given or taken: a kept row may
+    /// hold the node as it was, so every row is recorded again.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn hatch_views_changed(&mut self) {
+        self.brush.colors_changed();
+        self.dirty = true;
+    }
+
     /// The moments the tree now holds, and what the hatches published.
     pub fn hatch_moments(&mut self) {
         if self.hatches.connected() {
@@ -480,8 +488,10 @@ impl<D: DataSource> Presenter<D> {
             ActKind::Click => {
                 self.host.log(format!("{what}: click (delivery: hatch)"));
                 if !self.toggle_control(id, now) {
-                    if let Some(target) = self.handler_target(id, EventKind::Press) {
-                        self.dispatch_press(target, now, false);
+                    if let Some(invoker) = self.top_invoker(id).filter(|_| self.has_windows()) {
+                        self.invoke(invoker, now, false);
+                    } else if let Some(target) = self.handler_target(id, EventKind::Press) {
+                        self.press_then_follow(target, now, false);
                     }
                 }
                 None
@@ -538,10 +548,13 @@ impl<D: DataSource> Presenter<D> {
 
     // The frame clock (§2.4).
 
-    /// The loop's next timer: the runner's, or a hatch's `after`.
+    /// The loop's next deadline: a runner timer, hatch or scroll completion.
     pub fn timer_due_ms(&self) -> Option<f64> {
         let after = self.hatches.shared().and_then(|shared| shared.after_due());
-        (self.host.timer_due_ms().into_iter().chain(after)).reduce(f64::min)
+        self.timer_or_scroll_due_ms()
+            .into_iter()
+            .chain(after)
+            .reduce(f64::min)
     }
 
     /// Whether every display frame is wanted: a frame task's, or a ticket's.

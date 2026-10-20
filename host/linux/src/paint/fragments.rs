@@ -68,7 +68,15 @@ impl Painter {
         };
         let mut palette = Vec::new();
         text_palette(kernel, node, self.dark, walk.reveal, &mut palette);
-        presented_text_colors(walk, node, &paragraph, &mut palette);
+        presented_text_colors(walk, node, &paragraph, &mut palette, self.dark);
+        let shown_before = self.accepted_text.get(&node.key);
+        let roll = (self.numerals)
+            .roll(node.key, s.content_transition, shown_before, &paragraph)
+            .filter(|_| frags.is_empty());
+        if roll.is_some() {
+            // Drawn anew each frame it rolls, never kept in a row.
+            self.row_refuse();
+        }
         walk.text.insert(node.key, paragraph.clone());
         // The canvas recorder leases the same paragraph the paint drew.
         self.row_text(node.key, &paragraph);
@@ -79,20 +87,32 @@ impl Painter {
             .then(|| paragraph.ellipsized(width))
             .flatten()
             .unwrap_or_else(|| paragraph.clone());
-        let mut backgrounds = Vec::new();
-        text_backgrounds(kernel, node, None, self.dark, walk.reveal, &mut backgrounds);
+        // An ellipsized line changes in place.
+        let roll = roll.filter(|_| Rc::ptr_eq(&shown, &paragraph));
+        let backgrounds = text_backgrounds(kernel, node, self.dark, walk.reveal);
+        let backgrounds = shown.inline_backgrounds(&backgrounds, &kernel.env());
         let reveal = walk.reveal;
         let at = |painter: &mut Self, origin: (f32, f32)| {
             // Inline backgrounds, under the glyphs, per line fragment.
-            for (r, color) in shown.run_backgrounds(&backgrounds) {
-                let shape = Shape::rect((origin.0 + r.0, origin.1 + r.1, r.2, r.3));
-                painter.backend.fill(&shape, color, ts);
+            for (shape, color) in &backgrounds {
+                let mut shape = *shape;
+                shape.rect.0 += origin.0;
+                shape.rect.1 += origin.1;
+                painter.backend.fill(&shape, *color, ts);
             }
             painter.text_decorations(kernel, &shown, &palette, origin, ts, reveal);
-            painter.text_paint(node, kernel, &shown, &palette, origin, rect, ts, reveal);
+            match &roll {
+                Some(roll) => {
+                    painter.roll_glyphs(node, kernel, roll, &palette, origin, rect, ts, reveal)
+                }
+                None => {
+                    painter.text_paint(node, kernel, &shown, &palette, origin, rect, ts, reveal)
+                }
+            }
         };
         if frags.is_empty() {
-            return at(self, (content.0, content.1));
+            // A flex text's lines go down its box as CSS's anonymous flex item.
+            return at(self, (content.0, content.1 + kernel.text_line_offset(node)));
         }
         for g in frags {
             let clip = Shape::rect((rect.0 + g.x, rect.1 + g.y, g.width, g.height));

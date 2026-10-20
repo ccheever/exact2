@@ -1,0 +1,45 @@
+// formatDay (LLP 1116.020 D8): a day's label counted from `now` in the
+// offset's calendar days, each mode across a midnight, the year's turn and
+// the week's edge (six days back is a weekday, seven a date), and "" for an
+// invalid instant or offset, as formatDate's.
+fn all(t: number, n: number, o: number): string = `${formatDay(t, n, o, "day")} / ${formatDay(t, n, o, "day-time")} / ${formatDay(t, n, o, "list")}`
+
+component App
+  // 2026-12-31T23:59:00Z, a Thursday.
+  state now = 1798761540000
+  state offset = 0
+  derive midnight = `${all(now, now, offset)} | ${all(now - 60000, now + 120000, offset)} | ${all(now + 120000, now, offset)}`
+  derive week = `${all(now - 518400000, now, offset)} | ${all(now - 604800000, now, offset)} | ${all(now - 86400000, now, offset)}`
+  derive later = `${all(now + 86400000 * 2, now, offset)} | ${all(now - 86400000 * 365, now, offset)}`
+  derive bad = `[${formatDay(0 / 0, now, 0, "day")}][${formatDay(now, 253402300800000, 0, "list")}][${formatDay(now, now, 1081, "day-time")}]`
+  action tick
+    now = now + 120000
+  action east
+    offset = offset + 60
+  action west
+    offset = offset - 480
+  view
+    column
+      text midnight testId="midnight"
+      text week testId="week"
+      text later testId="later"
+      text bad testId="bad"
+      button "tick" press=tick testId="tick"
+      button "east" press=east testId="east"
+      button "west" press=west testId="west"
+
+test "the year turns at midnight"
+  expect text "midnight" == "Today / Today at 11:59 PM / 11:59 PM | Yesterday / Yesterday at 11:58 PM / Yesterday | Tomorrow / Tomorrow at 12:01 AM / 1/1/27"
+  expect text "week" == "Dec 25, 2026 / Dec 25, 2026 at 11:59 PM / Friday | Dec 24, 2026 / Dec 24, 2026 at 11:59 PM / 12/24/26 | Yesterday / Yesterday at 11:59 PM / Yesterday"
+  expect text "later" == "Jan 2, 2027 / Jan 2, 2027 at 11:59 PM / 1/2/27 | Dec 31, 2025 / Dec 31, 2025 at 11:59 PM / 12/31/25"
+  expect text "bad" == "[][][]"
+  tap "tick"
+  expect text "midnight" == "Today / Today at 12:01 AM / 12:01 AM | Today / Today at 12:00 AM / 12:00 AM | Today / Today at 12:03 AM / 12:03 AM"
+  expect text "week" == "Dec 26, 2026 / Dec 26, 2026 at 12:01 AM / Saturday | Dec 25, 2026 / Dec 25, 2026 at 12:01 AM / 12/25/26 | Yesterday / Yesterday at 12:01 AM / Yesterday"
+
+test "an offset moves the days"
+  tap "east"
+  expect text "midnight" == "Today / Today at 12:59 AM / 12:59 AM | Today / Today at 12:58 AM / 12:58 AM | Today / Today at 1:01 AM / 1:01 AM"
+  tap "west"
+  expect text "midnight" == "Today / Today at 4:59 PM / 4:59 PM | Today / Today at 4:58 PM / 4:58 PM | Today / Today at 5:01 PM / 5:01 PM"
+  expect text "week" == "Dec 25, 2026 / Dec 25, 2026 at 4:59 PM / Friday | Dec 24, 2026 / Dec 24, 2026 at 4:59 PM / 12/24/26 | Yesterday / Yesterday at 4:59 PM / Yesterday"

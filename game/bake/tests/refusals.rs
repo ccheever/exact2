@@ -2,6 +2,43 @@ use serde_json::json;
 fn source() -> serde_json::Value {
     serde_json::from_str(include_str!("fixtures/crate.gltf")).unwrap()
 }
+fn outlined_source() -> serde_json::Value {
+    let mut v = source();
+    let position = v["meshes"][0]["primitives"][0]["attributes"]["POSITION"]
+        .as_u64()
+        .unwrap() as usize;
+    let normal = v["meshes"][0]["primitives"][0]["attributes"]["NORMAL"].clone();
+    let mut reach = v["accessors"][position].clone();
+    reach["type"] = json!("SCALAR");
+    reach.as_object_mut().unwrap().remove("min");
+    reach.as_object_mut().unwrap().remove("max");
+    let accessor = v["accessors"].as_array().unwrap().len();
+    v["accessors"].as_array_mut().unwrap().push(reach);
+    let p = &mut v["meshes"][0]["primitives"][0];
+    p["attributes"]["_OUTLINE_NORMAL"] = normal;
+    p["attributes"]["_OUTLINE_REACH"] = json!(accessor);
+    p["extras"] = json!({"outline":{"width":0.02,"minPixels":1.1,"color":[0,0,0]}});
+    v
+}
+#[test]
+fn unsupported_outlined_materials_name_the_model_and_mesh() {
+    for (mode, label) in [("MASK", "alpha-tested"), ("BLEND", "blended")] {
+        let mut v = outlined_source();
+        v["materials"][0]["alphaMode"] = json!(mode);
+        let error = bake(v).unwrap_err();
+        assert!(
+            error.contains("fixture.gltf") && error.contains("mesh 0") && error.contains(label),
+            "{error}"
+        );
+    }
+    let mut v = outlined_source();
+    v["extensionsUsed"] = json!(["KHR_techniques_webgl"]);
+    let error = bake(v).unwrap_err();
+    assert!(
+        error.contains("fixture.gltf") && error.contains("KHR_techniques_webgl"),
+        "{error}"
+    );
+}
 fn bake(value: serde_json::Value) -> Result<exact_game::asset::Model, String> {
     let dir = std::env::temp_dir().join(format!(
         "exact-bake-{}-{:?}",
@@ -154,4 +191,30 @@ fn vertex_colors_survive_bake_and_merge_with_white_defaults() {
         &[0.25, 0.5, 0.75, 1.].repeat(24)
     );
     assert_eq!(&baked.meshes[0].colors[96..], &[1.; 96]);
+}
+
+#[test]
+fn posable_extras_preserve_rotated_and_mirrored_rest_nodes_but_refuse_shear_and_duplicates() {
+    let mut v = source();
+    v["nodes"][0]["name"] = json!("arm");
+    v["nodes"][0]["extras"] = json!({"posable": true});
+    v["nodes"][0]["rotation"] = json!([0., 0., 0.25881904, 0.9659258]);
+    v["nodes"][0]["scale"] = json!([-1., 1., 1.]);
+    let model = bake(v.clone()).unwrap();
+    assert!(model.nodes[0].posable);
+    assert!(model.requires_palette());
+    assert!(exact_game::Mat4::from_cols_array(&model.nodes[0].transform).determinant() < 0.);
+    let mut duplicate = v["nodes"][0].clone();
+    duplicate.as_object_mut().unwrap().remove("mesh");
+    v["nodes"].as_array_mut().unwrap().push(duplicate);
+    v["scenes"][0]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!(1));
+    assert!(bake(v).unwrap_err().contains("duplicate posable"));
+    let mut v = source();
+    v["nodes"][0]["extras"] = json!({"posable": true});
+    v["nodes"][0]["matrix"] =
+        json!([1., 0., 0., 0., 0.5, 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.]);
+    assert!(bake(v).unwrap_err().contains("shear"));
 }

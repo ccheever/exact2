@@ -349,10 +349,12 @@ function tick() {
   for (const t of [...Tickets]) if (Tickets.includes(t)) { if (!fired()) return limit("HatchFireLimit"); timed("frames", null, "tick", () => { try { t(frame); } catch (error) { say(`frames threw ${error?.message ?? error}`); } }); }
   return instant();
 }
-function afters() { return due() && instant(); }
-// Each due `after`, in due order, ties by registration.
-function due() {
-  for (const a of Afters.filter(a => a.due <= clock.now).sort((a, b) => a.due - b.due || a.i - b.i)) {
+// The afters due at the instant the advance chose, not at the clock it observes: on the page's clock a callback before
+// this one may have ended past the advance's cutoff, and a later `after` keeps its place behind the timers due first.
+function afters() { return due(K.after.due) && instant(); }
+// Each `after` due by `until`, in due order, ties by registration.
+function due(until = clock.now) {
+  for (const a of Afters.filter(a => a.due <= until).sort((a, b) => a.due - b.due || a.i - b.i)) {
     const i = Afters.indexOf(a);
     if (i < 0) continue;
     Afters.splice(i, 1);
@@ -565,7 +567,7 @@ function scopesOf(m) {
   const QUERIES = ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)", "(prefers-contrast: custom)", "(prefers-reduced-motion: reduce)", "(prefers-reduced-transparency: reduce)"];
   const facts = () => ({
     visibilityState: document.visibilityState ?? "visible", onLine: globalThis.navigator?.onLine !== false,
-    prefersColorScheme: media(QUERIES[0]) ? "dark" : "light",
+    prefersColorScheme: globalThis.exact?.systemScheme ?? (media(QUERIES[0]) ? "dark" : "light"), // a dev pin's is the system's (LLP 1122 D4)
     prefersContrast: media(QUERIES[1]) ? "more" : media(QUERIES[2]) ? "less" : media(QUERIES[3]) ? "custom" : "no-preference",
     prefersReducedMotion: media(QUERIES[4]), prefersReducedTransparency: media(QUERIES[5]),
   });

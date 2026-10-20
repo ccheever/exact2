@@ -1,9 +1,11 @@
 // The app's lifecycle holds for the module's storage (LLP 1097 D10): an
 // answer replies before the write it started lands, so a quit or a
 // suspension can come between them. macOS waits to terminate while the
-// write lands (five seconds at most); iOS and tvOS hold a background task
-// while one is in flight, ended when it lands or when the system's time
-// runs out. What the store already has completes on disk regardless.
+// write lands, and while a native module's quit work runs (LLP 1069.010
+// Q4), five seconds at most for both together; iOS and tvOS hold a
+// background task while a write is in flight, ended when it lands or when
+// the system's time runs out. What the store already has completes on disk
+// regardless.
 import Foundation
 #if canImport(UIKit)
 import UIKit
@@ -16,6 +18,13 @@ public extension ExactSession {
               let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return 0 }
         return reply["operations"] as? Int ?? 0
     }
+
+    /// The quit is decided (macOS): the session's native module starts the
+    /// work the quit waits for (`ExactModule.willQuit`), once.
+    func willQuit() { natives.willQuit() }
+    /// Whether that work is still running: until the module says it is
+    /// done or the session ends.
+    var quitWorkPending: Bool { natives.quitWorkPending }
 }
 
 #if canImport(UIKit)

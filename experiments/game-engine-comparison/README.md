@@ -24,10 +24,11 @@ in each `bun.lock`; fleet Bun was 1.3.14. In a scratch copy:
 bun install --frozen-lockfile
 ```
 
-The runners name the existing fleet Chromium executable explicitly:
-`/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`.
-Use that same executable for reproduction on the original hosts, or
-adjust the path in a scratch copy for another installed browser and
+The JavaScript runners use `CHROME` when set, otherwise Chromium at
+`$HOME/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`.
+The Godot Python harness uses its headless-shell counterpart under the same cache.
+Use the same executable for reproduction on the original hosts, or
+set `CHROME` to another installed browser and
 record the difference. Browser launch flags select headless/software
 rendering. Servers and browsers close after the proof.
 

@@ -6,6 +6,11 @@ every opaque item against the camera and each shadow cascade; each geometry pass
 then issues one indirect draw per mesh batch (and winding) over its view's survivors.
 See [Culling](#culling).
 
+Model forward programs specialize out fill and clustered-light code when the
+frame has neither. The shared fallback still evaluates both while a new program
+compiles, so adding a light takes effect on its first frame. Sun, ambient,
+materials, shadows, fog and outlines retain their usual shading.
+
 ## Renderer contract
 
 Construct `Renderer::new(device, queue, format)`, add meshes, initialize both
@@ -46,8 +51,8 @@ entities through `entities()` to get tick-interpolated `FrameView::pose`. Use
 and `error()` for a named rejected replacement. Never step or mutate the simulation.
 
 Stages are compute before shadows, opaque, background after sky, an optional
-surface continuation, and optional HDR post before bloom/tone. Geometry uses 4×
-MSAA. `SCENE_COPY` supplies resolved HDR and positive view-space depth (zero for
+surface continuation, and optional HDR post before bloom/tone. Geometry uses
+`Game::SAMPLES` (4× MSAA by default); hooks use `FrameView.sample_count`. `SCENE_COPY` supplies resolved HDR and positive view-space depth (zero for
 sky); `FINAL_DEPTH` requests final sampled depth independently; `HDR_POST` supplies
 a distinct HDR output. Respect the active rectangle inside bucketed textures.
 The refractor writes depth. Transparent objects behind it and intersecting
@@ -79,10 +84,13 @@ stage; unsupported finer intervals are `null`.
 
 ## Culling
 
-One compute pass after skinning (`cull.wgsl`, three dispatches) tests every opaque
-item against the camera frustum and each cascade's light box, then writes each view's
-visible slots into its own region, **in retained order** — equal-depth ties resolve
-exactly as unculled — and fills that view's `draw_indexed_indirect` arguments.
+Three compute passes after skinning (`cull.wgsl`, one dispatch each) test every opaque
+item against the camera frustum and each cascade's light box, then write each view's
+visible slots into its own region and fill that view's `draw_indexed_indirect`
+arguments. The camera's region takes a group's 64-item chunks nearest first (a
+counting sort over 256 depth steps, for groups of 16 chunks or more), so depth
+tested before shading rejects what they hide; within a chunk, and in the cascades,
+order is the retained order, so equal-depth ties resolve as unculled.
 Draws read their region through a dynamic offset on the scene group's `slots`
 binding with a zero first instance, so WebGPU's optional `indirect-first-instance`
 is not required. The CPU keeps the draw groups (batch × winding, recomputed each
@@ -101,6 +109,13 @@ particle budget) and unskinned blended models on the CPU before derivation/uploa
 Shadow casters are tested against their own cascade only; particles and sprites
 cast no shadows.
 
+Pass boundaries separate the dependent stages on every backend. An Adreno 620
+with its 2020-11-30 Vulkan driver corrupted compacted model slots when the stages
+shared a pass, even while the indirect draw counts were correct. The readback
+regression compares every output slot and indirect argument with a CPU reference
+across 72 groups and four views. The boundaries add no dispatch, upload or readback
+to normal rendering.
+
 Culling never changes pixels: `cull_tests.rs` renders moving primitive fields
 (perspective and orthographic), animated skinned Foxes, models, sockets, sprites,
 blended models and emitters culled and again keeping every item, and requires
@@ -111,17 +126,151 @@ cannot hold the per-view lists (only region padding can exceed them below
 Culling does not reduce CPU draw calls; measurements are in
 [bench/README.md](../bench/README.md#culling-and-environment-lighting--2026-09-23).
 
+## Forward variants for tiling GPUs
+
+The forward pipelines beyond the eight made at construction are made on first use
+(`Pipelines::forward_variant`), keyed by what the frame needs. Native renderers
+keep a uniform-driven fallback while a worker compiles a new live-settings
+variant. *Lean* compiles without the fill and local lights and the grid when no light or material uses
+them: their registers, unused, cost a mobile GPU most of its occupancy. *Early*
+forces depth tests before shading (`SHADER_EARLY_DEPTH_TEST`) when no slot in the batch is
+fading, whose dither discards. *Uniform* reads a one-colour sky's irradiance and
+radiance without evaluating either. *Direct* ([below](#direct-frames)) draws a
+frame that needs no HDR image straight into the target, the shader tonemapping:
+at 4×, MSAA in the target's format resolves into it — half the bytes a sample,
+no tone pass. Each leaves the image as it was; direct at 4× moves MSAA edges
+only, each sample tonemapped before the resolve
+(`effects::a_direct_frame_draws_what_the_tone_pass_draws`).
+On a Pixel 5 (Adreno 620) these took 64,000 cubes from 4 to 60 frames a second
+([bench/README.md](../bench/README.md#phone--cubes-on-a-pixel-5-2026-10-16)).
+
+*Half precision*: the device is asked for `SHADER_F16` where the adapter has it,
+and with it the primitive and model forward modules shade in f16 (`enable f16`,
+frame.wgsl's `shading` alias): the ambient light, the BRDF's colour terms, rim,
+emission and the fog's blend. Positions, depth, directions, texture coordinates,
+the BRDF's scalar lobes and shadow sampling stay f32, and a specular peak is capped
+at 2048 times its light so that it stays finite in half. A mobile GPU runs f16 at
+twice the rate in half the registers. Without the feature (WebGPU without
+`shader-f16`) the modules are the f32 ones, unchanged. On this Mac (Metal grants
+it) the half-precision town is within two levels of the f32 town
+(`effects::half::*`). `state.world.gpu.shaderF16` and the log's
+`game renderer first frame encoded` line (`f16=`) say which a device draws.
+On native Vulkan, Exact also grants it on adapters with f16 arithmetic/storage
+but no 16-bit uniform access (Adreno 620). The patched HAL rejects shaders that
+actually use 16-bit uniforms there and removes Naga's unused uniform capability
+from arithmetic-only modules; see `vendor/wgpu-hal/EXACT-PATCHES.md`, patch 11.
+Forward buffers and stage interfaces remain f32/u32, checked by the translation test.
+
+Opaque models select a variant without fragment discard when their own batch has
+no coverage fading; devices with `SHADER_EARLY_DEPTH_TEST` force its depth test
+before shading. Masked, blended and fading batches keep their coverage paths.
+Model arrival compiles no pipeline. On first draw each material family builds
+the current specialization and uniform-driven opaque/coverage fallbacks. Later
+fog, cascade, filter and fade changes use that fallback while a worker builds the requested
+specialization; unchanged frames reuse it. Web builds keep using the fallback
+until the material family is recreated, without compiling a live setting change.
+Shadow and camera-depth families prepare both coverage modes, with no lighting cross-product, so changing opacity does not compile depth pipelines.
+Materials with no authored texture use a texture-free variant: no material
+sampling, UV transforms or cotangent-frame derivatives. Both textured and
+untextured materials use the geometric normal when no normal map is authored;
+RGBA8's neutral-map quantization must not tilt an absent map. Both share the
+same bindings and asset lifetime.
+One-cascade frames specialize both model and primitive shadow receivers to
+constant matrix/layer indices, retaining the same PCF and distance fade.
+The receiver chooses manual-plane or comparison sampling before the tap loop.
+
+### Direct frames
+
+A frame draws straight into the target, with no HDR image and no tone pass,
+when nothing after its forward pass reads that image (no hook, bloom or SSAO,
+no soft particle drawn) and whatever blends would blend alike there: nothing
+blends (then any tone curve, applied per pixel, is the tone pass's), or tone
+mapping is `ToneMapping::None` and the target's format is sRGB. A blend is
+linear in what it mixes, so it commutes with exposure, all that `None` applies,
+and an sRGB target blends in linear light as the HDR image does; ACES, or a
+target the shader encodes, would mix other values than the tone pass shows.
+Each forward pipeline has a direct twin in the target's format, made on first
+use, that tonemaps its output and passes alpha to the blend: primitives,
+models (opaque, masked, blended), hulls, the sky, sprites, particles and placed
+children. The opaque depth prepass writes the frame's own depth, at the
+target's size. At 1× the forward pass draws into the target itself; at 4× into
+transient MSAA colour in the target's format, resolved into it. A direct frame
+makes and grows no HDR attachment, so a renderer that only draws direct frames
+keeps them at their first 64-pixel bucket.
+
+`Renderer::set_direct` allows it: by default at one scene sample everywhere,
+and at four on Android and iOS, whose tiling GPUs gain most (elsewhere moving
+MSAA edges, and pinned pixels with them, is not worth it). A one-sample game's
+surface asks for an sRGB target (`Surface::srgb_target`), offscreen and in a
+window alike: a window keeps its unorm format and renders through an sRGB view,
+so the bytes shown are the same.
+
+At 1× the frames differ in one way: the target clamps each fragment to [0, 1]
+before it blends, where the HDR image is clamped after its tone pass. A
+translucent fragment over light above 1, or a translucent value above 1, blends
+with 1, as a renderer without an HDR image draws it
+(`effects::direct::a_translucent_fragment_over_light_above_one_blends_with_one`).
+Opaque values above 1, emission and rim included, clamp alike, and additive
+blending, which only adds, clamps alike too. Otherwise the frames agree within
+two levels (`effects::direct::a_direct_town_frame_draws_what_its_hdr_frame_draws`:
+Castle Town's settings with toon models and hulls, a blended model, sprites,
+straight-alpha and additive particles in linear fog, with and without the
+prepass, at two exposures); at 4× the edges of values above 1 move as well.
+`state.world.perf.directFrames` counts the frames drawn direct, and the log's
+`game renderer first frame encoded` line ends `direct=true` when the first was.
+
+## Occlusion
+
+A frame whose lists hold 32,768 slots or more (`Renderer::set_occlusion_items`)
+first draws what the camera drew last frame, depth only at this frame's poses,
+into a texture a quarter of the frame's size, builds a pyramid of the farthest
+depth under each texel, and the cull drops from the camera's lists what lies
+behind it wherever it can cover (occlusion.rs, cull.wgsl `occluded`). Only
+closed convex meshes occlude (`occlusion::inscribed`), each shrunk and pushed
+back by a texel (occluder.wgsl), so no crack narrower than a texel between two
+occluders hides what shows through it: the frame is the frame drawn without
+occlusion, sample for sample (`effects::occlusion_*`). It is off for a frame
+after a new setup, a level-of-detail change or with anything fading. At 256,000
+cubes on a Pixel 5 the camera then draws 42,000 of the 140,000 the frustum
+keeps; drawn unshrunk, 18,000, at the cost of the far cubes seen through a
+crack narrower than a texel.
+
 ## Effects
 
 `FrameInput::default()` supplies a shadowed sun, gradient sky, [environment
 light](#environment-lighting) and bloom. Supply matching view/projection/camera
-position. All colours are linear. `Bloom` and `Fog` are re-exports of the engine's
-saved types.
+position. The renderer works in linear light: a `Color` or `Material::hex` written as
+CSS is decoded once, when it is constructed, and arrays it is handed (`Material::rgb`,
+light colours, emission) are already linear. `Bloom` and `Fog` are re-exports of the
+engine's saved types.
 
 - Sun shadows default to 60 m, three 2048² Depth32Float cascades, practical splits
   (lambda 0.7), rotation-invariant fitting spheres and texel snapping. Casters up
   to one shadow distance towards the sun are included. The last 10% of each slice
-  cross-fades; the final slice fades to unshadowed.
+  cross-fades; the final slice fades to unshadowed. Games can insert the saved
+  `Shadows` resource to choose 1–3 layers, reach, filter and strength; absence
+  preserves the defaults. `ShadowFilter::ReceiverPlane` uses `softness` as its
+  PCF radius. `ShadowFilter::PcfSoft { depth_bias, normal_bias }` uses the
+  three-texel PCF-soft box, reconstructed with four hardware bilinear comparisons.
+  `ShadowFilter::Bilinear { depth_bias, normal_bias }` uses one bilinear comparison
+  over four depth texels. It has a narrower, crisper footprint and a separate
+  model/primitive program; the fallback follows live filter changes.
+  Its depth bias is subtracted in normalized depth; normal bias is in world
+  metres, matching three.js `normalBias`, independent of cascade extent. `strength`
+  blends shadow visibility with unshadowed light.
+  `Shadows::fixed_box` uses one camera-independent sun projection around a world
+  centre. `cache_static` reuses opaque, unskinned model groups whose poses and
+  geometry are unchanged; primitives, moving/fading/attached models and custom
+  materials draw normally. A cached depth layer is copied before dynamic casters
+  draw. Sun/projection, geometry, visibility, LOD, winding and pose changes rebuild
+  it. Direct transform writes without Feed's matching CPU histories disable it;
+  only a submitted frame validates newly encoded cache contents. Both options are
+  off by default. Fixed boxes must have positive finite extents and a finite centre.
+  `Shadows::resolution` sets each layer's width and height (128–4096, default
+  2048). Changing it reallocates the maps; camera snapping, world texels and
+  all sampling filters follow the actual dimensions. A PCF-soft footprint
+  remains three texels, so reducing resolution makes shadows softer.
+
 - Receiver normal bias is `0.5 × world texel × sin(theta) × cos(theta)`. Nine PCF
   taps project the receiver plane into the light map, using exact plane depth
   slopes. Bilinear footprint bias is capped at two world-depth texels plus 1e-6
@@ -161,6 +310,107 @@ saved types.
   angular radius in radians. Fog integrates exponential distance and Y-height
   density analytically, including a stable near-horizontal limit; sky uses 10 km.
   Fog is enabled by default. Default density is 0.012/m and height falloff 0.1/m; absent fog colour uses horizon.
+  `Fog::linear(near, far)` selects three.js-style near/far fog instead: smoothstep
+  of camera-space forward depth, not radial distance. Set `color: Some(clear)`
+  to match a flat background. Linear fog leaves the sky unchanged. Both fog modes
+  apply to primitive/model surfaces, outline hulls, sprites and particles.
+- `Environment.tone_mapping = ToneMapping::None` skips ACES; exposure and bloom
+  still precede the linear-to-sRGB transfer. Disable bloom and use exposure 1
+  for unprocessed linear output. `ToneMapping::Aces` remains the default.
+- Set `const SAMPLES: SceneSamples = SceneSamples::One` in the `Game` implementation
+  for one scene sample per pixel. `SceneSamples::Four` remains the default.
+  Direct renderer users call `Renderer::with_samples(device, queue, format, samples)`.
+  This is a construction setting: attachments, primitive/model/hull/quad pipelines,
+  sky, soft particles and depth readers all agree. At 1× the HDR colour is already
+  resolved; no MSAA resolve or multisampled colour attachment exists. Shadows remain
+  single-sampled at either setting. Scene-copy hooks copy the stored HDR colour
+  before continuing into it; they must use `FrameView.sample_count` for geometry.
+  Only a drawable hook requesting `Needs::SCENE_COPY` creates that snapshot.
+  Soft particles split the forward pass to read depth; SSAO, bloom, linear fog,
+  `HDR_POST` and `FINAL_DEPTH` do not request a colour snapshot. With linear fog
+  but no hooks, post effects or soft particles, a 1× frame keeps depth transient
+  and draws [direct](#direct-frames) where it may, otherwise one HDR forward pass
+  followed by the output transfer.
+- At 1×, `Game::DEPTH_PREPASS = true` draws opaque camera depth before colour.
+  Direct users choose `Renderer::configured(device, queue, format, samples, true)`.
+  Direct frames keep depth transient and draw it at the start of the forward
+  pass, with colour writes disabled. HDR frames retain depth between a separate
+  depth pass and forward. Both trade another draw per opaque batch for less
+  hidden-fragment shading. It reuses camera culling, skinning, masked and fading
+  coverage, mirrored winding and the viewmodel depth range. Blended models, quads
+  and hulls stay in their normal passes. Custom materials disable the prepass for
+  the whole frame, preserving their single-pass depth and tie behavior. Camera depth
+  uses the colour vertex module. Batches without fading or masking draw position
+  only: primitives through `vs_depth`, models through `model_depth_vs`, each
+  computing the colour entry's world position through the same functions
+  (`primitive_world`, `model_world`) and none of its normal, material or look work;
+  the others use the colour entry for the varyings their discards read. The
+  positions are invariant. Colour uses Equal with a clear-depth guard; built-in
+  coplanar ties follow draw order. On the Pixel 5 at 1080×2340 and 90 Hz,
+  combining the direct frame's passes raises Castle Town's first two views from
+  65.2/63.4 to 67.9/65.4 fps. The default is off; measure on the target GPU before
+  enabling. HDR's timestamp is `opaque depth prepass`; direct frames include
+  depth in `forward + sky`.
+
+### Toon models
+
+`MeshData.outline` optionally holds `MeshOutline { width, min_pixels, color,
+normals, reach }`. Width is in world metres, `min_pixels` in CSS pixels, colour
+in linear RGB, normals three floats per vertex, and reach one local-space distance
+per vertex along its outline normal. `MaterialData.rim` defaults to zero.
+The binary codec carries both. The bake reads `_OUTLINE_NORMAL` (FLOAT VEC3),
+`_OUTLINE_REACH` (FLOAT SCALAR), `primitive.extras.outline = {width, minPixels,
+color}` and `material.extras.toon = {rim}`. It also accepts the exporter aliases
+`castle_outline` and `castle`; other unknown semantics/extensions remain refused.
+Both attributes and outline settings must occur together, and each accessor count must
+equal POSITION before primitives merge. Outlines with alpha-tested (MASK) or blended
+(BLEND) materials are refused at bake and model validation. Custom material hooks
+on outlined meshes are refused by model/mesh name when validated; baked models
+have no custom shader field, and shader extensions such as KHR_techniques_webgl
+are refused at import. Units conversion scales
+width and reach, and primitives only merge when their outline settings match.
+
+An outlined model adds one instanced indexed hull draw per visible mesh/winding
+batch, after opaque surfaces in the existing forward render pass. Front faces are
+culled; the hull tests and writes depth, shades its unlit colour with fog, and never
+enters shadow or occluder passes. A batch with a fading slot drops its hull's
+dithered texels with its surface's; any other draws its hull with no discard, so
+depth is tested before shading (`toon::fading_hulls_dither_and_opaque_hulls_draw_whole`). Its displacement is
+`min(max(width, min_pixels * pixel_metres), transformed_reach)` along the transformed
+reach vector. For perspective, `pixel_metres = 2 * view_depth / (projection_y * css_height)`;
+orthographic projection omits view depth. The feed supplies CSS height; direct
+callers can set `FrameInput.viewport_css_height` (otherwise the target pixel height).
+The reach vector follows the linear part of every node, blended skin, attachment
+and instance transform, then is normalized for the push. Position and reach share
+one transform walk; the offset uses w=0
+and never subtracts two world positions. Surface lighting still uses inverse-transpose
+normals. Mirrored-instance winding follows the surface.
+The camera cull grows the surface sphere by the requested world width or CSS pixel
+floor, capped by transformed reach. The floor uses the farthest depth in the sphere:
+metres per pixel increase with depth, so its nearest depth is not a conservative
+bound. Sun and local-light caster bounds remain those of the surface.
+
+Rigid parts merge when material, outline width, colour and min_pixels match.
+Static merges transform normals and reach vectors separately, preserving both
+under non-uniform scale. Animated merges retain each vertex's palette index.
+Parts with different outline settings remain separate surface/hull/caster draws.
+
+Rim adds `rim * (1 - saturate(dot(n, v)))^3 * mix(albedo, 1, 0.2)` before fog.
+It occupies an unused material-uniform word and uses a draw-uniform zero guard:
+no varying control flow, texture fetch or extra vertex data for rim, including on
+tiling GPUs. Models without outlines allocate no hull data or pipelines and issue
+no hull draw. Each outlined mesh adds a 24-byte vertex stream (normal and reach vector) and a
+32-byte uniform;
+the two winding pipelines are prepared once on first outlined-model arrival.
+Only the hull pipeline reads this stream; it needs eight vertex storage bindings,
+the same as surfaces. For indirect draws, two GPU copies per hull group retain the
+camera's culled count and index range in a 20-byte draw record with zero base vertex.
+`Stats` includes the extra hull draws, instances and triangles.
+Hull vertices evaluate the shared model transform twice to obtain world-space
+reach; fragments have no material texture reads or lighting. The pass adds no
+attachment or pass boundary. Device timing is still required on Adreno 620 and iPad;
+these are work counts, not a GPU-time claim.
+
 
 ### Environment lighting
 
@@ -181,6 +431,15 @@ environment BRDF; diffuse is SH irradiance × base × (1 − metallic) × (1 −
 `Environment.ambient` scales both, model occlusion multiplies both, and exposure and
 ACES apply once as before. Metals reflect the sky out of direct light; dielectrics
 reflect about 4% of it at normal incidence.
+
+`Game::MATTE_MODELS = true` selects diffuse-only model lighting for a renderer's
+lifetime (`Renderer::with_matte_models` before preparing models for direct use).
+Models use Lambert direct light and SH environment irradiance without specular
+or radiance-cube sampling. Metallic and roughness values do not change this
+response. Base/normal/occlusion/emission textures, light shadows, fog, rim and
+alpha still apply; primitive and custom materials keep their existing shading.
+The default is physical. Castle's matched mode opts in for its matte artwork;
+its native-quality mode keeps physical lighting.
 
 An authored map replaces the sky as the source: the engine's `EnvironmentMap`
 resource (or `FrameInput::environment_map` for a direct renderer) names an
@@ -215,7 +474,7 @@ texture uploads before drawing. Disabling effects skips their passes and release
 HDR/depth/bloom attachments grow in 64-pixel buckets; shrinking reuses them.
 Viewports and post-pass UVs respect logical size. Discarded 4× MSAA colour/depth
 attachments request transient storage (a no-op where unsupported). ACES-fitted
-tonemapping applies sRGB transfer once. HDR reads sanitize NaN and clamp to
+tonemapping (or `ToneMapping::None`) applies sRGB transfer once. HDR reads sanitize NaN and clamp to
 [0,65472]; bright-pass sanitization precedes filtering.
 
 ## WorldSurface and feed
@@ -257,9 +516,13 @@ final texture binding is created once all of its dependencies have arrived. Prim
 in the existing slot lists: transform/material = slot, geometry = batch, offset =
 identity. A primitive world binds no model group and samples no material texture.
 
-Model materials use a separate forward pipeline and alpha-tested shadow pipeline,
-with opaque/mask/blend, culled/double-sided and mirrored variants prepared before
-the prepared surface draws. Device loss preserves Loaded content and re-requests
+Instance tint and emission are read once per vertex and passed flat, avoiding
+per-fragment storage reads. Opaque alpha does not read the fade buffer.
+
+Model materials use a separate forward pipeline. Opaque, unfaded shadow casters
+use depth-only pipelines without fragment shaders; masked and fading casters
+retain fragment coverage. Opaque/mask/blend, culled/double-sided and mirrored
+variants are prepared when their material family first draws. Device loss preserves Loaded content and re-requests
 texture bytes for upload. Entity transforms and socket attachments select winding
 from the composed determinant together with the baked node transform. Adjacent
 instances with different winding split into separate draw ranges.
@@ -305,7 +568,8 @@ are resolved to linear view depth with the split undone, so they are correct for
 both layers; SSAO skips viewmodel pixels and never samples them as occluders.
 
 Opaque batches stay retained. Only transparent draws are sorted each displayed
-frame, back-to-front in camera depth, using retained tick poses and local centers.
+frame: world transparency first, view-model transparency last, each back-to-front
+in camera depth, using retained tick poses and local centers.
 They keep depth testing, disable depth writes, and do not cast shadows. A model's
 own materials are multiplied by entity base colour and have entity emission added:
 one model serves every team colour or mutation look. `NodeMaterials` adds a tint and
@@ -341,6 +605,20 @@ unmerged, since a custom vertex shader (wind sway about a node) sees node-local
 positions and the node's offset. Merging moves
 static vertices into model space on the CPU, so their pixels can differ from the
 unmerged draw by float rounding (an intended change, under 8 pixels in the tests).
+Parts of different materials merge too when the materials are opaque, untextured,
+of one sidedness and with a base colour factor of one (the colour in the vertices,
+as Castle Town's exporter writes it): their factors become the instance's part
+entries, the look table's entries with each part's metallic, roughness, rim and
+emission beside its tint and glow, and each vertex numbers its part in `uv.x`, which
+no texture reads. The draw's own material has factors of one that the entries
+scale, so each part shades as it did alone
+(`instances::parts_of_several_materials_draw_once_and_look_the_same`). An instance
+with `MaterialOverrides`, which recolour one material's records, draws such a
+model's parts unmerged. In Castle Town's spawn view this takes a frame from 418
+draws to 274; two pixels on the fountain's water edge move with the rounding.
+A generated one-joint skin reads its matrix directly; weighted skins retain the
+four-joint blend. Colour computes the skin once for position and normal, and
+reuses that position for world space. Camera depth uses the same arithmetic.
 `ModelLod { levels, hide }` swaps an instance's model by camera distance. Each
 frame the renderer picks one level per entity from its displayed position, with a
 5% hysteresis band (presentation only), falling back to the nearest resident level
@@ -396,7 +674,13 @@ Missing materials/environment use defaults.
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,
 feed, encode (frame input through submit) and ticks/frame distributions. CPU sample
 rings retain 16,384 values. Seekable renders, agent advances and timed binds make
-no perf clock calls; samples do not enter hashes. Armed perf also reads back, a few
+no CPU frame perf clock calls unless tick spans are armed; samples do not enter hashes.
+`perf world:<surface>` arms exclusive tick spans, exposed in
+`state.world.perf.tickSpans`: name, source line, p50, p95, maximum and per-tick
+mean milliseconds. `tick.other` completes the tick. `tickSpans.tickMs` measures
+the same engine interval, before presentation; the exclusive per-tick means sum
+to its mean. Span distributions include zero for ticks before a name first appeared. These rings also retain
+16,384 ticks, including under the agent clock; `during` reads the added ticks. Armed perf also reads back, a few
 frames late and asynchronously, `perf.culled` (instances each view drew: `camera`,
 `shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings for every
 pass by `GPU_PASS_NAMES`: forward, the cascades, local shadows, `cull`, skin palettes,
@@ -425,6 +709,170 @@ in the frame budget even though it is outside drawing.
 Capacity errors precede history swaps and propagate through the surface ABI;
 failed draws are not presented. Invalid viewports skip drawing and preserve the
 input viewport, while a finite seekable clock can still advance.
+
+Development trace exports include bounded Chrome `traceEvents` after `perf` arms
+measurement: CPU ticks and nested spans under their submitted frame, plus GPU pass
+intervals after asynchronous readback. Frame numbers join the two clocks; GPU timestamp
+values are a separate clock domain and are never placed on a fabricated CPU timeline.
+Restore and argument restart discard both CPU and GPU recordings, including
+in-flight GPU readbacks. A GPU-less host reports no GPU intervals. Each clock retains at most 65,536 intervals;
+CPU rows report the dropped count. `bun scripts/agent.mjs trace <file>` summarizes them;
+Perfetto reads the same file. Arm before the session being captured, then use Save Trace,
+⌥⇧T or `SIGUSR1` as supported by the host.
+
+## Look frames
+
+Under the agent's clock only, and only in a development build (one baked with
+`EXACT_UPDATE_TRUST=production` refuses every look request by name; build.rs
+passes the trust to rustc, unset as `development`, and `development_build()` reads
+it, so a rebake with another trust recompiles this crate; `tests/trust.rs` checks
+the rlib a game links against the trust of the run that built it), a canvas answers a few questions about its picture from a look
+frame: the tick the agent's clock has reached, drawn once offscreen at the canvas's
+size with the renderer's probe armed (`renderer/probe.rs`), and read back. A look
+frame runs no simulation tick and moves no hash. A live frame carries none of it:
+each probe hook is one `Option` check, and a record is built only by a closure an
+armed probe calls. A look frame whose encode fails disarms every instrument, and a
+live frame clears any that are left. Hooks see the last live frame held, with no time passing, and
+the hook clock keeps that frame's time, so the next live frame's delta is the one
+it would have had. A look frame draws every sun caster itself and leaves the static
+shadow cache as the live frames left it, and it chooses levels of detail from its
+own camera and then puts back the live frames' choice (`end_look`), so the
+selection's hysteresis never carries an inspection's level into a live frame. A canvas that draws (web, Apple, a Linux
+host under `EXACT_GPU_RENDER=1`) draws its look frame with its own renderer; a
+canvas that draws an extended-range (HDR) target gets no picture, as a look frame
+reads back 8-bit colour. A device-less one, the GPU-less proof host, makes a device
+on its first look frame where the machine has an adapter
+(`exact_gpu::fixture::device`) and keeps a renderer for it beside its headless
+state; without an adapter, or for a model-capable module (preparing models and
+textures would change the headless world's asset bookkeeping), it answers
+`unavailable: "no picture on this host: …"`, and asked as a canvas that draws
+(`drawing: true`, the driver's tells) it answers `drawing: false`. On the web the
+readback lands on the page's next turn: a request answers `pending: "readback"`
+until it has, and the driver asks again.
+
+- **Tells** (`tells.rs`): the frame's final target, as shown, gives a 64-bin
+  histogram of linear relative luminance, its mean and the fraction of pixels white
+  in every channel. A tell fires on a mean below 0.02 (`near-black`) or above 0.95
+  (`near-white`), more than 5% of pixels clipped (`clipped`), a particle draw
+  submitted to the camera of which no fragment is in front of the scene
+  (`particles-uncovered`, one a draw, so one covered draw hides no other), and a
+  shadowed sun whose shadow passes wrote no texel into its maps
+  (`no-shadow-casters`). Each
+  writes a `look: …` line to the world's `logs` when it appears or its line changes
+  between judged frames (a particle tell is told apart by its draw's batch and
+  its index among that batch's draws), and a
+  tell that recovers is logged again when it returns; it stays out of
+  the world's journal, which a save carries, so a tell never changes a save. A
+  measurement a tell reads that the frame could not take is a gap, listed in
+  `look.gaps` (`particles: not measured (…)`, `sun shadow maps: not measured (…)`,
+  an empty readback), and leaves a proof's look unverified, never passed. A reduced
+  frame (`resolution` below 1, a contact sheet's) and an orbit or plan view are
+  pictures: only a whole frame from the game's camera is judged, logged and
+  remembered for the next.
+  Tells see brightness and coverage, not colour or composition: a grey meadow, a
+  model facing backwards and an overflowing panel take a look at the picture.
+- **Particle coverage** (`quad_coverage.rs`): counted by the particle draws
+  themselves. While armed, each particle draw uses the probe variant of its own
+  pipeline (`shaders/count.wgsl`, `soft_count.wgsl`): the same vertex path, dot
+  shape, texture alpha and soft fade, blended into the frame as ever. A fragment
+  counts when its contribution is above zero (alpha, times the brightest channel
+  for an additive draw) and it is in front of the scene's depth at one of the
+  samples it covers. A draw that is not submitted, or whose fragments are all
+  transparent, counts nothing. The depth test is the shader's, on the scene's
+  depth, because a fragment's storage writes stand even when a depth test after
+  the shader drops it, and Metal runs that test after a shader that writes memory;
+  so a look frame with particles draws its translucency in a pass of its own, as
+  soft particles do, over the attachments the live frame draws into: the HDR
+  image, or a direct frame's target, with the direct frame's format, blending and
+  resolve (its colour and depth kept between the two passes in attachments of the
+  look frame's own, released at the next live frame, so the live frame's stay
+  transient). build.rs assembles every quad module, validates it with naga, and
+  reflects the probe variants' counter group, from which the renderer takes its
+  layout, binding numbers and entry points. Limits, each a gap or a stated
+  meaning, not an approximation: GL has no fragment storage writes, and a scene
+  copy draws translucency over depth it writes, so there the counts are
+  unmeasured; the fragment's depth is its pixel centre's, compared at each sample
+  it covers; and a contribution too small to change an 8-bit pixel still counts,
+  so `particles-uncovered` means a draw contributed nothing at all.
+- **Shadow casters**: what the sun's shadow passes drew, read from their output.
+  After the passes, a look frame counts on the GPU the texels each cascade's map
+  holds nearer than its clear depth (`shaders/shadow_count.wgsl`, reflected at
+  build) into a counter it zeroes first, and the tell reads those. The listing's caster instances come from the
+  shadow passes' draw records and the cull's counts for each cascade; a direct
+  frame (no GPU cull, the iOS simulator) draws casters unculled and lists them
+  as unknown.
+- **The cull's account** (cull.wgsl `probe`): after the passes, the cull's own
+  functions run once more over every item into a buffer of the look frame's own:
+  its world sphere (swept between ticks, attached, skinned; a kept-whole group's
+  items too), the views whose frustum holds it,
+  whether the camera's occlusion pyramid hides it, and whether it is a level of
+  detail the frame does not draw.
+- **Draws**: each draw in pass order (occluders, sun shadow cascades, local shadow
+  layers, the depth prepass, forward, translucent, post) with its batch (a
+  primitive shape, a model and material, a particle look or a sprite's texture),
+  winding (camera-facing for quads), pipeline variant (for a quad, the pipeline
+  bound at its draw), instances submitted and kept
+  after culling (from the camera's, cascades' and local shadow layers' indirect
+  arguments), a particle draw's counted fragments, whether it covered a sample and
+  the attachments it writes (blended draws and the split translucent pass, whose
+  depth is read-only, write colour alone). A hook's draws, the outline hulls,
+  bloom's passes and ambient occlusion are one entry each, marked `summary`.
+  Coverage there is an occlusion query around each draw of the forward and
+  translucent passes, sized after the frame's groups are prepared: whether any
+  sample passed the depth test, not how many (Metal's visibility results are
+  Boolean in wgpu, and WebGPU promises only zero or not). A draw past the queries'
+  capacity (4,096) lists `covered: null`; the web has no queries (wgpu 30's WebGPU
+  backend does not pass a render pass's occlusion query set to the browser, which
+  then refuses the frame), and lists every one so.
+- **Visible**: one word for an entity and its reason, in this order: `hidden`,
+  `hidden-ancestor <name>`, `opacity 0`, `asset-pending <model or texture>`,
+  `lod-hidden <d> m`, `not-drawn` (no draw held it), `custom-material` (never
+  culled), `frustum`, `occluded` (dropped by the depth pyramid this frame),
+  `outside-cascade <n>` (drawn, beyond every sun cascade), `no-particles` (an
+  emitter with none live) or `drawn`. The cull's camera and cascade lists answer
+  for meshes and its account says which test dropped one (`not-drawn` names a level
+  of detail not drawn when the account marks it, and `lod-hidden` comes from the
+  frame's level selection, its distance measured from where the frame drew the
+  entity, with the selection's hysteresis, wherever the draw path applies it: a
+  direct frame draws level 0 whole and answers `drawn`, or `custom-material` for a
+  kept-whole group); the CPU cull answers for blended models; for sprites and
+  emitters the quads' own decision this frame answers: a texture not resident,
+  outside the view by the quad's own extent about its anchor, or drawn. An
+  entity's word combines all of its drawables: when an opaque part drew, that
+  part's word (`drawn`, `custom-material`, `outside-cascade <n>`); when only a
+  blended part, a sprite or an emitter drew, `drawn`, the reason naming which;
+  when none drew, the first one's word (the mesh's, then the sprite's, then the
+  emitter's), the reason naming the others'.
+- **Views**: the game's camera; an orbit at a yaw, pitch and distance from the
+  centre of the scene; or an orthographic plan from above. An orbit or plan first
+  reads a camera frame for the scene's bounds: the cull's sphere of every item it
+  accounts for, and what else that frame drew, where it drew it (`look_bounds.rs`):
+  blended models by their boxes, and in a direct frame, which has no account,
+  every draw group's items, each at its two ticks' transform rows (read back) at
+  the frame's alpha or at its attachment matrix, as the shaders place it; sprites
+  and emitters at the matrix the quads used, by their quad about the anchor and
+  their particles' reach. A skinned model's box there is its joints' spheres in
+  the frame's skin palette, read back, as the cull bounds it. The reply's `bounds`
+  gives the centre and radius; that camera frame's readback counts in
+  `state.world.perf.look`. Presentation only.
+
+The readback is the colour target (its size is `look.readbackBytes`), the particle
+counts, the query results, the cull's account, each cascade's written texels, the
+skin palette where a record is skinned, the transform rows of a frame read for its
+bounds and, for a culled frame, the indirect arguments and the camera's compacted
+lists; `state.world.perf.look` counts the look frames and the bytes they read back.
+`tests/tells.rs` holds the negative controls: a near-black scene, a blown-out one,
+particles spawned under the ground, sparks whose fragments are all transparent and a
+shadowed sun with no caster in reach each trip their tell on both paths, and the
+same scenes corrected trip none; a lit look and then a casterless one on the same
+renderer count that frame's texels alone. `tests/look.rs` holds the coverage
+limits: a square seen only through either half of one pixel column, at four
+samples, and a 0.002-alpha dot added over black, each counted.
+`src/look_frame_tests.rs` draws particles over light above one and reads the live
+frame's bytes back from the look frame on the direct and HDR paths, and bounds a
+moving blended model at a fraction of its tick and an attached one where the frame
+drew them. `proof-look.test.mjs` fails a starter's web proof on buried sparks in
+the browser.
 
 ## Residency across restore
 
@@ -534,6 +982,41 @@ completed ticks, even when the entity Transform did not move. Rendering allocate
 no new collections for these histories. Skin templates retain parent-first node
 order without changing glTF's joint indices.
 
+`Model::requires_palette()` selects skins, clips and marked posable nodes. One
+mark promotes the whole model, even instances without offsets. Ordinary static
+models keep pretransformed merges and no weight-buffer upload. Posable models
+retain material merging; rest-mirrored rigid parts reverse their indices in merged
+and lone-part draws. Authored shear is refused for posable models.
+
+Each (entity, model) instance packs one local-pose span shared by all its material
+and skin jobs. `NodeOffsets` composes once per span at both endpoints, after the
+saved clip/layer/IK pose, or over bind TRS without a `Pose`. Rows disappear through
+one tick of interpolation to identity. Same-tick presents replace the current
+endpoint; birth, first pose, teleport, model/LOD arrival, replacement and restore
+prime current/current. Hidden instances retain their offset histories. Displayed
+socket chains use the same composition; simulated sockets remain unchanged.
+Diagnostics are bounded to 64 distinct name/reason pairs per prepared model.
+
+Each LOD resolves names against its own model. Static levels ignore offsets and
+run no skin jobs, though the near level's local span is still packed. Palette
+culling uses conservative joint bounds; blended parts bypass CPU rejection and
+sort by their undeformed centre.
+
+`clear_present_feed_and_pack_allocate_nothing_clustered_or_sparse` counts zero
+allocations over warm live clear/present/recording-feed/local-packing cycles for
+30 and 1,000 twenty-node instances, with clustered and sparse entity indices.
+This excludes seekable observation work, wgpu staging, command encoding and draws.
+Payload pages are reclaimed after 60 consecutive empty presents; index metadata
+retains its peak entity capacity. `World::presentation_bytes()` reports both,
+excluding registry and lease bookkeeping. The sparse/churn engine proof prints residency
+before and after reclamation.
+
+For CPU timings with a supplied twenty-node avatar GLB, run from `game/`:
+`cargo run -p exact-game-render --example poses -- /path/to/avatar.glb`.
+It marks the five gait nodes in memory and measures tick/clear/present separately
+from the real renderer feed at 30 and 1,000 instances. Queue submission, frame
+encoding and GPU drawing are outside those CPU intervals.
+
 One compute workgroup per skinned draw interpolates local translation/scale and
 shortest-path quaternion rotation at frame alpha. Lanes compute locals in parallel;
 one lane composes the parent-first hierarchy, then lanes multiply joint world
@@ -596,10 +1079,21 @@ agent geometry even at noninteger heights on a 2× display. Integer display scal
 keep texels on whole device pixels; fractional display scales can give uneven
 physical widths with nearest sampling.
 
-Opaque primitive/model rendering is unchanged. Opaque and masked sprites write
+Primitives with `Material.color[3]` in the half-open range `(0.0..1.0)` join this same sorted quad arena: each
+triangle is one instance (the quad's second triangle is degenerate), compatible
+with untextured straight-alpha particles. One halo and a hundred share one draw;
+triangles still cost derivation, upload and sorting. Their look is flat
+hemisphere/directional diffuse light plus emission and fog; PBR, local-light
+shadows and procedural grids stay on opaque primitives. They depth-test without
+depth writes or refraction and cast no shadows. `Material::alpha(a)` takes [0, 1].
+Ring, torus and cone geometry also works on the opaque path. See the
+[halo recipe](../recipes/halo.md).
+
+Opaque and masked sprites write
 depth; the ordered translucent pass follows the sky, depth-tests and does not
-write depth. Ordering is descending view depth, ascending layer and entity slot,
-then kind rank and stable per-owner ordinal. Models use layer zero. Sprites and particles cast no
+write depth. World transparency draws first and view-model transparency last.
+Within each group, ordering is descending view depth, ascending layer and entity
+slot, then kind rank and stable per-owner ordinal. Models use layer zero. Sprites and particles cast no
 shadows. Soft circular particles choose additive or straight-alpha blending;
 sprites share `.tex` samplers and choose opaque, mask or straight-alpha blend.
 Billboard extents use scale magnitudes to preserve front-facing winding; texture
@@ -642,7 +1136,7 @@ geometry/material/winding batches. Repeated handles share one CPU model, one GPU
 upload and one draw group; preparation reuses its content digest across frames.
 `MeshData.colors` is optional linear RGBA. Both model and primitive vertex paths
 multiply the material base colour; model alpha also multiplies vertex alpha,
-including masked shadows. Primitive materials remain opaque. The packed public
+including masked shadows. Primitive materials outside that alpha range remain opaque, including the negative-alpha grid sentinel. The packed public
 `Vertex` is 48 bytes including colour, with white in built-in shapes; skin weights
 retain their separate 32-byte stride. The asset fixture constructs a seeded coloured
 heightfield and three shared rocks in setup, with no runtime texture generator.

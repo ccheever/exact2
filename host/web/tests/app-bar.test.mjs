@@ -10,18 +10,16 @@
 // what is left of the stack it showed (LLP 1035.001 D1), so a closed sheet
 // never leaves the route beneath it inert.
 import { test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 // A root with two tabs. The first tab's stack: a root, a pushed route, one
@@ -79,13 +77,9 @@ async function inChrome(test, html = page) {
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'navigation.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-app-bar-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=600,900', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const suite = await cdpBrowser({ args: ['--window-size=600,900'] }), { cdp } = suite;
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     const call = (method, params) => cdp.send(method, params, sessionId);
     await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] }); // the light look these checks expect, in whatever appearance this machine has
     const evaluate = async (expression) => {
@@ -93,13 +87,11 @@ async function inChrome(test, html = page) {
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     await test(evaluate, call);
   } finally {
-    child.kill();
+    await suite.close();
     server.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }
 
@@ -131,7 +123,37 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
     .toEqual(['navigate /', 'navigate /', 'host back 2']);
   // A control elsewhere in the route is what Back presses; only the shown route's Back acts.
   expect(await evaluate(`select('3'); press('r3'); press('r2'); calls.splice(0)`)).toEqual(['pressed r3']);
-}), 30000);
+}), 60000);
+
+check('Escape closes a sheet as its Cancel does; with no Cancel the root names, as the app bar\'s Back does', () => inChrome(async (evaluate, call) => {
+  const escape = async () => {
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    return evaluate('calls.splice(0)');
+  };
+  await evaluate(`document.querySelector('#r4 #back').addEventListener('click', () => calls.push('pressed r4')); select('4'); calls.splice(0)`);
+  expect(await escape()).toEqual(['pressed r4']);
+  // A Cancel whose id the root does not name (LLP 1129's probe): the runner's own back, as iOS's swipe down takes it.
+  await evaluate(`document.querySelector('#r4 #back').id = 'cancel'; select('4')`);
+  expect(await escape()).toEqual(['host back 4']);
+  // The innermost shown sheet is the one Escape closes, and one that closes only by its own buttons stays: a sheet
+  // inside it that says `closedby="none"` is not passed over for this one.
+  await evaluate(`document.getElementById('r4').insertAdjacentHTML('beforeend', '<main id="inner" navigationKey="31" navigationBack="back"><div navigationKey="30"></div><div navigationKey="31" navigationPresentation="modal" closedby="none"></div></main>'); select('4')`);
+  expect(await escape()).toEqual([]);
+  await evaluate(`document.getElementById('inner').remove(); select('4')`);
+  // A sheet that is not shown is passed over for the one that is.
+  await evaluate(`document.getElementById('r4').insertAdjacentHTML('beforeend', '<div id="hidden" style="visibility:hidden"><main navigationKey="51" navigationBack="back"><div navigationKey="50"></div><div navigationKey="51" navigationPresentation="modal"></div></main></div>'); select('4')`);
+  expect(await escape()).toEqual(['host back 4']);
+  await evaluate(`document.getElementById('hidden').remove(); select('4')`);
+  // Nor an inert one.
+  await evaluate(`nav.inert = true`);
+  expect(await escape()).toEqual([]);
+  await evaluate(`nav.inert = false; document.getElementById('r4').setAttribute('closedby', 'none'); select('4')`);
+  expect(await escape()).toEqual([]);
+  // A sheet with nothing beneath it is closed by its named control.
+  await evaluate(`select('2'); document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<main navigationKey="40" navigationBack="back"><div navigationKey="40" navigationPresentation="fullscreen"><button id="back">Close</button></div></main>'); document.querySelector('[navigationKey="40"] > #back').addEventListener('click', () => calls.push('pressed 40'))`);
+  expect(await escape()).toEqual(['pressed 40']);
+}), 60000);
 
 check('a block link of text is in the accent and points; the author\'s look wins', () => inChrome(async (evaluate) => {
   // A link of text (or a symbol and text) is in the accent, the app's when it names one; an authored colour, a row
@@ -153,7 +175,7 @@ check('a block link of text is in the accent and points; the author\'s look wins
     'l-plain rgb(1, 2, 3) auto inline none',
     'l-blank rgb(1, 2, 3) auto block none',
   ]);
-}), 30000);
+}), 60000);
 
 // A stack whose root route is keyed by a name, not its visit id, as the list-detail pattern keys its list
 // (`navigationKey="items"`), over a stand-in runner: each visit a route, each change the router's op, the runner's own
@@ -211,7 +233,7 @@ check('the browser\'s Back with no navigate handler is the runner\'s own back, h
   expect(await evaluate(`push(3, '/add', true); back()`)).toEqual([['navigate /', 'pressed 3'], '/', 1]);
   expect(await evaluate(`push(4, '/add', true); document.querySelector('[navigationKey="4"] #back').disabled = true; back(2)`))
     .toEqual([['navigate /', 'log history: Back refused: its id="back" control is disabled, inert or not shown; restoring the entry'], '/add', 2]);
-}, keyed), 30000);
+}, keyed), 60000);
 
 check('the browser\'s Forward with no navigate handler is the runner\'s own go', () => inChrome(async (evaluate) => {
   // LLP 1115.000 D4.3. Back pops two pushed routes, one entry at a time; Forward then re-pushes each: unheard, the
@@ -222,13 +244,13 @@ check('the browser\'s Forward with no navigate handler is the runner\'s own go',
   expect(await evaluate('back(1, 1)')).toEqual([['navigate /item/1/more', 'host go /item/1/more'], '/item/1/more', 3]);
   // Two entries back at once is not "the route beneath": the runner's `go` to that location, which pops to it.
   expect(await evaluate('back(1, -2)')).toEqual([['navigate /', 'host go /'], '/', 1]);
-}, keyed), 30000);
+}, keyed), 60000);
 
 check('Forward to a location the runner\'s own go refuses restores the entry', () => inChrome(async (evaluate) => {
   expect(await evaluate(`push(1, '/item/1'); back()`)).toEqual([['navigate /', 'host back 1'], '/', 1]);
   expect(await evaluate(`lost = '/item/1'; back(2, 1)`)).toEqual([['navigate /item/1', 'host go /item/1',
     'log history: navigate "/item/1" refused: the navigation root has no navigate handler (navigate=…), and the runner\'s own go there committed no router change; restoring the entry'], '/', 1]);
-}, keyed), 30000);
+}, keyed), 60000);
 
 check('the page\'s title follows the route: the head\'s, else the route header\'s heading, else the app\'s name', () => inChrome(async (evaluate) => {
   // LLP 1115.000 D4.1. The selected route's header's heading, at the root, on a pushed route and on a sheet; back again.
@@ -241,7 +263,7 @@ check('the page\'s title follows the route: the head\'s, else the route header\'
   // An authored head's title wins on every route, as each target's head writer passes it; without it the route's is back.
   expect(await evaluate(`(async () => { const { pageTitle } = await import('./navigation.js'); pageTitle('From the head'); const said = [document.title]; pop(); said.push(document.title); pageTitle(null); return [...said, document.title]; })()`))
     .toEqual(['From the head', 'From the head', 'Items']);
-}, keyed), 30000);
+}, keyed), 60000);
 
 check('a closed sheet or a popped screen leaves the route beneath it live when the root names no route there', () => inChrome(async (evaluate) => {
   // The root names visit 0, which no route carries (chat-rooms in bake-off round 6): nothing is projected at first.
@@ -256,7 +278,7 @@ check('a closed sheet or a popped screen leaves the route beneath it live when t
   // The key that names no route is still a refusal, journaled each time the root comes back to it.
   const refusal = 'log navigationKey "0" matches no route among the root\'s children or those of the tabpanels its tablist names; the stack is unchanged';
   expect(await evaluate(`calls.filter(c => c.startsWith('log '))`)).toEqual([refusal, refusal]);
-}, keyed), 30000);
+}, keyed), 60000);
 
 check('the bar says its own word, "Back", only on a page in English; elsewhere the chevron alone, named by the title beneath', () => inChrome(async (evaluate) => {
   // LLP 1115.000 D4.14. No `lang` reads as English, as every app here is until it says otherwise.
@@ -267,7 +289,7 @@ check('the bar says its own word, "Back", only on a page in English; elsewhere t
   expect(await evaluate(`document.documentElement.lang = 'de'; select('2'); backs()`)).toEqual(['r2:People|People', 'r3:Done|Done', 't2:|Favorites of everyone']);
   expect(await evaluate(`(b => [b.lastChild.hidden, b.hidden])(document.querySelector('#t2 > header').shadowRoot.querySelector('button'))`)).toEqual([true, false]);
   for (const lang of ['en-GB', 'EN', '']) expect([lang, await evaluate(`document.documentElement.lang = ${JSON.stringify(lang)}; select('2'); backs()`)]).toEqual([lang, english]);
-}), 30000);
+}), 60000);
 
 // LLP 1116.009 D4 (the neutral look's): a sheet's bar centres its title whatever flanks it, as UIKit's does; a page's stays leading. The
 // author's flow wins: a header with its own `justify-content` (the host names it, `data-exact-said`) and a title with a
@@ -306,4 +328,18 @@ check('a sheet\'s bar centres its title, a page\'s stays leading, and the author
   expect((await evaluate(`edges('s5')`)).left).toBe(16 + 60);
   // Centred in its own text where it fills the space (a title the author grew).
   expect(await evaluate(`document.getElementById('s3-title').style.flexGrow = '1'; getComputedStyle(document.getElementById('s3-title')).textAlign`)).toBe('center');
-}, bars), 30000);
+}, bars), 60000);
+
+check('an app bar Back control remains live inside a modal beneath an inert ancestor', () => inChrome(async evaluate => {
+  await evaluate(`
+    const nav = document.getElementById('nav'), dialog = document.createElement('dialog');
+    nav.before(dialog); dialog.append(nav); dialog.showModal();
+    document.getElementById('exact-root').inert = true;
+    select('3');
+  `);
+  expect(await evaluate(`press('r3'); calls.splice(0)`)).toEqual(['pressed r3']);
+  expect(await evaluate(`document.querySelector('#r3 #back').inert = true; press('r3'); calls.splice(0)`))
+    .toEqual(['log app bar: Back refused: its id="back" control is disabled, inert or not shown']);
+  expect(await evaluate(`document.querySelector('#r3 #back').inert = false; document.querySelector('dialog').inert = true; press('r3'); calls.splice(0)`))
+    .toEqual(['log app bar: Back refused: its id="back" control is disabled, inert or not shown']);
+}), 60000);

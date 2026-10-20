@@ -27,6 +27,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 
+pub mod date;
 mod js;
 mod piece;
 mod text;

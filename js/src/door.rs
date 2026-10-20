@@ -99,6 +99,17 @@ pub(crate) unsafe extern "C" fn host_door(
                     (*store).observe_topic(&b);
                 }
                 Ok(None)
+            } else if a == "kept" {
+                // What the app keeps across launches (LLP 1069.010.000 D5):
+                // the device's, and a candidate on trial changes none of it.
+                if let Some(store) = state.store {
+                    (*store).observe_external_read();
+                }
+                if state.baking || (state.validating && !b.is_empty()) {
+                    Err("bake".into())
+                } else {
+                    super::storage::kept(state.kept, &b)
+                }
             } else if a == "later" {
                 Ok(state.later.then(|| "later".into()))
             } else {
@@ -116,6 +127,9 @@ pub(crate) unsafe extern "C" fn host_door(
                             .map(|reply| Some(String::from_utf8_lossy(&reply).into_owned())),
                         None => Err("the app's module answers no native.call".into()),
                     },
+                    // The bake links no module. The prelude throws storage's
+                    // `code: 'bake'` refusal for it (LLP 1067 D4).
+                    _ if state.baking => Err("bake".into()),
                     _ => Err(
                         "native storage is unavailable during bake or in an unconfigured host"
                             .into(),
@@ -148,6 +162,42 @@ pub(crate) unsafe extern "C" fn host_door(
         13 => {
             state.journal.push(a.into_owned());
             Ok(Some("1".into()))
+        }
+        // A socket operation a mutation's source or a mapper call staged
+        // (14), or a turn of an answer sent (17), on the stream of fetch
+        // ticket `a` (LLP 1016.000 D7 and its amendment of 2026-10-18;
+        // `socket.rs`).
+        14 | 17 => match (a.parse::<u64>(), super::socket::op_from_json(&b)) {
+            (Ok(ticket), Ok(sent)) if op == 17 => {
+                state.answer_ops.push((ticket, sent));
+                Ok(None)
+            }
+            (Ok(ticket), Ok(staged)) => {
+                state.socket_ops.push((ticket, staged));
+                Ok(None)
+            }
+            (Err(_), _) => Err("socket: a ticket that is not a number".into()),
+            (_, Err(e)) => Err(e),
+        },
+        // The bytes the socket of stream ticket `a` buffered as this turn
+        // began (D7), with what an answer has sent on it in this turn: the
+        // start of its handle's `bufferedAmount`.
+        15 => Ok(Some({
+            let ticket = a.parse::<u64>().ok();
+            let start = (state.socket_buffered.iter())
+                .find(|(s, _)| Some(*s) == ticket)
+                .map_or(0, |(_, buffered)| *buffered);
+            let handed = (state.answer_ops.iter())
+                .filter(|(t, _)| Some(*t) == ticket)
+                .map(|(_, op)| op.size() as u64);
+            (start + handed.sum::<u64>()).to_string()
+        })),
+        // A fetch the answer made and the module withdrew before it was
+        // handed out (D7: a mutation that also sent on a socket).
+        16 => {
+            let ticket = a.parse::<u64>().ok();
+            state.requests.retain(|(t, _)| Some(*t) != ticket);
+            Ok(None)
         }
         other => Err(format!("__exact_host: no op {other}")),
     };

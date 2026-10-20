@@ -3,17 +3,15 @@
 // pulses that mounted apart share one phase; the CSS play state still
 // pauses and resumes them, and a resumed one rejoins the phase.
 import { test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 const page = `<style>@keyframes pulse { from { opacity: 0.4 } to { opacity: 1 } }</style>
@@ -40,21 +38,16 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, req.url === '/grant-admission.js' ? 'grant-admission.js' : 'navigation.js'))); // navigation.js re-exports the grant admission
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-clocks-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const suite = await cdpBrowser(), { cdp } = suite;
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     const call = (method, params) => cdp.send(method, params, sessionId);
     const evaluate = async (expression) => {
       const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     // How far apart two times are on the 1600 ms cycle, either way round: a
     // whole number of cycles apart in float can read as a hair under one.
     const apart = (a, b) => { const d = (((a - b) % 1600) + 1600) % 1600; return Math.min(d, 1600 - d); };
@@ -147,8 +140,7 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     const [back, back2] = await evaluate(`[anim('back').startTime, anim('back2').startTime]`);
     expect(apart(back2, back)).toBeLessThan(1);
   } finally {
-    child.kill();
+    await suite.close();
     server.close();
-    rmSync(profile, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60000);

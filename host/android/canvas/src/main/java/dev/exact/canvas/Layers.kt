@@ -92,6 +92,8 @@ internal class Layers(
         /** Its drawing is one filled shape: scaled as it is drawn, with no offscreen surface (there is no text in it
          * to rasterize again at each scale). */
         var flat = false
+        /** Its node is over its measured drawing ([place]), not the unbounded fallback. */
+        var bounded = false
         /** A layer recorded again in a colour transition's colours (dash word -2): where its glyph runs' colours and
          * its own background's are in [ops], the colours it was recorded with (the transition's targets), and those
          * last recorded. */
@@ -152,6 +154,7 @@ internal class Layers(
         val l = layers[id] ?: return
         if (r == null) { l.node.setPosition(0, 0, 1 shl 14, 1 shl 14); l.node.setClipToBounds(false); l.ox = 0f; l.oy = 0f }
         else { l.node.setPosition(r); l.node.setClipToBounds(true); l.ox = r.left.toFloat(); l.oy = r.top.toFloat() }
+        l.bounded = r != null
         l.pivX = Float.NaN; l.pivY = Float.NaN
     }
 
@@ -232,7 +235,8 @@ internal class Layers(
             if (r.ox != l.ox || r.oy != l.oy) { r.ox = l.ox; r.oy = l.oy; r.matrix.setValues(r.values); r.matrix.postTranslate(-l.ox, -l.oy) }
             c.setMatrix(r.matrix)
             runPaint.textSize = r.size; runPaint.textSkewX = r.skew
-            c.drawGlyphs(r.ids, 0, r.positions, 0, r.ids.size, r.font, runPaint)
+            if (android.os.Build.VERSION.SDK_INT >= 31) c.drawGlyphs(r.ids, 0, r.positions, 0, r.ids.size, r.font, runPaint)
+            else LegacyGlyphs.draw(c, r.ids, r.positions, r.ids.size, r.font, runPaint)
         }
         l.node.endRecording()
     }
@@ -356,8 +360,10 @@ internal class Layers(
             }
             // While a scale plays, the layer is drawn once into an offscreen layer and that layer scaled: drawn
             // straight, its text was rasterized again at every scale (a dialog's 0.9 -> 1 entrance left ~5 MB of glyph
-            // images in Skia's caches). The layer goes when the scale settles.
-            val offscreen = scaling && !l.flat
+            // images in Skia's caches). The layer goes when the scale settles. Not for a layer whose drawing could not
+            // be bounded (it holds another layer): its node is 16384 px square, and an offscreen layer that size cost
+            // a Vulkan allocation of over 400 ms at each start (Expo Services' login mark, LLP 1115.003).
+            val offscreen = scaling && !l.flat && l.bounded
             if (offscreen != l.composited) { l.composited = offscreen; l.node.setUseCompositingLayer(offscreen, null) }
         }
         return moving

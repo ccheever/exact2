@@ -22,7 +22,7 @@
 mod layout;
 mod paint;
 pub use layout::{layout_presented, LayoutMotion};
-pub use paint::PaintMotion;
+pub use paint::{still, PaintMotion};
 
 use crate::generated::{
     BoxSizing, Display, InterpolateSize, NodeType, PropId, StyleId, StyleProps,

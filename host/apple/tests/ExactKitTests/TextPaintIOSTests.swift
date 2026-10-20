@@ -95,8 +95,8 @@ final class TextPaintIOSTests: XCTestCase {
         XCTAssertEqual(fitted, try width() * CGFloat(scale), accuracy: 1, "the line drawn at the scale's width")
     }
 
-    /// `-exact-content-transition: numeric` rolls the ink layer's new pixels in. An
-    /// HDR `text-shadow` is a layer of its own under it, and rolls with it.
+    /// The raster fallback for `-exact-content-transition: numeric` rolls the ink
+    /// and its HDR shadow together: a rising number from above, a falling one below.
     func testAnHDRTextShadowRollsWithItsNumerals() throws {
         let session = ExactApp.shared.makeSession(label: "numeric-hdr-shadow")
         defer { session.destroy() }
@@ -118,16 +118,20 @@ final class TextPaintIOSTests: XCTestCase {
         // Core Animation keeps a layer's transition under its own key.
         XCTAssertNil(ink.animation(forKey: kCATransition), "first pixels do not roll")
         XCTAssertNil(cast.animation(forKey: kCATransition))
-        p.apply(wireBatch([["op": "props", "id": 1, "set": ["text": "42"]]]))
-        _ = p.refreshVisibleText()
-        p.paintVisibleText()
-        p.textRasters.settleVisible([node])
-        XCTAssertTrue(node.textRasterReady, "the new text's pixels are up")
-        try XCTSkipIf(UIAccessibility.isReduceMotionEnabled, "Reduce Motion: nothing rolls")
-        XCTAssertNotNil(ink.animation(forKey: kCATransition))
-        XCTAssertTrue(node.textRasterLayer?.textCast === cast)
-        let roll = try XCTUnwrap(cast.animation(forKey: kCATransition) as? CATransition, "the shadow's layer rolls too")
-        XCTAssertEqual(roll.subtype, .fromBottom)
+        for (text, direction): (String, CATransitionSubtype) in [("42", .fromTop), ("41", .fromBottom)] {
+            p.apply(wireBatch([["op": "props", "id": 1, "set": ["text": text]]]))
+            _ = p.refreshVisibleText()
+            p.paintVisibleText()
+            p.textRasters.settleVisible([node])
+            XCTAssertTrue(node.textRasterReady, "the new text's pixels are up")
+            try XCTSkipIf(UIAccessibility.isReduceMotionEnabled, "Reduce Motion: nothing rolls")
+            let inkRoll = try XCTUnwrap(ink.animation(forKey: kCATransition) as? CATransition)
+            XCTAssertTrue(node.textRasterLayer?.textCast === cast)
+            let roll = try XCTUnwrap(cast.animation(forKey: kCATransition) as? CATransition, "the shadow's layer rolls too")
+            XCTAssertEqual(inkRoll.subtype, direction)
+            XCTAssertEqual(roll.subtype, inkRoll.subtype)
+            XCTAssertEqual(roll.duration, inkRoll.duration)
+        }
     }
 
     /// A clamped paragraph (`line-clamp`) rasters like any other (its last

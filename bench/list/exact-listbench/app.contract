@@ -86,7 +86,7 @@ component ListBench
             if editing
               box width=15 height=12 flex-shrink=0 background-color="#ffffff" clip-path="path('M 0.96 6.91 L 5.41 11.37 L 14.05 2.49 L 12.47 0.96 L 5.39 8.23 L 2.51 5.36 Z')"
             else
-              image "symbol:filter" font-size=17 -exact-tint-color="#0088ff" flex-shrink=0
+              image "symbol:adjust" font-size=17 -exact-tint-color="#0088ff" flex-shrink=0
             text (editing ? "Done" : "Edit") font-size=17 font-weight=(editing ? 600 : 400) color=(editing ? "#ffffff" : "#0088ff")
         row align-items="center" gap=12
           column flex=1 min-width=0

@@ -1,0 +1,23 @@
+tamber motion
+
+axes
+  density = regular | compact
+
+theme
+  ink = #000000
+  varies = 150ms
+    when density=compact: 100ms
+  varies.written: duration = 150ms
+    when density=compact: 100ms
+  easing.bezier: easing = cubic-bezier(2, 0, 0, 1)
+  steps.zero: easing = steps(0)
+  duration.bare: duration = 150
+  colour.duration: duration = ink
+  duration.px: duration = 12px
+  easing.unknown: easing = bounce
+  steps.bogus: easing = steps(2, bogus)
+  spring.bad: easing = -exact-spring(-1, 26, 1)
+  linear.empty: easing = linear()
+  fast = 150ms
+  ease.alias.undotted: easing = ease
+  standard = ease-in

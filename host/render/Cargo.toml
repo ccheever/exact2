@@ -46,3 +46,5 @@ test-wait = []
 [dev-dependencies]
 exact-render = { path = ".", features = ["test-wait"] }
 contract = { path = "../../contract/cli" }
+# A scripted socket transport names the URL type its trait takes.
+url = "2.5"

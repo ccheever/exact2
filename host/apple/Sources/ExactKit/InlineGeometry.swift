@@ -2,12 +2,29 @@
 import Foundation
 import CoreText
 import CExact
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 extension Runtime {
-    func setInlineGeometry(_ read: @escaping (UInt32) -> CGRect?) {
+    func setInlineGeometry(_ read: @escaping (UInt32) -> CGRect?, range: @escaping (UInt32, UInt32, UInt32) -> CGRect?) {
         inlineFrame = read
+        rangeFrame = range
         let ctx = UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque())
-        on { exact_set_inline_geometry(rt, Self.readInlineFrame, UnsafeMutableRawPointer(bitPattern: ctx)) }
+        on {
+            exact_set_inline_geometry(rt, Self.readInlineFrame, Self.readRangeFrame, UnsafeMutableRawPointer(bitPattern: ctx))
+        }
+    }
+
+    private static let readRangeFrame: ExactRangeFrameFn = { ctx, id, start, end in
+        guard let ctx else { return ExactInlineFrame() }
+        let runtime = Unmanaged<Runtime>.fromOpaque(ctx).takeUnretainedValue()
+        return Owner.shared.callMain {
+            guard let rect = runtime.rangeFrame?(id, start, end) else { return ExactInlineFrame() }
+            return ExactInlineFrame(x: Double(rect.minX), y: Double(rect.minY), width: Double(rect.width), height: Double(rect.height), available: 1)
+        }
     }
 
     private static let readInlineFrame: ExactInlineFrameFn = { ctx, id in
@@ -21,6 +38,46 @@ extension Runtime {
 }
 
 extension Presenter {
+    /// `rangeFrame` (LLP 1114.007): a textarea's UTF-16 range as TextKit
+    /// last laid it out, a plain one's or a Markdown one's source alike, in
+    /// viewport points; collapsed, the caret's rectangle. Nil past the
+    /// field's text, while text is marked, or when the field is hidden.
+    func rangeFrame(_ id: UInt32, start: UInt32, end: UInt32) -> CGRect? {
+        guard start <= end, let node = views[id], node.window != nil, !node.isHidden, !node.fieldComposing,
+              let field = node.textArea, end <= node.fieldText.utf16.count else { return nil }
+        var ancestor: PlatformView? = field
+        while let view = ancestor {
+            if view.isHidden { return nil }
+            ancestor = view.superview
+        }
+        #if os(macOS)
+        guard let manager = field.textLayoutManager, let content = manager.textContentManager,
+              let first = content.location(content.documentRange.location, offsetBy: Int(start)),
+              let last = content.location(content.documentRange.location, offsetBy: Int(end)),
+              let range = NSTextRange(location: first, end: last) else { return nil }
+        manager.ensureLayout(for: range)
+        var result = CGRect.null
+        // An empty range's `.selection` segment is the insertion point's.
+        manager.enumerateTextSegments(in: range, type: start == end ? .selection : .standard, options: [.rangeNotRequired]) { _, rect, _, _ in
+            result = result.union(rect.offsetBy(dx: field.textContainerOrigin.x, dy: field.textContainerOrigin.y))
+            return true
+        }
+        if result.isNull, start == end, let window = field.window {
+            let screen = field.firstRect(forCharacterRange: NSRange(location: Int(start), length: 0), actualRange: nil)
+            result = field.convert(window.convertFromScreen(screen), from: nil)
+        }
+        #else
+        guard let first = field.position(from: field.beginningOfDocument, offset: Int(start)),
+              let last = field.position(from: field.beginningOfDocument, offset: Int(end)),
+              let range = field.textRange(from: first, to: last) else { return nil }
+        var result = start == end ? field.caretRect(for: first)
+            : field.selectionRects(for: range).reduce(CGRect.null) { $0.union($1.rect) }
+        #endif
+        guard !result.isNull, !result.isInfinite else { return nil }
+        if start == end { result.size.width = 0 }
+        return Agent.box(result, of: field, viewport: viewport)
+    }
+
     func inlineFrame(_ id: UInt32) -> CGRect? {
         guard let run = inlineText(id), let owner = textHost(id), owner.window != nil else { return nil }
         let rect = owner.inlineRects(run).map { Agent.box($0, of: owner, viewport: viewport) }

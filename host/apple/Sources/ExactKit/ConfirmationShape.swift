@@ -30,6 +30,14 @@ enum ConfirmationShape {
 }
 
 extension NodeView {
+    /// A prompt's text field (a rename's): an `input` that edits one line of
+    /// text, which the alert shows as its own field
+    /// (`UIAlertController.addTextField`, `NSAlert`'s accessory view) and
+    /// which counts with its text in the alert shape, as lowering counts it.
+    var isPromptField: Bool {
+        kind == "input" && ["text", "password", "email", "url", "search", "tel", "number"].contains(props["type"] ?? "text")
+    }
+
     /// HTML queues `close` after restoring focus; app code may open it again.
     func queueDialogClose() {
         guard props["semanticTag"] == "dialog", handlers.contains("close") else { return }

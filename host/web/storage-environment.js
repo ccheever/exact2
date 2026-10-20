@@ -26,6 +26,14 @@ export function storageKey(appId, href = launchHref()) {
   return `${own}/agent/${name}`;
 }
 export const agentStorageRefusal = 'storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)';
+// A read in a drive with no scratch store answers as an empty store would (LLP 1102 §3.17): the roots, empty, and
+// nothing else, so a source that falls back on ENOENT (its first launch) does so; a write is refused (`agent`).
+// js/src/prelude.js answers the same on native.
+export const agentReads = ['readFile', 'readdir', 'stat', 'realpath'];
+export function emptyRead(op, path) {
+  if (op === 'readdir' && Object.values(directories).includes(path)) return [];
+  throw Object.assign(new Error(`filesystem: no such file or directory: ${path} (a drive that names no scratch store reads an empty one; --storage <name> names one)`), { kind: 'Unavailable', code: 'ENOENT' });
+}
 
 // @ref LLP 1069.005 D2b — the launch seed a drive names (`&seed=`, default
 // 1, as `exactTime().seed` reads it), or null outside the agent. Only a

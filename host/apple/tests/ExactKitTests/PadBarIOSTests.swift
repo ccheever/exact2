@@ -86,6 +86,25 @@ final class PadBarIOSTests: XCTestCase {
         XCTAssertEqual(keys(node), ["padDone"])
     }
 
+    /// LLP 1116.019 D5: `type="number"` takes the number pad when it holds only whole numbers (`step` unsaid,
+    /// HTML's 1, or whole, from a whole or unsaid `min`), and the decimal pad when it may hold a fraction.
+    func testANumberFieldOfWholeNumbersGetsTheNumberPad() throws {
+        let (_, node, window) = field(["type": "number"])
+        defer { window.isHidden = true }
+        let field = try XCTUnwrap(node.field)
+        XCTAssertEqual(field.keyboardType, .numberPad, "unsaid step: HTML's 1")
+        for (set, pad) in [(["step": "5", "min": "0"], UIKeyboardType.numberPad), (["step": "2.0", "min": "-10"], .numberPad),
+                           (["step": "any"], .decimalPad), (["step": "0.5"], .decimalPad), (["step": "1", "min": "0.5"], .decimalPad),
+                           (["step": "nonsense", "min": "1"], .numberPad)] {
+            node.applyProps(set: set, clear: ["step", "min"].filter { set[$0] == nil })
+            XCTAssertEqual(field.keyboardType, pad, "\(set)")
+        }
+        node.applyProps(set: ["step": "1", "min": "-40"], clear: [])
+        XCTAssertEqual(keys(node), ["toggleSign", "padDone"], "a negative min on the number pad: ± and Done")
+        node.applyProps(set: ["inputMode": "decimal"], clear: [])
+        XCTAssertEqual(field.keyboardType, .decimalPad, "an authored inputmode wins")
+    }
+
     /// The keys' top, their accessory bar's included: an iPhone 17 Pro's
     /// number pad and the bar, 350 points over the screen's bottom.
     private let keys: CGFloat = 524
@@ -149,6 +168,27 @@ final class PadBarIOSTests: XCTestCase {
         p.applyKeyboard(top: nil, duration: 0, curve: 0)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         XCTAssertEqual(view.backgroundColor?.resolvedColor(with: view.traitCollection), canvas.resolvedColor(with: view.traitCollection))
+    }
+
+    func testAOneTimeCodeGetsNoBarAndABarTakesTheFieldsTint() throws {
+        // Lexy's verification code: the code's suggestion sits over the pad
+        // and the screen has its own Verify button.
+        let (_, code, window) = field(["inputMode": "numeric", "autocomplete": "one-time-code", "enterKeyHint": "done"], handlers: ["input", "submit"])
+        defer { window.isHidden = true }
+        XCTAssertEqual(code.field?.keyboardType, .numberPad)
+        XCTAssertEqual(code.field?.textContentType, .oneTimeCode)
+        XCTAssertNil(code.field?.inputAccessoryView, "no Done bar over a one-time code's pad")
+        // Another pad's bar shows in the keyboard's window, whose tint is
+        // the system's: it takes the field's, here the window's red.
+        let (_, amount, other) = field(["inputMode": "decimal"])
+        defer { other.isHidden = true }
+        other.tintColor = .systemRed
+        XCTAssertTrue(amount.textFieldShouldBeginEditing(try XCTUnwrap(amount.field)))
+        let bar = try XCTUnwrap(amount.field?.inputAccessoryView as? UIToolbar)
+        XCTAssertEqual(bar.tintColor, .systemRed, "the bar takes the field's tint")
+        // A tint that changes once the bar is made follows into it
+        other.tintColor = .systemGreen
+        XCTAssertEqual(bar.tintColor, .systemGreen, "the bar follows the tint")
     }
 
     func testDoneIsOnEveryPadAndDoesWhatReturnDoes() throws {

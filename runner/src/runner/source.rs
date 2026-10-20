@@ -72,7 +72,13 @@ pub struct NativeSlots {
     hosted: std::sync::Mutex<Option<NativeHandler>>,
     hosted_call: std::sync::Mutex<Option<NativeCall>>,
     announce: std::sync::Mutex<Option<Announce>>,
+    sync: std::sync::Mutex<Option<SyncAnswers>>,
 }
+
+/// Each module's synchronous form, by `extension.name`: the runner's answer
+/// now, or `None` where the host's own implementation answers (LLP 1133.002
+/// D14).
+pub type SyncAnswers = std::collections::BTreeMap<String, Option<Vec<u8>>>;
 
 /// Where a host takes the device topics a native module announces
 /// ([`Native::changed`]), from any thread (LLP 1016.002).
@@ -124,13 +130,45 @@ impl Native {
         *self.0.hosted_call.lock().unwrap_or_else(|e| e.into_inner()) = call;
     }
 
-    /// The app module's synchronous call, if the host installed one.
+    /// The app module's synchronous call, if the host installed one. A
+    /// module's synchronous form (`{"extension", "sync", "args"}`) is
+    /// answered by the runner's table first ([`Native::sync`]).
     pub fn hosted_call(&self) -> Option<NativeCall> {
-        self.0
-            .hosted_call
-            .lock()
+        let call = (self.0.hosted_call.lock())
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .clone()?;
+        let slots = self.0.clone();
+        Some(std::sync::Arc::new(move |body: &[u8]| {
+            let named = serde_json::from_slice::<serde_json::Value>(body)
+                .ok()
+                .and_then(|v| {
+                    Some(format!(
+                        "{}.{}",
+                        v.get("extension")?.as_str()?,
+                        v.get("sync")?.as_str()?
+                    ))
+                });
+            let Some(key) = named else { return call(body) };
+            let table = slots.sync.lock().unwrap_or_else(|e| e.into_inner());
+            match table.as_ref().and_then(|t| t.get(&key)) {
+                Some(Some(answer)) => Ok(answer.clone()),
+                Some(None) => {
+                    drop(table);
+                    call(body)
+                }
+                None => Ok(br#"{"error":"NotSupportedError"}"#.to_vec()),
+            }
+        }))
+    }
+
+    /// The modules' synchronous answers now (the runner's).
+    pub fn sync(&self, answers: SyncAnswers) {
+        *self.0.sync.lock().unwrap_or_else(|e| e.into_inner()) = Some(answers);
+    }
+
+    /// Whether the runner has said its synchronous answers.
+    pub fn synced(&self) -> bool {
+        (self.0.sync.lock().unwrap_or_else(|e| e.into_inner())).is_some()
     }
 
     /// Whether the host installed an app module.
@@ -256,9 +294,45 @@ impl Target {
     }
 }
 
+/// Borrowed bytes of one pinned snapshot cohort (LLP 1126 D8).
+#[derive(Clone, Copy)]
+pub struct SnapshotModule<'a> {
+    /// Producer receipt admitting both the entry plan and bytecode.
+    pub receipt: &'a str,
+    /// Hermes bytecode; copied once into the engine's owned allocation.
+    pub bytecode: &'a [u8],
+    /// Encoded entry plan, checked against the receipt before activation.
+    pub plan: &'a [u8],
+    /// Entry kind within the receipt's plans map.
+    pub kind: &'a str,
+}
+
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
+    /// Prepare a disposable, read-only snapshot refresh before activation.
+    /// Bytecode and its receipt come from the app's pinned generation, never
+    /// from a separately selected update (LLP 1126.000 WP5).
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        let _ = deadline;
+        if module.is_some() {
+            return Err(DataError::Unavailable(
+                "this source accepts no snapshot bytecode".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Successful storage effects since the last host commit. A host may
+    /// invalidate another process's read snapshot; no data crosses this ping.
+    fn take_storage_changed(&mut self) -> bool {
+        false
+    }
+
     /// Session that may use document handles minted by this host.
     fn set_document_owner(&mut self, owner: u64) {
         let _ = owner;
@@ -660,7 +734,21 @@ pub enum DataError {
     /// throw (`error`). The resource fails or the send ends unsent; the
     /// asking commit stands (LLP 1027.000 D3). Bake and replacement
     /// validation still refuse it. A Rust source's own error is `Unavailable`.
-    Failed(crate::failure::FailureCode, String),
+    /// The third field carries an application reason (`failure(x).reason`).
+    Failed(crate::failure::FailureCode, String, String),
+}
+
+impl std::fmt::Display for DataError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownSource(name) => write!(f, "unknown source: {name}"),
+            Self::BadArguments(reason)
+            | Self::Unavailable(reason)
+            | Self::DeferredAtBake(reason)
+            | Self::Interface(reason)
+            | Self::Failed(_, reason, _) => f.write_str(reason),
+        }
+    }
 }
 
 #[cfg(test)]

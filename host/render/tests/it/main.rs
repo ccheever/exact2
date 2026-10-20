@@ -237,9 +237,18 @@ fn what_the_environment_does_not_hold_keeps_its_placeholder() {
             r.checkpoint
         );
     }
-    // Only the app's fetch grants reach the render.
+    // Only the app's fetch grants reach the render, and of those no
+    // scheme-wide line.
     let data = Anonymous::new(Blog::new(Post::Soon));
     assert_eq!(DataSource::grants(&data), "net.fetch https://blog.test/");
+    let data = Anonymous::new(Blog {
+        grants: "net.fetch https:\nnet.fetch https://blog.test/\nnet.fetch HTTP:\nnet.websocket ws:\nnet.fetch https://blog.test:".into(),
+        ..Blog::new(Post::Soon)
+    });
+    assert_eq!(
+        DataSource::grants(&data),
+        "net.fetch https://blog.test/\nnet.fetch https://blog.test:"
+    );
 }
 
 #[test]

@@ -19,6 +19,19 @@ private typealias WebReplyFn = @convention(c) (
     UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32
 ) -> Void
 
+private typealias WebAssetSinkFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+private typealias WebAssetReadFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, WebAssetSinkFn?) -> Void
+
+/// An app asset for the arm's `exact-app` origin, through the resolver every
+/// session reads: a delivered generation's or the dev URL's files reach a
+/// bundled page's sub-resources as they reach its document (@ref LLP 1020.001 D3).
+private let exactWebAssetRead: WebAssetReadFn = { name, length, context, sink in
+    guard let sink else { return }
+    let name = String(decoding: UnsafeBufferPointer(start: name, count: Int(length)), as: UTF8.self)
+    guard let bytes = ExactApp.shared.resolver.bytes(name) else { return }
+    bytes.withUnsafeBytes { sink(context, $0.bindMemory(to: UInt8.self).baseAddress, UInt32(bytes.count)) }
+}
+
 private struct WebLoadError: Error { let message: String }
 private struct WebRequestError: Error { let message: String }
 
@@ -26,9 +39,11 @@ private final class WebModule {
     typealias CreateFn = @convention(c) (UInt32, UnsafeMutableRawPointer?, WebEventFn?, WebReplyFn?) -> UnsafeMutableRawPointer?
     typealias PlatformViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
     typealias SetFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Void
+    typealias PostFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
     typealias SnapshotFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
     typealias EvalFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
     typealias DestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+    typealias SetReaderFn = @convention(c) (WebAssetReadFn?) -> Void
 
     let library: UnsafeMutableRawPointer
     let create: CreateFn
@@ -36,6 +51,7 @@ private final class WebModule {
     let setSrc: SetFn
     let setDocument: SetFn
     let setSandbox: SetFn
+    let postMessage: PostFn
     let snapshot: SnapshotFn
     let evaluate: EvalFn
     let destroy: DestroyFn
@@ -52,23 +68,26 @@ private final class WebModule {
               let setSrc = symbol("exact_web_set_src", SetFn.self),
               let setDocument = symbol("exact_web_set_document", SetFn.self),
               let setSandbox = symbol("exact_web_set_sandbox", SetFn.self),
+              let postMessage = symbol("exact_web_post_message", PostFn.self),
               let snapshot = symbol("exact_web_snapshot", SnapshotFn.self),
               let evaluate = symbol("exact_web_agent_eval", EvalFn.self),
-              let destroy = symbol("exact_web_destroy", DestroyFn.self)
+              let destroy = symbol("exact_web_destroy", DestroyFn.self),
+              let setReader = symbol("exact_web_set_reader", SetReaderFn.self)
         else {
             dlclose(library)
             return .failure(WebLoadError(message: "\(path) is not an exact web arm (missing exports)"))
         }
+        setReader(exactWebAssetRead)
         return .success(WebModule(
             library: library, create: create, platformView: platformView,
-            setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, snapshot: snapshot,
+            setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, postMessage: postMessage, snapshot: snapshot,
             evaluate: evaluate, destroy: destroy))
     }
 
     private init(
         library: UnsafeMutableRawPointer, create: @escaping CreateFn,
         platformView: @escaping PlatformViewFn, setSrc: @escaping SetFn, setDocument: @escaping SetFn,
-        setSandbox: @escaping SetFn, snapshot: @escaping SnapshotFn,
+        setSandbox: @escaping SetFn, postMessage: @escaping PostFn, snapshot: @escaping SnapshotFn,
         evaluate: @escaping EvalFn, destroy: @escaping DestroyFn
     ) {
         self.library = library
@@ -77,6 +96,7 @@ private final class WebModule {
         self.setSrc = setSrc
         self.setDocument = setDocument
         self.setSandbox = setSandbox
+        self.postMessage = postMessage
         self.snapshot = snapshot
         self.evaluate = evaluate
         self.destroy = destroy
@@ -281,6 +301,22 @@ final class WebViews {
         data.withUnsafeBytes { bytes in
             setter(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count), 1)
         }
+    }
+
+    /// Replies are sent only to this mounted frame, never queued by its authored id.
+    func postMessage(_ target: String, _ text: String) {
+        let matches = entries.values.filter { $0.owner?.props["id"] == target }
+        guard matches.count == 1, let entry = matches.first, !entry.fileFailed,
+              let handle = entry.handle, let module else {
+            fputs("exact: postMessage: no unique live iframe with id \(target)\n", stderr)
+            return
+        }
+        Data(text.utf8).withUnsafeBytes { bytes in
+            module.postMessage(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(bytes.count))
+        }
+    }
+    func hasFrame(_ target: String) -> Bool {
+        entries.values.contains { $0.owner?.props["id"] == target }
     }
 
     func destroy(id: UInt32) {
@@ -489,5 +525,21 @@ final class WebViews {
         text.removeFirst()
         text.removeLast()
         return text
+    }
+}
+
+extension ExactSession {
+    /// `postMessage(text, target)`: the compiler marks an iframe target; a name that is both a
+    /// live frame's id and a canvas surface, or a canvas post to a frame's id, is refused.
+    func post(_ text: String, to target: String, iframe: Bool) {
+        if webviews.hasFrame(target) && canvases.hasSurface(target) {
+            fputs("exact: postMessage: ambiguous iframe id and canvas surface \(target)\n", stderr)
+        } else if iframe {
+            webviews.postMessage(target, text)
+        } else if webviews.hasFrame(target) {
+            fputs("exact: postMessage: canvas name collides with an iframe id \(target)\n", stderr)
+        } else {
+            canvases.post(target, text)
+        }
     }
 }

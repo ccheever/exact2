@@ -47,13 +47,15 @@ pub fn expand(source: &Run) -> Vec<Run> {
             let gap = p.scale < 1.0 && p.text == "\n";
             Run {
                 size: source.size * p.scale,
-                weight: if p.weight != 0 {
-                    p.weight
-                } else {
-                    source.weight
+                // A piece's own weight (bold) is stepped as its run's was.
+                weight: match p.weight {
+                    0 => source.weight,
+                    w if source.bold_text => exact_kernel::bolder(w),
+                    w => w,
                 },
                 family: if p.mono { MONOSPACE } else { source.family },
                 italic: source.italic || p.italic,
+                stretch: source.stretch,
                 line_height: source.line_height.filter(|_| !gap),
                 letter_spacing: source.letter_spacing,
                 font_variant_numeric: source.font_variant_numeric,
@@ -61,6 +63,7 @@ pub fn expand(source: &Run) -> Vec<Run> {
                 hang: p.hang,
                 mark,
                 href,
+                bold_text: source.bold_text,
                 text: p.text,
             }
         })

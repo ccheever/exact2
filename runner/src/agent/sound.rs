@@ -1,5 +1,6 @@
 //! `state.sounds` (LLP 1096 D10): the runner's voice table as the driver
-//! reads it — the last 64 voices, or the whole record when the request asks
+//! reads it — the last 64 voices (each with `playbackRate` and `pan` only
+//! when not 1 and 0), or the whole record when the request asks
 //! `"sounds":"all"` (what `expect sound` reads), how many are live, how many
 //! the record holds, and the output. The runner says `"agent"`: under the
 //! driver no host plays, and a host that plays outside it fills in its own.
@@ -41,6 +42,13 @@ pub(super) fn state<D: DataSource>(runner: &Runner<D>, request: &str, s: &mut St
             s.push_str("null");
         } else {
             quote(&v.group, s);
+        }
+        // A voice's rate and pan only when the call set them (LLP 1125 D10).
+        if v.playback_rate != 1.0 {
+            let _ = write!(s, ",\"playbackRate\":{}", num(v.playback_rate));
+        }
+        if v.pan != 0.0 {
+            let _ = write!(s, ",\"pan\":{}", num(v.pan));
         }
         let _ = write!(
             s,

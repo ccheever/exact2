@@ -234,6 +234,14 @@ impl<D: DataSource> Presenter<D> {
             ops.push(Op::SetStyle { id, patch });
         }
         ops.extend(seen.ops);
+        // Nothing of it paints, and it waits across slices: its colours go,
+        // so it holds no wide colour id (LLP 1121 stage 4).
+        let coloured = exact_kernel::style::wide::coloured();
+        for op in &mut ops {
+            if let Op::SetStyle { patch, .. } = op {
+                patch.clear(coloured);
+            }
+        }
         ops.extend(
             held.into_iter()
                 .map(|(id, children)| Op::SetChildren { id, children }),

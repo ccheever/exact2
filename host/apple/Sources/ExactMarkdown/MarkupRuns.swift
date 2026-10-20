@@ -34,8 +34,9 @@ enum MarkupRuns {
     }
 
     /// Expand `source` into runs over `base` (the node's own run style).
-    /// `color` is the node's ink; nil keeps the paragraph colour.
-    static func expand(_ source: String, base: Run, color: [Double]?) -> [Run] {
+    /// `color` is the node's ink; nil keeps the paragraph colour. `boldText`:
+    /// Bold Text weights `base`, and a piece's own weight takes its step.
+    static func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool = false) -> [Run] {
         var out: [Run] = []
         var text = source
         text.withUTF8 { bytes in
@@ -49,7 +50,7 @@ enum MarkupRuns {
                 var run = base
                 run.text = String(decoding: UnsafeBufferPointer(start: p.text, count: p.len), as: UTF8.self)
                 run.size = (base.size * CGFloat(p.scale)).rounded(.toNearestOrEven)
-                if p.font_weight != 0 { run.weight = Int(p.font_weight) }
+                if p.font_weight != 0 { run.weight = boldText ? TextEngine.bolder(Int(p.font_weight)) : Int(p.font_weight) }
                 if p.italic != 0 { run.italic = true }
                 if p.mono != 0 { run.family = monospaceFamily }
                 // A list item's indent and hung marker (LLP 1045 D4, `LineInsets`).

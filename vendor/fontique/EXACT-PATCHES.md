@@ -49,6 +49,20 @@ here pass.
    (`a_script_without_families_of_its_own_takes_the_last_resort`: every
    script's list is what a copy per script gave).
 
+5. **Declared weight and width ranges.** `FontInfo::with_declared_ranges`
+   keeps a declaration's `wght` and `wdth` ranges (`@font-face`'s
+   `font-weight` and `font-stretch`, LLP 1019 §13), each clamped to the
+   file's axis. `match_font` takes a range at its value nearest the request
+   (`matching_weight`, `matching_width`; CSS Fonts 4 §5.2), and synthesis
+   always emits the request clamped to the range, even when it equals the
+   declaration, never a faux bold. One declared weight is a range of one
+   value: the axis stays pinned there. Linux enables it for declared faces
+   before Parley shapes, so advances, normalized coordinates and presenter
+   settings agree. An axis the file lacks, or reversed or NaN bounds, leave
+   that axis undeclared. Static faces and installed variable fonts retain
+   their behavior.
+   Tests: `host/linux/src/text/variable_face_tests.rs`.
+
 `Cargo.toml` also carries the empty `[workspace]` boundary described below;
 retain it when updating. All remaining archive files are byte-for-byte upstream.
 

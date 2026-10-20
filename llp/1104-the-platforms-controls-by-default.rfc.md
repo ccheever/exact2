@@ -158,7 +158,7 @@ The table is a starting point. The build fills in each cell from a measured fixt
 - **tvOS:** a field is UIKit's `UITextField` with tvOS's own look; editing opens the system's keyboard screen. Rows apply where tvOS's UIKit honours them, and stand-ins are reported. A textarea stays as today, a read-only text view; editable multi-line text on tvOS is out of scope.
 - **Disabled:** the platform's own disabled look (`isEnabled = false`, the browser's `:disabled`). r4's opacity 0.5 row goes. An authored `color` is kept when disabled, as 1069.011.001 D16 and the browser do.
 - **Placeholder:** the platform's own:
-  - iOS uses `UIColor.placeholderText` on the field and the textarea. That fixes the field's 30%-of-ink rule, which disagreed with the textarea.
+  - iOS uses `UIColor.placeholderText` on the field and the textarea. That fixes the field's 30%-of-ink rule, which disagreed with the textarea. **Amended 2026-10-16:** a header's search field, which is the bar's `UISearchBar`, keeps the search field's own placeholder ink, which UIKit draws darker than `placeholderText` (the euxy port's Patterns search read lighter than a hand-built one); an authored `::placeholder` colour or `placeholder` role still wins.
   - macOS uses `placeholderAttributedString` with the system's colour.
   - The web uses the UA's (the `::placeholder` rule at `index.html:89` stops reaching native fields).
 
@@ -379,7 +379,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
    Proposed: the second, because hosting SwiftUI for a text view brings its own focus and measurement paths. Apple's own apps rarely border multi-line text, so this is the field's look extended, not a platform control.
 2. **Field styles.** Should fields get a vocabulary like `buttonStyle` (macOS `borderShape` capsule, a plain borderless platform field)? Proposed: not now.
 3. **`select`** is a `Control` already drawn natively. Should D2–D4 cover it? Proposed: yes, as a follow-up.
-4. **The `border-radius` exception** (D2 rule 2) is James's D15. It keeps Lexy's rounded native buttons, at the price of one CSS deviation under `appearance="auto"`. Charlie agrees; James to confirm.
+4. **The `border-radius` exception** (D2 rule 2) is James's D15. It keeps rounded native buttons, at the price of one CSS deviation under `appearance="auto"`. Charlie agrees; James to confirm.
 
 **Settled:**
 - r5 Q2: D2 makes most self-styled buttons bare with no edit, and the codemod covers the rest.

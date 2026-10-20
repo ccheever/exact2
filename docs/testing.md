@@ -68,6 +68,14 @@ its time counts too.
   cannot rely on an earlier class. Install what it uses in `class func setUp`
   (`ExactSurfaces.install()` for a canvas) and create what it reads
   (`NSApplication.shared` before `NSApp`).
+- **A Bun file that mocks a module runs in a global of its own.** Bun's
+  `mock.module` replaces a module for the whole process and does not relink a
+  module already loaded, so files that mock or import the same module
+  (`host/web-js/rt.js`) break each other in one process: a mock that does not
+  take can leave a test spinning on the real module, past any test timeout.
+  Run several such files with `bun test --isolate` (a fresh global and module
+  registry per file) or `--parallel`, which implies it and is how the async
+  lane's glue step runs them.
 - **Platform availability belongs in Swift.** The iOS run includes every test
   compiled for its destination, including shared classes without an `IOSTests`
   suffix. Guard platform-specific assertions with `#if os(...)`.
@@ -110,6 +118,36 @@ its time counts too.
   the condition the product itself uses (`Agent.nativeInFlight()` on Apple, the
   agent's `clock settle`), not a hardcoded sleep timeout.
 
+## Browsers
+
+- **Launch Chromium through `chromium()`, never by a path.** It
+  (`scripts/agent-launch.mjs`) answers `CHROME` when it is set (a browser that
+  is not there is reported as unavailable), else the Chromium that Playwright
+  pins in `package.json`: by default its headless shell, which on an M5 Pro
+  launched in 74 ms against the full build's 185 ms and used 263 MB of memory
+  against 939 MB (the medians of 7 launches, every process of the browser
+  counted). Install both builds with `bunx playwright@<version> install
+  chromium chromium-headless-shell`.
+- **Name a need when the shell lacks what the test uses.**
+  `chromium({ needs })` answers the full build (Chrome for Testing, run with
+  `--headless=new`) for `gpu` (WebGPU and WebGL on the GPU: the shell has only
+  SwiftShader, whose fallback adapter a GPU app takes and then draws wrong),
+  `pdf` (the PDF viewer), `hevc`, `bfcache` (the shell restores no page from the
+  back/forward cache) and `perf` (timings that should match a person's
+  browser). A web drive of an app with a GPU module asks for `gpu` itself
+  (`webNeeds`).
+- **A Playwright test takes `suiteBrowser()`.** It shares one browser in the
+  process for each engine, build and set of launch options. `newPage` and
+  `newContext` each make a browser context that belongs to the suite; `close`
+  closes those, not the browser. A test that speaks CDP itself takes
+  `cdpBrowser()` on the same terms: `page(url)` opens a target in the suite's
+  context. A test about the browser process (it kills the browser, or needs a
+  kept profile, a headed window or flags of its own) launches its own.
+- **Wait for the event, not for its first sign.** The shell is faster than the
+  full build, so a test that reads a state while the browser still changes it
+  fails there first. `document.fullscreenElement` is set before the
+  display-mode media changes are sent; `fullscreenchange` comes after them.
+
 ## Pixels
 
 - **Downsample and crop.** Compare at 1x or lower, cropped to the region the
@@ -125,6 +163,15 @@ its time counts too.
   at background QoS, where the kernel coalesces timers: a 10 ms sleep takes
   60–90 ms and every wait inflates. Measure from a terminal or an interactive
   launchd job.
+- **Measure with a pruned `target/`.** Cargo never deletes old object files
+  from `target/debug/deps`, and on macOS a test that touches the main bundle
+  lists that directory, so hundreds of thousands of files there cost seconds
+  of system time per test process.
+- **Gatekeeper scans each newly built binary when it first runs.** After a
+  kernel edit, the scans added about 95–130% to the wall time of rebuilding
+  and running ten packages' Rust tests. Adding the program that starts the
+  test processes (a terminal, say) to System Settings → Privacy & Security →
+  Developer Tools skips them.
 - **Find the bottleneck first.** Time each binary and each test (`cargo test`
   binaries with `-Zunstable-options --report-time` under `RUSTC_BOOTSTRAP=1`;
   the XCTest per-case lines; `bun test`'s per-test times). A binary's wall time

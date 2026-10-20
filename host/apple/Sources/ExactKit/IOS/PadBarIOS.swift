@@ -8,15 +8,20 @@
 // below zero (round 5's unit converter wrote `inputmode="text"` to reach a
 // minus and got a letter keyboard). ± flips the sign of what the field holds
 // and fires its `input` as a keystroke does; Done does what Return does
-// (commit, submit) and puts the keyboard away.
+// (commit, submit) and puts the keyboard away. A one-time code's pad gets
+// none, as UIKit and SwiftUI give it none: the system suggests the code over
+// the pad, and a screen that asks for one sends it with its own control
+// (Lexy's Verify), which the bar would only repeat (HIG: controls above the
+// keyboard relevant to the current task).
 #if os(iOS)
 import UIKit
 
 extension NodeView {
     /// The keys this field's pad lacks: Done on every pad with no Return key,
-    /// ± on the decimal and number pads where `min` is below zero.
+    /// ± on the decimal and number pads where `min` is below zero; none for a
+    /// one-time code.
     var padKeys: (sign: Bool, done: Bool) {
-        guard let f = field else { return (false, false) }
+        guard let f = field, f.textContentType != .oneTimeCode else { return (false, false) }
         switch f.keyboardType {
         case .decimalPad, .numberPad:
             let sign = props["min"].flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }.map { $0 < 0 } ?? false
@@ -27,17 +32,30 @@ extension NodeView {
     }
 
     /// The bar follows the field's props and handlers: made for the keys it
-    /// asks for, taken down (only its own) when it asks for none.
-    func applyPadBar() {
-        guard let f = field else { return }
+    /// asks for, taken down (only its own) when it asks for none. Whether
+    /// the accessory changed: a keyboard that is up shows it on a reload.
+    @discardableResult
+    func applyPadBar() -> Bool {
+        guard let f = field else { return false }
         let keys = padKeys, own = f.inputAccessoryView as? PadBar
         if keys.sign || keys.done {
-            guard own?.owner !== self || own?.sign != keys.sign || own?.done != keys.done else { return }
+            tintPadBar()
+            guard own?.owner !== self || own?.sign != keys.sign || own?.done != keys.done else { return false }
             f.inputAccessoryView = PadBar(owner: self, sign: keys.sign, done: keys.done)
-        } else if own != nil {
-            f.inputAccessoryView = nil
-        } else { return }
-        if f.isFirstResponder { f.reloadInputViews() }
+            tintPadBar()
+            return true
+        }
+        guard own != nil else { return false }
+        f.inputAccessoryView = nil
+        return true
+    }
+
+    /// The bar shows in the keyboard's window, whose tint is the system's:
+    /// it takes this view's, the app's accent or its subtree's, dimmed
+    /// behind a modal as the view's is.
+    func tintPadBar() {
+        guard let bar = field?.inputAccessoryView as? PadBar, bar.tintColor != tintColor else { return }
+        bar.tintColor = tintColor
     }
 
     /// ±: the sign of the field's text flips (an empty field starts a negative
@@ -84,5 +102,8 @@ final class PadBar: UIToolbar {
     required init?(coder: NSCoder) { nil }
 }
 #else
-extension NodeView { func applyPadBar() {} }
+extension NodeView {
+    @discardableResult func applyPadBar() -> Bool { false }
+    func tintPadBar() {}
+}
 #endif

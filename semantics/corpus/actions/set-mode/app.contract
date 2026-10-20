@@ -1,0 +1,38 @@
+// `setMode` is the runner's own (LLP 1121 D5): it sets the window's mode in
+// the commit and no host is told, so it is not among the commands observed,
+// while the commands around it are, in order, beside the runtime's own
+// (a MIDI message, a sound command) in the same commit.
+component App
+  state n = 0
+  action dim
+    copyText("before")
+    setMode("dark-style", "dim")
+    copyText("after")
+    n = n + 1
+  action black
+    setMode("dark-style", "black")
+    n = n + 10
+  action mixed
+    copyText("before")
+    setMode("dark-style", "dim")
+    sendMIDI("out", [144, 60, 100])
+    stopSounds()
+    copyText("after")
+    n = n + 100
+  view
+    column background-color="surface.page"
+      text `${n}` testId="n"
+      button "dim" press=dim testId="dim"
+      button "black" press=black testId="black"
+      button "mixed" press=mixed testId="mixed"
+
+test "setMode is not a host's command"
+  tap "dim"
+  tap "black"
+  tap "dim"
+  expect state n == 12
+
+test "setMode beside the runtime's own commands"
+  tap "mixed"
+  tap "mixed"
+  expect state n == 200

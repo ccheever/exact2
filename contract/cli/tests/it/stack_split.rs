@@ -1,9 +1,9 @@
 //! LLP 1115.002 D4 (the rule is LLP 1116.004 D1.2's): a stack splits when a
 //! row of its root route's list pushes, read from the push and not from a
 //! chevron (`Runner::stack_split`). The Mac's split view reads it; the web's
-//! own rule (`host/web/navigation.js` `splitOf`) is its own until it moves.
+//! projection reads the same plan facts and retained visit URLs.
 
-use exact_kernel::{Kernel, ViewId};
+use exact_kernel::{Kernel, Op, PropId, PropValue, ViewId};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Event, Runner, StackSplit};
 
@@ -121,6 +121,112 @@ fn a_list_whose_rows_link_to_a_route_splits_and_names_each_rows_detail() {
     // A pushed route is no stack's root, and a button in a row is not the row.
     assert_eq!(r.stack_split(view(&r, "item-c"), None), None);
     assert_eq!(r.stack_split(view(&r, "star-a"), None), None);
+}
+
+#[test]
+fn a_decorative_chevron_cannot_opt_out_another_rows_route_link() {
+    let rows = format!(
+        "{LINKS}\n              button press=pick(\"decoration\")\n                text \"Decoration\"\n                image \"symbol:forward-chevron\""
+    );
+    let mut r = boot(&app("", "", &rows));
+    assert_eq!(split(&r).unwrap().list, Some(view(&r, "rows")));
+    let root = r.kernel().roots()[0];
+    r.dispatch(root, Event::Navigate("/item/b".into())).unwrap();
+    assert_eq!(
+        split(&r).unwrap().rows,
+        vec![(view(&r, "item-b"), view(&r, "row-b"))]
+    );
+}
+
+#[test]
+fn the_outer_press_owns_a_row_even_when_it_or_its_child_links_to_a_route() {
+    for rows in [
+        "              link href=\"/item/a\" press=pick(\"a\")\n                text \"A\"",
+        "              column press=pick(\"a\")\n                link href=\"/item/a\"\n                  text \"A\"",
+        "              column press=pick(\"a\")\n                button press=open(\"a\")\n                  text \"A\"",
+    ] {
+        let r = boot(&app("", "", rows));
+        assert_eq!(split(&r), None, "{rows}");
+    }
+}
+
+#[test]
+fn the_kernel_reader_prunes_route_keys_before_lists_but_not_inside_their_rows() {
+    let link = "                link href=\"/item/a\"\n                  text \"A\"";
+    for (lists, expected) in [
+        (
+            format!("            column testId=\"boundary\"\n              list testId=\"inner\"\n{link}"),
+            None,
+        ),
+        (
+            format!("            list testId=\"rows\"\n              column testId=\"boundary\"\n{link}"),
+            Some("rows"),
+        ),
+    ] {
+        let source =
+            app("", "", "").replace("            list testId=\"rows\" \n", &format!("{lists}\n"));
+        let mut r = boot(&source);
+        assert!(split(&r).is_some());
+        // Authored nested routes are refused by the compiler. Set this fact
+        // directly to distinguish the shared reader's two kernel-tree walks.
+        let id = view(&r, "boundary");
+        r.kernel_mut()
+            .apply(
+                0,
+                0,
+                &[Op::SetProp {
+                    id,
+                    prop: PropId::NavigationKey,
+                    value: PropValue::Str("nested".into()),
+                }],
+            )
+            .unwrap();
+        assert_eq!(
+            split(&r).and_then(|s| s.list),
+            expected.map(|name| view(&r, name)),
+            "{lists}"
+        );
+    }
+}
+
+#[test]
+fn list_search_respects_candidate_boundaries_and_retained_empty_priority() {
+    let link = "                link href=\"/item/a\"\n                  text \"A\"";
+    let later = "            list testId=\"later\"\n              link href=\"/item/a\"\n                text \"A\"";
+    let cases = [
+        (
+            format!("            list testId=\"rows\"\n              list testId=\"inner\"\n{link}"),
+            false,
+            Some("rows"),
+        ),
+        (
+            format!("            list testId=\"rows\" display=\"flex\" flex-direction=\"row\"\n              list testId=\"inner\"\n{link}"),
+            false,
+            Some("inner"),
+        ),
+        (
+            format!("            list testId=\"rows\"\n              button \"Pick\" press=pick(\"a\")\n{later}"),
+            false,
+            Some("later"),
+        ),
+        (
+            format!("            list testId=\"rows\"\n              text \"No Results\"\n{later}"),
+            true,
+            Some("later"),
+        ),
+    ];
+    for (lists, retain, expected) in cases {
+        let source =
+            app("", "", "").replace("            list testId=\"rows\" \n", &format!("{lists}\n"));
+        let r = boot(&source);
+        let retained = retain.then(|| view(&r, "rows"));
+        let found = r.stack_split(view(&r, "home"), retained);
+        assert_eq!(
+            found.and_then(|s| s.list),
+            expected.map(|name| view(&r, name)),
+            "{lists}"
+        );
+    }
 }
 
 #[test]
@@ -255,4 +361,40 @@ fn the_list_beside_a_route_in_a_hosts_pane_is_not_inactive() {
     assert!(r.inactive(row));
     r.kernel_mut().set_host_block(top, None).unwrap();
     assert!(r.inactive(row));
+}
+
+/// A host that lays every route out in a block of its own, as iOS gives
+/// each route its controller's view (LLP 1123 D2), shows no list beside a
+/// pane: the route under a pushed route, and under a sheet the size of its
+/// detent, stays covered.
+#[test]
+fn a_list_in_a_block_of_its_own_is_covered_by_the_route_over_it() {
+    use exact_kernel::{BlockAxis, HostBlock};
+    let mut r = boot(&app("", "", LINKS));
+    let root = r.kernel().roots()[0];
+    let screen = HostBlock {
+        width: BlockAxis::Is(402.0),
+        height: BlockAxis::Is(874.0),
+    };
+    let home = view(&r, "home");
+    r.kernel_mut().set_host_block(home, Some(screen)).unwrap();
+    r.dispatch(root, Event::Navigate("/item/b".into())).unwrap();
+    let item = view(&r, "item-b");
+    r.kernel_mut().set_host_block(item, Some(screen)).unwrap();
+    assert!(
+        r.inactive(view(&r, "row-a")),
+        "a pushed route covers its list"
+    );
+    r.dispatch(root, Event::Navigate("/".into())).unwrap();
+    r.dispatch(view(&r, "add"), Event::Press).unwrap();
+    let sheet = HostBlock {
+        width: BlockAxis::Is(402.0),
+        height: BlockAxis::Is(814.0),
+    };
+    let form = view(&r, "form");
+    r.kernel_mut().set_host_block(form, Some(sheet)).unwrap();
+    assert!(
+        r.inactive(view(&r, "row-a")),
+        "a sheet covers the screen under it"
+    );
 }

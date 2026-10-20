@@ -68,7 +68,7 @@ impl Raster {
             (x1 - x0) as usize,
             (y1 - y0) as usize,
         );
-        let Some(target) = self.target.as_mut() else {
+        let Some(target) = self.target.pixels() else {
             return;
         };
         let stride = target.width() as usize * 4;
@@ -106,7 +106,7 @@ impl Raster {
             anti_alias: true,
             ..Paint::default()
         };
-        let mask = self.clips.last().cloned();
+        let mask = self.clips.last().and_then(Option::as_ref).cloned();
         target.fill_path(&path, &paint, FillRule::Winding, dev, mask.as_deref());
     }
 }

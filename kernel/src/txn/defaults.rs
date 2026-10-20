@@ -11,7 +11,10 @@ pub(super) fn before_prop(
         return Vec::new();
     }
     match prop {
-        PropId::SemanticTag => vec![(slot, arena.default_context(slot))],
+        PropId::SemanticTag => std::iter::once(slot)
+            .chain(arena.children(slot).iter().copied())
+            .map(|s| (s, arena.default_context(s)))
+            .collect(),
         PropId::NavigationKey => arena
             .children(slot)
             .iter()
@@ -26,6 +29,15 @@ pub(super) fn before_prop(
             let mut before = vec![(slot, arena.default_context(slot))];
             if let Some(parent) = arena.parent(slot) {
                 before.push((parent, arena.default_context(parent)));
+                if arena.neutral_alert(parent) {
+                    before.extend(
+                        arena
+                            .children(parent)
+                            .iter()
+                            .copied()
+                            .map(|s| (s, arena.default_context(s))),
+                    );
+                }
             }
             if prop == PropId::AccessibilityRole {
                 before.extend(
@@ -63,10 +75,33 @@ pub(super) fn changed(
     receipt: &mut CommitReceipt,
 ) {
     let after = arena.default_context(slot);
-    if before == after {
+    // Whether a symbol image draws in its colour (LLP 1121 stage 9 B) can
+    // change with the colour equal: its images are sent again.
+    if before.ink_said != after.ink_said {
+        for s in arena.subtree(slot) {
+            let symbol = arena.node_type(s) == NodeType::Image
+                && arena
+                    .props(s)
+                    .str(PropId::ImageSource)
+                    .is_some_and(|v| v.starts_with("symbol:"));
+            if symbol {
+                arena.mark_export_dirty(s, NodeFlags::PAINT_DIRTY);
+                touched.push(arena.key(s));
+            }
+        }
+    }
+    if before
+        == (DefaultContext {
+            ink_said: before.ink_said,
+            ..after
+        })
+    {
         return;
     }
     let mut rows = StyleMask::EMPTY;
+    if before.alert != after.alert {
+        rows = rows.union(NodeArena::alert_rows());
+    }
     if before.header != after.header {
         arena.refresh_sticky(slot);
         rows = rows.union(NodeArena::header_rows());
@@ -78,6 +113,13 @@ pub(super) fn changed(
         style_changed(arena, layout, slot, rows, receipt);
         propagate_inherited(arena, layout, slot, rows, touched, receipt);
     }
+    // What is said above changed, if no value here did: a bare text style
+    // below fills what is not (LLP 1115.000 D12.2).
+    let said = before
+        .said_style
+        .minus(after.said_style)
+        .union(after.said_style.minus(before.said_style));
+    propagate_inherited(arena, layout, slot, said.minus(rows), touched, receipt);
     if before.native_tab != after.native_tab {
         control_env_changed(arena, layout, slot);
         receipt.layout_invalidated = true;

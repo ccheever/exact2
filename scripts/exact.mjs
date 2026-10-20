@@ -1,4 +1,5 @@
-#!/usr/bin/env bun
+#!/bin/sh
+':' //; if [ -n "$BUN" ]; then exec "$BUN" "$0" "$@"; elif [ -x "$HOME/.bun-1.4.2/bin/bun" ]; then exec "$HOME/.bun-1.4.2/bin/bun" "$0" "$@"; else exec bun "$0" "$@"; fi
 // exact — run an Exact app from a terminal on macOS, and install one so it
 // keeps running from a terminal after you close the laptop.
 //
@@ -9,6 +10,8 @@
 //   exact list                   the apps this repo has, and what is installed
 //   exact new <path> [--update]  an app outside this repo, ready to run
 //   exact new <path> --game      a game outside this repo, ready to run
+//   exact new <path> --snapback  an app wired to the Snapback backend above it
+//   exact snapback <app>         wire an app to that backend (its exact.mjs's `snapback`)
 //
 // The two things this exists to get right, because they are the two that make
 // a Mac GUI app awkward from a shell:
@@ -33,18 +36,27 @@ import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { BINARYEN } from '../host/web/stages.mjs';
-import { basename, delimiter, dirname, resolve } from 'node:path';
+if (import.meta.main && process.argv[2] === 'status' && !process.argv.includes('--help')) {
+  const {readStatus, formatStatus} = await import('../game/status.mjs');
+  const {resolve} = await import('node:path');
+  console.log(formatStatus(readStatus(resolve(process.argv[3] ?? '.'))));
+  process.exit(0);
+}
+const { BINARYEN } = await import('../host/web/stages.mjs');
+import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
-import { applyPattern, createApp, createGame, patternList } from '../game/new.mjs';
-import { sdkFetch } from '../game/app/shells.mjs';
-import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
-import { closeFilesystemReader } from './filesystem.mjs';
-import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
-import { signingOrder } from '../host/apple/assets.mjs';
-import { chromium } from './agent-launch.mjs';
-import { guardFlags, helpText } from './help.mjs';
+const { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
+const { applyPattern, createApp, createGame, patternList, wireSnapback } = await import('../game/new.mjs');
+const { sdkFetch } = await import('../game/app/shells.mjs');
+const { appleArtifacts, assertAppleIdentity, stripForDistribution } = await import('../host/apple/build.mjs');
+const { closeFilesystemReader } = await import('./filesystem.mjs');
+const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
+const { signRelease } = await import('../host/apple/assets.mjs');
+const { chromium } = await import('./agent-launch.mjs');
+const { guardFlags, helpText } = await import('./help.mjs');
+const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
+const { devicePreflight } = await import('../snapback4/web/device-build.mjs');
+const { generate: gameVocabulary } = await import('../game/vocab.mjs');
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const APPLICATIONS = resolve(homedir(), 'Applications');
@@ -266,17 +278,12 @@ function release(app) {
 
   // Sign inside out, with the hardened runtime and a timestamp. Both are
   // notarisation's requirements, not preferences: a build without them is
-  // rejected at submission rather than at launch. The app itself carries the
-  // entitlements its `device.*` grants derive (LLP 1069.008 D4), read from the
-  // bake receipt inside the bundle; the code nested inside carries none.
+  // rejected at submission rather than at launch. The entitlements come from
+  // the bake receipt inside the bundle: the app carries those its `device.*`
+  // and `runtime.* app` grants derive (LLP 1069.008 D4, D9), a helper a
+  // `runtime.* <path>` grant names carries its own, and other nested code none.
   const built = JSON.parse(readFileSync(resolve(bundle, 'Contents/Resources/receipt.json'), 'utf8'));
-  const entitled = macReleaseEntitlements(built.build?.compat);
-  const entitlements = resolve(out, 'entitlements.plist');
-  if (entitled) writeFileSync(entitlements, entitled);
-  for (const path of signingOrder(staged, built.build?.compat, identity)) {
-    sh('codesign', ['--force', '--sign', identity, '--options', 'runtime', '--timestamp',
-      ...(path === staged ? ['--identifier', app.id, ...(entitled ? ['--entitlements', entitlements] : [])] : []), path]);
-  }
+  signRelease(staged, { compat: built.build?.compat, manifest: app.manifest, identity, id: app.id, scratch: out });
   sh('codesign', ['--verify', '--deep', '--strict', '--verbose=1', staged]);
 
   // A zip is what notarytool takes for an app; ditto and not zip, which
@@ -364,6 +371,7 @@ export function binaryenArchive(version, os = process.platform, cpu = process.ar
 
 /** Install the versions declared by the SDK, once per machine. */
 export function setup({check = false} = {}) {
+  let vocabFailure = null;
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
   const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
   const version = BINARYEN.replace(' ', '_');
@@ -419,11 +427,16 @@ export function setup({check = false} = {}) {
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
     const fetched = sdkFetch();
     if (!fetched.ok) throw new Error(`cargo fetch of the game SDK lock failed${fetched.message ? `: ${fetched.message}` : ''}`);
+    // `game vocab` reads the engine's rustdoc; built here, a first lookup skips the cold build.
+    console.log('cargo rustdoc -p exact-game (for exact game vocab)');
+    try { gameVocabulary(); }
+    catch (error) { vocabFailure = error.message.trim().split('\n').slice(-3).join('\n'); }
   }
   const report = sdkReport();
   printReport(report);
   const missing = report.filter(row => row.required && !row.ok);
   if (missing.length) throw new Error(`${missing.map(row => row.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing or differ; run exact setup (it installs what it can and names the rest)`);
+  if (vocabFailure) throw new Error(`the engine rustdoc for game vocab did not build:\n${vocabFailure}`);
   // "Ready" is said only of what is: a row some apps need is named with the apps it holds back.
   const needed = report.filter(row => !row.ok);
   console.log(needed.length
@@ -467,8 +480,8 @@ export function sdkReport(env = process.env) {
   rows.push(row('wasm-opt', opt, BINARYEN, opt === BINARYEN, 'exact setup'));
   const modules = existsSync(resolve(ROOT, 'node_modules/.bin/rolldown'));
   rows.push(row('node_modules', modules ? 'installed' : '', 'bun.lock', modules, `bun install --frozen-lockfile in ${ROOT}`));
-  const browser = chromium(env);
-  rows.push(row('Chrome', browser.unavailable ? '' : browser.executable, 'any', !browser.unavailable, 'install Google Chrome, or set CHROME'));
+  const browser = chromium({ environment: env });
+  rows.push(row('Chrome', browser.unavailable ? '' : browser.executable, 'any', !browser.unavailable, "install Playwright's Chromium (docs/testing.md, Browsers), or set CHROME"));
   if (process.platform === 'darwin') {
     const developer = output('xcode-select', ['-p']);
     const xcode = /\.app\/Contents\/Developer$/.test(developer);
@@ -514,19 +527,75 @@ export function printReport(rows, {onlyMissing = false} = {}) {
  * Debug, as the guides use it; the pinned toolchain whatever rustup would pick
  * from the caller's directory; exact2's own target/, never an inherited one
  * (an app's, or another checkout's). */
-export function contract(args, env = process.env) {
+/** Cargo with the pinned toolchain, in this checkout's own target, on the Contract compiler: `run` or `build`. */
+function compilerCargo(verb, env = process.env) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain.channel;
   const clean = cargoEnvironment(env);
   delete clean.RUSTUP_TOOLCHAIN;
   delete clean.CARGO_TARGET_DIR;
-  const binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
-  if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (a few minutes on a cold checkout)…');
-  const result = spawnSync('cargo', [`+${pin}`, 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', ...args], {stdio: 'inherit', env: clean});
+  return { args: [`+${pin}`, verb, '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract'], env: clean };
+}
+const COMPILER = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
+
+/** `exact new` starts the compiler's build apart from this shell, so the builder's first `contract vocab` or
+ * `contract build` does not wait the minute a cold one takes (a port's first lookup, 67 s). A fresh one is a no-op. */
+function prebuildCompiler() {
+  const { args, env } = compilerCargo('build');
+  const child = spawn('cargo', args, { detached: true, stdio: 'ignore', env });
+  child.on('error', () => {});
+  child.unref();
+  if (!existsSync(COMPILER)) console.log(`\nBuilding the Contract compiler in the background (pid ${child.pid}), so \`contract\` answers at once when you need it.`);
+}
+
+export function contract(args, env = process.env) {
+  const cargo = compilerCargo('run', env), binary = COMPILER;
+  if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (about a minute on a cold checkout; `exact new` starts it in the background)…');
+  // `build --json` is one JSON array on stdout and nothing on stderr: the compiler's diagnostics, then app.ts's.
+  const json = args[0] === 'build' && args.includes('--json');
+  const result = spawnSync('cargo', [...cargo.args, '--', ...args], {stdio: ['inherit', json ? 'pipe' : 'inherit', 'inherit'], env: cargo.env, encoding: 'utf8', maxBuffer: 1 << 26});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
   // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5).
   const input = args[0] === 'build' ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
-  if (result.status === 0 && input && basename(input) === 'app.contract') refreshTypes(dirname(resolve(input)), binary);
+  if (result.status === 0 && input && basename(input) === 'app.contract') {
+    const dir = dirname(resolve(input));
+    refreshTypes(dir, binary, {quiet: json});
+    const checked = checkTypes(dir, {capture: json});
+    if (!json) return checked.status;
+    const diagnostics = JSON.parse(result.stdout);
+    if (checked.status) diagnostics.push(...typeDiagnostics(checked.report, dir));
+    process.stdout.write(`${JSON.stringify(diagnostics)}\n`);
+    return checked.status;
+  }
+  if (json) process.stdout.write(result.stdout ?? '');
   return result.status ?? 1;
+}
+
+/** `app.ts` against the plan just built, by the type check every host's build runs (the web JS
+ * target's `--check`), so a TypeScript error surfaces at the build an author runs most, not at an
+ * iOS build. Its report goes to stderr, or is returned as `report` when `capture` (`--json`). */
+function checkTypes(dir, {capture = false} = {}) {
+  // An app's directory alone: the check is the app build's, which reads its app.json.
+  if (!existsSync(resolve(dir, 'app.ts')) || !existsSync(resolve(dir, 'app.json'))) return {status: 0, report: ''};
+  const out = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
+  try {
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web-js/build.mjs'), basename(dir), '--check', '--out', out], { stdio: ['ignore', capture ? 'pipe' : 2, capture ? 'pipe' : 2], encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, EXACT_APP_DIR: dir } });
+    return {status: r.status ?? 1, report: `${r.stdout ?? ''}${r.stderr ?? ''}`};
+  } finally { rmSync(out, { recursive: true, force: true }); }
+}
+
+/** The type check's report as `build --json` diagnostics: one per tsc `file(line,col): error TSn: message`
+ * line, with the indented lines and notes after it; a report with none is one diagnostic on app.ts. */
+export function typeDiagnostics(report, dir) {
+  const found = [], at = (file) => relative(process.cwd(), resolve(dir, file));
+  for (const line of report.split(/\r?\n/)) {
+    const m = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.*)$/.exec(line);
+    if (m) found.push({id: `typescript-${m[4]}`, severity: 'error', message: m[5], file: at(m[1]), line: Number(m[2]), col: Number(m[3]), end_col: Number(m[3]), related: []});
+    else if (line.trim() && !/^error: .*: app\.ts failed the type check/.test(line)) {
+      if (found.length) found.at(-1).message += `\n${line}`;
+      else found.push({id: 'typescript-check', severity: 'error', message: line, file: at('app.ts'), line: 0, col: 0, end_col: 0, related: []});
+    }
+  }
+  return found.length ? found : [{id: 'typescript-check', severity: 'error', message: 'app.ts failed the type check every host\'s build runs', file: at('app.ts'), line: 0, col: 0, end_col: 0, related: []}];
 }
 
 /** The types `app.ts` imports, `contract types app.contract -o app.contract.d.ts`, rewritten
@@ -534,7 +603,7 @@ export function contract(args, env = process.env) {
  * the native development bake write the same file the same way, so a builder never runs the
  * step. A drawing app's carry the canvas seam, as both add it. Says so in one line on stderr,
  * so `--json` stays the build's reply; returns whether it wrote. */
-export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract')) {
+export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract'), {quiet = false} = {}) {
   const ts = resolve(dir, 'app.ts'), out = resolve(dir, 'app.contract.d.ts');
   if (!existsSync(ts) || !existsSync(binary)) return false;
   const types = spawnSync(binary, ['types', resolve(dir, 'app.contract')], {encoding: 'utf8', maxBuffer: 1 << 26});
@@ -544,15 +613,18 @@ export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process
   const before = existsSync(out) ? readFileSync(out, 'utf8') : null;
   if (before === text) return false;
   writeFileSync(out, text);
-  console.error(`app.contract.d.ts: ${before === null ? 'written' : 'regenerated, since a source\'s signature changed'} (the types app.ts imports)`);
+  if (!quiet) console.error(`app.contract.d.ts: ${before === null ? 'written' : 'regenerated, since a source\'s signature changed'} (the types app.ts imports)`);
   return true;
 }
 
 /** `exact new`: check the machine first, since a missing Cargo fails the
  * scaffold itself; then write the app and say what its builds will still need. */
-function newApp(path, {update = false, game = false, assets = false} = {}) {
+function newApp(path, {update = false, without = null, game = false, assets = false, snapback = null, title, id} = {}) {
   if (update) {
-    console.log(createApp(path, {update}));
+    console.log(createApp(path, {update, without}));
+    const manifest = resolve(path, 'app.json');
+    if (existsSync(manifest) && Object.values(JSON.parse(readFileSync(manifest, 'utf8')).typescript?.sources ?? {}).some(p => /(?:^|\/)snapback4\/ts\/?$/.test(p)))
+      console.log(wireSnapback(path, {artifactOnly:true}));
     // A file names what it uses (LLP 1091 D1): an app written before module
     // scope gets the `use` lines its files lack, as `contract fmt --uses` writes them.
     if (contract(['fmt', '--uses', resolve(path, 'app.contract')]) !== 0)
@@ -566,7 +638,8 @@ function newApp(path, {update = false, game = false, assets = false} = {}) {
     throw new Error('exact new needs Cargo (rustup) to resolve the new app; install it, then run exact new again');
   }
   // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
-  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path));
+  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path, {snapback, title, id}));
+  prebuildCompiler();
   if (report.some(row => !row.ok)) {
     // Builders read a bare "still needs" list as the reason a later command failed (bench diaries,
     // 2026-10-07/08): say when nothing on it blocks the app.
@@ -584,22 +657,44 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact install <app>          put it in ~/Applications and its name on PATH
   exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
-  exact setup [--check]        install pinned Rust, wasm-bindgen, Binaryen and
+  exact setup [--check]       install pinned Rust, wasm-bindgen, Binaryen and
                                this machine's host/iOS/tvOS Hermes bundles;
-                               fetch the crates every bake reads offline
-  exact hatch <word> [<app>]   an access hatch: a stub for each target the app builds
+                               fetch the crates every bake reads offline;
+                               build the engine rustdoc that game vocab reads
+  exact add <module> [<app>]   a standard module (geolocation): its dependency, installed
+  exact hatch <word> [<app>]   an access hatch: a stub for each target the app builds (Kotlin for android/)
                                (--app, --window for those scopes), and app.json's entry
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
+  exact new <path> --name <name> --bundle-id <id>
+                               the same, named: the name people see and the
+                               reverse-DNS bundle id (set both before a build)
+  exact new <path> --snapback [--port <n>] [--online]
+                               a new app wired to a Snapback backend in the
+                               directory above (a guestbook to start from; the
+                               origin's port, 4400 unless --port)
+  exact snapback <app> [--port <n>] [--online] [--rebuild [--artifact-only]]
+                               wire an app to the backend above it; --port moves
+                               its loopback origin, grants and test fetch prefixes
   exact new <path> --game      a new game (game/README.md): a Rust world under
                                Contract's menus, with the same exact.mjs verbs;
                                --assets declares game.assets
+  exact game vocab [<name>]   component fields, evaluated defaults and World verbs, from rustdoc
   exact contract <args…>       the Contract compiler (build, types, vocab, …),
                                with paths relative to where you run it
+  exact docs <heading words>   the one section of the guides and recipes with
+                               that heading, with its path and line
   exact tamber check|eval|ir|fmt <app>  the app's design (app.tamber): checked,
                                its tokens in one mode (eval --mode dark-style=dim),
                                its IR, tamber.json (ir -o <file>), or its layout (fmt)
+  exact tamber serve <app>     the design server alone (development only): /__tamber
+  exact tamber op <url> <request JSON>|subscribe  its scripted client
+  exact tamber pair <url> --scope read|propose|write [--name <n>]  a pairing code for a remote client
+  exact tamber tool [<app>] [--via <dev url>]  the design tool, at http://127.0.0.1:7740/__tamber/tool/
+  exact tamber import shadcn|tailwind|dtcg|astryx <source> <url> --app <app>  a theme as held proposals
+                               (astryx: bun scripts/astryx-tokens.mjs resolves its pinned package first)
+  exact tamber export dtcg <app> [-o <file>]  the design as DTCG 2025.10; its baseline in .exact/
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
@@ -608,6 +703,23 @@ EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
 release needs a "Developer ID Application" certificate and notarytool
 credentials in the keychain; it says how to get each if one is missing.
 EXACT_DEVELOPER_ID and EXACT_NOTARY_PROFILE name them explicitly.`;
+
+/** `exact add <module> [<app>]` (LLP 1133.001 D8): the app depends on one of exact2's standard modules by a path into
+ *  this checkout, as an app consumes exact2 by path, so the module never differs from the SDK it compiles against. */
+export function add(args, say = console.log) {
+  const [module, name] = args, short = String(module ?? '').replace(/^@exact\//, '');
+  const read = (path) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
+  const standard = readdirSync(resolve(ROOT, 'packages')).filter((p) => read(resolve(ROOT, 'packages', p, 'exact.json'))?.kind === 'interface');
+  if (!standard.includes(short)) throw new Error(`add: ${module ? `no standard module ${module}` : 'name a module'}; exact2's are ${standard.join(', ')} (exact add geolocation)`);
+  if (!name && !process.env.EXACT_APP_DIR) throw new Error('add: name the app (exact add geolocation <app>), or run bun exact.mjs add in it');
+  const app = resolveApp(name), at = resolve(app.dir, 'package.json'), manifest = read(at);
+  if (!manifest) throw new Error(`add: ${app.dir} has no package.json; an app exact new made has one`);
+  const key = `@exact/${short}`, spec = `file:${resolve(ROOT, 'packages', short)}`;
+  if (manifest.dependencies?.[key] !== spec) writeFileSync(at, JSON.stringify({ ...manifest, dependencies: { ...manifest.dependencies, [key]: spec } }, null, 2) + '\n');
+  if (spawnSync(process.execPath, ['install'], { cwd: app.dir, stdio: 'inherit' }).status !== 0) throw new Error(`add: bun install failed in ${app.dir}`);
+  const grants = read(resolve(ROOT, 'packages', short, 'exact.json'))?.grants ?? [];
+  say(`add: ${key} is ${spec}. Name what you use: use … from "${key}" in app.contract, or import from it in app.ts${grants.length ? `; and grant one of ${grants.join(', ')} with its purpose's strings key in app.ts (exact docs a capability that asks permission)` : ''}.`);
+}
 
 /** `exact hatch <word> [<app>]`, `exact hatch --app [<app>]`, `exact hatch --window [<app>]` (LLP 1075.003.000.001 §5):
  *  an access hatch's stub for each target the app builds. A word is added to app.json `hatches` with the platforms
@@ -714,7 +826,7 @@ import UIKit
 
 /// When the hatches connect (\`${scope}.isNew\`), and when ${scope === 'app' ? 'a fact changes' : 'its size or safe area changes'}.
 func ${scope}Hatch(_ ${scope}: ${type}) {
-    ${scope === 'app' ? '// app.owns(appearance: "what you set app-wide")' : '// window.owns(recognizer: added, "what it does", surface: true)'}
+    ${scope === 'app' ? '// app.owns(appearance: "what you set app-wide")\n    // The root node\'s data-* words, each declared in app.json `data`: app.data[.booted] for data-booted.' : '// window.owns(recognizer: added, "what it does", surface: true)'}
 }
 
 /// ${scope === 'app' ? 'The session is ending or reloading' : 'The session is leaving the window'}: undo what the hatch set.
@@ -759,7 +871,7 @@ export function elementEnded(e) {
       mark(main, '// exact:hatches', `import * as ${camel}Hatch from './${file}';\nhatches[${JSON.stringify(word)}] = ${camel}Hatch;`, 'import it and call its element and elementEnded from yours');
     } else {
       write(resolve(mod, file), `// The ${scope} hatch on the web (LLP 1075.003.000.001 §2.1). Yours to edit.
-// ${scope === 'app' ? 'The page is the app\'s own: its facts (`a.prefersColorScheme`, `a.visibilityState`, …) are the ones Contract sees.' : 'The page\'s window; `w.frame` is its inner size. Reach the global as `globalThis` in a file that exports `window`.'}
+// ${scope === 'app' ? 'The page is the app\'s own: its facts (`a.prefersColorScheme`, `a.visibilityState`, …) are the ones Contract sees;\n// `a.data` holds the root node\'s data-* words, each declared in app.json `data`.' :'The page\'s window; `w.frame` is its inner size. Reach the global as `globalThis` in a file that exports `window`.'}
 
 /** When the page module connects (\`isNew\`), and when ${scope === 'app' ? 'a fact changes' : 'its size changes'}. */
 export function built(${scope[0]}) {
@@ -850,7 +962,60 @@ fn ${snake}_hatch_ended<H: Hatches>(_element: &Element, _context: &mut Context<'
       mark(main, '// exact:element ', `            ${JSON.stringify(word)} => ${snake}_hatch(element, context),`, 'call it from your element');
     }
   }
-  if (!platforms.length) throw new Error(`hatch: ${app.name} builds no target a hatch can be written for (apple/, web/ or linux/)`);
+  if (existsSync(resolve(dir, 'android'))) {
+    // Android's reader runs the app's Kotlin beside its Rust (LLP 1115.001.000 D4): one class, exact.app.Hatches,
+    // compiled into the APK from modules/android. The app's Android crate writes its install (android_entry).
+    platforms.push('android');
+    const main = resolve(dir, 'modules/android/Hatches.kt');
+    write(main, `package exact.app
+
+import dev.exact.canvas.ExactApp
+import dev.exact.canvas.ExactElement
+import dev.exact.canvas.ExactHatches
+
+/**
+ * ${title}'s hatches on Android. Written by \`exact hatch\`; yours from here. Called on the main thread. A node is
+ * painted by exact2: a hatch has its box and words, acts on it as a person would (click, focus, blur, input), hears
+ * its input (observe), shows a view of its own in its box (host), and keeps time by exact2's clock (frames, after).
+ */
+class Hatches : ExactHatches() {
+    override fun element(element: ExactElement) {
+        when (element.hatch) {
+            // exact:element (exact hatch adds a word's arm above this one)
+        }
+    }
+
+    override fun elementEnded(element: ExactElement) {
+        when (element.hatch) {
+            // exact:elementEnded
+        }
+    }
+
+    override fun app(app: ExactApp) {
+        // exact:app
+    }
+
+    // exact:functions (exact hatch adds a word's functions above this line)
+}
+`);
+    if (scope === 'element') {
+      mark(main, '// exact:functions', `    /** The \`${word}\` hatch: built (\`element.isNew\`) and changed (a \`data-*\` word or the box's size moved). */
+    private fun ${camel}(element: ExactElement) {
+        if (element.isNew) element.diagnostics.log("built")
+    }
+
+    /** The node has left: stop what the hatch started for it. */
+    private fun ${camel}Ended(element: ExactElement) {}
+`, 'add its functions to your Hatches class');
+      mark(main, '// exact:elementEnded', `            ${JSON.stringify(word)} -> ${camel}Ended(element)`, 'call it from your elementEnded');
+      mark(main, '// exact:element ', `            ${JSON.stringify(word)} -> ${camel}(element)`, 'call it from your element');
+    }
+    const build = resolve(dir, 'android/build.rs');
+    if (!/\bandroid_entry\b/.test(existsSync(build) ? readFileSync(build, 'utf8') : '')) {
+      todo.push(`${build}: write the hatches' install, as apps/caltrain/android/build.rs does\n    contract::native::android_entry(&app_dir, &manifest, &plan, &out_dir), then canvas_jni!(Data, hatches = crate::exact_hatches())`);
+    }
+  }
+  if (!platforms.length) throw new Error(`hatch: ${app.name} builds no target a hatch can be written for (apple/, web/, linux/ or android/)`);
   if (scope === 'element') {
     // The declaration (§5): the word, with the platforms a stub was written for. A list means every platform.
     const had = manifest.hatches;
@@ -858,8 +1023,15 @@ fn ${snake}_hatch_ended<H: Hatches>(_element: &Element, _context: &mut Context<'
     else manifest.hatches = { ...(had ?? {}), [word]: [...new Set([...(had?.[word] ?? []), ...platforms])] };
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
   }
+  // The app hatch reads state only through the root's data-* words, and a word app.json `data` lacks fails the bake.
+  const declare = scope === 'app' && !Array.isArray(manifest.data);
+  if (declare) {
+    manifest.data = [];
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  }
   say(`${scope === 'element' ? `hatch="${word}"` : `the ${scope} hatch`} for ${platforms.join(', ')}${wrote.length ? `:\n  wrote ${wrote.map(f => f.slice(dir.length + 1)).join('\n  wrote ')}` : ': its files were already there'}`);
   if (scope === 'element') say(`  app.json hatches: ${JSON.stringify(manifest.hatches)}\n  mark a node in app.contract: column hatch="${word}"`);
+  if (scope === 'app') say(`  app.json data: ${JSON.stringify(manifest.data)}${declare ? ' (added)' : ''}: name each data-* word on the root that the hatch reads ("booted" for data-booted); Swift reads it as app.data[.booted]`);
   for (const line of todo) say(`  to do, in ${line}`);
   return { wrote, todo, platforms };
 }
@@ -876,21 +1048,196 @@ export function pattern(args, say = console.log) {
   say(next);
 }
 
-function main(argv) {
+/** The guides `docs` reads, in the order a tie is settled: what a builder looks a section up in. */
+const GUIDES = ['docs/start-here.md', 'docs/contract-for-agents.md', 'docs/contract-grammar.md', 'docs/agent-pitfalls.md', 'docs/game-pitfalls.md', 'docs/reference.md'];
+const SECTION_LINES = 120;
+
+/** Whether a line opens or closes a code fence (CommonMark: an opening fence's info string has no backtick). */
+const fenced = (line, open) => open ? /^\s*```+\s*$/.test(line) : /^\s*```+[^`]*$/.test(line);
+
+/** A Markdown file's lines, each line's kind (`head`, `code` in a fence, `text`), and its headings with the line each
+ *  one's section ends on (`to`, the next heading of its level or above) and its own text ends on (`own`, the next heading). */
+function sections(text) {
+  const lines = text.split('\n'), kinds = [], heads = [];
+  let fence = false;
+  lines.forEach((line, i) => {
+    const toggles = fenced(line, fence);
+    const m = !fence && !toggles && /^(#{1,6})\s+(.*)/.exec(line);
+    if (m) heads.push({ level: m[1].length, title: m[2].trim(), from: i });
+    kinds.push(m ? 'head' : fence || toggles ? 'code' : 'text');
+    if (toggles) fence = !fence;
+  });
+  for (const [i, h] of heads.entries()) {
+    h.to = heads.slice(i + 1).find(n => n.level <= h.level)?.from ?? lines.length;
+    h.own = heads[i + 1]?.from ?? lines.length;
+  }
+  return { lines, kinds, heads };
+}
+
+/** A query (its words singular, by one space) whose section ranking alone misses, because it is said in passing more
+ *  densely elsewhere or its section says it in other words ("dark mode": light and dark), and its section's heading. */
+const TOPICS = {
+  log: 'Inspection and testing', sheet: 'Recipe: a navigation stack', push: 'Recipe: a navigation stack',
+  'tab bar': 'Recipe: tabs', 'back button': 'Recipe: a navigation stack', share: 'Host commands',
+  'dark mode': 'Recipe: theme: colours, light and dark, icons',
+  font: 'Recipe: app.json, assets and modules', image: 'Recipe: app.json, assets and modules',
+  deploy: 'Recipe: porting an app, a release build, splitting the work',
+};
+
+const STOP = new Set(['a', 'an', 'and', 'by', 'for', 'in', 'it', 'its', 'of', 'on', 'or', 'the', 'to', 'you']);
+/** Type keywords (contract-grammar.md, "Expressions and types"): `strings` is app.json's key, never stemmed onto `: string`. */
+const TYPES = new Set(['number', 'string', 'bool', 'unit', 'action', 'option']);
+
+/** Words as whole words, one after another by spaces or hyphens, singular or plural (`sheets` finds `sheet`): `logs` is
+ *  not in "catalogs". */
+const singular = w => w.length > 3 && /[^s]s$/i.test(w) && !TYPES.has(w.slice(0, -1).toLowerCase()) ? w.slice(0, -1) : w;
+const wholeWords = (...words) => new RegExp(`(?<![a-z0-9_])${words.map(w => singular(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s-]+')}s?(?![a-z0-9_])`, 'gi');
+
+/** A line's weighted mentions of a word: code (in a fence or backticks) defines it, prose mentions it, and a piece of a
+ *  longer hyphenated name (`font-variant-numeric` for `font`, `syntax-call-cycle` for `call`) is not the word. */
+function mentions(line, kind, re) {
+  let n = 0;
+  for (const m of line.matchAll(re)) {
+    if (line[m.index - 1] === '-' || line[m.index + m[0].length] === '-') continue;
+    n += kind === 'code' || line.slice(0, m.index).split('`').length % 2 === 0 ? 3 : 1;
+  }
+  return n;
+}
+
+/** `exact.mjs docs <words>`: the section of the guides and recipes that holds every word, as a whole word, most densely
+ * (mentions in headings and code weigh more; a recipe, a section on its topic, more again), with its path and line, so a
+ * lookup is one call. A section whose heading holds the words prints from its heading, its subsections too; any other
+ * from its first paragraph that mentions one. Up to SECTION_LINES lines; the next matches by path and line. */
+export function docs(words, say = console.log) {
+  if (!words.length) return say(`docs: name words of a heading, as in: bun exact.mjs docs tabular numbers\nIt reads ${GUIDES.map(g => g.slice(5)).join(', ')} and recipes/.`);
+  // Each word, and several written together, which count again.
+  const res = words.map(w => wholeWords(w)), together = words.length > 1 ? wholeWords(...words) : null;
+  const recipes = readdirSync(resolve(ROOT, 'docs/recipes')).filter(f => f.endsWith('.md')).sort().map(f => `docs/recipes/${f}`);
+  const units = [], topic = TOPICS[words.map(w => singular(w).toLowerCase()).join(' ')];
+  for (const path of [...GUIDES, ...recipes]) {
+    const f = { path, shown: relative(process.cwd(), resolve(ROOT, path)), ...sections(readFileSync(resolve(ROOT, path), 'utf8')) };
+    for (const h of f.heads) {
+      const counts = res.map(re => { let n = 0; for (let i = h.from; i < h.own; i++) n += mentions(f.lines[i], f.kinds[i], re); return n; });
+      // The words written together are the phrase, a CSS name's hyphens included (`text overflow` is `text-overflow`,
+      // whose pieces alone are not the words); the query's own section (TOPICS) is a match however it says the words.
+      let joined = 0;
+      if (together) for (let i = h.from; i < h.own; i++) joined += mentions(f.lines[i], f.kinds[i], together);
+      if (counts.some(n => n === 0) && !joined && topic !== h.title) continue;
+      // A heading is on the words when they are half its own words or more ("Tabular numbers", "Recipe: motion"), or
+      // when it is a recipe's title that holds them all ("Recipe: files, SQLite and grants"); not when a section's
+      // heading only says one ("Before you call it done").
+      const recipe = path.includes('/recipes/'), own = h.title.replace(/^Recipe:/, '').toLowerCase().match(/[a-z0-9_-]+/g)?.filter(w => !STOP.has(w)) ?? [];
+      const titled = res.every(re => h.title.match(re)) && (words.length * 2 >= own.length || (recipe && h.level === 1));
+      // A section whose first paragraph names the words is about them ("A Cancel/Save sheet" opens the navigation stack's).
+      let first = h.from + 1;
+      while (first < h.own && f.lines[first].trim() === '') first++;
+      let last = first;
+      while (last < h.own && !(f.kinds[last] === 'text' && f.lines[last].trim() === '')) last++;
+      const opens = res.every(re => f.lines.slice(first, last).some((line, i) => mentions(line, f.kinds[first + i], re)));
+      const density = (counts.reduce((a, b) => a + b, 0) + 2 * joined) / (h.own - h.from + 8);
+      // A heading that is the words ("Tabular numbers") weighs more again; the query's own section comes first.
+      const exact = own.map(singular).join(' ') === words.map(w => singular(w).toLowerCase()).join(' ');
+      units.push({ f, h, titled, score: topic === h.title ? Infinity : density * (recipe ? 1.5 : 1) * (titled ? 3 : 1) * (exact ? 2 : 1) * (opens ? 1.5 : 1) * (joined ? 3 : 1) });
+    }
+  }
+  if (!units.length) return say(`docs: no section of the guides holds ${words.map(w => `"${w}"`).join(' and ')} as words; try fewer, or bun exact.mjs contract vocab <name>`);
+  units.sort((a, b) => b.score - a.score);
+  const at = (f, line) => `${f.shown}:${line + 1}`;
+  const [{ f, h, titled }] = units;
+  // The paragraph or list item (outside a fence: from the blank line before it) where a word is first mentioned; none
+  // when only the heading holds them.
+  let from = titled ? -1 : f.lines.findIndex((line, i) => i > h.from && i < h.own && res.some(re => mentions(line, f.kinds[i], re)));
+  const whole = from < 0;
+  let end = Math.min(h.to, h.from + SECTION_LINES), where = '';
+  if (whole) from = h.from;
+  else {
+    const starts = i => f.kinds[i] === 'text' && /^\s*([-*]|\d+\.)\s/.test(f.lines[i]);
+    while (from - 1 > h.from && !starts(from) && !(f.lines[from - 1].trim() === '' && f.kinds[from - 1] === 'text')) from--;
+    end = Math.min(h.own, from + SECTION_LINES);
+    where = `, under "${h.title}"`;
+  }
+  const cut = end < (whole ? h.to : h.own) ? `\n… to ${at(f, (whole ? h.to : h.own) - 1)}` : '';
+  const also = units.slice(1, 9).map(u => `${at(u.f, u.h.from)} ${u.h.title}`);
+  say(`${at(f, from)}${where}\n${f.lines.slice(from, end).join('\n').trimEnd()}${cut}${also.length ? `\nAlso: ${also.join(' · ')}` : ''}`);
+}
+
+async function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
-  if (verb === 'setup') return setup({check: name === '--check'});
+  // Help before any work (`setup --help` installed, `new --help` wrote an app); the compiler answers its own.
+  if (verb !== 'contract' && argv.some(arg => arg === '--help' || arg === '-h')) return console.log(helpText(verb) ?? USAGE);
+  if (verb === 'game' && name === 'vocab') return import('../game/vocab.mjs').then(m => m.main(rest));
+  if (verb === 'status' || verb === 'web' && rest.includes('--ready')) {
+    const {readStatus, formatStatus, waitReady} = await import('../game/status.mjs');
+    const dir = name ? resolve(name) : process.cwd();
+    if (verb === 'status') return console.log(formatStatus(readStatus(dir)));
+    const row = await waitReady(dir, {timeout:Number(rest.includes('--timeout') ? rest[rest.indexOf('--timeout') + 1] : 600)});
+    return console.log(`READY ${row.url}`);
+  }
+  if (verb === 'setup') {
+    const flags = argv.slice(1);
+    if (flags.some(flag => !['--check'].includes(flag))) throw new Error('Usage: exact setup [--check]');
+    return setup({check:flags.includes('--check')});
+  }
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
   if (verb === 'contract') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('contract')), 0) : contract(argv.slice(1)));
   // An app's design on its own (LLP 1121 D2): the compiler's `tamber` verbs.
-  if (verb === 'tamber') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('tamber')), 0) : contract(['tamber', ...argv.slice(1)]));
+  if (verb === 'tamber' && (argv.includes('--help') || argv.includes('-h'))) return console.log(helpText('tamber'));
+  // The design server's wire and its scripted client (LLP 1121 D13): development only.
+  if (verb === 'tamber' && name === 'serve') return import('./tamber-server.mjs').then(m => m.serveAlone(rest)).then(code => process.exit(code));
+  if (verb === 'tamber' && name === 'import') return import('./tamber-server.mjs').then(m => m.importTheme(rest)).then(code => process.exit(code));
+  if (verb === 'tamber' && name === 'op') return import('./tamber-server.mjs').then(m => m.op(rest)).then(code => process.exit(code));
+  if (verb === 'tamber' && name === 'pair') return import('./tamber-pairing.mjs').then(m => m.pairCode(rest)).then(code => process.exit(code));
+  if (verb === 'tamber' && name === 'tool') return import('./tamber-server.mjs').then(m => m.toolCommand(rest)).then(code => process.exit(code));
+  if (verb === 'tamber') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
+  if (verb === 'add') return add(guardFlags('add', argv.slice(1)));
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
+  // Words, never flags: a CSS name (`-exact-exit-animation`) is one, and --help was answered above.
+  if (verb === 'docs') return docs(argv.slice(1));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
-    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), path = args.find(arg => !arg.startsWith('--'));
-    return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets')});
+    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), without = args.indexOf('--without');
+    const titled = args.indexOf('--name'), bundle = args.indexOf('--bundle-id');
+    const values = new Set([port, without, titled, bundle].filter(i => i >= 0).map(i => i + 1));
+    const path = args.find((arg, i) => !arg.startsWith('--') && !values.has(i));
+    for (const [at, flag, example] of [[titled, '--name', '"Field Log"'], [bundle, '--bundle-id', 'com.yourcompany.fieldlog']])
+      if (at >= 0 && (!args[at + 1] || args[at + 1].startsWith('--'))) throw new Error(`exact new: ${flag} takes a value, as in ${flag} ${example}`);
+    if ((titled >= 0 || bundle >= 0) && args.includes('--game')) throw new Error('exact new: --name and --bundle-id name an app; a game takes its name and id from its app.json');
+    if (args.includes('--online') && !args.includes('--snapback')) throw new Error('exact new: --online requires --snapback and an existing backend schema');
+    if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
+    if (without >= 0 && !args[without + 1]) throw new Error('update --without: name the platform, as in --without linux');
+    const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined, online: args.includes('--online') } : null;
+    return newApp(path, {update: args.includes('--update'), without: without >= 0 ? args[without + 1] : null, game: args.includes('--game'), assets: args.includes('--assets'), snapback, title: titled >= 0 ? args[titled + 1] : undefined, id: bundle >= 0 ? args[bundle + 1] : undefined});
+  }
+  if (verb === 'backend') {
+    const dir = resolve(name), parent = resolve(dir, '..');
+    const source = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    const origin = backendOrigin(dir) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(source)?.[1];
+    if (!origin) throw new Error('exact backend: app.ts needs a literal const origin (bun exact.mjs snapback --port N writes it)');
+    const url = new URL(origin);
+    if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) throw new Error('exact backend: the origin must be loopback to launch a local server');
+    const args = argv.slice(2);
+    if (!args.length) args.push('dev');
+    if (args.includes('--port')) throw new Error('exact backend: set the origin once with bun exact.mjs snapback --port N');
+    const result = spawnSync(process.execPath, [resolve(parent, 'node_modules/snapback4/bin/snapback4.js'), ...args, '--port', url.port || (url.protocol === 'https:' ? '443' : '80')], { cwd: parent, stdio: 'inherit' });
+    if (result.error) throw result.error;
+    process.exitCode = result.status ?? 1;
+    return;
+  }
+  if (verb === 'snapback') {
+    if (!name) { console.error('exact snapback: name the app\'s directory (its exact.mjs passes it: bun exact.mjs snapback)'); process.exit(2); }
+    if (argv.includes('--artifact-only') && !argv.includes('--rebuild')) throw new Error('exact snapback: --artifact-only requires --rebuild');
+    const args = guardFlags('snapback', argv.slice(1)), port = args.indexOf('--port');
+    const dir = resolve(args[0]), app = { dir, manifest: JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')) };
+    // Always ask Cargo to validate its inputs; cached or unstamped bytes never block repair.
+    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '', online: args.includes('--online') ? true : null, artifactOnly: args.includes('--artifact-only'), rebuild: args.includes('--rebuild') }));
+    app.manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    const updated = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    const nextOrigin = backendOrigin(dir) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(updated)?.[1];
+    await devicePreflight(app, nextOrigin ? [nextOrigin] : []);
+    return;
   }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }

@@ -115,15 +115,19 @@ impl Kernel {
     pub fn fit_content_height(&mut self, key: NodeKey) -> Option<f32> {
         use taffy::style::{Dimension, LengthPercentage, LengthPercentageAuto};
         let (frame, _) = self.laid_out_frame(key)?;
-        self.measure_symbols();
+        self.measure_symbols(false);
         let slot = key.index;
-        // A block's root has no parent to stand in for: its used size is
-        // its content's already (`Kernel::host_block_size`).
-        if self.arena.blocks.holds(slot) {
-            return None;
-        }
+        // A block's root stands in its block (LLP 1115.002 D8.2): the block's
+        // width is what it is measured in, with no parent and no height, so
+        // a fitted sheet whose route has its block is measured as it wraps
+        // there (LLP 1123 D2, D7).
+        let block = self.arena.blocks.get(slot);
         let tree_ref = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
-        let parent = self.arena.parent(slot);
+        let parent = if block.is_some() {
+            None
+        } else {
+            self.arena.parent(slot)
+        };
         let holder = parent.map(|p| (p, self.arena.taffy(p).map(|n| tree_ref.layout(n))));
         // Where the parent shares its inline axis among its children (a flex
         // row, a grid), the in-flow siblings come too: they set the box's
@@ -197,7 +201,10 @@ impl Kernel {
             Some((p, _)) => taffy_style(&self.arena, p),
             None => taffy::style::Style::default(),
         };
-        let width = holder.map_or(frame.width, |(p, _)| self.arena.frame(p).width);
+        let width = match block {
+            Some(b) => b.width.length(),
+            None => holder.map_or(frame.width, |(p, _)| self.arena.frame(p).width),
+        };
         if let Some((_, Some(laid))) = holder {
             let (pad, border) = (laid.padding, laid.border);
             outer.padding = taffy::geometry::Rect {
@@ -258,6 +265,121 @@ impl Kernel {
         (height.is_finite() && height >= 0.0).then_some(height)
     }
 
+    /// The margins the last layout resolved around `key`'s border box (left,
+    /// top, right, bottom), and whether that box's width is the author's (a
+    /// `width` other than `auto`, 1) or its content's (0), and its resolved
+    /// minimum border-box width.
+    /// What a Live Activity placement's region takes around a root the bake
+    /// positions absolutely (LLP 1126.001 WP10): CSS 2.1 §10.3.7 gave the
+    /// root its shrink-to-fit width in that layout, and the driver draws the
+    /// same layout. A read, as [`Kernel::laid_out_frame`] is: it lays nothing
+    /// out, and nothing on the ordinary layout path calls it. `None` as for
+    /// `laid_out_frame`.
+    pub fn placement_box(&self, key: NodeKey) -> Option<[f32; 6]> {
+        self.laid_out_frame(key)?;
+        let slot = self.arena.resolve(key)?;
+        let tree_ref = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
+        let laid = tree_ref.layout(self.arena.taffy(slot)?);
+        let style = self.arena.style(slot);
+        let authored = style.width != crate::Dimension::Auto;
+        let basis = self
+            .arena
+            .parent(slot)
+            .and_then(|p| self.arena.taffy(p))
+            .map_or(0.0, |p| {
+                let parent = tree_ref.layout(p);
+                parent.size.width - parent.border.left - parent.border.right
+            });
+        let mut minimum = style.min_width.at_basis(self.arena.env(), basis).max(0.0);
+        if style.box_sizing == crate::generated::BoxSizing::ContentBox {
+            let (left, _, right, _) = self.resolved_padding(key).unwrap_or_default();
+            let [_, br, _, bl] = style.border_widths_in(self.arena.env());
+            minimum += left + right + bl + br;
+        }
+        let box_ = [
+            laid.margin.left,
+            laid.margin.top,
+            laid.margin.right,
+            laid.margin.bottom,
+            if authored { 1.0 } else { 0.0 },
+            minimum,
+        ];
+        box_.iter().all(|v| v.is_finite()).then_some(box_)
+    }
+
+    /// How far down its content box a `text` that is a flex container draws
+    /// its lines: its text is one anonymous flex item (CSS Flexbox §4),
+    /// placed by `align-items` in a row (its cross ends swapped under
+    /// `wrap-reverse`) and by `justify-content` in a column. Only the
+    /// vertical place moves: the width its lines wrap in stays the box's.
+    /// Zero for any other node, and for a text fragmented across columns,
+    /// whose lines its fragments place.
+    pub fn text_line_offset(&self, node: &crate::NodeRef<'_>) -> f32 {
+        use crate::generated::{
+            AlignContent, AlignItems, Display, FlexDirection, FlexWrap, JustifyContent, Overflow,
+        };
+        let style = node.style;
+        if node.node_type != NodeType::Text
+            || style.display != Display::Flex
+            || self.fragments(node.key).is_some()
+        {
+            return 0.0;
+        }
+        let (_, top, _, bottom) = self.resolved_padding(node.key).unwrap_or_default();
+        let [border_top, _, border_bottom, _] = style.border_widths_in(self.arena.env());
+        let room = node.frame.height - top - bottom - border_top - border_bottom;
+        // The measured extent counts the top padding before the lines, and
+        // the bottom one after them in a box that clips or scrolls (Taffy's leaf).
+        let clips = style.overflow_x != Overflow::Visible || style.overflow_y != Overflow::Visible;
+        let lines = node.content.1 - top - if clips { bottom } else { 0.0 };
+        let free = (room - lines).max(0.0);
+        let reverse = style.flex_wrap == FlexWrap::WrapReverse;
+        let (flex_start, flex_end) = if reverse { (free, 0.0) } else { (0.0, free) };
+        match style.flex_direction {
+            FlexDirection::Row | FlexDirection::RowReverse => {
+                // A wrapping container's one line is placed by `align-content`,
+                // the item in it (as tall as it) by nothing more.
+                if style.flex_wrap != FlexWrap::Nowrap {
+                    match style.align_content {
+                        AlignContent::Normal | AlignContent::Stretch => {}
+                        AlignContent::Center
+                        | AlignContent::SpaceAround
+                        | AlignContent::SpaceEvenly => return free / 2.0,
+                        AlignContent::End => return free,
+                        AlignContent::FlexEnd => return flex_end,
+                        AlignContent::FlexStart | AlignContent::SpaceBetween => return flex_start,
+                        AlignContent::Start => return 0.0,
+                    }
+                }
+                match style.align_items {
+                    AlignItems::Center => free / 2.0,
+                    AlignItems::End | AlignItems::SelfEnd => free,
+                    AlignItems::FlexEnd => flex_end,
+                    AlignItems::FlexStart => flex_start,
+                    _ => 0.0,
+                }
+            }
+            direction => {
+                let reversed = direction == FlexDirection::ColumnReverse;
+                match style.justify_content {
+                    JustifyContent::Center
+                    | JustifyContent::SpaceAround
+                    | JustifyContent::SpaceEvenly => free / 2.0,
+                    JustifyContent::End => free,
+                    JustifyContent::FlexEnd if !reversed => free,
+                    JustifyContent::FlexStart
+                    | JustifyContent::Normal
+                    | JustifyContent::SpaceBetween
+                        if reversed =>
+                    {
+                        free
+                    }
+                    _ => 0.0,
+                }
+            }
+        }
+    }
+
     /// The CSS padding the last layout resolved, in points: left, top,
     /// right, bottom. A percentage is of the containing block's width, which
     /// in a multi-column container is the column's (CSS Multi-column §3.4).
@@ -267,6 +389,26 @@ impl Kernel {
     pub fn resolved_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
         let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.padding;
         Some((left, top, right, bottom))
+    }
+
+    /// A node's margins as its layout reads them under the kernel's
+    /// environment, top/right/bottom/left in points: whole cells under a
+    /// terminal's space rule (LLP 1121 stage 11 (c)), a percentage none.
+    pub fn laid_margins(&self, id: crate::ViewId) -> Option<[f32; 4]> {
+        use crate::style::cells::{COLUMN, ROW};
+        let node = self.node(id)?;
+        let (env, s) = (self.arena.env(), node.style);
+        let [t, r, b, l] = [
+            (s.margin_top, ROW),
+            (s.margin_right, COLUMN),
+            (s.margin_bottom, ROW),
+            (s.margin_left, COLUMN),
+        ]
+        .map(|(d, cell)| match d.spaced(env, cell) {
+            d if d.has_percent() => 0.0,
+            d => d.at_basis(env, 0.0),
+        });
+        Some([t, r, b, l])
     }
 
     /// The padding the engine laid the box out with: `resolved_padding` and

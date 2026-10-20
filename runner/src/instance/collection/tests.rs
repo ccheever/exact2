@@ -129,7 +129,7 @@ struct Harness {
     plan: Plan,
     slots: Vec<Value>,
     /// The plan's interned strings and site index, built once as a runner builds them
-    strings: &'static [Value],
+    strings: &'static crate::vm::Strings,
     sites: crate::instance::SiteIndex,
     tree: Tree,
     ids: Ids,
@@ -138,13 +138,9 @@ struct Harness {
 }
 fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
     // Test harnesses outlive every Env they build; leak one table per call.
-    env_with(
-        plan,
-        slots,
-        Box::leak(crate::vm::intern(plan).into_boxed_slice()),
-    )
+    env_with(plan, slots, Box::leak(Box::new(crate::vm::intern(plan))))
 }
-fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a [Value]) -> Env<'a> {
+fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a crate::vm::Strings) -> Env<'a> {
     Env {
         plan,
         strings,
@@ -162,6 +158,7 @@ fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a [Value]) -> Env
         failed_resources: &[],
         failed_why: &[],
         pending_mutations: &[],
+        failed_mutations: &[],
         store_dependent_derives: &[],
         store_dependent_resources: &[],
     }
@@ -187,7 +184,7 @@ impl Harness {
     fn try_from_parts(plan: Plan, slots: Vec<Value>) -> Result<Self, InstanceError> {
         let mut ids = Ids::default();
         let mut kernel = Kernel::with_monospace();
-        let strings: &'static [Value] = Box::leak(crate::vm::intern(&plan).into_boxed_slice());
+        let strings: &'static crate::vm::Strings = Box::leak(Box::new(crate::vm::intern(&plan)));
         let sites = crate::instance::SiteIndex::new(&plan);
         let mut u = Update::new(env_with(&plan, &slots, strings), &sites, &mut ids);
         let tree = Tree::create(&mut u)?;
@@ -1379,4 +1376,32 @@ fn bounded_snapshots_equal_ordinary_and_refuse_before_owned_rows() {
         current
     );
     assert_ne!(current, ordinary);
+}
+
+/// The keyboard going down grows a transcript's port in two frames between
+/// reports (UIKit: its frame without, then with, the bottom safe area). The
+/// host clamped the port to the end of the first, which is short of the
+/// second's end; a reader at the end before the resize is still there.
+#[test]
+fn an_unreported_resize_the_reader_did_not_make_keeps_the_end() {
+    let mut h = Harness::new(100, false, true);
+    h.send(h.feedback(2880.0));
+    let mut hidden = h.feedback(2500.0);
+    hidden.port_main = 660.0;
+    h.send(hidden);
+    assert_eq!(h.snapshot().correction.unwrap().offset, 2540.0);
+    // A reader moving the port as it resizes (an interactive dismissal)
+    // chose where it is.
+    let mut h = Harness::new(100, false, true);
+    h.send(h.feedback(2880.0));
+    let mut dragged = h.feedback(2500.0);
+    dragged.port_main = 660.0;
+    h.send_filled(
+        dragged,
+        CollectionFill {
+            velocity: -400.0,
+            ..CollectionFill::default()
+        },
+    );
+    assert!(h.snapshot().correction.is_none());
 }

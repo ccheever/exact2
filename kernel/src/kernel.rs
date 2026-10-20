@@ -21,6 +21,7 @@ use crate::text::{MonospaceMeasurer, TextMeasurer, TextRun, TextStyle};
 
 use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
+mod alert;
 mod block;
 mod cover;
 mod document;
@@ -29,9 +30,11 @@ mod geometry;
 mod history;
 use history::RetainedReceipt;
 mod intrinsic;
+pub(crate) use intrinsic::apply_projection;
 mod row_memo;
 mod sticky;
 mod trim;
+mod wide;
 
 pub(crate) use block::{apply as apply_block, publication_start, Blocks};
 pub use block::{BlockAxis, HostBlock};
@@ -104,6 +107,14 @@ impl<'a> NodeRef<'a> {
         }
     }
 
+    /// The node's host-known state looks (LLP 1121 D8), each a state
+    /// ([`crate::LOOK_HOVER`],
+    /// [`crate::LOOK_FOCUS_VISIBLE`]) and its patch, resolved, ascending by
+    /// state: a host composes them over [`Self::style`] on its own tracking.
+    pub fn looks(&self) -> &'a [(u8, StyleProps)] {
+        self.arena.looks(self.slot)
+    }
+
     /// The editor content box in this native field's local frame (LLP 1104 D5).
     pub fn field_content_rect(&self) -> Option<Frame> {
         self.arena.field_content_rect(self.slot)
@@ -139,29 +150,24 @@ impl<'a> NodeRef<'a> {
             .map(|s| self.arena.local_id(s))
     }
 
+    /// Whether a platform control's start stops the inherited row `id` at
+    /// this node (LLP 1104 D4): an ancestor's value, and its motion, do not
+    /// reach it. An authored clear (`color="inherit"`) takes it through, as
+    /// [`Self::source_of`] does.
+    pub fn starts(&self, id: StyleId) -> bool {
+        !self.style.written.has(id)
+            && self
+                .arena
+                .style_starts(self.slot)
+                .any(|start| start.mask.has(id))
+    }
+
     /// Whether an author declaration chooses this row, including an explicit
     /// CSS clear that inherits or uses the initial value (LLP 1115.000 D2).
     /// `style.written` is this node's declarations alone; an inherited row
     /// can also be chosen by an ancestor. A platform start stops that walk.
     pub fn says(&self, id: StyleId) -> bool {
-        let mut current = Some(self.slot);
-        while let Some(slot) = current {
-            let own = self.arena.style(slot);
-            if own.written.has(id) {
-                return true;
-            }
-            if own.mask.has(id)
-                || !id.inherited()
-                || self
-                    .arena
-                    .style_starts(slot)
-                    .any(|start| start.mask.has(id))
-            {
-                return false;
-            }
-            current = self.arena.parent(slot);
-        }
-        false
+        self.arena.says(self.slot, id)
     }
 
     /// CSS's computed value of a row: the own row; else, for an inherited
@@ -303,6 +309,8 @@ pub struct Kernel {
     /// before this kernel's measurer measured any: a new one asks about
     /// every symbol again (`measure_symbols`).
     symbol_revision: Option<u64>,
+    /// This kernel as a holder of wide colours, for the table's sweep.
+    wide: crate::style::wide::Holder,
 }
 
 /// The engine tree, which a layout path has made sure of with `mirror`.
@@ -369,6 +377,7 @@ impl Kernel {
             detached: false,
             awaiting: Default::default(),
             symbol_revision: None,
+            wide: Default::default(),
         }
     }
 
@@ -390,7 +399,7 @@ impl Kernel {
         if self.layout.is_none() {
             self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
-        self.measure_symbols();
+        self.measure_symbols(true);
     }
 
     /// The published epoch: bumps on every commit that changed something.
@@ -1000,6 +1009,7 @@ impl Kernel {
         self.receipts.clear();
         self.incarnation += 1;
         self.epoch += 1;
+        self.wide_changed();
     }
 
     /// A second kernel built from this one's columns alone — the layout engine
@@ -1030,7 +1040,9 @@ impl Kernel {
             detached: self.detached,
             awaiting: Default::default(),
             symbol_revision: None,
+            wide: Default::default(),
         }
+        .published()
     }
 }
 
@@ -1372,117 +1384,4 @@ mod locality_tests {
 }
 
 #[cfg(test)]
-mod layout_on_demand_tests {
-    use super::*;
-    use crate::{NodeType, PropId, StyleId, StyleValue};
-
-    fn style(id: u32, rows: &[(StyleId, StyleValue)]) -> Op {
-        let mut patch = StyleProps::default();
-        for (row, value) in rows {
-            patch.set_dynamic(*row, value).unwrap();
-        }
-        Op::SetStyle {
-            id,
-            patch: Box::new(patch),
-        }
-    }
-    fn create(id: u32, node_type: NodeType) -> Op {
-        Op::CreateView { id, node_type }
-    }
-    fn text(id: u32, value: &str) -> Op {
-        Op::SetProp {
-            id,
-            prop: PropId::Text,
-            value: value.into(),
-        }
-    }
-    fn frames(k: &Kernel) -> Vec<(ViewId, Frame, (f32, f32))> {
-        let mut out: Vec<_> = (1..=9)
-            .filter_map(|id| k.node(id).map(|n| (id, n.frame, n.content)))
-            .collect();
-        out.sort_by_key(|(id, ..)| *id);
-        out
-    }
-
-    /// The same commits, before and after a first layout, lay out the same
-    /// in a kernel that builds its engine tree on demand and in one that
-    /// mirrors every commit, and the on-demand one holds no engine node until
-    /// a layout is asked for.
-    #[test]
-    fn a_kernel_with_layout_on_demand_lays_out_as_a_mirrored_one() {
-        let first = [
-            create(1, NodeType::View),
-            create(2, NodeType::View),
-            create(3, NodeType::Text),
-            create(4, NodeType::Image),
-            create(5, NodeType::Text),
-            create(6, NodeType::View),
-            style(
-                1,
-                &[(StyleId::FlexDirection, StyleValue::Text("column".into()))],
-            ),
-            style(
-                2,
-                &[
-                    (StyleId::Width, StyleValue::Number(200.0)),
-                    (StyleId::Height, StyleValue::Number(80.0)),
-                ],
-            ),
-            text(3, "a paragraph of text that wraps"),
-            text(5, "short"),
-            Op::SetChildren {
-                id: 2,
-                children: vec![3, 6],
-            },
-            Op::SetChildren {
-                id: 1,
-                children: vec![2, 4, 5],
-            },
-            Op::AttachRoot { id: 1 },
-        ];
-        let second = [
-            style(2, &[(StyleId::Width, StyleValue::Number(120.0))]),
-            text(5, "a longer line of text now"),
-            Op::DestroyView { id: 6 },
-        ];
-        let third = [
-            create(7, NodeType::View),
-            style(7, &[(StyleId::Height, StyleValue::Number(30.0))]),
-            Op::SetChildren {
-                id: 1,
-                children: vec![2, 7, 4, 5],
-            },
-        ];
-        let offer = Offer::definite(300.0, 600.0);
-        let mut mirrored = Kernel::with_monospace();
-        let mut on_demand = Kernel::with_monospace_on_demand();
-        for k in [&mut mirrored, &mut on_demand] {
-            k.apply(0, 1, &first).unwrap();
-            k.apply(0, 2, &second).unwrap();
-            k.set_intrinsic_size(4, Some((40.0, 20.0))).unwrap();
-            k.set_env(Env::new(10.0, 0.0, 5.0, 0.0)).unwrap();
-        }
-        assert_eq!(on_demand.engine_nodes(), 0);
-        assert_eq!(mirrored.engine_nodes(), mirrored.live_count());
-        for k in [&mut mirrored, &mut on_demand] {
-            k.compute_layout(1, offer).unwrap();
-        }
-        assert_eq!(on_demand.engine_nodes(), on_demand.live_count());
-        assert_eq!(frames(&on_demand), frames(&mirrored));
-        let box2 = on_demand.node(2).unwrap().frame;
-        assert_eq!((box2.width, box2.height), (120.0, 80.0));
-        assert!(on_demand.node(5).unwrap().frame.y >= 80.0);
-        // Mirrored from its first layout on, it keeps up with later commits.
-        for k in [&mut mirrored, &mut on_demand] {
-            k.apply(0, 3, &third).unwrap();
-            k.compute_layout(1, offer).unwrap();
-        }
-        assert_eq!(on_demand.engine_nodes(), on_demand.live_count());
-        assert_eq!(frames(&on_demand), frames(&mirrored));
-        assert_eq!(on_demand.node(7).unwrap().frame.height, 30.0);
-        // A reset returns it to building on demand.
-        on_demand.reset();
-        on_demand.apply(0, 4, &first).unwrap();
-        assert_eq!(on_demand.engine_nodes(), 0);
-    }
-}
+mod layout_on_demand_tests;

@@ -1,15 +1,20 @@
 // data: sparkline
+// linux: layout
 // Synthetic conformance plan: the agent's `type` on a control and its reveal
 // before a tap, on both executors (calendar F7, kanban F17, ledger F7, shop
 // F10/F11). A select is chosen by an option's label, a date, a time and a range
 // take their HTML values, a checkbox `true`: each `input` then `change`, as a
 // person choosing would. A button inside a scroller and one below the page's
 // fold are scrolled into view before their taps. The options carry no `value`,
-// so each one's value is its label (HTML). The two `progress`es are the
-// page's drawn ring, at its 20 × 20 default and sized (LLP 1069.001,
-// amended 2026-10-07); the third, with a `value`, is HTML's own bar at its
-// UA box, following the range (LLP 1116 D8).
+// so each one's value is its label (HTML). The progress rings cover default
+// and authored sizes, plus live parent display and position changes against
+// the kernel's boxes. The determinate progress is HTML's own bar, following
+// the range (LLP 1069.001, LLP 1116 D8).
 component Controls
+  state flow = "grid"
+  state direction = "row"
+  state placement = "static"
+  state alignment = "center"
   state pick = "Alpha"
   state day = ""
   state hour = ""
@@ -17,6 +22,13 @@ component Controls
   state agreed = false
   state far = 0
   state inner = 0
+  action setFlow(display: string, axis: string)
+    flow = display
+    direction = axis
+  action setPlacement(value: string)
+    placement = value
+  action align(value: string)
+    alignment = value
   action choose(value: string)
     pick = value
   action setDay(value: string)
@@ -33,6 +45,32 @@ component Controls
     inner = inner + 1
   view
     column testId="root" gap=8 padding=8 background-color="#ffffff"
+      row gap=4
+        button testId="block" press=setFlow("block", "row") width=40 height=24
+          text "block"
+        button testId="grid" press=setFlow("grid", "row") width=40 height=24
+          text "grid"
+        button testId="flex-row" press=setFlow("flex", "row") width=40 height=24
+          text "row"
+        button testId="flex-column" press=setFlow("flex", "column") width=40 height=24
+          text "col"
+        button testId="absolute" press=setPlacement("absolute") width=40 height=24
+          text "abs"
+        button testId="in-flow" press=setPlacement("static") width=40 height=24
+          text "flow"
+      row gap=4
+        button testId="align-start" press=align("start") width=60 height=24
+          text "start"
+        button testId="align-center" press=align("center") width=60 height=24
+          text "center"
+        button testId="align-normal" press=align("normal") width=60 height=24
+          text "normal"
+      box display="grid" justify-items="center" width=240 height=20
+        progress testId="progress-sized-center" width=20 height=20
+      box display="grid" justify-items="start" width=240 height=20
+        progress testId="progress-static-start"
+      box testId="progress-parent" position="relative" display=flow flex-direction=direction justify-items=alignment width=240 height=40
+        progress testId="progress-live" position=placement left=0 right=0 top=0
       select value=pick change=choose testId="pick" width=120 height=24
         option "Alpha"
         option "Beta"
@@ -46,10 +84,13 @@ component Controls
         progress testId="busy" aria-label="Loading"
         progress testId="busy-large" width=37 height=37 color="#007aff"
       progress value=level max=10 testId="level-bar" aria-label="Level"
-      text `${pick} ${day} ${hour} ${level} ${agreed} ${far} ${inner}` testId="values"
+      // Its line height written: a normal one is the font's, which differs by
+      // a pixel between Chrome and the kernel (18 and 19 px as measured here),
+      // and every box below it would.
+      text `${pick} ${day} ${hour} ${level} ${agreed} ${far} ${inner}` testId="values" line-height="20px"
       scroll testId="inner-scroll" height=80
         box height=300
-        button press=pressInner testId="inner"
+        button press=pressInner testId="inner" width=80
           text "inner"
       box height=1600
       button press=pressFar testId="far"

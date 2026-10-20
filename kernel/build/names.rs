@@ -51,17 +51,25 @@ fn debug_from_name(w: &mut String, ty: &str, rows: &[(&str, &str)]) {
 }
 /// @ref LLP 1116.007 D3.1 — every spelling a `symbol:` source answers to, with its role: a role,
 /// Apple's name for it (dots read as dashes, as underscores do) and the table's aliases. A role and
-/// its Apple name may coincide (`heart`); every other spelling names one role and is new.
+/// its Apple name may coincide (`heart`); every other spelling names one role and is new, except
+/// that two meanings may share one Apple glyph (`reorder` and `menu`, which Material draws apart):
+/// its Apple spelling names the earlier row.
 fn symbol_spellings(schema: &Schema) -> std::collections::BTreeMap<String, &str> {
     let mut spellings = std::collections::BTreeMap::new();
+    for [role, _, _] in &schema.symbols {
+        spellings.insert(role.clone(), role.as_str());
+    }
     for [role, apple, _] in &schema.symbols {
-        for key in [role.clone(), apple.replace(['.', '_'], "-")] {
-            let prior = spellings.insert(key.clone(), role.as_str());
-            assert!(
-                prior.is_none_or(|prior| prior == role),
-                "schema: symbol spelling `{key}` names both `{role}` and `{}`",
-                prior.unwrap_or_default()
-            );
+        let key = apple.replace(['.', '_'], "-");
+        match spellings.get(&key) {
+            None => {
+                spellings.insert(key, role.as_str());
+            }
+            Some(prior) if prior == role => {}
+            Some(prior) => assert!(
+                schema.symbols.iter().any(|row| row[0] == *prior && row[1] == *apple),
+                "schema: symbol spelling `{key}` names both `{role}` and `{prior}`"
+            ),
         }
     }
     for [alias, role] in &schema.symbol_aliases {

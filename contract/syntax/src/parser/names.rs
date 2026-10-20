@@ -20,7 +20,7 @@ pub(super) const RESERVED: [&str; 16] = [
 ];
 
 /// Whether `w` is one of the sixteen reserved words.
-pub(super) fn is_reserved(w: &str) -> bool {
+pub fn is_reserved(w: &str) -> bool {
     RESERVED.contains(&w)
 }
 
@@ -45,6 +45,7 @@ pub(super) fn section_hint(word: &str) -> String {
         "mutations" => "mutation",
         "actions" => "action",
         "tasks" => "task",
+        "sequences" => "sequence",
         "views" => "view",
         "slots" => "slot",
         "provides" => "provide",
@@ -53,7 +54,7 @@ pub(super) fn section_hint(word: &str) -> String {
     };
     let place = match section {
         "props" => " (any component but the first in the file declares them)",
-        "resource" | "mutation" | "task" => " (only the root component declares one)",
+        "resource" | "mutation" | "task" | "sequence" => " (only the root component declares one)",
         _ => "",
     };
     format!(": did you mean `{section}`{place}?")
@@ -219,6 +220,42 @@ impl Parser {
 
     /// A name where the grammar can never read an expression: a shape field,
     /// a named argument, a member after `.`. Every word is one.
+    /// How many words a dotted argument name ahead has (`a.b=` is 2), when
+    /// the tokens ahead are one: two or more names joined by `.`, then `=`.
+    pub(super) fn dotted_name_ahead(&self) -> Option<usize> {
+        let at = |i: usize| &self.tokens[(self.pos + i).min(self.tokens.len() - 1)].kind;
+        let mut words = 0;
+        loop {
+            if !matches!(at(words * 2), TokenKind::Ident(_)) {
+                return None;
+            }
+            words += 1;
+            match at(words * 2 - 1) {
+                TokenKind::Punct(".") => {}
+                TokenKind::Punct("=") if words > 1 => return Some(words),
+                _ => return None,
+            }
+        }
+    }
+
+    /// A dotted argument, a platform's word on a module call,
+    /// `apple.desiredAccuracy=…` (LLP 1133.002 D13): `=` is never an
+    /// operator, so the words before it are no expression.
+    pub(super) fn dotted_arg(&mut self, words: usize) -> R<Expr> {
+        let span = self.peek().span;
+        let mut name = String::new();
+        for _ in 0..words * 2 - 1 {
+            match self.next().kind {
+                TokenKind::Ident(w) => name.push_str(&w),
+                _ => name.push('.'),
+            }
+        }
+        self.expect_punct("=")?;
+        let value = self.expr()?;
+        self.last += 1;
+        Ok(Expr::NamedArg(name, Box::new(value), span))
+    }
+
     pub(super) fn field_name(&mut self) -> R<(String, Span)> {
         match self.peek_kind().clone() {
             TokenKind::Ident(w) => {
@@ -228,4 +265,47 @@ impl Parser {
             _ => self.ident(),
         }
     }
+}
+
+/// A `timer` (or `interval`) section, which Contract writes as a `task`
+/// (LLP 1092), rewritten with the builder's own interval, gate and action
+/// where the line names them (`timer t interval=1000 running=on tick=step`,
+/// `timer t every 1000 when on then step`), so the repair keeps the timer
+/// (LLP 1116.018: three repairs deleted it).
+pub(super) fn timer_hint(word: &str, line: &[Token]) -> String {
+    let (mut ms, mut gate, mut action) = (None, None, None);
+    let mut i = 0;
+    while i < line.len() {
+        // The value after a key, as `key=value` or `key value`, and where it ends.
+        let value = |at: usize| -> Option<(String, usize)> {
+            let at = match line.get(at).map(|t| &t.kind) {
+                Some(TokenKind::Punct("=")) => at + 1,
+                _ => at,
+            };
+            match line.get(at).map(|t| &t.kind) {
+                Some(TokenKind::Ident(v)) => Some((v.clone(), at)),
+                Some(TokenKind::Number(n)) => Some((n.to_string(), at)),
+                _ => None,
+            }
+        };
+        if let TokenKind::Ident(w) = &line[i].kind {
+            let slot = match w.as_str() {
+                "interval" | "every" | "ms" | "period" => Some(&mut ms),
+                "when" | "running" | "active" | "enabled" | "while" | "if" => Some(&mut gate),
+                "then" | "tick" | "action" | "run" | "do" | "call" | "onTick" => Some(&mut action),
+                _ => None,
+            };
+            if let (Some(slot), Some((v, end))) = (slot, value(i + 1)) {
+                *slot = Some(v);
+                i = end;
+            }
+        }
+        i += 1;
+    }
+    let ms = ms.unwrap_or_else(|| "1000".into());
+    let gate = gate.map_or(String::new(), |g| format!(" when {g}"));
+    let action = action.unwrap_or_else(|| "tick".into());
+    format!(
+        "a timer is a `task`: write `task {action}Timer{gate}` with `every({ms}, {action})` indented under it, and `{action}` an action; the task runs while its `when` holds, so start and stop are a state (docs/recipes/timers.md). There is no `{word}` section"
+    )
 }

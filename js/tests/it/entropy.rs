@@ -1,6 +1,6 @@
 //! LLP 1069.005 D2/D3 through the Hermes bytecode executor, runner and
 //! bake: secure randomness is a counted device read, refused during module
-//! initialization, and never compiled into a plan. `js/web/tests/browser.rs`
+//! initialization, and never compiled into a plan. `js/web/tests/it/browser.rs`
 //! holds the browser realms to the same answers.
 #![cfg(exact_js_engine)]
 

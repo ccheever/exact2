@@ -21,6 +21,7 @@ extension TextGeometryTests {
             r.font_size = Float(v.size); r.font_weight = UInt16(v.weight); r.font_family = UInt16(v.family)
             r.italic = v.italic ? 1 : 0; r.has_line_height = v.lineHeight == nil ? 0 : 1
             r.line_height = Float(v.lineHeight ?? 0); r.letter_spacing = Float(v.letterSpacing)
+            r.font_variant_numeric = UInt8(v.numeric); r.font_stretch = Float(v.stretch)
             runs.append(r)
         }
         let s = runs.removeLast()

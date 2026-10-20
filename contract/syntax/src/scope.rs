@@ -16,10 +16,12 @@ use std::collections::HashMap;
 pub enum Kind {
     /// `component`.
     Component,
-    /// `shape` and `fn`.
+    /// `shape`, `fn`, and a native module's sources and sends.
     Call,
     /// `style`.
     Style,
+    /// `decoration`.
+    Decoration,
     /// `keyframes`.
     Keyframes,
     /// `timeline`.
@@ -33,6 +35,7 @@ impl Kind {
             Kind::Component => "component",
             Kind::Call => "shape or function",
             Kind::Style => "style",
+            Kind::Decoration => "decoration",
             Kind::Keyframes => "keyframes",
             Kind::Timeline => "timeline",
         }
@@ -96,6 +99,10 @@ pub struct Scope {
     /// a written type of one of these names is refused even when this file
     /// has a `fn` of the name, which is no type.
     pub foreign_shapes: std::collections::HashMap<String, String>,
+    /// The program-unique names that are native modules' sources and sends
+    /// (LLP 1133.001): a resource or a `send` naming one in scope takes its
+    /// name, where a data source's name is left as written.
+    pub modules: std::collections::HashSet<String>,
 }
 
 impl Scope {
@@ -119,6 +126,17 @@ impl Scope {
             });
         }
         Ok(None)
+    }
+
+    /// A resource's or a `send`'s source: a module name in scope takes its
+    /// program-unique name; any other is the data seam's, left as written.
+    fn rename_source(&self, name: &mut String) {
+        if let Some(to) = self
+            .get(Kind::Call, name)
+            .filter(|to| self.modules.contains(*to))
+        {
+            *name = to.to_owned();
+        }
     }
 
     fn rename(&self, kind: Kind, name: &mut String, span: Span) -> Result<(), SyntaxError> {
@@ -159,11 +177,19 @@ pub fn calls(file: &mut File) -> std::collections::HashSet<String> {
     seen.called
 }
 
+/// Every named type referenced by annotations in `file`.
+pub fn type_names(file: &mut File) -> std::collections::HashSet<String> {
+    let mut seen = Seen::default();
+    walk(file, &Scope::default(), Some(&mut seen)).expect("an empty scope refuses nothing");
+    seen.typed
+}
+
 /// What a collecting walk records.
 #[derive(Default)]
 struct Seen {
     bound: std::collections::HashSet<String>,
     called: std::collections::HashSet<String>,
+    typed: std::collections::HashSet<String>,
 }
 
 fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), SyntaxError> {
@@ -181,6 +207,8 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         sounds: _,
         shapes,
         styles,
+        decorations,
+        decoration_scopes: _,
         keyframes,
         timelines,
         // A `@color-profile`'s dashed name is global, as in CSS.
@@ -188,11 +216,21 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         // The theme's names are the app's, as roles are (LLP 1095 D4).
         theme: _,
         design: _,
+        package_designs: _,
         fns,
+        modules,
         tests,
         launch: _,
         components,
     } = file;
+    for m in modules {
+        r.scope.rename(Kind::Call, &mut m.name, m.span)?;
+        let words = m.words.iter_mut().flat_map(|w| &mut w.words);
+        for field in m.options.iter_mut().chain(words) {
+            r.ty(&mut field.ty)?;
+        }
+        r.ty(&mut m.answers)?;
+    }
     for shape in shapes {
         r.scope.rename(Kind::Call, &mut shape.name, shape.span)?;
         for field in &mut shape.fields {
@@ -202,6 +240,11 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
     for style in styles {
         r.scope.rename(Kind::Style, &mut style.name, style.span)?;
         r.attrs(&mut style.attrs)?;
+    }
+    for decoration in decorations {
+        r.scope
+            .rename(Kind::Decoration, &mut decoration.name, decoration.span)?;
+        r.attrs(&mut decoration.attrs)?;
     }
     for k in keyframes {
         r.scope.rename(Kind::Keyframes, &mut k.name, k.span)?;
@@ -279,7 +322,9 @@ impl Rewriter<'_> {
             mutations,
             actions,
             tasks,
+            sequences,
             view,
+            params: _,
             span,
         } = c;
         self.scope.rename(Kind::Component, name, *span)?;
@@ -304,6 +349,7 @@ impl Rewriter<'_> {
             self.expr(&mut b.expr)?;
         }
         for res in resources {
+            self.scope.rename_source(&mut res.source);
             self.exprs(&mut res.args)?;
             self.ty(&mut res.shape)?;
             if let Some(p) = &mut res.placeholder {
@@ -322,6 +368,18 @@ impl Rewriter<'_> {
         for t in tasks {
             self.expr(&mut t.timer.0)?;
             for e in t.gate.iter_mut().chain(t.key.iter_mut()) {
+                self.expr(e)?;
+            }
+        }
+        for q in sequences {
+            let options = q.options.iter_mut().map(|o| &mut o.1);
+            for e in q
+                .gate
+                .iter_mut()
+                .chain(q.key.iter_mut())
+                .chain([&mut q.tracks])
+                .chain(options)
+            {
                 self.expr(e)?;
             }
         }
@@ -377,6 +435,11 @@ impl Rewriter<'_> {
     }
 
     fn ty(&mut self, ty: &mut TypeExpr) -> R {
+        if let TypeExpr::Named(name, _) = ty {
+            if let Some(seen) = self.seen.as_deref_mut() {
+                seen.typed.insert(name.clone());
+            }
+        }
         match ty {
             TypeExpr::Named(name, _) if PRIMITIVES.contains(&name.as_str()) => Ok(()),
             // A type is a shape, never a `fn`: a shape this file sees, else
@@ -405,6 +468,7 @@ impl Rewriter<'_> {
                     Ok(())
                 }
             },
+            TypeExpr::Enum(..) => Ok(()),
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
     }
@@ -418,7 +482,11 @@ impl Rewriter<'_> {
                     self.bind([name.clone()]);
                 }
                 Stmt::Assign { expr, .. } => self.expr(expr)?,
-                Stmt::Command { args, .. } | Stmt::Send { args, .. } => self.exprs(args)?,
+                Stmt::Command { args, .. } => self.exprs(args)?,
+                Stmt::Send { source, args, .. } => {
+                    self.scope.rename_source(source);
+                    self.exprs(args)?
+                }
                 Stmt::Refresh { .. } => {}
                 Stmt::If {
                     cond,

@@ -103,6 +103,27 @@ pub fn device() -> Result<Gpu, String> {
     block_on(load_gpu(wgpu::Instance::default(), None)).map_err(|error| error.to_string())
 }
 
+/// This machine's device without the `withheld` features: what a device that
+/// lacks them draws (full-precision shading, say), beside `device`'s.
+pub fn device_without(withheld: wgpu::Features) -> Result<Gpu, String> {
+    let instance = wgpu::Instance::default();
+    let adapter = block_on(instance.request_adapter(&Default::default()))
+        .map_err(|error| error.to_string())?;
+    let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("exact fixture"),
+        required_limits: crate::requested_limits(adapter.limits()),
+        required_features: adapter.features() & crate::requested_features() & !withheld,
+        ..Default::default()
+    }))
+    .map_err(|error| error.to_string())?;
+    Ok(Gpu {
+        instance,
+        adapter,
+        device,
+        queue,
+    })
+}
+
 /// One frame of `surface` into a fresh `Rgba8Unorm` texture of the frame's
 /// pixel size, read back; and whether the surface wants another frame. The
 /// surface has no children texture here. `Rgba8Unorm` rather than the

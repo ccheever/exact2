@@ -4,7 +4,7 @@
 
 use crate::compat::Compat;
 use contract::Manifest;
-use exact_update::{Baked, Envelope};
+use exact_update::{gpu_code_digest as code_digest, Baked, Envelope};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
@@ -40,11 +40,12 @@ pub(crate) fn emit(
     compat: &mut Compat,
     trust: &str,
     app: &Path,
-    platform: &str,
-    target: &str,
+    destination: (&str, &str),
     manifest: &Manifest,
     out: &Path,
+    entries: &std::collections::BTreeMap<String, contract::snapshot::Entry>,
 ) -> Result<(), String> {
+    let (platform, target) = destination;
     for name in [
         "EXACT_UPDATE_RECEIPT",
         "EXACT_UPDATE_GENESIS",
@@ -75,6 +76,12 @@ pub(crate) fn emit(
     source_map(trust, app, out, &plan, &plan_bytes);
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
     let mut assets = asset_cards(app, out, manifest)?;
+    let (widget_assets, plans) = crate::widgets::emit(
+        out,
+        matches!(platform, "ios" | "macos") && app.join("app.ts").is_file(),
+        entries,
+    )?;
+    assets.extend(widget_assets);
     let rust_assets = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         stage_rust_bundle(
             Path::new(&directory),
@@ -99,6 +106,9 @@ pub(crate) fn emit(
     compat.target = target.into();
     compat.embedded =
         json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,"genesis":true});
+    if plans.as_object().is_some_and(|p| !p.is_empty()) {
+        compat.embedded["plans"] = plans;
+    }
     // The GPU product is built (and on Apple, signed) before the host. Its
     // exact bytes belong to this app/cohort; a sibling filename is not identity.
     if platform != "web" {
@@ -153,6 +163,7 @@ pub(crate) fn emit(
         std::fs::create_dir_all(&destination)
             .map_err(|e| format!("{}: {e}", destination.display()))?;
         let stem = format!("{platform}-{target}");
+        crate::widgets::copy(out, &destination.join(format!("{stem}.entries")), &assets)?;
         // Never watched: the builder rewrites these from OUT_DIR after every
         // Cargo run, so a watch here would rerun this bake on every next build.
         std::fs::write(destination.join(format!("{stem}.json")), compat.to_json())
@@ -261,7 +272,13 @@ fn asset_cards(app: &Path, out: &Path, manifest: &Manifest) -> Result<Vec<Value>
                 .as_array()
                 .ok_or("missing shader roots")?
                 .iter()
-                .map(|v| watch::optional_tree(Path::new(v.as_str().unwrap()), &outputs)),
+                .filter_map(|v| {
+                    watch::shader_tree(
+                        Path::new(v.as_str().unwrap()),
+                        &outputs,
+                        declared.as_deref(),
+                    )
+                }),
         );
     let paths = roots.collect::<std::collections::BTreeSet<_>>();
     for path in paths {
@@ -430,6 +447,18 @@ fn shape(plan: &exact_plan::Plan, ty: exact_plan::TypesId, depth: usize) -> Resu
     })
 }
 
+/// The plan's requirement graph against a cohort's compatibility inputs
+/// (`exact-bake graph`): what a publisher that starts from a signed stream
+/// head, not a native bake, checks a new plan against.
+pub fn plan_graph(plan_bytes: &[u8], inputs: &Value, target: &str) -> Result<Value, String> {
+    let plan = exact_plan::Plan::decode(plan_bytes).map_err(|e| format!("the plan: {e:?}"))?;
+    let mut graph = artifact_graph(&plan, inputs, &[], target)?;
+    let node = &mut graph["artifacts"][0];
+    node["sha256"] = json!(hash(plan_bytes));
+    node["bytes"] = json!(plan_bytes.len());
+    Ok(graph)
+}
+
 fn artifact_graph(
     plan: &exact_plan::Plan,
     inputs: &Value,
@@ -577,6 +606,8 @@ fn artifact_graph(
         ("video", makes(exact_kernel::NodeType::Video)),
         ("web", makes(exact_kernel::NodeType::WebView)),
         ("sound", !plan.sounds.is_empty()),
+        // LLP 1125 D6: the MIDI arm for a plan that asks for ports or hears an input.
+        ("midi", exact_runner::uses::uses_midi(plan)),
     ]
     .into_iter()
     .filter_map(|(module, reached)| reached.then_some(module))
@@ -707,15 +738,15 @@ fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), S
     Ok(())
 }
 
-/// A signed GPU product's file name and digest, watched by the bake: its exact
-/// bytes belong to this app and cohort, which the loader checks before opening it.
+/// A signed GPU product's file name and digest, watched by the bake: its code
+/// belongs to this app and cohort, which the loader checks before opening it.
 fn gpu_product(path: &Path) -> Result<(String, String), String> {
     println!("cargo:rerun-if-changed={}", path.display());
     let bytes = std::fs::read(path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
     let name = path.file_name().and_then(|n| n.to_str());
     Ok((
         name.ok_or("GPU product filename is not UTF-8")?.to_string(),
-        hash(&bytes),
+        code_digest(&bytes),
     ))
 }
 

@@ -4,6 +4,7 @@
 #[cfg(exact_js_engine)]
 mod real {
     use std::ffi::{c_char, c_void, CStr, CString};
+    use std::sync::Arc;
 
     /// The one door from the module into Rust: `(ctx, op, a, b, out)`; 0
     /// with `out` null is `undefined`, 0 with a string is that string, and
@@ -91,8 +92,9 @@ mod real {
         fn exact_js_destroy(h: *mut c_void);
     }
 
-    /// One runtime with one module evaluated into it.
-    pub struct Engine(*mut c_void, Vec<(Vec<String>, String)>);
+    /// One runtime with one module evaluated into it, and the bytecode
+    /// it reads in place, kept until the runtime is destroyed.
+    pub struct Engine(*mut c_void, Vec<(Vec<String>, String)>, Vec<Arc<[u8]>>);
 
     /// A runtime as another thread may reach it: only to interrupt it, and
     /// only while its owner keeps it alive (`Module`'s watch).
@@ -176,7 +178,7 @@ mod real {
             if h.is_null() {
                 return Err("the Hermes runtime could not be created".into());
             }
-            Ok(Engine(h, Vec::new()))
+            Ok(Engine(h, Vec::new(), Vec::new()))
         }
 
         /// Install only during trusted initialization, after the prelude and
@@ -241,10 +243,22 @@ mod real {
             Raw(self.0)
         }
 
-        pub fn load(&mut self, bytecode: &[u8]) -> Result<(), String> {
+        /// Evaluate bytecode the binary holds.
+        pub fn load_static(&mut self, bytecode: &'static [u8]) -> Result<(), String> {
+            self.evaluate(bytecode)
+        }
+
+        /// Evaluate a module's bytecode, kept for the runtime's life.
+        pub fn load_shared(&mut self, bytecode: Arc<[u8]>) -> Result<(), String> {
+            self.2.push(bytecode.clone());
+            self.evaluate(&bytecode)
+        }
+
+        fn evaluate(&mut self, bytecode: &[u8]) -> Result<(), String> {
             let mut out: *mut c_char = std::ptr::null_mut();
-            // SAFETY: the slice outlives the call (the shim copies it); `out`
-            // receives an owned string or stays null.
+            // SAFETY: Hermes reads the bytes in place for as long as the
+            // runtime lives, and they do (`load_static`, `load_shared`);
+            // `out` receives an owned string or stays null.
             let status =
                 unsafe { exact_js_load(self.0, bytecode.as_ptr(), bytecode.len(), &mut out) };
             let text = take(out);
@@ -469,7 +483,10 @@ mod real {
         pub fn drain(&mut self) -> Result<(), String> {
             Err(NONE.into())
         }
-        pub fn load(&mut self, _bytecode: &[u8]) -> Result<(), String> {
+        pub fn load_static(&mut self, _bytecode: &'static [u8]) -> Result<(), String> {
+            Err(NONE.into())
+        }
+        pub fn load_shared(&mut self, _bytecode: std::sync::Arc<[u8]>) -> Result<(), String> {
             Err(NONE.into())
         }
         pub fn string(&self, _name: &str) -> Result<String, String> {

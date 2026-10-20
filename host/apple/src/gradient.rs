@@ -28,6 +28,8 @@ pub unsafe fn resolve(
     let Some(g) = image.gradient() else {
         return 0;
     };
+    // No session's overrides: the batch that carried it resolved its own.
+    let _roles = exact_kernel::style::roles::bind(&Default::default());
     let (ramp, geometry) = g.placed(size[0], size[1], dark);
     let placement = match geometry {
         Geometry::Linear { start, end } => {
@@ -87,6 +89,15 @@ use crate::style::num;
 pub(crate) fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
     use exact_kernel::gradient::{premultiplied_ramp, Direction, GradientKind, Length};
     if g.needs_box() {
+        // Its session's overrides now, while that session is bound: the
+        // presenter resolves the rest later, outside any (LLP 1121 stage 5).
+        let mut g = g.clone();
+        for stop in &mut g.stops {
+            // A tint role (`LinkText`) the theme's `AccentColor` too.
+            if let Some(o) = exact_kernel::style::roles::painted_override(stop.color) {
+                stop.color = o;
+            }
+        }
         let mut css = String::new();
         exact_runner::agent::quote(&g.wire(), &mut css);
         return format!("{{\"css\":{css}}}");

@@ -209,6 +209,21 @@ final class AppAccentIOSTests: XCTestCase {
         XCTAssertNotEqual(accent.renderingMode, .alwaysOriginal, "the accent follows the tint, which UIKit greys")
     }
 
+    /// LLP 1011 §4: a symbol in a box of another shape keeps its aspect under
+    /// CSS's default `object-fit: fill`, as an SVG does; `cover` and `none` say otherwise.
+    func testASymbolKeepsItsAspectUnderFill() throws {
+        func symbol(_ id: Int, _ style: [String: Any]) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": "image", "props": ["imageSource": "symbol:sf/chevron.right", "symbolName": "chevron.right"], "handlers": [],
+              "style": ["font_size": 16].merging(style) { $1 }],
+             ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 16.0, "h": 16.0]]
+        }
+        let p = presenter(view(1) + symbol(2, [:]) + symbol(3, ["object_fit": "cover"]) + symbol(4, ["object_fit": "none"])
+                          + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]])
+        XCTAssertEqual(p.views[2]?.symbolView?.contentMode, .scaleAspectFit, "unsaid `fill` draws the glyph undistorted")
+        XCTAssertEqual(p.views[3]?.symbolView?.contentMode, .scaleAspectFill)
+        XCTAssertEqual(p.views[4]?.symbolView?.contentMode, .center)
+    }
+
     /// A root's accent becomes its window's tint while the batch applies;
     /// the report that tint change asks for is made once the batch is in,
     /// so the runner never re-presents in the middle of a batch.

@@ -1,4 +1,5 @@
 fn validate(schema: &Schema) {
+    validate_controls(schema);
     let mut roles = BTreeSet::new();
     for [role, apple, path] in &schema.symbols {
         // Digits name a skip's seconds (`skip-back-15`, podcast F3), never first.
@@ -237,4 +238,35 @@ fn write_validate_domain(w: &mut String, schema: &Schema) {
     }
     writeln!(w, "        Ok(())").unwrap();
     writeln!(w, "    }}").unwrap();
+}
+
+/// The control-role table (LLP 1121 D9): a known control, with a state
+/// part's state where it names one; a parameter `accent-color` or a colour
+/// role; each host a fidelity, `: why` after it; one row a pair.
+fn validate_controls(schema: &Schema) {
+    const CONTROLS: [&str; 10] = ["switch", "checkbox", "radio", "range", "progress", "spinner", "select", "button-prominent", "field", "textarea"];
+    const STATES: [&str; 5] = ["active", "hover", "focus-visible", "disabled", "checked"];
+    let mut seen = BTreeSet::new();
+    for [control, parameter, hosts @ ..] in &schema.controls {
+        let (name, state) = control.split_once(':').map_or((control.as_str(), None), |(n, s)| (n, Some(s)));
+        assert!(CONTROLS.contains(&name), "schema: controls: unknown control {control}");
+        assert!(state.is_none_or(|s| STATES.contains(&s)), "schema: controls: {control}: unknown state");
+        assert!(
+            parameter == "accent-color" || schema.colors.iter().any(|row| row[0] == *parameter),
+            "schema: controls: {control}: {parameter} is neither accent-color nor a colour role"
+        );
+        assert!(seen.insert((control, parameter)), "schema: controls: {control} {parameter} twice");
+        for cell in hosts {
+            let (fidelity, why) = cell.split_once(": ").map_or((cell.as_str(), None), |(f, w)| (f, Some(w)));
+            // `exact` needs no why; the others say what the platform does.
+            assert!(
+                ["exact", "best-effort", "none"].contains(&fidelity)
+                    && match why {
+                        None => fidelity == "exact",
+                        Some(w) => fidelity != "exact" && !w.trim().is_empty(),
+                    },
+                "schema: controls: {control} {parameter}: `{cell}` is no fidelity"
+            );
+        }
+    }
 }

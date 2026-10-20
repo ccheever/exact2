@@ -54,15 +54,9 @@ fn browser_session_history_on_the_js_target() {
 
 fn sweep(js: bool) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let chrome = std::env::var("CHROME")
-        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     let dist = std::env::var_os("EXACT_ROUTER_DIST")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| root.join("host/web/dist"));
-    assert!(
-        Path::new(&chrome).exists(),
-        "Chrome is required: set CHROME"
-    );
     assert!(
         js || dist.join("app.wasm").exists(),
         "build the web dist first"
@@ -97,6 +91,19 @@ fn sweep(js: bool) {
         .replace(
             "          if e.name == \"home\"\n            text \"Home\"\n",
             "          if e.name == \"home\"\n            text \"Home\"\n            link href=\"javascript:globalThis.scriptProbe++\" testId=`script-link-${e.id}` padding=8\n              text \"Script link\"\n            text testId=`script-text-${e.id}`\n              text \"Script run\" href=scriptURL testId=`script-run-${e.id}`\n            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
+        )
+        // A `data:` document shows in a sandbox without `allow-same-origin`
+        // and nowhere else (LLP 1020 §10): a literal or bound source, under a
+        // literal or bound sandbox that `flipFrame` opens and closes. A
+        // flipped one posts its letter from the opaque origin (a post at
+        // boot can come before the wasm host hears input, which drops it).
+        .replace(
+            "  state initialUrl",
+            "  state frameSandbox = \"allow-same-origin\"\n  state frameDoc = \"data:text/html,<script>parent.postMessage('b','*')</script>\"\n  state frameHref = \"/post/42\"\n  state frameHeard = \"\"\n  state httpHeard = 0\n  action heardHTTP(m: string)\n    httpHeard = httpHeard + 1\n  action flipFrame\n    frameSandbox = frameSandbox == \"allow-scripts\" ? \"allow-same-origin\" : \"allow-scripts\"\n  action restrictFrame\n    frameSandbox = \"\"\n  action clearFrameLink\n    frameHref = \"\"\n  action heardFrame(m: string)\n    frameHeard = `${frameHeard}${m}`\n  state initialUrl",
+        )
+        .replace(
+            "            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
+            "            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n            iframe \"data:text/html,<p>s</p>\" sandbox=\"allow-scripts\" width=40 height=20 testId=`data-frame-${e.id}`\n            iframe \"data:text/html,x\" width=40 height=20 testId=`data-bare-${e.id}`\n            iframe \"data:text/html,x\" sandbox=\"allow-scripts allow-same-origin\" width=40 height=20 testId=`data-same-${e.id}`\n            iframe \"data:text/html,<script>parent.postMessage('l','*')</script>\" sandbox=frameSandbox message=heardFrame width=40 height=20 testId=`data-literal-${e.id}`\n            iframe frameDoc sandbox=frameSandbox message=heardFrame width=40 height=20 testId=`data-bound-${e.id}`\n            iframe \"/__test-guest\" sandbox=frameSandbox message=heardHTTP width=40 height=20 testId=`http-frame-${e.id}`\n            button press=flipFrame testId=`flip-frame-${e.id}`\n              text \"Flip frame\"\n            button press=restrictFrame testId=`restrict-frame-${e.id}`\n              text \"Restrict frame\"\n            link href=frameHref testId=`empty-frame-link-${e.id}`\n              text \"Frame link\"\n            button press=clearFrameLink testId=`clear-frame-link-${e.id}`\n              text \"Clear frame link\"\n",
         )
         .replace(
             "  action followLink(url: string)\n    nav = go(nav, url)",
@@ -166,7 +173,6 @@ fn sweep(js: bool) {
     let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg("host/web/tests/navigation.mjs")
         .env("EXACT_ROUTER_DIST", dist)
-        .env("CHROME", chrome)
         .env("EXACT_ROUTER_TEST", &dir)
         .env("EXACT_ROUTER_TARGET", if js { "js" } else { "wasm" })
         .current_dir(root)

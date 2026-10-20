@@ -21,7 +21,7 @@ impl<D: DataSource> Host<D> {
             };
             if n.style.display == Display::None
                 || n.props.bool(PropId::Disabled) == Some(true)
-                || (Self::is_layer(&n) && !self.layers.iter().any(|(open, _)| *open == view))
+                || (Self::is_layer(&n) && !self.layers.iter().any(|(open, ..)| *open == view))
             {
                 continue;
             }
@@ -152,7 +152,7 @@ impl<D: DataSource> Host<D> {
         let settling = self.collections.settling;
         self.collections.settling = true;
         let roots = match self.layers.last() {
-            Some((top, _)) => vec![*top],
+            Some((top, ..)) => vec![*top],
             None => self.runner.roots(),
         };
         let next = self

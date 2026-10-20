@@ -73,6 +73,10 @@ theorem cmono_aux : ∀ n,
             simp only [Except.bind_ok_iff] at h ⊢
             obtain ⟨a, h1, xs, h2, ys, h3, h4⟩ := h
             exact ⟨a, ihE hm h1, xs, h2, ys, ihF hm h3, h4⟩
+          next l ps body dir =>
+            simp only [Except.bind_ok_iff] at h ⊢
+            obtain ⟨a, h1, xs, h2, ks, h3, h4⟩ := h
+            exact ⟨a, ihE hm h1, xs, h2, ks, ihM hm h3, h4⟩
           next => exact ihP hm h
           next => exact ihP hm h
           next => exact ihP hm h

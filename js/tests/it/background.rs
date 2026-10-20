@@ -658,7 +658,7 @@ fn a_failed_storage_continuation_releases_the_queue() {
         )
         .unwrap_err();
     // A storage call's failure the module let through (LLP 1109 D3).
-    let DataError::Failed(FailureCode::Storage, message) = err else {
+    let DataError::Failed(FailureCode::Storage, message, _) = err else {
         panic!("{err:?}");
     };
     assert!(message.contains("timed out"), "{message}");

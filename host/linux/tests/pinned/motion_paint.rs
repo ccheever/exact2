@@ -45,6 +45,32 @@ fn pixel(p: &mut Presenter<()>, x: u32, y: u32) -> [u8; 4] {
 }
 
 #[test]
+fn unchanged_ticks_keep_ui_cached_but_motion_and_resize_invalidate_it() {
+    let mut p = boot();
+    p.frame();
+    assert!(!p.dirty());
+    p.tick(16.);
+    assert!(
+        !p.dirty(),
+        "advancing time alone does not repaint static UI"
+    );
+    p.tap(view(&p, "toggle")).unwrap();
+    assert!(p.dirty());
+    p.frame();
+    p.tick(516.);
+    assert!(p.dirty(), "active colour motion must repaint the HUD");
+    p.frame();
+    p.tick(1016.);
+    assert!(p.dirty(), "the final animation frame must also repaint");
+    p.frame();
+    p.resize(240., 320.);
+    assert!(p.dirty());
+    assert_eq!(p.frame().width(), 240);
+    p.set_pointer(Some((20., 20.)));
+    assert!(p.dirty(), "pointer changes invalidate the cached UI");
+}
+
+#[test]
 fn a_colour_transition_paints_premultiplied_and_hands_its_row_back() {
     let mut p = boot();
     let (toggle, label) = (view(&p, "toggle"), view(&p, "label"));

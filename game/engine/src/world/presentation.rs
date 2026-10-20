@@ -4,6 +4,18 @@
 use super::*;
 
 impl World {
+    /// Retained presentation payload pages and their index metadata, in bytes.
+    /// Excludes registry entries and borrow-lease bookkeeping. Empty payload pages
+    /// are reclaimed after 60 consecutive completed presents leave them unused.
+    pub fn presentation_bytes(&self) -> usize {
+        self.registry
+            .iter()
+            .filter(|(_, r)| r.presentation)
+            .filter_map(|(name, _)| self.components.get(name))
+            .map(|s| s.retained_bytes())
+            .sum()
+    }
+
     /// A presentation component with rows, if any (setup must leave them to present).
     pub(crate) fn presentation_written(&self) -> Option<&'static str> {
         self.registry
@@ -14,23 +26,46 @@ impl World {
     }
     /// Erase every presentation row, so `Game::present` rebuilds them all.
     pub(crate) fn clear_presentation(&mut self) {
-        // Fast path: a game that writes no presentation rows pays one scan of
-        // the registry and nothing else.
-        let written: Vec<&'static str> = self
-            .registry
-            .iter()
-            .filter(|(name, registration)| {
-                registration.presentation && self.components.get(*name).is_some_and(|s| s.len() > 0)
-            })
-            .map(|(name, _)| *name)
-            .collect();
-        if written.is_empty() {
-            return;
-        }
         self.leases.restructure();
-        for name in written {
-            if let Some(storage) = self.components.get_mut(name) {
-                storage.clear();
+        for (name, registration) in &self.registry {
+            if registration.presentation {
+                if let Some(storage) = self.components.get_mut(name) {
+                    storage.clear_presentation();
+                }
+            }
+        }
+    }
+    pub(crate) fn present_each<C: Component, P: crate::PresentationComponent>(
+        &mut self,
+        derive: &mut impl FnMut(&crate::PresentRead<'_>, Entity, &C) -> Option<P>,
+    ) {
+        self.leases.restructure();
+        self.register::<P>();
+        self.components
+            .entry(P::NAME)
+            .or_insert_with(|| storage::make::<P>(P::NAME, self.presentation_epoch.clone()));
+        let mut next = 0;
+        while let Some(index) = self.storage::<C>().and_then(|s| s.next_index(next)) {
+            next = index + 1;
+            let slot = &self.state.slots[index];
+            let e = Entity {
+                index: index as u32,
+                generation: slot.generation,
+            };
+            let value = {
+                let value = self.get::<C>(e).expect("present source row");
+                derive(&crate::PresentRead { world: self }, e, &value)
+            };
+            if let Some(value) = value {
+                if P::accepts(self, e) {
+                    self.components
+                        .get_mut(P::NAME)
+                        .unwrap()
+                        .any_mut()
+                        .downcast_mut::<Storage<P>>()
+                        .unwrap()
+                        .insert(index, value);
+                }
             }
         }
     }

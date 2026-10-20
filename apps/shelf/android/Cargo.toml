@@ -29,3 +29,5 @@ exact-js = { path = "../../../js" }
 
 [build-dependencies]
 exact-js-bake = { path = "../../../js/bake" }
+exact-plan = { path = "../../../plan" }
+contract = { path = "../../../contract/cli" }

@@ -38,6 +38,8 @@ pub use bitmap::Bitmap;
 mod hardware;
 #[cfg(target_os = "android")]
 pub use hardware::hardware_pictures;
+#[cfg(target_os = "android")]
+pub(crate) use jpeg_decode::platform_decoder;
 use workers::{Backend, Prepared, SourceOwner};
 
 struct View {

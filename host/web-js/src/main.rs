@@ -9,6 +9,9 @@
 //! reuses the host's element and CSS rules (`exact_web::host::template`),
 //! and `exact-web` already depends on `contract`.
 
+mod base_scale;
+#[cfg(test)]
+mod base_scale_tests;
 #[cfg(test)]
 mod budget_tests;
 mod code;
@@ -18,6 +21,12 @@ mod emit_tests;
 mod events;
 mod faces;
 mod facts;
+mod inspect;
+#[cfg(test)]
+mod inspect_tests;
+mod measures;
+#[cfg(test)]
+mod measures_tests;
 mod modes;
 #[cfg(test)]
 mod modes_tests;
@@ -26,17 +35,188 @@ mod paint;
 mod paint_tests;
 mod reads;
 mod style;
+mod symbols;
 
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload]\n       exact-web-js normalize-grants <file>";
+    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload] [--app <dir>]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>\n       exact-web-js design-serve <app.contract>\n       exact-web-js inspect-table <app.plan> <out.json>";
+
+/// `inspect-table <app.plan> <out.json>` (LLP 1122 T2b, the JS target): the
+/// plan's inspect table (inspect.rs), made when the dev loop is first asked
+/// for it, not by every build: seconds for a large app.
+fn inspect_table(plan: &str, out: &str) -> ExitCode {
+    exact_web::link(exact_web_capabilities::ALL);
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+    let _every = modes::every(true);
+    let written = std::fs::read(plan)
+        .map_err(|e| e.to_string())
+        .and_then(|bytes| exact_plan::Plan::decode(&bytes).map_err(|e| format!("{e:?}")))
+        .and_then(|plan| emit::Sites::new(&plan).and_then(|sites| inspect::table(&plan, &sites)))
+        .and_then(|table| std::fs::write(out, table).map_err(|e| e.to_string()));
+    match written {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{plan}: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `design <app.contract> <file | ->` (LLP 1121 stage 4, commit 6): a scrub's
+/// design, the text (`-`: stdin) compiled in place of the app's design file, as a
+/// development build's `dev-design.json` says it, on stdout. Nothing is
+/// written.
+fn scrub_design(input: &std::path::Path, text: &str) -> ExitCode {
+    exact_web::link(exact_web_capabilities::ALL);
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+    let read = if text == "-" {
+        std::io::read_to_string(std::io::stdin())
+    } else {
+        std::fs::read_to_string(text)
+    };
+    let (Some(path), Ok(text)) = (contract::design_path(input), read) else {
+        eprintln!("{}: no design, or the text unreadable", input.display());
+        return ExitCode::from(1);
+    };
+    match contract::with_design_text(&path, text, || contract::compile_path_all(input, false)) {
+        Ok((plan, _)) => {
+            let _every = modes::every(true);
+            println!("{}", modes::design(&plan));
+            ExitCode::SUCCESS
+        }
+        Err(errors) => {
+            for e in errors {
+                eprintln!("{e}");
+            }
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `design-serve <app.contract>` (LLP 1121 D13): a scrub's frames, resident.
+/// One JSON request a line on stdin, `{id, key, patch: [[name, [css…]]…]}`:
+/// the app compiled once with its design file as it is on disk (again when
+/// `key`, the shape and digest of the design the dev loop runs, is not the
+/// one it holds),
+/// each patched row's value set per full app tuple on that plan, answered
+/// `{id, digest, structure, tokens}`: the patched design's digest, its
+/// structure (`modes::structure`, which the dev loop's scrub refuses a
+/// change of) and the rows of the tokens it patched, as `design` gives them.
+/// `{id, fallback}` when it cannot patch the frame (the plan it compiled is
+/// not `key`'s, or a row would gain or lose its slices), `{id, error}` when
+/// the app does not compile. Nothing is written.
+fn design_serve(input: &std::path::Path) -> ExitCode {
+    use std::io::{BufRead, Write};
+    exact_web::link(exact_web_capabilities::ALL);
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+    let _every = modes::every(true);
+    let mut held: Option<(String, exact_plan::Plan, modes::Declared)> = None;
+    let mut out = std::io::stdout();
+    // What this process holds of the wide colour table between frames:
+    // nothing (a plan keeps its colours as text).
+    let holder = exact_kernel::style::wide::Holder::new();
+    for line in std::io::stdin().lock().lines().map_while(Result::ok) {
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap_or_default();
+        let id = request["id"].clone();
+        let key = request["key"].as_str().unwrap_or_default().to_string();
+        if held.as_ref().is_none_or(|(k, ..)| *k != key) {
+            held = None;
+            match contract::compile_path_all(input, false) {
+                Ok((plan, _)) => {
+                    let tokens = exact_runner::design::tokens(&plan);
+                    let digest = format!(
+                        "{} {}",
+                        exact_runner::design::shape(&plan),
+                        exact_runner::design::digest(&tokens)
+                    );
+                    let declared = modes::Declared::of(&plan);
+                    held = Some((digest, plan, declared));
+                }
+                Err(errors) => {
+                    let message: Vec<String> = errors.iter().map(ToString::to_string).collect();
+                    let _ = writeln!(
+                        out,
+                        "{}",
+                        serde_json::json!({"id": id, "error": message.join("\n")})
+                    );
+                    continue;
+                }
+            }
+        }
+        let reply = match &held {
+            Some((digest, plan, declared)) if *digest == key => {
+                let values: Vec<(String, Vec<String>)> =
+                    serde_json::from_value(request["patch"].clone()).unwrap_or_default();
+                let names: Vec<String> = values.iter().map(|(n, _)| n.clone()).collect();
+                patched(plan, &values).map_or_else(
+                    || serde_json::json!({"id": id, "fallback": true}),
+                    |next| {
+                        // The runner's theme-table cache knows a plan by its
+                        // buffers, which a patched copy may reuse: started over.
+                        let _ = exact_runner::bridge::role_overrides(&next);
+                        let tokens = exact_runner::design::tokens(&next);
+                        let structure = modes::structure_of(plan, &next);
+                        serde_json::json!({"id": id, "digest": exact_runner::design::digest(&tokens), "structure": structure, "tokens": modes::rows(&next, declared, Some(&names))})
+                    },
+                )
+            }
+            _ => serde_json::json!({"id": id, "fallback": true}),
+        };
+        let _ = writeln!(out, "{reply}");
+        let _ = out.flush();
+        // The frame's wide colours are text in its reply now: this process
+        // holds none, so the table may sweep them (a sweep waits for a
+        // holder, and this one's empty mark closes the frame's batch).
+        holder.publish(exact_kernel::style::wide::WideMark::default());
+    }
+    ExitCode::SUCCESS
+}
+
+/// `plan` with each row of `values` set per full app tuple (the first its
+/// value), or none when a row would gain or lose its slices. A name with no
+/// row changes nothing.
+fn patched(plan: &exact_plan::Plan, values: &[(String, Vec<String>)]) -> Option<exact_plan::Plan> {
+    let mut plan = plan.clone();
+    for (name, css) in values {
+        let Some(i) = plan.theme.iter().position(|r| plan.str(r.name) == name) else {
+            continue;
+        };
+        let first = css.first()?;
+        let (start, len) = (
+            plan.theme[i].slices.start as usize,
+            plan.theme[i].slices.len as usize,
+        );
+        let varies = css.iter().any(|c| c != first);
+        if varies != (len > 0) || varies && css.len() != len {
+            return None;
+        }
+        let mut intern = |text: &str| {
+            plan.strings.push(text.to_string());
+            exact_plan::StrId(plan.strings.len() as u32 - 1)
+        };
+        let value = intern(first);
+        let slices: Vec<exact_plan::StrId> = if varies {
+            css.iter().map(|c| intern(c)).collect()
+        } else {
+            Vec::new()
+        };
+        plan.theme[i].value = value;
+        for (k, s) in slices.into_iter().enumerate() {
+            plan.theme_slices[start + k].value = s;
+        }
+    }
+    Some(plan)
+}
 
 fn main() -> ExitCode {
     // `--sites` (a development build): each element names its plan node, and
     // a Contract compiled here leaves its source map beside the plan.
     let all: Vec<String> = std::env::args().skip(1).collect();
     if let [cmd, file] = all.as_slice() {
+        if cmd == "design-serve" {
+            return design_serve(std::path::Path::new(file));
+        }
         if cmd == "normalize-grants" {
             return match std::fs::read_to_string(file) {
                 Ok(spec) => {
@@ -50,11 +230,30 @@ fn main() -> ExitCode {
             };
         }
     }
+    if let [cmd, input, text] = all.as_slice() {
+        if cmd == "design" {
+            return scrub_design(std::path::Path::new(input), text);
+        }
+        if cmd == "inspect-table" {
+            return inspect_table(input, text);
+        }
+    }
     let sites = all.iter().any(|a| a == "--sites");
     let dev_reload = all.iter().any(|a| a == "--dev-reload");
+    // `--app <dir>`: the app a baked plan is of, whose design's `exports`
+    // bound the declarations' token union (LLP 1121 D7).
+    let app = all
+        .iter()
+        .position(|a| a == "--app")
+        .and_then(|i| all.get(i + 1).cloned());
+    let mut skip = false;
     let args: Vec<String> = all
         .into_iter()
-        .filter(|a| a != "--sites" && a != "--dev-reload")
+        .filter(|a| {
+            let dropped = skip || a == "--app";
+            skip = a == "--app";
+            !dropped && a != "--sites" && a != "--dev-reload"
+        })
         .collect();
     let (input, out, dump) = match args.as_slice() {
         [cmd, input, o, out] if cmd == "js" && o == "-o" => (input, out, false),
@@ -196,7 +395,7 @@ fn main() -> ExitCode {
             }
             Err(errors) => {
                 for e in errors {
-                    eprintln!("{e}");
+                    eprintln!("{e}{}", contract::excerpt(&e));
                 }
                 return ExitCode::from(1);
             }
@@ -224,6 +423,18 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             }
+            // A development build's design, for the dev loop's live table
+            // (LLP 1121 stage 4): a value-only edit goes as a batch.
+            if dev_reload {
+                let _every = modes::every(true);
+                if let Err(e) = std::fs::write(
+                    dir.join("dev-design.json"),
+                    modes::design(&plan).to_string(),
+                ) {
+                    eprintln!("dev-design.json: {e}");
+                    return ExitCode::from(1);
+                }
+            }
             // What a Rust data module binds with (rust-data.js): the plan
             // without the bake's answers, which the page already has in
             // `app.js` and which can be most of a baked plan's bytes.
@@ -236,9 +447,26 @@ fn main() -> ExitCode {
             }
             // What `app.ts` is type-checked against, as the native bake
             // checks it (host/web-js/build.mjs; calendar F9).
-            if let Err(e) = contract::typescript(&plan).and_then(|d| {
-                std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
-            }) {
+            let contract_path = match (&app, input.ends_with(".plan")) {
+                (Some(app), _) => Some(std::path::Path::new(app).join("app.contract")),
+                (None, false) => Some(std::path::PathBuf::from(input)),
+                (None, true) => None,
+            };
+            let exports = contract_path.and_then(|p| contract::design_exports(&p));
+            // With the widget entries' refresh sources (LLP 1126 D2): the web
+            // draws no widget, but app.ts is one module for every host, and
+            // its `Sources` names each refresh.
+            let declared = match &app {
+                Some(app) => contract::snapshot::entries(std::path::Path::new(app))
+                    .and_then(|entries| contract::snapshot::source_plan(&entries, &plan)),
+                None => Ok(plan.clone()),
+            };
+            if let Err(e) = declared
+                .and_then(|declared| contract::typescript_exporting(&declared, exports.as_deref()))
+                .and_then(|d| {
+                    std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
+                })
+            {
                 eprintln!("app.contract.d.ts: {e}");
                 return ExitCode::from(1);
             }
@@ -291,21 +519,24 @@ fn main() -> ExitCode {
                     );
                 }
             }
+            // A native module's names and extensions (modules.js): the build
+            // writes each extension's web implementation beside the app.
+            let _ = std::fs::remove_file(dir.join("modules.flag"));
+            if !plan.modules.is_empty() {
+                let sources: Vec<&str> = (plan.modules.iter())
+                    .map(|m| plan.str(plan.sources[m.source.0 as usize].name))
+                    .collect();
+                let flag = serde_json::json!({ "extensions": facts::extensions(&plan), "sources": sources });
+                let _ = std::fs::write(dir.join("modules.flag"), flag.to_string());
+            }
+            // `wakelock` (wakelock.js, LLP 1125 D11).
+            let _ = std::fs::remove_file(dir.join("wakelock.flag"));
+            if exact_runner::wakelock::bound(&plan) {
+                let _ = std::fs::write(dir.join("wakelock.flag"), "");
+            }
             // Every portable symbol role, which symbols.js loads when a bound
             // source names one the plan's strings don't (ledger diary F10).
-            let roles: Vec<String> = exact_kernel::generated::SYMBOL_ROLES
-                .iter()
-                .filter_map(|r| exact_kernel::generated::symbol(r).map(|s| (r, s)))
-                .map(|(r, (_, path, filled))| {
-                    format!(
-                        "{}:[{},{}]",
-                        serde_json::to_string(r).unwrap(),
-                        serde_json::to_string(path).unwrap(),
-                        filled as u8
-                    )
-                })
-                .collect();
-            let roles = format!("export default {{{}}};", roles.join(","));
+            let roles = symbols::every();
             if let Err(e) = std::fs::write(dir.join("symbol-roles.js"), roles) {
                 eprintln!("symbol-roles.js: {e}");
                 return ExitCode::from(1);

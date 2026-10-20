@@ -63,6 +63,7 @@ fn scene_frame(p: &Presenter<()>, dark: bool, backend: Box<dyn Backend>) -> Fram
         images: &BTreeMap::new(),
         focus: None,
         selection: None,
+        caret_upstream: false,
         pointer: None,
         controls: &BTreeMap::new(),
         chosen: &BTreeMap::new(),
@@ -246,6 +247,7 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
         images: &BTreeMap::new(),
         focus: None,
         selection: None,
+        caret_upstream: false,
         pointer: None,
         controls: &BTreeMap::new(),
         chosen: &BTreeMap::new(),
@@ -308,6 +310,53 @@ fn css_strike_through_changes_pixels_without_changing_layout() {
         before.data(),
         after.data(),
         "the decoration must actually paint"
+    );
+}
+
+#[test]
+fn a_box_draws_its_lines_through_nested_text_in_its_own_colour() {
+    // CSS Text Decoration 3 §2.1: the paragraph's lines cross its blue child
+    // in the paragraph's red; the paragraph has no text of its own.
+    let mut p = fixture(
+        "      text text-decoration=\"underline line-through\" color=\"#ff0000\" font-size=24\n        text \"MMMM\" color=\"#0000ff\"\n",
+    );
+    let frame = p.frame();
+    let (mut red, mut blue) = (0, 0);
+    for px in frame.data().chunks_exact(4) {
+        match (px[0], px[1], px[2], px[3]) {
+            (200.., ..160, ..160, 200..) => red += 1,
+            (..160, ..160, 200.., 200..) => blue += 1,
+            _ => {}
+        }
+    }
+    assert!(blue > 0, "the child's glyphs keep their colour");
+    // Two lines across four glyphs at 24 px; in the child's colour, none.
+    assert!(
+        red >= 100,
+        "the lines are the paragraph's colour: {red} red pixels, {blue} blue"
+    );
+}
+
+#[test]
+fn the_nearest_box_line_shows_and_hidden_text_draws_none() {
+    // As Chrome: the green box's line-through shows over the red
+    // paragraph's on the blue text, and the hidden text has no line.
+    let mut p = fixture(
+        "      text text-decoration=\"line-through\" color=\"#ff0000\" font-size=24\n        text text-decoration=\"line-through\" color=\"#00ff00\"\n          text \"MMMM\" color=\"#0000ff\"\n        text \"WWWW\" visibility=\"hidden\"\n",
+    );
+    let frame = p.frame();
+    let (mut red, mut green) = (0, 0);
+    for px in frame.data().chunks_exact(4) {
+        match (px[0], px[1], px[2], px[3]) {
+            (200.., ..160, ..160, 200..) => red += 1,
+            (..160, 200.., ..160, 200..) => green += 1,
+            _ => {}
+        }
+    }
+    assert_eq!(red, 0, "no line of the paragraph's shows");
+    assert!(
+        green >= 40,
+        "the nearer box's line shows: {green} green pixels"
     );
 }
 
@@ -381,4 +430,77 @@ fn paint_ranks_survive_repaints_and_scroll_until_a_kernel_commit() {
         passes + 2,
         "replacement kernels invalidate ranks"
     );
+}
+
+#[test]
+fn inline_border_radius_cuts_the_background_corners() {
+    let draw = |radius| {
+        let mut p = fixture(&format!(
+            "      text font-size=24 color=\"transparent\"\n        text \"rounded inline\" background-color=\"#ff0000\" border-radius={radius}\n"
+        ));
+        *p.text().borrow_mut() = TextEngine::from_font_files(
+            &[std::path::Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fonts/Inter-Regular.ttf"
+            ))],
+            "Inter",
+        );
+        p.frame().clone()
+    };
+    let square = draw(0);
+    let rounded = draw(8);
+    let first = square
+        .pixels()
+        .iter()
+        .position(|p| p.red() == 255 && p.green() == 0 && p.alpha() == 255)
+        .expect("the inline background paints red");
+    assert!(
+        rounded.pixels()[first].green() > 200,
+        "border-radius must expose the page at the background's corner"
+    );
+    assert!(has_color(&rounded, [255, 0, 0, 255]));
+}
+
+#[test]
+fn nested_visible_inline_backgrounds_keep_both_boxes_square() {
+    let p = fixture(
+        "      text testId=\"paragraph\"\n        text background-color=\"#ff0000\" border-radius=6 testId=\"outer\"\n          text \"before\"\n          text\n            text \"inner\" background-color=\"#0000ff\" border-radius=9\n          text \"after\"\n        text background-color=\"#00ff00\" border-radius=3\n          text \"independent\" background-color=\"transparent\"\n",
+    );
+    let kernel = p.host().kernel();
+    let node = kernel
+        .node_by_key(kernel.find_by_test_id("paragraph")[0])
+        .unwrap();
+    let backgrounds = text_backgrounds(kernel, &node, false, None);
+    assert_eq!(backgrounds.len(), 4);
+    let values: Vec<_> = backgrounds.into_iter().map(Option::unwrap).collect();
+    assert_eq!(values[0].id, values[2].id);
+    assert_ne!(values[0].id, values[1].id);
+    assert_eq!(values[0].color, [255, 0, 0, 255]);
+    assert_eq!(values[1].color, [0, 0, 255, 255]);
+    for value in &values[..3] {
+        assert_eq!(value.radii, [Dimension::Points(0.0); 4]);
+    }
+    assert_eq!(
+        values[3].radii,
+        [Dimension::Points(3.0); 4],
+        "a transparent descendant keeps its ancestor's rounding"
+    );
+    for inner in [
+        "text background-color=\"#0000ff\"",
+        "text \"\" background-color=\"#0000ff\"",
+    ] {
+        let p = fixture(&format!(
+            "      text testId=\"paragraph\"\n        text background-color=\"#ff0000\" border-radius=6\n          text \"hello\"\n          {inner}\n"
+        ));
+        let kernel = p.host().kernel();
+        let node = kernel
+            .node_by_key(kernel.find_by_test_id("paragraph")[0])
+            .unwrap();
+        let backgrounds = text_backgrounds(kernel, &node, false, None);
+        assert_eq!(
+            backgrounds[0].unwrap().radii,
+            [Dimension::Points(6.0); 4],
+            "{inner}"
+        );
+    }
 }

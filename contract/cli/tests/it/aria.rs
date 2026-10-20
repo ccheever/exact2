@@ -237,7 +237,7 @@ fn an_unknown_aria_name_lists_the_carried_ones() {
     };
     let sort = refused("aria-sort");
     assert!(
-        sort.contains("`aria-sort` is ARIA's, and Contract does not carry it yet; Contract carries aria-busy, aria-checked, "),
+        sort.contains("`aria-sort` is ARIA's, and Contract does not carry it yet; Contract carries aria-atomic, aria-busy, aria-checked, "),
         "{sort}"
     );
     assert!(sort.contains("aria-current"), "{sort}");

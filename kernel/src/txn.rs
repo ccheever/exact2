@@ -22,6 +22,7 @@ use crate::layout::LayoutMirror;
 use crate::selector::SelectorIndex;
 use crate::wire::Op;
 mod defaults;
+mod text_style;
 
 /// The deepest a node may sit below the top of its tree (a root is 0). Layout
 /// recurses once per level: a release build uses up to ~3.5 KiB of stack a
@@ -333,6 +334,26 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         expected: prop.kind(),
                         actual: value.kind(),
                     });
+                }
+            }
+            Op::SetLooks { id, looks } => {
+                staged.require(op_index, *id)?;
+                let rows = crate::look_rows();
+                let mut last = None;
+                for (state, patch) in looks {
+                    // Each state once, ascending; only the look rows, set
+                    // or cleared.
+                    if !(crate::LOOK_HOVER..=crate::LOOK_FOCUS_VISIBLE).contains(state)
+                        || last.is_some_and(|l| l >= *state)
+                        || !patch.mask.union(patch.written).minus(rows).is_empty()
+                        || patch.validate_domain().is_err()
+                    {
+                        return Err(ApplyError::LookRow {
+                            op_index,
+                            state: *state,
+                        });
+                    }
+                    last = Some(*state);
                 }
             }
             Op::SetStyle { id, patch } => {
@@ -729,6 +750,7 @@ pub(crate) fn continue_document(
                     }
                     defaults::after_prop(arena, layout, starts, touched, receipt);
                     source_changed(arena, slot, *prop, receipt);
+                    text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
                     touched.push(arena.key(slot));
                 }
                 Op::ClearProp { id, prop } => {
@@ -763,6 +785,13 @@ pub(crate) fn continue_document(
                         }
                         defaults::after_prop(arena, layout, starts, touched, receipt);
                         source_changed(arena, slot, *prop, receipt);
+                        text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
+                        touched.push(arena.key(slot));
+                    }
+                }
+                Op::SetLooks { id, looks } => {
+                    let slot = live_slot(arena, op_index, *id)?;
+                    if arena.set_looks(slot, looks) {
                         touched.push(arena.key(slot));
                     }
                 }
@@ -773,11 +802,14 @@ pub(crate) fn continue_document(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
+                    let named = arena.named_text_style(slot).is_some();
                     arena.patch_style(slot, patch);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
                     }
+                    // A text style's weight and leading move with its size.
+                    let changed = text_style::with_style_rows(arena, slot, changed, named);
                     style_changed(arena, layout, slot, changed, receipt);
                     if changed.intersects(StyleMask::LAYOUT) {
                         unstyled.remove(&slot);
@@ -792,11 +824,13 @@ pub(crate) fn continue_document(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
+                    let named = arena.named_text_style(slot).is_some();
                     arena.clear_style(slot, *mask, *written);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
                     }
+                    let changed = text_style::with_style_rows(arena, slot, changed, named);
                     style_changed(arena, layout, slot, changed, receipt);
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, touched, receipt);
@@ -823,6 +857,16 @@ pub(crate) fn continue_document(
                         .filter(|o| !retained.contains(o))
                         .map(|o| (o, arena.computed_inherited(o), arena.default_context(o)))
                         .collect();
+                    // Whether a grouped list's margins reach each box that
+                    // arrives or leaves, read before any parent changes.
+                    let reached: Vec<(u32, bool)> = if arena.has_grouped_margins() {
+                        let arriving = new.iter().filter(|n| arena.parent(**n) != Some(slot));
+                        let leaving = detached.iter().map(|d| &d.0);
+                        let at = |n: &u32| (*n, crate::grouped::reached(arena, *n));
+                        arriving.chain(leaving).map(at).collect()
+                    } else {
+                        Vec::new()
+                    };
                     for o in &old {
                         if !retained.contains(o) {
                             arena.set_parent(*o, None);
@@ -875,6 +919,12 @@ pub(crate) fn continue_document(
                     arena.set_children(slot, new);
                     sync_children(arena, layout, slot);
                     crate::kernel::cover_children_changed(arena, layout, slot);
+                    // A box into or out of a grouped list takes or sheds the platform's margins.
+                    for (n, was) in reached {
+                        if was || crate::grouped::reached(arena, n) {
+                            crate::grouped::restyle(arena, layout, n);
+                        }
+                    }
                     arena.flags_mut(slot).insert(NodeFlags::CHILDREN_DIRTY);
                     if arena.node_type(slot) == NodeType::Text {
                         invalidate_text(arena, layout, slot);
@@ -1090,6 +1140,14 @@ fn sync_children(arena: &NodeArena, layout: &mut dyn LayoutMirror, parent: u32) 
         return;
     };
     let _entries = layout.sync_children(arena, parent, node);
+    if arena.neutral_alert(parent) {
+        for child in arena.children(parent) {
+            if let Some(node) = arena.taffy(*child) {
+                layout.restyle(arena, *child, node);
+                layout.mark_dirty(node);
+            }
+        }
+    }
     #[cfg(test)]
     count(_entries, 0);
 }

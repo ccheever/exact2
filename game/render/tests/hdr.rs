@@ -101,6 +101,7 @@ fn the_tone_curve_reaches_the_frames_headroom() {
         camera_position: Vec3::new(0.0, 0.0, 10.0),
         sun: None,
         environment: Environment {
+            tone_mapping: exact_game::ToneMapping::Aces,
             background: None,
             zenith: [9.0; 3],
             ground: [8.0; 3],
@@ -125,4 +126,33 @@ fn the_tone_curve_reaches_the_frames_headroom() {
         hdr.iter().all(|c| (*c - 1.756).abs() < 0.02),
         "headroom 4: past SDR white, {hdr:?}"
     );
+
+    frame.headroom = 1.;
+    let radiance = [0.1, 0.4, 2.];
+    frame.environment.zenith = radiance;
+    frame.environment.horizon = radiance;
+    frame.environment.ground = radiance;
+    use exact_game::ToneMapping::{Aces, None as Linear};
+    for (tone, exposure) in [
+        (Linear, 1.),
+        (Linear, 0.25),
+        (Aces, 1.),
+        (Linear, 2.),
+        (Linear, 1.),
+    ] {
+        frame.environment.tone_mapping = tone;
+        frame.environment.exposure = exposure;
+        let pixel = centre(&gpu, &mut renderer, &frame);
+        if tone == Aces {
+            assert!(pixel.iter().all(|c| *c <= 1.), "ACES white: {pixel:?}");
+        } else {
+            for (got, light) in pixel.into_iter().zip(radiance) {
+                let expected = 1.055 * (light * exposure).powf(1. / 2.4) - 0.055;
+                assert!(
+                    (got - expected).abs() < 0.006,
+                    "unmapped radiance {light}, exposure {exposure}: {got}, expected {expected}"
+                );
+            }
+        }
+    }
 }

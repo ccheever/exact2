@@ -7,8 +7,9 @@
   `font-size` on a `button` makes it your own box; the parts keep a button's semantics, a
   44-point target and legible ink. `contract vocab <Part>` gives each one's props and a call to paste:
   `RoundButton`, `AnswerTile`, `SummaryCard`, `RingProgress`, `StatBar`, `RowText`, `Badge`,
-  `DoneMark`, `EmptyState`. `RoundButton` is a circle for a word (about 7 characters fit): a main
-  action of more words ("Start quiz") is a `button buttonStyle="filled"`; the compiler warns.
+  `DoneMark`, `EmptyState`. `RoundButton` keeps an 80 px circle (about 7 characters)
+  and its title the default body size at every text size, as the Clock's. For more words or a
+  width that grows with text, use `button buttonStyle="filled"`.
 - **A status is a `Badge`** ("Full" beside the title). **An action that can't be taken is
   disabled with its reason** under it (`disabled=full`; in a grouped list, the section's
   `footer`), never left enabled to refuse after the tap.
@@ -18,8 +19,8 @@
   wrapping row).
 - **A value is shown once:** a `SummaryCard`'s number with a second, larger copy beside it is a slip.
 
-A timer is one number and its buttons: a column of `max-width=360`, centred, so on a wide window
-they stay a phone's width apart. The column centres the readout, so the row says
+A timer is one number and its buttons: a centred `max-width="22.5rem"` column keeps
+them together and grows with the root font. The column centres the readout, so the row says
 `align-self="stretch"`; else it shrinks to its content and bunches them.
 
 ```contract
@@ -33,7 +34,7 @@ component Stopwatch
   action lapOrReset
     laps = running ? laps + 1 : 0
   view
-    column align-items="center" gap=32 padding=24 max-width=360 margin-left="auto" margin-right="auto"
+    column align-items="center" gap=32 padding=24 max-width="22.5rem" margin-left="auto" margin-right="auto"
       text "00:12.40" font-size="4.5rem" font-variant-numeric="tabular-nums"
         -exact-fit="shrink" white-space="nowrap" testId="readout"
       row align-self="stretch" justify-content="space-between"

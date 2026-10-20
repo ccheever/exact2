@@ -166,3 +166,24 @@ fn the_bake_bounds_accept_and_refuses_capture() {
     );
     contract::compile(&view("accept=\"image/heic,video/*\"")).unwrap();
 }
+
+#[test]
+fn literal_show_picker_targets_need_a_file_input_id_not_a_test_id() {
+    let missing = COMPOSE.replace(" id=\"attach\"", "");
+    let error = contract::compile(&missing).unwrap_err();
+    assert_eq!(error.id, "bake-picker-id");
+    assert!(error.message.contains("testId is a separate identifier"));
+    assert!(contract::compile(COMPOSE).is_ok());
+    let wrong_type = COMPOSE
+        .replace("showPicker(\"attach\")", "showPicker(\"choose\")")
+        .replace("button press=choose", "button id=\"choose\" press=choose");
+    assert_eq!(
+        contract::compile(&wrong_type).unwrap_err().id,
+        "bake-picker-id"
+    );
+    // A dynamic id or target cannot be proved absent at compile time.
+    let dynamic = COMPOSE.replace("id=\"attach\"", "id=summary");
+    assert!(contract::compile(&dynamic).is_ok());
+    let dynamic_target = COMPOSE.replace("showPicker(\"attach\")", "showPicker(summary)");
+    assert!(contract::compile(&dynamic_target).is_ok());
+}

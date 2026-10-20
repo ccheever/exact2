@@ -74,6 +74,9 @@ extension RegionTextSource {
                 decoration: row["decoration"] as? String ?? "", href: row["href"] as? String ?? "")
             // The colour is one its author fixed, not a role (LLP 1115.000 D7.9).
             run.fixedInk = row["fixed"] as? Bool == true
+            // Its decorating ancestors' lines, in their colours (`Run.propagate`).
+            run.underlineColor = row[dark ? "underlineDarkColor" : "underlineColor"] as? [Double]
+            run.strikeColor = row[dark ? "strikeDarkColor" : "strikeColor"] as? [Double]
             return run
         }
         let runs = rows.compactMap(run)

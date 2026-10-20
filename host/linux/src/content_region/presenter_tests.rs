@@ -1074,3 +1074,164 @@ fn retained_actions_down_a_pending_b_live_c_never_rebinds_or_implicitly_paints()
     assert_eq!(actions::selected(&p), Value::str("changed-0"));
     assert_eq!(b.pixels.data(), b_bytes);
 }
+
+fn focus_region() -> Presenter<()> {
+    let source = APP
+        .replace("testId=\"paragraph\"", "id=\"paragraph\" testId=\"paragraph\" tabindex=0")
+        .replace("text \"Preparing content\" id=\"pending\"", "text \"Preparing content\" id=\"pending\" testId=\"pending\" tabindex=0")
+        .replace("          text \"Preparing content", "              if title != \"old picture\"\n                text \"New descendant\" id=\"new\" testId=\"new\" tabindex=0\n          text \"Preparing content");
+    region_from(&source)
+}
+
+fn region_from(source: &str) -> Presenter<()> {
+    let (p, error) = Presenter::boot_with_content_region(
+        &crate::test_plan(source),
+        (),
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+        ContentRegionRegistration {
+            activate: None,
+            owner: "owner",
+            content: "content",
+            pending: "pending",
+        },
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p
+}
+
+fn focus_refused(p: &mut Presenter<()>, name: &str, reason: &str) {
+    assert_eq!(p.focus_command(&[Value::str(name)]), None, "{name}");
+    assert_ne!(p.focus(), Some(id(p, name)));
+    let journal = crate::agent::handle(p, r#"{"op":"logs"}"#);
+    let expected = format!("focus \"{name}\" refused: {reason}");
+    assert!(
+        journal.contains(&expected.replace('"', "\\\"")),
+        "{journal}"
+    );
+}
+
+#[test]
+fn focus_refuses_initial_pending_content_but_accepts_its_placeholder() {
+    let _service = crate::content_region::test_service();
+    let mut p = focus_region();
+    let pending = id(&p, "pending");
+    assert_eq!(p.focus_command(&[Value::str("pending")]), Some(pending));
+    focus_refused(&mut p, "paragraph", "content region is not live");
+    assert_eq!(p.focus(), Some(pending));
+}
+
+#[test]
+fn focus_refuses_retained_content_and_new_current_descendants() {
+    let _service = crate::content_region::test_service();
+    let mut p = focus_region();
+    p.frame();
+    ready(&mut p);
+    p.frame();
+    let gate = crate::content_region::test_hooks::next_text();
+    assert!(p
+        .host
+        .dispatch_at(id(&p, "replace"), Event::Press, 1.)
+        .is_none());
+    assert!(p.after_commit().is_none());
+    gate.entered();
+    p.frame();
+    focus_refused(&mut p, "new", "content region is not live");
+    focus_refused(&mut p, "paragraph", "content region is not live");
+}
+
+#[test]
+fn focus_refuses_surviving_retained_content() {
+    let _service = crate::content_region::test_service();
+    let mut p = focus_region();
+    p.frame();
+    ready(&mut p);
+    p.frame();
+    focus_refused(&mut p, "paragraph", "content region is not live");
+}
+
+#[test]
+fn tab_skips_retained_content_boxes() {
+    let _service = crate::content_region::test_service();
+    let mut p = focus_region();
+    p.frame();
+    ready(&mut p);
+    p.frame();
+    assert!(p.box_of(id(&p, "paragraph")).is_some());
+    p.blur();
+    assert!(p.move_focus(true, 1.).is_none());
+    assert_eq!(p.focus(), Some(id(&p, "input")));
+}
+
+#[test]
+fn placeholder_focus_follows_successful_acknowledged_region_presentation() {
+    let _service = crate::content_region::test_service();
+    let mut p = focus_region();
+    let initial = p.display_frame().unwrap();
+    assert!(p.display_complete(&initial));
+    ready(&mut p);
+    let pending = id(&p, "pending");
+    p.brush.replace_backend(Box::new(fail_backend::Failure));
+    p.frame();
+    assert!(!p.last_frame_succeeded);
+    assert_eq!(p.focus_command(&[Value::str("pending")]), Some(pending));
+    p.brush.replace_backend(Box::new(Raster::new()));
+    let accepted = p.display_frame().unwrap();
+    assert!(p.last_frame_succeeded);
+    assert_eq!(p.focus_command(&[Value::str("pending")]), Some(pending));
+    assert!(p.display_complete(&accepted));
+    p.blur();
+    focus_refused(&mut p, "pending", "not rendered");
+}
+
+#[test]
+#[ignore = "async lane: retained membership lookup scaling"]
+fn retained_membership_lookup_cost_is_independent_of_paint_order() {
+    let _service = crate::content_region::test_service();
+    let mut nodes = String::from("              view testId=\"first\" width=1 height=1\n");
+    nodes.push_str(&"              view width=1 height=1\n".repeat(3998));
+    nodes.push_str("              view testId=\"last\" width=1 height=1\n");
+    let source = APP
+        .lines()
+        .map(|line| {
+            if line.contains("text title href=link") {
+                nodes.clone()
+            } else {
+                format!("{line}\n")
+            }
+        })
+        .collect::<String>();
+    let mut p = region_from(&source);
+    p.frame();
+    ready(&mut p);
+    p.frame();
+    assert!(p.last_frame_succeeded);
+    let (first, last) = (id(&p, "first"), id(&p, "last"));
+    assert!(p.brush.region_blocks_action(first));
+    assert!(p.brush.region_blocks_action(last));
+    assert!(!p.brush.region_blocks_action(id(&p, "replace")));
+    let measure = |view| {
+        (0..3)
+            .map(|_| {
+                let started = Instant::now();
+                for _ in 0..4096 {
+                    std::hint::black_box(p.brush.region_blocks_action(std::hint::black_box(view)));
+                }
+                started.elapsed()
+            })
+            .min()
+            .unwrap()
+    };
+    let first_time = measure(first);
+    let last_time = measure(last);
+    eprintln!("retained membership, 4096 lookups: first={first_time:?}, last={last_time:?}");
+    // A generous ratio allows scheduling noise and different index depths;
+    // a scan of 4,000 nodes costs orders of magnitude more at the end.
+    assert!(
+        last_time <= first_time * 32,
+        "first={first_time:?}, last={last_time:?}"
+    );
+}

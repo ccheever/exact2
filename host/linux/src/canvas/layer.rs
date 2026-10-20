@@ -61,6 +61,16 @@ struct Open {
 }
 
 impl Layers {
+    pub(super) fn needs_world(&self) -> bool {
+        self.sent
+            .values()
+            .any(|ops| super::stream::needs_world(&ops[16..]))
+    }
+
+    pub(super) fn unlayered(&self) -> bool {
+        self.open.is_empty()
+    }
+
     /// A new frame: nothing open, nothing drawn outside rows yet.
     pub(super) fn begin(&mut self) {
         self.open.clear();

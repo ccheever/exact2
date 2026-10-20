@@ -20,6 +20,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 pub(crate) mod case;
+pub mod decorations;
 
 /// A payload-free lifetime namespace. Allocation identity is valid only while
 /// retained: it is never a wire id, address handle, or serialized cache key.
@@ -99,6 +100,8 @@ pub struct TextStyle {
     pub font_weight: u16,
     /// Normal or italic.
     pub font_style: FontStyle,
+    /// CSS `font-stretch`, percent of normal width (100).
+    pub font_stretch: f32,
     /// Index into the host's font registry (0 = system default).
     pub font_family: u16,
     /// Resolved logical length, or natural metrics. Zero remains explicit.
@@ -107,14 +110,19 @@ pub struct TextStyle {
     pub letter_spacing: f32,
     /// OpenType numeric-feature bitmask.
     pub font_variant_numeric: u8,
+    /// Bold Text weights this run's font (LLP 1115.000 D12.3): its weight is
+    /// stepped already, and a weight a host gives a piece of it itself (a
+    /// Markdown piece's bold) takes the same step ([`crate::bolder`]).
+    pub bold_text: bool,
 }
 
 impl TextStyle {
     /// The rows [`TextStyle::from_style`] reads.
-    pub const ROWS: [StyleId; 7] = [
+    pub const ROWS: [StyleId; 8] = [
         StyleId::FontSize,
         StyleId::FontWeight,
         StyleId::FontStyle,
+        StyleId::FontStretch,
         StyleId::FontFamily,
         StyleId::LineHeight,
         StyleId::LetterSpacing,
@@ -152,10 +160,12 @@ impl TextStyle {
             font_size: s.font_size,
             font_weight: s.font_weight,
             font_style: s.font_style,
+            font_stretch: s.font_stretch,
             font_family: s.font_family,
             line_height: s.line_height.resolve(s.font_size),
             letter_spacing: s.letter_spacing,
             font_variant_numeric: s.font_variant_numeric,
+            bold_text: false,
         }
     }
 }
@@ -488,6 +498,11 @@ pub struct SymbolRequest<'a> {
 
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
+    /// The platform formats an instant on the runner clock (LLP 1126 D6).
+    fn format_time(&mut self, request: &crate::time::TimeRequest<'_>) -> Option<String> {
+        crate::time::english(request)
+    }
+
     /// Revision of host measuring traits (scale, content size, legibility,
     /// appearance). A change invalidates native button offers even if fonts
     /// and the tree stay the same. Hosts without changing traits return zero.
@@ -536,6 +551,11 @@ pub trait TextMeasurer {
 
     /// Size a paragraph under an offer.
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics;
+
+    /// Size presentation-only width candidates without retaining a paragraph artifact.
+    fn measure_reservation(&mut self, request: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
+        Some(self.measure(request))
+    }
 
     /// Size a kernel-identified paragraph. Existing measurers use the ordinary
     /// synchronous path; callers constructing requests still need no stamp.
@@ -914,6 +934,7 @@ struct TextRows {
     font_size: f32,
     font_weight: u16,
     font_style: crate::FontStyle,
+    font_stretch: f32,
     font_family: u16,
     line_height: crate::LineHeight,
     letter_spacing: f32,
@@ -926,6 +947,7 @@ impl TextRows {
             font_size: s.font_size,
             font_weight: s.font_weight,
             font_style: s.font_style,
+            font_stretch: s.font_stretch,
             font_family: s.font_family,
             line_height: s.line_height,
             letter_spacing: s.letter_spacing,
@@ -941,6 +963,9 @@ impl TextRows {
         }
         if mask.has(StyleId::FontStyle) {
             self.font_style = s.font_style;
+        }
+        if mask.has(StyleId::FontStretch) {
+            self.font_stretch = s.font_stretch;
         }
         if mask.has(StyleId::FontFamily) {
             self.font_family = s.font_family;
@@ -960,10 +985,12 @@ impl TextRows {
             font_size: self.font_size,
             font_weight: self.font_weight,
             font_style: self.font_style,
+            font_stretch: self.font_stretch,
             font_family: self.font_family,
             line_height: self.line_height.resolve(self.font_size),
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
+            bold_text: false,
         }
     }
 }
@@ -1009,6 +1036,19 @@ impl RunRows {
         // exactly as computed_style does (including arena-only test styles).
         self.take(own, own.mask.union(StyleMask::INHERITED.minus(self.mask)));
         self.mask = self.mask.union(own.mask);
+        self
+    }
+
+    /// The rows set at or above this run.
+    pub fn said(&self) -> StyleMask {
+        self.mask
+    }
+
+    /// `from`'s rows in `mask` taken, as a text style gives them (LLP
+    /// 1115.000 D12.2), and marked set for the runs inside.
+    pub fn fill(mut self, from: &StyleProps, mask: StyleMask) -> Self {
+        self.take(from, mask);
+        self.mask = self.mask.union(mask);
         self
     }
 
@@ -1118,10 +1158,12 @@ mod tests {
             font_size,
             font_weight: 400,
             font_style: FontStyle::Normal,
+            font_stretch: 100.0,
             font_family: 0,
             line_height: None,
             letter_spacing: 0.0,
             font_variant_numeric: 0,
+            bold_text: false,
         }
     }
 

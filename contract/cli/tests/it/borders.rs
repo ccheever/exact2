@@ -283,7 +283,7 @@ fn border_radius_takes_one_to_four_corners() {
     )
     .unwrap_err();
     assert!(
-        format!("{e}").contains("`border-radius` takes one to four values (top-left"),
+        format!("{e}").contains("is an elliptical radius (`/`), which no host draws"),
         "{e}"
     );
 }
@@ -332,4 +332,337 @@ fn a_numeric_border_says_to_quote_the_shorthand() {
         error.message,
         "`text-decoration`: `1` is a number, and a CSS shorthand is a string, as CSS writes it"
     );
+}
+
+/// `fn`s the computed shorthand tests call.
+const FNS: &str = "fn radii(r: number): string = `${r}px ${r}px 0 0`\nfn corners(first: bool): string = first ? \"12px 12px 2px 2px\" : \"12px\"\nfn outer(on: bool): string = corners(on)\nfn both(on: bool): string = on ? radii(8) : radii(8)\nfn single(on: bool): string = on ? \"12px\" : \"4px\"\n";
+
+/// The euxy port: a computed value that a concatenation or a `fn` builds
+/// into a list for a box shorthand is refused, naming the longhands, since
+/// no host splits one at run time; a template is split at its own text's
+/// white space, as a literal is, a computed single value is every side's.
+#[test]
+fn a_computed_shorthand_list_is_refused_naming_the_longhands() {
+    for (attr, says) in [
+        ("border-radius=radii(8)", "`border-radius` is computed here as a list of values, which no host splits at run time; write `border-top-left-radius`/`border-top-right-radius`/`border-bottom-right-radius`/`border-bottom-left-radius` (each may be computed), or a literal `border-radius`"),
+        ("inset=\"0 \" + `${pad}px`", "write `top`/`right`/`bottom`/`left`"),
+        ("padding=`${radii(pad)}`", "write `padding-top`/"),
+        // A `fn` choosing among literals, one of them a list (euxy port 14's
+        // grouped cells, which drew square corners).
+        ("border-radius=corners(on)", "write `border-top-left-radius`/"),
+        ("border-radius=(on ? \"4px\" : outer(on))", "write `border-top-left-radius`/"),
+        // A call both arms make is bound once by a `let` (review round 1),
+        // and an arm inside a template or a concatenation is one of its texts.
+        ("border-radius=both(on)", "write `border-top-left-radius`/"),
+        ("border-radius=`${on ? \"12px 12px 2px 2px\" : \"12px\"}`", "write `border-top-left-radius`/"),
+        ("padding=(\"\" + (on ? \"4px\" : \"4px 8px\"))", "write `padding-top`/"),
+    ] {
+        let e = contract::compile(&format!("{FNS}component A\n  state pad = 16\n  state on = false\n  view\n    box {attr}\n"))
+            .unwrap_err();
+        assert_eq!(e.id, "lower-css-shorthand", "{attr}: {e}");
+        assert!(e.message.contains(says), "{attr}: {e}");
+    }
+    // A `fn`, or an arm, that is one value whichever way it goes is every
+    // corner's.
+    for attr in [
+        "border-radius=single(on)",
+        "border-radius=`${on ? \"12px\" : \"4px\"}`",
+        "border-radius=(on ? single(on) : \"2px\")",
+    ] {
+        let src = format!(
+            "{FNS}component A\n  state pad = 16\n  state on = false\n  view\n    box {attr}\n"
+        );
+        contract::compile(&src).unwrap_or_else(|e| panic!("{attr}: {e}"));
+    }
+    let e = contract::compile(
+        "component A\n  state r = 4\n  view\n    box border-radius=`${r}px ${r}px 0 0 ${r}px`\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "lower-attr-value", "{e}");
+    assert!(e.message.contains("has 5"), "{e}");
+    // A template is split only where each interpolation is plainly part of
+    // one value; a single value in parentheses is bound whole.
+    let src = |attr: &str| format!("component A\n  state pad = 16\n  view\n    box {attr}\n");
+    if let Err(e) = contract::compile(&src("padding=`calc(${\"10px + 2px\"})`")) {
+        panic!("{e}");
+    }
+    for attr in [
+        "padding=`calc(${pad}px + 2px) 0`",
+        "padding=`10px ${\"\"} 20px`",
+        "border-radius=`${\"calc(100%\"} - 10px) auto`",
+        "padding=`${pad} ${pad}`",
+    ] {
+        let e = contract::compile(&src(attr)).unwrap_err();
+        assert_eq!(e.id, "lower-css-shorthand", "{attr}: {e}");
+    }
+    // A template's values, each its own longhand's.
+    let r = boot(
+        "component A\n  state pad = 16\n  state on = true\n  view\n    column\n      box testId=\"radii\" border-radius=`${pad}px ${pad / 2}px 0 0`\n      box testId=\"pad\" padding=`${pad}px 0`\n      box testId=\"arm\" border-style=\"solid\" border-width=(on ? `${pad}px 0` : \"0\")\n",
+    );
+    let radii = style_of(&r, "radii");
+    assert_eq!(
+        [
+            radii.border_radius_top_left,
+            radii.border_radius_top_right,
+            radii.border_radius_bottom_right,
+            radii.border_radius_bottom_left,
+        ]
+        .map(|c| format!("{c:?}")),
+        [
+            format!("{:?}", exact_kernel::Dimension::Points(16.0)),
+            format!("{:?}", exact_kernel::Dimension::Points(8.0)),
+            format!("{:?}", exact_kernel::Dimension::Points(0.0)),
+            format!("{:?}", exact_kernel::Dimension::Points(0.0)),
+        ]
+    );
+    let pad = style_of(&r, "pad");
+    assert_eq!(pad.padding_top, exact_kernel::Dimension::Points(16.0));
+    assert_eq!(pad.padding_left, exact_kernel::Dimension::Points(0.0));
+    assert_eq!(style_of(&r, "arm").border_widths(), [16.0, 0.0, 16.0, 0.0]);
+    // One computed value, a calc, a literal list or a literal arm: compiled.
+    let r = boot(
+        "component A\n  state pad = 16\n  state on = false\n  view\n    column\n      box testId=\"one\" padding=`${pad}px`\n      box testId=\"calc\" padding=`calc(${pad}px + 2px)`\n      box testId=\"arm\" padding=(on ? \"1px\" : \"16px 0\")\n      box testId=\"num\" padding=pad\n",
+    );
+    let (one, arm) = (style_of(&r, "one"), style_of(&r, "arm"));
+    assert_eq!(
+        format!("{:?}", one.padding_left),
+        format!("{:?}", one.padding_top)
+    );
+    assert_eq!(
+        format!("{:?}", arm.padding_top),
+        format!("{:?}", one.padding_top)
+    );
+    assert_eq!(arm.padding_left, exact_kernel::Dimension::Points(0.0));
+    assert!(style_of(&r, "calc").mask.has(StyleId::PaddingLeft));
+    assert_eq!(
+        style_of(&r, "num").padding_left,
+        exact_kernel::Dimension::Points(16.0)
+    );
+}
+
+/// An empty value declares nothing, as CSSOM's `setProperty(p, "")`: the
+/// row is unset with no journal line, and a component's prop of `""` under
+/// `if dot != ""` compiles (the euxy port passed `"transparent"` instead).
+#[test]
+fn an_empty_colour_declares_nothing() {
+    let mut r = boot(
+        "component A\n  state c = \"#ff0000\"\n  action clear\n    c = \"\"\n  view\n    column\n      button testId=\"clear\" press=clear width=10 height=10\n      box testId=\"bound\" background-color=c border-color=c\n      Dot(dot=\"\")\n      Dot(dot=\"#00ff00\")\n\ncomponent Dot\n  props\n    dot: string\n  view\n    row\n      if dot != \"\"\n        box testId=\"dot\" background-color=dot\n",
+    );
+    assert_eq!(
+        style_of(&r, "bound").border_color_top,
+        Some(fixed("#ff0000"))
+    );
+    let clear = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("clear")[0]).unwrap().id
+    };
+    r.dispatch(clear, Event::Press).unwrap();
+    let bound = style_of(&r, "bound");
+    assert!(!bound.mask.has(StyleId::BackgroundColor));
+    assert_eq!(sides(&bound), [None; 4]);
+    assert!(
+        !r.journal().any(|l| l.contains("invalid")),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
+    );
+    assert!(contract::compile("component A\n  view\n    box background-color=\"\"\n").is_ok());
+}
+
+/// A bound `0` is a length, as CSS's unitless zero is (`border-width` is a
+/// number row). A list that reaches a box shorthand's rows, which the
+/// compiler cannot see build, is refused by every row: all four unset
+/// with a journal line, never split.
+#[test]
+fn a_bound_zero_is_a_length_and_a_bound_list_is_refused_by_every_row() {
+    let r = boot(
+        "component A\n  state z = \"0\"\n  state p = \"10px -5px\"\n  state round = \"10px / 20px\"\n  view\n    column\n      box testId=\"w\" border-style=\"solid\" border-width=2 border-left-width=z\n      box testId=\"p\" padding=p\n      box testId=\"r\" border-radius=round\n",
+    );
+    let w = style_of(&r, "w");
+    assert_eq!(w.border_widths(), [2.0, 2.0, 2.0, 0.0]);
+    let p = style_of(&r, "p");
+    for row in [
+        StyleId::PaddingTop,
+        StyleId::PaddingRight,
+        StyleId::PaddingBottom,
+        StyleId::PaddingLeft,
+    ] {
+        assert!(!p.mask.has(row), "{row:?} is unset with the rest");
+    }
+    let radius = style_of(&r, "r");
+    for row in exact_kernel::style::sides::FAMILIES[8] {
+        assert!(!radius.mask.has(row), "{row:?} is unset with the rest");
+    }
+    let journal: Vec<_> = r.journal().collect();
+    assert!(
+        journal.iter().any(|l| l.contains("10px -5px"))
+            && journal.iter().any(|l| l.contains("10px / 20px")),
+        "{journal:?}"
+    );
+}
+
+/// An empty `font-family`, literal, a choice's arm or a component's prop,
+/// declares nothing, as an empty colour does.
+#[test]
+fn an_empty_font_family_declares_nothing() {
+    let mut r = boot(
+        "component A\n  state plain = false\n  action flip\n    plain = not plain\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      text \"a\" testId=\"empty\" font-family=\"\"\n      text \"b\" testId=\"choice\" font-family=(plain ? \"\" : \"Georgia\")\n      Fam(f=\"\")\n\ncomponent Fam\n  props\n    f: string\n  view\n    text \"c\" testId=\"prop\" font-family=f\n",
+    );
+    assert!(!style_of(&r, "empty").mask.has(StyleId::FontFamily));
+    assert!(!style_of(&r, "prop").mask.has(StyleId::FontFamily));
+    assert!(style_of(&r, "choice").mask.has(StyleId::FontFamily));
+    let flip = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id
+    };
+    r.dispatch(flip, Event::Press).unwrap();
+    assert!(!style_of(&r, "choice").mask.has(StyleId::FontFamily));
+}
+
+/// A longhand bound to a list is not split: two lengths on a corner are
+/// the elliptical radius no row holds, unset with a journal line. A keyword
+/// is ASCII case-insensitive (`0 Auto` centres, as CSS's does); a literal
+/// `/` is the elliptical refusal, whatever its count.
+#[test]
+fn a_longhand_list_is_not_split_and_keywords_ignore_case() {
+    let r = boot(
+        "component A\n  state c = \"10px 20px\"\n  view\n    column\n      box testId=\"corner\" border-top-left-radius=c\n      box testId=\"auto\" margin=\"0 Auto\" width=10 height=10\n",
+    );
+    assert!(!style_of(&r, "corner")
+        .mask
+        .has(StyleId::BorderRadiusTopLeft));
+    let journal: Vec<_> = r.journal().collect();
+    assert!(
+        journal.iter().any(|l| l.contains("10px 20px")),
+        "{journal:?}"
+    );
+    let auto = style_of(&r, "auto");
+    assert_eq!(auto.margin_left, exact_kernel::Dimension::Auto);
+    assert_eq!(auto.margin_right, exact_kernel::Dimension::Auto);
+    assert_eq!(auto.margin_top, exact_kernel::Dimension::Points(0.0));
+    for literal in ["10px / 20px", "10px/20px"] {
+        let e = contract::compile(&format!(
+            "component A\n  view\n    box border-radius=\"{literal}\"\n"
+        ))
+        .unwrap_err();
+        assert!(
+            e.message.contains("elliptical radius (`/`)"),
+            "{literal}: {e}"
+        );
+    }
+}
+
+/// The euxy port (FRICTION 3): a choice of literal corner lists, on a swipe
+/// row in a component whose props pick the arm, is split into the four
+/// corners as each arm's literal would be.
+#[test]
+fn a_choice_of_corner_lists_sets_each_corner() {
+    let r = boot(
+        "component A\n  state xs = [1, 2, 3]\n  view\n    column\n      for x, i in xs key=x\n        Cell(first=(i == 0), last=(i == xs.length - 1), n=x)\n\ncomponent Cell\n  props\n    first: bool\n    last: bool\n    n: number\n  state z = 0\n  action noop\n    z = 1\n  view\n    scroll testId=`b${n}` swipeContent=`row-${n}` swipeTrailing=`del-${n}` overflow-x=\"scroll\" overflow-y=\"hidden\" height=50 display=\"flex\" flex-direction=\"row\" border-radius=(first and last ? \"12px\" : first ? \"12px 12px 2px 2px\" : last ? \"2px 2px 12px 12px\" : \"2px\")\n      row id=`row-${n}` width=\"100%\" flex-shrink=0\n        text \"x\"\n      button id=`del-${n}` width=40 press=noop\n        text \"d\"\n",
+    );
+    let corners = |id: &str| {
+        let s = style_of(&r, id);
+        [
+            s.border_radius_top_left,
+            s.border_radius_top_right,
+            s.border_radius_bottom_right,
+            s.border_radius_bottom_left,
+        ]
+        .map(|d| format!("{d:?}"))
+    };
+    let p = |n: f32| format!("{:?}", exact_kernel::Dimension::Points(n));
+    assert_eq!(corners("b1"), [p(12.0), p(12.0), p(2.0), p(2.0)]);
+    assert_eq!(corners("b2"), [p(2.0), p(2.0), p(2.0), p(2.0)]);
+    assert_eq!(corners("b3"), [p(2.0), p(2.0), p(12.0), p(12.0)]);
+}
+
+/// CSS's two-value shorthands are split as the box shorthands are: `gap`
+/// into row and column, `overflow` and `overscroll-behavior` into x and y,
+/// from a literal, a literal arm or a template whose values each hold text;
+/// another template and a concatenation are refused
+/// naming the longhands, and a third value is refused.
+#[test]
+fn two_value_shorthands_split_into_their_rows() {
+    for value in [
+        "\"8px 16px\"",
+        "(on ? \"8px 16px\" : \"4px\")",
+        "`${g}px ${g * 2}px`",
+    ] {
+        let r = boot(&format!(
+            "component A\n  state on = true\n  state g = 8\n  state o = \"auto\"\n  view\n    column\n      box testId=\"x\" width=10 height=10 gap={value} overflow=(on ? \"hidden auto\" : \"visible\") overscroll-behavior=\"contain none\"\n"
+        ));
+        let s = style_of(&r, "x");
+        assert_eq!((s.row_gap, s.column_gap), (8.0, 16.0), "{value}");
+        assert_eq!(
+            format!("{:?} {:?}", s.overflow_x, s.overflow_y),
+            "Hidden Auto"
+        );
+        assert_eq!(
+            format!(
+                "{:?} {:?}",
+                s.overscroll_behavior_x, s.overscroll_behavior_y
+            ),
+            "Contain None"
+        );
+    }
+    for (attr, says) in [
+        ("gap=`${g}px ` + \"4px\"", "write `row-gap`/`column-gap`"),
+        // A value of a computed interpolation alone may be empty: not split.
+        (
+            "overflow=(on ? `hidden ${o}` : \"auto\")",
+            "write `overflow-x`/`overflow-y`",
+        ),
+        (
+            "overscroll-behavior=\"none \" + o",
+            "write `overscroll-behavior-x`/`overscroll-behavior-y`",
+        ),
+    ] {
+        let e = contract::compile(&format!(
+            "component A\n  state g = 8\n  state o = \"auto\"\n  state on = false\n  view\n    box {attr}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-css-shorthand", "{attr}: {e}");
+        assert!(e.message.contains(says), "{attr}: {e}");
+    }
+    let e = contract::compile("component A\n  view\n    box gap=\"1px 2px 3px\"\n").unwrap_err();
+    assert_eq!(e.id, "lower-attr-value");
+    assert!(e.message.contains("one or two values (row, column)"), "{e}");
+}
+
+/// LLP 1053.000.000: a glass group on a box that scrolls is refused, the
+/// box's overflow computed as CSS Overflow 3 §3.1 does (a `visible` axis
+/// beside a non-`visible` one is `auto`), from every row and each literal
+/// arm of a choice (the review of the two-value split).
+#[test]
+fn a_glass_group_reads_every_overflow_row_and_arm() {
+    for overflow in [
+        "overflow=\"hidden\"",
+        "overflow=\"visible\"",
+        // `""` and `"unset"` declare nothing: both axes stay `visible`.
+        "overflow=\"\"",
+        "overflow=\"unset\"",
+        // Each arm keeps its two axes together: neither scrolls.
+        "overflow=(on ? \"hidden\" : \"visible\")",
+        // A computed x beside a `visible` y could compute anything; doubt is no refusal.
+        "overflow-x=o",
+    ] {
+        contract::compile(&format!(
+            "component App\n  state on = true\n  state o = \"hidden\"\n  view\n    box glassGroup=0 {overflow}\n"
+        ))
+        .unwrap_or_else(|e| panic!("{overflow}: {e}"));
+    }
+    // A later literal overrides an earlier computed row; an arm that scrolls,
+    // or a known `hidden` beside a computed axis, may scroll.
+    for overflow in [
+        "overflow=\"hidden visible\"",
+        "overflow-x=\"hidden\"",
+        "overflow-x=o overflow=\"auto\"",
+        "overflow=(on ? \"hidden visible\" : \"hidden\")",
+        "overflow-x=\"hidden\" overflow-y=o",
+    ] {
+        let e = contract::compile(&format!(
+            "component App\n  state on = true\n  state o = \"hidden\"\n  view\n    box glassGroup=4 height=40 {overflow}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-glass-group", "{overflow}: {e}");
+    }
 }

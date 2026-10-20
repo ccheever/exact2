@@ -39,6 +39,9 @@ char *dup_utf8(NSString *value) {
 @property(nonatomic, assign) BOOL closeAttempted;
 @property(nonatomic, assign) BOOL closeSubmitted;
 @property(nonatomic, assign) BOOL sendSubmittedAfterClose;
+@property(nonatomic, assign) BOOL pauseCompletion;
+@property(nonatomic, assign) BOOL completionObserved;
+@property(nonatomic, assign) BOOL completionResume;
 @end
 
 @implementation Ibex2SendGate
@@ -179,6 +182,15 @@ void note_test_send_submission(Ibex2SendGate *gate) {
   if (gate == nil) return;
   [gate.condition lock];
   if (gate.closeSubmitted) gate.sendSubmittedAfterClose = YES;
+  [gate.condition unlock];
+}
+
+void await_test_completion(Ibex2SendGate *gate) {
+  if (gate == nil || !gate.pauseCompletion) return;
+  [gate.condition lock];
+  gate.completionObserved = YES;
+  [gate.condition broadcast];
+  while (!gate.completionResume) [gate.condition wait];
   [gate.condition unlock];
 }
 } // namespace
@@ -360,6 +372,7 @@ int send_message(Ibex2Socket *socket, NSURLSessionWebSocketMessage *message,
   [socket.task sendMessage:message completionHandler:^(NSError *error) {
     Ibex2Socket *strong = weak;
     if (strong == nil) return;
+    await_test_completion(testGate);
     [strong.condition lock];
     if (error == nil) {
       strong.pendingBytes = strong.pendingBytes >= length
@@ -478,12 +491,50 @@ int ibex2_darwin_ws_test_send_submitted_after_close(void *handle) {
   return raced ? 1 : 0;
 }
 
+void ibex2_darwin_ws_test_pause_next_completion(void *handle) {
+  Ibex2Socket *socket = (__bridge Ibex2Socket *)handle;
+  Ibex2SendGate *gate = [[Ibex2SendGate alloc] init];
+  gate.condition = [[NSCondition alloc] init];
+  gate.resume = YES;
+  gate.pauseCompletion = YES;
+  socket.testSendGate = gate;
+}
+
+int ibex2_darwin_ws_test_wait_completion(void *handle,
+                                          double timeout_seconds) {
+  Ibex2Socket *socket = (__bridge Ibex2Socket *)handle;
+  Ibex2SendGate *gate = socket.testSendGate;
+  NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:timeout_seconds];
+  [gate.condition lock];
+  while (!gate.completionObserved && [gate.condition waitUntilDate:limit]) {}
+  BOOL observed = gate.completionObserved;
+  [gate.condition unlock];
+  return observed ? 1 : 0;
+}
+
+void ibex2_darwin_ws_test_resume_completion(void *handle) {
+  Ibex2Socket *socket = (__bridge Ibex2Socket *)handle;
+  Ibex2SendGate *gate = socket.testSendGate;
+  [gate.condition lock];
+  gate.completionResume = YES;
+  [gate.condition broadcast];
+  [gate.condition unlock];
+}
+
 size_t ibex2_darwin_ws_buffered_amount(void *handle) {
   Ibex2Socket *socket = (__bridge Ibex2Socket *)handle;
   [socket.condition lock];
   NSUInteger amount = socket.pendingBytes;
   [socket.condition unlock];
   return (size_t)amount;
+}
+
+size_t ibex2_darwin_ws_buffered_messages(void *handle) {
+  Ibex2Socket *socket = (__bridge Ibex2Socket *)handle;
+  [socket.condition lock];
+  NSUInteger messages = socket.pendingMessages;
+  [socket.condition unlock];
+  return (size_t)messages;
 }
 
 // Close the socket (idempotent); a blocked open or read returns aborted.

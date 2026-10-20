@@ -398,7 +398,7 @@ component DocumentBody
                 text "Link" font-size=13 color="ink"
             if linkOpen
               row gap=6 align-items="center" width="100%"
-                input id="markup-link-url" value=linkUrl input=linkChanged aria-label="Link URL" placeholder="https://example.com" testId="markup-link-url" flex=1 min-width=0 padding=8
+                input id="markup-link-url" value=linkUrl input=linkChanged submit=applyLink aria-label="Link URL" placeholder="https://example.com" testId="markup-link-url" flex=1 min-width=0 padding=8
                 button appearance="none" press=applyLink retainFocus=true testId="apply-link" min-height=40 padding=8
                   text (linkUrl == "" ? "Remove link" : "Apply") font-size=13 color="ink"
                 button appearance="none" press=cancelLink testId="cancel-link" min-height=40 padding=8

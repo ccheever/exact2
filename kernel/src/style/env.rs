@@ -1,6 +1,7 @@
 //! The page's environment: what CSS's `env()` lengths resolve to — the four
-//! safe-area insets (LLP 1001 §2) and, on a foldable, the viewport segments
-//! (LLP 1078 D3; CSS-ENV-1 §2.3). The host sets both with the viewport; the
+//! safe-area insets (LLP 1001 §2), on a foldable the viewport segments
+//! (LLP 1078 D3; CSS-ENV-1 §2.3), and on a desktop window the title-bar
+//! area (Window Controls Overlay). The host sets them with the viewport; the
 //! kernel resolves every `env()` length against them where the engine style
 //! is derived. Text on a dimension row is parsed here, once, by CSS's grammar.
 
@@ -42,6 +43,69 @@ impl Edge {
     /// The edge by wire index (0–3).
     pub fn from_index(i: u8) -> Option<Edge> {
         Edge::ALL.get(i as usize).copied()
+    }
+}
+
+/// A layout region a native host reports beside the safe area (LLP 1123
+/// D10): UIKit's and AppKit's `LayoutRegion`s, each an inset per edge from
+/// the layout viewport, which `env(-exact-<region>-inset-<edge>)` names.
+/// The `Corners` regions are the same region with the host's corner
+/// adaptation: left and right adapt on the horizontal axis, top and bottom
+/// on the vertical one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Region {
+    /// `-exact-safe-area-corners-inset-`: the safe area kept clear of the
+    /// display's or window's corners.
+    SafeAreaCorners = 0,
+    /// `-exact-layout-margins-inset-`: the platform's layout margins, at
+    /// least the safe area.
+    LayoutMargins = 1,
+    /// `-exact-layout-margins-corners-inset-`: the layout margins kept clear
+    /// of the corners.
+    LayoutMarginsCorners = 2,
+    /// `-exact-readable-content-inset-`: a width comfortable for reading,
+    /// inside the margins.
+    ReadableContent = 3,
+    /// `-exact-readable-content-corners-inset-`: the readable content kept
+    /// clear of the corners.
+    ReadableContentCorners = 4,
+}
+
+impl Region {
+    /// Every region, in wire order.
+    pub const ALL: [Region; 5] = [
+        Region::SafeAreaCorners,
+        Region::LayoutMargins,
+        Region::LayoutMarginsCorners,
+        Region::ReadableContent,
+        Region::ReadableContentCorners,
+    ];
+
+    /// The variable's name before its edge: `-exact-layout-margins-inset-`.
+    pub fn prefix(self) -> &'static str {
+        match self {
+            Region::SafeAreaCorners => "-exact-safe-area-corners-inset-",
+            Region::LayoutMargins => "-exact-layout-margins-inset-",
+            Region::LayoutMarginsCorners => "-exact-layout-margins-corners-inset-",
+            Region::ReadableContent => "-exact-readable-content-inset-",
+            Region::ReadableContentCorners => "-exact-readable-content-corners-inset-",
+        }
+    }
+
+    /// The region by wire index (0–4).
+    pub fn from_index(i: u8) -> Option<Region> {
+        Region::ALL.get(i as usize).copied()
+    }
+
+    /// The region and edge a variable's name names:
+    /// `-exact-layout-margins-inset-left`.
+    pub fn from_name(name: &str) -> Option<(Region, Edge)> {
+        Region::ALL.iter().find_map(|r| {
+            name.strip_prefix(r.prefix())
+                .and_then(Edge::from_name)
+                .map(|e| (*r, e))
+        })
     }
 }
 
@@ -146,6 +210,66 @@ impl Rect {
     }
 }
 
+/// A title-bar area variable (Window Controls Overlay §4.1,
+/// <https://wicg.github.io/window-controls-overlay/>): one side of the
+/// rectangle of the title bar an app may draw in, beside the window's
+/// controls, which `env(titlebar-area-<var>)` names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum TitleBarVar {
+    /// `titlebar-area-x`: the left edge, from the viewport's left.
+    X = 0,
+    /// `titlebar-area-y`: the top edge, from the viewport's top.
+    Y = 1,
+    /// `titlebar-area-width`.
+    Width = 2,
+    /// `titlebar-area-height`.
+    Height = 3,
+}
+
+impl TitleBarVar {
+    /// Every variable, in wire order.
+    pub const ALL: [TitleBarVar; 4] = [
+        TitleBarVar::X,
+        TitleBarVar::Y,
+        TitleBarVar::Width,
+        TitleBarVar::Height,
+    ];
+    /// The names' common start.
+    pub const PREFIX: &'static str = "titlebar-area-";
+
+    /// The name's tail: `x`, `y`, `width`, `height`.
+    pub fn name(self) -> &'static str {
+        match self {
+            TitleBarVar::X => "x",
+            TitleBarVar::Y => "y",
+            TitleBarVar::Width => "width",
+            TitleBarVar::Height => "height",
+        }
+    }
+
+    /// The variable by its whole name, `titlebar-area-x`.
+    pub fn from_name(name: &str) -> Option<TitleBarVar> {
+        let tail = name.strip_prefix(Self::PREFIX)?;
+        TitleBarVar::ALL.iter().copied().find(|v| v.name() == tail)
+    }
+
+    /// The variable by wire index (0–3).
+    pub fn from_index(i: u8) -> Option<TitleBarVar> {
+        TitleBarVar::ALL.get(i as usize).copied()
+    }
+
+    /// The side of the area this variable names.
+    pub fn of(self, rect: &Rect) -> f32 {
+        match self {
+            TitleBarVar::X => rect.x,
+            TitleBarVar::Y => rect.y,
+            TitleBarVar::Width => rect.width,
+            TitleBarVar::Height => rect.height,
+        }
+    }
+}
+
 /// The page's environment: what CSS's `env()` lengths resolve to, in points,
 /// set by the host with the viewport. The four safe-area insets (a phone's
 /// status bar and home indicator under `viewport-fit=cover`; zero everywhere
@@ -177,6 +301,11 @@ pub struct Env {
     /// side occupies one cell. Set by the terminal host on its own kernel;
     /// no other host sees it.
     pub cell_borders: bool,
+    /// A terminal's space rule (LLP 1101 §4, LLP 1121 stage 11 (c)): a
+    /// padding, margin or gap in points resolves to whole cells on its axis,
+    /// rows down and columns across, to the nearest with a tie toward zero.
+    /// Set by the terminal host on its own kernel; no other host sees it.
+    pub cell_spaces: bool,
     /// Platform control fonts (LLP 1104 D4). None preserves page inheritance.
     pub control_text_styles: Option<crate::ControlTextStyles>,
     /// Optional per-size button fonts. Separate from `ControlTextStyles` so
@@ -189,6 +318,17 @@ pub struct Env {
     /// viewport and never a dialog, so no length follows a sheet's size.
     /// `None`: the layout viewport.
     pub screen: Option<(f32, f32)>,
+    /// The layout regions' insets (LLP 1123 D10), indexed by [`Region`],
+    /// each top right bottom left, from the layout viewport. `None` on a
+    /// host that reports none: every region is then the safe area.
+    pub regions: Option<[[f32; 4]; 5]>,
+    /// The title-bar area beside the window's controls, in the layout
+    /// viewport's points (Window Controls Overlay): `None` where the window
+    /// has no such area to give, where every `titlebar-area-*` is undefined
+    /// and a fallback applies, as in a browser tab; all zero while the area
+    /// is hidden (a window in full screen, or one whose toolbar fills the
+    /// title bar).
+    pub titlebar_area: Option<Rect>,
 }
 
 impl Default for Env {
@@ -211,9 +351,12 @@ impl Env {
             viewport_width: 0.0,
             viewport_height: 0.0,
             cell_borders: false,
+            cell_spaces: false,
             control_text_styles: None,
             button_fonts: None,
             screen: None,
+            regions: None,
+            titlebar_area: None,
         }
     }
 
@@ -227,13 +370,24 @@ impl Env {
         }
     }
 
+    /// A layout region's inset at an edge: the host's, else the safe area's
+    /// (LLP 1123 D10).
+    pub fn region_inset(&self, region: Region, edge: Edge) -> f32 {
+        self.regions
+            .map_or_else(|| self.inset(edge), |r| r[region as usize][edge as usize])
+    }
+
     /// Whether every inset and every segment side is a finite number.
     pub fn is_finite(&self) -> bool {
         self.button_fonts
             .as_ref()
             .is_none_or(crate::ButtonFonts::is_valid)
             && Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
+            && self
+                .regions
+                .is_none_or(|r| r.iter().flatten().all(|v| v.is_finite()))
             && self.segments.iter().all(Rect::is_finite)
+            && self.titlebar_area.as_ref().is_none_or(Rect::is_finite)
             && self
                 .screen
                 .is_none_or(|(w, h)| w.is_finite() && h.is_finite() && w >= 0.0 && h >= 0.0)
@@ -285,6 +439,14 @@ impl Env {
         }
     }
 
+    /// This environment with the terminal's space rule on or off.
+    pub fn with_cell_spaces(&self, on: bool) -> Env {
+        Env {
+            cell_spaces: on,
+            ..self.clone()
+        }
+    }
+
     /// This environment with the window's size the viewport units resolve
     /// against (`None`: the layout viewport).
     pub fn with_screen(&self, screen: Option<(f32, f32)>) -> Env {
@@ -292,6 +454,29 @@ impl Env {
             screen,
             ..self.clone()
         }
+    }
+
+    /// This environment with its layout regions' insets replaced (`None`:
+    /// every region is the safe area).
+    pub fn with_regions(&self, regions: Option<[[f32; 4]; 5]>) -> Env {
+        Env {
+            regions,
+            ..self.clone()
+        }
+    }
+
+    /// This environment with its title-bar area replaced (`None`: undefined).
+    pub fn with_titlebar_area(&self, area: Option<Rect>) -> Env {
+        Env {
+            titlebar_area: area,
+            ..self.clone()
+        }
+    }
+
+    /// A title-bar area variable's points, or `None` where the area is
+    /// undefined.
+    pub fn titlebar(&self, var: TitleBarVar) -> Option<f32> {
+        self.titlebar_area.as_ref().map(|r| var.of(r))
     }
 
     /// This environment with its insets replaced, the grid kept.
@@ -330,7 +515,7 @@ impl EnvRefusal {
             EnvRefusal::IndexCount => "env(viewport-segment-*) takes exactly two indices, x then y: env(viewport-segment-width 0 0)",
             EnvRefusal::IndexForm => "a viewport segment index is a non-negative integer",
             EnvRefusal::IndexRange => "a viewport segment index is at most 15",
-            EnvRefusal::UnknownVariable => "env() names safe-area-inset-top/right/bottom/left or viewport-segment-width/height/top/left/bottom/right x y",
+            EnvRefusal::UnknownVariable => "env() names safe-area-inset-top/right/bottom/left, viewport-segment-width/height/top/left/bottom/right x y, titlebar-area-x/y/width/height, or a layout region's inset, -exact-<region>-inset-top/right/bottom/left for safe-area-corners, layout-margins, layout-margins-corners, readable-content or readable-content-corners",
             EnvRefusal::Unlinked => "env(viewport-segment-*) is not linked into this artifact (LLP 1078 D3; linked by use, LLP 1047 D2)",
         }
     }
@@ -367,6 +552,17 @@ pub fn link() {
 /// Whether the segment grammar is linked.
 pub fn linked() -> bool {
     LINKED.get().is_some()
+}
+
+/// An inset length's points under `env`: a safe-area inset's, or a layout
+/// region's (the safe area's on a host that reports none), plus its own.
+pub(crate) fn resolve_inset(d: Dimension, env: &Env) -> Dimension {
+    let (base, plus) = match d {
+        Dimension::Env(edge, plus) => (env.inset(edge), plus),
+        Dimension::Region(region, edge, plus) => (env.region_inset(region, edge), plus),
+        other => return other,
+    };
+    Dimension::Points(super::calc::narrow(f64::from(base) + f64::from(plus)))
 }
 
 /// A segment length's points under `env`, or `Auto` when its segment is
@@ -433,6 +629,8 @@ fn segment_term(tail: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
         return Err(EnvRefusal::IndexCount);
     }
     let index = |s: &str| -> Result<u8, EnvRefusal> {
+        // CSS's integer: digits, a `+` before them allowed
+        let s = s.strip_prefix('+').unwrap_or(s);
         if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
             return Err(EnvRefusal::IndexForm);
         }
@@ -451,10 +649,20 @@ fn segment_term(tail: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
 }
 
 /// The `env()` variable families `term` reads, each with its kind (LLP 1081
-/// D8): both are CSS Environment Variables 1's.
-pub const ENV_NAMES: [(&str, &str); 2] = [
+/// D8): CSS Environment Variables 1's, Window Controls Overlay's, and
+/// Exact's layout regions (LLP 1123 D10), whose names begin `-exact-`.
+pub const ENV_NAMES: [(&str, &str); 8] = [
     ("safe-area-inset-", "css CSS Environment Variables 1"),
     ("viewport-segment-", "css CSS Environment Variables 1"),
+    ("-exact-safe-area-corners-inset-", "exact LLP 1123 D10"),
+    ("-exact-layout-margins-inset-", "exact LLP 1123 D10"),
+    ("-exact-layout-margins-corners-inset-", "exact LLP 1123 D10"),
+    ("-exact-readable-content-inset-", "exact LLP 1123 D10"),
+    (
+        "-exact-readable-content-corners-inset-",
+        "exact LLP 1123 D10",
+    ),
+    (TitleBarVar::PREFIX, "css Window Controls Overlay"),
 ];
 
 pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
@@ -466,24 +674,44 @@ pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
         .trim();
     let mut words = body.split_whitespace();
     let name = words.next().ok_or(EnvRefusal::UnknownVariable)?;
+    named(name, &words.collect::<Vec<_>>())
+}
+
+/// A variable by its name, as CSS decodes it, and its indices' text.
+pub(super) fn named(name: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
     if let Some(edge) = name.strip_prefix(ENV_NAMES[0].0) {
         let edge = Edge::from_name(edge).ok_or(EnvRefusal::UnknownVariable)?;
-        return if words.next().is_some() {
-            Err(EnvRefusal::UnknownVariable)
-        } else {
+        return if indices.is_empty() {
             Ok(Dimension::Env(edge, 0.0))
+        } else {
+            Err(EnvRefusal::UnknownVariable)
+        };
+    }
+    if let Some(var) = TitleBarVar::from_name(name) {
+        return if indices.is_empty() {
+            Ok(super::calc::lone_env(super::calc::EnvTerm::TitleBar(var)))
+        } else {
+            Err(EnvRefusal::UnknownVariable)
+        };
+    }
+    if let Some((region, edge)) = Region::from_name(name) {
+        return if indices.is_empty() {
+            Ok(Dimension::Region(region, edge, 0.0))
+        } else {
+            Err(EnvRefusal::UnknownVariable)
         };
     }
     let tail = name
         .strip_prefix(ENV_NAMES[1].0)
         .ok_or(EnvRefusal::UnknownVariable)?;
     let hooks = LINKED.get().ok_or(EnvRefusal::Unlinked)?;
-    let indices: Vec<&str> = words.collect();
-    (hooks.term)(tail, &indices)
+    (hooks.term)(tail, indices)
 }
 
-/// A bare `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)` or
-/// `env(viewport-segment-<var> <x> <y>)`. `Ok(None)` when the text is not
+/// A bare `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)`,
+/// `env(viewport-segment-<var> <x> <y>)`, `env(titlebar-area-<var>)` (a
+/// calculation, since it may be undefined) or a layout region's
+/// `env(-exact-<region>-inset-<edge>)` (LLP 1123 D10). `Ok(None)` when the text is not
 /// one (a math function, or one with a fallback, is [`super::calc`]'s); `Err`
 /// when it names one of the
 /// kernel's variables wrongly (LLP 1078 D10).
@@ -495,6 +723,52 @@ pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
     Ok(None)
 }
 
+/// A calculation's CSS text for a browser, which has no layout regions (LLP
+/// 1123 D10): each region's name is the safe area's, which is what the
+/// region resolves to on a host that reports none. Names are matched as CSS
+/// identifiers, escapes decoded, and the rest of the text is kept as written.
+pub fn browser_css(c: super::Comparison, out: &mut String) {
+    let mut text = String::new();
+    c.css(&mut text);
+    if !text.contains("-exact-") && !text.contains('\\') {
+        out.push_str(&text);
+        return;
+    }
+    let mut input = cssparser::ParserInput::new(&text);
+    rename_regions(&mut cssparser::Parser::new(&mut input), out);
+}
+
+fn rename_regions(p: &mut cssparser::Parser<'_, '_>, out: &mut String) {
+    use cssparser::Token;
+    loop {
+        let start = p.position();
+        let Ok(token) = p.next_including_whitespace_and_comments().cloned() else {
+            return;
+        };
+        let close = match token {
+            Token::Ident(ref name) if Region::from_name(name).is_some() => {
+                let (_, edge) = Region::from_name(name).expect("matched");
+                out.push_str(ENV_NAMES[0].0);
+                out.push_str(edge.name());
+                continue;
+            }
+            Token::Function(_) | Token::ParenthesisBlock => ')',
+            Token::SquareBracketBlock => ']',
+            Token::CurlyBracketBlock => '}',
+            _ => {
+                out.push_str(p.slice_from(start));
+                continue;
+            }
+        };
+        out.push_str(p.slice_from(start));
+        let _ = p.parse_nested_block(|p| {
+            rename_regions(p, out);
+            Ok::<(), cssparser::ParseError<'_, ()>>(())
+        });
+        out.push(close);
+    }
+}
+
 /// Whether a style reads a viewport or environment length.
 pub fn uses_env(style: &crate::StyleProps) -> bool {
     style.mask.iter().any(|id| {
@@ -502,6 +776,7 @@ pub fn uses_env(style: &crate::StyleProps) -> bool {
             style.get(id),
             crate::RowValue::Dimension(
                 Dimension::Env(..)
+                    | Dimension::Region(..)
                     | Dimension::Segment(..)
                     | Dimension::Viewport(..)
                     | Dimension::Compare(..)

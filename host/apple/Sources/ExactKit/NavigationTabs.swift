@@ -18,15 +18,19 @@ struct RootTabs: Equatable {
     /// own sidebar (LLP 1116.004 D1.1; `host/web/navigation.js` `unsaidBar`):
     /// read from the kernel's layout rows, which do not cross to the views.
     let unsaid: Bool
+    /// The kernel lays the tablist out as `display: none`: the boot covered
+    /// it for the tab bar that takes its place (host/apple/src/closed.rs).
+    let covered: Bool
 
-    init(tablist: UInt32, tabs: [UInt32], panels: [UInt32], unsaid: Bool) {
-        (self.tablist, self.tabs, self.panels, self.unsaid) = (tablist, tabs, panels, unsaid)
+    init(tablist: UInt32, tabs: [UInt32], panels: [UInt32], unsaid: Bool, covered: Bool = false) {
+        (self.tablist, self.tabs, self.panels, self.unsaid, self.covered) = (tablist, tabs, panels, unsaid, covered)
     }
 
     init?(json: Data) {
         guard let o = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
               let tablist = o["tablist"] as? Int, let tabs = o["tabs"] as? [Int], let panels = o["panels"] as? [Int] else { return nil }
-        self.init(tablist: UInt32(tablist), tabs: tabs.map { UInt32($0) }, panels: panels.map { UInt32($0) }, unsaid: o["unsaid"] as? Bool ?? false)
+        self.init(tablist: UInt32(tablist), tabs: tabs.map { UInt32($0) }, panels: panels.map { UInt32($0) }, unsaid: o["unsaid"] as? Bool ?? false,
+                  covered: o["covered"] as? Bool ?? false)
     }
 }
 

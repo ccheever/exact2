@@ -107,6 +107,8 @@ fn format_is_a_call_of_format_date_or_format_number_anywhere() {
     assert_eq!(time, Uses::NONE);
     let date = used("component A\n  view\n    text formatDate(0, 0, \"medium\")\n");
     assert_eq!(date.to_string(), "format");
+    let day = used("component A\n  view\n    text formatDay(0, 0, 0, \"list\")\n");
+    assert_eq!(day.to_string(), "format");
     // In an action's body, a derive, a callback and an inlined `fn` too.
     let action = used(
         "component A\n  state s = \"\"\n  action set\n    s = formatNumber(1250, \"compact\")\n  view\n    button s press=set\n",
@@ -122,8 +124,9 @@ fn format_is_a_call_of_format_date_or_format_number_anywhere() {
     assert!(wrapped.has(Capability::Format));
 }
 
-/// LLP 1088 D2: `toLowerCase` reaches the case tables `text-transform`
-/// links, so a call links them; `slice` and `replaceAll` need nothing.
+/// LLP 1088 D2: `toLowerCase` and `toUpperCase` reach the case tables
+/// `text-transform` links, so a call links them; `slice` and `replaceAll`
+/// need nothing.
 #[test]
 fn to_lower_case_links_the_case_tables_and_slice_links_nothing() {
     let cut = used(
@@ -132,6 +135,8 @@ fn to_lower_case_links_the_case_tables_and_slice_links_nothing() {
     assert_eq!(cut, Uses::NONE);
     let lower = used("component A\n  state s = \"Ab\"\n  view\n    text s.toLowerCase()\n");
     assert_eq!(lower.to_string(), "text_transform");
+    let upper = used("component A\n  state s = \"Ab\"\n  view\n    text s.toUpperCase()\n");
+    assert_eq!(upper.to_string(), "text_transform");
 }
 
 #[test]
@@ -306,6 +311,30 @@ fn the_picker_is_a_file_input_or_show_picker() {
     assert!(input.has(Capability::Picker));
 }
 
+/// LLP 1047.001.000 E: iOS's photo picker is a file input whose `accept` is
+/// only images and videos (the compiler takes only a literal); a document
+/// input links the picker without it.
+#[test]
+fn the_media_picker_is_a_file_input_that_accepts_only_media() {
+    let input = |attrs: &str| {
+        used(&format!("component A\n  view\n    column\n      input type=\"file\" id=\"f\"{attrs}\n      text \"a\"\n"))
+    };
+    for media in [" accept=\"image/*\"", " accept=\"image/png, video/mp4\""] {
+        let uses = input(media);
+        assert!(
+            uses.has(Capability::Picker) && uses.has(Capability::MediaPicker),
+            "{media}"
+        );
+    }
+    for document in ["", " accept=\"image/*, */*\"", " accept=\"*/*\""] {
+        let uses = input(document);
+        assert!(
+            uses.has(Capability::Picker) && !uses.has(Capability::MediaPicker),
+            "{document}"
+        );
+    }
+}
+
 #[test]
 fn svg_islands_are_a_mask_a_filter_element_or_a_filter_on_an_svg_element() {
     // @ref LLP 1055.000 D10, D14 — what makes a native host open its island module.
@@ -342,4 +371,16 @@ fn a_grouped_list_is_a_list_whose_appearance_is_auto() {
     );
     assert!(grouped.has(Capability::GroupedLists));
     assert_eq!(grouped.to_string(), "grouped_lists");
+}
+
+/// LLP 1115.001.000 D2: a date or time control, which on Android links
+/// Compose Material 3 for its picker.
+#[test]
+fn dates_are_a_date_or_time_control() {
+    for kind in ["date", "time", "datetime-local"] {
+        let plan = format!("component A\n  view\n    input type=\"{kind}\" value=\"\"\n");
+        assert!(used(&plan).has(Capability::Dates), "{kind}");
+    }
+    assert!(!used("component A\n  view\n    input value=\"\"\n").has(Capability::Dates));
+    assert!(!used("component A\n  view\n    input type=\"file\"\n").has(Capability::Dates));
 }

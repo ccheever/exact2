@@ -1,0 +1,25 @@
+# Code review: stage 4 commit 1: reclaimable wide colour storage, round 3, 2026-10-15 (grok)
+
+- **Family:** xAI. `grok-4.7` via the Grok CLI, reasoning effort xhigh, no subagents, a throwaway worktree, read-only by instruction.
+- **Method:** one brief (sha256 `8e6ec018b2d08a34f8cd163865850549b456c8483498a25b35e565e33f9d988a`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer. Round 1 (x2-perf3's, before the 2026-10-15 restart) left no transcript.
+- **Transcription:** the final message, unedited.
+- **Verdict:** nothing blocking.
+- **Disposition:** applied without re-review (the last round): explicit stop lookup for gradients (`resolved_with`, `placed_with`), svg settled to 8-bit pairs, a batch closes with its thread's last holder and protects at most `SPAN` interns, `wide::Batch` around export decode and the document fold. Left to `GRACE`, as the commit says: another kernel's commit on the same thread closing a batch first, and threads with no holder.
+
+---
+
+I'll review the HEAD commit read-only, starting with the review guidance and the commit itself, then checking the reclaim, settle, and holder paths the earlier rounds flagged.The review skill would write artifacts and can post comments, so I’m staying read-only and inspecting the HEAD commit directly. Next I’ll read the commit and the reclaim, settle, and holder paths.The table and mark code is in view. Next I’ll trace every place a wide colour can outlive the call that created it, and check batch close against real host paths.The reclaim rules are clear enough to check against real holders. I’ll read the kernel publish path, the Linux capture path, and the runner keeps next.The batch and settle rules check out on paper. I’m now tracing real host call paths: SVG paint, scheme flips, workers, and the bridges.Auto-compacting conversation (81% full)...
+Conversation compacted.
+I'll finish the read-only review of the HEAD commit, starting with the review criteria and the paths that were still unchecked.The tree is clean at that commit. Next I’ll re-check the reclaim accounting and the remaining holder paths, and run the full-table test to see whether recovery really stays inside the grace window.No findings. Nothing blocking.
+
+The reclaim matches the commit. A slot is a 12-bit index plus a 4-bit generation; the sweep frees only slots no mark holds and that were not minted after the oldest open batch or within the last 1,024 interns. With no holder registered, the sweep returns immediately. A refusal ticks the intern count, so a full table of recent free-able slots admits again on the attempt after 1,024 refusals (`kernel/tests/wide_full.rs` stays inside `tries <= GRACE`). `stale()` runs only after the table guard is dropped.
+
+Holders cover the colours that outlive a call. Kernels publish after a changing commit, `reset`, `trim`, and rehydrate. Keeps cover role overrides, reorder ops through the commit that applies them, the document tree after the fold, export snapshots, and a cloned arena until that kernel publishes. Apple, web, and web-js convert at the boundary. Linux content-region jobs carry no `ColorValue`. Retained Linux paint stores 8-bit colours or `wide::Values`, and the lookahead clears colour rows before the scratch kernel applies. Inset shading interns a new wide colour and resolves it before the call returns.
+
+`Settle` follows `Colors` for svg scenes, items, shape paint, and paint. The Linux svg painter already resolves those stops to 8-bit before interpolation, so settling them does not move the ramp. Gradients keep the table's `Arc`s and read them only inside `Values::read`, which saves and restores the thread-local scope (an empty set does not clobber an outer one). Placement, averaging, resolution, and interpolation only look up that ramp's own stops. A scheme flip of the current publication recaptures from the kernel; a publication that is not current is shown as captured.
+
+An id parsed on a holder thread stays in that thread's one batch until a holder there publishes. A runner batch and the Apple/web bridges parse on that thread, so a commit of more than 1,024 colours is covered by the batch, which `kernel/tests/wide_batch.rs` exercises at 3,500. An id handed to a thread with no holder has only the grace window, as specified. The scratch kernel's publish can close the UI thread's batch, but it runs between commits, after that batch is already closed.
+
+The mark on a commit that touches styles is a cached bitset union, and the visit is skipped while the table is empty. That is not a normal-path problem.
+
+Two tests are weaker than their comments, and neither hides a product bug. `kernel/src/gradient/tests.rs` checks captured values against the live table without sweeping, so it would still pass if `Values::read` did nothing; the Linux frame compare after a real sweep is what covers that path. The Linux scheme-flip check asserts text pixels only, after the next source has landed and while those colours are still in the kernel.

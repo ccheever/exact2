@@ -82,6 +82,27 @@ pub enum Op {
         /// The token.
         name: String,
     },
+    /// `set-param name [when …] value` (D15): the app's value of a
+    /// component's param, in the design's `params` block (made at the end
+    /// when there is none), its line or one `when` line of it. A `when`
+    /// line needs the param's own line first.
+    SetParam {
+        /// The param, by the name its line has (full or short).
+        name: String,
+        /// The `when` line's conditions; none is the param's own line.
+        when: Vec<(String, String)>,
+        /// The value, a token's.
+        value: String,
+    },
+    /// `unset-param name [when …]`: the param's line and its `when` lines
+    /// (the component's default applies again), or one `when` line; an
+    /// emptied `params` block goes with it.
+    UnsetParam {
+        /// The param, by the name its line has.
+        name: String,
+        /// The `when` line's conditions; none is the whole param.
+        when: Vec<(String, String)>,
+    },
     /// `add-axis-value axis value`, before `before` (else last).
     AddAxisValue {
         /// The axis.
@@ -97,6 +118,17 @@ pub enum Op {
         axis: String,
         /// The value.
         value: String,
+    },
+    /// `add-axis name = a | b`: a new app axis, its first value the default,
+    /// after the axes there are (an `axes` block made after the header when
+    /// there is none). An importer proposes one for a theme class.
+    AddAxis {
+        /// The axis.
+        name: String,
+        /// Its values, the first the default.
+        values: Vec<String>,
+        /// `under scheme=dark`.
+        under_dark: bool,
     },
     /// An inverse: lines `line` (1-based) to `line + remove - 1` replaced by
     /// `lines`, as they were, and whether the text ends with a newline. Only
@@ -138,7 +170,7 @@ pub fn undo(src: &str, inverse: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diag
     let mut text = src.to_string();
     let mut undone = Vec::new();
     for op in inverse {
-        let (next, back) = step(&text, op, vocab)?;
+        let (next, back) = step(&text, op, vocab, &crate::params::NONE)?;
         text = next;
         undone.insert(0, back);
     }
@@ -149,7 +181,14 @@ pub fn undo(src: &str, inverse: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diag
 }
 
 /// One edit, unchecked: the new text and the `restore` that undoes it.
-fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnostic>> {
+/// One operation on `src`; a rename is proved folded with the app's
+/// `params` (LLP 1121 D15), as the build folds the design.
+fn step(
+    src: &str,
+    op: &Op,
+    vocab: &Vocab,
+    params: &crate::params::Params,
+) -> Result<(String, Op), Vec<Diagnostic>> {
     valid(op)?;
     let design = crate::parse(src)?;
     if let Op::RenameToken { from, to } = op {
@@ -197,9 +236,13 @@ fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnosti
     // that was no use (a channel, a colour space, a platform selector) would.
     if let Op::RenameToken { .. } = op {
         let folded = |text: &str| {
-            crate::check(text, vocab)
-                .ok()
-                .map(|f| f.tokens.into_iter().map(|t| t.values).collect::<Vec<_>>())
+            let folding = match params.is_empty() {
+                true => crate::check(text, vocab).ok(),
+                false => crate::parse(text)
+                    .ok()
+                    .and_then(|d| crate::check_design(crate::params::laid(&d, params), vocab).ok()),
+            };
+            folding.map(|f| f.tokens.into_iter().map(|t| t.values).collect::<Vec<_>>())
         };
         // Proved only where both sides check and fold the same.
         match (folded(src), folded(&doc.text())) {
@@ -222,7 +265,7 @@ fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnosti
 /// An operation's fields, each its own kind: a value on one line, names and
 /// conditions as the grammar has them, a comment that is one, so a field
 /// cannot write a second line or name.
-fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
+pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
     let one_line = |field: &str, v: &str| match v.contains(['\n', '\r']) {
         true => Err(refuse(format!("`{field}` is one line"))),
         false => Ok(()),
@@ -247,6 +290,12 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         true => Ok(()),
         false => Err(refuse(format!(
             "`{v}`: a token's name is identifiers joined by `.`, or a role's"
+        ))),
+    };
+    let param = |v: &str| match crate::syntax::param_name(v) {
+        true => Ok(()),
+        false => Err(refuse(format!(
+            "`{v}`: a param is named `Component.param`, or in full, `file.contract#Component.param`"
         ))),
     };
     let ident = |v: &str| match lex::is_ident(v) {
@@ -323,6 +372,16 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         }
         Op::RenameToken { from, to } => name(from).and_then(|_| name(to)),
         Op::RemoveToken { name: n } => name(n),
+        Op::SetParam {
+            name: n,
+            when,
+            value: v,
+        } => {
+            param(n)?;
+            conds(when)?;
+            value(v)
+        }
+        Op::UnsetParam { name: n, when } => param(n).and_then(|_| conds(when)),
         Op::AddAxisValue {
             axis,
             value,
@@ -333,6 +392,20 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
             before.as_deref().map_or(Ok(()), ident)
         }
         Op::RemoveAxisValue { axis, value } => ident(axis).and_then(|_| ident(value)),
+        Op::AddAxis {
+            name: n, values, ..
+        } => {
+            ident(n)?;
+            if values.is_empty()
+                || values
+                    .iter()
+                    .enumerate()
+                    .any(|(i, v)| values[..i].contains(v))
+            {
+                return Err(refuse(format!("`{n}`: an axis has values, each once")));
+            }
+            values.iter().try_for_each(|v| ident(v))
+        }
         // A restored line keeps its `\r`.
         Op::Restore { lines, .. } => lines
             .iter()
@@ -346,19 +419,72 @@ pub fn apply_all(src: &str, ops: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Dia
     if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
         return Err(refuse("a restore is an inverse: undo applies it"));
     }
-    run(src, ops, vocab)
+    run(src, ops, vocab, &crate::params::NONE)
 }
 
-fn run(src: &str, ops: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diagnostic>> {
+/// [`apply_all`], the result checked laid out with the app's params (LLP
+/// 1121 D15), as the build checks it: a dial only a param reads is read.
+pub fn apply_all_with(
+    src: &str,
+    ops: &[Op],
+    vocab: &Vocab,
+    params: &crate::params::Params,
+) -> Result<Edited, Vec<Diagnostic>> {
+    if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
+        return Err(refuse("a restore is an inverse: undo applies it"));
+    }
+    run(src, ops, vocab, params)
+}
+
+fn run(
+    src: &str,
+    ops: &[Op],
+    vocab: &Vocab,
+    params: &crate::params::Params,
+) -> Result<Edited, Vec<Diagnostic>> {
     let mut text = src.to_string();
     let mut inverse = Vec::new();
     for op in ops {
-        let (next, undo) = step(&text, op, vocab)?;
+        let (next, undo) = step(&text, op, vocab, params)?;
         text = next;
         inverse.insert(0, undo);
     }
-    crate::check(&text, vocab)?;
+    match params.is_empty() {
+        true => drop(crate::check(&text, vocab)?),
+        false => drop(crate::check_design(
+            crate::params::laid(&crate::parse(&text)?, params),
+            vocab,
+        )?),
+    }
     Ok(Edited { text, inverse })
+}
+
+/// [`apply_all`] in two halves, for a caller that tries operations one group
+/// at a time on what it has accepted (re-import's transaction): `ops` applied
+/// to `src` with no check (a refused operation is `Err`, as [`apply_all`]
+/// says it), then the check. With no `Restore` among them (which
+/// `apply_all` refuses before any step), `stepped(stepped(src, a), b)` then
+/// the check is `apply_all(src, a ++ b)`: each operation reads only the text
+/// before it.
+pub(crate) fn stepped(src: &str, ops: &[Op], vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
+    if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
+        return Err(refuse("a restore is an inverse: undo applies it"));
+    }
+    let mut text = src.to_string();
+    for op in ops {
+        text = step(&text, op, vocab, &crate::params::NONE)?.0;
+    }
+    Ok(text)
+}
+
+/// [`stepped`], many `SetToken` and `SetDial` operations with one parse
+/// (`batch`): the same text and the same refusal, as stepping them one at a
+/// time, which it falls back to for any other operation or any refusal.
+pub(crate) fn stepped_all(src: &str, ops: &[Op], vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
+    match batch::stepped(src, ops, vocab) {
+        Some(text) => Ok(text),
+        None => stepped(src, ops, vocab),
+    }
 }
 
 /// A refusal with nowhere in the design to point (a name it lacks).
@@ -412,6 +538,9 @@ const KEYWORDS: &[&str] = &[
     "currentcolor",
 ];
 
+mod batch;
+mod params;
+
 /// The design's lines, which an edit splices.
 struct Doc {
     lines: Vec<String>,
@@ -420,6 +549,9 @@ struct Doc {
     /// The schema's roles, by their row spelling, which a role override
     /// answers to in any case.
     roles: Vec<(String, bool)>,
+    /// The design's tokens by name and by role, each the first, when one
+    /// parse serves many operations (`batch`): what [`token_index`] scans for.
+    index: Option<batch::Index>,
 }
 
 impl Doc {
@@ -430,6 +562,7 @@ impl Doc {
             lines: body.split('\n').map(str::to_string).collect(),
             newline,
             roles: Vec::new(),
+            index: None,
         }
     }
 
@@ -517,7 +650,10 @@ impl Doc {
                 at,
                 comment,
             } => {
-                let i = token_index(design, &self.roles, name)?;
+                let i = match &self.index {
+                    Some(index) => index.token(&self.roles, name)?,
+                    None => token_index(design, &self.roles, name)?,
+                };
                 let t = &design.tokens[i];
                 if when.is_empty() {
                     let (indent, code, trailing) = self.parts(t.name.line);
@@ -711,7 +847,8 @@ impl Doc {
                         format!("a token `{to}` is declared already"),
                     ));
                 }
-                // A token is named in the theme's values and the exports.
+                // A token is named in the theme's values, the exports, and
+                // the params block's values (D15).
                 let mut block = String::new();
                 for n in 0..self.lines.len() {
                     let raw = self.lines[n].clone();
@@ -720,23 +857,28 @@ impl Doc {
                         block = body.trim().to_string();
                         continue;
                     }
-                    if block != "theme" && block != "exports" {
+                    if block != "theme" && block != "exports" && block != "params" {
                         continue;
                     }
                     // A token line's name and value; a when line's value
-                    // only (its conditions are axes); an export whole.
+                    // only (its conditions are axes); an export whole; a
+                    // params line's value only (its name is a param's).
                     let code = body.trim_start();
                     let keep = match block.as_str() {
-                        "theme"
+                        "theme" | "params"
                             if code.starts_with("when ")
                                 && !code[4..].trim_start().starts_with('=') =>
                         {
                             lex::split_top(body, ':').map_or(body.len(), |(c, _)| c.len() + 1)
                         }
+                        "params" => {
+                            lex::split_top(body, '=').map_or(body.len(), |(c, _)| c.len() + 1)
+                        }
                         _ => 0,
                     };
                     let (kept, body) = body.split_at(keep);
-                    // A token line's metadata (`scheme=fixed`) is no use.
+                    // A token line's metadata is no value, but `pair=` names
+                    // tokens (LLP 1121 D3), so those names are renamed.
                     let words = lex::words(body.trim_end());
                     let meta_from = (1..words.len())
                         .rev()
@@ -750,8 +892,9 @@ impl Doc {
                         .map_or(body.len(), |i| words[i].0);
                     let (body, meta) = body.split_at(meta_from);
                     let renamed = rename_words(body, from, to);
-                    if renamed != body {
-                        self.lines[n] = format!("{kept}{renamed}{meta}{}", comment.unwrap_or(""));
+                    let paired = rename_pairs(meta, from, to);
+                    if renamed != body || paired != meta {
+                        self.lines[n] = format!("{kept}{renamed}{paired}{}", comment.unwrap_or(""));
                     }
                 }
                 Ok(vec![Op::RenameToken {
@@ -789,6 +932,13 @@ impl Doc {
                     value: value.clone(),
                 }])
             }
+            Op::AddAxis {
+                name,
+                values,
+                under_dark,
+            } => self.add_axis(design, name, values, *under_dark),
+            Op::SetParam { name, when, value } => self.set_param(design, name, when, value),
+            Op::UnsetParam { name, when } => self.unset_param(design, name, when),
             Op::RemoveAxisValue { axis, value } => {
                 let a = design
                     .axes
@@ -808,6 +958,60 @@ impl Doc {
                 }])
             }
         }
+    }
+
+    /// A new axis: after the last axis, or in a new `axes` block after the
+    /// header.
+    fn add_axis(
+        &mut self,
+        design: &Design,
+        name: &str,
+        values: &[String],
+        under_dark: bool,
+    ) -> Result<Vec<Op>, Vec<Diagnostic>> {
+        if let Some(a) = design.axes.iter().find(|a| a.name.value == name) {
+            return Err(refuse_at(
+                a.name.line,
+                format!("an axis `{name}` is declared already"),
+            ));
+        }
+        let mut code = format!("{name} = {}", values.join(" | "));
+        if under_dark {
+            code.push_str("  under scheme=dark");
+        }
+        match (design.axes.last(), self.block_end("axes")) {
+            (Some(last), Some(end)) => {
+                let indent = self.parts(last.name.line).0;
+                let l = self.ended(line(indent, &code, None));
+                self.lines.insert(end, l);
+            }
+            (None, Some(end)) => {
+                let l = self.ended(line(2, &code, None));
+                self.lines.insert(end, l);
+            }
+            (_, None) => {
+                let head = self
+                    .lines
+                    .iter()
+                    .position(|l| lex::split_comment(l).0.trim_start().starts_with("tamber "))
+                    .ok_or_else(|| refuse("the design has no `tamber` header"))?;
+                // After the header's own comments, the lines that follow it
+                // up to the first blank or block.
+                let mut at = head + 1;
+                while self.lines.get(at).is_some_and(|l| {
+                    let t = l.trim_start();
+                    t.starts_with("//") && !t.is_empty()
+                }) {
+                    at += 1;
+                }
+                let new = [String::new(), "axes".into(), line(2, &code, None)];
+                for (k, l) in new.into_iter().enumerate() {
+                    let l = self.ended(l);
+                    self.lines.insert(at + k, l);
+                }
+            }
+        }
+        Ok(Vec::new())
     }
 
     /// The index after block `name`'s last line that is not blank (its
@@ -855,7 +1059,7 @@ fn line(indent: usize, code: &str, comment: Option<&str>) -> String {
 /// its role, as the checker reads one: a system role's name in any case
 /// (`Canvas`, `canvas`), an Exact role's `-exact-` spelling or bare name in
 /// any case (the IR's `-exact-label` for a declared `label`).
-fn token_index(
+pub(crate) fn token_index(
     design: &Design,
     roles: &[(String, bool)],
     name: &str,
@@ -876,7 +1080,7 @@ fn token_index(
 }
 
 /// The role a name spells, by its schema name, or `None` for a plain name.
-fn role_key(roles: &[(String, bool)], n: &str) -> Option<String> {
+pub(crate) fn role_key(roles: &[(String, bool)], n: &str) -> Option<String> {
     let lower = n.to_ascii_lowercase();
     let found = match lower.strip_prefix("-exact-") {
         Some(bare) => roles
@@ -906,7 +1110,7 @@ fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
 }
 
 /// A metadata word as a token line writes it, quoting a value that needs it.
-fn meta_word(k: &str, v: &str) -> String {
+pub(crate) fn meta_word(k: &str, v: &str) -> String {
     match v
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || "-_.%#".contains(c))
@@ -914,6 +1118,46 @@ fn meta_word(k: &str, v: &str) -> String {
         true => format!("{k}={v}"),
         false => format!("{k}=\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\"")),
     }
+}
+
+/// A token line's metadata with each `pair=` list's `from` as `to`, the
+/// list written back as `meta_word` writes one (quoted when it must be).
+fn rename_pairs(meta: &str, from: &str, to: &str) -> String {
+    let mut out = String::new();
+    let mut at = 0;
+    for (start, word) in lex::words(meta) {
+        let Some(value) = word.strip_prefix("pair=") else {
+            continue;
+        };
+        let bare = value
+            .strip_prefix('"')
+            .and_then(|v| v.strip_suffix('"'))
+            .map_or_else(
+                || value.to_string(),
+                |v| v.replace("\\\"", "\"").replace("\\\\", "\\"),
+            );
+        let names: Vec<&str> = bare
+            .split(',')
+            .map(|n| if n.trim() == from { to } else { n })
+            .collect();
+        if !bare.split(',').any(|n| n.trim() == from) {
+            continue;
+        }
+        out.push_str(&meta[at..start]);
+        // Names joined by commas, bare as written when every name is plain.
+        let list = names.join(",");
+        let plain = list
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.,".contains(c));
+        out.push_str(&if plain {
+            format!("pair={list}")
+        } else {
+            meta_word("pair", &list)
+        });
+        at = start + word.len();
+    }
+    out.push_str(&meta[at..]);
+    out
 }
 
 /// `text` with each whole use of the name `from` as `to`: a name is whole

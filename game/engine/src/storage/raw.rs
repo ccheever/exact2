@@ -93,6 +93,8 @@ pub(crate) struct RawStorage {
     page_layout: Layout,
     pub(super) pages: Vec<Option<Bytes>>,
     counts: Vec<usize>,
+    empty_presents: Vec<u8>,
+    retaining: bool,
     pub(super) generations: Vec<Cell<u64>>,
     // The revision of each slot's last write, insertion or removal (PAGE per page),
     // and the newest of each 64 consecutive slots, so a scan skips quiet runs.
@@ -114,6 +116,8 @@ impl RawStorage {
             page_layout: Layout::array::<C>(PAGE).expect("component page layout"),
             pages: vec![],
             counts: vec![],
+            empty_presents: vec![],
+            retaining: false,
             generations: vec![],
             rows: vec![],
             runs: vec![],
@@ -322,6 +326,7 @@ impl RawStorage {
         if page >= self.pages.len() {
             self.pages.resize_with(page + 1, || None);
             self.counts.resize(page + 1, 0);
+            self.empty_presents.resize(page + 1, 0);
             self.generations.resize_with(page + 1, || Cell::new(0));
             self.rows.resize_with((page + 1) * PAGE, || Cell::new(0));
             self.runs.resize_with((page + 1) * WORDS, || Cell::new(0));
@@ -350,7 +355,7 @@ impl RawStorage {
         // SAFETY: ownership has moved out; initialized zero bytes keep absent Plain
         // slots uploadable. No references remain, and an empty page may be freed.
         unsafe { self.ptr(index).write_bytes(0, self.desc.layout.size()) };
-        if self.counts[index / PAGE] == 0 {
+        if !self.retaining && self.counts[index / PAGE] == 0 {
             self.pages[index / PAGE] = None;
         }
     }
@@ -363,6 +368,53 @@ impl RawStorage {
         unsafe { (self.desc.move_to)(self.ptr(index), out) };
         self.clear_slot(index);
         true
+    }
+    pub(crate) fn next_index(&self, start: usize) -> Option<usize> {
+        let word = start / 64;
+        self.mask
+            .iter()
+            .enumerate()
+            .skip(word)
+            .find_map(|(i, &bits)| {
+                let bits = if i == word {
+                    bits & (u64::MAX << (start % 64))
+                } else {
+                    bits
+                };
+                (bits != 0).then(|| i * 64 + bits.trailing_zeros() as usize)
+            })
+    }
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.pages
+            .iter()
+            .flatten()
+            .map(|b| b.layout.size())
+            .sum::<usize>()
+            + self.pages.capacity() * std::mem::size_of::<Option<Bytes>>()
+            + self.counts.capacity() * std::mem::size_of::<usize>()
+            + self.empty_presents.capacity()
+            + (self.generations.capacity()
+                + self.rows.capacity()
+                + self.runs.capacity()
+                + self.mask.capacity())
+                * 8
+    }
+    pub(crate) fn clear_presentation(&mut self) {
+        // Reclaim after 60 completed empty presents. Metadata stays bounded by
+        // the highest entity index, while component payload pages are released.
+        for i in 0..self.pages.len() {
+            self.empty_presents[i] = if self.counts[i] == 0 {
+                self.empty_presents[i].saturating_add(1)
+            } else {
+                0
+            };
+            if self.empty_presents[i] >= 60 {
+                self.pages[i] = None;
+            }
+        }
+        self.retaining = true;
+        self.erase_all();
+        self.retaining = false;
     }
     /// Erase every present row, visiting only the mask's set bits.
     pub(super) fn erase_all(&mut self) {

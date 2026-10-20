@@ -47,6 +47,8 @@ pub struct CRun {
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits: 1 is `tabular-nums` (LLP 1053 G4).
     pub font_variant_numeric: u8,
+    /// CSS `font-stretch`, percent of normal width (LLP 1019 D8).
+    pub font_stretch: f32,
 }
 
 /// One request, as the callback sees it.
@@ -160,8 +162,15 @@ pub struct CFontFace {
     pub source_len: usize,
     /// Plan stack id.
     pub stack: u16,
-    /// CSS weight; with an empty source, 0 names a local family and 1 a generic.
+    /// CSS weight, or the low end of a variable face's range; with an empty
+    /// source, 0 names a local family and 1 a generic.
     pub weight: u16,
+    /// The weight range's high end; `weight` for one weight.
+    pub weight_max: u16,
+    /// Widths in tenths of a percent, low and high; 1000 is normal.
+    pub stretch_min: u16,
+    /// The width range's high end.
+    pub stretch_max: u16,
     /// 1 for italic.
     pub italic: u8,
 }
@@ -204,6 +213,9 @@ pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *m
                     source_len: 0,
                     stack: stack_index as u16,
                     weight: u16::from(family.is_none()),
+                    weight_max: u16::from(family.is_none()),
+                    stretch_min: 1000,
+                    stretch_max: 1000,
                     italic: 0,
                 });
             }
@@ -218,6 +230,9 @@ pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *m
                         source_len: source.len(),
                         stack: stack_index as u16,
                         weight: face.weight,
+                        weight_max: face.weight_max,
+                        stretch_min: face.stretch_min,
+                        stretch_max: face.stretch_max,
                         italic: u8::from(face.italic),
                     });
                 }
@@ -254,6 +269,9 @@ pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *m
             source_len: 0,
             stack: *stack,
             weight: u16::from(generic),
+            weight_max: u16::from(generic),
+            stretch_min: 1000,
+            stretch_max: 1000,
             italic: 0,
         });
     }
@@ -267,6 +285,7 @@ pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *m
 /// A kernel measurer backed by the app's callback.
 pub struct CallbackMeasurer {
     f: MeasureFn,
+    time_format: Option<crate::time::TimeFormatFn>,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
     measure_revision: Option<std::rc::Rc<std::cell::Cell<u64>>>,
@@ -289,6 +308,7 @@ impl CallbackMeasurer {
     pub fn new(f: MeasureFn, ctx: *mut c_void, lines: Option<LinesFn>) -> CallbackMeasurer {
         CallbackMeasurer {
             f,
+            time_format: None,
             field_chrome: None,
             button_measure: None,
             measure_revision: None,
@@ -323,10 +343,17 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
         line_height: style.line_height.unwrap_or(0.0),
         letter_spacing: style.letter_spacing,
         font_variant_numeric: style.font_variant_numeric,
+        font_stretch: style.font_stretch,
     }
 }
 
 impl CallbackMeasurer {
+    /// Install the platform date formatter beside text measurement.
+    pub fn with_time_format(mut self, f: Option<crate::time::TimeFormatFn>) -> Self {
+        self.time_format = f;
+        self
+    }
+
     /// Install the optional UIKit chrome callback with the text engine's context.
     pub fn with_field_chrome(
         mut self,
@@ -465,6 +492,12 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 }
 
 impl TextMeasurer for CallbackMeasurer {
+    fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
+        match self.time_format {
+            Some(f) => crate::time::format(f, self.ctx, r),
+            None => exact_kernel::time::english(r),
+        }
+    }
     fn measure_revision(&self) -> u64 {
         self.measure_revision
             .as_ref()

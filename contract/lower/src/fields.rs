@@ -130,13 +130,14 @@ impl Lowerer<'_> {
     /// Called only for a final TextInput, after class merge and shorthand
     /// expansion. Excluded types and the Markdown editor always get `none`;
     /// an admitted default field gets no appearance binding unless devolved.
+    /// Returns whether the resulting field uses the platform control font.
     pub(crate) fn field_appearance(
         &mut self,
         tag: &str,
         attrs: &[Attr],
         span: Span,
         bindings: &mut Vec<BindingsRow>,
-    ) -> Result<(), LowerError> {
+    ) -> Result<bool, LowerError> {
         let appearance = attrs.iter().rev().find(|a| a.name == "appearance");
         let native = field(tag, attrs);
         let explicit = if native {
@@ -195,6 +196,6 @@ impl Lowerer<'_> {
             let none = self.fixed(true, "none");
             bindings.push(crate::style_row(StyleId::Appearance, none, crate::IMPLIED));
         }
-        Ok(())
+        Ok(native && explicit != Some("none") && (explicit.is_some() || rows.is_empty()))
     }
 }

@@ -45,6 +45,7 @@ fn lean_source(src: &str, name: &str, ascribed: bool) -> Result<String, CompileE
     crate::compile(src)?;
     let mut file = contract_syntax::parse(src)?;
     contract_syntax::resolve_clock_timelines(&mut file)?;
+    crate::params(&mut file)?;
     emit_file(&file, name, None, ascribed)
 }
 
@@ -182,7 +183,7 @@ pub fn string(s: &str) -> String {
 pub fn ty(t: &Ty) -> String {
     match t {
         Ty::Number => ".number".into(),
-        Ty::String => ".string".into(),
+        Ty::String | Ty::Enum(_) => ".string".into(),
         Ty::Bool => ".bool".into(),
         Ty::Unit => ".unit".into(),
         Ty::Option(t) => format!("(.option {})", ty(t)),
@@ -651,6 +652,12 @@ impl Emitter<'_> {
                     unreachable!("matched above")
                 };
                 format!("(.call {} [{}])", string(name), self.expr(x)?)
+            }
+            // `x.length` that the checker read as a record's field.
+            Expr::Call(name, args, span)
+                if name == "length" && shapes.reads_length_field(*span) =>
+            {
+                format!("(.member {} {})", self.expr(&args[0])?, string(name))
             }
             Expr::Call(name, args, _) => {
                 let mut parts = args

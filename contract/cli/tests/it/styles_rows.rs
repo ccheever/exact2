@@ -228,7 +228,7 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
 
 #[test]
 fn popover_flip_fallbacks_compile_in_authored_order() {
-    let source = "component App\n  view\n    column popover=\"auto\" position-area=\"bottom span-right\" position-try-fallbacks=\"flip-block, flip-inline, flip-block flip-inline\"\n";
+    let source = "component App\n  view\n    column popover=\"auto\" position-area=\"bottom span-right\" position-try-fallbacks=\"flip-block, flip-inline, flip-start flip-block\"\n";
     let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
     let runner = Runner::boot(
         plan,
@@ -241,19 +241,19 @@ fn popover_flip_fallbacks_compile_in_authored_order() {
     let node = runner.kernel().node(runner.roots()[0]).unwrap();
     assert_eq!(
         node.style.position_try_fallbacks.css(),
-        "flip-block, flip-inline, flip-block flip-inline"
+        "flip-block, flip-inline, flip-start flip-block"
     );
     for invalid in [
-        "flip-start",
+        "flip-x",
         "flip-block flip-block",
         "flip-inline,",
         "none, flip-block",
         "--custom",
     ] {
-        let bad = source.replace("flip-block, flip-inline, flip-block flip-inline", invalid);
+        let bad = source.replace("flip-block, flip-inline, flip-start flip-block", invalid);
         let error = contract::compile(&bad).unwrap_err().to_string();
         assert!(
-            error.contains("flip-block/flip-inline"),
+            error.contains("flip-block, flip-inline and flip-start"),
             "{invalid}: {error}"
         );
     }
@@ -420,4 +420,55 @@ fn user_select_text_compiles_and_all_and_contain_are_refused_by_name() {
         assert!(error.contains("auto, none and text"), "{error}");
         assert!(!error.contains("unknown attribute"), "{error}");
     }
+}
+
+/// @ref LLP 1053.000 D4 — every platform material by name, and `none`; others refused.
+#[test]
+fn a_material_is_a_name_in_the_table_or_none() {
+    for name in [
+        "ultra-thin",
+        "chrome-dark",
+        "prominent",
+        "sidebar",
+        "hud-window",
+        "glass-clear",
+    ] {
+        contract::compile(&format!(
+            "component App\n  view\n    box backgroundMaterial=\"{name}\"\n"
+        ))
+        .unwrap();
+    }
+    let error =
+        contract::compile("component App\n  view\n    box backgroundMaterial=\"frosted\"\n")
+            .unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("`backgroundMaterial=\"frosted\"` is not a material; materials: ultra-thin,"),
+        "{error}"
+    );
+    // `none` is no material, said or chosen (euxy's capsule); each string a
+    // computed value can take is checked, the arm's span named.
+    for value in [
+        "\"none\"",
+        "(on ? \"none\" : \"glass\")",
+        "(on ? \"thin\" : (on ? \"none\" : \"glass-clear\"))",
+    ] {
+        contract::compile(&format!(
+            "component App\n  state on = false\n  view\n    box backgroundMaterial={value}\n"
+        ))
+        .unwrap();
+    }
+    let error = contract::compile(
+        "component App\n  state on = false\n  view\n    box backgroundMaterial=(on ? \"glass\" : \"off\")\n",
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("`backgroundMaterial=\"off\"` is not a material")
+            && error.message.ends_with("or `none` for no material")
+            && error.span.col == 44,
+        "{error:?}"
+    );
 }

@@ -4,13 +4,20 @@ use super::{Clip, Interpolation, Model, TrackPath};
 use crate::{Component, Mat4, Quat, Transform, Vec3};
 /// Compact saved arrays, ten floats per imported node: translation, xyzw rotation, scale.
 /// Imported nodes are never entities. The composed palette is not saved.
+/// animation::step writes these rows; the renderer interpolates completed ticks.
 #[derive(Default, Clone, Debug, Component)]
 pub struct Pose {
+    /// Previous completed tick's local node poses; ten floats per node.
     pub previous: Vec<f32>,
+    /// Current local node poses; translation metres, xyzw quaternion, scale.
     pub local: Vec<f32>,
+    /// Normalized clip phase; one-shot endpoints are zero and one.
     pub phase: f32,
+    /// Model-local displacement extracted this tick, in metres.
     pub root_motion: Vec3,
+    /// Marker names crossed in the last animation step.
     pub crossed: Vec<String>,
+    /// Conservative model-local AABB [min x, y, z, max x, y, z], in metres.
     pub bounds: [f32; 6],
     pub(crate) stepped: Option<u64>,
 }

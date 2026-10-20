@@ -63,13 +63,15 @@ pub fn field_mask(code: &str) -> Option<u32> {
     item.map(|_| mask)
 }
 
-/// Whether a key's code reads nothing but `item`, `index` and the runtime's
-/// pure helpers (`x_…`, budget.js's checked `cc` and `K`).
+/// Whether a key's code reads nothing but `item`, `index`, the runtime's
+/// pure helpers (`x_…`, budget.js's checked `cc` and `K`) and the module's
+/// shared strings (`$$s…`, code.rs).
 pub fn pure_key(code: &str, item: &str, index: &str) -> bool {
     words(code).into_iter().all(|(w, _)| {
         w == item
             || w == index
             || w.starts_with("x_")
+            || w.starts_with("$$s")
             || matches!(w, "cc" | "K")
             || w.as_bytes()[0].is_ascii_digit()
             || matches!(w, "true" | "false" | "null" | "undefined")
@@ -112,6 +114,7 @@ mod tests {
         assert!(pure_key("i0()[0]", "i0", "x0"));
         assert!(pure_key("\"k\"+x_toString(i0()[0])+x0()", "i0", "x0"));
         assert!(pure_key("cc(\"k\",x_toString(i0()[0]),3)", "i0", "x0"));
+        assert!(pure_key("$$s4+x_toString(i0()[0])", "i0", "x0"));
         assert!(!pure_key("i0()[0]+s_3()", "i0", "x0"));
         assert!(!pure_key("i0()[0]+d_1()", "i0", "x0"));
         assert!(!pure_key("i1()[0]", "i0", "x0"));

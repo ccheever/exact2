@@ -5,6 +5,7 @@ import XCTest
 @testable import ExactSurfaces
 
 private var pointerEvents: [[String: Any]] = []
+private var canvasControlEvents: [[String: Any]] = []
 private var rawMoveSawContractQueued: [Bool] = []
 private var contractMoveQueued: (() -> Bool)?
 
@@ -17,6 +18,7 @@ final class CanvasPointerMacTests: XCTestCase {
     private func fixture() -> (ExactSession, NodeView, NSWindow) {
         _ = NSApplication.shared
         pointerEvents = []
+        canvasControlEvents = []
         rawMoveSawContractQueued = []
         contractMoveQueued = nil
         let s = ExactApp.shared.makeSession(label: "pointer-test")
@@ -28,6 +30,7 @@ final class CanvasPointerMacTests: XCTestCase {
             shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 }, errorPtr: { nil },
             wantsInput: { _ in 1 }, input: { _, p, n in
                 let row = (try? JSONSerialization.jsonObject(with: Data(bytes: p!, count: n))) as? [String: Any] ?? [:]
+                if row["t"] as? String == "control" { canvasControlEvents.append(row) }
                 if row["t"] as? String == "pointer" {
                     pointerEvents.append(row)
                     if row["phase"] as? String == "move" { rawMoveSawContractQueued.append(contractMoveQueued?() == true) }
@@ -54,6 +57,60 @@ final class CanvasPointerMacTests: XCTestCase {
     }
     private var rows: [(String, Int, Double, Double)] {
         pointerEvents.map { ($0["phase"] as? String ?? "", $0["buttons"] as? Int ?? -1, $0["dx"] as? Double ?? .nan, $0["dy"] as? Double ?? .nan) }
+    }
+
+    func testRemovedPopoverSourceSendsNoBubbledCanvasOrSurfaceControlInput() throws {
+        let (session, canvas, window) = fixture()
+        defer { session.destroy() }
+        let p = session.presenter
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        window.contentView = p.viewport
+        p.root.addSubview(canvas)
+        p.menus.painted = true
+        canvas.handlers = ["press", "pointerdown", "pointermove", "pointerup"]
+        canvas.props["tabIndex"] = "0"
+        p.apply(wireBatch([
+            ["op": "create", "id": 101, "kind": "view", "props": ["popover": "manual", "id": "content"]],
+            ["op": "create", "id": 102, "kind": "view"],
+            ["op": "children", "id": 100, "ids": [101]],
+            ["op": "children", "id": 101, "ids": [102]],
+            ["op": "frame", "id": 101, "x": 0, "y": 0, "w": 160, "h": 80],
+            ["op": "frame", "id": 102, "x": 10, "y": 10, "w": 100, "h": 40],
+        ]))
+        let source = try XCTUnwrap(p.views[102])
+        p.menus.action("showPopover", ["content"])
+        // This fixture really accepts surface input; the bubbled click must bypass it.
+        canvas.props["action"] = "primary"
+        XCTAssertTrue(canvas.control("down"))
+        XCTAssertTrue(canvas.control("up"))
+        XCTAssertEqual(canvasControlEvents.compactMap { $0["phase"] as? String }, ["down", "up"])
+        window.makeFirstResponder(p.viewport)
+        let focus = window.firstResponder
+        var presses: [UInt32] = [], pointers: [PointerKind] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { _, phase, _ in
+            pointers.append(phase)
+            if phase == .down { source.removeFromSuperview() }
+        }
+        let point = source.convert(NSPoint(x: 20, y: 20), to: nil)
+        for surface in [false, true] {
+            pointerEvents = []; canvasControlEvents = []; pointers = []
+            canvas.props["action"] = surface ? "primary" : nil
+            source.mouseDown(with: mouse(.leftMouseDown, window, at: point))
+            XCTAssertTrue(p.mouseChain.bubbledPress?.cancelled == true)
+            XCTAssertFalse(canvas.pressed)
+            XCTAssertTrue(window.firstResponder === focus)
+            source.mouseDragged(with: mouse(.leftMouseDragged, window, at: point))
+            source.mouseUp(with: mouse(.leftMouseUp, window, at: point))
+            XCTAssertEqual(pointers, [.down, .move, .up])
+            XCTAssertEqual(presses, [])
+            XCTAssertTrue(pointerEvents.isEmpty)
+            XCTAssertTrue(canvasControlEvents.isEmpty)
+            XCTAssertFalse(session.surfaceHost.ownsControl(canvas.id))
+            XCTAssertFalse(canvas.pressed)
+            XCTAssertNil(p.mouseChain.bubbledPress)
+            XCTAssertTrue(window.firstResponder === focus)
+        }
     }
 
     func testFreeMoveReachesContractPointerHandlerAndRawCanvas() {

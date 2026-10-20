@@ -176,7 +176,7 @@ export async function waitForInflight(waiting, deadline) {
   return true;
 }
 
-import { admitsNetwork, coversPath, grantError, scopedGrantSet } from './grant-admission.js';
+import { admitsNetwork, admittingGrant, coversPath, grantError, scopedGrantSet } from './grant-admission.js';
 import { faultMessage, takeFault } from './faults.js';
 
 // Network and page-module requests share admission and the byte ceiling.
@@ -192,7 +192,10 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   const socket = op.stream && /^wss?:/i.test(url), capability = socket ? 'net.websocket' : 'net.fetch';
   if (invalid) return failed(2, invalid);
   if (!native && !asset) try { new URL(url); } catch (error) { return failed(1, error); }
-  if (!native && !asset && !admitsNetwork(effective, url, socket ? 'websocket' : 'fetch')) return failed(2, `outside the app's grants (${capability})`);
+  const grant = native || asset ? null : admittingGrant(effective, url, socket ? 'websocket' : 'fetch');
+  if (!native && !asset && !grant) return failed(2, `outside the app's grants (${capability})`);
+  // The line that admitted a stream, for `state.streams`.
+  if (op.stream && grant) controller.grant = grant;
   if (op.nativeHttp === 'independent' && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > 64 * 1024 * 1024)) return failed(2, 'invalid independent HTTP response limit');
   if (native) {
     let response;

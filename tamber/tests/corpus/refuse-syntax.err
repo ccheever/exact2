@@ -7,4 +7,4 @@
 15:5: tamber-syntax: a `when` is `when axis=value …: value`
 16:3: tamber-syntax: a `when` is indented under its token
 17:1: tamber-block: a second `theme` block: a design has one of each
-20:1: tamber-block: `palette`: a block is `axes`, `dials`, `theme`, `icons`, `exports` or `component`
+20:1: tamber-block: `palette`: a block is `axes`, `dials`, `theme`, `icons`, `exports`, `params` or `component`

@@ -16,21 +16,35 @@ use crate::held::Held;
 use crate::vm::{self, Env, RowSlots};
 use exact_plan::{Code, Opcode, Plan, Stdlib, Value};
 
-/// A fixed-width set of input bits.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// A set of input bits, held up to its last word with a bit set: most of a
+/// plan's bodies read nothing that changes (a literal style row), and those
+/// hold no words at all.
+#[derive(Debug, Clone, Default, Eq)]
 pub struct Bits(Box<[u64]>);
 
 impl Bits {
-    fn new(width: usize) -> Self {
-        Bits(vec![0; width.div_ceil(64)].into_boxed_slice())
+    fn grow(&mut self, words: usize) {
+        if words > self.0.len() {
+            let mut grown = std::mem::take(&mut self.0).into_vec();
+            grown.resize(words, 0);
+            self.0 = grown.into_boxed_slice();
+        }
     }
     pub(crate) fn set(&mut self, i: usize) {
+        self.grow(i / 64 + 1);
         self.0[i / 64] |= 1 << (i % 64);
     }
     pub(crate) fn get(&self, i: usize) -> bool {
         self.0.get(i / 64).is_some_and(|w| w & (1 << (i % 64)) != 0)
     }
     pub(crate) fn union(&mut self, other: &Bits) {
+        self.grow(
+            other
+                .0
+                .iter()
+                .rposition(|w| *w != 0)
+                .map_or(0, |last| last + 1),
+        );
         for (a, b) in self.0.iter_mut().zip(other.0.iter()) {
             *a |= b;
         }
@@ -40,6 +54,17 @@ impl Bits {
     }
     pub(crate) fn is_empty(&self) -> bool {
         self.0.iter().all(|w| *w == 0)
+    }
+}
+
+/// Equal when they hold the same bits, whatever words each holds.
+impl PartialEq for Bits {
+    fn eq(&self, other: &Bits) -> bool {
+        let (short, long) = match self.0.len() <= other.0.len() {
+            true => (&self.0, &other.0),
+            false => (&other.0, &self.0),
+        };
+        short[..] == long[..short.len()] && long[short.len()..].iter().all(|w| *w == 0)
     }
 }
 
@@ -145,11 +170,48 @@ pub(crate) fn into_scope(frames: u64, dirty: bool) -> u64 {
     (frames << 1) | (frames & (1 << 63)) | u64::from(dirty)
 }
 
+/// Read sets by index, those that read nothing one shared entry: most of a
+/// plan's bindings are literal rows.
+#[derive(Debug, Default)]
+pub(crate) struct ReadsTable {
+    /// Each index's place in `reads`; 0 is the empty set.
+    at: Vec<u32>,
+    reads: Vec<Reads>,
+}
+
+impl FromIterator<Reads> for ReadsTable {
+    fn from_iter<I: IntoIterator<Item = Reads>>(all: I) -> Self {
+        let mut table = ReadsTable {
+            at: Vec::new(),
+            reads: vec![Reads::default()],
+        };
+        for reads in all {
+            let at = match reads == Reads::default() {
+                true => 0,
+                false => {
+                    table.reads.push(reads);
+                    table.reads.len() - 1
+                }
+            };
+            table.at.push(at as u32);
+        }
+        table.reads.shrink_to_fit();
+        table
+    }
+}
+
+impl std::ops::Index<usize> for ReadsTable {
+    type Output = Reads;
+    fn index(&self, i: usize) -> &Reads {
+        &self.reads[self.at[i] as usize]
+    }
+}
+
 /// Per binding, surface argument, site, derive and resource argument list.
 #[derive(Debug, Default)]
 pub struct Deps {
     layout: Option<Layout>,
-    pub(crate) bindings: Vec<Reads>,
+    pub(crate) bindings: ReadsTable,
     pub(crate) surface_args: Vec<Reads>,
     /// A node's own reads and every descendant's, relative to the node.
     pub(crate) nodes: Vec<Reads>,
@@ -210,7 +272,7 @@ impl Deps {
                 .resources
                 .iter()
                 .map(|r| {
-                    let mut reads = empty(layout);
+                    let mut reads = Reads::default();
                     for a in r.args.iter() {
                         reads.union(&scan(plan.arg(a).expr), 0);
                     }
@@ -242,7 +304,7 @@ impl Deps {
             match site {
                 super::Site::Node(n) => {
                     let node = plan.node(n);
-                    let mut reads = empty(layout);
+                    let mut reads = Reads::default();
                     for b in node.bindings.iter() {
                         reads.union(&deps.bindings[b.0 as usize], 0);
                     }
@@ -258,7 +320,7 @@ impl Deps {
                 }
                 super::Site::Region(r) => {
                     let i = r.0 as usize;
-                    let mut body = empty(layout);
+                    let mut body = Reads::default();
                     for (_, kid) in kids(site) {
                         body.union(deps.site(kid), 0);
                     }
@@ -307,7 +369,7 @@ impl Deps {
     /// The inputs that differ between what the tree last showed and `env`.
     pub(crate) fn changed(&self, seen: &Seen, env: &Env<'_>) -> Bits {
         let layout = self.layout.expect("built from a plan");
-        let mut bits = Bits::new(layout.width());
+        let mut bits = Bits::default();
         for (i, (old, new)) in seen.slots.iter().zip(env.slots).enumerate() {
             if !crate::compare::equivalent(old, new) {
                 bits.set(i);
@@ -349,7 +411,7 @@ impl Deps {
             .zip(env.pending_mutations)
             .enumerate()
         {
-            if old != new {
+            if old != new || seen.failed_mutations.get(i) != env.failed_mutations.get(i) {
                 bits.set(layout.pending_mutation(i));
             }
         }
@@ -366,13 +428,6 @@ impl Deps {
     }
 }
 
-fn empty(layout: Layout) -> Reads {
-    Reads {
-        bits: Bits::new(layout.width()),
-        ..Reads::default()
-    }
-}
-
 fn is_index_key(code: &[u8]) -> bool {
     let mut code = vm::instructions(code);
     matches!(code.next(), Some(Ok(i)) if i.op == Opcode::LoadIndex && i.args[0] == 0)
@@ -381,7 +436,7 @@ fn is_index_key(code: &[u8]) -> bool {
 }
 
 fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
-    let mut reads = empty(layout);
+    let mut reads = Reads::default();
     let mut code = vm::instructions(plan.code(code)).peekable();
     while let Some(instruction) = code.next() {
         let Ok(i) = instruction else {
@@ -401,7 +456,9 @@ fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
                 reads.bits.set(layout.resource(index));
                 reads.bits.set(layout.pending_resource(index));
             }
-            Opcode::PendingMutation => reads.bits.set(layout.pending_mutation(index)),
+            Opcode::PendingMutation | Opcode::FailedMutation | Opcode::FailureMutation => {
+                reads.bits.set(layout.pending_mutation(index))
+            }
             Opcode::FailedResource | Opcode::FailureResource => {
                 reads.bits.set(layout.resource(index));
                 reads.bits.set(layout.failed_resource(index));
@@ -441,6 +498,7 @@ pub struct Seen {
     resources: Vec<Option<Held>>,
     pending_resources: Vec<bool>,
     pending_mutations: Vec<bool>,
+    failed_mutations: Vec<Option<crate::failure::Failure>>,
     failed_resources: Vec<Option<crate::failure::Failure>>,
     now_ms: f64,
 }
@@ -463,6 +521,7 @@ impl Seen {
             resources: env.resources.to_vec(),
             pending_resources: env.pending_resources.to_vec(),
             pending_mutations: env.pending_mutations.to_vec(),
+            failed_mutations: env.failed_mutations.to_vec(),
             failed_resources: crate::failure::states(env.failed_resources, env.failed_why),
             now_ms: env.now_ms,
         }

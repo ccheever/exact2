@@ -299,7 +299,15 @@ matched whole, never a prefix (as built: the web glue matches `URL.origin`
 the same way). *Amended 2026-09-26 (Charlie, LLP 1054.000 R5):* or
 `scheme://*.domain`, every host strictly under one domain of two labels or
 more, at that scheme and port; a cross-origin redirect drops the request's
-credentials (vendor/ibex/crates/ibex2 patch 1). The app's data crate declares its grants as one constant —
+credentials (vendor/ibex/crates/ibex2 patch 1). *Amended 2026-10-17 (Charlie,
+2026-10-16, `issues/closed/20261017-websocket-origin-chosen-at-run-time.md`):* or a
+whole scheme, written as CSP writes a scheme source — `net.fetch http:`,
+`net.fetch https:`, `net.websocket ws:`, `net.websocket wss:` — any host at any
+port of that scheme, for servers the person names at run time; the served
+`connect-src` copies it as a scheme source, and the platform's own refusals
+(App Transport Security, a browser's mixed-content blocking) still apply. The
+render server doesn't hold a scheme-wide `net.fetch` line: a source that needs
+one keeps its placeholder and the client fetches it after adoption. The app's data crate declares its grants as one constant —
 `pub const GRANTS: &str = "net.fetch https://api.castle.xyz\n";` — that the
 `host!` macros hand to `Host::endow` on Apple and that `glue.js` receives at
 boot (a string list) and checks before `fetch`, so a request outside the grant

@@ -32,6 +32,11 @@ fn require_declaration(app_dir: &str) {
         .join(".shells/surfaces.json");
     println!("cargo:rerun-if-changed={}", path.display());
     fs::metadata(&path).expect("build the game's GPU shell before its host");
+    // The keys `Actions` bind, which the bake's shortcut warning reads.
+    let keys = path.with_file_name("keys.json");
+    if keys.exists() {
+        println!("cargo:rerun-if-changed={}", keys.display());
+    }
 }
 
 /// Bake the app named by the generated shell, with no JS or Rust module.
@@ -57,6 +62,12 @@ fn bake_source<D: contract::DataSource>(
     } else {
         platform
     };
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    // The Android shell is a cdylib only on Android (`exact_linux::canvas_jni!`); off it the library is empty.
+    if platform == "android" && env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("android") {
+        fs::write(out.join("entry.rs"), "").unwrap();
+        return;
+    }
     let app = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join(app_dir);
     println!("cargo:rerun-if-env-changed=EXACT_ASSET_ROOTS");
     for path in [
@@ -77,15 +88,25 @@ fn bake_source<D: contract::DataSource>(
         .unwrap_or_else(|e| panic!("resolved app.json: {e}"));
     let mut plan = contract::compile_path(&app.join("app.contract"))
         .unwrap_or_else(|e| panic!("app.contract: {e}"));
+    // A button shortcut on a key the game's `Actions` bind (LLP 1132 D11).
+    for warning in contract::shortcut_findings(&app.join("app.contract")).unwrap_or_default() {
+        println!("cargo:warning={}", warning.to_string().replace('\n', " "));
+    }
     if plan.app_id.is_empty() {
         plan.app_id = manifest.id.clone();
     }
     let grants = data.grants().to_string();
     let baked = contract::bake(plan, data).unwrap_or_else(|e| panic!("bake: {e}"));
-    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     fs::write(out.join("app.plan"), baked.encode()).unwrap();
     let target = env::var("TARGET").unwrap();
-    let compat = exact_bake::compatibility_id(&app, platform, &target, &manifest, Some(&grants))
+    // Android's Canvas host is the Linux host's presenter under Android's own Canvas, so its
+    // cohort is Linux's for this target (as apps/caltrain/android/build.rs computes it).
+    let cohort = if platform == "android" {
+        "linux"
+    } else {
+        platform
+    };
+    let compat = exact_bake::compatibility_id(&app, cohort, &target, &manifest, Some(&grants))
         .unwrap_or_else(|e| panic!("compatibility id: {e}"));
     assert_eq!(
         compat.inputs["rustMode"], "off",
@@ -111,15 +132,22 @@ fn bake_source<D: contract::DataSource>(
             "fn main() { std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT)); }"
         }
         "linux" => "fn main() { std::process::exit(exact_linux::app::run_empty(PLAN, COMPAT)); }",
+        // canvas_jni! embeds OUT_DIR's plan and compat itself.
+        "android" => "exact_linux::canvas_jni!(crate::AppData);",
         "windows" => &windows,
         _ => panic!("unsupported game app platform: {platform}"),
+    };
+    let embedded = if platform == "android" {
+        ""
+    } else {
+        r#"const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
+const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));"#
     };
     fs::write(
         out.join("entry.rs"),
         format!(
             r#"
-const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
-const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
+{embedded}
 {entry}
 {linked}
 {host}

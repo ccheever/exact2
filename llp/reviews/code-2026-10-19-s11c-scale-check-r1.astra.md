@@ -1,0 +1,33 @@
+# Code review: Stage 11 C harness scripts/scale-check.mjs, round 1, 2026-10-19 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra via `codex exec`, reasoning effort max, read-only sandbox, a throwaway worktree at `af05d58fb8`.
+- **Method:** one brief (sha256 `cf5d7338c0efa870631732d8329ac02c8c1d5d155de08de4b17c6e40330ce037`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** two blocking (padding could pass with the wrong child or axis; an unreadable corner fitted 0), seven should-fix, one nit
+- **Disposition:** all taken in cbb9fb64aa: a named child on both axes; unreadable corners, missing expectations and failed hosts fail and are said; fractional edges; no fixed ceiling; strict command line; a fresh store each drive; tests for each; the QUEUE wording
+
+**Two blocking findings:** the padding and radius checks can report success without establishing the required geometry.
+
+1. **Blocking — Padding can pass with the wrong child or wrong spacing.** [scale-check.mjs:87](/tmp/rv-s11c-1/scripts/scale-check.mjs:87) checks only a greater ID and lower bounds on position. It does not establish parentage or even containment: an empty box can borrow a later sibling’s offset. A child extending outside the box through negative margins is skipped. Separately, `Math.min(dx, dy)` accepts offsets `(16, 32)` when expecting uniform padding `16`. Identify the intended child explicitly or through tree relationships, and compare both offsets.
+
+2. **Blocking — An unreadable corner becomes a successful zero-radius measurement.** [scale-check.mjs:38](/tmp/rv-s11c-1/scripts/scale-check.mjs:38) drops rows without a crossing; `fitRadius([])` returns zero. A zero-sized box therefore passes even `radius: 9999`, because its expected radius also reduces to zero. Partial samples lose their original row indices, corrupting the fit. Pixel reads also lack bounds checks: negative or oversized x coordinates can address an adjacent image row. Require measurable dimensions, valid coordinates and sufficient correctly indexed crossings; otherwise report an unreadable probe.
+
+3. **Should-fix — Fractional positions are discarded before fitting.** [scale-check.mjs:93](/tmp/rv-s11c-1/scripts/scale-check.mjs:93) rounds the box origin, but the model assumes sampling starts exactly at its top edge. For physical `y = n + 0.49`, the first sampled center is only `0.01` below the actual edge, while the model uses `0.5`. Even a square at fractional x/y produces partially covered pixels that can be interpreted as curvature. Preserve the fractional origin when calculating sample coordinates and fitting.
+
+4. **Should-fix — The radius ceiling depends on device scale.** [scale-check.mjs:57](/tmp/rv-s11c-1/scripts/scale-check.mjs:57) searches only through 400 screenshot pixels. At 3×, a legitimate 300×300-point `radius.full` box requires a 450-pixel fit; the reported radius cannot exceed roughly 133.3 points instead of 150. Derive the search bound from the box dimensions.
+
+5. **Should-fix — Missing host expectations silently pass.** [scale-check.mjs:67](/tmp/rv-s11c-1/scripts/scale-check.mjs:67) returns `undefined` when neither the selected host nor `default` exists. Both checks then skip their assertions while leaving `ok: true`. For example, a Linux run with only `padding: {ios: 16}` reports success without measuring padding. Validate selected-host coverage, or report an explicit skip that cannot count as a gate pass.
+
+6. **Should-fix — CLI parsing and output paths need validation.** [scale-check.mjs:105](/tmp/rv-s11c-1/scripts/scale-check.mjs:105) silently accepts a trailing `--host` or `--out`; extra arguments and unknown flags can be ignored. Relative output paths are interpreted in the caller’s directory for file operations but in `ROOT` by subprocesses. Paths containing spaces break the screenshot operation because the agent splits that string on whitespace. Resolve the output directory once, reject malformed arguments, and handle or explicitly refuse unsupported screenshot paths.
+
+7. **Should-fix — A failed host prevents the remaining results from being reported.** [scale-check.mjs:117](/tmp/rv-s11c-1/scripts/scale-check.mjs:117) lets drive/decode exceptions terminate the loop before printing even previously collected results. Record the host failure and continue independent hosts. Diagnostics should include `run.error` and `signal`: a timeout currently can produce only “the drive failed.” The 15-minute timeout covers the agent invocation; compilation has no timeout. Padding failures also need the expected value.
+
+8. **Should-fix — The fixed storage name preserves native state between runs.** [scale-check.mjs:70](/tmp/rv-s11c-1/scripts/scale-check.mjs:70) supplies `--storage scale-check` without resetting it. The [agent’s storage handling](/tmp/rv-s11c-1/scripts/agent.mjs:1391) retains named native stores while starting the web profile fresh. Stateful fixtures can consequently compare different initial conditions. Reset the scratch store for each gate drive.
+
+9. **Should-fix — Tests cover only favorable inputs.** [scale-check.test.mjs:25](/tmp/rv-s11c-1/scripts/scale-check.test.mjs:25) covers aligned, high-contrast circles and one 2× success case. Add rejection cases for incorrect padding on either axis, missing children, missing crossings, clipping and incomplete host expectations, plus fractional origins, 3×, zero/subpixel radii and the search ceiling. Border/shadow contamination also needs either coverage or an explicit fixture restriction: unrelated pixels can satisfy the selected-channel threshold.
+
+10. **Nit — QUEUE overstates what layout reporting would prove.** [QUEUE.md:930](/tmp/rv-s11c-1/QUEUE.md:930) appropriately defers the protocol addition, but “make the check exact” should distinguish resolved geometry from rendered pixels. Reporting resolved radii would make that geometry directly inspectable; it would not independently prove that painting honors it.
+
+For aligned, unobstructed boxes, the circle equation, pixel-center interpolation and scale conversion are sound. Choosing the strongest color channel correctly avoids weak contrast in other channels; identical fill/background provides no measurement. An aligned viewport-edge box is also fine. The tolerances are **layout points**—the radius allowance becomes three device pixels at 3×—and a one-point allowance cannot distinguish square corners from radii ≤1. Compare the unrounded estimate before formatting it.
+
+Read-only review completed; no files changed, builds run, or tests executed.

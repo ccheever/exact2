@@ -9,7 +9,7 @@
 // puts a popover). The page's stylesheet is a default build's (look.mjs).
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -28,7 +28,7 @@ const page = `<style>${withLook(read('../index.html')).match(/<style>([\s\S]*?)<
 
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a right click opens the context menu's popover, once the press is over, and says where it was`, async () => {
   const playwright = await import('playwright-core');
-  const browser = await playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: browserPath().executable } : {}) });
+  const browser = await suiteBrowser(engine);
   try {
     const tab = await browser.newPage({ viewport: { width: 600, height: 400 } });
     await tab.setContent(page);

@@ -131,6 +131,7 @@ fn paint(p: &mut Painter, k: &Kernel) -> crate::paint::Frame {
             images: &BTreeMap::new(),
             focus: None,
             selection: None,
+            caret_upstream: false,
             pointer: None,
             controls: &BTreeMap::new(),
             chosen: &BTreeMap::new(),
@@ -563,6 +564,7 @@ mod owned_spec {
             weight: 400,
             family: 0,
             italic: false,
+            stretch: 100.,
             line_height: None,
             letter_spacing: 0.,
             font_variant_numeric: 0,
@@ -570,6 +572,7 @@ mod owned_spec {
             hang: false,
             mark: 0,
             href: String::new(),
+            bold_text: false,
         }
     }
     fn spec(text: &str) -> Spec {

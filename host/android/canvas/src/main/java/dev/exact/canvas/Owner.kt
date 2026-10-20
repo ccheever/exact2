@@ -3,8 +3,6 @@ package dev.exact.canvas
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
-import android.os.MessageQueue
-import android.os.ParcelFileDescriptor
 import android.view.Choreographer
 import java.nio.ByteOrder
 import java.nio.IntBuffer
@@ -98,6 +96,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     private var seq = 0
     private var steps = 0
     private var turnPosted = false
+    /** The last turn took longer than a display frame: the next one is run at once, not at the next one. */
+    private var late = false
     private var choreographer: Choreographer? = null
     private val prefetch = true
 
@@ -135,6 +135,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     /** Whether the host's wake descriptors are watched: once, however many readers boot it. */
     private var watching = false
+    /** The host's wake descriptors, watched again after each turn ([schedule]): a dev loop's plan brings new ones. */
+    private var wakes: Wakes? = null
 
     /** Whether an accessibility service is on, and whether the reader holds nothing of the tree yet (LLP 1115.001
      * D13): the exact thread's own. exact2 is asked for the tree with each stream only while one is on. */
@@ -166,17 +168,12 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
                 synchronized(lock) { owedDy = 0f; owedSeq = 0 }
                 if (!watching) {
                     watching = true
-                    val wakes = thread.looper.queue
-                    for (fd in Native.fds()) {
-                        if (fd < 0) continue
-                        val pfd = ParcelFileDescriptor.fromFd(fd)
-                        wakes.addOnFileDescriptorEventListener(pfd.fileDescriptor, MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT) { _, _ ->
-                            // A reply, a picture, or a request exact2 queued with no frame to follow it.
-                            if (Native.poll()) produce() else { requests(); schedule() }
-                            MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT
-                        }
+                    // A reply, a picture, or a request exact2 queued with no frame to follow it; or an acquired image.
+                    wakes = Wakes(thread.looper.queue) { index ->
+                        if (index == Wakes.ACQUIRED) Native.acquired(running) else if (Native.poll()) produce() else { requests(); schedule() }
                     }
                 }
+                wakes?.sync()
                 produce()
             }
             main.post { done(ok) }
@@ -224,6 +221,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             running = on
             if (on) { produce(); return@post }
             choreographer?.removeFrameCallback(turn); turnPosted = false
+            handler.removeCallbacks(again)
             handler.removeCallbacks(timer); handler.removeCallbacks(refiner); handler.removeCallbacks(settle)
         }
     }
@@ -351,24 +349,40 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     }
 
     /** Run [f] on the exact thread and wait for it (Back, a surface's window): rare, and the answer is needed now. */
-    fun <T> sync(f: () -> T): T {
+    fun <T> sync(publish: Boolean = true, f: () -> T): T {
         if (Looper.myLooper() == thread.looper) return f()
-        val task = FutureTask { val r = f(); produce(); r }
+        val task = FutureTask { val r = f(); if (publish) produce(); r }
+        handler.post(task)
+        return task.get()
+    }
+
+    /** Run [f] on the exact thread and wait for it, publishing nothing: a question that changes nothing
+     * ([ExactTamber]). */
+    fun <T> ask(f: () -> T): T {
+        if (Looper.myLooper() == thread.looper) return f()
+        val task = FutureTask<T> { f() }
         handler.post(task)
         return task.get()
     }
 
     /** exact2's next stream, if it has one: copied, queued, and the main thread told. */
     private fun produce() {
+        // This frame does what a queued `again` was for.
+        handler.removeCallbacks(again)
         if (!running) { requests(); return }
         android.os.Trace.beginSection("exact native frame")
+        val started = System.nanoTime()
         val fresh = Native.frame()
+        late = System.nanoTime() - started > frameNanos
         android.os.Trace.endSection()
         val told = Native.scrollers()
         val fields = Native.fields()
         val bars = Native.bars()
         // A host library without the call (an older exact2) is not asked again.
         val access = if (accessible) try { Native.access(accessAgain).also { accessAgain = false } } catch (e: UnsatisfiedLinkError) { accessible = false; null } else null
+        // The bindings ask again first, so a frame's colours read the new answers; every turn, as a token only
+        // native code reads moves no paint (one inputs call per binding).
+        Tambers.turned()
         if (fresh == null && (told != null || fields != null || bars != null || access != null)) {
             queue.add(Pub(null, true, seq, 0, told, fields, bars, access))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
@@ -393,7 +407,24 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         schedule()
     }
 
-    private val turn = Choreographer.FrameCallback { turnPosted = false; produce() }
+    private val turn: Choreographer.FrameCallback = Choreographer.FrameCallback { t ->
+        // The display's frame: the shortest gap between consecutive vsyncs seen.
+        if (vsync > 0 && t - vsync > 2_000_000) frameNanos = minOf(frameNanos, t - vsync)
+        vsync = t
+        turnPosted = false
+        // The next vsync is asked for while this one is current. Android 10's SurfaceFlinger turns the app's vsync
+        // off between requests, and a request made within a few milliseconds of the next vsync waits for the one
+        // after: asked for after the frame, a Note 9 frame that ended 2.8 ms before the vsync lost it.
+        if (running && Native.animating()) { turnPosted = true; choreographer?.postFrameCallback(turn) }
+        Native.displayFrame(); produce()
+    }
+    private var vsync = 0L
+    private var frameNanos = 1_000_000_000L / 60
+    /** A frame that overran its display frame (a GPU canvas whose world ran two ticks in it, 256,000 cubes on a
+     * Pixel 5) with no turn asked for waits for no vsync: Choreographer would skip the one it missed, and every
+     * frame after would take two. The canvas's buffers hold at most three frames on the GPU, and while they do a
+     * turn only runs its ticks. */
+    private val again = Runnable { produce() }
     /** Timers, and the paint a scroll owes once it pauses (only then the collection pass it left behind). */
     private val timer = Runnable {
         if (prefetch && Native.owed() && Native.refine(-1, if (led) velocity else 0f) and 2 != 0) handler.post(refiner)
@@ -402,7 +433,16 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     private fun schedule() {
         if (!running) return
-        if (Native.animating() && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
+        wakes?.sync()
+        // One producer at a time. A turn asked for when an overrunning turn began is for the vsync that passed
+        // during it, and runs as soon as this returns: that is the retry, and `again` only stands in where no turn
+        // is asked for. With nothing animating, none is left asked for.
+        val animating = Native.animating()
+        if (animating && late) {
+            late = false
+            if (!turnPosted) { handler.removeCallbacks(again); handler.post(again) }
+        } else if (animating && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
+        else if (!animating && turnPosted) { choreographer?.removeFrameCallback(turn); turnPosted = false }
         var due = Native.nextDue()
         // A moved paint is owed a paint once scrolling pauses: each step pushes this back.
         if (Native.owed() && (due < 0 || due > 16)) due = 16.0
@@ -454,6 +494,14 @@ internal object Exact {
         return o.sync { String(Native.agent(line.toByteArray(Charsets.UTF_8)), Charsets.UTF_8) }
     }
 
+    /** What an [ExactTamber] asks ([Native.tamber], LLP 1121 D12): on exact2's thread, waited for, publishing
+     * nothing. An error's JSON where no host runs or the library predates the call. */
+    fun tamber(request: String): String {
+        val f = { try { Native.tamber(request) } catch (e: UnsatisfiedLinkError) { "{\"error\":\"no tamber in this library\"}" } }
+        val o = owner
+        return if (o != null) o.ask(f) else if (live) f() else "{\"error\":\"no host\"}"
+    }
+
     /** Main thread, where exact2 runs there too (owner=0) and a hosted field told it something: the reader draws
      * what that changed. */
     var turned: () -> Unit = {}
@@ -464,6 +512,9 @@ internal object Exact {
         if (o != null) { o.input(); o.call(f) } else { f(); turned() }
     }
 
+    fun moduleEvent(id: Int, slot: Int, generation: Int, kind: String, payload: String) =
+        field { Native.moduleEvent(id, slot, generation, kind, payload) }
+
     fun fieldFocused(id: Int, generation: Int, focused: Boolean) = field { Native.fieldFocused(id, generation, focused) }
     fun fieldEdited(id: Int, generation: Int, seq: Int, value: String, start: Int, end: Int) =
         field { Native.fieldEdited(id, generation, seq, value, start, end) }
@@ -471,6 +522,7 @@ internal object Exact {
         field { Native.fieldComposing(id, generation, composing, value) }
     fun fieldSelected(id: Int, generation: Int, start: Int, end: Int) = field { Native.fieldSelected(id, generation, start, end) }
     fun fieldAction(id: Int, generation: Int, action: Int) = field { Native.fieldAction(id, generation, action) }
+    fun fieldInput(id: Int, generation: Int) = field { Native.fieldInput(id, generation) }
 
     /** What happened in the window of surface [serial] of the top layer ([Surfaces], [Native.surface], LLP 1115.001
      * D10): told on exact2's thread, in order. exact2 answers with the surface painted again or closed (a request,
@@ -497,6 +549,13 @@ internal object Exact {
         return if (o != null) { o.input(); o.sync { Native.accessAct(id, action, value) } } else Native.accessAct(id, action, value).also { turned() }
     }
 
+    /** What a hatch's handle asks of node [node] ([ExactElement]): on exact2's thread, waited for, as an
+     * accessibility service's act is; exact2 runs it between its turns and publishes what it changed. */
+    fun hatchAct(node: Int, kind: Int, text: String?): Long {
+        val o = owner
+        return if (o != null) { o.input(); o.sync { Native.hatchAct(node, kind, text) } } else Native.hatchAct(node, kind, text).also { turned() }
+    }
+
     /** When the last touch lifted, or was held long enough to be a long press ([android.os.SystemClock.uptimeMillis]):
      * what a surface's first frame is timed from (`x_log_surfaces=1`). */
     var touched = 0L
@@ -506,6 +565,10 @@ internal object Exact {
         val o = owner
         if (o != null) o.call { Native.answer(id, answer) } else Native.answer(id, answer)
     }
+
+    /** What the extensions tell exact2 ([Native.changed], [Native.bindExtensions]): on exact2's thread, in order. */
+    fun changed(topic: String) { val o = owner; if (o != null) o.call { Native.changed(topic) } else Native.changed(topic) }
+    fun bindExtensions(names: String) { val o = owner; if (o != null) o.call { Native.bindExtensions(names) } else Native.bindExtensions(names) }
 
     /** Give a GPU canvas its window: on the exact thread, without waiting for it; [done] there with the handle. */
     fun attachSurface(view: Int, surface: android.view.Surface, width: Int, height: Int, done: (Long) -> Unit) {
@@ -528,13 +591,13 @@ internal object Exact {
     fun detachBuffers(view: Int) {
         val o = owner
         val f = { Native.detachSurface(view, 0L) }
-        if (o == null) f() else if (detachWait) o.sync(f) else o.call(f)
+        if (o == null) f() else if (detachWait) o.sync(f = f) else o.call(f)
     }
 
     /** Take a GPU canvas's window back, waiting for it; [window] (read on the exact thread) is the handle, 0 for none. */
     fun detachSurface(view: Int, window: () -> Long) {
         val o = owner
         val f = { val w = window(); if (w != 0L) Native.detachSurface(view, w) }
-        if (o != null) o.sync(f) else f()
+        if (o != null) o.sync(publish = false, f = f) else f()
     }
 }

@@ -88,6 +88,8 @@ def encIns (pc : Usize) : Contract.Vm.Instr → Result machine.Instruction
   | .map off => mkIns pc .Map (operand 32 (pc.val + 1 + off)) zero zero
   | .filter off => mkIns pc .Filter (operand 32 (pc.val + 1 + off)) zero zero
   | .failureResource r => mkIns pc .FailureResource (operand 32 r) zero zero
+  | .failedMutation k => mkIns pc .FailedMutation (operand 32 k) zero zero
+  | .failureMutation k => mkIns pc .FailureMutation (operand 32 k) zero zero
 
 /-- Entry `i` of a table. -/
 def lookup {α} (xs : List α) (i : U64) : Option α := xs[i.val]?
@@ -225,6 +227,8 @@ def hostInst : machine.Host LHost Value Unit where
   load_frame := LHost.loadFrame
   resource_flag := LHost.resourceFlag
   resource_failure := LHost.resourceFailure
+  mutation_failed := fun h i => ok ((lookup h.env.mutationFailures i).getD .none).isSome
+  mutation_failure := fun h i _ => ok (.Ok (Contract.Vm.mutationFailureValue h.env i.val), h)
   pending_mutation := fun h i => ok ((lookup h.env.pendingMutations i).getD false)
   some := fun h v _ => ok (.Ok (.some v), h)
   list := fun h items _ => ok (.Ok (.list items.val), h)

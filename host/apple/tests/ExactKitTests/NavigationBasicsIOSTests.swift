@@ -251,26 +251,113 @@ final class NavigationBasicsIOSTests: XCTestCase {
         if #available(iOS 26.0, *) { XCTAssertNil(home.navigationItem.subtitle, "Home has no text after its heading") }
     }
 
+    /// LLP 1075.003 §9.15: a readout (`role="status"`) after the header's
+    /// buttons is a trailing item with a custom view, as a hand-built bar's
+    /// "● Clock" is: its dot and monospaced text drawn as written, read by
+    /// VoiceOver as static text, the bar's and not the page's; it follows
+    /// the Contract in place, the same item and view.
+    func testAReadoutIsATrailingItemWhoseViewFollowsItInPlace() throws {
+        let session = try fixture("basics-readout")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        try tapNode(session, "open-plain")
+        until("Plain pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        spin(0.3)
+        let plain = try XCTUnwrap(nav.topViewController as? RouteController)
+        let right = plain.navigationItem.rightBarButtonItems ?? []
+        let item = try XCTUnwrap(right.first, "the readout is after Compose: the rightmost item")
+        XCTAssertEqual(item.accessibilityIdentifier, "readout-plain")
+        XCTAssertTrue(right.contains { $0.accessibilityLabel == "Compose" }, "Compose is still an item")
+        let view = try XCTUnwrap(item.customView as? ReadoutView, "a custom view, not a title or an image")
+        XCTAssertNil(item.action, "nothing presses a readout")
+        func labels() -> [UILabel] { view.subviews.flatMap(\.subviews).compactMap { $0 as? UILabel } }
+        let label = try XCTUnwrap(labels().first)
+        XCTAssertEqual(label.text, "0 sent")
+        XCTAssertEqual(label.font.pointSize, 12)
+        XCTAssertTrue(label.font.fontName.lowercased().contains("menlo"), "the author's font: \(label.font.fontName)")
+        let dot = try XCTUnwrap(view.subviews.flatMap(\.subviews).first { !($0 is UILabel) })
+        view.layoutIfNeeded()
+        XCTAssertEqual(dot.bounds.size, CGSize(width: 7, height: 7), "the dot at its authored size")
+        XCTAssertGreaterThan(view.intrinsicContentSize.width, 7 + 6)
+        XCTAssertTrue(view.isAccessibilityElement)
+        XCTAssertTrue(view.accessibilityTraits.contains(.staticText))
+        XCTAssertEqual(view.accessibilityLabel, "0 composed", "its `aria-label`")
+        // The bar's, not the page's: the agent does not call it unshown.
+        let unshown = session.presenter.navigation.unshownByBar()
+        for shown in ["readout-plain", "readout-text"] { XCTAssertNil(unshown[try node(session, shown).id], "\(shown) is the bar's") }
+        // Nor the subtitle's: the first text after the heading still is.
+        if #available(iOS 26.0, *) { XCTAssertEqual(plain.navigationItem.subtitle, "No Back control") }
+        // The agent's tap on it is a person's: it lands, and nothing is pressed.
+        let tap = Agent(session: session).tap(["id": Int(try node(session, "readout-text").id)])
+        XCTAssertNil(tap["error"], "\(tap)")
+        XCTAssertEqual(tap["native"] as? String, "bar-readout")
+        try tapNode(session, "compose-plain")
+        until("the readout follows the count") { labels().first?.text == "1 sent" }
+        XCTAssertTrue(plain.navigationItem.rightBarButtonItems?.first === item, "the same item")
+        XCTAssertTrue(item.customView === view, "the same view")
+        XCTAssertEqual(view.accessibilityLabel, "1 composed")
+        // `aria-hidden` on the tabpanel, which UIKit holds the route apart
+        // from, takes the readout off the accessibility tree.
+        let panel = try node(session, "panel-home")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": ["accessibilityElementsHidden": "true"], "clear": []]]))
+        until("hidden by its logical ancestor") { !view.isAccessibilityElement }
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": [:], "clear": ["accessibilityElementsHidden"]]]))
+        until("shown again") { view.isAccessibilityElement }
+        // A sibling button kept authored lifts the header only in part; the
+        // agent's tap on the readout still lands on the bar's.
+        let compose = try node(session, "compose-plain")
+        session.presenter.apply(wireBatch([["op": "style", "id": Int(compose.id), "style": ["appearance": "none", "written": ["appearance"]]]]))
+        spin(0.2)
+        XCTAssertTrue(plain.navigationItem.rightBarButtonItems?.contains { $0.customView === view } == true, "still the bar's")
+        let partial = Agent(session: session).tap(["id": Int(try node(session, "readout-text").id)])
+        XCTAssertEqual(partial["native"] as? String, "bar-readout", "\(partial)")
+    }
+
+    /// Whether the tab bar insets a tab's content from below: a phone's (and
+    /// a compact width's) does; iPadOS's floating bar, at the top in a
+    /// regular width, insets nothing, so there the bar's own state is read.
+    private func barInsets(_ tabs: UITabBarController) -> Bool { tabs.tabBar.window != nil }
+    /// Whether the tab bar shows on screen: the bar, or an iPad's floating
+    /// list of its items, in the window, unhidden, opaque enough, on screen.
+    private func barShows(_ tabs: UITabBarController) -> Bool {
+        guard let bar: UIView = barInsets(tabs) ? tabs.tabBar : tabs.floatingTabList, let window = bar.window else { return false }
+        var at: UIView? = bar
+        while let v = at { if v.isHidden || v.alpha < 0.01 { return false }; at = v.superview }
+        let box = bar.convert(bar.bounds, to: window)
+        return box.height > 1 && box.intersects(window.bounds)
+    }
+
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
         let session = try fixture("basics-tabbar")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         let home = try XCTUnwrap((tabs.selectedViewController as? UINavigationController)?.topViewController)
+        let insets = barInsets(tabs)
+        if !insets { XCTAssertNotNil(tabs.floatingTabList, "no UITabBar in the window: an iPad's floating bar") }
+        XCTAssertTrue(barShows(tabs), "the tab bar shows over Home")
         let shown = home.view.safeAreaInsets.bottom
-        XCTAssertGreaterThan(shown, 40, "the tab bar insets the root")
+        if insets { XCTAssertGreaterThan(shown, 40, "the tab bar insets the root") }
         try tapNode(session, "detail")
         let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         until("Detail pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
         let detail = try XCTUnwrap(nav.topViewController)
         XCTAssertFalse(detail.hidesBottomBarWhenPushed, "the tablist shows over Detail")
-        XCTAssertEqual(detail.view.safeAreaInsets.bottom, shown, accuracy: 0.5)
+        if insets { XCTAssertEqual(detail.view.safeAreaInsets.bottom, shown, accuracy: 0.5) }
+        XCTAssertTrue(barShows(tabs), "and over Detail")
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
         let (_, _, chat) = try chat(session)
         XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")
-        until("the tab bar left") { chat.view.safeAreaInsets.bottom < shown - 20 }
+        // (On an iPad the floating bar, which does not take
+        // `hidesBottomBarWhenPushed`, is hidden by `setTabBarHidden`.)
+        until("the tab bar left") { !barShows(tabs) && (!insets || chat.view.safeAreaInsets.bottom < shown - 20) }
+        // Another tab, its root showing the tablist, and back to Chat (selected by the app, as a link would).
+        tapTab(tabs, 1)
+        until("Second shows the bar") { tabs.selectedIndex == 1 && barShows(tabs) }
+        tapTab(tabs, 0)
+        until("back on Chat, the bar hidden again") { tabs.selectedIndex == 0 && nav.topViewController === chat && !barShows(tabs) }
         nav.popViewController(animated: true)
         until("back to Home") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
-        until("the tab bar came back") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        until("the tab bar came back") { barShows(tabs) && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
     }
 
     /// LLP 1075.003 §3.7, amended 2026-10-05: the root's tablist hidden
@@ -292,16 +379,17 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
         let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         let home = try XCTUnwrap(nav.topViewController as? RouteController)
+        let insets = barInsets(tabs)
         let shown = home.view.safeAreaInsets.bottom
-        XCTAssertGreaterThan(shown, 40, "the tab bar insets the root")
+        if insets { XCTAssertGreaterThan(shown, 40, "the tab bar insets the root") }
         let settled = { nav.transitionCoordinator == nil }
         // Hidden over the root: the bar goes.
         try tapNode(session, "toggle-choosing")
-        until("the bar left") { tabs.isTabBarHidden && home.view.safeAreaInsets.bottom < shown - 20 }
+        until("the bar left") { tabs.isTabBarHidden && (!insets || home.view.safeAreaInsets.bottom < shown - 20) }
         XCTAssertFalse(home.hidesBottomBarWhenPushed, "the root is never pushed: no flag")
         // Shown again: it comes back.
         try tapNode(session, "toggle-choosing")
-        until("the bar came back") { !tabs.isTabBarHidden && abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        until("the bar came back") { !tabs.isTabBarHidden && (!insets || abs(home.view.safeAreaInsets.bottom - shown) < 0.5) }
         // A hatch's hide, with the tablist shown and unchanged, stands; and
         // the tablist hidden and shown again over it leaves it standing too:
         // Exact did not make that hide.
@@ -354,7 +442,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         tapTab(tabs, 0)
         until("back to Home (2)") { nav.viewControllers.count == 1 && settled() }
         until("the bar is back over Home") { !tabs.isTabBarHidden }
-        until("Home inset by it again") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        if insets { until("Home inset by it again") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 } }
         // The pushed-route rule stands.
         let (_, _, chat) = try chat(session)
         XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")
@@ -373,7 +461,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let list = try node(session, "list-chat")
         let sv = try XCTUnwrap(list.scroll)
         XCTAssertTrue(journal(session).contains("scrolls its content under the bar"))
-        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .always, "UIKit insets it")
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .automatic, "UIKit insets it")
         XCTAssertEqual(list.convert(list.bounds, to: chat.view).minY, 0, accuracy: 0.5, "it starts under the bar")
         XCTAssertEqual(sv.adjustedContentInset.top, chat.view.safeAreaInsets.top, accuracy: 0.5, "inset to the bar's bottom")
         XCTAssertFalse(nav.isNavigationBarHidden)
@@ -412,6 +500,107 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(footer.convert(footer.bounds, to: detail.view).maxY, detail.view.bounds.maxY - detail.view.safeAreaInsets.bottom,
                        accuracy: 0.5, "the footer stays above the tab bar")
         XCTAssertNil(detail.contentScrollView(for: .bottom))
+    }
+
+    /// The bottom edge's scroller may sit deeper than the route's last child
+    /// (LLP 1116 D2, amended): a sheet whose component's root column holds
+    /// its header and then its scroller reaches the edge, as a hand-built
+    /// sheet's scroll view pinned to its view's bottom does. A footer, a
+    /// padding under it, or a sideways scroller does not.
+    func testANestedLastScrollerReachesTheBottomEdge() {
+        let p = Presenter()
+        var next: UInt32 = 0
+        func box(_ parent: NodeView?, y: CGFloat, height: CGFloat, overflow: String? = nil) -> NodeView {
+            next += 1
+            let n = NodeView(id: next, kind: "view", presenter: p)
+            n.frame = CGRect(x: 0, y: y, width: 400, height: height)
+            if let overflow { n.style[overflow == "x" ? "overflow_x" : "overflow_y"] = .string("scroll"); n.syncScroll() }
+            parent?.container.addSubview(n)
+            return n
+        }
+        // The route's cover pads 34 under its child, which stands at the foot
+        // of the content box the cover shortens.
+        let route = box(nil, y: 0, height: 600)
+        route.applyKernelContentBox(CGRect(x: 0, y: 0, width: 400, height: 566), padding: [0, 0, 34, 0])
+        let sheet = box(route, y: 0, height: 566)
+        _ = box(sheet, y: 0, height: 60)
+        let scroller = box(sheet, y: 60, height: 506, overflow: "y")
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === scroller, "the component's scroller reaches the edge")
+        sheet.applyKernelContentBox(CGRect(x: 0, y: 0, width: 400, height: 546), padding: [0, 0, 20, 0])
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a padding under it keeps the cover")
+        sheet.applyKernelContentBox(nil, padding: nil)
+        scroller.frame.size.height = 446
+        let footer = box(sheet, y: 506, height: 60)
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a footer under it keeps the cover")
+        footer.removeFromSuperview()
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "nor does a scroller that ends short of its parent")
+        scroller.frame.size.height = 506
+        scroller.style["overflow_y"] = nil
+        scroller.style["overflow_x"] = .string("scroll")
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a sideways scroller takes no bottom inset")
+        scroller.style["overflow_x"] = nil
+        scroller.style["overflow_y"] = .string("scroll")
+        // The route's child sized to its content, 200 points of a 600-point
+        // route: its scroller ends far above the home indicator.
+        sheet.frame.size.height = 200
+        scroller.frame.size.height = 140
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a route's child short of its content box keeps the cover")
+        sheet.frame.size.height = 566
+        scroller.frame.size.height = 506
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === scroller)
+        // The component's column ends in a row filling it: a side column
+        // beside the scroller reaches the edge too.
+        scroller.removeFromSuperview()
+        let split = box(sheet, y: 60, height: 506)
+        _ = box(split, y: 0, height: 506)
+        let right = box(split, y: 0, height: 506, overflow: "y")
+        right.frame.origin.x = 200
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a row's scroller beside a column keeps the cover")
+        // A full-height row: a column with Save at its foot, and a scroller
+        // beside it. The Save button reaches the edge too: the cover stays.
+        sheet.removeFromSuperview()
+        let row = box(route, y: 0, height: 566)
+        let side = box(row, y: 0, height: 566)
+        _ = box(side, y: 522, height: 44)
+        let beside = box(row, y: 0, height: 566, overflow: "y")
+        beside.frame.origin.x = 200
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a scroller with a sibling beside it in a row keeps the cover")
+        side.removeFromSuperview()
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === beside, "the row's only child spans its bottom edge")
+        // A reversed column: its last child is at its top, above the scroller.
+        _ = box(row, y: 0, height: 60)
+        beside.frame.origin = CGPoint(x: 0, y: 60); beside.frame.size.height = 506
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a last child above its sibling is not at the edge")
+    }
+
+    /// A route's closed menus and confirmations take no place in its flow, as
+    /// a browser lays out neither: one written after its scroller leaves the
+    /// scroller at the bottom edge (euxy's Patterns tab, clipped at the tab
+    /// bar by its sort menu and its "Restore factory presets?" dialog).
+    func testTopLayerBoxesAfterAScrollerLeaveItAtTheBottomEdge() {
+        let p = Presenter()
+        var next: UInt32 = 0
+        func box(_ parent: NodeView?, y: CGFloat, height: CGFloat, props: [String: String] = [:], scrolls: Bool = false) -> NodeView {
+            next += 1
+            let n = NodeView(id: next, kind: "view", presenter: p)
+            n.props = props
+            n.frame = CGRect(x: 0, y: y, width: 400, height: height)
+            if scrolls { n.style["overflow_y"] = .string("scroll"); n.syncScroll() }
+            parent?.container.addSubview(n)
+            return n
+        }
+        let route = box(nil, y: 0, height: 600)
+        _ = box(route, y: 0, height: 100)
+        // Closed, a top-layer box is covered whole: laid out at no size.
+        _ = box(route, y: 0, height: 0, props: ["popover": "auto"])
+        let scroller = box(route, y: 100, height: 500, scrolls: true)
+        let menu = box(route, y: 0, height: 0, props: ["popover": "auto"])
+        let dialog = box(route, y: 0, height: 0, props: ["semanticTag": "dialog"])
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === scroller)
+        XCTAssertFalse(NavigationHost.inFlow(menu))
+        XCTAssertFalse(NavigationHost.inFlow(dialog))
+        _ = box(route, y: 0, height: 0)
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a box in the flow after it still keeps the cover")
     }
 
     /// A route that paints no background shows what the web shows through
@@ -622,6 +811,19 @@ final class NavigationBasicsIOSTests: XCTestCase {
                       "and the stack beneath is as it was")
     }
 
+    /// LLP 1116.020 D2: a presented stack's title is inline at any level, as
+    /// UIKit's sheets and Apple's are; a level-1 heading pushed in the stack
+    /// beneath is large.
+    func testASheetsLevelOneTitleIsInline() throws {
+        let (session, _, _) = try bars("bars-titled-sheet")
+        let navigation = session.presenter.navigation
+        try tapNode(session, "start-open-titled")
+        until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
+        let route = try XCTUnwrap(navigation.modalNavigation?.topViewController as? RouteController)
+        XCTAssertEqual(route.navigationItem.title, "Titled")
+        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .never, "a sheet's title is inline")
+    }
+
 
     /// A scroller UIKit insets lays its content out between those insets
     /// (LLP 1116.000 D1.2): Chat's column, its tall box gone, fills the port
@@ -732,6 +934,69 @@ final class NavigationBasicsIOSTests: XCTestCase {
         bottomToolbar(nav, route, shown: true)
         until("showing the toolbar refits short content") { automaticBottom() > hidden + 1 && fits() }
         XCTAssertEqual(sv.contentInset.bottom, manual, accuracy: 0.5)
+    }
+
+    /// The tab bar follows the stack shown, on a phone by UIKit's
+    /// `hidesBottomBarWhenPushed`, on an iPad's floating bar by Exact's
+    /// `setTabBarHidden`: Chat (hiding it) over Detail (showing it) hides it;
+    /// a cancelled interactive pop back to Detail keeps it hidden, a completed
+    /// one shows it; another tab selected while Chat is still being pushed
+    /// shows it there, and Chat hides it again on return.
+    func testTheTabBarFollowsTheStackThroughCancelledPopsAndTabSwitches() throws {
+        let session = try fixture("basics-follow")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        let settled = { nav.transitionCoordinator == nil }
+        try tapNode(session, "detail")
+        until("Detail pushed") { nav.viewControllers.count == 2 && settled() && barShows(tabs) }
+        spin(0.3)
+        // Chat pushed, and another tab selected before the push is over.
+        let tapped = Agent(session: session).tap(["id": Int(try node(session, "detail-chat").id)])
+        XCTAssertNil(tapped["error"], "\(tapped)")
+        until("Chat's push started") { nav.viewControllers.count == 3 }
+        XCTAssertNotNil(nav.transitionCoordinator, "the tab is switched while Chat's push runs")
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        // (Home's push ends here, or, its stack off screen, when it shows again.)
+        spin(0.6)
+        XCTAssertTrue(barShows(tabs), "Second's root shows the bar, Home's late push notwithstanding")
+        tapTab(tabs, 0)
+        until("back on Chat over Detail, hidden") { tabs.selectedIndex == 0 && settled() && nav.viewControllers.count == 3 && !barShows(tabs) }
+        spin(0.3)
+        // A cancelled interactive pop back to Detail keeps it hidden; a completed one shows it.
+        let pop = InteractivePop()
+        session.presenter.navigation.setAppDelegate(nav, pop)
+        pop.interactive = true
+        nav.popViewController(animated: true)
+        spin(0.05)
+        pop.interaction.update(0.4)
+        spin(0.1)
+        pop.interaction.cancel()
+        until("the cancelled pop leaves Chat, the bar hidden") { settled() && nav.viewControllers.count == 3 && !barShows(tabs) }
+        spin(0.3)
+        XCTAssertFalse(barShows(tabs), "still hidden over Chat")
+        pop.interactive = false
+        nav.popViewController(animated: true)
+        until("back on Detail, the bar shows") { settled() && nav.viewControllers.count == 2 && barShows(tabs) }
+        session.presenter.navigation.setAppDelegate(nav, nil)
+        // A route that shows the tablist pushed over Chat, which hides it: hidden still, as Chat is under it.
+        nav.popToRootViewController(animated: true)
+        until("back at Home") { settled() && nav.viewControllers.count == 1 && barShows(tabs) }
+        spin(0.3)
+        try tapNode(session, "chat")
+        until("Chat") { settled() && nav.viewControllers.count == 2 && !barShows(tabs) }
+        spin(0.3)
+        try tapNode(session, "chat-detail")
+        until("Detail over Chat") { settled() && nav.viewControllers.count == 3 }
+        spin(0.4)
+        XCTAssertFalse(barShows(tabs), "Chat under Detail keeps the bar hidden")
+        try tapNode(session, "compose-detail") // a batch: the stack at rest is followed again
+        spin(0.4)
+        XCTAssertFalse(barShows(tabs), "and after an ordinary update")
+        nav.popViewController(animated: true)
+        until("back on Chat, hidden") { settled() && nav.viewControllers.count == 2 && !barShows(tabs) }
+        nav.popViewController(animated: true)
+        until("back at Home, shown") { settled() && nav.viewControllers.count == 1 && barShows(tabs) }
     }
 
     /// A real interactive pop from Photo, driven by a percent-driven

@@ -123,10 +123,69 @@ fn apples_affordances_are_declared_rows_and_haptic_is_a_command() {
             "one to three",
         ),
         ("-exact-press-haptic=\"buzz\"", "selection"),
+        // An outcome is the action's, and the refusal says so (the euxy port).
+        (
+            "-exact-press-haptic=\"warning\"",
+            "\"warning\" is an outcome, which a press has not had at touch-down: play it from the action that has it, `haptic(\"warning\")`",
+        ),
     ] {
         let e = refused(attr);
         assert!(e.message.contains(says), "{attr}: {e}");
     }
+}
+
+/// The euxy port: every literal `haptic()` can be, through a choice, is a
+/// kind, and a near miss is named; a native button's press haptic is its
+/// action's.
+#[test]
+fn a_haptic_kind_is_checked_in_each_arm_and_a_near_one_named() {
+    let haptic = |kind: &str| {
+        contract::compile(&format!(
+            "component App\n  state n = 0\n  action buzz\n    haptic({kind})\n  view\n    button press=buzz\n      text \"Buzz\"\n"
+        ))
+    };
+    for (kind, near) in [
+        ("n >= 16 ? \"heavy\" : \"impact-light\"", "\"impact-heavy\""),
+        ("\"Medium\"", "\"impact-medium\""),
+        ("\"notification-success\"", "\"success\""),
+        ("\"selections\"", "\"selection\""),
+    ] {
+        let e = haptic(kind).unwrap_err();
+        assert_eq!(e.id, "type-haptic", "{kind}: {e}");
+        assert!(
+            e.message.contains(&format!("did you mean {near}?"))
+                && e.message.contains("by `-exact-press-haptic`"),
+            "{kind}: {e}"
+        );
+    }
+    let e = haptic("3").unwrap_err();
+    assert_eq!(e.id, "type-haptic", "{e}");
+    assert!(haptic("n > 1 ? \"impact-rigid\" : \"error\"").is_ok());
+    assert!(haptic("`impact-${n > 1 ? \"heavy\" : \"light\"}`").is_ok());
+    let e = contract::compile(
+        "component App\n  action add\n    haptic(\"success\")\n  view\n    button press=add buttonStyle=\"glass\" aria-label=\"Add\" -exact-press-haptic=\"impact-light\"\n      image \"symbol:add\"\n",
+    )
+    .unwrap_err();
+    assert!(
+        e.message.contains("a native button plays no `-exact-press-haptic`: play it from its `press` action, `haptic(\"impact-light\")`"),
+        "{e}"
+    );
+}
+
+/// The euxy port: a cancelled pointer is a `pointerup` on every host, and
+/// the refusal of `pointercancel` says so.
+#[test]
+fn pointercancel_names_the_pointerup_that_ends_a_hold() {
+    let e = contract::compile(
+        "component App\n  state held = false\n  action up\n    held = false\n  view\n    button pointerup=up pointercancel=up\n      text \"Hold\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "lower-unknown-attr");
+    assert!(
+        e.message
+            .contains("a cancelled pointer ends with `pointerup` (its `buttons` 0)"),
+        "{e}"
+    );
 }
 
 #[test]
@@ -139,4 +198,19 @@ fn a_vendor_prefixed_name_is_an_attribute_before_its_equals_and_a_negation_elsew
     assert_eq!(a.text_stroke_width, 2.0);
     assert!(a.text_stroke_color.is_some());
     assert_eq!(style_of(&r, "b").text_stroke_width, 3.0);
+}
+
+/// LLP 1115.003 D3: a plan that binds `-exact-content-transition` uses the
+/// numerals capability, which links SwiftUI's numeric text on Apple; one that
+/// does not, does not.
+#[test]
+fn a_rolling_number_uses_the_numerals_capability() {
+    use exact_runner::Capability;
+    let rolls = contract::compile(
+        "component A\n  view\n    text \"1,234\" -exact-content-transition=\"numeric\"\n",
+    )
+    .unwrap();
+    assert!(exact_runner::uses(&rolls).has(Capability::Numerals));
+    let still = contract::compile("component A\n  view\n    text \"1,234\"\n").unwrap();
+    assert!(!exact_runner::uses(&still).has(Capability::Numerals));
 }

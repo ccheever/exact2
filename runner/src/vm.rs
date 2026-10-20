@@ -9,7 +9,9 @@
 //! trusted. There is no closure, no heap of the VM's own, no ambient read that
 //! is not an operand: `performanceNow()` reads the clock the runner passes in.
 
+mod list_call;
 mod prepared;
+use list_call::list_call;
 pub(crate) use prepared::Prepared;
 
 use crate::machine::{self, Host, Kind, Machine, Num, Val};
@@ -91,11 +93,8 @@ impl Frame {
 pub struct Env<'a> {
     /// The plan the code belongs to.
     pub plan: &'a Plan,
-    /// The plan's string pool, interned once per runner ([`intern`]) as
-    /// values: a string literal is inline text or one shared allocation,
-    /// never a fresh one, and two evaluations of one literal are the same
-    /// object.
-    pub strings: &'a [Value],
+    /// The plan's strings as values ([`Strings`]), made as they are read.
+    pub strings: &'a Strings,
     /// Checked route table and shapes; present only for a plan with a router.
     /// @ref LLP 1038 D3/D9 — the same table across all calls in this runner.
     pub router: Option<&'a dyn crate::runner::Routing>,
@@ -126,6 +125,8 @@ pub struct Env<'a> {
     pub failed_why: &'a [Option<crate::failure::Failure>],
     /// Whether each mutation has a request in flight.
     pub pending_mutations: &'a [bool],
+    /// Latest mutation failure; cleared by a new send or assignment.
+    pub failed_mutations: &'a [Option<crate::failure::Failure>],
     /// Store dependence of settled derives, for bake provenance propagation.
     pub store_dependent_derives: &'a [bool],
     /// Store dependence of settled resources, for bake provenance propagation.
@@ -139,72 +140,6 @@ fn step(steps: &mut u32, n: usize, pc: usize) -> Result<(), Trap> {
         return Err(Trap::IterationLimit { pc });
     }
     Ok(())
-}
-
-/// `concat`, `split`, and `slice`, `includes` and `indexOf` over a list
-/// (LLP 1088 §9.1), on this evaluation's budget as `join` is: the list steps
-/// first — one per item `concat`, `slice` and `split` keep, one per item
-/// `includes` and `indexOf` scan up to the match — then a list they build
-/// measured as `Opcode::List` measures one (LLP 1090 D3). `None` for
-/// `slice`, `includes` and `indexOf` over text.
-fn list_call(
-    f: Stdlib,
-    args: &[Value],
-    steps: &mut u32,
-    extents: &mut Extents,
-    pc: usize,
-) -> Result<Option<Value>, Trap> {
-    let mismatch = Trap::TypeMismatch {
-        pc,
-        op: Opcode::Call,
-    };
-    if f == Stdlib::Split {
-        let (Some(s), Some(sep)) = (args[0].as_str(), args[1].as_str()) else {
-            return Err(mismatch);
-        };
-        step(steps, crate::strings::pieces(s, sep), pc)?;
-        let built: Vec<Value> = (crate::strings::split(s, sep).iter())
-            .map(|p| Value::str(p))
-            .collect();
-        let e = extents.built(&built, pc)?;
-        let v = Value::list(built);
-        extents.remember(&v, e);
-        return Ok(Some(v));
-    }
-    let items = match (f, args.first()) {
-        (
-            Stdlib::Concat | Stdlib::Slice | Stdlib::Includes | Stdlib::IndexOf,
-            Some(Value::List(items)),
-        ) => items,
-        (Stdlib::Concat, _) => return Err(mismatch),
-        _ => return Ok(None),
-    };
-    let built = match (f, args.get(1), args.get(2)) {
-        (Stdlib::Concat, Some(Value::List(more)), _) => {
-            step(steps, items.len() + more.len(), pc)?;
-            crate::lists::concat(items, more)
-        }
-        (Stdlib::Slice, Some(Value::Number(a)), Some(Value::Number(b))) => {
-            let kept = crate::lists::slice(items, *a, *b);
-            step(steps, kept.len(), pc)?;
-            kept.to_vec()
-        }
-        (Stdlib::Includes, Some(x), _) => {
-            let at = crate::lists::position(items, x);
-            step(steps, at.map_or(items.len(), |i| i + 1), pc)?;
-            return Ok(Some(Value::Bool(at.is_some())));
-        }
-        (Stdlib::IndexOf, Some(x), _) => {
-            let at = crate::lists::index_of(items, x);
-            step(steps, at.map_or(items.len(), |i| i + 1), pc)?;
-            return Ok(Some(Value::Number(at.map_or(-1.0, |i| i as f64))));
-        }
-        _ => return Err(mismatch),
-    };
-    let e = extents.built(&built, pc)?;
-    let v = Value::list(built);
-    extents.remember(&v, e);
-    Ok(Some(v))
 }
 
 /// A value's expanded extent: its values (a shared one counted once per
@@ -349,12 +284,52 @@ pub struct Outcome {
     pub store_dependent: bool,
 }
 
-/// The plan's string pool as values, for [`Env::strings`].
-pub fn intern(plan: &Plan) -> Vec<Value> {
-    plan.strings
-        .iter()
-        .map(|s| Value::str(s.as_str()))
-        .collect()
+/// The plan's strings as values (`Env::strings`), each made when first read:
+/// a plan has a thousand strings and a screen's bindings read a hundred of
+/// them. A string read twice is the same object, inline text or one shared
+/// allocation, never a fresh one.
+pub struct Strings {
+    cells: Vec<std::cell::OnceCell<Value>>,
+}
+
+impl Strings {
+    /// The table `plan`'s strings fill as they are read.
+    pub fn new(plan: &Plan) -> Strings {
+        let cells = (0..plan.strings.len()).map(|_| std::cell::OnceCell::new());
+        Strings {
+            cells: cells.collect(),
+        }
+    }
+
+    /// A table holding `values` already (a test's: shorter than the plan's,
+    /// or holding what is not text).
+    pub fn of(values: impl IntoIterator<Item = Value>) -> Strings {
+        Strings {
+            cells: values.into_iter().map(std::cell::OnceCell::from).collect(),
+        }
+    }
+
+    /// The string with id `id`, as a value; `plan` is the plan the table was
+    /// made for.
+    pub fn get(&self, plan: &Plan, id: usize) -> Option<&Value> {
+        let cell = self.cells.get(id)?;
+        Some(cell.get_or_init(|| Value::str(&plan.strings[id])))
+    }
+
+    /// How many strings the table covers.
+    pub fn len(&self) -> usize {
+        self.cells.len()
+    }
+
+    /// Whether it covers none.
+    pub fn is_empty(&self) -> bool {
+        self.cells.is_empty()
+    }
+}
+
+/// The plan's strings as values, for [`Env::strings`].
+pub fn intern(plan: &Plan) -> Strings {
+    Strings::new(plan)
 }
 
 /// Decode the instruction at `r`: the one decoder the VM, the dependency
@@ -506,12 +481,12 @@ fn projected_string_default(code: &[u8], env: &Env<'_>, value: &Value) -> Option
     }
     let (literal, replacement) = prepared::string_default(code)?;
     let literal = literal as usize;
-    let literal = env.strings.get(literal)?;
+    let literal = env.strings.get(env.plan, literal)?;
     if !literal.is_str() {
         return None;
     }
     if value == literal {
-        env.strings.get(replacement as usize).cloned()
+        env.strings.get(env.plan, replacement as usize).cloned()
     } else {
         Some(value.clone())
     }
@@ -729,7 +704,7 @@ impl Host<Value> for Run<'_, '_> {
     fn string(&self, i: u64, pc: usize) -> Result<Value, Trap> {
         self.env
             .strings
-            .get(i as usize)
+            .get(self.env.plan, i as usize)
             .cloned()
             .ok_or(Trap::Malformed { pc })
     }
@@ -824,15 +799,17 @@ impl Host<Value> for Run<'_, '_> {
     }
 
     // @ref LLP 1109 D3 — `failure(x)`: known once settled, as `failed(x)`;
-    // the `Failure` record is `{ code, message }` by position.
+    // the `Failure` record is `{ code, message, reason }` by position.
     fn resource_failure(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
         if !self.resource_flag(Opcode::FailedResource, i, pc)? {
             return Ok(Value::Option(None));
         }
         let why = self.env.failed_why.get(i as usize).and_then(Option::as_ref);
-        let (code, message) = why.map_or(("error", "it failed"), |w| (w.code.name(), &w.message));
+        let (code, message, reason) = why.map_or(("error", "it failed", ""), |w| {
+            (w.exposed_code(), w.message.as_str(), w.reason.as_str())
+        });
         let record = Value::Record(
-            [Value::str(code), Value::str(message)]
+            [Value::str(code), Value::str(message), Value::str(reason)]
                 .into_iter()
                 .collect(),
         );
@@ -840,6 +817,36 @@ impl Host<Value> for Run<'_, '_> {
     }
 
     #[inline]
+    fn mutation_failed(&self, i: u64) -> bool {
+        self.env
+            .failed_mutations
+            .get(i as usize)
+            .is_some_and(Option::is_some)
+    }
+
+    fn mutation_failure(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
+        let Some(why) = self
+            .env
+            .failed_mutations
+            .get(i as usize)
+            .and_then(Option::as_ref)
+        else {
+            return Ok(Value::Option(None));
+        };
+        self.some(
+            Value::Record(
+                [
+                    Value::str(why.exposed_code()),
+                    Value::str(&why.message),
+                    Value::str(&why.reason),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            pc,
+        )
+    }
+
     fn pending_mutation(&self, i: u64) -> bool {
         self.env
             .pending_mutations
@@ -1045,6 +1052,7 @@ mod tests {
             failed_resources: &[],
             failed_why: &[],
             pending_mutations: &[],
+            failed_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
         };
@@ -1192,6 +1200,7 @@ mod tests {
             failed_resources: &[],
             failed_why: &[],
             pending_mutations: &[],
+            failed_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
         };
@@ -1414,6 +1423,7 @@ mod tests {
                 failed_resources: &[],
                 failed_why: &[],
                 pending_mutations: &[],
+                failed_mutations: &[],
                 store_dependent_derives: &[],
                 store_dependent_resources: &[],
             };

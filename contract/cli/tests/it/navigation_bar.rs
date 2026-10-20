@@ -99,31 +99,101 @@ fn off_a_route_the_attribute_is_refused_naming_where_it_belongs() {
     assert_eq!(error.id, "lower-route-bar", "{error}");
 }
 
+/// A button that presses nothing and opens no popover is no item of the iOS
+/// bar and is hidden with the header (euxy port 14's "● Clock" readout):
+/// the warning says so and names a readout's `role="status"`.
 #[test]
-fn top_scroll_inset_is_an_explicit_route_policy() {
-    for value in ["none", "auto"] {
-        let plan = contract::compile(&stack(
-            "",
-            &format!("navigationScrollInsetTop=\"{value}\""),
-            "",
-        ))
+fn a_header_button_that_presses_nothing_is_named() {
+    let header = "header\n            text \"Log\" role=\"heading\" aria-level=2\n            button aria-label=\"Clock\"\n              text \"● Clock\"";
+    let src = stack("", "", "").replace("column \n", &format!("{header}\n          column\n"));
+    let (result, warnings) = contract::compile_warned(&src);
+    result.unwrap();
+    let ids: Vec<_> = warnings
+        .iter()
+        .map(|w| (w.id.as_str(), w.span.line))
+        .collect();
+    assert_eq!(ids, [("lower-header-unplaced", 11)], "{src}");
+    let says = &warnings[0].message;
+    assert!(
+        says.starts_with(
+            "a `button` that presses nothing in this route's `header` is not shown on iOS"
+        ),
+        "{says}"
+    );
+    assert!(says.contains("give it `role=\"status\"`"), "{says}");
+}
+
+#[test]
+fn safe_area_opt_out_is_local_to_a_routes_authored_root() {
+    for value in [
+        "auto",
+        "none",
+        "top",
+        "bottom",
+        "top bottom",
+        "left right",
+        "top right bottom left",
+    ] {
+        let source = stack("", &format!("-exact-safe-area=\"{value}\""), "");
+        let plan = contract::bake(contract::compile(&source).unwrap(), NoData).unwrap();
+        let runner = Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/viewer",
+        )
         .unwrap();
-        assert!(plan.nodes.iter().any(|n| n
-            .bindings
-            .iter()
-            .map(|b| plan.binding(b))
-            .any(|b| b.id == PropId::NavigationScrollInsetTop as u16)));
+        let kernel = runner.kernel();
+        let ids = kernel.find_by_test_id("route-viewer");
+        assert_eq!(ids.len(), 1);
+        for key in ids {
+            assert_eq!(
+                kernel.node_by_key(key).unwrap().props.str(PropId::SafeArea),
+                Some(value)
+            );
+        }
     }
-    assert_eq!(
-        contract::compile(&stack("", "navigationScrollInsetTop=\"hidden\"", ""))
-            .unwrap_err()
-            .id,
-        "lower-attr-value"
+    for value in ["", "Top", "top top", "auto top", "none bottom", "vertical"] {
+        let error = contract::compile(&stack("", &format!("-exact-safe-area=\"{value}\""), ""))
+            .unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{value}: {error}");
+    }
+    for (root, inner) in [
+        ("-exact-safe-area=\"none\"", ""),
+        ("", "-exact-safe-area=\"top\""),
+    ] {
+        let error = contract::compile(&stack(root, "", inner)).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{error}");
+        assert!(error.message.contains("owner's authored root"), "{error}");
+    }
+    let error = contract::compile("component App\n  view\n    column -exact-safe-area=\"none\"\n")
+        .unwrap_err();
+    assert_eq!(error.id, "lower-attr-value", "{error}");
+    // State bindings update the same non-inherited prop; ordinary descendants get none.
+    let source = stack(
+        "",
+        "-exact-safe-area=(e.name == \"viewer\" ? \"top bottom\" : \"auto\")",
+        "",
     );
-    assert_eq!(
-        contract::compile(&stack("navigationScrollInsetTop=\"none\"", "", ""))
-            .unwrap_err()
-            .id,
-        "lower-route-bar"
-    );
+    let plan = contract::bake(contract::compile(&source).unwrap(), NoData).unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/viewer",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let viewer = kernel
+        .node_by_key(kernel.find_by_test_id("route-viewer")[0])
+        .unwrap();
+    assert_eq!(viewer.props.str(PropId::SafeArea), Some("top bottom"));
+    for child in viewer.children() {
+        assert_eq!(
+            kernel.node(child).unwrap().props.str(PropId::SafeArea),
+            None
+        );
+    }
 }

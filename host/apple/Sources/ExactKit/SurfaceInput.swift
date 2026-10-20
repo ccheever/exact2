@@ -52,6 +52,10 @@ extension NodeView {
         return nil
     }
     package var isSurfaceControl: Bool { props["action"] != nil && inputCanvas != nil }
+    /// The contact of a control pressed without a pointer, by a declared
+    /// shortcut, as the web's assistive click (gpu-glue.js): it moves no
+    /// focus, so a focused world keeps its keyboard and held keys.
+    package static let assistiveContact = 4_294_967_292
     package var ownsSurfaceControl: Bool { presenter?.session?.canvases.ownsControl(id) == true }
     func cancelSurfaceControls() { presenter?.session?.canvases.cancelControls(of: id) }
     @discardableResult
@@ -61,7 +65,7 @@ extension NodeView {
         return isSurfaceControl ? window?.makeFirstResponder(self) == true : focusCanvas()
         #else
         if presenter?.editing != nil { return true }
-        if isSurfaceControl { return isFirstResponder || takeTouchFocus() }
+        if isSurfaceControl { return isFirstResponder || takeSurfaceTouchFocus() }
         return focusCanvas()
         #endif
     }
@@ -147,7 +151,7 @@ extension Agent {
         let point = CGPoint(x: request["x"] as? Double ?? start.x + (request["dx"] as? Double ?? 0),
                             y: request["y"] as? Double ?? start.y + (request["dy"] as? Double ?? 0))
         guard point.x.isFinite, point.y.isFinite else { return ["error": "pointer needs finite coordinates"] }
-        let inWindow = vp.convert(CGPoint(x: point.x + vp.contentOffset.x, y: point.y + vp.contentOffset.y), to: nil)
+        let inWindow = vp.convert(CGPoint(x: point.x + vp.pageOrigin.x, y: point.y + vp.pageOrigin.y), to: nil)
         if !continuing {
             guard let hit = window.hitTest(inWindow, with: nil), hit === node || (node.isSurfaceControl && hit.isDescendant(of: node)) else { return ["error":"control or canvas is covered"] }
         }

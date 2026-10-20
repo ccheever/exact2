@@ -9,16 +9,56 @@
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether a runner booted now counts its plan sites' work for `perf` from
+/// boot (LLP 1079 D1): until a release build says it counts from the first
+/// ask instead, and again once something has asked.
+static WORK_FROM_BOOT: AtomicBool = AtomicBool::new(true);
+
+/// A release build's choice (`exact_measure_work_later`): runners booted
+/// from now count their work from the first ask (`Bridge::measure_work`).
+pub fn measure_work_later() {
+    WORK_FROM_BOOT.store(false, Ordering::Relaxed);
+}
+
+/// A runner just booted counts its work from now, or from the first ask.
+pub fn measure_at_boot<D: DataSource>(runner: &mut exact_runner::Runner<D>, compat: Option<&str>) {
+    if WORK_FROM_BOOT.load(Ordering::Relaxed) {
+        runner.measure_unless_production(compat, true);
+    } else {
+        runner.measure_later(compat);
+    }
+}
+
+/// The alert shape (LLP 1115 D6), the kernel's rule
+/// (`exact_kernel::confirmation`), for the presenter's Swift
+/// (`ConfirmationShape.isAlert`): lowering, this host and the Linux one read one rule.
+pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
+    exact_kernel::confirmation::is_alert(texts as usize, actions as usize, cancels as usize)
+}
 
 impl<D: DataSource> Bridge<D> {
+    /// The first ask for `perf` (`exact_measure_work`): this runtime counts
+    /// its plan sites' work from now, where its bake counts any, and every
+    /// runtime booted after counts from boot.
+    pub fn measure_work(&mut self) -> u32 {
+        WORK_FROM_BOOT.store(true, Ordering::Relaxed);
+        if let Some(host) = self.host.as_mut() {
+            host.runner_mut().measure_from_now(self.compat, true);
+        }
+        0
+    }
+
     /// Register the presenter's inline geometry, kept across plan replacements.
     pub fn set_inline_geometry(
         &mut self,
         read: Option<crate::geometry::InlineFrameFn>,
+        range: Option<crate::geometry::RangeFrameFn>,
         ctx: *mut std::ffi::c_void,
     ) {
         self.inline_geometry = read.map(|read| {
-            std::rc::Rc::new(crate::geometry::InlineGeometry { read, ctx })
+            std::rc::Rc::new(crate::geometry::InlineGeometry { read, range, ctx })
                 as std::rc::Rc<dyn exact_runner::geometry::InlineGeometry>
         });
         if let Some(host) = self.host.as_mut() {
@@ -67,10 +107,11 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// `exact_top_layer`: the presenter's currently open popovers and dialogs.
-    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])]) {
+    /// `exact_top_layer`: the presenter's open top-layer boxes, and where
+    /// the frontmost modal presentation begins among them.
+    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])], modal: Option<usize>) {
         if let Some(h) = self.host.as_mut() {
-            h.runner_mut().top_layer_frames(frames);
+            h.runner_mut().top_layer_frames(frames, modal);
         }
     }
 
@@ -90,6 +131,8 @@ impl<D: DataSource> Bridge<D> {
             host.set_canvas_text(f, hooks.ctx);
         }
         host.set_canvas_deferred(self.canvas_deferred);
+        host.runner_mut()
+            .set_live_clock(self.live_clock.map(super::preferences::sampler));
     }
 
     /// Canvas draws in a turn of their own from now on, or in every turn
@@ -193,7 +236,8 @@ impl<D: DataSource> Bridge<D> {
     /// `{"button","title","symbol","raster","leading","label","fits","style",
     /// "ios","iosBefore26","macos","known"}` — `button` false (and the rest
     /// empty) for a node that is not a button, the symbol as the platform
-    /// names it, the style's row of the `buttonStyles` table (`bordered` for a
+    /// names it (an svg-only icon's "", its `symbolPath` and `symbolViewBox`
+    /// beside it, and `symbolIcon`, its token's name, for the agent), the style's row of the `buttonStyles` table (`bordered` for a
     /// name not in it); with no `buttonStyle` written, `"style":null` and no
     /// platform column (`button::face_json`). Not a batch: nothing changes.
     pub fn press_face(&mut self, view: u32) -> u32 {
@@ -206,7 +250,11 @@ impl<D: DataSource> Bridge<D> {
                 let style = kernel
                     .node(view)
                     .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle));
-                crate::button::face_json(face.as_ref(), rows.as_ref(), style)
+                let icon = face
+                    .as_ref()
+                    .and_then(|f| f.symbol.as_deref())
+                    .and_then(|s| crate::icon_path::icon_name(h.runner().plan(), s));
+                crate::button::face_json_named(face.as_ref(), rows.as_ref(), style, icon)
             },
         );
         self.output = json.into_bytes();
@@ -276,14 +324,16 @@ impl<D: DataSource> Bridge<D> {
 
     /// A navigation root's tabs (`exact_root_tabs`; `Kernel::root_tabs`, LLP
     /// 1115.001 D11), as JSON in the output buffer: `{"tablist":view,
-    /// "tabs":[view...],"panels":[view...],"unsaid":bool}`, the tabs that
+    /// "tabs":[view...],"panels":[view...],"unsaid":bool,"covered":bool}`, the tabs that
     /// name a panel and those panels in tab order, or `null` for a root with
     /// one stack. `unsaid`: the app left the bar's placement unsaid, by the
     /// web's rule for its own sidebar (`host/web/navigation.js` `unsaidBar`,
     /// LLP 1116.004 D1.1): the tablist is a direct child of the root, not
     /// vertical, in flow in the root's flex column, and itself a row. It is
     /// read here because the layout rows it asks of never cross to the
-    /// presenter (`style::presenter_ignores`). Not a batch: nothing changes.
+    /// presenter (`style::presenter_ignores`). `covered`: the tablist is
+    /// covered whole, as the boot covers one a tab bar replaces
+    /// (`closed.rs`). Not a batch: nothing changes.
     pub fn root_tabs(&mut self, view: u32) -> u32 {
         use exact_kernel::{Display, FlexDirection, PositionType, PropId};
         let list = |ids: &[u32]| ids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
@@ -301,8 +351,11 @@ impl<D: DataSource> Bridge<D> {
                     PositionType::Static | PositionType::Relative
                 )
                 && !column(bar.style.flex_direction);
+            let arena = kernel.arena();
+            let covered = arena.slot_of(tabs.tablist).and_then(|s| arena.cover(s))
+                == Some(exact_kernel::HostCover::Whole);
             Some(format!(
-                "{{\"tablist\":{},\"tabs\":[{}],\"panels\":[{}],\"unsaid\":{unsaid}}}",
+                "{{\"tablist\":{},\"tabs\":[{}],\"panels\":[{}],\"unsaid\":{unsaid},\"covered\":{covered}}}",
                 tabs.tablist,
                 list(&tabs.tabs),
                 list(&tabs.panels)
@@ -345,9 +398,10 @@ impl<D: DataSource> Bridge<D> {
 
     /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
-    /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol","title",
-    /// "secondary","subtitle","accessory","target","pressable",
-    /// "checked","destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
+    /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol",("symbolPath","symbolViewBox": an
+    /// svg-only icon's, `icon_path::push_json`),"title",
+    /// "secondary","subtitle","accessory","target","pressable","action",
+    /// "checked","destructive","disabled","authoredEdge","nextAuthoredTop","titleLook","secondaryLook"}]}],"spaceBelow"}`,
     /// `null` for a node that is not one. A look is `{"lines","ellipsis",
     /// "color","font"}`: a colour row's wire form and `{"size","weight",
     /// "italic","family","numeric"}`, each `null` where the author said nothing.
@@ -415,6 +469,8 @@ impl<D: DataSource> Bridge<D> {
                             r.view, r.custom
                         ));
                         opt(&r.symbol, &mut json);
+                        // An svg-only icon's path (LLP 1121 D10, stage 9 A2).
+                        crate::icon_path::push_json(r.icon.as_deref(), &mut json);
                         json.push_str(",\"title\":");
                         opt(&r.title, &mut json);
                         json.push_str(",\"secondary\":");
@@ -428,12 +484,15 @@ impl<D: DataSource> Bridge<D> {
                             Accessory::Radio(id, on) => ("radio", Some(id), on),
                         };
                         json.push_str(&format!(
-                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"checked\":{checked},\"pressable\":{},\"destructive\":{},\"disabled\":{}",
+                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"checked\":{checked},\"pressable\":{},\"action\":{},\"destructive\":{},\"disabled\":{},\"authoredEdge\":{},\"nextAuthoredTop\":{}",
                             r.subtitle,
                             target.map_or("null".into(), |t| t.to_string()),
                             r.pressable,
+                            r.action,
                             r.destructive,
-                            r.disabled
+                            r.disabled,
+                            r.authored_edge,
+                            r.next_authored_top
                         ));
                         look(",\"titleLook\":", &r.title_look, &mut json);
                         look(",\"secondaryLook\":", &r.secondary_look, &mut json);

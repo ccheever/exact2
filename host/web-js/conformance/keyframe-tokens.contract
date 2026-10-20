@@ -1,0 +1,14 @@
+// Synthetic conformance plan: a design token in a colour keyframe (LLP 1121
+// D3), a `light-dark()` pair, held mid-animation so both runners paint one frame.
+theme
+  chipDim="light-dark(#cfced4, #45454b)"
+  glow="#ff000080"
+
+keyframes relight
+  from background-color="chipDim" box-shadow="0 0 6px glow"
+  to background-color="#2563eb" box-shadow="none"
+
+component KeyframeTokens
+  view
+    column testId="root" padding=10
+      view testId="lit" width=80 height=40 animation="relight 1s linear -500ms paused"

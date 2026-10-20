@@ -22,6 +22,26 @@ pub(super) fn asset_tree(
     Some(optional_tree(&path, outputs))
 }
 
+/// A shader root's watch. The default root, `gpu/shaders`, is in buildBake's
+/// inventory as `assets` and `deck` are: absent and undeclared, it is not
+/// watched, where its nearest ancestor would be the app (which holds its
+/// `target`), whose missing input reran the bake on every build. A root the
+/// manifest names keeps `optional_tree`'s watch.
+pub(super) fn shader_tree(
+    path: &Path,
+    outputs: &[PathBuf],
+    declared: Option<&str>,
+) -> Option<PathBuf> {
+    if path.ends_with("gpu/shaders")
+        && declared.is_some_and(|roots| !roots.split(',').any(|name| name == "gpu/shaders"))
+        && std::fs::symlink_metadata(path)
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+    {
+        return None;
+    }
+    Some(optional_tree(path, outputs))
+}
+
 /// A missing Cargo input is perpetually dirty. Watch its nearest existing
 /// ancestor instead, unless Cargo's recursive scan would include build output.
 /// In that layout keep the conservative missing input: first creation must
@@ -252,6 +272,21 @@ fn main() {{
         assert_eq!(
             asset_tree(&app, "deck", &[app.join("target")], Some("")),
             Some(app.join("deck"))
+        );
+        // The default shader root, absent: unwatched once the inventory leaves it out, never by a direct Cargo build.
+        let shaders = app.join("gpu/shaders");
+        assert_eq!(
+            shader_tree(&shaders, &[app.join("target")], Some("deck")),
+            None
+        );
+        assert_eq!(
+            shader_tree(&shaders, &[app.join("target")], None),
+            Some(shaders.clone())
+        );
+        fs::create_dir_all(&shaders).unwrap();
+        assert_eq!(
+            shader_tree(&shaders, &[app.join("target")], Some("deck")),
+            Some(shaders)
         );
     }
 

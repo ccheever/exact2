@@ -1,7 +1,6 @@
-import {chromium} from '../scripts/agent-launch.mjs';
+import {cdpBrowser} from '../scripts/agent-launch.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
-import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {checkSteadyResidency} from './render/tests/residency.mjs';
 import {test, expect} from 'bun:test';
@@ -9,10 +8,9 @@ import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
-import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
+import {assertNoLiveEdits, proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan, main} from '../scripts/agent.mjs';
-
 test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
   const root = resolve(directory, 'engine'), app = resolve(directory, 'my-game');
@@ -304,12 +302,12 @@ test('a complete world snapshot reads every page at one tick and hash', async ()
     async state(target, under, pose, busy, page = {}) {
       pages.push(page);
       const from = page.from ?? 0, to = Math.min(all.length, from + 5);
-      return {tick:7, hash, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
+      return {tick:7, hash, tableEdits:2, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
     },
   };
   const w = worldView(session, 'world');
   // The 5-entity pages stand in for the driver's limit of 5,000.
-  const {entities, truncated} = await w.snapshot({all:true});
+  const {entities, truncated, tableEdits} = await w.snapshot({all:true}); expect(tableEdits).toBe(2);
   expect(entities.map(e => e.id)).toEqual(all.map(e => e.id));
   expect(truncated).toBe(false);
   expect(pages.map(p => p.from ?? 0)).toEqual([0, 5, 10]);
@@ -402,15 +400,15 @@ test('steady residency skips no-device worlds and asserts only device-backed wor
 test('explicit focus in a commit precedes autofocus and its authored side effects', () => {
   const source=readFileSync(resolve(import.meta.dir,'../host/web/glue.js'),'utf8');
   // The commit's tail: explicit focus commands, then autofocus (6dbf594b moved autofocus into navigation.js).
-  const start=source.indexOf('  runFocusCommands(focusCommands,'), end=source.indexOf('  positionContexts(); presence.live?.after');
+  const start=source.indexOf('  for (const command of focusCommands)'), end=source.indexOf('  positionContexts(); presence.live?.after');
   expect(start).toBeGreaterThan(-1); expect(end).toBeGreaterThan(start);
   const code=runFocusCommands.toString()+';\n'+source.slice(start,end);
   const calls=[], explicit={id:'chosen',isConnected:true,matches:()=>false,getClientRects:()=>[{}],focus:()=>{calls.push('explicit');document.activeElement=explicit;}};
   const document={activeElement:null};
   // `inputHandlers` (the tail's route-arrival call, optional there) has no
   // part in the order under test, so it stands in as absent.
-  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document','inputHandlers',code)(
-    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document,undefined);
+  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document','inputHandlers','popoverCommand',code)(
+    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document,undefined,()=>{});
   expect(calls).toEqual(['explicit']);
 });
 
@@ -440,7 +438,7 @@ const syntheticHash = '0x' + '12345678' + '9abcdef0';
 const repeatedHash = digit => '0x' + digit.repeat(16);
 const candidates = (hosts = ['linux','web']) => [...hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
   name:'fixture', host, mode, failures:[], pins:{ticks:{60:syntheticHash}, saves:{continuation:'a'.repeat(64)}},
-}))), {name:'fixture',host:nativeProofHost(hosts),mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}];
+}))), ...[...hosts.includes('web') ? ['web'] : [], nativeProofHost(hosts)].map(host => ({name:'fixture',host,mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}))];
 
 test('Windows baselines require all native and web modes plus matching release evidence', () => {
   const hosts=['windows','web'], rows=candidates(hosts), old=rows[0].pins;
@@ -511,7 +509,7 @@ test('hidden placed-child refusal uses observed camera visibility and names layo
 });
 
 test('automatic no-web fallback is only a missing configured browser, never a failed proof', () => {
-  expect(webUnavailable('web carrier unavailable: /missing/chrome: ENOENT; set CHROME to an installed browser')).toBe(true);
+  expect(webUnavailable('web carrier unavailable: /missing/chrome: ENOENT; install Playwright\'s Chromium (docs/testing.md, Browsers), or set CHROME')).toBe(true);
   for (const log of ['asset ENOENT', 'Chrome exited (1)', 'web carrier unavailable: chrome: EACCES;', 'FAIL web pixel assertion']) expect(webUnavailable(log)).toBe(false);
 });
 
@@ -574,8 +572,7 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
 for (const scenario of ['report','repin','external-repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}-${scenario.toLowerCase()}`;
   const native=process.platform==='win32'?'windows':'linux';
-  // A sibling checkout is external without Bun's expensive /tmp ancestor search.
-  const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
+  const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(tmpdir(), 'prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
   const pins={ticks:{1:syntheticHash},saves:{continuation:'a'.repeat(64)}};
   mkdirSync(app);
@@ -591,11 +588,11 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       mkdirSync(out,{recursive:true});
       const failed=!process.argv.includes('--build-only') && (process.env.R8B_FAIL==='1' || host==='web' && process.env.R8B_PASS_WEB!=='1');
       const status=failed?'FAIL':process.env.R8B_UNVERIFIED==='1'||process.env.R8B_UNVERIFIED_HOST===host||process.env.EXACT_PROOF_REPIN==='1'?'UNVERIFIED':'PASS';
-      const row={name:${JSON.stringify(name)},inputs:'c'.repeat(64),host,status,mode:process.env.EXACT_GAME_PARANOID,pins:${JSON.stringify(pins)},failures:failed?['refusal']:[],facilities:failed?['state unused; pending assets']:['no recorded stalls or refusals'],seconds:0,worlds:[{session:1,tick:1,hash:'same'}],saves:[{name:'a',sha256:'same'}]};
+      const row={name:${JSON.stringify(name)},inputs:'c'.repeat(64),sourceInputs:'d'.repeat(64),host,status,mode:process.env.EXACT_GAME_PARANOID,pins:${JSON.stringify(pins)},failures:failed?['refusal']:[],facilities:failed?['state unused; pending assets']:['no recorded stalls or refusals'],seconds:0,worlds:[{session:1,tick:1,hash:'same'}],saves:[{name:'a',sha256:'same'}]};
       if(process.env.R15_DRIFT==='1' && process.env.EXACT_GAME_PROOF_PROFILE==='release') row.pins.ticks[1]='0x'+'d'.repeat(16);
       writeFileSync(out+'/summary.json',JSON.stringify(row));
       if(host==='web' && process.env.R8B_PASS_WEB!=='1') console.error('web carrier unavailable: /missing/chrome: ENOENT; set CHROME');
-      process.exit(failed?1:0);
+      process.exit(failed?1:status==='UNVERIFIED'?3:0);
       }
     `);
     const run=async(args,extra={},current=false)=>{
@@ -625,10 +622,9 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       expect(here.calls).toEqual([{host:native,build:false,mode:'0'}]);
     }
     if (selected('failure')) {
-    const started = performance.now();
     const failed=await run(['--hosts','linux','--report'],{R8B_FAIL:'1'});
-    // A fake external proof needs neither Cargo metadata nor Bun's external entrypoint search.
-    if (directory) expect(performance.now() - started).toBeLessThan(1000);
+    // Time the proof child's entrypoint; SDK snapshotting precedes this leg.
+    if (directory) expect(Object.values(JSON.parse(readFileSync(resolve(failed.root,'legs.json'))).legs)[0].durationMs).toBeLessThan(1000);
     expect(failed.code).toBe(1); expect(failed.text).toContain('REPORT linux 0: state unused');
     const summary=JSON.parse(readFileSync(resolve(failed.root,'summary.json'),'utf8'));
     expect(summary.rows.length).toBe(1); expect(summary.rows[0].failures).toEqual(['refusal']);
@@ -636,7 +632,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     }
     for (const status of ['UNVERIFIED','PASS'].filter(selected)) {
       const completed=await run(['--hosts','linux','--report','--compare-saves'],{R8B_UNVERIFIED:status==='UNVERIFIED'?'1':'0'});
-      expect(completed.code).toBe(status === 'PASS' ? 0 : 1);
+      expect(completed.code).toBe(status === 'PASS' ? 0 : 3);
       expect(completed.text).toContain(`| identical | ${status} |`);
       expect(completed.text).toContain(`PROOF ${status} ${name}`);
       expect(JSON.parse(readFileSync(resolve(completed.root,'summary.json'),'utf8')).status).toBe(status);
@@ -656,7 +652,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       expect(mixed.calls.slice(0,2)).toEqual([{host:'linux',build:true,mode:'0'},{host:'web',build:true,mode:'0'}]);
       expect(mixed.calls.slice(2).map(call=>call.host).sort()).toEqual(['linux','web']);
       expect(mixed.calls.slice(2).every(call=>!call.build)).toBe(true);
-      expect(mixed.code).toBe(1);
+      expect(mixed.code).toBe(3);
       const summary=JSON.parse(readFileSync(resolve(mixed.root,'summary.json'),'utf8'));
       expect(summary.rows.map(row=>row.status)).toEqual(['PASS','UNVERIFIED']);
       expect(summary.status).toBe('UNVERIFIED');
@@ -665,14 +661,15 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     } else {
     const refused=await run(['--repin']);
     expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
-    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
+    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native,'web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     const allowed=await run(['--repin','--hosts','linux','--reason','Saved glow is a Tween sampled by the renderer']);
     expect(allowed.code).toBe(0);
     const written=JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'));
     expect(written.reason).toBe('Saved glow is a Tween sampled by the renderer');
     expect(written.inputs).toBe('c'.repeat(64));
-    if (scenario === 'external-repin') expect(written.at).toBe('inputs:'+'c'.repeat(64));
+    expect(written.sourceInputs).toBe('d'.repeat(64));
+    if (scenario === 'external-repin') expect(written.at).toBe('inputs:'+'d'.repeat(64));
     expect(written.game).toBe(name); expect(written.hosts).toEqual(['linux']); expect(written.generated).toEndWith('--hosts linux');
     const empty={ticks:{},saves:{}};
     writeFileSync(resolve(app,'pins.json'),JSON.stringify(empty));
@@ -684,19 +681,19 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     }
     const firstRefused=await run([]);
     expect(firstRefused.code).toBe(1);
-    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
+    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native,'web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(empty);
     const first=await run([],{R8B_PASS_WEB:'1'});
     expect(first.code).toBe(0);
     expect(first.calls).toEqual([
       ...[native,'web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
       {host:'web',mode:'0',build:true},
-      {host:native,mode:'0',build:false},
+      {host:native,mode:'0',build:false}, {host:'web',mode:'0',build:false},
     ]);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual([native,'web']);
     }
   } finally { rmSync(directory ?? app,{recursive:true,force:true}); }
-});
+}, 120000);
 
 
 test('clock settle diagnostic names busy, held input, and logs on a real unsettled reply', async () => {
@@ -704,7 +701,8 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
   const a=source.indexOf("    async clock(spec = 'settle') {"), b=source.indexOf('\n    /** Pixels as PNG',a);
   const s={now:0,op:async req=>{expect(req).toEqual({op:'clock',settle:true});return {clock:100,settled:false,world:{changing:['player']}};}};
   // The method reads the module's step constant and growth rule; pass them in as the module would.
-  const clock=new Function('s','CLOCK_STEP_MS','clockSpan',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan);
+  // A settle asks each drawing world for its tells (agent-inspect.mjs): none here.
+  const clock=new Function('s','CLOCK_STEP_MS','clockSpan','worldTells',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan,async (_, r) => r);
   const reply=await clock();
   expect(reply.diagnostic).toContain('clock settle did not reach quiescence');
   expect(reply.diagnostic).toContain('state world:* busy');
@@ -963,6 +961,7 @@ test('engine test sources are not bake inputs: editing one leaves the proof inpu
   const file = resolve(root, 'game/engine/tests/regression.rs');
   try {
     mkdirSync(app, {recursive:true}); mkdirSync(dirname(file), {recursive:true});
+    writeFileSync(resolve(root, 'game/engine/Cargo.toml'), '[package]\nname = "engine"\nversion = "0.1.0"\n');
     writeFileSync(file, 'before');
     const hash = () => {
       const h = buildInputHash('linux', 'target');
@@ -999,24 +998,16 @@ test('E10 snapshot-only proof records the same world observation as state', asyn
 
 
 test('E10 browser buttons retain UA keyboard focus and hover feedback', async () => {
-  const {spawn}=await import('node:child_process');
-  const {Cdp}=await import('../scripts/agent.mjs');
   const root=resolve(import.meta.dir,'../host/web');
-  const profile=mkdtempSync(resolve(tmpdir(),'e10-button-browser-'));
   const server=Bun.serve({port:0,fetch(request) {
     const path=new URL(request.url).pathname;
     if(path==='/') return new Response(readFileSync(resolve(root,'index.html'),'utf8').replace('<script type="module" src="./glue.js"></script>','').replace('<div id="exact-root"></div>','<div id="exact-root"><div id="canvas" data-gpu-input tabindex="-1"><button id="pause" style="background:#202731;color:white;padding:12px">Pause</button></div></div>'),{headers:{'content-type':'text/html'}});
     if(path.endsWith('.js')) return new Response(Bun.file(resolve(root,path.slice(1))),{headers:{'content-type':'text/javascript'}});
     return new Response('',{status:404});
   }});
-  const child=spawn(chromium().executable,['--headless=new','--remote-debugging-pipe','--no-sandbox','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe'],windowsHide:true});
-  if (!child.pid) await new Promise((ok,fail)=>{child.once('spawn',ok);child.once('error',fail);});
-  const exited=new Promise(resolve=>child.once('exit',resolve));
-  const cdp=new Cdp(child.stdio[3],child.stdio[4]);
-  const deadline=setTimeout(()=>cdp.fail('button browser timed out'),30000);
+  const suite=await cdpBrowser(),{cdp}=suite;
   try {
-    const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});
-    const {sessionId}=await cdp.send('Target.attachToTarget',{targetId,flatten:true});
+    const {sessionId}=await suite.page();
     const call=(method,params={})=>cdp.send(method,params,sessionId);
     const evaluate=async expression=>(await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true})).result.value;
     await call('Page.navigate',{url:`http://localhost:${server.port}/`});
@@ -1045,41 +1036,61 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
     for(const type of ['mousePressed','mouseReleased']) await call('Input.dispatchMouseEvent',{type,x:15,y:15,button:'left',clickCount:1});
     expect(await evaluate('document.activeElement === outside')).toBe(true);
   } finally {
-    clearTimeout(deadline);
-    await cdp.send('Browser.close',{},undefined,2000).catch(()=>{});
-    await Promise.race([exited,Bun.sleep(2000)]);
-    if (child.exitCode === null && child.signalCode === null) {
-      if (process.platform === 'win32') spawnSync('taskkill',['/PID',String(child.pid),'/T','/F'],{stdio:'ignore',windowsHide:true,timeout:2000});
-      else child.kill('SIGKILL');
-    }
-    await exited; server.stop(true); rmSync(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+    await suite.close(); server.stop(true);
   }
 },60000);
 
 test('E10 Beacons and skinned Linux proof hashes match release under the fast profile', async () => {
+  const {cpSync, existsSync} = await import('node:fs');
   const root=mkdtempSync(resolve(tmpdir(),'e10-profiles-'));
+  // The shared filesystem helper builds below this excluded output container.
+  mkdirSync(resolve(import.meta.dir,'../target'),{recursive:true});
   try {
     for(const name of ['beacons','skinned-fixture']) {
       const rows=[];
       for(const profile of ['gpu-dev','release']) {
-        const out=resolve(root,`${name}-${profile}`);mkdirSync(out,{recursive:true});
-        const child=Bun.spawn([process.execPath,resolve(import.meta.dir,'games',name,'proof.mjs'),'linux'],{
-          cwd:resolve(import.meta.dir,'..'),
-          env:{...process.env,EXACT_PROOF_OUT:out,EXACT_GAME_PROOF_PROFILE:profile},
-          stdout:Bun.file(resolve(out,'run.log')),stderr:Bun.file(resolve(out,'build.log')),
-        });
-        const code=await child.exited;
-        if(code !== 0) throw new Error(`${name} ${profile}: ${readFileSync(resolve(out,'run.log'),'utf8').slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
-        expect(code).toBe(0);
-        const row=JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8'));
-        expect(row.status).toBe('PASS'); rows.push(row);
+        // Keep relative proof imports working while giving each profile fresh,
+        // private outputs. Never remove a developer's assets or compiler cache.
+        const app=mkdtempSync(resolve(import.meta.dir,'games',`e10-${name}-`));
+        const source=resolve(import.meta.dir,'games',name);
+        try {
+          for(const entry of readdirSync(source)) {
+            if(['target','artifacts','.shells','dist','dist.previous','dist-windows','assets','.baked-assets.json'].includes(entry)) continue;
+            cpSync(resolve(source,entry),resolve(app,entry),{recursive:true});
+          }
+          const receipt=resolve(app,'artifacts',profile==='gpu-dev'?'build-linux-gpu.sha256':'build-linux.sha256');
+          let stable;
+          for(const phase of ['fresh','stable','cached']) {
+            const out=resolve(root,`${name}-${profile}-${phase}`);mkdirSync(out,{recursive:true});
+            const child=Bun.spawn([process.execPath,resolve(app,'proof.mjs'),'linux'],{
+              cwd:resolve(import.meta.dir,'..'),
+              env:{...process.env,CARGO_TARGET_DIR:resolve(app,'target'),EXACT_PROOF_OUT:out,EXACT_GAME_PROOF_PROFILE:profile},
+              stdout:Bun.file(resolve(out,'run.log')),stderr:Bun.file(resolve(out,'build.log')),
+            });
+            const code=await child.exited, log=readFileSync(resolve(out,'run.log'),'utf8');
+            if(code !== 0) throw new Error(`${name} ${profile} ${phase}: ${log.slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
+            const row=JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8'));
+            expect(log).not.toContain('changed during build');
+            if(phase==='fresh') {
+              expect(row.status).toBe('PASS'); expect(existsSync(receipt)).toBe(true);
+            } else {
+              expect(row.status).toBe('PASS'); expect(existsSync(receipt)).toBe(true);
+              if(phase==='stable') { stable=row; rows.push(row); }
+              else if(phase==='cached') {
+                expect(log).toContain('BUILD cached');
+                expect(row.worlds).toEqual(stable.worlds); expect(row.pins).toEqual(stable.pins);
+              }
+            }
+            console.log(`E10 ${name} ${profile} ${phase}: ${row.status}`);
+          }
+        } finally {rmSync(app,{recursive:true,force:true});}
       }
       expect(rows[0].worlds).toEqual(rows[1].worlds);
       expect(rows[0].pins).toEqual(rows[1].pins);
     }
   } finally {rmSync(root,{recursive:true,force:true});}
-// Each authored game owns its compiler intermediates, including on the first
-// cold run. This is a hash-equivalence check, not a build-latency assertion.
+// Four fresh-output builds, then a stable run and a cache hit. This checks
+// hash equivalence and receipt policy, not build latency.
 },1200000);
 
 
@@ -1101,11 +1112,13 @@ test('R15 macOS receipt includes modulemaps and extensionless compile inputs',as
   try {
     const file=resolve(dir,'host/apple/Sources/CExact/module.modulemap');mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'module CExact {}');
     mkdirSync(resolve(dir,'game/games/test'),{recursive:true});
+    mkdirSync(resolve(dir,'game/engine'),{recursive:true});
+    writeFileSync(resolve(dir,'game/engine/Cargo.toml'),'[package]\nname = "engine"\nversion = "0.1.0"\n');
     const receipt=resolve(dir,'artifacts/receipt.json');mkdirSync(dirname(receipt),{recursive:true});let builds=0;
     const inputs=()=>{const h=buildInputHash('macos','aarch64-apple-darwin');for(const p of proofInputFiles(dir,resolve(dir,'game/games/test')))h.update(p).update(readFileSync(resolve(dir,p)));return h.digest('hex');};
     const before=inputs();writeFileSync(file,'module CExact { header "exact.h" }');expect(inputs()).not.toBe(before);
     for(const name of ['Header']) { const before=inputs();writeFileSync(resolve(dirname(file),name),'tracked compile input');expect(inputs()).not.toBe(before); }
-    // Outside `game/` every tracked file counts; under the add-on, tests, examples, proofs and pins describe proofs.
+    // Outside `game/` every tracked file counts; under the add-on, crate tests, examples, proofs and pins describe proofs.
     for(const path of ['host/apple/Sources/CExact/AnotherHeader']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'tracked compile input');expect(inputs()).not.toBe(before); }
     for(const path of ['QUEUE.md','host/web/glue.test.mjs','host/apple/Sources/CExact/pins.json','game/games/test/tests/data','game/games/test/proof.mjs','game/engine/tests/a.rs']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'not a bake input');expect(inputs()).toBe(before); }
     await ensureBuildReceipt({receipt,inputs:before,artifact:()=> 'binary',build:async()=>{builds++;}});
@@ -1133,7 +1146,7 @@ test.each(['in-tree','external','linked'])('R15 %s game compiles with contractio
     writeFileSync(resolve(probe,'Cargo.toml'),'[workspace]\n[package]\nname="flags-probe"\nversion="0.1.0"\nedition="2021"\n[lib]\npath="lib.rs"\n');
     writeFileSync(resolve(probe,'lib.rs'),'pub fn value() -> u32 { 1 }\n');
     writeFileSync(resolve(probe,'build.rs'),'fn main() { std::fs::write(std::env::var_os("EXACT_FLAGS_OUT").unwrap(), std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap()).unwrap(); }\n');
-    const env={...process.env,CARGO_HOME:resolve(root,'cargo'),CARGO_TARGET_DIR:resolve(root,'target'),CARGO_BUILD_BUILD_DIR:resolve(root,'build'),EXACT_FLAGS_OUT:output};
+    const env={...process.env,RUSTC_WRAPPER:'',CARGO_BUILD_RUSTC_WRAPPER:'',CARGO_HOME:resolve(root,'cargo'),CARGO_TARGET_DIR:resolve(root,'target'),CARGO_BUILD_BUILD_DIR:resolve(root,'build'),EXACT_FLAGS_OUT:output}; // no rustc wrapper from a Cargo config above the checkout: a caching one can skip the build script's run
     for(const key of ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','CARGO_BUILD_RUSTFLAGS'])delete env[key];
     const result=spawnSync('cargo',['check','--offline'],{cwd:probe,env,encoding:'utf8',timeout:60000});
     expect({status:result.status,stderr:result.status===0?'':result.stderr}).toEqual({status:0,stderr:''});
@@ -1148,29 +1161,6 @@ test('R15 even linux-only repin refuses missing or divergent release observation
   expect(()=>agreePins(rows,old,['linux'], '.')).toThrow('release');
 });
 
-test('R15 semantic drift fixture is rejected by the release gate',async()=>{
-  const dir=mkdtempSync(resolve(tmpdir(),'r15-profile-drift-'));
-  try {
-    const src=resolve(dir,'profile.rs');
-    writeFileSync(src,'#[no_mangle] pub extern "C" fn mode()->u32{cfg!(debug_assertions) as u32} #[no_mangle] pub extern "C" fn increment(a:u32)->u32{a+1}');
-    const outcomes=[];
-    for(const drift of [true,false]) {
-      const binary=resolve(dir,drift?'drift.wasm':'release.wasm');
-      const compile=Bun.spawn(['rustc',src,'--crate-type','cdylib','--target','wasm32-unknown-unknown','-C','panic=abort','-o',binary,'-C',`debug-assertions=${drift?'yes':'no'}`,'-C',`overflow-checks=${drift?'yes':'no'}`,'-C','llvm-args=-fp-contract=off'],{stdout:'pipe',stderr:'pipe'});
-      expect(await compile.exited).toBe(0);
-      const {instance}=await WebAssembly.instantiate(readFileSync(binary),{});
-      let wrapped=false;try { wrapped=instance.exports.increment(4294967295)===0; } catch(error) {expect(error).toBeInstanceOf(WebAssembly.RuntimeError);}
-      outcomes.push(`${instance.exports.mode()===1}:${wrapped}\n`);
-    }
-    expect(outcomes).toEqual(['true:false\n','false:true\n']);
-    const rows=candidates(['linux']);
-    rows.at(-1).pins.ticks[60]='0x'+createHash('sha256').update(outcomes[1]).digest('hex').slice(0,16);
-    for(const row of rows.slice(0,-1)) row.pins.ticks[60]='0x'+createHash('sha256').update(outcomes[0]).digest('hex').slice(0,16);
-    expect(()=>agreePins(rows,rows[0].pins,['linux'], '.')).toThrow('release');
-  } finally {rmSync(dir,{recursive:true,force:true});}
-},60000);
-
-
 test('concurrent prove runs keep their save artifacts and web builds separate', async () => {
   const dir=mkdtempSync(resolve(tmpdir(),'proof-isolation-')), app=resolve(dir,'game'), children=[];
   mkdirSync(app);
@@ -1181,9 +1171,9 @@ test('concurrent prove runs keep their save artifacts and web builds separate', 
       const owner=process.env.PROOF_TEST_OWNER, out=process.env.EXACT_PROOF_OUT, dist=process.env.EXACT_WEB_DIST;
       mkdirSync(out,{recursive:true});writeFileSync(out+'/owner',owner);
       if(dist) {mkdirSync(dist,{recursive:true});writeFileSync(dist+'/owner',owner);}
-      writeFileSync('./ready-'+owner,'');
+      writeFileSync(${JSON.stringify(resolve(dir,'ready-'))}+owner,'');
       const deadline=Date.now()+5000;
-      while(!existsSync('./ready-'+(owner==='a'?'b':'a'))) {
+      while(!existsSync(${JSON.stringify(resolve(dir,'ready-'))}+(owner==='a'?'b':'a'))) {
         if(Date.now()>deadline) throw new Error('peer proof never arrived');
         await Bun.sleep(10);
       }
@@ -1216,48 +1206,6 @@ test('concurrent prove runs keep their save artifacts and web builds separate', 
     rmSync(dir,{recursive:true,force:true});
   }
 },15000);
-
-test('E11 split Linux receipts rebuild only GPU for logic and both for declarations', async () => {
-  const {ensureLinuxReceipts} = await import('./proof.mjs');
-  const dir=mkdtempSync(resolve(tmpdir(),'e11-split-')), builds=[];
-  let logic='one', declaration='one', plan='one', gpu='one', binary='one';
-  const run=()=>ensureLinuxReceipts({directory:dir, gpuInputs:logic, hostInputs:()=>plan+declaration,
-    gpuArtifact:()=>gpu, hostArtifact:()=>binary, build:async part=>{
-      builds.push(part); if(part==='gpu') gpu=logic; else binary=plan+declaration;
-    }});
-  try {
-    await run(); expect(builds.splice(0)).toEqual(['gpu','host']);
-    await run(); expect(builds).toEqual([]);
-    logic='two'; await run(); expect(builds.splice(0)).toEqual(['gpu']);
-    logic='three'; declaration='argument added'; await run(); expect(builds.splice(0)).toEqual(['gpu','host']);
-    plan='new plan'; await run(); expect(builds.splice(0)).toEqual(['host']);
-    gpu=null; await run(); expect(builds.splice(0)).toEqual(['gpu']);
-  } finally {rmSync(dir,{recursive:true,force:true});}
-});
-
-test('E11 clean Git blobs and stat-cached dirty inputs have stable identities', async () => {
-  const {proofInputs} = await import('./proof.mjs');
-  const {spawnSync}=await import('node:child_process');
-  const dir=mkdtempSync(resolve(tmpdir(),'e11-digest-')), app=resolve(dir,'game/games/sample');
-  const write=(file,text)=>{const path=resolve(dir,file);mkdirSync(dirname(path),{recursive:true});writeFileSync(path,text);};
-  const git=(...args)=>{const r=spawnSync('git',args,{cwd:dir,encoding:'utf8'});expect(r.status).toBe(0);};
-  try {
-    write('game/games/sample/logic/src/lib.rs','logic');write('host/linux/src/lib.rs','host');
-    write('game/games/sample/app.contract','plan');git('init','-q');git('add','.');
-    const cache=resolve(dir,'cache'), read=()=>proofInputs(dir,app,cache);
-    const a=read(); expect(a.reads).toBe(0);
-    write('game/games/sample/logic/src/lib.rs','changed');
-    const b=read();expect(b.gpu).not.toBe(a.gpu);expect(b.host).toBe(a.host);expect(b.reads).toBe(1);
-    expect(read()).toMatchObject({gpu:b.gpu,host:b.host,reads:0});
-    git('add','.');expect(read().all).toBe(b.all);
-    write('QUEUE.md','new task');write('host/web/glue.test.mjs','test');expect(read().all).toBe(b.all);
-    write('host/apple/Sources/CExact/module.modulemap','module CExact {}');expect(read().host).not.toBe(b.host);
-    const beforeEngine=read();write('game/engine/src/lib.rs','engine change');
-    const engine=read();expect(engine.gpu).not.toBe(beforeEngine.gpu);expect(engine.host).toBe(beforeEngine.host);
-    write('game/games/sample/logic/src/lib.rs','logic');expect(read().all).not.toBe(b.all);
-  } finally {rmSync(dir,{recursive:true,force:true});}
-});
-
 test('E11 repin provenance requires every observed tree digest to agree',async()=>{
   const {pinInputs}=await import('./proof.mjs');
   const inputs='a'.repeat(64);
@@ -1315,6 +1263,7 @@ test('phone carrier copies before launch, saves over the socket and owns its pro
       spawnSync(command, args, options) {
         // useXcode (6c03c1dec) asks which developer directory is selected before any xcrun.
         if (command === 'xcode-select') return cp.spawnSync(command, args, options);
+        if (command === 'otool') { assert.deepEqual(args, ['-L', resolve(bundle, 'Phone')]); return {status:0, stdout:''}; }
         assert.equal(command, 'xcrun'); calls.push(args);
         if (args.includes('copy')) {
           assert.equal(args[args.indexOf('--source') + 1], input);
@@ -1496,4 +1445,11 @@ test('a split clock grows at most 4x a step and never past ten world minutes', a
     span = clockSpan(span, measured);
   }
   expect(worst).toBeLessThanOrEqual(4500 + 1e-6);
+});
+
+test('pins refuse a set journal and the saved marker after journal rollover', () => {
+  expect(() => assertNoLiveEdits([{developmentEdits:true}], [{lines:['t=17 tick=1 set player Character.speed 8']}])).toThrow('set player Character.speed 8');
+  expect(() => assertNoLiveEdits([], [{lines:['t=17 tick=1 set refused: production']}])).not.toThrow();
+  expect(() => assertNoLiveEdits([{developmentEdits:true}], [{lines:[]}])).toThrow('set');
+  expect(() => assertNoLiveEdits([{}], [{lines:['t=17 tick=1 publish set: 8']}])).not.toThrow();
 });

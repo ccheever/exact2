@@ -69,7 +69,7 @@ impl<D: DataSource> Bridge<D> {
     pub fn colors(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let out = match parse_report(bytes) {
-            None => "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"colors: truncated record\"}".to_string(),
+            None => self.refusal("colors: truncated record"),
             Some(report) => self
                 .host
                 .as_mut()

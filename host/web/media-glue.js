@@ -44,7 +44,7 @@ function syncVisibility(el) {
   }, { threshold: [0, Math.max(Number.EPSILON, threshold)] });
   state.observer.observe(el);
 }
-function update(el) {
+function update(el, attaching = false) {
   const state = states.get(el), props = el.exactMedia.props;
   const changed = name => props[name] !== state.applied[name];
   for (const name of booleans) {
@@ -55,6 +55,8 @@ function update(el) {
     if (!changed(name) && !(name === "currentTime" && changed("src") && props.currentTime != null)) continue;
     const value = props[name] == null ? fallback : Number(props[name]);
     if (!Number.isFinite(value) || value < min || value > max) { state.error('invalid-value', `Invalid ${name}: ${props[name]}`); continue; }
+    // Attaching (once the data executor settles), a playhead the element's own autoplay moved past the bound time stays.
+    if (attaching && name === 'currentTime' && el.played.length && value <= el.currentTime) continue;
     if (name === 'currentTime' && !el.readyState) state.seek = value;
     // The element is already there: assigning the same time starts another seek.
     else if (!(name === 'currentTime' && el.currentTime === value)) { try { el[name] = value; } catch (error) { state.error('invalid-value', error.message); } }
@@ -95,33 +97,36 @@ globalThis.exact.installMedia = (el, send) => {
   // A retired element delivers nothing: a late report from a player the tree
   // removed would reach whatever now holds its place (jukebox F6, F20).
   const emit = (name, payload = '') => {
-    if (!state.retired && el.isConnected && el.exactMedia.handlers.includes(name)) send(`${name}\n${payload}`);
+    // Whether it was sent: the host answers false for a report it cannot take yet.
+    return !state.retired && el.isConnected && el.exactMedia.handlers.includes(name) && send(`${name}\n${payload}`) !== false;
   };
   const state = { applied: {}, seek: null, threshold: null, visibilityBlocked: false, retired: false, latched: false, offsets: { seekbackwardOffset: 10, seekforwardOffset: 10 }, emit, error(code, message) { if (!state.retired) console.warn(`exact: ${el.localName} ${code}: ${message}`); emit('error', code); } };
   states.set(el, state);
-  // What the glue reported for itself on attaching (below): HTML sets
-  // `readyState` before its queued event fires, so the event may still come;
-  // it is not reported twice. A new load (`emptied`) forgets them.
+  // What the glue reported for itself on attaching (below) and the host took:
+  // HTML sets `readyState` before its queued event fires, so the event may
+  // still come; it is not reported twice, nor is a queued `durationchange`
+  // unless the duration has changed since. A new load (`emptied`) forgets them.
   const early = new Set();
+  let attachedDuration = NaN;
   el.addEventListener('emptied', () => early.clear());
   for (const name of mediaEvents) el.addEventListener(name, () => {
     if (name === 'loadedmetadata' && state.seek !== null) { el.currentTime = state.seek; state.seek = null; }
-    if (early.delete(name)) return;
+    if (early.delete(name) && (name !== 'durationchange' || el.duration === attachedDuration)) return;
     const payload = name === 'timeupdate' ? el.currentTime : name === 'durationchange' ? el.duration : name === 'error' ? errorCodes[el.error?.code] ?? 'src-not-supported' : name === 'fullscreenchange' ? String(document.fullscreenElement === el) : '';
     if (typeof payload !== 'number' || Number.isFinite(payload)) emit(name, String(payload));
     if (!state.retired) played(el, name); // a retired element publishes nothing more (LLP 1098 D6)
   });
-  update(el);
+  update(el, true);
   if (el.readyState) {
-    emit('loadedmetadata'); early.add('loadedmetadata');
-    if (Number.isFinite(el.duration)) { emit('durationchange', String(el.duration)); early.add('durationchange'); }
+    if (emit('loadedmetadata')) early.add('loadedmetadata');
+    if (Number.isFinite(el.duration)) { if (emit('durationchange', String(el.duration))) early.add('durationchange'); attachedDuration = el.duration; }
     // A load that already finished its seek has fired these, or has them queued
     // (readyState moves first). Report the opening seek once. timeupdate repeats,
     // so its flag only covers the one already queued, not a later seek.
     if (el.readyState >= 2 && el.seeking !== true) {
-      emit('seeking'); early.add('seeking');
-      if (Number.isFinite(el.currentTime)) { emit('timeupdate', String(el.currentTime)); early.add('timeupdate'); }
-      emit('seeked'); early.add('seeked');
+      if (emit('seeking')) early.add('seeking');
+      if (Number.isFinite(el.currentTime)) { if (emit('timeupdate', String(el.currentTime))) early.add('timeupdate'); }
+      if (emit('seeked')) early.add('seeked');
     }
     // Metadata but no data yet (readyState 1, a cached source on the JS
     // target): the opening seek the glue makes at `loadedmetadata` has not
@@ -129,14 +134,15 @@ globalThis.exact.installMedia = (el, send) => {
     // host makes it (synthetic-media: seeks 1, at 0).
     else if (el.readyState === 1 && el.seeking !== true && el.exactMedia.props.currentTime != null) {
       const at = Number(el.exactMedia.props.currentTime);
-      if (Number.isFinite(at) && at >= 0) el.currentTime = at;
+      if (Number.isFinite(at) && at >= 0 && !(el.played.length && at <= el.currentTime)) el.currentTime = at; // nor rewound here
     }
-    if (el.readyState >= 3) { emit('canplay'); early.add('canplay'); }
+    if (el.readyState >= 3) { if (emit('canplay')) early.add('canplay'); }
     setTimeout(() => { early.delete('seeking'); early.delete('timeupdate'); early.delete('seeked'); early.delete('canplay'); }, 0);
   }
   // A source refused before the glue had the element (an unknown scheme, a
-  // missing `app:/` file) failed while no one listened (podcast F19).
-  else if (el.error) emit('error', errorCodes[el.error.code] ?? 'src-not-supported');
+  // missing `app:/` file), or one that failed after its metadata, failed while
+  // no one listened (podcast F19); its event may still be queued.
+  if (el.error && emit('error', errorCodes[el.error.code] ?? 'src-not-supported')) early.add('error');
 };
 
 globalThis.exact.removeMedia = el => {
@@ -236,11 +242,11 @@ globalThis.exact.mediaSession = {
   },
   /** The driver's `tap <id> mediasession <action> [seconds]`: the handler the browser would call (D10), or why not. */
   act(id, action, seconds) {
+    if (action === 'seekto' && !(Number.isFinite(seconds) && seconds >= 0)) return { malformed: true, error: 'mediasession: seekto needs finite nonnegative seconds' };
     const el = globalThis.exact.views.get(id), own = ownerOf();
     if (!own) return { error: 'mediasession: there is no media session: no `audio` or `video` with `metadata=` is mounted' };
     if (el !== own) return { error: `mediasession: ${el ? named(el) : `view ${id}`} does not own the media session; ${named(own)} does` };
     if (!offered(own).includes(action)) return { error: `mediasession: ${named(own)} has no ${action}` };
-    if (action === 'seekto' && seconds == null) return { error: 'mediasession: seekto needs the seconds to seek to' };
     const r = remote[action](action === 'seekto' ? { seekTime: seconds } : seconds != null ? { seekOffset: seconds } : {});
     return r ? { mediaSession: action, ...r } : { error: `mediasession: ${named(own)} did not take ${action}` };
   },

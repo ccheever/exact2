@@ -22,7 +22,7 @@ extension NodeView {
         let name = NodeView.keyName(event)
         if name == " ", event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
             // Inside a pressable the key goes on up to it, which Space presses.
-            if hasPressableAncestor { return false }
+            if hasPressableAncestor(crossingPresentations: false) { return false }
             return presenter.keyScroll(event.modifierFlags.contains(.shift) ? "pageUp:" : "pageDown:", from: self)
         }
         guard Self.commandKeys.contains(name) else { return false }

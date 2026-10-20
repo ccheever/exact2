@@ -41,7 +41,7 @@ test('web and Swift enumerate the Rust name grammar cases', async()=>{
    try {
      const encoded=Buffer.from(JSON.stringify({good,bad})).toString('base64');
      writeFileSync(temp+'/main.swift',`import Foundation\nlet cases = try! JSONSerialization.jsonObject(with: Data(base64Encoded:"${encoded}")!) as! [String:[String]]\nfor n in cases["good"]! { precondition(AssetResolver.validAssetName(n), n) }\nfor n in cases["bad"]! { precondition(!AssetResolver.validAssetName(n), n) }\n`);
-     const built=spawnSync('/Library/Developer/CommandLineTools/usr/bin/swiftc',[root+'/host/apple/Sources/ExactKit/Assets.swift',temp+'/main.swift','-o',temp+'/names'],{encoding:'utf8',env:{...process.env,DEVELOPER_DIR:'/Library/Developer/CommandLineTools',SDKROOT:'/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk'}});
+     const built=spawnSync('/Library/Developer/CommandLineTools/usr/bin/swiftc',[root+'/host/apple/Sources/ExactKit/Assets.swift',temp+'/main.swift','-package-name','ExactKit','-o',temp+'/names'],{encoding:'utf8',env:{...process.env,DEVELOPER_DIR:'/Library/Developer/CommandLineTools',SDKROOT:'/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk'}});
      if (built.status !== 0) throw new Error(JSON.stringify({stdout:built.stdout,stderr:built.stderr,error:built.error,status:built.status}));
      expect(spawnSync(temp+'/names').status).toBe(0);
    }finally{rmSync(temp,{recursive:true,force:true});}

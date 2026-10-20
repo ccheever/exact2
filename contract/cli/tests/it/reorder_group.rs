@@ -269,6 +269,7 @@ fn drop_on<D: DataSource>(r: &mut Runner<D>, token: ReorderToken, list: &str) ->
 #[test]
 fn a_grouped_list_is_accepted_and_each_refusal_is_whole() {
     contract::compile(BOARD).unwrap();
+    contract::compile(&BOARD.replace("id: string", r#"id: enum<"a1", "b1">"#)).unwrap();
     let refused = |from: &str, to: &str| {
         let e = contract::compile(&BOARD.replace(from, to)).unwrap_err();
         (e.id.clone(), e.message.clone())
@@ -784,4 +785,17 @@ fn ok() -> Outcome {
         headers: vec![],
         body: b"{}".to_vec(),
     })
+}
+
+#[test]
+fn a_hold_on_a_live_clock_starts_when_the_drop_arrives() {
+    let mut r = boot(Mode::Later);
+    let token = lift(&mut r, "a3", true);
+    assert!(matches!(
+        into(&mut r, token, "list-c", 10.),
+        ReorderProgress::Accepted { .. }
+    ));
+    r.set_live_clock(Some(Box::new(|| 5000.)));
+    assert!(drop_on(&mut r, token, "list-c"));
+    assert_eq!(r.timer_due_ms(), Some(6000.));
 }

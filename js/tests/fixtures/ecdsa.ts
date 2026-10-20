@@ -2,7 +2,7 @@
 // generate, sign (ES256, raw r‖s), and JWK import and export, with the web's
 // errors; generating and signing are counted reads; `store.keepKey` and
 // `store.key` keep a pair under a `secret.keep` grant. `js/tests/it/ecdsa.rs`
-// (Hermes) and `js/web/tests/browser.rs` (both browser realms) check the
+// (Hermes) and `js/web/tests/it/browser.rs` (both browser realms) check the
 // signatures against Rust's P-256, never their bytes.
 const P256 = { name: "ECDSA", namedCurve: "P-256" } as const;
 const ES256 = { name: "ECDSA", hash: "SHA-256" } as const;

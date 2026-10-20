@@ -7,6 +7,11 @@
 //! walks the same containers, aligning by CSSOM View's rules.
 use super::*;
 
+pub(super) enum Cause {
+    InsetAdjustment,
+    FieldNavigation,
+}
+
 impl<D: DataSource> Presenter<D> {
     /// `{"revealed":id,"scrolled":…}`, with where the middle moved from and to.
     pub fn reveal(&mut self, id: ViewId) -> Result<String, String> {
@@ -27,7 +32,7 @@ impl<D: DataSource> Presenter<D> {
         if inside(from, (0.0, 0.0, vw, vh)) && b.clip.is_none_or(|c| inside(from, c)) {
             return Ok(format!("{{\"revealed\":{id},\"scrolled\":false}}"));
         }
-        self.scroll_into(id, false, delta);
+        self.scroll_into(id, false, true, delta);
         let to = self.box_of(id).map_or(from, |b| middle(&b));
         Ok(format!(
             "{{\"revealed\":{id},\"scrolled\":{},\"from\":[{},{}],\"to\":[{},{}]}}",
@@ -58,7 +63,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         let (block, inline) = (text(1).unwrap_or("start"), text(2).unwrap_or("nearest"));
-        self.scroll_into(id, true, |t, p| {
+        self.scroll_into(id, true, true, |t, p| {
             (
                 aligned(inline, t.0, t.0 + t.2, p.0, p.2) - p.0,
                 aligned(block, t.1, t.1 + t.3, p.1, p.3) - p.1,
@@ -70,6 +75,7 @@ impl<D: DataSource> Presenter<D> {
     /// by the pixels given, clamped to its travel, as the web's
     /// `Element.scrollBy`; an element that does not scroll does not move.
     pub(super) fn scroll_element_by(&mut self, args: &[exact_plan::Value]) {
+        self.restore_scroll_anchors();
         let name = args
             .first()
             .and_then(exact_plan::Value::as_str)
@@ -115,30 +121,42 @@ impl<D: DataSource> Presenter<D> {
                 off.1
             },
         );
-        if next != off {
+        let moved = self.anchor_input(id, off, if scrolls(oy) { by(2) } else { 0. }, next);
+        if next != off || moved.is_some_and(|dy| dy != 0.) {
             self.scroll.insert(id, next);
+            self.scroll_end_input(id, off, Completion::Instant);
             self.dirty = true;
             self.collection_scrolled(id);
         }
     }
 
-    /// Keep `id` in view where the viewport ends sooner than it did (a
-    /// software keyboard rose under the field being edited): each scroll
-    /// container above it, then the page, moves only as far as it must, the
-    /// web's `scrollIntoView` with `nearest` on both axes.
-    pub(super) fn keep_in_view(&mut self, id: ViewId) {
-        self.scroll_into(id, false, |t, p| {
-            (
-                aligned("nearest", t.0, t.0 + t.2, p.0, p.2) - p.0,
-                aligned("nearest", t.1, t.1 + t.3, p.1, p.3) - p.1,
-            )
-        });
+    /// Move each scroll container above `id`, then the page, only as far as
+    /// it must to show the field: `scrollIntoView` with `nearest` on both axes.
+    pub(super) fn keep_in_view(&mut self, id: ViewId, cause: Cause) {
+        self.scroll_into(
+            id,
+            false,
+            matches!(cause, Cause::FieldNavigation),
+            |t, p| {
+                (
+                    aligned("nearest", t.0, t.0 + t.2, p.0, p.2) - p.0,
+                    aligned("nearest", t.1, t.1 + t.3, p.1, p.3) - p.1,
+                )
+            },
+        );
     }
 
     /// Each scroll container above `id`, innermost first, then the page,
     /// moves by what `by(target, port)` asks (viewport coordinates), clamped
     /// to its travel.
-    fn scroll_into(&mut self, id: ViewId, spacing: bool, by: impl Fn(Rect4, Rect4) -> (f32, f32)) {
+    fn scroll_into(
+        &mut self,
+        id: ViewId,
+        spacing: bool,
+        completion: bool,
+        by: impl Fn(Rect4, Rect4) -> (f32, f32),
+    ) {
+        self.restore_scroll_anchors();
         let (vw, vh) = self.display.viewport().unwrap_or(self.viewport);
         // The scroll containers above it, innermost first, with their axes and travel.
         let mut scrollers = Vec::new();
@@ -220,8 +238,12 @@ impl<D: DataSource> Presenter<D> {
                     off.1
                 },
             );
-            if next != off {
+            let moved = self.anchor_input(a, off, if sy { dy } else { 0. }, next);
+            if next != off || moved.is_some_and(|dy| dy != 0.) {
                 self.scroll.insert(a, next);
+                if completion {
+                    self.scroll_end_input(a, off, Completion::Instant);
+                }
                 self.dirty = true;
                 self.collection_scrolled(a);
             }
@@ -239,7 +261,8 @@ impl<D: DataSource> Presenter<D> {
                 (self.page.0 + dx).clamp(0.0, max.0),
                 (self.page.1 + dy).clamp(0.0, max.1),
             );
-            if next != self.page {
+            let moved = self.anchor_input(PAGE, self.page, dy, next);
+            if next != self.page || moved.is_some_and(|dy| dy != 0.) {
                 self.page = next;
                 self.dirty = true;
             }

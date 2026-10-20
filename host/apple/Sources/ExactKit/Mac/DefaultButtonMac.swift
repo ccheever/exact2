@@ -11,6 +11,18 @@
 #if os(macOS)
 import AppKit
 
+extension NodeView {
+    /// A focused menu's row or listbox option chooses on Return as on Space:
+    /// an `NSMenu` takes Return at its highlighted item, and a pop-up
+    /// button's menu at its selected one. That is what this control does
+    /// with Return (LLP 1115.000 D7.3), so it comes before a dialog's default
+    /// button, as an open menu has the keys before its window does.
+    var choosesOnReturn: Bool {
+        (isButton || pressable) && Self.choiceRoles.contains(props["accessibilityRole"] ?? "")
+    }
+    private static let choiceRoles: Set<String> = ["menuitem", "menuitemradio", "menuitemcheckbox", "option"]
+}
+
 extension DialogHost {
     /// The dialog's default button: its one `filled`, non-destructive
     /// button, when it has exactly one. A button the page hides, or one in a
@@ -46,7 +58,7 @@ extension DialogHost {
 
     /// Return in the open dialog: its default button pressed, true when it
     /// took the key. What the focused control does with Return is its own
-    /// and comes first: a textarea's new line, a link followed, a field's
+    /// and comes first: a menu's row chosen, a textarea's new line, a link followed, a field's
     /// `submit` (a single-line field with a `submit` handler takes Return
     /// itself), and whatever a view that is no node's does (a web view's
     /// field). A field with no `submit` passes it here, its edit committed
@@ -58,6 +70,7 @@ extension DialogHost {
         let responder = window.firstResponder
         if let inline = responder as? InlineKeyView, inline.run?.props["href"] != nil { return false }
         if let focus = presenter.keyTarget(responder) {
+            if focus.choosesOnReturn { return false }
             if focus.textArea != nil || focus.props["href"] != nil || focus.canvasInput != nil { return false }
             if let field = focus.field {
                 if focus.handlers.contains("submit") { return false }

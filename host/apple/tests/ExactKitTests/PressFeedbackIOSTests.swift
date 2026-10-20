@@ -297,12 +297,17 @@ final class PressFeedbackIOSTests: XCTestCase {
     func testAFlightStartsFromThePressedBoxAsShown() throws {
         let (_, v) = try fixture(style: ["press_scale": 0.5])
         v.pressed = true
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.05))
+        // Pressed all the way in, as a press held past its ease is.
+        v.press.start -= PressFeedback.duration
+        // Core Animation's clock stopped at the release: the presentation
+        // stays where the release's ease begins, the box as pressed.
+        let layer = window.layer
+        layer.timeOffset = layer.convertTime(CACurrentMediaTime(), from: nil)
+        layer.speed = 0
         v.pressed = false
         XCTAssertEqual(v.convert(v.bounds, to: nil).width, 200, accuracy: 1e-6, "the model is unpressed at once")
         CATransaction.flush()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
-        XCTAssertLessThan(Presenter.shownRect(v).width, 190, "the flight's source is the box as it shows")
+        XCTAssertEqual(Presenter.shownRect(v).width, 100, accuracy: 0.5, "the flight's source is the box as it shows")
     }
 
     /// D6: every transform turns about `transform-origin`.

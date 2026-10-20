@@ -21,6 +21,7 @@ pub(crate) struct Open {
 /// A canvas rendered into the open frame.
 struct Rendered {
     id: u32,
+    complete: bool,
     /// Its drawable, presented after the submit; `None` when the surface
     /// failed after recording — then only kept alive until the submit, since
     /// the recorded commands still name its texture, and discarded.
@@ -30,8 +31,9 @@ struct Rendered {
     /// Ask for its next drawable off the presenter's thread once presented.
     request: bool,
     /// The buffer it rendered into, for a canvas without a window
-    /// (`crate::buffers`): published when the submit's work is done.
-    buffer: Option<usize>,
+    /// (`crate::buffers`), and whether the frame is published once the
+    /// submit's work is done; the buffer is busy until then either way.
+    buffer: Option<(usize, bool)>,
 }
 
 impl Module {
@@ -43,7 +45,8 @@ impl Module {
     }
 
     /// Flush the open frame when `id` is in it: a call about that canvas
-    /// sees it submitted and presented, as it would have without batching.
+    /// sees it submitted and its present issued (on Android, perhaps still
+    /// queued on the canvas's acquiring thread), as without batching.
     pub(crate) fn settle(&mut self, id: u32) {
         if self.in_open_frame(id) {
             self.flush();
@@ -58,10 +61,20 @@ impl Module {
         self.check_device();
         // A canvas renders once per frame: a second render submits the first.
         self.settle(id);
-        let (w, h) = frame.pixels();
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail("no such canvas");
         };
+        let scale = inst.surface.render_scale();
+        let frame = &Frame {
+            scale: frame.scale
+                * if scale.is_finite() && scale > 0.0 && scale <= 1.0 {
+                    scale
+                } else {
+                    1.0
+                },
+            ..*frame
+        };
+        let (w, h) = frame.pixels();
         let gpu = self.gpu.as_ref()?;
         if !inst.bound {
             return Some(false);
@@ -72,8 +85,22 @@ impl Module {
         }
         let target = inst.presentation.as_ref()?;
         let config = inst.config.as_mut()?;
-        inst.surface
-            .prepare_assets(&gpu.device, &gpu.queue, config.format);
+        // Configuring again needs nothing of the surface acquired.
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut idle = || inst.acquire.reconfigure();
+        #[cfg(target_arch = "wasm32")]
+        let idle = || true;
+        let alpha = crate::target::alpha_mode(inst.surface.opaque(), &inst.alpha_modes);
+        if config.alpha_mode != alpha {
+            if !idle() {
+                return Some(true);
+            }
+            inst.held = None;
+            config.alpha_mode = alpha;
+            crate::swapchains(|| target.configure(&gpu.device, config));
+        }
+        let format = crate::view_format(config);
+        inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
         // Off the presenter's thread (`acquire`) unless the clock is the
         // agent's, whose frames are rendered when asked for.
         #[cfg(not(target_arch = "wasm32"))]
@@ -81,36 +108,49 @@ impl Module {
         #[cfg(target_arch = "wasm32")]
         let off_thread = false;
         if config.width != w || config.height != h {
-            // The texture in flight was acquired at the old size.
-            #[cfg(not(target_arch = "wasm32"))]
-            drop(inst.acquire.take(true));
+            if !idle() {
+                return Some(true);
+            }
+            inst.held = None;
             config.width = w;
             config.height = h;
-            target.configure(&gpu.device, config);
+            crate::swapchains(|| target.configure(&gpu.device, config));
         }
         use wgpu::CurrentSurfaceTexture as Current;
-        #[cfg(not(target_arch = "wasm32"))]
-        let current = if off_thread {
-            inst.acquire.request(target);
-            match inst.acquire.take_or_starve() {
-                Some(current) => current,
-                // Not released by the compositor yet: this canvas keeps its
-                // last frame, and its inputs stay dirty.
-                None => return Some(true),
-            }
+        // The drawable an incomplete frame was submitted into.
+        let retry = inst.held.is_some();
+        let current = if let Some(texture) = inst.held.take() {
+            Current::Success(texture)
         } else {
-            match inst.acquire.take(true) {
-                Some(current) => current,
-                None => target.get_current_texture(),
-            }
+            #[cfg(not(target_arch = "wasm32"))]
+            let current = if off_thread {
+                inst.acquire.request(target);
+                match inst.acquire.take_or_starve() {
+                    Some(current) => current,
+                    // Not released by the compositor yet: this canvas keeps its
+                    // last frame, and its inputs stay dirty.
+                    None => return Some(true),
+                }
+            } else {
+                match inst.acquire.take(true) {
+                    Some(current) => current,
+                    None => target.get_current_texture(),
+                }
+            };
+            #[cfg(target_arch = "wasm32")]
+            let current = target.get_current_texture();
+            current
         };
-        #[cfg(target_arch = "wasm32")]
-        let current = target.get_current_texture();
         let texture = match current {
             Current::Success(t) => t,
             Current::Suboptimal(t) => {
-                target.configure(&gpu.device, config);
-                t
+                drop(t);
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    inst.acquire.reconfigure();
+                }
+                crate::swapchains(|| target.configure(&gpu.device, config));
+                return Some(true);
             }
             // Nothing to draw into this frame; the inputs stay dirty.
             Current::Timeout | Current::Occluded => return Some(true),
@@ -123,7 +163,33 @@ impl Module {
                 return None;
             }
         };
-        let view = texture.texture.create_view(&Default::default());
+        let view = texture.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(format),
+            ..Default::default()
+        });
+        // Until a frame is complete its drawable is not written again:
+        // wgpu-hal's Vulkan swapchain signals one more semaphore for each
+        // submission that writes an image before its present. Retries render
+        // offscreen and a complete one is copied in, so a drawable takes two
+        // submissions at most, whatever a pending surface does.
+        #[cfg(not(target_arch = "wasm32"))]
+        let scratch = if retry {
+            Some(scratch(
+                &mut inst.scratch,
+                &gpu.device,
+                format,
+                (config.width, config.height),
+            ))
+        } else {
+            inst.scratch = None;
+            None
+        };
+        // The browser shows every frame: none is held.
+        #[cfg(target_arch = "wasm32")]
+        let scratch: Option<wgpu::TextureView> = {
+            let _ = retry;
+            None
+        };
         let frame = Frame {
             seekable: self.seekable,
             period_ms: self.period_ms,
@@ -145,28 +211,41 @@ impl Module {
             &gpu.device,
             &gpu.queue,
             &mut open.encoder,
-            &view,
-            config.format,
+            scratch.as_ref().unwrap_or(&view),
+            format,
         );
         inst.drain();
         let failure = inst.surface.take_error();
-        let (texture, failed) = match failure {
-            Some(_) => (None, Some(texture)),
-            None => (Some(texture), None),
+        let ready = cfg!(target_arch = "wasm32") || inst.surface.frame_ready();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let (Some(from), Some((_, blitter)), true, None) =
+            (&scratch, &inst.scratch, ready, &failure)
+        {
+            blitter.copy(&gpu.device, &mut open.encoder, from, &view);
+            inst.scratch = None;
+        }
+        let (texture, failed) = if failure.is_some() {
+            (None, Some(texture))
+        } else if ready {
+            (Some(texture), None)
+        } else {
+            inst.held = Some(texture);
+            (None, None)
         };
         open.canvases.push(Rendered {
             id,
+            complete: ready,
             texture,
             failed,
-            request: off_thread && wants,
+            request: off_thread && wants && ready,
             buffer: None,
         });
         if let Some(SurfaceError(e)) = failure {
             self.error = e;
             return None;
         }
-        inst.dirty = false;
-        Some(wants)
+        inst.dirty = !ready;
+        Some(wants || !ready)
     }
 
     /// [`Module::render`] for a canvas with buffers: the frame goes into
@@ -181,13 +260,33 @@ impl Module {
             .as_ref()
             .is_some_and(|r| r.size != (w.max(1), h.max(1)))
         {
-            inst.ring = crate::buffers::Ring::new(gpu, w, h);
+            inst.ring = crate::buffers::Ring::new(gpu, w, h, inst.offscreen_format());
         }
+        // The GPU's word on the frames it has finished, before counting them.
+        let _ = gpu.device.poll(wgpu::PollType::Poll);
         let ring = inst.ring.as_mut()?;
         ring.settle();
-        let format = crate::buffers::FORMAT;
+        // As many frames on the GPU as it may hold. The agent's clock renders
+        // each frame when asked for, so its frame waits for the GPU.
+        if self.seekable && ring.in_flight() >= crate::buffers::IN_FLIGHT {
+            let _ = gpu.device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            });
+            ring.settle();
+        }
+        // A live frame waits a display frame, and the surface takes this
+        // one's share of its work now; so does the agent's when the wait
+        // freed no slot. No frame renders into a slot in use.
+        let target = (ring.in_flight() < crate::buffers::IN_FLIGHT)
+            .then(|| ring.target())
+            .flatten();
+        let format = ring.format;
+        let Some((slot, view)) = target else {
+            inst.surface.advance(frame, &gpu.device, &gpu.queue);
+            return Some(true);
+        };
         inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
-        let (slot, view) = ring.target();
         let frame = Frame {
             seekable: self.seekable,
             period_ms: self.period_ms,
@@ -214,27 +313,32 @@ impl Module {
         );
         inst.drain();
         let failure = inst.surface.take_error();
+        let ready = inst.surface.frame_ready();
         open.canvases.push(Rendered {
             id,
+            complete: ready,
             texture: None,
             failed: None,
             request: false,
-            buffer: failure.is_none().then_some(slot),
+            buffer: Some((slot, failure.is_none() && ready)),
         });
         if let Some(SurfaceError(e)) = failure {
             self.error = e;
             return None;
         }
-        inst.dirty = false;
-        Some(wants)
+        inst.dirty = !ready;
+        Some(wants || !ready)
     }
 
     /// Submit the open frame once, then present each canvas's drawable in
-    /// the order rendered. `false`, with the reason in [`Module::take_error`],
-    /// when a surface failed after its commands were submitted; nothing
-    /// open is `true`.
+    /// the order rendered; on Android, a canvas that asks for its next one
+    /// is presented on its acquiring thread instead, after this returns and
+    /// in no order with the others. `false`, with the reason in
+    /// [`Module::take_error`], when a surface failed after its commands were
+    /// submitted; nothing open is `true`.
     pub fn flush(&mut self) -> bool {
         self.check_device();
+        self.reap();
         let Some(open) = self.open.take() else {
             return true;
         };
@@ -251,7 +355,7 @@ impl Module {
         let first: Vec<Arc<AtomicBool>> = open
             .canvases
             .iter()
-            .filter(|c| c.texture.is_some() || c.buffer.is_some())
+            .filter(|c| c.complete && (c.texture.is_some() || c.buffer.is_some_and(|(_, p)| p)))
             .filter_map(|c| self.instances.get(&c.id))
             .filter(|i| !i.seen.load(Ordering::Acquire))
             .map(|i| i.seen.clone())
@@ -260,7 +364,10 @@ impl Module {
         let mut first = first;
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
         let rode = {
-            let ride = open.canvases.iter().all(|c| c.failed.is_none());
+            let ride = open
+                .canvases
+                .iter()
+                .all(|c| c.failed.is_none() && c.complete);
             let drawn = open.canvases.iter().filter(|c| c.texture.is_some()).count();
             let before = ride
                 .then(|| ride_next_submit(&gpu.queue, std::mem::take(&mut first)))
@@ -279,6 +386,16 @@ impl Module {
         };
         let mut ok = true;
         for c in open.canvases {
+            // Android presents a canvas that asks for its next texture on its
+            // acquiring thread, just before it acquires that one. A canvas's
+            // first frame is presented here, before the module counts it seen.
+            #[cfg(target_os = "android")]
+            let mut later = None;
+            #[cfg(target_os = "android")]
+            let seen = self
+                .instances
+                .get(&c.id)
+                .is_some_and(|i| i.seen.load(Ordering::Acquire));
             if let Some(texture) = c.texture {
                 if rode {
                     // Scheduled by the submit. Letting the texture go tells
@@ -287,16 +404,27 @@ impl Module {
                     // commits a command buffer only to signal it.
                     drop(texture);
                 } else {
+                    #[cfg(target_os = "android")]
+                    if c.request && seen {
+                        later = Some(texture);
+                    } else {
+                        gpu.queue.present(texture);
+                    }
+                    #[cfg(not(target_os = "android"))]
                     gpu.queue.present(texture);
                 }
             }
             drop(c.failed);
             let Some(inst) = self.instances.get_mut(&c.id) else {
+                #[cfg(target_os = "android")]
+                if let Some(texture) = later {
+                    gpu.queue.present(texture);
+                }
                 continue;
             };
             #[cfg(target_os = "android")]
-            if let (Some(slot), Some(ring)) = (c.buffer, inst.ring.as_mut()) {
-                ring.submitted(slot, &gpu.queue);
+            if let (Some((slot, publish)), Some(ring)) = (c.buffer, inst.ring.as_mut()) {
+                ring.submitted(slot, publish, &gpu.queue);
             }
             #[cfg(not(target_os = "android"))]
             let _ = c.buffer;
@@ -310,6 +438,21 @@ impl Module {
             // the presenter hears when it lands.
             #[cfg(not(target_arch = "wasm32"))]
             if c.request {
+                #[cfg(target_os = "android")]
+                match (later, &inst.presentation) {
+                    (Some(texture), Some(target)) => inst
+                        .acquire
+                        .present_then_request(target, &gpu.queue, texture),
+                    (later, target) => {
+                        if let Some(texture) = later {
+                            gpu.queue.present(texture);
+                        }
+                        if let Some(target) = target {
+                            inst.acquire.request_awaited(target);
+                        }
+                    }
+                }
+                #[cfg(not(target_os = "android"))]
                 if let Some(target) = &inst.presentation {
                     inst.acquire.request_awaited(target);
                 }
@@ -333,6 +476,38 @@ impl Module {
             .get(&id)
             .is_some_and(|i| i.seen.load(Ordering::Acquire))
     }
+}
+
+/// The view of `slot`'s texture at `format` and `size`, made (with what
+/// copies it into a drawable) when it does not exist or differs.
+#[cfg(not(target_arch = "wasm32"))]
+fn scratch(
+    slot: &mut Option<(wgpu::Texture, wgpu::util::TextureBlitter)>,
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    (width, height): (u32, u32),
+) -> wgpu::TextureView {
+    if slot
+        .as_ref()
+        .is_none_or(|(t, _)| t.format() != format || (t.width(), t.height()) != (width, height))
+    {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("exact canvas incomplete frame"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        *slot = Some((texture, wgpu::util::TextureBlitter::new(device, format)));
+    }
+    slot.as_ref().unwrap().0.create_view(&Default::default())
 }
 
 /// The presenter's callback for a canvas's first frame (`gpu_on_presented`),

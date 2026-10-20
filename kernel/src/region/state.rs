@@ -577,6 +577,10 @@ impl Candidate<'_> {
     }
 }
 impl TextMeasurer for Candidate<'_> {
+    fn measure_reservation(&mut self, request: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
+        // Width samples are not canonical paragraph sources or paint artifacts.
+        self.measurer.measure_reservation(request)
+    }
     fn field_chrome(&mut self, request: &crate::FieldChromeRequest) -> crate::FieldChrome {
         self.measurer.field_chrome(request)
     }
@@ -586,6 +590,10 @@ impl TextMeasurer for Candidate<'_> {
         request: &TextMeasureRequest<'_>,
     ) -> Option<TextMetrics> {
         self.measurer.field_text(kind, request)
+    }
+
+    fn measure_revision(&self) -> u64 {
+        self.measurer.measure_revision()
     }
     fn height_free(&self) -> bool {
         self.height_free
@@ -944,5 +952,12 @@ fn publish(
         } else {
             flags.remove(NodeFlags::GEOMETRY_CHANGED)
         }
+    }
+}
+
+impl RegionState {
+    /// Mark the colours it holds: the content's inherited style.
+    pub(crate) fn wide_colors(&self, m: &mut crate::style::wide::WideMark) {
+        crate::style::wide::Colors::colors(&self.inherited, m);
     }
 }

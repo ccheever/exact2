@@ -9,7 +9,7 @@ use exact_plan::{Plan, Value};
 use exact_runner::{DataError, DataSource, Runner};
 use std::path::{Path, PathBuf};
 
-struct NoData;
+pub(super) struct NoData;
 
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -17,7 +17,7 @@ impl DataSource for NoData {
     }
 }
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
+pub(super) fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("exact2-tamber-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -45,7 +45,7 @@ fn colour(plan: Plan, id: &str, row: StyleId) -> ColorValue {
     }
 }
 
-fn parsed(text: &str) -> ColorValue {
+pub(super) fn parsed(text: &str) -> ColorValue {
     ColorValue::parse_light_dark(text)
         .or_else(|| exact_kernel::Color::parse(text).map(ColorValue::Fixed))
         .unwrap_or_else(|| panic!("{text}"))
@@ -411,7 +411,7 @@ fn a_when_at_the_default_modes_cannot_replace_a_profile_colour() {
     assert_eq!(e.span.line, 8, "{e:?}");
 }
 
-const MODES: &str = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  page = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #161e27)\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n";
+pub(super) const MODES: &str = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  page = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #161e27)\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n";
 
 #[test]
 fn a_pin_selects_its_slice_and_a_boundary_sets_inherited_text_again() {
@@ -442,7 +442,7 @@ fn a_pin_selects_its_slice_and_a_boundary_sets_inherited_text_again() {
     );
 }
 
-fn booted(plan: Plan) -> Runner<NoData> {
+pub(super) fn booted(plan: Plan) -> Runner<NoData> {
     let plan = contract::bake(plan, NoData).unwrap();
     Runner::boot(
         plan,
@@ -454,7 +454,7 @@ fn booted(plan: Plan) -> Runner<NoData> {
     .unwrap()
 }
 
-fn row(r: &Runner<NoData>, id: &str, style: StyleId) -> ColorValue {
+pub(super) fn row(r: &Runner<NoData>, id: &str, style: StyleId) -> ColorValue {
     let key = r.kernel().find_by_test_id(id)[0];
     match r.kernel().node_by_key(key).unwrap().computed(style) {
         RowValue::ColorValue(c) => c,
@@ -630,7 +630,7 @@ fn a_changed_inherited_colour_is_set_again_at_a_boundary_below() {
 
 const TWO_AXES: &str = "tamber t\n\naxes\n  dark-style = black | dim\n  density = cozy | compact\n\ntheme\n  ink = #111111\n    when dark-style=dim: #222222\n    when density=compact: #333333\n    when dark-style=dim density=compact: #444444\n";
 
-fn press(r: &mut Runner<NoData>, id: &str) {
+pub(super) fn press(r: &mut Runner<NoData>, id: &str) {
     let view = {
         let k = r.kernel();
         k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id
@@ -690,7 +690,7 @@ fn an_unset_colour_passes_the_token_around_it_to_a_boundary() {
 }
 
 #[test]
-fn a_token_edit_skips_retired_rows_refuses_roles_and_stays_its_plans() {
+fn a_token_edit_skips_retired_rows_sets_roles_and_stays_its_plans() {
     let path = app(
         "edit-retired",
         &[
@@ -704,14 +704,30 @@ fn a_token_edit_skips_retired_rows_refuses_roles_and_stays_its_plans() {
     let (_, set) = r.set_token("ink", "#ff0000", &[]).unwrap();
     assert_eq!(set, 1, "the retired row is not set");
     assert_eq!(row(&r, "kept", StyleId::TextColor), parsed("#ff0000"));
-    assert!(
-        r.set_token("Canvas", "#000000", &[]).is_err(),
-        "a role's edit is refused"
+    // A role's edit sets the session's overrides (LLP 1121 stage 5).
+    let canvas = exact_kernel::style::roles::role("Canvas").unwrap();
+    let overridden = |r: &Runner<NoData>| {
+        let _roles = r.bind_roles();
+        exact_kernel::style::roles::overridden(canvas)
+    };
+    let before = r.roles().generation();
+    let bound = r.bind_roles();
+    r.set_token("Canvas", "#000000", &[]).unwrap();
+    // In place: a scope bound before the edit reads the new table.
+    assert_eq!(
+        exact_kernel::style::roles::overridden(canvas),
+        Some(parsed("#000000"))
     );
+    drop(bound);
+    assert_eq!(overridden(&r), Some(parsed("#000000")));
+    assert_ne!(r.roles().generation(), before, "a new generation");
+    assert!(r.set_token("Canvas", "nonesuch", &[]).is_err());
     assert!(r.set_token("nonesuch", "#000000", &[]).is_err());
-    // Another runner of the same app starts from the plan's own value.
+    // Another runner of the same app starts from the plan's own values.
     let other = booted(plan);
     assert_eq!(row(&other, "kept", StyleId::TextColor), parsed("#111111"));
+    assert_eq!(overridden(&other), Some(parsed("#fafafa")));
+    assert_eq!(overridden(&r), Some(parsed("#000000")));
 }
 
 #[test]
@@ -770,6 +786,84 @@ fn set_mode_sets_the_windows_slice_in_its_actions_commit() {
     assert_eq!(contract::compile_path(&path).unwrap_err().id, "tamber-mode");
 }
 
+/// A design whose fold refuses a token keeps its axes for `setMode` and the
+/// pins: the build says the refusal, not that the design declares no axes
+/// (a `when` token's light side edited on its own, in the JS loop).
+#[test]
+fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
+    let contract = "component App\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      column -exact-mode=\"dark-style=black\" testId=\"pinned\" background-color=\"page\"\n        text \"p\"\n";
+    let edited_light = MODES.replace(
+        "page = light-dark(#ffffff, #000000)",
+        "page = light-dark(#fefefe, #000000)",
+    );
+    let path = app(
+        "refused-axes",
+        &[("app.tamber", &edited_light), ("app.contract", contract)],
+    );
+    let Err(refused) = contract::compile_path_all(&path, false) else {
+        panic!("a refused token builds");
+    };
+    let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
+    assert_eq!(ids[0], "tamber-under-light", "{ids:?}");
+    assert!(!ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
+    // An axis declared twice: its refusal is said, beside a `setMode` that
+    // names a value of the second only.
+    std::fs::write(
+        path.with_file_name("app.tamber"),
+        MODES.replace(
+            "\ntheme\n",
+            "  dark-style = black | grey  under scheme=dark\n\ntheme\n",
+        ),
+    )
+    .unwrap();
+    std::fs::write(&path, contract.replace("\"dim\")", "\"grey\")")).unwrap();
+    let Err(refused) = contract::compile_path_all(&path, false) else {
+        panic!("an axis declared twice builds");
+    };
+    let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
+    assert_eq!(ids[0], "tamber-duplicate", "the design's first: {ids:?}");
+    assert!(ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
+    assert_eq!(
+        contract::compile_path(&path).unwrap_err().id,
+        "tamber-duplicate"
+    );
+    // A refused token, then a statement that stops lowering (a share of a
+    // picture no element is): both said, the design's first.
+    std::fs::write(path.with_file_name("app.tamber"), &edited_light).unwrap();
+    std::fs::write(
+        &path,
+        contract.replace(
+            "    setMode(\"dark-style\", \"dim\")\n",
+            "    setMode(\"dark-style\", \"dim\")\n    share(files=[\"#missing\"])\n",
+        ),
+    )
+    .unwrap();
+    let Err(refused) = contract::compile_path_all(&path, false) else {
+        panic!("a refused token builds");
+    };
+    let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
+    assert_eq!(ids, ["tamber-under-light", "lower-share-picture"]);
+    assert_eq!(
+        contract::compile_path(&path).unwrap_err().id,
+        "tamber-under-light"
+    );
+    std::fs::write(&path, contract).unwrap();
+    // The `when` line's own dark side edited: it builds, setMode and its pin
+    // intact.
+    let edited = MODES.replace("#161e27", "#171f28");
+    std::fs::write(path.with_file_name("app.tamber"), edited).unwrap();
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    press(&mut r, "dim");
+    assert_eq!(
+        row(&r, "page", StyleId::BackgroundColor),
+        parsed("light-dark(#ffffff, #171f28)")
+    );
+    assert_eq!(
+        row(&r, "pinned", StyleId::BackgroundColor),
+        parsed("light-dark(#ffffff, #000000)")
+    );
+}
+
 #[test]
 fn set_mode_takes_one_axis_and_value_and_the_last_of_an_action_wins() {
     let path = app(
@@ -806,6 +900,48 @@ fn set_mode_takes_one_axis_and_value_and_the_last_of_an_action_wins() {
         .set_modes(&[("dark-style", "dim"), ("density", "loose")])
         .is_err());
     assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#111111"));
+}
+
+/// A reload keeps the window's modes the new design still has (LLP 1007
+/// §6): an axis whose value is gone starts again, the others hold.
+#[test]
+fn a_reload_carries_the_windows_modes_the_new_design_has() {
+    let view = "component App\n  view\n    text \"a\" testId=\"text\" color=\"ink\"\n";
+    let path = app(
+        "set-mode-carry",
+        &[("app.tamber", TWO_AXES), ("app.contract", view)],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    r.set_modes(&[("dark-style", "dim"), ("density", "compact")])
+        .unwrap();
+    let reload = |r: &Runner<NoData>, tamber: &str| {
+        std::fs::write(path.with_file_name("app.tamber"), tamber).unwrap();
+        let plan = contract::bake(contract::compile_path(&path).unwrap(), NoData).unwrap();
+        let carried = r.carry();
+        Runner::boot_carrying(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let r = reload(&r, &TWO_AXES.replace("#111111", "#101010"));
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#444444"));
+    let r = reload(
+        &r,
+        &TWO_AXES
+            .replace("cozy | compact", "cozy | loose")
+            .replace("density=compact", "density=loose"),
+    );
+    let mode = |a: &str, v: &str| (a.to_string(), v.to_string());
+    assert_eq!(
+        r.modes(),
+        [mode("dark-style", "dim"), mode("density", "cozy")]
+    );
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#222222"));
 }
 
 /// LLP 1121 stage 2's gate line: a `setMode` that changes only colour
@@ -912,4 +1048,382 @@ fn layout_names_exactly_the_tokens_a_row_read() {
     assert!(label.contains("\"names\":[\"brand.label\"]"), "{label}");
     let role = node("role");
     assert!(role.contains("\"names\":[\"secondary-label\"]"), "{role}");
+}
+
+/// LLP 1121 stage 4, commit 1 (theme2's condition): what publishing a
+/// kernel's wide-colour mark after every changed commit costs on the normal
+/// write path. Run in release, by hand: `cargo test --release -p contract
+/// --test it wide_mark_cost -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn wide_mark_cost() {
+    use exact_kernel::style::wide::{Holder, WideMark};
+    // `WIDE_MARK_HEX=1` runs the same app in 8-bit colours, so no mark is
+    // ever taken: the baseline.
+    let hex = std::env::var("WIDE_MARK_HEX").is_ok_and(|v| v == "1");
+    let p3 = if hex {
+        MODES.to_string()
+    } else {
+        MODES
+            .replace("#ffffff", "color(display-p3 1 1 1)")
+            .replace("#000000", "color(display-p3 0 0 0)")
+            .replace("#161e27", "color(display-p3 0.09 0.12 0.15)")
+            .replace("#111111", "color(display-p3 0.07 0.07 0.07)")
+            .replace("#eeeeee", "color(display-p3 0.93 0.93 0.93)")
+            .replace("#cccccc", "color(display-p3 0.8 0.8 0.8)")
+    };
+    let border = if hex {
+        "`#${i % 10}0${i % 7}0${i % 9}0`"
+    } else {
+        "`color(display-p3 ${i / 1000} 0.5 0.5)`"
+    };
+    let window = if hex {
+        "`#${j % 10}0${j % 7}0${j % 9}0`"
+    } else {
+        "`color(display-p3 0.5 ${j / 1000} 0.5)`"
+    };
+    let rows: Vec<String> = (0..1000).map(|i| i.to_string()).collect();
+    // Each row also carries its own wide colour: 1,000 distinct styles. A
+    // second list of 200 windowed rows shifts by 10 a commit, as a scroll
+    // mounts and retires rows.
+    let view = format!("component App\n  state dim = false\n  state rows: number[] = [{}]\n  state n = 0\n  action flip\n    dim = not dim\n  action bump\n    n = n + 1\n  state start = 0\n  action shift\n    start = start + 10\n  view\n    column testId=\"root\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      button press=bump testId=\"bump\"\n        text `${{n}}`\n      button press=shift testId=\"shift\"\n        text \"shift\"\n      for j in rows.slice(start, start + 200) key=j\n        text `w${{j}}` border-color={window} border-width=1\n      for i in rows key=i\n        row testId=`row-${{i}}` background-color=\"page\" border-color={border} border-width=1\n          text `${{i}}` color=\"ink\" testId=`text-${{i}}`\n", rows.join(", "));
+    let path = app(
+        "wide-mark-cost",
+        &[("app.tamber", &p3), ("app.contract", &view)],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    let id = |r: &Runner<NoData>, t: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
+    };
+    let (flip, bump, shift) = (id(&r, "flip"), id(&r, "bump"), id(&r, "shift"));
+    let time = |f: &mut dyn FnMut()| {
+        let started = std::time::Instant::now();
+        for _ in 0..50 {
+            f();
+        }
+        started.elapsed() / 50
+    };
+    let switch = time(&mut || {
+        r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    });
+    let small = time(&mut || {
+        r.dispatch(bump, exact_runner::Event::Press).unwrap();
+    });
+    let scroll = time(&mut || {
+        r.dispatch(shift, exact_runner::Event::Press).unwrap();
+    });
+    let k = r.kernel_mut();
+    let mark = time(&mut || {
+        std::hint::black_box(k.wide_mark());
+    });
+    // The union rebuilt from every style's cached slots, as after styles go.
+    let rebuild = time(&mut || {
+        k.trim();
+    });
+    let holder = Holder::new();
+    let publish = time(&mut || holder.publish(WideMark::default()));
+    eprintln!(
+        "wide colours {}; Dim switch {switch:?}; one-text commit {small:?}; window shift {scroll:?}; mark (cached) {mark:?}; trim incl. rebuilt mark {rebuild:?}; publish {publish:?}",
+        exact_kernel::style::wide::used()
+    );
+}
+
+/// LLP 1121 stage 4, commit 3: a plan's structure leaves the design's values
+/// out, so a value-only edit has the same structure; a role override's
+/// value, a token's slices and a view changed do not.
+#[test]
+fn a_value_only_edit_keeps_the_plans_structure() {
+    let view = "component App\n  view\n    column background-color=\"page\"\n      text \"a\" color=\"ink\"\n";
+    let structure = |name: &str, design: &str, view: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap().structure()
+    };
+    let design = format!("{MODES}  Canvas = #fafafa\n");
+    let base = structure("structure-base", &design, view);
+    // Values, varying or not, in any tuple.
+    let values = design
+        .replace(
+            "light-dark(#111111, #eeeeee)",
+            "light-dark(#111111, #dddddd)",
+        )
+        .replace(
+            "light-dark(#ffffff, #161e27)",
+            "light-dark(#ffffff, #1a2430)",
+        );
+    assert_eq!(structure("structure-values", &values, view), base);
+    // A value that stops sharing its string with another token's, and one
+    // that comes to.
+    let shared = format!("{design}  edge = #fafafa\n");
+    let view_edge = view.replace("column ", "column border-color=\"edge\" ");
+    let base_edge = structure("structure-shared", &shared, &view_edge);
+    let apart = shared.replace("edge = #fafafa", "edge = #abcdef");
+    assert_eq!(structure("structure-apart", &apart, &view_edge), base_edge);
+    let together = shared.replace("edge = #fafafa", "edge = #111111");
+    assert_eq!(
+        structure("structure-together", &together, &view_edge),
+        base_edge
+    );
+    // Code that pushes a value's text keeps that string: the literal and the
+    // token changed together is no value-only edit.
+    let literal = |text: &str| {
+        format!("component App\n  state lit = \"{text}\"\n  view\n    column background-color=\"page\"\n      text lit color=\"ink\"\n")
+    };
+    let with = |ink: &str| {
+        design
+            .replace(
+                "ink = light-dark(#111111, #eeeeee)",
+                &format!("ink = {ink}"),
+            )
+            .replace(
+                "    when dark-style=dim: light-dark(#111111, #cccccc)\n",
+                "",
+            )
+    };
+    let shared_code = structure("structure-code-a", &with("#111111"), &literal("#111111ff"));
+    assert_ne!(
+        structure("structure-code-b", &with("#222222"), &literal("#222222ff")),
+        shared_code
+    );
+    assert_eq!(
+        structure("structure-code-c", &with("#222222"), &literal("#111111ff")),
+        shared_code
+    );
+    // A role override's value is a value (LLP 1121 stage 5); an override
+    // gained is structure.
+    let role = design.replace("Canvas = #fafafa", "Canvas = #f0f0f0");
+    assert_eq!(structure("structure-role", &role, view), base);
+    let gained = design.replace(
+        "Canvas = #fafafa",
+        "Canvas = #fafafa\n  CanvasText = #101010",
+    );
+    assert_ne!(structure("structure-gained", &gained, view), base);
+    // A token that stops varying by an axis (its slices go), and a view
+    // changed. (A token no view names is in no plan.)
+    let flat = design.replace(
+        "    when dark-style=dim: light-dark(#111111, #cccccc)\n",
+        "",
+    );
+    assert_ne!(flat, design);
+    assert_ne!(structure("structure-flat", &flat, view), base);
+    let other = view.replace("\"a\"", "\"b\"");
+    assert_ne!(structure("structure-view", &design, &other), base);
+}
+
+/// LLP 1121 stage 4, commit 4: a value-only edit reaches a running build as
+/// a batch, with no plan: its rows, a synthetic token's included, set in one
+/// commit with no layout. A stale base is refused (the build asks for a
+/// snapshot), a snapshot applies whole, and another structure is refused.
+#[test]
+fn a_batch_sets_a_running_builds_rows_without_a_plan() {
+    use exact_runner::design::{self, Token};
+    use exact_runner::LiveRefusal;
+    let view = "component App\n  view\n    column background-color=\"page\" testId=\"page\"\n      text \"a\" color=\"ink\" testId=\"ink\"\n      text \"b\" color=\"color-mix(in srgb, ink 50%, white)\" testId=\"mix\"\n";
+    let plan = |name: &str, design: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap()
+    };
+    // With a role override, which a snapshot carries and does not set.
+    let modes = format!("{MODES}  Canvas = #fafafa\n");
+    let a = plan("live-a", &modes);
+    let b = plan("live-b", &modes.replace("#111111", "#ff0000"));
+    assert_eq!(design::structure(&b), design::structure(&a));
+    let structure = design::shape(&a);
+    let batch = design::batch(&structure, &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let names: Vec<&str> = batch.tokens.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["ink", "color-mix(in srgb, ink 50%, white)"],
+        "the synthetic token rides along"
+    );
+    // The wire round-trips.
+    assert_eq!(design::Edit::parse(&batch.json()), Some(batch.clone()));
+    let mut r = booted(a.clone());
+    // A release build takes none.
+    r.admit_live(Some(r#"{"inputs":{"trust":"production"}}"#));
+    assert!(matches!(r.apply_live(&batch), Err(LiveRefusal::Refused(_))));
+    r.admit_live(None);
+    let mix_before = row(&r, "mix", StyleId::TextColor);
+    let applied = r.apply_live(&batch).unwrap();
+    assert!(
+        !applied.receipt.layout_invalidated,
+        "a colour moves no geometry"
+    );
+    assert!(!applied.full);
+    assert_eq!(
+        row(&r, "ink", StyleId::TextColor),
+        parsed("light-dark(#ff0000, #eeeeee)")
+    );
+    assert_ne!(row(&r, "mix", StyleId::TextColor), mix_before);
+    assert_eq!(r.design(), batch.design);
+    // The same batch again: its base is no longer this build's.
+    assert_eq!(r.apply_live(&batch).unwrap_err(), LiveRefusal::Stale);
+    // A snapshot of the first design applies whole, whatever this build ran.
+    let back = design::snapshot(&structure, &design::tokens(&a));
+    r.apply_live(&back).unwrap();
+    assert_eq!(
+        row(&r, "ink", StyleId::TextColor),
+        parsed("light-dark(#111111, #eeeeee)")
+    );
+    assert_eq!(row(&r, "mix", StyleId::TextColor), mix_before);
+    // Another structure's.
+    let other = design::snapshot(
+        "0".repeat(64).as_str(),
+        &[Token {
+            name: "ink".into(),
+            value: "#000000".into(),
+            slices: vec![],
+        }],
+    );
+    assert_eq!(r.apply_live(&other).unwrap_err(), LiveRefusal::Structure);
+}
+
+/// An empty pin declares nothing, as an empty value on any row does: the
+/// card is in the tuple around it, literal or as a choice's arm.
+#[test]
+fn an_empty_pin_declares_nothing() {
+    let path = app(
+        "empty-pin",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  state dim = false\n  view\n    column testId=\"page\" background-color=\"page\"\n      column testId=\"card\" -exact-mode=\"\" background-color=\"page\"\n      column testId=\"arm\" -exact-mode=(dim ? \"dark-style=dim\" : \"\") background-color=\"page\"\n"),
+        ],
+    );
+    let plan = contract::compile_path(&path).unwrap();
+    let black = parsed("light-dark(#ffffff, #000000)");
+    assert_eq!(
+        colour(plan.clone(), "card", StyleId::BackgroundColor),
+        black
+    );
+    assert_eq!(colour(plan, "arm", StyleId::BackgroundColor), black);
+}
+
+/// LLP 1121 stage 5, commit 2: a role override's value edit is a batch, not
+/// a plan. The build sets its session's overrides (a new table its host
+/// re-presents) and the rows that name the role; a snapshot of the same
+/// overrides moves nothing.
+#[test]
+fn a_batch_sets_a_role_override_without_a_plan() {
+    use exact_runner::design;
+    let view = "component App\n  view\n    column background-color=\"Canvas\" testId=\"page\"\n      text \"a\" color=\"ink\" testId=\"ink\"\n";
+    let plan = |name: &str, design: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap()
+    };
+    let modes = format!("{MODES}  Canvas = #fafafa\n  AccentColor = #0a7aff\n");
+    let a = plan("role-a", &modes);
+    let b = plan(
+        "role-b",
+        &modes
+            .replace("#fafafa", "#101010")
+            .replace("#0a7aff", "#ff0000"),
+    );
+    assert_eq!(design::structure(&b), design::structure(&a));
+    let shape = design::shape(&a);
+    assert_eq!(design::shape(&b), shape);
+    let batch = design::batch(&shape, &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let names: Vec<&str> = batch.tokens.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["Canvas", "AccentColor"]);
+    let mut r = booted(a.clone());
+    r.admit_live(None);
+    let (canvas, accent) = (
+        exact_kernel::style::roles::role("Canvas").unwrap(),
+        exact_kernel::style::roles::role("AccentColor").unwrap(),
+    );
+    let overridden = |r: &Runner<NoData>, id| {
+        let _roles = r.bind_roles();
+        exact_kernel::style::roles::overridden(id)
+    };
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), parsed("#fafafa"));
+    let applied = r.apply_live(&batch).unwrap();
+    assert!(applied.roles, "the host re-presents");
+    assert!(!applied.receipt.layout_invalidated);
+    assert_eq!(overridden(&r, canvas), Some(parsed("#101010")));
+    assert_eq!(overridden(&r, accent), Some(parsed("#ff0000")));
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), parsed("#101010"));
+    // The same design again, as a snapshot: nothing moves.
+    let again = design::snapshot(&shape, &design::tokens(&b));
+    assert!(!r.apply_live(&again).unwrap().roles);
+    // Back, as a snapshot: the plan's own.
+    let back = design::snapshot(&shape, &design::tokens(&a));
+    assert!(r.apply_live(&back).unwrap().roles);
+    assert_eq!(overridden(&r, canvas), Some(parsed("#fafafa")));
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), parsed("#fafafa"));
+}
+
+/// A role override named bare (`secondary-label`, LLP 1095 D4), its row
+/// naming the role's spelling (`-exact-secondary-label`): a live edit sets
+/// that row too.
+#[test]
+fn a_bare_role_overrides_edit_sets_the_rows_that_spell_the_role() {
+    use exact_runner::design;
+    let view = "component App\n  view\n    column\n      text \"a\" color=\"-exact-secondary-label\" testId=\"text\"\n";
+    let plan = |name: &str, design: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap()
+    };
+    let a = plan("bare-a", "tamber t\n\ntheme\n  secondary-label = #111111\n");
+    let b = plan("bare-b", "tamber t\n\ntheme\n  secondary-label = #222222\n");
+    let shape = design::shape(&a);
+    let batch = design::batch(&shape, &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let mut r = booted(a);
+    r.admit_live(None);
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#111111"));
+    assert!(r.apply_live(&batch).unwrap().roles);
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#222222"));
+}
+
+/// A token a colour keyframe names is folded into its `@keyframes` rule when
+/// the app compiles, so an edit to it changes the design's shape: the batch
+/// is refused as a structure change, and the dev loop rebuilds, rather than
+/// leave the rule's old colour. A token no keyframe names stays live.
+#[test]
+fn a_token_a_keyframe_names_is_a_rebuild_not_a_live_edit() {
+    use exact_runner::design;
+    let view = "keyframes lit\n  from background-color=\"chip\"\ncomponent App\n  view\n    column background-color=\"chip\" color=\"ink\" testId=\"page\" animation=\"lit 1s\"\n      text \"a\"\n";
+    let plan = |name: &str, design: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap()
+    };
+    let a = plan(
+        "kf-a",
+        "tamber t\n\ntheme\n  chip = #cfced4\n  ink = #111111\n",
+    );
+    let chip = plan(
+        "kf-chip",
+        "tamber t\n\ntheme\n  chip = #45454b\n  ink = #111111\n",
+    );
+    let ink = plan(
+        "kf-ink",
+        "tamber t\n\ntheme\n  chip = #cfced4\n  ink = #222222\n",
+    );
+    assert_ne!(
+        design::shape(&chip),
+        design::shape(&a),
+        "a keyframe's token is shape"
+    );
+    assert_eq!(
+        design::shape(&ink),
+        design::shape(&a),
+        "a row's token is a value"
+    );
+    let mut r = booted(a.clone());
+    r.admit_live(None);
+    let refused = design::batch(
+        &design::shape(&chip),
+        &design::tokens(&a),
+        &design::tokens(&chip),
+    )
+    .unwrap();
+    assert!(matches!(
+        r.apply_live(&refused),
+        Err(exact_runner::LiveRefusal::Structure)
+    ));
+    let live = design::batch(
+        &design::shape(&a),
+        &design::tokens(&a),
+        &design::tokens(&ink),
+    )
+    .unwrap();
+    r.apply_live(&live).unwrap();
 }

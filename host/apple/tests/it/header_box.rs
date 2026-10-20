@@ -74,3 +74,56 @@ fn a_face_box_carries_its_authored_size_and_loses_it() {
     });
     assert!(cleared, "no longer a fixed box: {next}");
 }
+
+/// A bar item's drawn face (`ChipFace`, BarFaceIOS.swift): a header the bar
+/// replaces is laid out as `display: none`, so the style a childless box is
+/// sent carries its authored size, and a row's its authored gap; a box with
+/// children, or a size the author did not write, sends neither.
+#[test]
+fn a_dots_authored_size_and_a_rows_gap_are_sent() {
+    let src = "component App\n  view\n    column\n      header\n        button testId=\"chip\"\n          row gap=2 testId=\"row\"\n            box width=14 height=6 border-radius=2 background-color=\"#34c759\" testId=\"dot\"\n            text \"Clock\" font-size=12\n      column width=40 height=40 background-color=\"#dcfce7\" testId=\"parent\"\n        text \"MC\"\n      box background-color=\"#ff0000\" flex=1 testId=\"unsized\"\n";
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let id = |t: &str| {
+        let k = host.runner().kernel();
+        k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
+    };
+    let v: serde_json::Value = serde_json::from_str(&first).unwrap();
+    let style = |id: u32| -> serde_json::Value {
+        let op = v["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["op"] == "create" && op["id"] == id)
+            .unwrap_or_else(|| panic!("no create for #{id}: {first}"));
+        match &op["style"] {
+            serde_json::Value::String(s) => serde_json::from_str(s).unwrap(),
+            other => other.clone(),
+        }
+    };
+    let dot = style(id("dot"));
+    assert_eq!(
+        (dot["width"].as_f64(), dot["height"].as_f64()),
+        (Some(14.0), Some(6.0)),
+        "{dot}"
+    );
+    assert_eq!(
+        style(id("row"))["column_gap"].as_f64(),
+        Some(2.0),
+        "the row's gap"
+    );
+    let parent = style(id("parent"));
+    assert!(
+        parent.get("width").is_none(),
+        "a box with children: its frame says ({parent})"
+    );
+    let bare = style(id("unsized"));
+    assert!(bare.get("width").is_none(), "an unwritten size ({bare})");
+}

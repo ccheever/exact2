@@ -32,4 +32,10 @@ impl<D: DataSource> Host<D> {
         }
         self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
     }
+
+    /// The motion engine's clock, seconds (tests)
+    #[cfg(test)]
+    pub(crate) fn motion_now(&self) -> f64 {
+        self.springs.now()
+    }
 }

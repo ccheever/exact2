@@ -49,13 +49,14 @@ extension NodeView {
     }
 
     /// Whether a press shows the platform's look: a node this host presses,
-    /// with no `-exact-press-scale` written (any value, 1 included, is the
-    /// author's), no `pointerdown` or `pointerup` of its own (the author
-    /// paints its pressed state from those; a `hover` handler replaces
+    /// with no pressed look written (`authorsPress`: a `-exact-press-scale`
+    /// or pressed paint, any value, 1 included, is the author's), no
+    /// `pointerdown` or `pointerup` of its own (the author paints its
+    /// pressed state from those; a `hover` handler replaces
     /// nothing), and not a scrim covering the window. The same test iOS's
     /// dim makes (`platformPressDims`), less a list's rows.
     var platformPressTints: Bool {
-        guard pressable, customPressable, style["press_scale"] == nil,
+        guard pressable, customPressable, !authorsPress,
               !handlers.contains("pointerdown"), !handlers.contains("pointerup") else { return false }
         if let content = window?.contentView {
             let box = convert(bounds, to: nil)

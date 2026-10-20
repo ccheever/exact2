@@ -8,7 +8,7 @@ use crate::tree::{
 use crate::tree::{LayoutPartialTree, LayoutPartialTreeExt, NodeId};
 use crate::util::debug::debug_log;
 use crate::compute::common::absolute::AbsolutePass;
-use crate::compute::ratio::sizes_through_ratio;
+use crate::compute::ratio::{container_sizes_through_ratio, sizes_through_ratio};
 use crate::util::sys::f32_max;
 use crate::util::sys::Vec;
 use crate::util::MaybeMath;
@@ -380,13 +380,19 @@ pub fn compute_block_layout(
         if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
 
     // EXACT PATCH 12: the size styles through the ratio (`compute::ratio`).
-    let (style_size, min_size, max_size) = sizes_through_ratio(
+    let raw_max_size =
+        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment);
+    let (style_size, min_size, mut max_size) = sizes_through_ratio(
         &style,
         padding_border_size,
         style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
         style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
-        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        raw_max_size,
     );
+    // EXACT PATCH 57: with a supplied height, transferred bounds must not short-circuit the inline content probe.
+    if inputs.sizing_mode == SizingMode::ContentSize && !style.is_compressible_replaced() && known_dimensions.height.is_some() {
+        max_size.width = raw_max_size.width;
+    }
     let clamped_style_size = if inputs.sizing_mode == SizingMode::InherentSize {
         style_size.maybe_clamp(min_size, max_size)
     } else {
@@ -507,8 +513,9 @@ fn compute_inner(
         raw_min_size,
         raw_max_size,
     );
-    let (known_dimensions, min_size, max_size) =
-        sizes_through_ratio(&style, padding_border_size, known_dimensions, raw_min_size, raw_max_size);
+    let (known_dimensions, min_size, max_size) = container_sizes_through_ratio(
+        &style, padding_border_size, known_dimensions, raw_min_size, raw_max_size, inputs.sizing_mode,
+    );
     let percentage_basis_dimensions = Size {
         width: known_dimensions.width,
         height: known_dimensions.height.filter(|_| inputs.known_dimensions_are_definite.height)
@@ -948,7 +955,7 @@ fn resolve_stretch_height(
 /// Compute the content-based width in the case that the width of the container is not known
 #[inline]
 fn determine_content_based_container_width(
-    tree: &mut impl LayoutPartialTree,
+    tree: &mut impl LayoutBlockContainer,
     items: &[BlockItem],
     available_width: AvailableSpace,
 ) -> f32 {
@@ -964,7 +971,25 @@ fn determine_content_based_container_width(
             .margin
             .resolve_or_zero(available_space.width.into_option(), |val, basis| tree.calc(val, basis))
             .horizontal_axis_sum();
-        let width = known_dimensions.width.unwrap_or_else(|| {
+        // EXACT PATCH 36: a cyclic percentage width or max-width compresses a
+        // replaced child's min-content contribution (CSS Sizing 3 §5.2.1).
+        // Chrome 151 takes zero even for calc(), floored by the authored inline
+        // minimum, not a size transferred from height. This is a contribution
+        // rule: the child's own content size and its final layout stay intact.
+        let compressed = if item.is_replaced && available_width == AvailableSpace::MinContent {
+            let style = tree.get_block_child_style(item.node_id);
+            let cyclic = style.size().width.into_raw().uses_percentage()
+                || style.max_size().width.into_raw().uses_percentage();
+            cyclic.then(|| {
+                // Resolve cyclic percentages in the minimum against zero, preserving its length terms.
+                let min = style.min_size().width.maybe_resolve(Some(0.0), |val, basis| tree.calc(val, basis));
+                let inset = if style.box_sizing() == BoxSizing::ContentBox { item.padding_border_sum.width } else { 0.0 };
+                min.unwrap_or(0.0) + inset
+            })
+        } else {
+            None
+        };
+        let width = compressed.or(known_dimensions.width).unwrap_or_else(|| {
             let item_available_width = match resolve_sizing_keyword(item.size_style.width, None, None) {
                 Some(SizingKeywordResolution::Measure(available_width)) => available_width,
                 Some(SizingKeywordResolution::Exact(width)) => AvailableSpace::Definite(width),
@@ -1340,7 +1365,7 @@ fn perform_final_layout_on_in_flow_children(
 
             //
 
-            let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, item.node_id, parent_size);
+            let ratio_min = crate::compute::ratio::minimum_ratio_width(tree, item.node_id, parent_size, None);
             let known_dimensions = known_dimensions.map_width(|width| width.maybe_max(ratio_min));
             let inputs = LayoutInput {
                 run_mode,

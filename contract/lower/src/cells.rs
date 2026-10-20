@@ -21,7 +21,8 @@
 //! - not a list that scrolls sideways only;
 //! - no child is a `section`: a sectioned list's rows are in its
 //!   sections, and that list is the grouped form (`appearance="auto"
-//!   listStyle="plain"` is the plain one).
+//!   listStyle="plain"` is the plain one; warning `lower-list-section`
+//!   without it).
 //!
 //! What a row is: a child of the list. A heading, a filter or a count that
 //! should not be a row goes outside the list.
@@ -41,7 +42,7 @@ fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<Option<&'a str>> {
 
 /// Whether any node a list holds directly, through the regions that only
 /// choose or repeat (`for`, `if`, `match`), is a `section`.
-fn sectioned(children: &[Node]) -> bool {
+pub(crate) fn sectioned(children: &[Node]) -> bool {
     children.iter().any(|child| match child {
         Node::Element { tag, .. } => tag == "section",
         Node::When {

@@ -18,7 +18,9 @@ mod deps;
 mod document;
 mod find;
 mod foresee;
+pub mod looks;
 mod region;
+pub mod tabs;
 mod text;
 pub mod theme;
 
@@ -92,8 +94,7 @@ pub static LISTS: ListLinks = ListLinks {
 };
 
 /// A list engine's state where the plan has no way to reach it: admission
-/// refused the plan, so this is the runner's defect, named rather than
-/// trapped on.
+/// refused the plan, so this is the runner's defect, named rather than trapped on.
 fn unlinked() -> InstanceError {
     InstanceError::Collection(
         "a list engine is in use but this artifact doesn't link lists (LLP 1047 D6)".into(),
@@ -139,13 +140,13 @@ pub struct NodeInst {
     /// The kernel view.
     pub view: ViewId,
     /// Last emitted value per binding, in binding order.
-    last: Vec<Option<Value>>,
+    last: Box<[Option<Value>]>,
     /// Last published surface inputs (a canvas node).
-    last_surface: Option<Vec<Value>>,
+    last_surface: Option<Box<[Value]>>,
     /// Ordered children: static nodes and regions interleaved by `order`.
     children: Vec<Child>,
     /// Last emitted child list.
-    last_children: Vec<ViewId>,
+    last_children: Box<[ViewId]>,
     collection: Option<Box<collection::Collection>>,
     /// The app tuple its rows and children are in (LLP 1121 D5).
     tuple: u32,
@@ -250,14 +251,14 @@ pub enum InstanceStep {
 #[derive(Debug, Default)]
 pub struct Ids {
     next: ViewId,
-    /// Every instance node's view and site, destroyed ones included until
-    /// [`Ids::retain`] drops them.
+    /// Every instance node's view and site, destroyed ones kept till [`Ids::retain`] drops them.
     sites: exact_kernel::id::IdMap<ViewId, NodesId>,
     /// Each plan site's work across its instances' lifetimes, by node
     /// index; empty while nothing is measured (LLP 1079 D1).
     pub(crate) work: crate::perf::Work,
     /// Every row that read a theme token (LLP 1121 D7).
     pub theme: theme::ThemeIndex,
+    pub(crate) tabs: tabs::Tabs, // tab panels waiting for their first selection (tabs.rs)
 }
 
 impl Ids {
@@ -458,6 +459,8 @@ pub struct Update<'a> {
     pub scroll_padding: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
     /// Resolved CSS target outsets, top/right/bottom/left.
     pub scroll_margin: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
+    /// Row margins as the kernel lays them out, under a terminal's rule.
+    pub cell_margins: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
     /// The app modes around the nodes being visited (LLP 1121 D5).
     pub theme: theme::Around,
 }
@@ -495,6 +498,7 @@ impl<'a> Update<'a> {
             frame_buffers: Vec::new(),
             scroll_padding: None,
             scroll_margin: None,
+            cell_margins: None,
             theme,
         }
     }
@@ -629,8 +633,9 @@ pub struct SiteIndex {
     resolve_keyframes: bridge::KeyframesLink,
     /// A binding that reads nothing (a literal style row in a list row's
     /// template) has one value for the plan's life: evaluated once, by
-    /// binding index, instead of once per instance.
-    constants: Vec<std::cell::OnceCell<Value>>,
+    /// binding index, instead of once per instance; kept for the bindings
+    /// evaluated (a plan has thousands, a screen evaluates hundreds).
+    constants: RefCell<BTreeMap<u32, Value>>,
     projections: Vec<vm::Prepared>,
 }
 
@@ -678,9 +683,7 @@ impl SiteIndex {
             deps: Deps::default(),
             keyframes: bridge::keyframes(plan),
             resolve_keyframes: keyframes,
-            constants: (0..plan.bindings.len())
-                .map(|_| Default::default())
-                .collect(),
+            constants: RefCell::default(),
             projections: plan
                 .bindings
                 .iter()
@@ -889,10 +892,10 @@ impl NodeInst {
         let mut inst = NodeInst {
             node,
             view,
-            last: vec![None; row.bindings.len as usize],
+            last: vec![None; row.bindings.len as usize].into_boxed_slice(),
             last_surface: None,
             children: Vec::new(),
-            last_children: Vec::new(),
+            last_children: Box::default(),
             collection: None,
             tuple: u.theme.tuple,
             themed: theme::Themed::default(),
@@ -906,11 +909,12 @@ impl NodeInst {
         let saved = inst.enter(u, inst.tuple);
         let lists = u.env.lists;
         let realized = (|| {
+            let wait = tabs::wait(u, node, view);
             inst.collection = match lists {
-                Some(lists) => (lists.create)(u, node, view, frames)?,
-                None => None,
+                Some(lists) if !wait => (lists.create)(u, node, view, frames)?,
+                _ => None,
             };
-            if inst.collection.is_none() {
+            if !wait && inst.collection.is_none() {
                 inst.children = realize(u, Some(node), row.arm, frames)?;
                 inst.emit_children(u);
             }
@@ -999,12 +1003,13 @@ impl NodeInst {
             let reads = &deps.bindings[b.0 as usize];
             let evaluated = u.work.bindings_evaluated;
             let value = if reads.is_constant() {
-                match u.sites.constants[b.0 as usize].get() {
-                    Some(value) => value.clone(),
+                let known = u.sites.constants.borrow().get(&b.0).cloned();
+                match known {
+                    Some(value) => value,
                     None => {
                         u.work.bindings_evaluated += 1;
                         let value = u.eval_binding(b, binding.expr, frames)?;
-                        u.sites.constants[b.0 as usize].get_or_init(|| value.clone());
+                        u.sites.constants.borrow_mut().insert(b.0, value.clone());
                         value
                     }
                 }
@@ -1032,25 +1037,27 @@ impl NodeInst {
                 self.last[i] = Some(value);
                 continue;
             }
-            // A binding is a declaration whose value is computed from state,
-            // as a `var()` reference is. A value its row's grammar refuses is
-            // invalid at computed-value time (CSS Custom Properties §3.1): the
-            // row is unset — inherited or initial — and a journal line says
-            // so. Not CSSOM's `setProperty`, which keeps the earlier value:
-            // the view would then depend on history, not state. Unknown rows are plan defects.
+            // A binding is a declaration whose value is computed from state, as a `var()` reference
+            // is. A value its row's grammar refuses is invalid at computed-value time (CSS Custom
+            // Properties §3.1): the row is unset and a journal line says so (a `BridgeError::Unset`
+            // unsets it silently). Not CSSOM's `setProperty`, which keeps the earlier value: the
+            // view would then depend on history, not state. Unknown rows are plan defects.
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
                     Ok((prop, pv)) => u.ops.push(Op::SetProp {
+                        value: bridge::icon_source(plan, prop, pv),
                         id: self.view,
                         prop,
-                        value: pv,
                     }),
-                    Err(bridge::BridgeError::PropKind { prop, .. }) => {
-                        u.ops.push(Op::ClearProp {
-                            id: self.view,
-                            prop,
-                        });
-                        u.notes.push(invalid(self.view, prop.name(), &value));
+                    Err(
+                        e @ (bridge::BridgeError::PropKind { prop, .. }
+                        | bridge::BridgeError::Unset(prop)),
+                    ) => {
+                        let id = self.view;
+                        u.ops.push(Op::ClearProp { id, prop });
+                        if matches!(e, bridge::BridgeError::PropKind { .. }) {
+                            u.notes.push(invalid(id, prop.name(), &value));
+                        }
                     }
                     Err(e) => return Err(InstanceError::Bridge(e)),
                 },
@@ -1073,31 +1080,28 @@ impl NodeInst {
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(Box::default);
-                    let family_value = if binding.id == exact_kernel::StyleId::FontFamily as u16 {
-                        match &value {
-                            Value::Option(Some(inner)) => inner.as_ref(),
-                            _ => &value,
-                        }
-                    } else {
-                        &value
-                    };
-                    let family_id = if binding.id == exact_kernel::StyleId::FontFamily as u16 {
-                        family_value.as_str().and_then(|name| {
-                            u.fonts
-                                .as_ref()?
-                                .borrow_mut()
-                                .intern(name, plan.stacks.len())
-                        })
-                    } else {
-                        None
-                    };
+                    let (family_value, family_id) =
+                        bridge::family_binding(plan, u.fonts.as_deref(), binding, &value);
+                    // A row a runtime family or a refusal sets reads no token:
+                    // the index forgets what it read before.
+                    let row = exact_kernel::StyleId::from_bit(binding.id as u32);
                     let styled = if let Some(id) = family_id {
+                        if let (true, Some(row)) = (themed_plan, row) {
+                            self.unthemed(u, i, row);
+                        }
                         bridge::set_runtime_font_style(
                             p,
                             binding,
                             id,
                             plan.stacks.len() + u.fonts.as_ref().unwrap().borrow().names().len(),
                         )
+                    } else if let Err(e) =
+                        bridge::inherited_varying(plan, binding, family_value, self.node)
+                    {
+                        if let (true, Some(row)) = (themed_plan, row) {
+                            self.unthemed(u, i, row);
+                        }
+                        Err(e)
                     } else {
                         exact_kernel::style::theme::take_named();
                         let styled = bridge::set_binding_style(p, binding, family_value, plan);
@@ -1163,6 +1167,7 @@ impl NodeInst {
                 patch: p,
             });
         }
+        self.emit_looks(u, frames, fresh, u.theme.retheme || self.tuple != before)?;
         // A canvas's surface inputs: evaluated with the bindings (so a trap
         // refuses the commit whole), published only with a successful apply.
         if let Some(surface) = row.surface.filter(|s| {
@@ -1178,7 +1183,7 @@ impl NodeInst {
             for a in s.args.iter() {
                 values.push(u.eval(plan.surface_arg(a).expr, frames)?);
             }
-            if self.last_surface.as_ref() != Some(&values) {
+            if self.last_surface.as_deref() != Some(&values[..]) {
                 u.surfaces.push(SurfaceUpdate {
                     view: self.view,
                     name: plan.str(s.name).to_string(),
@@ -1192,7 +1197,7 @@ impl NodeInst {
                         .collect(),
                     values: values.clone(),
                 });
-                self.last_surface = Some(values);
+                self.last_surface = Some(values.into_boxed_slice());
             }
         }
         Ok(())
@@ -1200,12 +1205,12 @@ impl NodeInst {
 
     fn emit_children(&mut self, u: &mut Update<'_>) {
         let now = roots_of(&self.children);
-        if now != self.last_children {
+        if *now != *self.last_children {
             u.ops.push(Op::SetChildren {
                 id: self.view,
                 children: now.clone(),
             });
-            self.last_children = now;
+            self.last_children = now.into_boxed_slice();
         }
     }
 
@@ -1343,6 +1348,7 @@ impl Tree {
             seen: Seen::of(&u.env),
             last_work: u.work,
         };
+        tree.open_tabs(u)?;
         tree.emit_roots(u);
         Ok(tree)
     }
@@ -1356,6 +1362,7 @@ impl Tree {
         if roots? {
             self.emit_roots(u);
         }
+        self.open_tabs(u)?;
         if self.has_collections && (u.text_styled || u.ops.iter().any(|op| matches!(op, Op::SetStyle { patch, .. } if patch.mask.intersects(exact_kernel::StyleMask::TEXT)))) {
             if let Some(lists) = u.env.lists {
                 (lists.typography)(&mut self.children, u, &[])?;
@@ -1395,14 +1402,24 @@ impl Tree {
     /// The site owning `view` and the instance path to it: the regions
     /// crossed, with the row key or the active arm at each (LLP 1035.002).
     pub fn site(&self, view: ViewId) -> Option<(NodesId, Vec<InstanceStep>)> {
+        self.site_in(view).map(|(node, _, path)| (node, path))
+    }
+
+    /// The app tuple `view`'s node is in (LLP 1121 D5): the window's,
+    /// overridden by the pins above it, for an inspected node's report.
+    pub fn tuple_of(&self, view: ViewId) -> Option<u32> {
+        self.site_in(view).map(|(_, tuple, _)| tuple)
+    }
+
+    fn site_in(&self, view: ViewId) -> Option<(NodesId, u32, Vec<InstanceStep>)> {
         let mut path = Vec::new();
         for c in &self.children {
             let found = match c {
                 Child::Node(n) => n.site(view, &mut path),
                 Child::Region(r) => r.site(view, &mut path),
             };
-            if let Some(node) = found {
-                return Some((node, path));
+            if let Some((node, tuple)) = found {
+                return Some((node, tuple, path));
             }
         }
         None
@@ -1410,9 +1427,9 @@ impl Tree {
 }
 
 impl NodeInst {
-    fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<NodesId> {
+    fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<(NodesId, u32)> {
         if self.view == view {
-            return Some(self.node);
+            return Some((self.node, self.tuple));
         }
         if let Some(collection) = &self.collection {
             if let Some(found) = collection.site(view, path) {
@@ -1433,8 +1450,8 @@ impl NodeInst {
 }
 
 impl RegionInst {
-    fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<NodesId> {
-        let walk = |roots: &[Child], path: &mut Vec<InstanceStep>| -> Option<NodesId> {
+    fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<(NodesId, u32)> {
+        let walk = |roots: &[Child], path: &mut Vec<InstanceStep>| -> Option<(NodesId, u32)> {
             for c in roots {
                 let found = match c {
                     Child::Node(n) => n.site(view, path),

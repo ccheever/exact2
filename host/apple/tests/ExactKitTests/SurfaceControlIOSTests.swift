@@ -163,10 +163,10 @@ final class SurfaceControlIOSTests: XCTestCase {
         canvas.addSubview(pause); s.presenter.views[103] = pause
         XCTAssertTrue(jump.becomeFirstResponder())
         XCTAssertTrue(jump.focusSurfacePointer())
-        XCTAssertFalse(jump.focusedByTouch, "a touch keeps the focus Tab or focus(id) gave it the app's")
+        XCTAssertFalse(jump.focusedBySurfaceTouch, "a touch keeps the focus Tab or focus(id) gave it the app's")
         _ = jump.resignFirstResponder()
         XCTAssertTrue(jump.focusSurfacePointer())
-        XCTAssertTrue(jump.isFirstResponder && jump.focusedByTouch, "the touch's focus")
+        XCTAssertTrue(jump.isFirstResponder && jump.focusedBySurfaceTouch, "the touch's focus")
         let touch: Set<UITouch> = [UITouch()]
         pause.touchesBegan(touch, with: nil); pause.touchesEnded(touch, with: nil)
         XCTAssertNil(s.agentInstance.tap(["op": "tap", "id": 103])["error"])

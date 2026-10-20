@@ -37,7 +37,7 @@ shape Profile
 // a stack of them in base 4, the latest in the lowest digit, so an undo can
 // pop one and a parked card knows which way it left.
 fn lastOf(stack: number): number = stack - floor(stack / 4) * 4
-fn unit(v: number): number = min(max(v, 0), 1)
+fn unit(v: number): number = v > 0 ? min(v, 1) : 0
 fn magnitude(v: number): number = max(v, 0 - v)
 
 // What a release decides, from where the card is and how fast it was going:

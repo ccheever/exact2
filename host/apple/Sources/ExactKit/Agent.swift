@@ -24,6 +24,10 @@ public final class Agent {
     /// The held contact on a `pan` node, recognized (LLP 1057 §10.6).
     var panContact: AgentPan?
     #endif
+    #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
+    var widgetPreview: WidgetPreview?
+    var activityPreview: ActivityPreview?
+    #endif
     let session: ExactSession
     init(session: ExactSession) {
         self.session = session
@@ -45,8 +49,12 @@ public final class Agent {
         let bounds: CGRect
         if let id = request["id"] as? UInt32, let run = presenter.inlineText(id) {
             let fragments = node.inlineRects(run).filter { !$0.isEmpty }.map { box(node, region: $0) }
-            let viewport = CGRect(origin: .zero, size: presenter.viewport.bounds.size)
-            guard let fragment = fragments.first(where: { viewport.contains(CGPoint(x: $0.midX, y: $0.midY)) }) ?? fragments.first else { return nil }
+            #if os(iOS) || os(tvOS)
+            let reach = presenter.reach(of: node)
+            #else
+            let reach = CGRect(origin: .zero, size: presenter.viewport.bounds.size)
+            #endif
+            guard let fragment = fragments.first(where: { reach.contains(CGPoint(x: $0.midX, y: $0.midY)) }) ?? fragments.first else { return nil }
             bounds = fragment
         } else { bounds = box(node) }
         // `at` is target-relative (a mouse click, a context menu). `x`/`y` are viewport points.
@@ -62,6 +70,8 @@ public final class Agent {
     /// cannot hold one and says so.
     var contact: CGPoint? = nil
     #if os(macOS)
+    /// The window that received down owns every phase, even without a target id.
+    var contactWindow: NSWindow?
     /// The held contact's event time, seconds on `systemUptime`'s clock.
     var contactClock: Double = 0
     /// The modifiers held through the contact: its `down`'s, until a
@@ -140,7 +150,7 @@ public final class Agent {
         guard let data = line.data(using: .utf8),
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let op = req["op"] as? String
-        else { reply(["error": "unreadable request: \(line)"]); return }
+        else { reply(["malformed": true, "error": "unreadable request: \(line)"]); return }
         if op == "quit" { exitAfterStorage(); return }
         // A slice building off main lands before the agent reads or acts
         // (LLP 1072 T9); under the agent slices are synchronous, so this is
@@ -167,10 +177,27 @@ public final class Agent {
             Agent.reply(["error": "session \(session.label): destroyed (runtime \(session.runtime.rt): no such runtime)"])
             return
         }
+        if req["widget"] != nil || req["activity"] != nil {
+            #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
+            if op != "clock" {
+                Agent.reply(req["activity"] != nil ? ActivityAgent.answer(op, request: req, agent: self) : WidgetGallery.answer(op, request: req, agent: self))
+                return
+            }
+            #else
+            #if os(iOS)
+            Agent.reply(["error": "widget gallery is unavailable; rebuild: bun host/apple/build.mjs --ios --widget-gallery"])
+            #else
+            Agent.reply(["error": "widget gallery is unavailable; rebuild: bun host/apple/build.mjs --widget-gallery"])
+            #endif
+            return
+            #endif
+        }
         guard session.canvases.waitUntilReady() else {
             Agent.reply(["error": "canvas creation is still in flight"])
             return
         }
+        // A release build measures for `perf` from the agent's first request.
+        session.measurePerf()
         if Agent.worldRequest(req) { Agent.reply(tagged(world(req))); return }
         // `tap @t` / `type @t` answer a held device request in the library,
         // before any view is looked up (LLP 1069.007 D4).
@@ -184,6 +211,7 @@ public final class Agent {
             session.picker.answered(answer, request: req)
             session.picker.saveAnswered(answer, request: req)
             session.picker.documentAnswered(answer, request: req)
+            ShareSheet.answered(answer, in: session)
             Agent.reply(tagged(answer))
             return
         }
@@ -207,7 +235,7 @@ public final class Agent {
                 // flow can be driven (the agent's window is never key, so a
                 // ⌘W it typed would go nowhere).
                 guard req.keys.allSatisfy({ ["op", "session", "close"].contains($0) }), req["close"] as? Bool == true else {
-                    Agent.reply(["error": "tap close takes no other input fields"]); return
+                    Agent.reply(["malformed": true, "error": "tap close takes no other input fields"]); return
                 }
                 #if os(macOS)
                 r = closeWindow()
@@ -218,7 +246,7 @@ public final class Agent {
                 // The platform's Back, as a person takes it (LLP 1116.006
                 // D4): an input, as `close` is (AgentIOS, AgentMac `back`).
                 guard req.keys.allSatisfy({ ["op", "session", "back"].contains($0) }), req["back"] as? Bool == true else {
-                    Agent.reply(["error": "tap back takes no other input fields"]); return
+                    Agent.reply(["malformed": true, "error": "tap back takes no other input fields"]); return
                 }
                 r = back()
             } else if req["resize"] != nil {
@@ -226,7 +254,7 @@ public final class Agent {
                 // ninth operation. Reject ambiguous input before touching UI.
                 guard req.keys.allSatisfy({ ["op", "session", "resize"].contains($0) }),
                       let size = Agent.resizeSize(req["resize"]!) else {
-                    Agent.reply(["error": Agent.resizeError]); return
+                    Agent.reply(["malformed": true, "error": Agent.resizeError]); return
                 }
                 #if os(macOS)
                 r = resizeWindow(size)
@@ -257,6 +285,10 @@ public final class Agent {
         case "reveal": Agent.reply(tagged(settling(reveal(req)))) // before a tap or a type: a target out of view, scrolled into it
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
+        // @ref LLP 1125 §4 — the MIDI ports the agent names, and a message from one: the runner's.
+        case "prefer" where req["midi"] != nil: Agent.reply(tagged(midi(req)))
+        case "prefer" where req["extension"] != nil || req["permission"] != nil: Agent.reply(tagged(preferExtension(req)))
+        case "midi": Agent.reply(tagged(midi(req)))
         case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
         // What is wrong with the presented screen, as observations the driver judges (LLP 1116.003 D8).
@@ -285,6 +317,10 @@ public final class Agent {
             var reply = session.agent(json)
             var nativeSections = stateSections()
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
+            nativeSections["decorations"] = presenter.views.values.sorted { $0.id < $1.id }.compactMap { node -> [String: Any]? in
+                guard let decorations = (node.textArea as? TextArea)?.decorations else { return nil }
+                return ["id": Int(node.id), "applied": decorations.state]
+            }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
             nativeSections["mediaSession"] = mediaSessionState() // LLP 1098 D10
@@ -300,9 +336,7 @@ public final class Agent {
             nativeSections["contentRegion"] = session.regions.diagnostics
             nativeSections["readerParagraphs"] = session.text.readerParagraphs.values.map(\.diagnostics)
             #endif
-            let world = session.canvases.worlds(["op": "state"])
-            nativeSections = session.canvases.restoreReply(nativeSections)
-            if !world.isEmpty { nativeSections["world"] = world }
+            nativeSections = session.canvases.decorate(req, nativeSections)
             // A session that plays fills in its output (LLP 1096 D10); under the agent none plays.
             if !ExactEnv.agentMode, let output = try? JSONSerialization.data(withJSONObject: session.sound.state) { reply = reply.replacingOccurrences(of: "\"output\":\"agent\"", with: "\"output\":" + String(decoding: output, as: UTF8.self)) }
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
@@ -405,6 +439,31 @@ public final class Agent {
         return o["settle"] as? Double
     }
 
+    /// `prefer midi.*` and `tap midi` (LLP 1125 §4), as the runner answers
+    /// them: no arm loads under the agent.
+    func midi(_ req: [String: Any]) -> [String: Any] {
+        var forward = req
+        forward.removeValue(forKey: "session")
+        guard let data = try? JSONSerialization.data(withJSONObject: forward) else { return ["malformed": true, "error": "midi: the request is not JSON"] }
+        let batch = session.runtime.midi(String(decoding: data, as: UTF8.self))
+        session.apply(batch)
+        if let error = batch.error { return ["error": error] }
+        return ["midi": true]
+    }
+
+    /// `prefer extension` (LLP 1124 D7) and `prefer permission` (LLP
+    /// 1133.002 §6), as the runner answers them: a native module source's
+    /// preferred value, or its permission's state; readers asked again.
+    func preferExtension(_ req: [String: Any]) -> [String: Any] {
+        var forward = req
+        forward.removeValue(forKey: "session")
+        guard let data = try? JSONSerialization.data(withJSONObject: forward) else { return ["malformed": true, "error": "prefer extension: the request is not JSON"] }
+        let batch = session.runtime.preferExtension(String(decoding: data, as: UTF8.self))
+        session.apply(batch)
+        if let error = batch.error { return ["error": error] }
+        return req["permission"] != nil ? ["permission": req["permission"]!] : ["extension": req["extension"] ?? [:]]
+    }
+
     /// Move both clocks to one instant: the runner's (timers, each fired at
     /// its own due time) and the motion engine's (a seek). The clock lands
     /// where the runner says (`batch.clock`), never behind where it stood
@@ -426,21 +485,22 @@ public final class Agent {
     func prefer(_ req: [String: Any]) -> [String: Any] {
         let media = req["media"] as? [String: String], page = req["page"] as? [String: Any], fold = req["fold"] as? [String: Any]
         let mode = req["mode"] as? [String: String]
-        guard media != nil || page != nil || fold != nil || mode != nil else { return ["error": "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        guard media != nil || page != nil || fold != nil || mode != nil else { return ["malformed": true, "error": "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}"] }
         // @ref LLP 1121 D13 — the mode group: checked before any fact is set,
         // set after every other one in one commit; the scheme stays the system's.
         var modes: [String: String]?
         if let mode {
-            if mode.contains(where: { "\($0.key)\($0.value)".contains(where: { $0 == "," || $0 == "=" }) }) { return ["error": "prefer mode: an axis or value holds no `,` or `=`"] }
+            if mode.contains(where: { "\($0.key)\($0.value)".contains(where: { $0 == "," || $0 == "=" }) }) { return ["malformed": true, "error": "prefer mode: an axis or value holds no `,` or `=`"] }
             let checked = session.runtime.setModes(mode, check: true)
             if let error = checked.error { return ["error": "prefer mode: \(error)"] }
             modes = checked.modes
         }
-        if let fold, let refused = preferFold(fold) { return ["error": refused] }
+        if let fold, let refused = preferFold(fold) { return refused }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
         var displayMode = session.displayModeOverride
         var (gamut, high) = (DisplayPreferences.gamut, DisplayPreferences.highDynamicRange)
+        var input = DisplayPreferences.input
         for (name, value) in media ?? [:] {
             switch (name, value) {
             case ("prefers-reduced-motion", "reduce"), ("prefers-reduced-motion", "no-preference"): motion = value == "reduce"
@@ -452,10 +512,21 @@ public final class Agent {
             // @ref LLP 1100 D9
             case ("color-gamut", "srgb"), ("color-gamut", "p3"), ("color-gamut", "rec2020"): gamut = value
             case ("dynamic-range", "standard"), ("dynamic-range", "high"): high = value == "high"
-            default: return ["error": "prefer: \(name): \(value) is not a preference this host sets"]
+            // @ref LLP 1132 D10 — the primary input, the wire's bits 5–7.
+            case ("pointer", "fine"), ("pointer", "coarse"), ("pointer", "none"):
+                input.subtract([.coarsePointer, .noPointer])
+                input.formUnion(value == "coarse" ? .coarsePointer : value == "none" ? .noPointer : [])
+            case ("hover", "hover"), ("hover", "none"):
+                if value == "none" { input.insert(.noHover) } else { input.remove(.noHover) }
+            default:
+                let message = "prefer: \(name): \(value) is not a preference this host sets"
+                // A real preference this host does not set stays a delivery refusal.
+                if name == "display-mode" { return ["error": message] }
+                return ["malformed": true, "error": message]
             }
         }
         var facts = PageFacts.agent
+        var boldText: Bool?
         #if os(macOS)
         var keyboardNavigation: Bool?
         #endif
@@ -469,12 +540,20 @@ public final class Agent {
             case ("visibility-state", "visible"), ("visibility-state", "hidden"): facts.hidden = value == "hidden"
             case ("online", "true"), ("online", "false"): facts.onLine = value == "true"
             case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
+            case ("can-share-files", "true"), ("can-share-files", "false"): facts.canShareFiles = value == "true"
+            case ("can-share-pictures", "true"), ("can-share-pictures", "false"): facts.canSharePictures = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
             case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: facts.rootFontSize = Double(value)!
+            // Bold Text (LLP 1115.000 D12.3), as the person's setting reaches the kernel.
+            case ("bold-text", "true"), ("bold-text", "false"): boldText = value == "true"
             // The display's scale as the kernel is told it (LLP 1115.000 D10.3): layout follows; the display draws at its own.
             case ("display-scale", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: PageFacts.agentDisplayScale = Double(value)!
-            default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
+            default:
+                let message = "prefer: \(name): \(value) is not a page fact this host sets"
+                // A real page fact this host does not set stays a delivery refusal.
+                if name == "keyboard-navigation" { return ["error": message] }
+                return ["malformed": true, "error": message]
             }
         }
         // The scheme first: the preferences' notification reads it.
@@ -488,7 +567,9 @@ public final class Agent {
         }
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
+        if input != DisplayPreferences.input { DisplayPreferences.agentInput = input }
         if page != nil { PageFacts.agent = facts }
+        if let boldText { DisplayPreferences.agentBoldText = boldText }
         if let mode {
             // An empty group asks again: the other facts' commits may have run a `setMode`.
             let batch = session.runtime.setModes(mode, check: mode.isEmpty)
@@ -497,9 +578,11 @@ public final class Agent {
             modes = batch.modes
         }
         var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
-                                       "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
+                                       "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-share-files": PageFacts.canShareFiles,
+                                       "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles,
                                        "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
-                                       "display-scale": PageFacts.displayScale(session.presenter.viewport)]
+                                       "display-scale": PageFacts.displayScale(session.presenter.viewport),
+                                       "bold-text": DisplayPreferences.boldText]
         #if os(macOS)
         if let keyboardNavigation { KeyboardNavigation.agent = keyboardNavigation }
         pageFacts["keyboard-navigation"] = KeyboardNavigation.on
@@ -511,7 +594,9 @@ public final class Agent {
                           "prefers-color-scheme": systemDark ? "dark" : "light",
                           "display-mode": DisplayPreferences.displayModes[Int(session.displayModeOverride ?? DisplayPreferences.displayMode(session.view))],
                           "color-gamut": DisplayPreferences.gamut,
-                          "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
+                          "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard",
+                          "pointer": DisplayPreferences.input.contains(.noPointer) ? "none" : DisplayPreferences.input.contains(.coarsePointer) ? "coarse" : "fine",
+                          "hover": DisplayPreferences.input.contains(.noHover) ? "none" : "hover"],
                 "page": pageFacts,
                 "fold": presenter.fold.env]
         if let modes { reply["mode"] = modes }
@@ -521,14 +606,14 @@ public final class Agent {
     /// The `fold` group: `posture` (`folded` | `continuous`), `cols` and
     /// `rows` (each at least 1), `gap` (points, 0 by default). Each refusal
     /// names its fact (LLP 1078 D10); nothing applies unless all are known.
-    private func preferFold(_ fold: [String: Any]) -> String? {
+    private func preferFold(_ fold: [String: Any]) -> [String: Any]? {
         #if os(iOS) || os(tvOS)
         // The hinge interaction reports after the view attaches, a turn or two
         // after boot; a drive's first `prefer` can arrive before it. Give it a
         // bounded moment on a 27.1 device so the answer is the device's.
         let deadline = Date(timeIntervalSinceNow: 0.3)
         while ReservedRegions.available, !presenter.hingeReported, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
-        if presenter.hasFold { return "prefer: posture and segments: the device decides (it has a fold)" }
+        if presenter.hasFold { return ["error": "prefer: posture and segments: the device decides (it has a fold)"] }
         #endif
         var next = presenter.fold
         var gap: CGFloat = 0, grid = false
@@ -536,32 +621,42 @@ public final class Agent {
             let number = (raw as? NSNumber).map(\.doubleValue) ?? Double("\(raw)")
             switch name {
             case "posture":
-                guard let p = raw as? String, p == "folded" || p == "continuous" else { return "prefer: posture: \(raw) is folded or continuous" }
+                guard let p = raw as? String, p == "folded" || p == "continuous" else { return ["malformed": true, "error": "prefer: posture: \(raw) is folded or continuous"] }
                 next.posture = p
             case "cols", "rows":
-                guard let n = number, n.isFinite, n >= 1, n == n.rounded() else { return "prefer: segments: \(raw) \(name == "cols" ? "columns" : "rows") is not a count" }
+                guard let n = number, n.isFinite, n >= 1, n == n.rounded() else { return ["malformed": true, "error": "prefer: segments: \(raw) \(name == "cols" ? "columns" : "rows") is not a count"] }
                 if name == "cols" { next.cols = Int(n) } else { next.rows = Int(n) }
                 grid = true
             case "gap":
-                guard let g = number, g.isFinite, g >= 0 else { return "prefer: segments: gap \(raw) is not a length" }
+                guard let g = number, g.isFinite, g >= 0 else { return ["malformed": true, "error": "prefer: segments: gap \(raw) is not a length"] }
                 gap = CGFloat(g); grid = true
-            default: return "prefer: \(name) is not a fold fact this host sets"
+            default: return ["malformed": true, "error": "prefer: \(name) is not a fold fact this host sets"]
             }
         }
         if grid {
             // The window's segments, as the host sends them (LLP 1075.003 §9.11).
-            do { next.rects = try Segments.even(viewport: session.screenSize ?? presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return "prefer: \(error)" }
+            do { next.rects = try Segments.even(viewport: session.screenSize ?? presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return ["error": "prefer: \(error)"] }
         }
-        return session.segments(next).map { "prefer: \($0)" }
+        return session.segments(next).map { ["error": "prefer: \($0)"] }
     }
 
     /// `tap <list> into <key>` (LLP 1070.000 §5): the runner's request on a
     /// mounted list, committed, then settled as `clock settle` settles it.
     func intoView(_ req: [String: Any], _ into: [String: Any]) -> [String: Any] {
+        for name in ["block", "inline"] {
+            if let alignment = into[name], !["start", "center", "end", "nearest"].contains(alignment as? String ?? "") {
+                // A string as it is, anything else as its JSON, as the web hosts and Linux print it.
+                let shown = alignment as? String ?? (try? JSONSerialization.data(withJSONObject: alignment, options: .fragmentsAllowed))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "\(alignment)"
+                return ["error": "no alignment \(shown): start, center, end or nearest", "malformed": true]
+            }
+        }
         guard let v = view(req) else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let key = into["key"] as? String ?? (into["key"].map { "\($0)" } ?? "")
-        session.apply(session.runtime.intoView(v.id, key: key, block: into["block"] as? String ?? "start",
-                                               inline: into["inline"] as? String ?? "nearest"))
+        let batch = session.runtime.intoView(v.id, key: key, block: into["block"] as? String ?? "start",
+                                             inline: into["inline"] as? String ?? "nearest")
+        session.apply(batch)
+        if let error = batch.error { return ["error": error] }
         presenter.settlePump()
         return ["tapped": Int(v.id), "into": into]
     }
@@ -614,9 +709,12 @@ public final class Agent {
         waitForImages()
         var target = req["to"] as? Double
         if settle { target = max(from, self.settle() ?? from) }
-        guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
+        guard var to = target, to.isFinite else { return ["malformed": true, "error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
+        #if os(iOS) || os(tvOS)
+        var wallDeadline: Date?, scrollDeadline: Date?
+        #endif
         var world = WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
@@ -654,7 +752,20 @@ public final class Agent {
             // (a store's, a worker's, the network's): the reply names how much,
             // as the web hosts' do (calendar F10, workout F6).
             guard settle else {
+                #if os(iOS) || os(tvOS)
+                // The app's own native motion on the wall clock has as long as
+                // the whole jump (`jump`: the driver's seek in steps), up to
+                // 1.5 s, once: after its last step (`step` marks the others);
+                // still running then, the reply says so.
+                var runsOn = false
+                if req["step"] as? Bool != true {
+                    let jump = req["jump"] as? Double ?? landed - from
+                    runsOn = !awaitWallMotion(until: Date(timeIntervalSinceNow: min(1.5, max(0, jump) / 1000)))
+                }
+                var out = runsOn ? reply(landed, false, reason: "motion") : reply(landed)
+                #else
                 var out = reply(landed)
+                #endif
                 let inflight = pendingCount()
                 if inflight > 0 { out["inflight"] = inflight }
                 // The module's background storage still to land (LLP 1097 D9).
@@ -679,6 +790,25 @@ public final class Agent {
                 continue
             }
             if next <= landed && !world.pending {
+                #if os(iOS) || os(tvOS)
+                // The app's own native motion on the wall clock ends first,
+                // within 1.5 s for the whole call, or the call is not settled;
+                // what its completion starts is checked below.
+                var wallUntil = wallDeadline ?? Date(timeIntervalSinceNow: 1.5)
+                wallDeadline = wallUntil
+                // …and a scroll view a finger left moving, within 4 s for the
+                // whole call; what its glide's end starts is the app's motion
+                // again, with its own 1.5 s.
+                let scrollUntil = scrollDeadline ?? Date(timeIntervalSinceNow: 4)
+                scrollDeadline = scrollUntil
+                while true {
+                    if !awaitWallMotion(until: wallUntil) { return reply(landed, false, reason: "motion") }
+                    guard let glided = awaitScrollRest(until: scrollUntil) else { return reply(landed, false, reason: "scroll") }
+                    if !glided { break }
+                    wallUntil = Date(timeIntervalSinceNow: 1.5)
+                    wallDeadline = wallUntil
+                }
+                #endif
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn
                 // after work finishes, including work created by that completion.
@@ -726,9 +856,11 @@ public final class Agent {
     /// closed has been presented or dismissed (`awaitModalTransitions`,
     /// LLP 1035.003 D5); past the bound it says so, as `clock settle` does
     /// (`settled: false`, `reason: "transition"`). An error reply is as it
-    /// was; platform timing leaves the wait to `clock settle`.
+    /// was; platform timing leaves the wait to `clock settle`, but for a
+    /// chosen alert button's press, which still lands before the reply.
     func completingInput(_ reply: [String: Any]) -> [String: Any] {
-        guard ExactEnv.agentFreezes, reply["error"] == nil, !awaitModalTransitions() else { return reply }
+        let settled = reply["error"] != nil || (ExactEnv.agentFreezes ? awaitModalTransitions() : awaitChosenPress())
+        guard !settled else { return reply }
         var out = reply
         out["settled"] = false
         out["reason"] = "transition"
@@ -897,7 +1029,23 @@ public extension ExactEnv {
     /// sees them, their items pressing the authored controls they stand for.
     /// The default paints the authored header and tablist in their place.
     static let agentChrome = environment["EXACT_AGENT_CHROME"] ?? "agent"
+    /// Whether a driver can reach this launch. On iOS it is named by
+    /// `EXACT_AGENT_SOCKET` or `EXACT_AGENT_CONNECT` (`Agent.startSocket`);
+    /// the Mac's driver owns stdio. An iOS launch with `EXACT_AGENT=1` and
+    /// neither, as a grader's `simctl launch` arming only the fault table
+    /// (`EXACT_AGENT_FAIL_FETCH`) is, has no driver to read painted chrome:
+    /// it shows what a person sees.
+    #if os(iOS) || os(tvOS)
+    static let agentDriven = agentMode && (environment["EXACT_AGENT_SOCKET"] != nil || environment["EXACT_AGENT_CONNECT"] != nil)
+    #else
+    static let agentDriven = agentMode
+    #endif
     /// Whether the authored header and tablist paint instead of UIKit's
     /// bars: the agent's default chrome.
-    static let authoredChrome = agentMode && agentChrome != "platform"
+    static let authoredChrome = agentDriven && agentChrome != "platform"
+    /// Whether the agent paints the popovers a person sees as UIKit's
+    /// menus (LLP 1021 D4). `EXACT_AGENT_PRESENTATION=native`, which
+    /// `--touch platform` launches with (LLP 1080.000 D7), shows UIKit's:
+    /// a real touch opens one and picks its item.
+    static let agentPaints = agentDriven && environment["EXACT_AGENT_PRESENTATION"] != "native"
 }

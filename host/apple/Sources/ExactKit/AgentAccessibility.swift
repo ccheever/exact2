@@ -62,17 +62,12 @@ extension Agent {
         return Presenter.axBounded(tagged(["ax": ax]))
     }
 
-    /// The session's own surfaces (D3): its view, a presentation holding its
-    /// viewport, and on macOS a sheet attached to its window.
+    /// The session's own surfaces (D3): its view, each presentation that
+    /// mounts a route beside it, and on macOS a sheet attached to its window.
     private func axRoots(_ view: ExactView) -> [AnyObject] {
         var roots: [AnyObject] = [view]
         #if os(iOS) || os(tvOS)
-        // A modal layer moves the viewport into a presented controller (ModalIOS).
-        var v: UIView? = presenter.viewport
-        while let s = v?.superview, !(s is UIWindow) { v = s }
-        if let top = v, top !== view, !view.isDescendant(of: top), !top.isDescendant(of: view) { roots.append(top) }
-        // A `dialog` in its sheet is outside both (DialogSheetIOS.swift).
-        roots += presenter.menus.sheets.roots
+        roots = presenter.accessibilitySurfaces
         #else
         // A dialog's sheet, the sheets on it, and the popovers AppKit shows (LLP 1115.002 D7).
         for sheet in presenter.sheets(on: view.window) { if case .owned(let content) = presenter.axSheet(sheet) { roots.append(content) } }
@@ -463,7 +458,7 @@ extension Presenter {
             let vp = viewport
             if let window = vp.window {
                 let r = vp.convert(frame, from: window.screen.coordinateSpace)
-                e["frame"] = ["x": round2(r.minX - vp.contentOffset.x), "y": round2(r.minY - vp.contentOffset.y), "w": round2(r.width), "h": round2(r.height), "source": "element"]
+                e["frame"] = ["x": round2(r.minX - vp.pageOrigin.x), "y": round2(r.minY - vp.pageOrigin.y), "w": round2(r.width), "h": round2(r.height), "source": "element"]
             }
         }
         #else
@@ -489,9 +484,10 @@ extension Presenter {
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
                       "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
                       "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXImage": "image", "AXList": "list",
-                      // A live-region or dialog role is a group by its subrole, as WebKit serves one.
+                      "AXMenu": "menu", "AXMenuBar": "menubar", "AXMenuItem": "menuitem",
+                      // A live-region, dialog or region role is a group by its subrole, as WebKit serves one.
                       "AXGroup": ["AXApplicationStatus": "status", "AXApplicationAlert": "alert", "AXApplicationDialog": "dialog",
-                                  "AXApplicationAlertDialog": "alertdialog"][f.subrole ?? ""] ?? "group",
+                                  "AXApplicationAlertDialog": "alertdialog", "AXLandmarkRegion": "region"][f.subrole ?? ""] ?? "group",
                       "AXBusyIndicator": "progressbar", "AXProgressIndicator": "progressbar",
                       "AXLevelIndicator": "meter", "AXScrollBar": "scrollbar", "AXIncrementor": "spinbutton"][r]
         e["role"] = forced ?? mapped ?? r
@@ -573,7 +569,10 @@ extension Presenter {
             if view == nil, let e = obj as? UIAccessibilityElement { view = e.accessibilityContainer as? UIView }
             // A container holding the modal view is around it, not beside it.
             guard let view, !modal.isDescendant(of: view) else { continue }
-            w.elements[k]["outsideModal"] = !(view === modal || view.isDescendant(of: modal))
+            // A lifted subtree can be beside the modal's card while still authored inside it.
+            let inside = surface(containing: view)?.kind == .popover
+                && sequence(first: view, next: { self.listenerParent(of: $0) }).contains { $0 === modal }
+            w.elements[k]["outsideModal"] = !(view === modal || view.isDescendant(of: modal) || inside)
         }
     }
     #endif

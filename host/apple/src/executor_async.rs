@@ -409,10 +409,6 @@ impl Machine {
                         break starts;
                     }
                     state = self.shared.ready.wait(state).unwrap();
-                    #[cfg(test)]
-                    self.shared
-                        .wakes
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             };
             for (run, start) in starts {
@@ -741,6 +737,10 @@ impl Machine {
             if let Some(after) = after {
                 after(&self);
             }
+            #[cfg(test)]
+            self.shared
+                .worker_notifications
+                .fetch_add(1, Ordering::Relaxed);
             self.shared.ready.notify_all();
         }
     }

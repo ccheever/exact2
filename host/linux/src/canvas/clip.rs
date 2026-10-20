@@ -89,6 +89,50 @@ impl Clip {
 }
 
 impl Recorder {
+    pub(super) fn native_element(
+        &mut self,
+        id: ViewId,
+        kind: crate::paint::NativeKind,
+        shape: &Shape,
+        ts: Transform,
+        props: &str,
+        direct: bool,
+    ) {
+        let bounds = map(shape.rect, ts);
+        if self.culled(bounds) {
+            return;
+        }
+        self.need(bounds);
+        self.transform(ts);
+        if kind == crate::paint::NativeKind::Surface {
+            self.direct.surfaces += 1;
+            let full = bounds.is_some_and(|(x, y, w, h)| {
+                x.abs() < EPS
+                    && y.abs() < EPS
+                    && (w - self.direct.size.0).abs() < EPS
+                    && (h - self.direct.size.1).abs() < EPS
+            });
+            if direct
+                && full
+                && ts == Transform::identity()
+                && self.direct.isolation == 0
+                && self.row.is_none()
+                && self.group.is_none()
+                && self.layers.unlayered()
+                && self.slot.is_none()
+                && self.again.is_none()
+                && self.clips.iter().all(|c| !c.emitted)
+                && shape.radii.iter().all(|r| *r == (0.0, 0.0))
+                && shape.corners.is_none()
+            {
+                self.direct.at = Some(self.ops.len());
+            }
+        }
+        self.ops.extend([NATIVE, id, kind as u32]);
+        self.rect_radii(shape);
+        self.string(props);
+    }
+
     pub(super) fn clip_push(&mut self, s: &Shape, ts: Transform) {
         let page = map(s.rect, ts).map(|r| {
             let (sx, sy, _, _) = axis(ts).expect("mapped");
@@ -223,5 +267,111 @@ impl Recorder {
             self.f(y);
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod direct_tests {
+    use super::*;
+    use crate::paint::NativeKind;
+
+    fn surface(r: &mut Recorder, shape: &Shape, ts: Transform, opaque_sdr: bool) {
+        r.native(91, NativeKind::Surface, shape, ts, "{}", opaque_sdr);
+    }
+    fn direct(r: &mut Recorder) -> bool {
+        r.finish().unwrap();
+        let ops = FINISHED.with(|f| f.borrow_mut().take().unwrap());
+        let mut at = 0;
+        while at < ops.len() {
+            if ops[at] == NATIVE {
+                return ops[at + 2] & 256 != 0;
+            }
+            at = super::super::stream::end(&ops, at).unwrap();
+        }
+        false
+    }
+
+    #[test]
+    fn direct_presentation_requires_an_unisolated_full_viewport_canvas() {
+        let ts = Transform::identity();
+        let full = Shape::rect((0., 0., 400., 800.));
+        for case in 0..11 {
+            let mut r = Recorder::new();
+            r.begin(400., 800., 2.75);
+            match case {
+                1 => r.push_opacity(1.0),
+                2 => r.push_opacity(0.5),
+                3 => r.push_mask(&full, ts),
+                4 => r.push_clip(&Shape::new(full.rect, [10.; 4]), ts),
+                5 => r.group_begin(7, (0., 0.)),
+                6 => {
+                    r.layer_begin(7, ts, (0., 0.), [0., 0., 1., 0., 1., 0., 0.]);
+                }
+                _ => (),
+            }
+            let shape = match case {
+                7 => Shape::rect((0., 0., 320., 800.)),
+                8 => Shape::new(full.rect, [10.; 4]),
+                _ => full,
+            };
+            surface(&mut r, &shape, ts, case != 9);
+            if case == 10 {
+                surface(&mut r, &full, ts, true);
+            }
+            match case {
+                1..=3 => r.pop_opacity(),
+                4 => r.pop_clip(),
+                5 => r.group_end(),
+                6 => r.layer_end(),
+                _ => (),
+            }
+            assert_eq!(direct(&mut r), case == 0, "case {case}");
+        }
+        let mut r = Recorder::new();
+        r.begin(400., 800., 1.);
+        surface(&mut r, &full, ts, true);
+        assert!(direct(&mut r));
+        // A rotated/split window is qualified against this paint's dimensions.
+        r.begin(800., 400., 1.);
+        surface(&mut r, &full, ts, true);
+        assert!(!direct(&mut r));
+        r.begin(800., 400., 1.);
+        surface(&mut r, &Shape::rect((0., 0., 800., 400.)), ts, true);
+        assert!(direct(&mut r));
+        r.begin(800., 400., 1.);
+        surface(
+            &mut r,
+            &Shape::rect((-10., 0., 800., 400.)),
+            Transform::from_translate(10., 0.),
+            true,
+        );
+        assert!(!direct(&mut r));
+    }
+
+    #[test]
+    fn retained_rows_only_forbid_direct_presentation_when_their_body_needs_world() {
+        use exact_kernel::style::{BackdropFilter, BackdropOp};
+        for backdrop in [false, true] {
+            let mut r = Recorder::new();
+            let ts = Transform::identity();
+            let full = Shape::rect((0., 0., 400., 800.));
+            r.begin(400., 800., 1.);
+            r.row_begin(2, (0., 0.), None);
+            if backdrop {
+                r.backdrop_filter(&full, &BackdropFilter(vec![BackdropOp::Blur(2.)]), ts);
+            } else {
+                r.fill(&full, [255, 0, 0, 255], ts);
+            }
+            r.row_end(full.rect);
+            r.finish().unwrap();
+            r.begin(400., 800., 1.);
+            surface(&mut r, &full, ts, true);
+            r.row_draw(2, (0., 0.), full.rect);
+            assert_eq!(direct(&mut r), !backdrop);
+            r.row_free(2);
+            r.begin(400., 800., 1.);
+            surface(&mut r, &full, ts, true);
+            assert!(direct(&mut r));
+        }
     }
 }

@@ -132,8 +132,8 @@ fn error_json(error: &DataError) -> Json {
         DataError::DeferredAtBake(m) => ("DeferredAtBake", m),
         DataError::Unavailable(m) | DataError::Interface(m) => ("Unavailable", m),
         // Its class travels with it (LLP 1109 D3).
-        DataError::Failed(code, m) => {
-            return json!({"kind": "Failed", "code": code.name(), "message": m});
+        DataError::Failed(code, m, reason) => {
+            return json!({"kind": "Failed", "code": code.name(), "message": m, "reason": reason});
         }
     };
     json!({"kind": kind, "message": message})
@@ -146,7 +146,10 @@ fn error_from(error: &Json) -> DataError {
         Some("BadArguments") => DataError::BadArguments(message),
         Some("DeferredAtBake") => DataError::DeferredAtBake(message),
         Some("Failed") => match error["code"].as_str().and_then(FailureCode::from_name) {
-            Some(code) => DataError::Failed(code, message),
+            Some(code) => {
+                let reason = error["reason"].as_str().unwrap_or("").to_string();
+                DataError::Failed(code, message, reason)
+            }
             None => DataError::Unavailable(message),
         },
         _ => DataError::Unavailable(message),
@@ -213,6 +216,9 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         headers,
         body: json["body"].as_str().and_then(unbase64).unwrap_or_default(),
         stream: json["stream"].as_bool().unwrap_or(false),
+        // A worker's stream only listens: its handle is the main thread's
+        // (LLP 1016.000 D7, worker-placed streams).
+        socket: false,
         timeout_ms: match &json["timeout_ms"] {
             Json::Null => None,
             value => Some(

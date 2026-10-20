@@ -601,11 +601,7 @@ fn query_selector_all_excludes_closed_top_layer_and_native_split_list() {
     r.act("probe", vec![]).unwrap();
     assert_eq!(
         r.slot("hits"),
-        Some(&Value::list(vec![
-            Value::str("detail"),
-            Value::str("closed-menu-item"),
-            Value::str("closed-dialog-item")
-        ]))
+        Some(&Value::list(vec![Value::str("closed-dialog-item")]))
     );
 }
 
@@ -711,14 +707,17 @@ fn top_layer_uses_presented_frames_and_stack_order() {
     };
     let back = view("back");
     let front = view("front");
-    r.top_layer_frames(&[
-        (back, [120.0, 10.0, 50.0, 50.0]),
-        (front, [120.0, 10.0, 50.0, 50.0]),
-    ]);
+    r.top_layer_frames(
+        &[
+            (back, [120.0, 10.0, 50.0, 50.0]),
+            (front, [120.0, 10.0, 50.0, 50.0]),
+        ],
+        None,
+    );
     r.act("probe", vec![]).unwrap();
     assert_eq!(
         r.slot("hits"),
-        Some(&Value::list(vec![Value::str("front"), Value::str("back")]))
+        Some(&Value::list(vec![Value::str("front")]))
     );
     assert_eq!(r.slot("left"), Some(&Value::Number(120.0)));
 }
@@ -962,5 +961,37 @@ fn intersect_compiles_and_dispatches_its_entry_after_authored_arguments() {
     assert!(
         error.id.starts_with("type") || error.id.starts_with("analyze"),
         "{error:?}"
+    );
+}
+
+/// The euxy port read `measure("root").height` to size its sheets and got 0:
+/// `measure` is the border box at `height: auto` with every other style
+/// kept, and a bare root whose children are all absolutely positioned (its
+/// routes) has no content in flow, no padding and no `min-height`. With
+/// padding it is the padding; `frame` is the laid-out box. A mount task's timer, fired after the
+/// host's first layout as on a native host, reads both.
+#[test]
+fn measure_is_the_border_box_at_auto_height_and_frame_the_laid_out_box() {
+    let read = |root: &str| {
+        let src = format!("component App\n  state natural = -1\n  state drawn = -1\n  state answered = false\n  task boot mount\n    after(1, read)\n  action read\n    natural = measure(\"root\").height\n    drawn = frame(\"root\").height\n    answered = not measure(\"root\").unavailable\n  view\n    main id=\"root\" height=\"100%\"{root}\n      column position=\"absolute\" inset=0\n        text \"route\"\n");
+        let mut r = Runner::boot(
+            contract::compile(&src).unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        lay_out(&mut r);
+        r.advance(1.0).unwrap();
+        assert!(flag(&r, "answered"), "{root}");
+        (num(&r, "natural"), num(&r, "drawn"))
+    };
+    assert_eq!(read(""), (0.0, 800.0));
+    assert_eq!(read(" padding=16"), (32.0, 832.0), "its padding counts");
+    assert_eq!(
+        read(" min-height=100"),
+        (100.0, 800.0),
+        "its min-height holds"
     );
 }

@@ -241,8 +241,9 @@ fn state_says_why_a_resource_failed_until_it_answers() {
 }
 
 /// A source that lets a failed fetch through, as a TypeScript module that
-/// does not catch it (js/src/prelude.js `fail`), throws on `/boom`, and
-/// answers wider than its shape on `/wide`.
+/// does not catch it (js/src/prelude.js `fail`), throws on `/boom`, throws
+/// a Snapback refusal naming its reason on `/full` (the snapback4 driver's
+/// `refused`), and answers wider than its shape on `/wide`.
 struct Through;
 impl DataSource for Through {
     fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -262,13 +263,24 @@ impl DataSource for Through {
     ) -> Result<Answer, DataError> {
         let body = match outcome {
             Outcome::Failed { kind, message } => {
-                return Err(DataError::Failed(FailureCode::of_kind(kind), message))
+                return Err(DataError::Failed(
+                    FailureCode::of_kind(kind),
+                    message,
+                    String::new(),
+                ))
             }
             Outcome::Response(r) => String::from_utf8_lossy(&r.body).into_owned(),
             other => format!("{other:?}"),
         };
         if body.ends_with("/boom") {
             return Err(DataError::Unavailable("the source threw".into()));
+        }
+        if body.ends_with("/full") {
+            return Err(FailureCode::seam_error(
+                Some("error"),
+                "SLOT_FULL: the slot is taken".into(),
+                Some("SLOT_FULL"),
+            ));
         }
         let mut fields = vec![Value::str(&body)];
         if body.ends_with("/wide") {
@@ -278,12 +290,13 @@ impl DataSource for Through {
     }
 }
 
-const WHY: &str = "shape Line\n  text: string\ncomponent App\n  resource a = through(\"https://api.test/a\") as shape Line\n  resource b = through(\"https://api.test/boom\") as shape Line\n  resource c = through(\"https://api.test/wide\") as shape Line\n  derive why = match failure(a) { case some(f) => `${f.code}: ${f.message}`, case none => \"ok\" }\n  view\n    column\n      text why testId=\"a\"\n      text (match failure(b) { case some(f) => f.code, case none => \"ok\" }) testId=\"b\"\n      text (match failure(c) { case some(f) => f.code, case none => \"ok\" }) testId=\"c\"\n";
+const WHY: &str = "shape Line\n  text: string\ncomponent App\n  resource a = through(\"https://api.test/a\") as shape Line\n  resource b = through(\"https://api.test/boom\") as shape Line\n  resource c = through(\"https://api.test/wide\") as shape Line\n  resource d = through(\"https://api.test/full\") as shape Line\n  derive why = match failure(a) { case some(f) => `${f.code}: ${f.message} [${f.reason}]`, case none => \"ok\" }\n  view\n    column\n      text why testId=\"a\"\n      text (match failure(b) { case some(f) => f.code, case none => \"ok\" }) testId=\"b\"\n      text (match failure(c) { case some(f) => f.code, case none => \"ok\" }) testId=\"c\"\n      text (match failure(d) { case some(f) => f.reason == \"SLOT_FULL\" ? `full ${f.code}` : f.reason, case none => \"ok\" }) testId=\"d\"\n";
 
 #[test]
 fn failure_names_each_class_and_says_why() {
-    // LLP 1109 D3: `failure(x)` is `none` until `x` fails, then its code
-    // and the message `state.failed` shows.
+    // LLP 1109 D3: `failure(x)` is `none` until `x` fails, then its code,
+    // the message `state.failed` shows and the reason its error named
+    // (empty unless it named one: the author's ruling of 2026-10-12).
     let mut r = Runner::boot(
         contract::compile(WHY).unwrap(),
         Through,
@@ -318,10 +331,15 @@ fn failure_names_each_class_and_says_why() {
     }
     assert_eq!(
         text(&r, "a"),
-        "offline: fetch failed (driver fault): https://api.test/a"
+        "offline: fetch failed (driver fault): https://api.test/a []"
     );
     assert_eq!(text(&r, "b"), "error");
     assert_eq!(text(&r, "c"), "shape");
+    assert_eq!(
+        text(&r, "d"),
+        "full SLOT_FULL",
+        "a domain refusal is the exposed failure code"
+    );
     let state = agent::handle(&r, r#"{"op":"state"}"#);
     assert!(
         state.contains("\"a\":\"fetch failed (driver fault): https://api.test/a\""),

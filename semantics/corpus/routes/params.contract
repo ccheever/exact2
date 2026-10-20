@@ -19,6 +19,7 @@ component App
   derive q = searchParam(current, "q")
   derive tag = searchParam(current, "tag")
   derive missing = searchParam(current, "nope")
+  derive bom = searchParam(current, "\uFEFFkey")
   action pushItem
     nav = push(nav, path("item", text))
   action pushNumber
@@ -40,15 +41,18 @@ component App
       text `${current.params.id}|${current.params.part}` testId="params"
       text ids.join(",") testId="ids"
       text `${q}|${tag}|${missing}` testId="query"
+      text bom testId="bom-query"
       text path("part", "x y", 3) testId="path"
       button "x" press=pushItem testId="push-item"
       button "x" press=pushNumber testId="push-number"
       button "x" press=pushEmpty testId="push-empty"
       button "x" press=pushDot testId="push-dot"
       button "x" press=set("ünï €") testId="set-unicode"
+      button "x" press=set("\uFEFFbom") testId="set-bom"
       button "x" press=set(".") testId="set-dot"
       button "x" press=set("...") testId="set-dots"
       button "x" press=open("/item/1/part/2?q=a+b%20c&tag=x&q=second#frag") testId="open-query"
+      button "x" press=open("/find?%EF%BB%BFkey=%EF%BB%BFvalue&key=plain") testId="open-bom-query"
       button "x" press=open("item/%7e/./../9/part/%E2%82%AC") testId="open-dots"
       button "x" press=push("/item\\b") testId="push-backslash"
       button "x" press=push("/item/x/") testId="push-trailing"
@@ -73,6 +77,17 @@ test "empty and dot-only parameters are refused"
   tap "push-item"
   tap "set-dots"
   tap "push-item"
+
+test "a leading BOM is path parameter data"
+  tap "set-bom"
+  tap "push-item"
+  expect text "url" == "/item/%EF%BB%BFbom"
+  expect text "params" == "\uFEFFbom|"
+  expect text "ids" == "\uFEFFbom"
+
+test "leading BOMs are query key and value data"
+  tap "open-bom-query"
+  expect text "bom-query" == "\uFEFFvalue"
 
 test "queries and canonical locations"
   tap "open-query"

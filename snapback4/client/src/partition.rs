@@ -53,7 +53,9 @@ pub fn guard(request: &Json, viewer: &str) -> Result<(), String> {
     if op == "set_meta" && matches!(request["key"].as_str(), Some(PARTITION | DEVICE)) {
         return Err("Snapback4 partition and device identities are immutable".into());
     }
-    if matches!(op, "admit" | "enqueue") && request["entry"]["viewer"].as_str() != Some(viewer) {
+    if matches!(op, "admit" | "admit_upload" | "enqueue")
+        && request["entry"]["viewer"].as_str() != Some(viewer)
+    {
         return Err("Snapback4 viewer differs from the opened partition".into());
     }
     Ok(())
@@ -70,4 +72,21 @@ pub fn valid_path(path: &str) -> bool {
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b"._-%".contains(&b))
     })
+}
+
+#[cfg(test)]
+mod upload_guard {
+    #[test]
+    fn upload_admission_cannot_claim_another_partition_viewer() {
+        assert!(super::guard(
+            &serde_json::json!({"op":"admit_upload","entry":{"viewer":"dev:bob"}}),
+            "dev:alice"
+        )
+        .is_err());
+        assert!(super::guard(
+            &serde_json::json!({"op":"admit_upload","entry":{"viewer":"dev:alice"}}),
+            "dev:alice"
+        )
+        .is_ok());
+    }
 }

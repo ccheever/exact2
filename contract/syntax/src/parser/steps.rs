@@ -3,7 +3,8 @@
 use super::*;
 
 impl Parser {
-    /// `font "Name" = "path.ttf"`, or a block of `weight [italic] = path`.
+    /// `font "Name" = "path.ttf"`, or a block of `weight [weight] [italic] =
+    /// path`: one weight, or a variable face's range of them.
     pub(super) fn font_decl(&mut self) -> R<FontDecl> {
         let span = self.expect_word("font")?;
         let name_span = self.peek().span;
@@ -15,7 +16,7 @@ impl Parser {
             return Ok(FontDecl {
                 name,
                 faces: vec![FontFaceDecl {
-                    weight: 400,
+                    weight: None,
                     italic: false,
                     source,
                     span,
@@ -26,6 +27,16 @@ impl Parser {
         self.newline()?;
         let faces = self.block(|p| {
             let token = p.next();
+            let weight = |n: f64, span| {
+                if n.fract() != 0.0 || !(1.0..=1000.0).contains(&n) {
+                    return Err(SyntaxError {
+                        id: "syntax-font-weight",
+                        message: format!("font face weight `{n}` is not a whole number from 1 to 1000"),
+                        span,
+                    });
+                }
+                Ok(n as u16)
+            };
             let TokenKind::Number(n) = token.kind else {
                 return Err(SyntaxError {
                     id: "syntax-font-weight",
@@ -33,13 +44,22 @@ impl Parser {
                     span: token.span,
                 });
             };
-            if n.fract() != 0.0 || !(1.0..=1000.0).contains(&n) {
-                return Err(SyntaxError {
-                    id: "syntax-font-weight",
-                    message: format!("font face weight `{n}` is not a whole number from 1 to 1000"),
-                    span: token.span,
-                });
-            }
+            let low = weight(n, token.span)?;
+            let high = match p.peek_kind().clone() {
+                TokenKind::Number(n) => {
+                    let span = p.next().span;
+                    let high = weight(n, span)?;
+                    if high < low {
+                        return Err(SyntaxError {
+                            id: "syntax-font-weight",
+                            message: format!("font face weight range `{low} {high}` runs backwards; write the lighter weight first"),
+                            span,
+                        });
+                    }
+                    high
+                }
+                _ => low,
+            };
             let italic = if p.at_ident("italic") {
                 p.next();
                 true
@@ -50,7 +70,7 @@ impl Parser {
             let source = p.str_lit("a TTF or OTF source path")?;
             p.newline()?;
             Ok(FontFaceDecl {
-                weight: n as u16,
+                weight: Some([low, high]),
                 italic,
                 source,
                 span: token.span,
@@ -305,7 +325,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `fail fetch`, `pass fetch`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`, `fail fetch`), found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `fail fetch`, `pass fetch`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `fresh`, `before data`, `fail fetch`), found {}",
                     describe(&other)
                 ),
                 )
@@ -313,6 +333,8 @@ impl Parser {
         };
         self.next();
         let step = match word.as_str() {
+            "tap" if self.at_ident("midi") => return self.tap_midi(span),
+            "prefer" => return self.prefer_midi(span),
             "tap" => {
                 let target = self.str_lit("a testId")?;
                 if self.at_ident("drag") {
@@ -656,6 +678,15 @@ impl Parser {
                 }
                 Step::Seed { seed, span }
             }
+            // @ref LLP 1086 D13 — `fresh ["seed.json"]`: the Snapback dev
+            // server emptied (and seeded) before the test opens.
+            "fresh" => {
+                let seed = match self.peek_kind().clone() {
+                    TokenKind::Str(_) => Some(self.launch_str("fresh", "a seed file's path ([{\"table\", \"row\"}, …])")?),
+                    _ => None,
+                };
+                Step::Fresh { seed, span }
+            }
             // `before data`: the first step does not wait for the app's data.
             "before" => {
                 if !self.at_ident("data") {
@@ -725,13 +756,14 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `sound`, or `mediasession`, found {}",
+                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, or `mediasession`, found {}",
                                 describe(&other)
                             ),
                         )
                     }
                 };
                 match what.as_str() {
+                    "refusal" => Step::ExpectRefusal { target: self.str_lit("a mutation name")?, span },
                     "tree" => {
                         let present = if self.at_ident("has") {
                             self.next();
@@ -740,9 +772,28 @@ impl Parser {
                             self.next();
                             false
                         } else {
+                            // `lacks`, `contains`, `not has` (app farm waves 1 and 2): the rewrite, not only the forms.
+                            let found = match self.peek_kind() {
+                                TokenKind::Ident(w) => w.clone(),
+                                _ => String::new(),
+                            };
+                            let hint = match found.as_str() {
+                                "lacks" | "not" | "absent" | "excludes" | "hasnt" | "without" => {
+                                    "; for a node that is not there, write `expect tree missing \"<testId>\"`"
+                                }
+                                "contains" | "includes" | "shows" => {
+                                    "; it matches a testId only: for a node's text, write `expect text \"<testId>\" == \"the whole text\"`"
+                                }
+                                _ => "",
+                            };
+                            let not = if found.is_empty() {
+                                String::new()
+                            } else {
+                                format!(", not `{found}`")
+                            };
                             return self.err(
                                 "syntax-expected-step",
-                                "`expect tree` takes `has \"testId\"` or `missing \"testId\"`",
+                                format!("`expect tree` takes `has \"testId\"` or `missing \"testId\"`{not}{hint}"),
                             );
                         };
                         let target = self.str_lit("a testId")?;
@@ -763,6 +814,17 @@ impl Parser {
                     }
                     "text" => {
                         let target = self.str_lit("a testId")?;
+                        let other = match self.peek_kind() {
+                            TokenKind::Ident(w) if ["contains", "includes", "has", "matches", "startsWith"].contains(&w.as_str()) => Some(w.clone()),
+                            TokenKind::Punct(p) if *p != "==" => Some(p.to_string()),
+                            _ => None,
+                        };
+                        if let Some(other) = other {
+                            return self.err(
+                                "syntax-expected-step",
+                                format!("`expect text` compares the whole text with `==`, not `{other}`: the node's text, else its descendants' joined (a row's buttons' labels included). Give the part you mean its own node and testId, and write `expect text \"<that testId>\" == \"its whole text\"`"),
+                            );
+                        }
                         self.expect_punct("==")?;
                         let value = self.str_lit("the text")?;
                         Step::ExpectText {
@@ -772,6 +834,7 @@ impl Parser {
                         }
                     }
                     "sound" => self.expect_sound(span)?,
+                    "midi" => self.expect_midi(span)?,
                     "mediasession" => self.expect_media_session(span)?,
                     "state" => {
                         let (mut name, _) = self.ident()?;
@@ -830,7 +893,7 @@ impl Parser {
                         };
                         return self.err(
                             "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `sound`, or `mediasession`, not `{other}`{hint}"),
+                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, or `mediasession`, not `{other}`{hint}"),
                         );
                     }
                 }
@@ -839,7 +902,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found `{other}`"
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `fresh`, `before data`), found `{other}`"
                 ),
                     span,
                 })
@@ -880,12 +943,13 @@ fn during_read(op: &str) -> bool {
 
 /// The words of a test's launch lines, which a test file may also write at
 /// its top level for every test in it (habits F7, calendar F13).
-pub(super) const LAUNCH: [&str; 7] = [
+pub(super) const LAUNCH: [&str; 8] = [
     "size",
     "epoch",
     "time-zone",
     "locale",
     "seed",
+    "fresh",
     "before",
     "fail",
 ];
@@ -898,6 +962,7 @@ pub(super) fn launch_word(step: &Step) -> &'static str {
         Step::TimeZone { .. } => "time-zone",
         Step::Locale { .. } => "locale",
         Step::Seed { .. } => "seed",
+        Step::Fresh { .. } => "fresh",
         Step::BeforeData { .. } => "before data",
         Step::FailFetch { .. } => "fail fetch",
         _ => "",

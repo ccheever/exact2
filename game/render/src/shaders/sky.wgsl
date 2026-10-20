@@ -1,4 +1,6 @@
 @group(0) @binding(10) var sky_map: texture_2d<f32>;
+// Tonemapped in place for an LDR target, as forward.wgsl's DIRECT.
+override DIRECT: bool = false;
 @group(0) @binding(11) var sky_sampler: sampler;
 // environment.wgsl's equirectangular lookup: +Y the top row, -Z the centre
 // column, turned by the map's yaw.
@@ -27,15 +29,16 @@ struct SkyVarying {
     var color = environment(direction.y);
     if frame.sky.x > 0.0 { color = sky_texel(direction); }
     if frame.horizon_disc.w > 0.0 && frame.sun_direction_illuminance.w > 0.0 {
-        let cosine = dot(direction, normalize(-frame.sun_direction_illuminance.xyz));
+        let cosine = dot(direction, (-frame.sun_direction_illuminance.xyz));
         let angle = acos(clamp(cosine, -1.0, 1.0));
         let radius = frame.horizon_disc.w;
         let disc = 1.0 - smoothstep(radius * 0.85, radius * 1.15, angle);
         let glow = exp(-angle / (radius * 6.0)) * 0.12;
         color += frame.sun_color_count.xyz * frame.sun_direction_illuminance.w * (disc + glow);
     }
-    if frame.fog_color_density.w > 0.0 {
+    if frame.toon.y <= frame.toon.x && frame.fog_color_density.w > 0.0 {
         color = height_fog(color, frame.camera_alpha.xyz + direction * 10000.0);
     }
+    if DIRECT { return tonemap(color); }
     return vec4(color, 1.0);
 }

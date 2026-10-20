@@ -24,6 +24,6 @@ pub mod view;
 /// The wasm exports the web host's `markup-editor.js` calls.
 pub mod abi;
 
-pub use editor::{Change, Editor, Facts, Input, Outcome, Selected};
+pub use editor::{Change, Editor, Facts, Input, Outcome, Selected, SelectionMode};
 pub use projection::Deco;
 pub use view::Line;

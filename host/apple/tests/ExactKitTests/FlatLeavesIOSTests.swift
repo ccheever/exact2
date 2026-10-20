@@ -23,7 +23,7 @@ final class FlatLeavesIOSTests: XCTestCase {
         // the kernel sends rank 1 for every following sibling (rule b).
         let edit: [[String: Any]] = [
             ["op": "create", "id": 10_002, "kind": "view"],
-            ["op": "create", "id": 10_003, "kind": "view", "style": ["position_type": "relative"]],
+            ["op": "create", "id": 10_003, "kind": "view", "style": ["position_type": "relative"], "props": ["testId": "leak"]],
             ["op": "children", "id": 10_002, "ids": [10_003]],
             ["op": "children", "id": 1, "ids": [10_002] + ids],
             ["op": "rank", "id": 10_003, "rank": 1],
@@ -51,7 +51,7 @@ final class FlatLeavesIOSTests: XCTestCase {
     }
     /// A bar as the host sends one: its rows, and which of them its author
     /// wrote (LLP 1115.000 D2), which a leaf does not paint.
-    private func bar(_ id: Int, x: Double, color: [Int] = [0, 122, 255, 255]) -> [[String: Any]] {
+    private func bar(_ id: Int, x: Double, color: Any = [0, 122, 255, 255]) -> [[String: Any]] {
         [["op": "create", "id": id, "kind": "view",
           "style": ["width": 3.0, "height": 20.0, "background_color": color,
                     "border_radius_top_left": 1.5, "border_radius_top_right": 1.5,
@@ -82,6 +82,7 @@ final class FlatLeavesIOSTests: XCTestCase {
         XCTAssertTrue(a < m && m < b, "tree order: \(a) \(m) \(b)")
         let leaf = sub[a]
         XCTAssertEqual(leaf.cornerRadius, 1.5)
+        XCTAssertEqual(leaf.cornerCurve, .circular, "a view's curve, not a bare layer's continuous default")
         XCTAssertEqual(leaf.backgroundColor, UIColor(red: 0, green: 122 / 255, blue: 1, alpha: 1).cgColor)
         XCTAssertEqual(p.flats.observation["flatLeaves"] as? Int, 2)
     }
@@ -150,9 +151,10 @@ final class FlatLeavesIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "rank", "id": 3, "rank": 0]]))
         XCTAssertNil(p.views[3])
         XCTAssertEqual(p.flats.inspectionLayers(under: 1).first?.leaves, [2, 3, 4])
-        // Position is no longer an inert layout row, even before rank arrives.
-        p.apply(wireBatch([["op": "style", "id": 3, "style": ["position_type": "absolute"]],
-                          ["op": "rank", "id": 3, "rank": 1]]))
+        // A positioned leaf is not drawn straight in a view, even before rank arrives.
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["position_type": "absolute"]]]))
+        XCTAssertNotNil(p.views[3])
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 1]]))
         XCTAssertNotNil(p.views[3])
         p.apply(wireBatch([["op": "rank", "id": 3, "rank": 0],
                           ["op": "style", "id": 3, "style": ["position_type": "static"]]]))
@@ -259,9 +261,60 @@ final class FlatLeavesIOSTests: XCTestCase {
     func testPositionedOrInitiallyRankedLeavesStayViews() throws {
         let p = presenter(row() + [["op": "rank", "id": 2, "rank": -2]])
         XCTAssertNotNil(p.views[2]); XCTAssertFalse(p.flats.isFlat(2))
-        XCTAssertNil(FlatPaint(["position_type": "relative"]))
-        XCTAssertNil(FlatPaint(["position_type": "absolute"]))
-        XCTAssertNotNil(FlatPaint(["position_type": "static"]))
+        XCTAssertEqual(FlatPaint(["position_type": "relative"])?.positioned, true)
+        XCTAssertEqual(FlatPaint(["position_type": "absolute"])?.positioned, true)
+        XCTAssertEqual(FlatPaint(["position_type": "static"])?.positioned, false)
+        XCTAssertNil(FlatPaint(["position_type": "fixed"]))
+    }
+
+    func testALightDarkLeafPaintsInItsParentsAppearance() throws {
+        let light = [199, 199, 204, 255], dark = [72, 72, 74, 255]
+        let p = presenter([["op": "create", "id": 1, "kind": "view"]]
+            + bar(2, x: 0, color: [light, dark]) + bar(3, x: 5, color: [light, dark])
+            + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 20.0]])
+        XCTAssertTrue(p.flats.isFlat(2) && p.flats.isFlat(3))
+        let parent = try XCTUnwrap(p.views[1])
+        func fills() -> [CGColor?] { parent.layer.sublayers?.map(\.backgroundColor) ?? [] }
+        func color(_ c: [Int]) -> CGColor { UIColor(red: CGFloat(c[0]) / 255, green: CGFloat(c[1]) / 255, blue: CGFloat(c[2]) / 255, alpha: 1).cgColor }
+        XCTAssertFalse(parent.layer.sublayers?.contains { $0 is CAShapeLayer } ?? true, "each its own layer, as its view's")
+        XCTAssertEqual(fills(), [color(light), color(light)])
+        parent.overrideUserInterfaceStyle = .dark
+        parent.updateTraitsIfNeeded()
+        XCTAssertEqual(fills(), [color(dark), color(dark)], "the parent's appearance changed: they repaint")
+        XCTAssertNil(FlatPaint(["background_color": [[199, 199, 204, 255], [72, 72, 74, 255]], "color_scheme": "dark"]), "its own scheme needs a view")
+        XCTAssertNotNil(FlatPaint(["background_color": [199, 199, 204, 255], "color_scheme": "dark"]), "a fixed fill paints alike in either")
+    }
+
+    func testABoxHoldingAnAnimationIsNotMadeALayer() throws {
+        let fill: Any = [[255, 255, 255, 255], [0, 0, 0, 255]]
+        let p = presenter([["op": "create", "id": 1, "kind": "view"]] + bar(2, x: 0, color: fill)
+            + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 20.0]])
+        p.apply(wireBatch([["op": "animations", "id": 2, "specs": [["id": "fade#0#opacity", "k": "opacity", "s": 0.0, "dl": 0.0,
+            "d": 1.0, "n": 1.0, "t": [0.0, 1.0], "v": [1.0, 0.0], "c": [], "fill": 3.0]]]]))
+        let view = try XCTUnwrap(p.views[2], "an animation makes the leaf a view")
+        XCTAssertFalse(view.layer.animationKeys()?.isEmpty ?? true)
+        // A change that leaves it a plain box would make it a layer again.
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["width": 3.0, "height": 20.0, "background_color": fill,
+            "border_radius_top_left": 1.0, "border_radius_top_right": 1.0, "border_radius_bottom_right": 1.0, "border_radius_bottom_left": 1.0]]]))
+        XCTAssertTrue(p.views[2] === view && !p.flats.isFlat(2), "its animation keeps it the view it is")
+        XCTAssertFalse(view.layer.animationKeys()?.isEmpty ?? true, "still running")
+    }
+
+    func testALeafThatNeedsAViewInItsParentsAppearanceIsMountedInTheSameBatch() throws {
+        let p = presenter([["op": "create", "id": 1, "kind": "view"], ["op": "roots", "ids": [1]],
+                           ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 20.0]])
+        let parent = try XCTUnwrap(p.views[1])
+        parent.overrideUserInterfaceStyle = .dark
+        parent.updateTraitsIfNeeded()
+        // Clear in light, it paints nothing a layer cannot; red in dark, on
+        // corners of two sizes, it needs a view to draw.
+        p.apply(wireBatch([["op": "create", "id": 2, "kind": "view", "style": ["width": 20.0, "height": 20.0,
+            "background_color": [[0, 0, 0, 0], [255, 0, 0, 255]], "border_radius_top_left": 2.0, "border_radius_top_right": 6.0]],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 20.0, "h": 20.0], ["op": "children", "id": 1, "ids": [2]]]))
+        let view = try XCTUnwrap(p.views[2], "promoted in its parent's appearance")
+        XCTAssertTrue(view.superview === parent.container, "and mounted by the batch that made it")
     }
 
     func testFlatRunOccludesNegativeControlButNotItsGapsOrHigherRanks() throws {
@@ -281,6 +334,83 @@ final class FlatLeavesIOSTests: XCTestCase {
         XCTAssertTrue(parent.hitTest(CGPoint(x: 1, y: 10), with: nil) === control, "later equal rank wins")
         p.apply(wireBatch([["op": "children", "id": 1, "ids": [5, 2, 3]]]))
         XCTAssertTrue(parent.hitTest(CGPoint(x: 1, y: 10), with: nil) === parent)
+    }
+
+    /// A cell (2, positioned) holding a dot (3, with a glow) and a tick (4,
+    /// positioned), in a row (5) under a pressable strip (1), as a step
+    /// sequencer draws one.
+    private func strip() -> [[String: Any]] {
+        let glow: [String: Any] = ["o": [0.0, 0.0], "b": 9.0, "s": 1.0, "c": [[10, 10, 12, 140], [246, 244, 244, 140]]]
+        return [["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
+                ["op": "create", "id": 5, "kind": "view"],
+                ["op": "create", "id": 2, "kind": "view", "style": ["position_type": "relative", "background_color": [233, 232, 236, 255],
+                                                                     "border_radius_top_left": 4.0, "border_radius_top_right": 4.0,
+                                                                     "border_radius_bottom_right": 4.0, "border_radius_bottom_left": 4.0]],
+                ["op": "create", "id": 3, "kind": "view", "style": ["background_color": [0, 0, 0, 255], "box_shadow": [glow]]],
+                ["op": "create", "id": 4, "kind": "view", "style": ["position_type": "absolute", "background_color": [0, 0, 0, 217]]],
+                ["op": "children", "id": 2, "ids": [4, 3]], ["op": "children", "id": 5, "ids": [2]], ["op": "children", "id": 1, "ids": [5]],
+                ["op": "rank", "id": 2, "rank": 1], ["op": "rank", "id": 4, "rank": 1], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0],
+                ["op": "frame", "id": 5, "x": 0.0, "y": 10.0, "w": 100.0, "h": 22.0],
+                ["op": "frame", "id": 2, "x": 10.0, "y": 0.0, "w": 20.0, "h": 22.0],
+                ["op": "frame", "id": 3, "x": 6.0, "y": 2.0, "w": 7.0, "h": 7.0],
+                ["op": "frame", "id": 4, "x": 6.0, "y": 17.0, "w": 8.0, "h": 2.0]]
+    }
+
+    func testABoxOfFlatBoxesIsALayerTreeInItsView() throws {
+        let p = presenter(strip())
+        let strip = try XCTUnwrap(p.views[1])
+        XCTAssertTrue([2, 3, 4, 5].allSatisfy { p.views[UInt32($0)] == nil && p.flats.isFlat(UInt32($0)) })
+        XCTAssertTrue(strip.subviews.compactMap { $0 as? NodeView }.isEmpty)
+        let row = try XCTUnwrap(strip.layer.sublayers?.first { $0.flatHit != nil })
+        XCTAssertEqual(row.frame, CGRect(x: 0, y: 10, width: 100, height: 22))
+        let cell = try XCTUnwrap(row.sublayers?.first)
+        XCTAssertEqual(cell.frame, CGRect(x: 10, y: 0, width: 20, height: 22))
+        XCTAssertEqual(cell.cornerRadius, 4)
+        // The tick is ranked above the dot, which its tree order is not.
+        let kids = try XCTUnwrap(cell.sublayers)
+        XCTAssertEqual(kids.map(\.frame), [CGRect(x: 6, y: 2, width: 7, height: 7), CGRect(x: 6, y: 17, width: 8, height: 2)])
+        // The dot casts its glow as a view's caster does.
+        let caster = try XCTUnwrap(kids[0].sublayers?.first as? ShadowCaster)
+        XCTAssertEqual(caster.firstColor?.alpha ?? 0, 140 / 255, accuracy: 0.01)
+        XCTAssertEqual(p.flats.frameInHost(3), CGRect(x: 16, y: 12, width: 7, height: 7))
+        XCTAssertEqual(p.flats.inspectionLayers(under: 1).first?.leaves, [5, 2, 4, 3])
+        // A touch anywhere on them is the strip's.
+        window.layoutIfNeeded()
+        XCTAssertTrue(strip.hitTest(CGPoint(x: 18, y: 14), with: nil) === strip)
+        XCTAssertTrue(strip.hitTest(CGPoint(x: 90, y: 2), with: nil) === strip)
+    }
+
+    func testAFlatBoxsChildThatNeedsAViewPromotesTheBoxesAboveIt() throws {
+        let p = presenter(strip())
+        p.apply(wireBatch([["op": "create", "id": 6, "kind": "view", "props": ["testId": "playhead"]],
+                           ["op": "frame", "id": 6, "x": 0.0, "y": 0.0, "w": 20.0, "h": 22.0],
+                           ["op": "children", "id": 2, "ids": [4, 3, 6]]]))
+        let strip = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[5]), cell = try XCTUnwrap(p.views[2])
+        XCTAssertTrue(row.superview === strip.container && cell.superview === row.container)
+        XCTAssertEqual(cell.frame, CGRect(x: 10, y: 0, width: 20, height: 22))
+        XCTAssertEqual(cell.paintZPosition, 0.001, "its rank goes with it")
+        XCTAssertNotNil(p.views[4], "positioned: it cannot be drawn straight in the cell's view")
+        XCTAssertTrue(p.flats.isFlat(3), "the dot stays a layer in the cell's view")
+        XCTAssertEqual(p.views[6]?.superview, cell.container)
+        XCTAssertEqual(p.flats.inspectionLayers(under: 2).map(\.leaves), [[3]])
+        // Taken away again, the cell stays the view it is.
+        p.apply(wireBatch([["op": "destroy", "id": 6], ["op": "children", "id": 2, "ids": [4, 3]]]))
+        XCTAssertNotNil(p.views[2])
+    }
+
+    func testAFlatBoxRepaintsItsShadowAndKeepsItsChildrenWhenItMoves() throws {
+        let p = presenter(strip())
+        p.apply(wireBatch([["op": "frame", "id": 5, "x": 0.0, "y": 0.5, "w": 100.0, "h": 22.0]]))
+        let strip = try XCTUnwrap(p.views[1])
+        let row = try XCTUnwrap(strip.layer.sublayers?.first { $0.flatHit != nil })
+        XCTAssertEqual(row.frame.minY, PixelGrid.round(0.5, scale: p.gridScale), "on the grid")
+        XCTAssertEqual(row.sublayers?.first?.frame, CGRect(x: 10, y: 0, width: 20, height: 22), "its children move with it")
+        strip.overrideUserInterfaceStyle = .dark
+        strip.updateTraitsIfNeeded()
+        let dot = try XCTUnwrap(row.sublayers?.first?.sublayers?.first)
+        let caster = try XCTUnwrap(dot.sublayers?.first as? ShadowCaster)
+        XCTAssertEqual(caster.firstColor?.components?.first ?? 0, 246 / 255, accuracy: 0.01, "the glow in the strip's appearance")
     }
 
 }

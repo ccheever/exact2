@@ -107,6 +107,7 @@ impl<D: DataSource> Runner<D> {
         let mut tree = self.tree.take().expect("booted");
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
+            let cell_margins = |view| super::collection::cell_margins(&self.kernel, view);
             let scroll_margin = |view| scroll_margin(&self.kernel, view);
             let scroll_padding = |view| scroll_padding(&self.kernel, view);
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
@@ -114,6 +115,9 @@ impl<D: DataSource> Runner<D> {
             update.reuse = self.reuse;
             update.scroll_padding = Some(&scroll_padding);
             update.scroll_margin = Some(&scroll_margin);
+            if self.kernel.arena().env().cell_spaces {
+                update.cell_margins = Some(&cell_margins);
+            }
             tree.update_collection(&mut update, feedback, fill)
                 .map(|changed| {
                     (
@@ -148,6 +152,7 @@ impl<D: DataSource> Runner<D> {
             receipts: Vec::new(),
             now_ms: self.now_ms,
             error: None,
+            stopped_on_request: false,
         };
         // A row that showed with animations waiting on it is a commit of its
         // own when the report changed nothing else (LLP 1055 D13).
@@ -219,7 +224,7 @@ impl<D: DataSource> Runner<D> {
                     break;
                 }
                 let first_ticket = self.next_ticket;
-                match self.dispatch_edge(view, event) {
+                match self.arrived(|r| r.dispatch_edge(view, event)) {
                     Ok((receipt, changed)) => {
                         result.receipts.push(Timed {
                             at_ms: self.now_ms,
@@ -252,6 +257,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        result.now_ms = self.now_ms;
         Ok(result)
     }
     /// List `view`'s port is at `offset` (from its first row, as a report's):
@@ -267,6 +273,7 @@ impl<D: DataSource> Runner<D> {
             receipts: Vec::new(),
             now_ms: self.now_ms,
             error: None,
+            stopped_on_request: false,
         };
         if !offset.is_finite() {
             return Ok(result);
@@ -428,16 +435,39 @@ pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f6
     };
     let env = kernel.arena().env();
     let r = &node.style.rare;
-    [
+    let sides = [
         r.scroll_padding_top,
         r.scroll_padding_right,
         r.scroll_padding_bottom,
         r.scroll_padding_left,
-    ]
-    .map(|d| match d.resolve(env) {
-        exact_kernel::Dimension::Points(n) => n as f64,
+    ];
+    std::array::from_fn(|i| match sides[i].resolve(env) {
+        exact_kernel::Dimension::Points(n) => f64::from(on_grid(env, n, CELLS[i])),
         _ => 0.0,
     })
+}
+
+/// Each side's cell, top, right, bottom, left.
+const CELLS: [f32; 4] = {
+    use exact_kernel::style::cells::{COLUMN, ROW};
+    [ROW, COLUMN, ROW, COLUMN]
+};
+
+/// A scroll length as a terminal lays its spaces out: whole cells under its
+/// space rule (LLP 1121 stage 11 (c)), so a keyed jump stays on the rows.
+fn on_grid(env: &exact_kernel::Env, px: f32, cell: f32) -> f32 {
+    match env.cell_spaces {
+        true => exact_kernel::style::cells::space(px, cell),
+        false => px,
+    }
+}
+
+/// A row root's margins as the kernel laid them out (whole cells under a
+/// terminal's space rule), for a keyed list jump.
+pub(super) fn cell_margins(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    kernel
+        .laid_margins(view)
+        .map_or([0.0; 4], |m| m.map(f64::from))
 }
 
 /// The expanded target box used by a keyed list jump.
@@ -445,12 +475,12 @@ pub(super) fn scroll_margin(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64
     let Some(node) = kernel.node(view) else {
         return [0.0; 4];
     };
-    let r = &node.style.rare;
-    [
+    let (env, r) = (kernel.arena().env(), &node.style.rare);
+    let sides = [
         r.scroll_margin_top,
         r.scroll_margin_right,
         r.scroll_margin_bottom,
         r.scroll_margin_left,
-    ]
-    .map(|d| f64::from(d.at_basis(kernel.arena().env(), 0.0)))
+    ];
+    std::array::from_fn(|i| f64::from(on_grid(env, sides[i].at_basis(env, 0.0), CELLS[i])))
 }

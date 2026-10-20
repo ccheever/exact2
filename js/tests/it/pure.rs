@@ -7,26 +7,27 @@ use std::process::Command;
 
 #[test]
 fn pure_utilities_match_the_web_executor() {
-    let chrome = std::env::var("CHROME")
-        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
-    if !std::path::Path::new(&chrome).exists() {
-        // EXACT_REQUIRED=1 (the async lane): a missing prerequisite fails (scripts/coverage.mjs).
-        assert_ne!(
-            std::env::var("EXACT_REQUIRED").as_deref(),
-            Ok("1"),
-            "missing chrome: Chrome utility oracle unavailable: set CHROME to its executable"
-        );
-        eprintln!("pure utility browser sweep unavailable: set CHROME");
-        return;
-    }
     let script = concat!(env!("OUT_DIR"), "/pure.js");
     let reference = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", CHROME_UTILITIES])
         .env("EXACT_PURE_SCRIPT", script)
-        .env("CHROME", chrome)
         .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".."))
         .output()
-        .expect("Bun launches the Chrome utility oracle; set CHROME to its executable");
+        .expect("Bun launches the Chrome utility oracle");
+    if let Some(why) = String::from_utf8_lossy(&reference.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("missing chrome: "))
+        .map(str::to_owned)
+    {
+        // EXACT_REQUIRED=1 (the async lane): a missing prerequisite fails (scripts/coverage.mjs).
+        assert_ne!(
+            std::env::var("EXACT_REQUIRED").as_deref(),
+            Ok("1"),
+            "missing chrome: {why}"
+        );
+        eprintln!("pure utility browser sweep unavailable: {why}");
+        return;
+    }
     assert!(
         reference.status.success(),
         "{}",
@@ -71,13 +72,15 @@ fn pure_utilities_match_the_web_executor() {
 
 const CHROME_UTILITIES: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
+import { chromium } from './scripts/agent-launch.mjs';
+const { executable: browserExecutable, unavailable: browserMissing } = chromium();
+if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-if (!existsSync(process.env.CHROME)) throw new Error('Chrome utility oracle unavailable: set CHROME to its executable');
 const profile = mkdtempSync(join(tmpdir(), 'exact-pure-browser-'));
-const child = spawn(process.env.CHROME, [
+const child = spawn(browserExecutable, [
   '--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run',
   '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank',
 ], { detached:true, stdio:['ignore','ignore','ignore','pipe','pipe'] });

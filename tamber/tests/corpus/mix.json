@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "digest": "93688751db8546f1",
+  "digest": "9275534e962af038",
   "name": "mix",
   "tuples": 1,
   "axes": [],
@@ -8,7 +8,7 @@
   "tokens": [
     {"name": "srgb.even", "kind": "color", "role": null, "values": ["color(srgb 0.5 0 0.5)"], "entries": null, "dials": [], "fallback": ["#800080ff", "#800080ff"]},
     {"name": "srgb.weighted", "kind": "color", "role": null, "values": ["color(srgb 0.25 0 0.75)"], "entries": null, "dials": [], "fallback": ["#4000bfff", "#4000bfff"]},
-    {"name": "oklab", "kind": "color", "role": null, "values": ["oklab(0.5672846108292732 -0.0444723260393319 -0.17635085428853292)"], "entries": null, "dials": [], "fallback": ["#1574deff", "#1574deff"]},
+    {"name": "oklab", "kind": "color", "role": null, "values": ["oklab(0.5672846108292732 -0.044472326039331905 -0.17635085428853292)"], "entries": null, "dials": [], "fallback": ["#1574deff", "#1574deff"]},
     {"name": "oklch.longer", "kind": "color", "role": null, "values": ["oklch(0.7 0.1 240)"], "entries": null, "dials": [], "fallback": ["#60a7d6ff", "#60a7d6ff"]},
     {"name": "hsl", "kind": "color", "role": null, "values": ["color(srgb 0.9999999999999999 0 0.9999999999999999)"], "entries": null, "dials": [], "fallback": ["#ff00ffff", "#ff00ffff"]},
     {"name": "faded", "kind": "color", "role": null, "values": ["color(srgb 0.6 0.6 0.6 / 0.5)"], "entries": null, "dials": [], "fallback": ["#99999980", "#99999980"]},

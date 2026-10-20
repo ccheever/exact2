@@ -52,13 +52,21 @@ pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, Vec<u8
         }
     }
     // The runner's own: kept answers and persisted states (LLP 1116 D5),
-    // each a kv scope of its own beside the secrets.
+    // each a kv scope of its own beside the secrets. No more kept answers
+    // are read than the runner keeps together (LLP 1027 D4).
+    let mut left = exact_runner::Store::KEPT_TOTAL_BYTES;
     for (scope, prefix) in [
         (KEPT, exact_runner::Store::KEPT),
         (STATE, exact_runner::Store::STATE),
     ] {
         for key in ibex2::kv::KvStore::keys(&kv, scope).unwrap_or_default() {
             if let Ok(Some(value)) = ibex2::kv::KvStore::get(&kv, scope, &key) {
+                if scope == KEPT {
+                    let Some(rest) = left.checked_sub(value.len()) else {
+                        continue;
+                    };
+                    left = rest;
+                }
                 out.push((format!("{prefix}{key}"), value));
             }
         }

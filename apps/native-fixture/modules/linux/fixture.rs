@@ -282,7 +282,9 @@ impl Hatches for Fixture {
                 let frame = element.frame();
                 d.publish("frame", &format!("[{},{}]", frame.width, frame.height));
             }
-            None => {}
+            // Android's `due` is its reader's Kotlin's (`modules/android`).
+            #[allow(unreachable_patterns)]
+            _ => {}
         }
     }
 

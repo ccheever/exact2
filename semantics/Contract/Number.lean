@@ -3,8 +3,8 @@ Numbers: IEEE-754 binary64, exactly.
 
 A number is an `F64` (`Contract.Binary64`): its bits, with arithmetic
 modelled over `Nat` and `Int` and proved correctly rounded
-(`Contract.Binary64Facts`). Here: `max`/`min` with the runner's NaN and
-signed zero rules, and JavaScript's `Number.prototype.toString`, over exact
+(`Contract.Binary64Facts`). Here: `max`/`min` as JavaScript's `Math.max`
+and `Math.min`, and JavaScript's `Number.prototype.toString`, over exact
 rationals, so nothing rounds by accident.
 -/
 import Contract.Binary64
@@ -155,17 +155,18 @@ def jsToString (x : F64) : String :=
 /-- `a % b` as C's `fmod` (Rust's `%` on `f64`): exact, the sign of `a`. -/
 def fmod (a b : F64) : F64 := F64.fmod a b
 
-/-- Rust's `f64::max` on aarch64 (`fmaxnm`): a NaN yields the other
-argument; `+0` is above `-0`. -/
-def fmax (a b : F64) : F64 :=
-  if isNaN a then b else if isNaN b then a
+/-- JavaScript's `Math.max` of two numbers (ECMA-262 §21.3.2.24): NaN when
+either is NaN; `+0` is above `-0`. -/
+def jsMax (a b : F64) : F64 :=
+  if isNaN a || isNaN b then F64.nan
   else if a > b then a else if b > a then b
   else if a == 0 && b == 0 then (if signBit a then b else a)
   else a
 
-/-- Rust's `f64::min` on aarch64 (`fminnm`). -/
-def fmin (a b : F64) : F64 :=
-  if isNaN a then b else if isNaN b then a
+/-- JavaScript's `Math.min` of two numbers (ECMA-262 §21.3.2.25): NaN when
+either is NaN; `-0` is below `+0`. -/
+def jsMin (a b : F64) : F64 :=
+  if isNaN a || isNaN b then F64.nan
   else if a < b then a else if b < a then b
   else if a == 0 && b == 0 then (if signBit a then a else b)
   else a

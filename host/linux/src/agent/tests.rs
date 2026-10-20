@@ -252,6 +252,44 @@ fn prefer_sets_the_display_preferences_by_their_media_names() {
     assert!(!p.dark(), "the app's own choice wins");
 }
 
+/// LLP 1132 D10: `prefer pointer` and `prefer hover` set the primary
+/// input `exactViewport()` answers; an unknown value applies nothing.
+#[test]
+fn prefer_sets_the_pointer_and_hover_facts() {
+    let plan = contract::compile(
+        "shape M\n  pointer: string\n  hover: string\ncomponent App\n  resource m = exactViewport() as shape M\n  view\n    text `${m.pointer} ${m.hover}` testId=\"t\"\n",
+    )
+    .unwrap();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
+    let (mut p, _) = Presenter::boot_with(
+        &bytes,
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let text = |p: &mut Presenter<()>| handle(p, r#"{"op":"tree"}"#);
+    assert!(text(&mut p).contains("fine hover"), "{}", text(&mut p));
+    let reply: serde_json::Value = serde_json::from_str(&handle(
+        &mut p,
+        r#"{"op":"prefer","media":{"pointer":"coarse","hover":"none"}}"#,
+    ))
+    .unwrap();
+    assert_eq!(reply["media"]["pointer"], "coarse");
+    assert_eq!(reply["media"]["hover"], "none");
+    assert!(text(&mut p).contains("coarse none"), "{}", text(&mut p));
+    let refused = handle(
+        &mut p,
+        r#"{"op":"prefer","media":{"pointer":"none","hover":"sometimes"}}"#,
+    );
+    assert!(refused.contains("\"malformed\""), "{refused}");
+    assert!(text(&mut p).contains("coarse none"), "nothing applied");
+    handle(&mut p, r#"{"op":"prefer","media":{"pointer":"none"}}"#);
+    assert!(text(&mut p).contains("none none"), "{}", text(&mut p));
+}
+
 /// LLP 1069.000 D1, D2, D6: `prefer` sets contrast, the system's scheme
 /// beneath an app's own, and what `exactPage()` answers; `state.device`
 /// shows them without an app declaring either source.
@@ -753,6 +791,10 @@ fn resize_input_uses_presenter_and_paints_before_ack() {
         let reply = handle(&mut p, request);
         assert!(reply.starts_with("{\"error\""), "{request}: {reply}");
         assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["malformed"],
+            true
+        );
+        assert_eq!(
             p.viewport(),
             (640.0, 480.0),
             "invalid input mutated size: {request}"
@@ -779,6 +821,7 @@ fn close_is_refused_by_name() {
         reply.contains("unsupported: the Linux presenter closes no window"),
         "{reply}"
     );
+    assert!(serde_json::from_str::<serde_json::Value>(&reply).unwrap()["malformed"].is_null());
 }
 
 #[test]
@@ -1208,4 +1251,142 @@ fn prefer_mode_sets_the_apps_modes() {
             ))
         ),
     );
+}
+
+/// LLP 1125 D3: a sequence's fill is a wake of the runner's own, which
+/// `clock settle` does not wait for; a jump passes through each fill, and
+/// `state.transport` says how far the hits are issued.
+#[test]
+fn clock_settle_does_not_wait_for_a_sequence_s_fill() {
+    let plan = contract::compile(
+        "shape Step\n  beat: number\n  src: string\n  gain: number\n  group: string\n  note: number\n  velocity: number\n  channel: number\n  duration: number\n  haptic: string\nshape Track\n  beats: number\n  loops: number\n  offset: number\n  output: string\n  steps: Step[]\ncomponent App\n  sequence beat mount\n    play([Track(beats=1, loops=0, offset=0, output=\"\", steps=[Step(beat=0, src=\"\", gain=1, group=\"\", note=-1, velocity=100, channel=0, duration=0.5, haptic=\"selection\")])], bpm=120)\n  view\n    text \"x\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let reply = json(handle(&mut p, r#"{"op":"clock","settle":true}"#));
+    assert_eq!(reply["settled"], serde_json::json!(true), "{reply}");
+    assert_eq!(reply["clock"], serde_json::json!(0), "{reply}");
+    let s = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(s["transport"]["issuedTo"], serde_json::json!(1000), "{s}");
+    handle(&mut p, r#"{"op":"clock","to":2000}"#);
+    let s = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(s["transport"]["issuedTo"], serde_json::json!(3000), "{s}");
+    assert_eq!(s["transport"]["state"], serde_json::json!("playing"));
+    let haptics = s["transport"]["haptics"].as_array().unwrap();
+    assert_eq!(haptics.len(), 6, "a beat every 500 ms to 3000: {s}");
+    assert_eq!(haptics[4]["state"], serde_json::json!("played"));
+}
+
+/// A date or time control's picker is held for the agent on every host
+/// (LLP 1115.001.000 D1): `type @date <value>` chooses, `tap @date clear`
+/// empties it, `tap @date cancel` leaves it, and a value not of its kind
+/// is refused before the hold is spent.
+#[test]
+fn a_date_picker_is_held_for_the_agent_and_answered_by_kind() {
+    let plan = contract::compile(
+        "component App\n  state day = \"2026-10-16\"\n  action setDay(value)\n    day = value\n  view\n    column width=300 height=300\n      input type=\"date\" value=day change=setDay testId=\"day\"\n      text day testId=\"shown\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let day = {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id("day")[0]).unwrap().id
+    };
+    let value = |p: &Presenter<()>| {
+        let k = p.host().kernel();
+        let n = k.node(day).unwrap();
+        n.props
+            .str(exact_kernel::PropId::Value)
+            .unwrap_or("")
+            .to_owned()
+    };
+    let hold = |p: &mut Presenter<()>| {
+        handle(p, &format!(r#"{{"op":"tap","id":{day}}}"#));
+        let state = json(handle(p, r#"{"op":"state"}"#));
+        let held = state["pending"][0].clone();
+        assert_eq!(held["device"]["capability"], "date", "{state}");
+        held
+    };
+    let held = hold(&mut p);
+    assert_eq!(held["device"]["args"]["value"], "2026-10-16");
+    let t = held["ticket"].as_u64().unwrap();
+    // A second press while it is held holds no second.
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{day}}}"#));
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(state["pending"].as_array().unwrap().len(), 1, "{state}");
+    let wrong = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","ticket":{t},"text":"23/10/2026"}}"#),
+    );
+    assert!(wrong.contains("such as 2026-10-23"), "{wrong}");
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"type","ticket":{t},"text":"2026-10-23"}}"#),
+    );
+    p.run_commands(|| ());
+    assert_eq!(value(&p), "2026-10-23");
+    let t = hold(&mut p)["ticket"].as_u64().unwrap();
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","ticket":{t},"choice":"cancel"}}"#),
+    );
+    assert_eq!(value(&p), "2026-10-23");
+    let t = hold(&mut p)["ticket"].as_u64().unwrap();
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","ticket":{t},"choice":"clear"}}"#),
+    );
+    p.run_commands(|| ());
+    assert_eq!(value(&p), "");
+    // A row given another item while its picker is held retires the hold.
+    hold(&mut p);
+    p.picks_renewed(&[day]);
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert!(
+        state["pending"].as_array().is_none_or(|a| a.is_empty()),
+        "{state}"
+    );
+}
+
+#[test]
+fn surface_refusals_keep_the_host_and_subsystem_on_the_wire() {
+    let plan = contract::compile("component App\n  view\n    text \"ready\"\n").unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        Echo,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    p.surfaces.error = Some("GPU module test: digest mismatch".into());
+    let reply: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(
+        reply["refused"],
+        serde_json::json!({"host":if cfg!(windows) { "windows" } else if cfg!(target_os = "android") { "android" } else { "linux" }, "subsystem":"gpu", "message":"GPU module test: digest mismatch"})
+    );
+    let clean: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    assert!(clean["refused"].is_null());
 }

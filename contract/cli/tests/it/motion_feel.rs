@@ -162,3 +162,59 @@ fn transform_origin_is_css_from_a_literal_or_an_expression() {
         }
     );
 }
+
+/// LLP 1061 D7: the pressed paint is three host-owned rows, set only where
+/// written, from a literal or an expression; its colours take what any
+/// colour row takes. Paint only: an opacity outside 0 to 1 and any other
+/// `-exact-press-` name are refused.
+#[test]
+fn the_pressed_paint_is_three_rows_set_only_where_authored() {
+    let mut r = boot(concat!(
+        "component App\n  state firm = false\n",
+        "  action soften\n    firm = not firm\n",
+        "  view\n    column testId=\"root\"\n",
+        "      button press=soften -exact-press-opacity=(firm ? 1 : 0.5) testId=\"dim\"\n        text \"a\"\n",
+        "      view press=soften -exact-press-background-color=\"light-dark(#e5e5ea, #3a3a3c)\" -exact-press-color=\"-exact-secondary-label\" testId=\"wash\"\n        text \"b\"\n",
+    ));
+    let dim = style(&r, "dim");
+    assert!(dim.mask.has(StyleId::PressOpacity));
+    assert_eq!(dim.press_opacity, 0.5);
+    assert!(!dim.mask.has(StyleId::PressBackgroundColor));
+    let wash = style(&r, "wash");
+    assert!(wash.mask.has(StyleId::PressBackgroundColor) && wash.mask.has(StyleId::PressColor));
+    assert!(!wash.mask.has(StyleId::PressOpacity));
+    assert_eq!(wash.press_opacity, 1.0);
+    let root = style(&r, "root");
+    for row in [
+        StyleId::PressOpacity,
+        StyleId::PressBackgroundColor,
+        StyleId::PressColor,
+    ] {
+        assert!(!root.mask.has(row), "{row:?} on a bare node");
+    }
+    let k = r.kernel();
+    let id = k.node_by_key(k.find_by_test_id("dim")[0]).unwrap().id;
+    r.dispatch(id, exact_runner::Event::Press).unwrap();
+    assert_eq!(style(&r, "dim").press_opacity, 1.0);
+
+    let refused = |attr: &str| {
+        let src = format!(
+            "component A\n  state on = false\n  action go\n    on = not on\n  view\n    view press=go {attr}\n      text \"a\"\n"
+        );
+        format!("{}", contract::compile(&src).expect_err(attr))
+    };
+    for (attr, id) in [
+        ("-exact-press-opacity=1.5", "lower-attr-value"),
+        ("-exact-press-opacity=-0.1", "lower-attr-value"),
+        ("-exact-press-padding=4", "lower-unknown-attr"),
+        (
+            "-exact-press-background-color=\"currentcolor\"",
+            "lower-attr-value",
+        ),
+    ] {
+        let message = refused(attr);
+        assert!(message.contains(id), "{attr}: {message}");
+    }
+    assert!(refused("-exact-press-padding=4").contains("paint only"));
+    assert!(refused("activeOpacity=0.2").contains("-exact-press-opacity"));
+}

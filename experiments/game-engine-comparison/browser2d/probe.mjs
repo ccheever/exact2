@@ -1,7 +1,8 @@
+import { homedir as browserHome } from 'node:os';
 import { chromium } from 'playwright';
 import { writeFileSync, statSync } from 'node:fs';
 const server=Bun.serve({port:0,fetch(req){const p=new URL(req.url).pathname;if(p==='/favicon.ico')return new Response(null,{status:204});return new Response(Bun.file('.'+(p==='/'?'/phaser.html':p)));}});
-const browser=await chromium.launch({executablePath:'/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome',headless:true,args:['--no-sandbox','--enable-unsafe-swiftshader']});
+const browser=await chromium.launch({executablePath:(process.env.CHROME || browserHome() + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"),headless:true,args:['--no-sandbox','--enable-unsafe-swiftshader']});
 const results=[];
 for(const engine of ['phaser','kaplay']){
  const runs=[];

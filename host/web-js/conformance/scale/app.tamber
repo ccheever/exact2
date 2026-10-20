@@ -1,0 +1,15 @@
+// The design of the base-scale conformance plan (LLP 1121 stage 11): its own
+// space.md, which wins over the scale's app-wide (ruling 4); space.header, a
+// name the scale does not reserve, which keeps the app's meaning (ruling 5);
+// box.pad, an expression over a base name the design leaves unset, which
+// each host evaluates in its own column (stage 12 B2); and the probe's two
+// colours, fixed in either scheme, which the hosts' corners are read
+// against.
+tamber scale
+
+theme
+  space.md = 12px
+  space.header = 44px
+  box.pad: length = calc(space.lg * 2)
+  probe.fill = #0000ff  scheme=fixed
+  probe.ground = #ffffff  scheme=fixed

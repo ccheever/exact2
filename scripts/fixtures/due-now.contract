@@ -1,0 +1,18 @@
+// A deadline already due when a batch lands advances before the turn's frame
+// is committed: a `then` is armed at its answer's time (LLP 1016.001 D3); here
+// a timer whose deadline passes before the next batch lands (DueBeforeFrameIOSTests).
+// Compiled by build.mjs --test.
+component DueNow
+  state armed = false
+  state flipped = false
+  action arm
+    armed = true
+  action flip
+    flipped = true
+  task flip when armed
+    after(50, flip)
+  view
+    column padding=24 gap=16
+      button press=arm testId="arm"
+        text "Arm"
+      text (flipped ? "Flipped" : "Waiting") testId="state"

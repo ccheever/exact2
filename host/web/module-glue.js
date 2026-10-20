@@ -191,17 +191,17 @@ export async function prepare(payload, admitted, id = nextId++) {
       deliver: async owner => {
         const prev = context;
         context = scratch(owner);
-        try { await storage.deliver(owner); await checkpoint(); }
+        try { await storage.deliver(owner); deliveries++; await checkpoint(); }
         finally { context = prev; }
       },
     };
     const release = (owner, callId) => {
       if (!String(win.__exact_forget(String(callId))).startsWith('storage')) { storage.retire(owner); return; } // 'storage', or 'storage rejected' (its fetches rejected too)
       owed.set(callId, owner);
-      const run = tail.then(() => finishLetGo(storage, owed, letGoHooks));
+      const run = tail.then(() => finishLetGo(storage, owed, letGoHooks)).then(() => { if (parked.length) return resettle(); });
       tail = run.catch(() => {});
     };
-    let parked = [];
+    let parked = [], deliveries = 0; // `deliveries`: storage completions delivered to answers, for `resettle`
     const finish = (answer, request) => {
       const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,entropy:context.entropy,topics:context.topics};
       const reported = answer.tag === 1 ? context.early.get(answer.ticket) : null;
@@ -228,12 +228,14 @@ export async function prepare(payload, admitted, id = nextId++) {
       for (;;) {
         if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting) {
           await storage.deliver(context.owner);
+          deliveries++;
           await checkpoint();
           if (disposed) throw new Error('module environment disposed');
           answer = JSON.parse(win.__exact_settle(String(answer.call)));
           continue;
         }
         if (answer.tag === 1 && answer.waiting) {
+          if (disposed) throw new Error('module environment disposed'); // dispose rejected what was parked then
           parked.push({answer, request, context, done});
           context = null;
           return;
@@ -242,13 +244,26 @@ export async function prepare(payload, admitted, id = nextId++) {
         return;
       }
     };
-    // Ask parked answers again, one at a time, in the turn that delivered.
+    // Ask parked answers again, one at a time, in the turn that delivered:
+    // after a background delivery, and after any answer's own, which lands
+    // the operation in flight and issues the next, perhaps a parked answer's
+    // or a let-go chain's (prelude.js `settle`: "asked again after each
+    // delivery", D3). Until a pass delivers nothing: one delivery can make
+    // another owner's operation the head. Each pass that goes on delivered
+    // one, and there are as many as operations, so it ends.
     const resettle = async () => {
-      const waiting = parked; parked = [];
-      for (const p of waiting) {
-        context = p.context;
-        try { await proceed(JSON.parse(win.__exact_settle(String(p.answer.call))), p.request, p.done); }
-        catch (error) { for (const drop of context?.early.values() ?? []) drop(); storage.retire(context?.owner); context = null; p.done.reject(error); }
+      for (;;) {
+        const before = deliveries;
+        if (owed.size) await finishLetGo(storage, owed, letGoHooks);
+        if (disposed) return;
+        const waiting = parked; parked = [];
+        for (const p of waiting) {
+          if (disposed) { p.done.reject(new Error('module environment disposed')); continue; }
+          context = p.context;
+          try { await proceed(JSON.parse(win.__exact_settle(String(p.answer.call))), p.request, p.done); }
+          catch (error) { for (const drop of context?.early.values() ?? []) drop(); storage.retire(context?.owner); context = null; p.done.reject(error); }
+        }
+        if (deliveries === before || !(parked.length || owed.size)) break;
       }
     };
     // One background round, as the runner's background ticket runs it: wait
@@ -304,7 +319,10 @@ export async function prepare(payload, admitted, id = nextId++) {
             // pending; other answers queue behind it; a fetch releases the
             // turn normally, and so does an answer that parks.
             const done = {}; done.promise = new Promise((resolve, reject) => { done.resolve = resolve; done.reject = reject; });
+            const before = deliveries;
             await proceed(answer, request, done);
+            // In a turn of its own, after this one: this answer replies now.
+            if (deliveries !== before && (parked.length || owed.size)) { const again = tail.then(resettle); tail = again.catch(() => {}); }
             return done;
           } catch (error) { for (const drop of context?.early.values() ?? []) drop(); storage.retire(context?.owner); context = null; throw error; }
         });
@@ -370,6 +388,9 @@ export async function prepare(payload, admitted, id = nextId++) {
       dispose() {
         disposed = true; storage.dispose(); pending.clear(); realms.delete(id); frame.remove();
         for (const [token,turn] of turns) if (turn.id === id) turns.delete(token);
+        // A parked answer settles too, or a wait raced against it (`clock settle`) runs out its deadline.
+        for (const p of parked) p.done.reject(new Error('module environment disposed'));
+        parked = [];
       },
     };
     realms.set(id, realm); return realm;

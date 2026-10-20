@@ -37,7 +37,9 @@ pub(super) fn retained(outcome: &Outcome) -> usize {
             .data
             .capacity()
             .saturating_add(m.event.capacity())
-            .saturating_add(m.id.capacity()),
+            .saturating_add(m.id.capacity())
+            .saturating_add(m.binary.as_ref().map_or(0, Vec::capacity)),
+        Outcome::Closed { reason, .. } => reason.capacity(),
         Outcome::Surface(exact_runner::SurfaceOutcome::Captured(b)) => b.capacity(),
         Outcome::Surface(exact_runner::SurfaceOutcome::Restored) => 0,
         Outcome::Failed { message, .. } => message.capacity(),

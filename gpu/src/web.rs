@@ -115,7 +115,7 @@ pub async fn recover(
             let config = inst.config.as_ref().unwrap();
             inst.surface.device_ready(gpu.device.features());
             inst.surface
-                .prepare_assets(&gpu.device, &gpu.queue, config.format);
+                .prepare_assets(&gpu.device, &gpu.queue, crate::view_format(config));
             inst.presentation = Some(SurfaceRef::new(target));
         }
         if module

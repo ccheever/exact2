@@ -36,18 +36,26 @@ pub(crate) mod button;
 mod caret;
 pub(crate) mod control;
 pub(crate) mod damage;
+pub(crate) mod dates;
 pub mod gradient;
+mod grouped;
 pub use gradient::GradientPaint;
-mod field;
+pub(crate) mod field;
 mod fragments;
 pub(crate) use fragments::{center as tap_point, hits};
 pub(crate) use lift::{Ghost, Lift};
+mod alert;
 pub(crate) mod inline;
 mod layer;
 mod lift;
 pub(crate) mod look;
+pub use look::page_color;
+pub(crate) mod material;
+pub(crate) use alert::Picture as AlertPicture;
+pub use material::{FieldText, FieldTexts};
 mod native;
 pub(crate) mod neutral;
+pub(crate) mod numerals;
 pub use native::NativeKind;
 mod order;
 mod placed;
@@ -55,8 +63,9 @@ mod presented;
 mod region;
 pub mod rows;
 mod shadow;
-mod space;
+pub(crate) mod space;
 mod svg;
+pub(crate) use svg::{fitted, view_box};
 mod text_clip;
 mod text_decoration;
 mod text_shadow;
@@ -250,14 +259,8 @@ impl BoxPaint {
         let pad = self.padding;
         BoxGeometry {
             inset: (pad[3] + widths[3], pad[0] + widths[0]),
-            outer: Shape::elliptical(
-                rect,
-                self.radii.map(|d| {
-                    let resolve = |basis| d.at_basis(&self.env, basis);
-                    (resolve(w).max(0.0), resolve(h).max(0.0))
-                }),
-            )
-            .with_corners(self.corners),
+            outer: Shape::elliptical(rect, border::resolve_radii(self.radii, &self.env, w, h))
+                .with_corners(self.corners),
             content: (
                 x + widths[3] + pad[3],
                 y + widths[0] + pad[0],
@@ -464,6 +467,8 @@ pub struct Scene<'a> {
     pub focus: Option<ViewId>,
     /// The focused text field's selection (x2apps codeedit #2).
     pub selection: Option<exact_runner::FieldSelection>,
+    /// At a wrap, a click or visual-line End can choose the preceding line.
+    pub caret_upstream: bool,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
     /// Values chosen in a date, range or select, or typed into a field, since
@@ -483,10 +488,13 @@ pub struct Frame {
     pub boxes: Vec<PaintedBox>,
 }
 
-pub use backend::Backend;
+pub use backend::{Backend, WindowLayer};
 
 /// The painter: the walk over one backend.
 pub struct Painter {
+    pub(crate) window_canvas: Option<ViewId>,
+    pub(crate) direct_canvases: std::collections::BTreeSet<ViewId>,
+    pub(crate) alert: Option<alert::Picture>,
     /// The text engine, shared with the kernel's measurer.
     pub text: Shared,
     /// Device pixels per point.
@@ -495,6 +503,9 @@ pub struct Painter {
     /// what the app's `setScheme` last said, else the system's, which the
     /// device's shell or an agent tells the presenter; `light` until one does.
     pub dark: bool,
+    /// How the device writes dates, where its shell told it: what a date
+    /// control shows (`dates.rs`).
+    pub(crate) dates: Option<dates::Dates>,
     backend: Box<dyn Backend>,
     #[cfg(test)]
     pub(crate) rank_passes: usize,
@@ -513,9 +524,9 @@ pub struct Painter {
     cpu_ms: Option<f64>,
     /// What a reorder lifts: a row in its list, or a ghost over everything.
     pub(crate) lift: Lift,
-    // One lease per actually accepted owner, not one global width per string.
-    // Retained while a subsequent backend frame fails.
+    // Accepted owners retain their paragraph leases while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    pub(crate) field_text: HashMap<ViewId, Rc<field::PaintedField>>,
     region_picture: Option<Rc<region::Picture>>,
     region_frame: Option<region::Published>,
     damage: damage::Retained,
@@ -531,6 +542,11 @@ pub struct Painter {
     /// The control under a pointer that hovers, and the one a contact holds
     /// down (`presenter/feedback.rs`), which the neutral look washes.
     pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
+    /// The control a held `active` presses (`presenter/held.rs`), beside a contact's.
+    pub(crate) held_press: Option<ViewId>,
+    /// The background the last box painted shows, its states' over its own,
+    /// which its `background-clip: text` fills with (`text_clip`).
+    clipped: Option<(ViewId, [u8; 4])>,
     /// Each hosted text field's content box in its own border box (x, y,
     /// width, height), as last walked (`field.rs`, LLP 1115.001 D8).
     pub(crate) field_content: HashMap<ViewId, [f32; 4]>,
@@ -539,6 +555,10 @@ pub struct Painter {
     svg_layers: Vec<(ViewId, Presented)>,
     /// How many boxes the last walk painted: the next one's room.
     boxes_hint: usize,
+    /// Numeric text rolling (LLP 1077 D15), and the clock it rolls by.
+    pub(crate) numerals: numerals::Numerals,
+    /// Material's fields' labels, floated or resting (`material.rs`).
+    pub(crate) labels: material::Labels,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -547,6 +567,7 @@ pub struct Painter {
 #[cfg(any(target_os = "linux", target_os = "android", test))]
 pub(crate) struct Presentation {
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    fields: HashMap<ViewId, Rc<field::PaintedField>>,
     picture: Option<Rc<region::Picture>>,
     frame: Option<region::Published>,
 }
@@ -555,6 +576,7 @@ struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    fields: HashMap<ViewId, Rc<field::PaintedField>>,
     skip: Option<exact_kernel::NodeKey>,
     replay: Option<&'b region::Replay<'b>>,
     /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
@@ -564,6 +586,7 @@ struct Walk<'a, 'b> {
     /// row inherits from its wrapper shows, one its own nodes set does not
     /// (`lift.rs`; b6 review B4).
     reveal: Option<ViewId>,
+    dialog: Option<ViewId>,
 }
 
 impl Painter {
@@ -591,6 +614,7 @@ impl Painter {
     pub(crate) fn presentation(&self) -> Presentation {
         Presentation {
             text: self.accepted_text.clone(),
+            fields: self.field_text.clone(),
             picture: self.region_picture.clone(),
             frame: self.region_frame.as_ref().map(|f| region::Published {
                 incarnation: f.incarnation.clone(),
@@ -601,6 +625,7 @@ impl Painter {
     #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn replace_presentation(&mut self, mut state: Presentation) -> Presentation {
         std::mem::swap(&mut self.accepted_text, &mut state.text);
+        std::mem::swap(&mut self.field_text, &mut state.fields);
         std::mem::swap(&mut self.region_picture, &mut state.picture);
         std::mem::swap(&mut self.region_frame, &mut state.frame);
         state
@@ -608,12 +633,16 @@ impl Painter {
     /// A painter over a backend.
     pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
         Painter {
+            window_canvas: None,
+            direct_canvases: Default::default(),
             text,
             scale,
             dark: false,
+            dates: None,
             backend,
             #[cfg(test)]
             rank_passes: 0,
+            alert: None,
             paint_epoch: None,
             fresh_order: HashMap::new(),
             rank_increments: 0,
@@ -633,16 +662,52 @@ impl Painter {
             flatten: None,
             ringless: None,
             feedback: (None, None),
+            held_press: None,
+            clipped: None,
             field_content: HashMap::new(),
+            field_text: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
             svg_layers: Vec::new(),
+            numerals: Default::default(),
+            labels: Default::default(),
         }
     }
 
     /// The backend's name.
     pub fn backend(&self) -> &'static str {
         self.backend.name()
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn recycle_window_layers(
+        &mut self,
+        below: Pixmap,
+        above: Arc<Pixmap>,
+        rows: (u32, u32),
+    ) {
+        // Damage snapshots contain only the overlay after a split, not a
+        // complete CPU picture. A window repaint rebuilds both layers.
+        self.damage.pixels = None;
+        self.damage.next.clear();
+        self.backend
+            .recycle_window_layers(below, Arc::try_unwrap(above).ok(), Some(rows));
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn take_window_underlay(&mut self) -> Option<WindowLayer> {
+        self.backend.take_window_underlay()
+    }
+
+    /// Something the painter animates owes a frame: a number rolling, a
+    /// field's label floating.
+    pub(crate) fn moving(&self) -> bool {
+        self.numerals.rolling() || self.labels.moving()
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn window_overlay_rows(&self) -> Option<(u32, u32)> {
+        self.backend.window_overlay_rows()
     }
 
     /// Another backend from here on (the CPU's, once the GPU's failed a
@@ -804,16 +869,19 @@ impl Painter {
             scene,
             boxes: Vec::with_capacity(self.boxes_hint),
             text: BTreeMap::new(),
+            fields: HashMap::new(),
             skip,
             replay,
             ranks: self.ranks.clone(),
             reveal: None,
+            dialog: None,
         };
         self.rows_begin(&walk);
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
         self.paint_ghost(&mut walk);
+        self.paint_alert(&mut walk);
         self.rows_end();
         if let Some(menu) = &scene.menu {
             self.menu(menu);
@@ -828,8 +896,11 @@ impl Painter {
         }
         // Publication is the ownership boundary. On Err the previous accepted
         // set remains intact; candidate leases simply unwind with `walk`.
+        self.numerals.painted();
+        self.labels.painted();
         if finished.is_ok() {
             self.accepted_text = walk.text;
+            self.field_text = walk.fields;
         } else {
             drop(walk.text);
         }
@@ -842,12 +913,7 @@ impl Painter {
             .any(|p| !p.fragments().is_empty())
             .then(|| pixmap.clone());
         self.damage.dark = self.dark;
-        self.damage.caret = scene.focus.is_some_and(|id| {
-            scene
-                .kernel
-                .node(id)
-                .is_some_and(|n| n.node_type == NodeType::TextInput)
-        });
+        self.damage.focus_ink = damage::field_focus_ink(scene.kernel, scene.focus);
         Ok(Frame {
             pixmap,
             boxes: walk.boxes,
@@ -886,7 +952,7 @@ impl Painter {
         if (walk.scene.hidden)(id)
             || node.is_inline_run()
             || node.style.display == Display::None
-            || node.props.str(PropId::SemanticTag) == Some("dialog")
+            || (node.props.str(PropId::SemanticTag) == Some("dialog") && walk.dialog != Some(id))
         {
             return;
         }
@@ -1009,8 +1075,12 @@ impl Painter {
         let paints_self = paints(walk.scene.kernel, node.id, walk.reveal);
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
-        // LLP 1062 D5): background, border sides and shadow.
-        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark).presented(&shown.colors);
+        // LLP 1062 D5): background, border sides and shadow; then its states,
+        // its looks and a press's background (LLP 1061 D7, LLP 1121 D8).
+        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark)
+            .presented(&shown.colors)
+            .states(node, &shown, self.dark);
+        self.clipped = Some((node.id, paint.background));
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));
@@ -1019,7 +1089,10 @@ impl Painter {
         if paints_self {
             paint.paint(self.backend.as_mut(), &surface, ts);
             self.column_rules(walk.scene.kernel, node, rect, ts);
-            let (dark, feedback) = (self.dark, self.feedback);
+            let (dark, feedback) = (
+                self.dark,
+                (self.feedback.0, self.presses(node.id).then_some(node.id)),
+            );
             let kernel = walk.scene.kernel;
             neutral::row(
                 self.backend.as_mut(),
@@ -1040,7 +1113,10 @@ impl Painter {
             // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
             NodeType::Canvas => {
                 self.row_refuse();
-                if let Some(c) = self.canvases.get(&node.id) {
+                if self.window_canvas == Some(node.id) {
+                    self.backend
+                        .split_window_canvas(content, &[Shape::rect(content), outer], ts);
+                } else if let Some(c) = self.canvases.get(&node.id) {
                     let clips = [Shape::rect(content), outer];
                     self.backend.canvas(&c.pixels, content, &clips, ts);
                 } else {
@@ -1074,18 +1150,22 @@ impl Painter {
             NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
                 let label =
                     control::select_label(walk.scene.kernel, node, walk.scene.chosen.get(&node.id));
-                self.field_control(node, content, ts, label.as_deref().unwrap_or(""), true);
+                let focused = walk.scene.focus == Some(node.id);
+                let label = label.as_deref().unwrap_or("");
+                self.field_control(node, content, focused, ts, label, true);
             }
             // @ref LLP 1069.001 D7 — a date control is a field showing its
-            // ISO value, HTML's placeholder form when empty; `type` sets it.
+            // value (`control::date_text`); `type` sets it.
             NodeType::Control
                 if matches!(
                     node.props.str(PropId::Type),
                     Some("date" | "time" | "datetime-local")
                 ) =>
             {
-                let shown = control::date_text(node, walk.scene.chosen.get(&node.id));
-                self.field_control(node, content, ts, shown, false);
+                let chosen = walk.scene.chosen.get(&node.id);
+                let shown = control::date_text(node, chosen, self.dates.as_ref());
+                let focused = walk.scene.focus == Some(node.id);
+                self.field_control(node, content, focused, ts, &shown, false);
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
@@ -1126,6 +1206,7 @@ impl Painter {
                 self.dark,
                 walk.scene.controls.get(&node.id).copied(),
                 self.feedback.0 == Some(node.id),
+                self.scale,
             ),
             _ => {}
         }
@@ -1142,7 +1223,9 @@ impl Painter {
                 None => own,
             });
         }
-        let scrolls = ox != Overflow::Visible || oy != Overflow::Visible;
+        // `clip` clips without being a scroll container (CSS Overflow 3 §3).
+        let scrolls = !matches!(ox, Overflow::Visible | Overflow::Clip)
+            || !matches!(oy, Overflow::Visible | Overflow::Clip);
         let child_offset = if scrolls {
             let (sx, sy) = walk
                 .scene
@@ -1154,6 +1237,9 @@ impl Painter {
         } else {
             offset
         };
+        if paints_self {
+            self.alert_title(walk, node, ts, child_offset);
+        }
         self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();
@@ -1178,6 +1264,7 @@ impl Painter {
             let clips = [Shape::rect(rect), surface.outer];
             self.backend.canvas(&pixels, rect, &clips, ts);
         }
+        self.hosted_view(node, rect, ts);
     }
 }
 
@@ -1266,25 +1353,29 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
 /// `ScrollView`/`List` scrolls on y unless its row says otherwise, and an
 /// unset axis beside a non-visible one is scrollable (CSS Overflow §3).
 pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
-    let s = node.style;
-    let mut y = if s.mask.has(StyleId::OverflowY) {
+    let resolved;
+    let s = if look::neutral()
+        && node.props.str(PropId::SemanticTag) == Some("dialog")
+        && node.props.str(PropId::AccessibilityRole) == Some("alertdialog")
+    {
+        resolved = node.computed_style(StyleMask::EMPTY);
+        &resolved
+    } else {
+        node.style
+    };
+    let y = if s.mask.has(StyleId::OverflowY) {
         s.overflow_y
     } else if node.node_type.scrolls_by_default() {
         Overflow::Auto
     } else {
         Overflow::Visible
     };
-    let mut x = if s.mask.has(StyleId::OverflowX) {
+    let x = if s.mask.has(StyleId::OverflowX) {
         s.overflow_x
     } else {
         Overflow::Visible
     };
-    if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Auto;
-    } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Auto;
-    }
-    (x, y)
+    (x.computed(y), y.computed(x))
 }
 
 /// A scroll container's content extent: the kernel's scrollable overflow,
@@ -1303,18 +1394,6 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         }
     }
     (w, h)
-}
-
-/// The page's own colour under a scheme: the `-exact-background` role (LLP
-/// 1115.000 D3.6), the platform's surface where a host reported one and the
-/// role's pair elsewhere. What an unset background shows (LLP 1115 D2),
-/// never white under a dark scheme.
-pub fn page_color(dark: bool) -> [u8; 4] {
-    static PAGE: std::sync::LazyLock<Option<u8>> =
-        std::sync::LazyLock::new(|| exact_kernel::style::roles::role("-exact-background"));
-    PAGE.map_or([255; 4], |id| {
-        rgba(exact_kernel::ColorValue::Role(id).resolve(dark))
-    })
 }
 
 /// The painting scope for `node` (`roles::authored_accent`): the roles drawn

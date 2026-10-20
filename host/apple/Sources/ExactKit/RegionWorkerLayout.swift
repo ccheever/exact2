@@ -161,13 +161,17 @@ final class RegionWorkerLayout {
             var line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, CFRangeMake(start, count)),
                                                   source: attributed, range: CFRangeMake(start, count))
             var clamps = false
-            if spec.lineClamp > 0 && lineCount + 1 == spec.lineClamp && start + count < length {
+            var natural: CGFloat? // as TextEngine.layout: a too-long word keeps its width
+            if spec.lineClamp > 0 && lineCount + 1 == spec.lineClamp
+                && TextEngine.clampsLast(line, start: start, count: count, length: length, width: limit) {
+                if start + count == length { natural = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) }
                 line = TextEngine.clampedLine(attributed, range: NSRange(location: start, length: count), width: limit) ?? line
                 clamps = true
             }
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
             // The natural width: justification fills the box, never sizes it.
-            let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            let drawn = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            let w = natural ?? drawn
             if spec.align == 3, !clamps, width.isFinite {
                 line = TextEngine.justified(line, source: attributed, range: CFRangeMake(start, count), width: limit)
             }
@@ -227,13 +231,6 @@ final class RegionWorkerLayout {
             lineCount += 1
             start += count
         }
-        if lineCount == 0 {
-            // Empty editors retain the paragraph's own line box.
-            baselines.append(minimum.0)
-            lastBaseline = minimum.0
-            y = minimum.0 + minimum.1
-            explicit = source.strutExplicit
-        }
         // An authored line height keeps its fractions; `normal` rounds up once
         // (CSSLineBox); a width rounds up to the 1/64 layout unit.
         // Check before metadata and at its coarse line boundaries. No partial
@@ -241,7 +238,7 @@ final class RegionWorkerLayout {
         try beforeMetadata()
         maxWidth = max(maxWidth, greedyWidest)
         var height = explicit ? y : ceil(y)
-        // CSS `text-box`, cut as `TextEngine.trimTextBox` cuts any paragraph, which an empty editor's line box is not
+        // CSS `text-box`, cut as `TextEngine.trimTextBox` cuts a paragraph with lines.
         if source.textBox.trim != 0, lineCount > 0, let root = source.strut?.value, let first = baselines.first {
             let cut = TextEngine.textBoxTrim(source.textBox, root: root, first: first, last: lastBaseline, height: height)
             TextEngine.trimLines(cut, baselines: &baselines, lineBottoms: &lineBottoms, height: &height)

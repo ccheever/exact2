@@ -86,6 +86,14 @@ Asking for `native` (op 6, `available`) counts as an external read. The
 bake runs with no module, so an answer that branches on `native` is not
 compiled, and the running host asks it again.
 
+*Amended 2026-10-16* (the euxy port's friction log, item 1): at bake,
+`native.call` (and `native.later`, which falls back to it) throws the
+storage refusal, `{kind: 'Unavailable', code: 'bake'}`. Uncaught, it defers
+the resource exactly as a storage call does (`DeferredAtBake`: its `else`
+row or the type's zero, asked at launch), so a source that asks the module
+needs no bake branch. Before, it threw an uncoded error that failed the
+build unless the source caught it and threw the coded refusal itself.
+
 ### D5 — The web's page module is the app's module artifact
 
 The app's one web module artifact, `modules/web/index.js` (LLP 1024 D7),

@@ -73,7 +73,7 @@ A TypeScript-only app on the `canvas-gallery` template (`apple/`, `web/`, `linux
 
 ### D9 — `bun scripts/smoke.mjs duo`
 
-A suite in `scripts/smoke.mjs`'s dispatch, with its helper source at `scripts/duo/hinge_helper.c` (MIT, from `artemnovichkov/hinge`, attributed), compiled per run with the selected Xcode's simulator SDK and run inside the simulator by `xcrun simctl spawn` to set the hinge; `xcrun devicectl` reads the angle back and captures each panel. Prerequisites are stated, never assumed: `EXACT_SIM` must name a booted-or-bootable `iPhone Duo` on an iOS ≥ 27.1 runtime under the selected `DEVELOPER_DIR`, else the suite prints `duo: unsupported — …` and exits 0, the smoke's convention for a missing carrier. It drives `duo-lab` (and the `insets` and `keyboard-bar` corpus fixtures) through open 180°, book 130°, half 90° and closed 0°, checking at each: the cover-root and inset invariants `smoke.mjs ios` checks; the Fold screen's two panes exactly on the division's segments (and one pane when flat or closed); `devicePosture` folded at 130° and 90° only; keyboard, sheet, push and scroll state across a fold; the two-session host's panes. It is run by hand like `smoke deploy`, not from the async lane: it needs a beta Xcode and a simulator the lane's machines may not have (Q2).
+A suite in `scripts/smoke.mjs`'s dispatch, with its helper source at `scripts/duo/hinge_helper.c` (MIT, from `artemnovichkov/hinge`, attributed), compiled per run with the selected Xcode's simulator SDK and run inside the simulator by `xcrun simctl spawn` to set the hinge; the session's posture and segments say what the hinge did (Xcode 27.1's `devicectl` reads no angle back), and `xcrun devicectl` captures each panel. Prerequisites are stated, never assumed: `EXACT_SIM` must name a booted-or-bootable `iPhone Duo` on an iOS ≥ 27.1 runtime under the selected `DEVELOPER_DIR`, else the suite prints `duo: unsupported — …` and exits 0, the smoke's convention for a missing carrier. It drives `duo-lab` (and the `insets` and `keyboard-bar` corpus fixtures) through open 180°, book 130°, half 90° and closed 0°, checking at each: the cover-root and inset invariants `smoke.mjs ios` checks; the Fold screen's two panes exactly on the division's segments (and one pane when flat or closed); `devicePosture` folded at 130° and 90° only; keyboard, sheet, push and scroll state across a fold; the two-session host's panes. It is run by hand like `smoke deploy`, not from the async lane: it needs Xcode 27.1 or newer and a simulator the lane's machines may not have (Q2).
 
 The same invariants, minus the Duo, run everywhere through `prefer segments 2x1 gap 40` and `prefer posture folded` on a `contract/corpus/segments.contract` fixture: a kernel unit test and a Contract CLI test for D3's parsing and resolution, a Linux pinned test for D7's report, and the web conformance run for D6's parity with Chromium's own resolution.
 
@@ -93,14 +93,14 @@ The same invariants, minus the Duo, run everywhere through `prefer segments 2x1 
 ## Open questions (for Charlie)
 
 - **Q1 — Is a lab app consumer enough?** LLP 1039 §6 waits for an app that branches on a feature. `duo-lab`'s Fold screen branches on all three; no shipping app does. The alternative is to land only the facts (D2) and the agent's view of them, and hold the `env()` lengths until a real app wants two panes. Proposed: land all of it; the lengths are the smaller half and the parity test (D9's fixture) pins them.
-- **Q2 — Where does `smoke duo` run?** By hand, like `smoke deploy`, since it needs Xcode 27.1 beta and a Duo simulator. If the M5 mini gets the beta, the async lane could run it on commits under `host/apple`.
+- **Q2 — Where does `smoke duo` run?** By hand, like `smoke deploy`, since it needs Xcode 27.1 or newer and a Duo simulator. If the M5 mini gets Xcode 27.1, the async lane could run it on commits under `host/apple`.
 - **Q3 — `prefer segments` gap.** Default 0 (a divider with no width, as a two-screen device joined at the bezel) or 40 (the Duo's band)? Proposed: 0, and the smoke passes 40.
 - **Q4 — Resolution when a segment is missing.** D3 takes the row's initial value, as the web does for an undefined `env()` with no fallback. The alternative is to resolve to the whole viewport (as if one segment were segment (0, 0)), which is friendlier but not what a browser does. Proposed: the web's.
 - **Q5 — The division's margins.** UIKit's division frame includes 20-pt margins "for interactive content". D5 excludes the whole frame from both segments. Chromium's segments on Android foldables exclude only the hinge's physical band. Proposed: UIKit's frame, since UIKit is saying where content should not sit.
 
 ## Not doing
 
-Rotation and Split View on the Duo simulator (the 27.1 beta ignores CoreDevice orientation; LLP 1008); a hinge-angle fact; a posture-driven engine policy (an app chooses, as with reduced motion); container queries (LLP 1039 D5); `env(keyboard-inset-*)` (LLP 1008 §9, still not built).
+Rotation and Split View on the Duo simulator (CoreDevice's `orientation set` does not turn it, under Xcode 27.1 too; LLP 1008; rotation came later, "As built (rotation)"); a hinge-angle fact; a posture-driven engine policy (an app chooses, as with reduced motion); container queries (LLP 1039 D5); `env(keyboard-inset-*)` (LLP 1008 §9, still not built).
 
 ## As built (core half: D1–D7, D10; 2026-10-02, lane/duo-core)
 
@@ -173,7 +173,7 @@ reached from the presenter's `set_segments`, which keeps the rects for
 **Apple (D5).** UIKit 27.1 is resolved through the Objective-C runtime
 (`host/apple/Sources/ExactKit/IOS/ReservedRegions.swift`), not compiled
 against: the default Xcode 27.0 SDK lacks `UIViewReservedRegion` and
-`UIHingeInteraction`, and the 27.1 beta ships the same Swift 6.4
+`UIHingeInteraction`, and Xcode 27.1 ships the same Swift 6.4
 (`swiftlang-6.4.0.34.1`), so neither `#if compiler(>=…)` nor
 `canImport(UIKit, _version:)` can tell the SDKs apart. `-[UIView
 reservedRegionsOfKind:options:]` is called through its IMP with
@@ -232,26 +232,18 @@ reported (`presenter.hingeReported`), then refuses on a device with a fold.
 
 **Numbers (2026-10-02).**
 
-- *The Duo simulator* (Xcode 27.1 beta, iOS 27.1, `B82DBA04`; this beta has
-  the simulator in portrait, so the inner panel is 669 × 951 with the
-  division a horizontal band). Caltrain, a non-cover viewport (the panel less
-  its 82-pt top and 34-pt bottom insets), `bun scripts/agent.mjs ios layout
-  state` after `hinge_helper set <angle>` and `devicectl … hinge-angle`
-  reading it back:
-  - 180° (`Angle:180.0°`): `viewport 669×835`, `device-posture continuous`,
-    1 × 1, `viewport-segments []`; `state.device.devicePosture
-    "continuous"`, counts 1 and 1.
-  - 130° (`Angle:130.0°`): `viewport 669×835 · posture folded · segments 1×2
-    [0,0 669×373.5] [0,413.5 669×421.5]` — the division's 40-pt band from
-    373.5 to 413.5 in the viewport (455.5 on the panel, less the 82-pt top
-    inset), with its 20-pt margins inside the band; `state.device`
-    `"folded"`, 1 and 2.
-  - 0° (closed, the cover panel): `viewport 594×432`, `continuous`, 1 × 1.
-  - `prefer segments 2x1 gap 40` and `prefer posture continuous` at 0° and at
-    130°: refused, `the device decides (it has a fold)`.
-  - `devicectl device motion hinge-angle --session-timeout 2` prints the
-    angle and then does not exit on this beta; the drive wraps it in
-    `timeout`.
+- *The Duo simulator* (Xcode 27.1, iOS 27.1, measured again 2026-10-19). Caltrain, whose
+  viewport now covers the screen (`viewport-fit="cover"`), `bun scripts/agent.mjs ios layout
+  state` after `hinge_helper set <angle>` (Xcode 27.1's `devicectl` reads no hinge angle back):
+  - 180°: `viewport 951×669 · safe-area 0 84 34 0`, `device-posture continuous`, 1 × 1,
+    `viewport-segments []`; `state.device.devicePosture "continuous"`, counts 1 and 1.
+  - 130°: `viewport 951×669 · posture folded · segments 2×1 [0,0 455.5×669]
+    [495.5,0 455.5×669]` — the division's 40-pt band from 455.5 to 495.5, with its 20-pt
+    margins inside the band; `state.device` `"folded"`, 2 and 1.
+  - 0° (closed, the outer display): `viewport 466×678 · safe-area 0 84 34 0`, `continuous`,
+    1 × 1.
+  - `prefer segments 2x1 gap 40` and `prefer posture continuous` at 130°: refused, `the
+    device decides (it has a fold)`.
 - *The iOS 27.0 simulator* (iPhone 18 Pro, the default Xcode): the build
   compiles with the 27.0 SDK (the dynamic route finds neither class),
   `smoke ios`'s insets, viewport-fact and fold checks pass with
@@ -352,8 +344,8 @@ segments 2x1 gap 40`, `prefer posture folded`, `prefer segments 1x1`,
 the panes stack (0, 32, 420, 434) and (0, 466, 420, 434). A dangling link
 is refused by name when named and skipped under `--synthetic`.
 
-**Open after this lane.** Rotation on the Duo (the beta's simulator
-decides); `apps/duo-lab` and `smoke duo` (the sibling lane); a `bun
+**Open after this lane.** Rotation on the Duo (built later, "As built
+(rotation)"); `apps/duo-lab` and `smoke duo` (the sibling lane); a `bun
 host/web/build.mjs duo-lab` whose entry names `segments`
 and whose page moves its panes on `prefer segments 2x1` (the app lane's
 tree).
@@ -402,7 +394,7 @@ document's names exactly; the integrator checks them against the core lane.
   are checked against the two rects `layout.env` reports, whichever axis the device
   splits. It refuses a duo-lab bundle linked against an SDK before iOS 27.1 by name: such
   a build finds neither UIKit 27.1 class and reports flat, so the Duo run needs
-  `DEVELOPER_DIR` at the 27.1 beta for `build.mjs --ios duo-lab` too. Failures print as
+  `DEVELOPER_DIR` at Xcode 27.1 for `build.mjs --ios duo-lab` too. Failures print as
   they happen, and a missed live fold update is retried with a second hinge move and
   reported as a miss either way.
 - **`contract/corpus/segments.contract`** and `contract/cli/tests/it/segments.rs`: the
@@ -424,8 +416,9 @@ every app and corpus file failed with that refusal, and `smoke duo`'s Fold check
 Fold screen on the iOS 27.0 iPhone 18 Pro simulator, macOS and the web (JS target).
 After it (67bbc982a), the bake admits everything and the committed source is what runs.
 
-**The Duo, as found on 2026-10-02.** The same simulator (Xcode 27.1 beta) no longer sits
-in the state LLP 1008 §9 recorded: `devicectl` reports `landscapeLeft` and `orientation
+**The Duo, as found on 2026-10-02.** That day the simulator did not sit in the state LLP
+1008 §9 recorded (under Xcode 27.1 it does: the inner panel 951×669 upright and the division's
+columns, LLP 1127 §1): `devicectl` reports `landscapeLeft` and `orientation
 set` is accepted and changes nothing; a 27.1-linked cover plan gets the inner panel
 upright, 669×951 with insets top 82 and bottom 34, the cover 678×466 with left 84 (a
 27.0-linked one gets a 669×871 window under an 80-pt strip and no fold), so the recorded
@@ -542,3 +535,32 @@ the agent: the keyboard rises to 346 pt, the viewport goes 428×926 → 428×580
 fields take text, dismiss restores 926 with the sheet at 526; five push → type → dismiss →
 back cycles in 16 s, the keyboard 346 each time, no silence. A non-foldable reports
 `continuous`, 1 × 1, no segments.
+
+## As built (rotation, 2026-10-16)
+
+`smoke duo`'s rotate leg turns the Duo simulator with the vendor HID event Device Hub's
+orientation picker sends (`scripts/duo/hinge_helper.c orient`), at 180°, 130° and 0°:
+right, upside down, left and upright again, each turn confirmed by CoreDevice before the
+session is read. At every turn the session reports the scene's interface orientation and
+the panel and safe area a plain UIKit app reported open and closed (measured 2026-10-15),
+which the turns at 130° expect of the inner panel too; at 130° turned on its side, the
+inner panel's two segments run down it, (0, 0, 669, 455.5) over (0, 495.5, 669, 455.5),
+and duo-lab's Fold panes follow them. On the cover panel an iPhone app keeps its last
+orientation when the device turns upside down. The suite starts and ends with the device
+upright, so the recorded panel applies on a simulator left turned.
+
+After closing the Duo, the leg follows SpringBoard's log until its display swap's
+orientation deferrals end, turns the Duo upside down, which an app on the cover panel
+does not take, and waits for SpringBoard to log that pose, before the turns it checks
+(2026-10-19, Xcode 27.1, iOS 27.1 24A94425). Its first turn after closing was lost in 3
+of 21 runs beside another simulator's drives, no app turning though CoreDevice reported
+the device turned; in 3 of 20 when the turn waited 4 s after the swap began; and in 2 of
+29 with the upside-down turn made at once. SpringBoard sets its fold transition style to
+`.fade` as the Duo closes and back once its swap ends, by itself or with the first pose
+that reaches it then; in each failure locationd's pose for the turn (`CMMagicPose`) set
+the style back, and no orientation update followed. An upside-down turn made during the
+swap is applied as any is and leaves the style as it was. Made as the swap ends, it set
+the style back in 23 of 30 runs, and in 11 of them SpringBoard sent no orientation update
+for it; all 30 passed. A plain UIKit app
+turned in 102 of 102 turns made within a second of closing, which missed the window: it
+is SpringBoard's.

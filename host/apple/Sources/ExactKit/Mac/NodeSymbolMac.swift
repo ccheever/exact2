@@ -21,10 +21,11 @@ extension NodeView {
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
-            image = name.isEmpty ? nil : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
+            // An icon with no SF Symbol draws its own path (D10, stage 9 A).
+            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
             symbolFound = image != nil; if points <= 0 { image = nil }
-            if name.isEmpty, !source.hasPrefix("symbol:sf/"), symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
-            if !name.isEmpty || source.hasPrefix("symbol:sf/") { symbolRefusal = nil }
+            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
+            if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
             let leaf = symbolView ?? NSImageView()
             if symbolView == nil {
                 let clip = SymbolClip(); clip.wantsLayer = true; clip.layer?.masksToBounds = true
@@ -39,7 +40,10 @@ extension NodeView {
                 presenter.intrinsic(self.id, size)
             }
         }
-        symbolView?.contentTintColor = symbolTint ?? unsaidSymbolTint
+        // An icon path is the node's tint, else its colour (D10); a symbol is its tint, else its written colour (stage 9 B).
+        symbolView?.contentTintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint ?? symbolInk ?? unsaidSymbolTint
+        // A colour that comes or goes while its row is selected (TableInkMac.swift).
+        symbolView?.cell?.backgroundStyle = symbolBackground(inEmphasizedRow)
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }
@@ -48,7 +52,8 @@ extension NodeView {
         let content = contentBox()
         clip.frame = content; leaf.frame = clip.bounds
         switch style["object_fit"]?.string ?? "fill" {
-        case "contain": leaf.imageScaling = .scaleProportionallyUpOrDown
+        // `fill` too: a symbol keeps its aspect, as an SVG does (NodeViewIOS `layoutSymbol`).
+        case "contain", "fill": leaf.imageScaling = .scaleProportionallyUpOrDown
         case "none": leaf.imageScaling = .scaleNone
         case "scale-down": leaf.imageScaling = .scaleProportionallyDown
         case "cover":

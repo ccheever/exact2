@@ -6,14 +6,13 @@
 // built for the JS target and driven by the agent, as `exact` does; the wasm host takes the same rule
 // (navigation.js `editMenu`), which conformance's `menus` plan compares with this one.
 import { test, expect } from 'bun:test';
-import { chromium as playwrightChromium } from 'playwright-core';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { open } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { chromium, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { serveBuildTree } from '../serve.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
@@ -34,7 +33,7 @@ const MENUS = `component Menus
     column testId="root" gap=8 padding=8
       text heard testId="heard"
       text \`\${changes}\` testId="changes"
-      row contextmenu=menu("row") testId="row" gap=8 padding=8 align-items="center" flex-wrap="wrap"
+      row disabled=true contextmenu=menu("row") testId="row" gap=8 padding=8 align-items="center" flex-wrap="wrap"
         input type="checkbox" change=checked aria-label="Check" testId="check"
         input type="checkbox" switch change=checked aria-label="Switch" testId="switch"
         input type="radio" name="r" value="a" change=picked aria-label="Radio" testId="radio"
@@ -43,7 +42,7 @@ const MENUS = `component Menus
         input type="time" value="09:30" change=picked aria-label="Hour" testId="time"
         input value="" change=picked aria-label="Notes" testId="field"
         textarea value="" change=picked aria-label="Body" testId="area" height=40
-      row contextPopover="pop" testId="held" gap=8 padding=8 align-items="center"
+      row disabled=true contextPopover="pop" testId="held" gap=8 padding=8 align-items="center"
         text "Held"
         input type="checkbox" change=checked aria-label="Other" testId="other"
       column id="pop" popover="auto" testId="pop" padding=8
@@ -64,6 +63,7 @@ check('a contextmenu from a checkbox, switch, radio, range, date or time input i
     s = await open({ host: 'web', url: `http://127.0.0.1:${server.address().port}/` });
     // Whether each `contextmenu` was prevented, read after every listener has run.
     await s.carrier.evaluate(`(() => { window.prevented = []; addEventListener('contextmenu', e => setTimeout(() => prevented.push(e.defaultPrevented)), true); })()`);
+    // A container's disabled attribute suppresses neither its context action nor its popover.
     // Each click, from the platform at the target's middle: what the app heard, whether a control changed, and
     // whether the browser's own menu was prevented; every case is compared at once.
     const got = [], want = [];
@@ -98,7 +98,7 @@ check('a contextmenu from a checkbox, switch, radio, range, date or time input i
 // The helper both targets call: real HTML popover methods, including omitted
 // source and the browser's queued, coalesced ToggleEvent (issue #319).
 check('popover commands preserve HTML source, focus, idempotence and toggle coalescing', async () => {
-  const browser = await playwrightChromium.launch({ executablePath: chromium().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     await page.setContent('<main id="root"><button id="trigger" data-view="1">Menu</button><div popover="auto" id="menu" data-view="2"><button id="first">Done</button></div></main>');
@@ -138,7 +138,7 @@ check('wasm popover and focus commands preserve authored order', async () => {
   const glue = readFileSync(resolve(ROOT, 'host/web/glue.js'), 'utf8');
   const dispatch = glue.slice(glue.indexOf('        else if (op.name === "focus"'), glue.indexOf('        else if (op.name === "preventDefault"'));
   const drain = glue.slice(glue.indexOf('  // Focusing can dispatch an action:'), glue.indexOf('  focusAutofocus(); inputHandlers?.arrive();'));
-  const browser = await playwrightChromium.launch({ executablePath: chromium().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     await page.setContent('<main id="root"><button id="trigger">Menu</button><div popover="auto" id="menu"><input id="first" autofocus></div></main>');

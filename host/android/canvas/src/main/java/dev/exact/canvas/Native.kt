@@ -20,7 +20,7 @@ object Native {
      * with them, and again on the host's thread whenever one changes. */
     @JvmStatic external fun configure(
         night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
-        boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float,
+        boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float, dates: String,
     )
     /** The device's colours ([Palette], LLP 1115.001 D4): Material 3's colour roles as the reader resolved them for
      * this device, twelve under the light scheme and then the same twelve under the dark one, ARGB. Before [start],
@@ -38,6 +38,8 @@ object Native {
     @JvmStatic external fun chrome(): IntArray?
     @JvmStatic external fun frame(): ByteBuffer?
     @JvmStatic external fun poll(): Boolean
+    @JvmStatic external fun acquired(running: Boolean)
+    @JvmStatic external fun displayFrame()
     @JvmStatic external fun animating(): Boolean
     @JvmStatic external fun owed(): Boolean
     /** The collection pass a scroll left; `limit` >= 0 slices it (rows past what shows per list), the scrolled list
@@ -54,7 +56,9 @@ object Native {
      * innermost first: its id, flags (bit 0 it takes a sideways drag from here, bit 1 one up or down, bit 2 its
      * rows are a node the reader can move), its revision, then as float bits its offset (x, y), its farthest offset
      * (x, y) and the box it shows in (x, y, width, height). exact2 tells the reader of each of them from then on
-     * ([scrollers]). */
+     * ([scrollers]). After the scrollers: the native module button under the point (0: none), then its painted
+     * box x, y, width and height as float bits, in pixels, its allocation slot and generation, and how many long
+     * presses a node has taken so far (wrapping). */
     @JvmStatic external fun under(x: Float, y: Float): IntArray
     /** What exact2 tells the reader of the text fields it hosts (LLP 1115.001 D8), when that is not what this last
      * returned (else null): a count, then for each field, in tree order: its id, its generation (moved on when its
@@ -68,6 +72,9 @@ object Native {
     /** Hosted field [id], known at [generation], took the focus (a finger tapped it) or lost it. On the host's
      * thread, as every `field` call is; what one says of a generation exact2 has moved on from is dropped. */
     @JvmStatic external fun fieldFocused(id: Int, generation: Int, focused: Boolean)
+    /** Hosted field [id], known at [generation], had real input that may change nothing exact2 hears of: a finger
+     * down in it, a key down. A state held on it (LLP 1122 D8) lets go. */
+    @JvmStatic external fun fieldInput(id: Int, generation: Int)
     /** Hosted field [id] holds [value] after the person's edit number [seq], its selection at [start] to [end]
      * (UTF-16 units). Composing text is part of the value: exact2 fires `input` as the text composes. */
     @JvmStatic external fun fieldEdited(id: Int, generation: Int, seq: Int, value: String, start: Int, end: Int)
@@ -81,6 +88,8 @@ object Native {
      * key said it does: 0 Enter with no action, 2 done, 3 go, 4 next, 5 previous, 6 search, 7 send, 16 Tab, 17
      * Shift+Tab. exact2 does that: Enter's `key` handlers, `change` and `submit`, then the move or the leave. */
     @JvmStatic external fun fieldAction(id: Int, generation: Int, action: Int)
+    /** A module event, checked against the allocation generation carried by its painted view. */
+    @JvmStatic external fun moduleEvent(id: Int, slot: Int, generation: Int, kind: String, payload: String)
     /** The reader moved scroller [id] by ([dx], [dy]) px, knowing revision [rev] of it. exact2 clamps the move to
      * the scroller's travel, and drops one sent under a revision the app's own scroll has moved on from. */
     @JvmStatic external fun scrolled(id: Int, dx: Float, dy: Float, rev: Int)
@@ -146,6 +155,8 @@ object Native {
     /** A buffered canvas's newest frame (any thread): generation (24 bits), slot (8), serial (32); -1 none yet, -2 no
      * buffers on this device. */
     @JvmStatic external fun canvasFrame(view: Int): Long
+    /** -1 attachment refused, 0 waiting, 1 first window frame submitted to the compositor. Any thread. */
+    @JvmStatic external fun canvasReady(view: Int): Int
     /** That frame's buffer, or null. */
     @JvmStatic external fun canvasBuffer(view: Int): android.hardware.HardwareBuffer?
     /** A key at the focused node when no hosted field holds the focus: a character (or '\n' for Enter), or
@@ -164,10 +175,22 @@ object Native {
     /** The answer to request [id] (the share sheet's: `shared` or `dismissed`, or why it could not be shown), or null
      * when it was cancelled. On the host's thread. */
     @JvmStatic external fun answer(id: Int, answer: String?)
+    /** A topic an extension announced ([ExtensionContext.changed]): its readers are asked again. On the host's thread. */
+    @JvmStatic external fun changed(topic: String)
+    /** The extensions the APK carries, one a line ([Extensions]): bound outside the agent. On the host's thread. */
+    @JvmStatic external fun bindExtensions(names: String)
+    /** What the app's Kotlin hatches ask, for node [node] or 0 for their module (LLP 1115.001.000 D4; the kinds are
+     * `hatches::reader::act`'s): its answer, a ticket for a registration, -1 when refused. */
+    @JvmStatic external fun hatchAct(node: Int, kind: Int, text: String?): Long
     /** One request of the agent API (LLP 1012), a JSON line as UTF-8, and its answer the same way: the Linux
      * host's own handler (`host/linux/src/canvas/agent.rs`), on the host's thread. From the first one the host's turns
      * run at the driver's clock, which only a `clock` request moves. [AgentDrive] calls it for a driver over adb. */
     @JvmStatic external fun agent(line: ByteArray): ByteArray
+    /** What an [ExactTamber] asks (LLP 1121 D12), on the host's thread: `{"view": id or 0, "names": [..]}`, answered
+     * `{"inputs": "<u64>", "colors": {name: ARGB or null}}`, each colour as exact2 paints it at that view (its pinned
+     * modes, its scheme), null for a name the design lacks; `inputs` moves when anything the answer read does. A
+     * view that is no live node, or a name that is no string, is answered `{"error": ...}`. */
+    @JvmStatic external fun tamber(request: String): String
     /** Run the calling thread on the cores outside the slowest cluster; whether it was set. */
     @JvmStatic external fun fastCores(): Boolean
     /** An ADPF hint session over [tids] (this process's threads), [targetNs] their work's target. */

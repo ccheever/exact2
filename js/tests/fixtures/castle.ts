@@ -96,6 +96,14 @@ async function refusedLater(): Promise<Session> {
   await fetch("https://api.castle.xyz/ping");
   throw new Error("after the fetch");
 }
+// A Snapback refusal as the snapback4 driver throws it (`refused`): its code
+// is `failure(x).reason`; an `E_OFFLINE` one is also a fetch's `Network`.
+async function refusedWhy(offline: string): Promise<Session> {
+  await fetch("https://api.castle.xyz/ping");
+  const code = offline ? "E_OFFLINE" : "SLOT_FULL", error = Object.assign(new Error(`${code}: no`), { code, reason: code });
+  // `name` is defined, not assigned: Error.prototype's is read-only here (frozen intrinsics).
+  throw offline ? Object.defineProperties(error, { name: { value: "FetchError" }, kind: { value: "Network" } }) : error;
+}
 
 // One fetch two answers share, as a page's code memoizes one (hn-reader
 // F7): the second answer awaits the first's request, not one of its own.
@@ -153,6 +161,7 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "stuck": return stuck();
     case "refused": return refused();
     case "refusedLater": return refusedLater();
+    case "refusedWhy": return refusedWhy(text(args, 0));
     case "parallel": return parallel();
     case "item": case "thread": return item(text(args, 0));
     case "followup": return followup(text(args, 0));

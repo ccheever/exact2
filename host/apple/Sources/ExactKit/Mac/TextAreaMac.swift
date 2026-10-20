@@ -20,6 +20,8 @@ package final class TextArea: NSTextView {
 
     weak var owner: NodeView?
     package var markup: MarkdownEditing?
+    /// A plain textarea's painted decorations (LLP 1114.007).
+    var decorations: FieldDecorations?
     var nativeOrigin: NSPoint?
     // AppKit asks the first responder for the mask: the native bezel's
     // scroll view, or the bare node's whole authored box.
@@ -94,18 +96,23 @@ package final class TextArea: NSTextView {
     package override func unmarkText() {
         guard let owner else { super.unmarkText(); return }
         owner.settlingComposition(self) { super.unmarkText() }
+        // A commit that changes no text posts no change: paint held back
+        // while it was marked catches up here.
+        owner.restyleDecorations()
     }
 
-    package override func insertTab(_ sender: Any?) {
-        if markup != nil { super.insertTab(sender) } else { window?.selectNextKeyView(self) }
-    }
-    package override func insertBacktab(_ sender: Any?) {
-        if markup != nil { super.insertBacktab(sender) } else { window?.selectPreviousKeyView(self) }
-    }
+    /// Tab and Shift-Tab move the focus, the Markdown editor's too, as the
+    /// web's textarea does; an app that wants a tab or an indent prevents
+    /// the `key` and calls `setRangeText` (LLP 1045 D6).
+    package override func insertTab(_ sender: Any?) { window?.selectNextKeyView(self) }
+    package override func insertBacktab(_ sender: Any?) { window?.selectPreviousKeyView(self) }
 
+    /// Return: the app's `beforeinput` first, then the Markdown editor's
+    /// list continuation, else a line break (LLP 1045 D6).
     package override func insertNewline(_ sender: Any?) {
-        if markup != nil, !hasMarkedText(), owner?.formatMarkup("newline") == true { return }
-        super.insertNewline(sender)
+        guard markup != nil, !hasMarkedText(), let owner else { super.insertNewline(sender); return }
+        let line = { if !owner.formatMarkup("newline") { super.insertNewline(sender) } }
+        if let fields = owner.presenter?.fieldSelections { fields.nativeEdit(owner, replacement: "\n", marked: false, line) } else { line() }
     }
 
     package override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -179,12 +186,13 @@ package final class TextArea: NSTextView {
     var placeholderColor: NSColor? { didSet { if placeholderColor != oldValue { needsDisplay = true } } }
     package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        decorations?.drawLines(in: self)
         if string.isEmpty, !placeholder.isEmpty {
             let origin = textContainerOrigin
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
             (placeholder as NSString).draw(in: rect, withAttributes: [
                 .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? ThemeRoles.color("placeholder", or: NSColor.placeholderTextColor) : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
+                .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? ThemeRoles.color("placeholder", in: self, or: NSColor.placeholderTextColor) : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
             ])
         }
     }
@@ -292,6 +300,7 @@ extension NodeView {
         guard let f = textArea else { return }
         configureMarkup()
         writeValue(props["value"] ?? "", into: f)
+        restyleDecorations()
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled
         applyTextChecking(f)
@@ -304,16 +313,16 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         guard !f.hasMarkedText() else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-        f.textColor = color("text_color", SystemColor.canvasText)
+        f.textColor = fieldInk
         f.insertionPointColor = caretColor
         (f as? TextArea)?.placeholderColor = placeholderColor
         let native = isNativeTextControl
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
         textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
         textAreaScroll?.drawsBackground = native
-        textAreaScroll?.backgroundColor = ThemeRoles.color("Field", or: .controlBackgroundColor)
+        textAreaScroll?.backgroundColor = ThemeRoles.color("Field", in: self, or: .controlBackgroundColor)
         f.drawsBackground = native
-        f.backgroundColor = ThemeRoles.color("Field", or: .textBackgroundColor)
+        f.backgroundColor = ThemeRoles.color("Field", in: self, or: .textBackgroundColor)
         f.focusRingType = outlineNone ? .none : native ? .default : .exterior
         restyleFieldFocus()
         f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero
@@ -433,11 +442,16 @@ extension NSTextView {
 /// `controlTextDidEndEditing`, which AppKit sends whenever the editor leaves.
 /// Its cell serves the node's ARIA attributes (`FieldCell`, Accessibility.swift).
 final class Field: NSTextField {
-    private var numberOwner: NodeView? {
+    /// A `type="number"` input's node: the field is AppKit's stepper (incrementor) to accessibility.
+    var numberOwner: NodeView? {
         guard let node = delegate as? NodeView, node.props["type"]?.lowercased() == "number" else { return nil }
         return node
     }
-    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : super.accessibilityRole() }
+    /// Once overridden, this is the role another process (VoiceOver) is
+    /// served, and `super`'s is `NSView`'s `AXUnknown`: an `NSTextField`'s
+    /// role is its cell's (`AXTextField`), so that is the answer for any
+    /// field but a number's.
+    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : cell?.accessibilityRole() ?? super.accessibilityRole() }
     override func accessibilityMinValue() -> Any? {
         guard let owner = numberOwner else { return super.accessibilityMinValue() }
         return NumberStepping(owner.props).min.map { NSDecimalNumber(decimal: $0) }

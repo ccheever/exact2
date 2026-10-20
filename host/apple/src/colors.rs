@@ -54,7 +54,7 @@ impl<D: DataSource> Host<D> {
                 None,
             ),
             Ok(None) => self.commit(&[], None),
-            Err(e) => return exact_runner::agent::error(&format!("mode: {e:?}")),
+            Err(e) => return self.refused(Some(format!("mode: {e:?}"))),
         };
         // An object, as every batch is: the modes go first.
         format!("{{\"modes\":{},{}", self.runner.modes_json(), &batch[1..])
@@ -69,11 +69,40 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// Whether the root font size or the window's modes moved since a batch
+    /// last said them, whatever moved them: the app's `setMode` (which
+    /// reaches no host as a command) and `setRootFontSize` as well as a
+    /// host's. The build channel reports each move (LLP 1122 D4).
+    pub(super) fn facts_moved(&mut self) -> bool {
+        let facts = (self.runner.root_font_size(), self.runner.modes());
+        if self.facts_told.as_ref() == Some(&facts) {
+            return false;
+        }
+        self.facts_told = Some(facts);
+        true
+    }
+
+    /// Whether a displayed element holds the wake lock, when that changed
+    /// since a batch last said it (LLP 1125 D11): the presenter takes the
+    /// platform's lock while any session's batch last said `true`. A new host
+    /// (a boot, a committed plan) says it at its first batch.
+    pub(super) fn wakelock_moved(&mut self) -> Option<bool> {
+        let held = !exact_runner::wakelock::holders(self.runner.kernel()).is_empty();
+        if self.wakelock_told == Some(held) {
+            return None;
+        }
+        self.wakelock_told = Some(held);
+        Some(held)
+    }
+
     /// Take the presenter's resolutions; when anything resolves differently,
     /// re-present what the kernel resolved from the old ones.
     pub fn set_colors(&mut self, report: Vec<(ColorValue, bool, Color)>) -> String {
         let mut batch = Batch::new();
-        let mut generation = roles::set_reported(report);
+        let _roles = self.runner.bind_roles();
+        roles::set_reported(report);
+        // The reported table's and this session's roles' (LLP 1121 stage 5).
+        let mut generation = roles::generation();
         // What is recorded is the generation this session painted from: if
         // another session replaced the table while it painted, it paints
         // again (a few times at most; its next report catches up after).
@@ -86,7 +115,7 @@ impl<D: DataSource> Host<D> {
             let first = self.colors_seen.is_none();
             self.re_present_colors(&mut batch, first);
             self.colors_seen = Some(generation);
-            generation = roles::reported_generation();
+            generation = roles::generation();
         }
         self.finish(batch, None)
     }
@@ -123,8 +152,21 @@ impl<D: DataSource> Host<D> {
     }
 }
 
+impl<D: DataSource> Host<D> {
+    /// The session's role overrides moved (a live edit, LLP 1121 stage 5):
+    /// the presenter's table again (its tint, its own surfaces), and what
+    /// the kernel resolved from the old ones re-presented (each node's rows
+    /// cross again: the runner's receipt touches every node).
+    pub(crate) fn roles_moved(&mut self, batch: &mut Batch) {
+        let _roles = self.runner.bind_roles();
+        emit_roles(batch);
+        self.re_present_colors(batch, false);
+        self.colors_seen = Some(roles::generation());
+    }
+}
+
 /// The roles the plan's theme replaces (LLP 1095 D4), for the presenter's
-/// own surfaces: one message at boot.
+/// own surfaces: a message at boot, and after a live edit moves them.
 pub(crate) fn emit_roles(batch: &mut Batch) {
     use exact_kernel::style::roles;
     let entries: Vec<(&str, String)> = (0..=u8::MAX)

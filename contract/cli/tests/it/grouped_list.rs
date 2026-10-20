@@ -56,6 +56,14 @@ fn id(r: &Runner<NoData>, test_id: &str) -> u32 {
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
 
+/// Where a box's content starts: its frame's x and its resolved left
+/// padding (a grouped row spans its card, its inset inside it).
+fn content_x(r: &Runner<NoData>, test_id: &str) -> f32 {
+    let k = r.kernel();
+    let node = k.node(id(r, test_id)).unwrap();
+    node.frame.x + k.resolved_padding(node.key).unwrap().0
+}
+
 fn refused(body: &str) -> String {
     let e = contract::compile(&app(body)).unwrap_err();
     assert_eq!(e.id, "lower-grouped-list", "{}", e.message);
@@ -222,17 +230,16 @@ fn the_sheet_draws_ios_metrics_and_the_author_replaces_it() {
     let list = k.node(id(&r, "list")).unwrap();
     assert_eq!(list.props.str(PropId::ListStyle), Some("inset-grouped"));
     // The header row is 10 + a line + 10; the rows start under it, 52 apart
-    // (each draws its separator and overlaps the next by its width).
+    // (each separator is decoration, which takes no height).
     let profile = frame("profile");
-    assert_eq!(profile.height, 53.0, "52 and its 1-point separator");
+    assert_eq!(profile.height, 52.0);
     // (to a float's rounding: the header above is a line of the body style).
     assert!((frame("notes").y - profile.y - 52.0).abs() < 0.01);
-    assert_eq!(
-        profile.x, 72.0,
-        "the row starts at the text, after an icon, as UIKit's label does"
-    );
-    let delete = frame("delete");
-    assert_eq!(delete.x, 32.0, "no icon: 16 into the group");
+    // Each row spans its card (16 in from the list, 370 wide); its
+    // content starts at the text, after an icon, as UIKit's label does.
+    assert_eq!((profile.x, profile.width), (16.0, 370.0));
+    assert_eq!(content_x(&r, "profile"), 72.0);
+    assert_eq!(content_x(&r, "delete"), 32.0, "no icon: 16 into the group");
     let own = boot(&SETTINGS.replace(
         "destructive=true testId=\"delete\"",
         "destructive=true testId=\"delete\" min-height=60",
@@ -240,7 +247,7 @@ fn the_sheet_draws_ios_metrics_and_the_author_replaces_it() {
     let k2 = own.kernel();
     assert_eq!(
         k2.node(id(&own, "delete")).unwrap().frame.height,
-        61.0,
+        60.0,
         "the author's row replaces the sheet's"
     );
 }
@@ -303,15 +310,15 @@ fn a_class_replaces_the_sheet_as_an_attribute_does() {
             .unwrap()
             .frame
             .height,
-        81.0,
-        "the class's 80 and the separator"
+        80.0,
+        "the class's 80, the separator taking none"
     );
 }
 
 #[test]
 fn a_symbol_under_a_condition_moves_the_text_with_it() {
     let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        image \"symbol:person\"\n      text \"Profile\"");
-    let x = |r: &Runner<NoData>| r.kernel().node(id(r, "row")).unwrap().frame.x;
+    let x = |r: &Runner<NoData>| content_x(r, "row");
     assert_eq!(x(&r), 32.0, "no symbol: 16 into the group");
     let row = id(&r, "row");
     r.dispatch(row, exact_runner::Event::Press).unwrap();
@@ -447,7 +454,7 @@ fn round_three_shapes() {
         "beside a text field the column is the author's"
     );
     assert_eq!(
-        r.kernel().node(id(&r, "plain")).unwrap().frame.x,
+        content_x(&r, "plain"),
         32.0,
         "a hidden symbol reserves no inset"
     );
@@ -499,15 +506,11 @@ fn a_column_row_keeps_its_direction() {
         "stacked: {q:?} {choices:?} {answer:?}"
     );
     assert_eq!(
-        frame("form").x,
+        content_x(&r, "form"),
         32.0,
         "16 into the card, as a row without an icon"
     );
-    assert_eq!(
-        frame("one").height,
-        53.0,
-        "one line: a cell's 52 and its separator"
-    );
+    assert_eq!(frame("one").height, 52.0, "one line: a cell's 52");
     let own = boot("list appearance=\"auto\" flex=1\n  section\n    column flex-direction=\"row\" testId=\"strip\"\n      text \"A\" testId=\"a\"\n      text \"B\" testId=\"b\"");
     let k = own.kernel();
     let (a, b) = (
@@ -533,7 +536,7 @@ fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
     let (card, title, actions) = (frame("card"), frame("title"), frame("actions"));
     assert_eq!(title.y - card.y, 15.0, "the title 15 under the card's top");
     assert_eq!(
-        card.y + card.height - 1.0 - (actions.y + actions.height),
+        card.y + card.height - (actions.y + actions.height),
         15.0,
         "the buttons 15 over the separator: {card:?} {actions:?}"
     );
@@ -544,19 +547,11 @@ fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
         15.0,
         "a column beside controls, shown by a condition, too"
     );
-    assert_eq!(
-        item.height,
-        lines.height + 31.0,
-        "15 above, 15 below, and the separator"
-    );
-    assert_eq!(
-        frame("one").height,
-        53.0,
-        "one text: a cell's 52 and its separator"
-    );
+    assert_eq!(item.height, lines.height + 30.0, "15 above, 15 below");
+    assert_eq!(frame("one").height, 52.0, "one text: a cell's 52");
     assert_eq!(
         frame("field").height,
-        53.0,
+        52.0,
         "a row of controls keeps the cell's 52"
     );
     assert!(
@@ -565,12 +560,12 @@ fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
     );
     assert_eq!(
         frame("cover").height,
-        67.0,
+        66.0,
         "an empty column is a box (a cover's placeholder), not lines"
     );
     assert_eq!(
         frame("profile").height,
-        77.0,
+        76.0,
         "the stack's margins are its own: a taller avatar with its own sets the height"
     );
     // The author's padding replaces the sheet's, a shorthand included.
@@ -675,7 +670,71 @@ fn the_sheets_text_follows_the_root_font_size() {
             assert_eq!(size(t), want, "{name}: {t}");
         }
         let row = k.node(id(&r, "row")).unwrap().frame.height;
-        assert_eq!(row, 53.0, "{name}: a row is 52 and its separator");
+        assert_eq!(row, 52.0, "{name}: a row is 52");
+    }
+}
+
+/// LLP 1116.019 D1: a label beside a field keeps its words' width; the
+/// field is 8rem at the far edge, and where both do not fit (iOS's
+/// accessibility sizes) the row wraps the field under the label, as large
+/// as the line, rather than squeezing the label to nothing. An author's
+/// `flex=1` title keeps its line at the default sizes, and an author's
+/// `flex=1 min-width=0` field (the number-field recipe's) takes the rest of
+/// the line and still wraps. A date and a menu (LLP 1116.020 D4) keep their
+/// own width, a menu written `flex=1` too (grocery-list's Aisle, round 24).
+#[test]
+fn a_field_goes_under_its_label_when_both_do_not_fit() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"qty-row\"\n      text \"Quantity\" testId=\"qty-label\"\n      input type=\"number\" value=\"25\" min=1 max=99 step=1 testId=\"qty\"\n    row\n      text \"Focus minutes\" flex=1 testId=\"focus-label\"\n      input value=\"25\" testId=\"focus\"\n    row\n      text \"Daily goal\" testId=\"goal-label\"\n      input type=\"number\" value=\"2000\" min=100 step=50 testId=\"goal\" flex=1 min-width=0\n    row\n      text \"Birthday\" testId=\"date-label\"\n      input type=\"date\" value=\"2026-10-16\" testId=\"date\"\n    row testId=\"menu-row\"\n      text \"Category\" testId=\"menu-label\"\n      select value=\"Groceries\" testId=\"menu\"\n        option \"Groceries and household\" value=\"Groceries\"\n    row\n      text \"Aisle\"\n      select value=\"Produce\" testId=\"aisle\" flex=1 min-width=0\n        option \"Produce\" value=\"Produce\"";
+    for (root, wraps) in [(13.0f32, false), (16.0, false), (17.0, false), (53.0, true)] {
+        let mut r = boot(body);
+        r.set_root_font_size(root.into()).unwrap();
+        let k = r.kernel_mut();
+        let page = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(page, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+        for (label, field) in [
+            ("qty-label", "qty"),
+            ("focus-label", "focus"),
+            ("goal-label", "goal"),
+        ] {
+            let (l, f) = (frame(label), frame(field));
+            assert!(l.width > 0.0, "{root}: {label} keeps its words");
+            assert_eq!(
+                f.y >= l.y + l.height,
+                wraps,
+                "{root}: {field} under {label}"
+            );
+            if wraps {
+                assert_eq!(f.x, l.x, "{root}: {field} starts under its label");
+            } else {
+                if field == "goal" {
+                    assert!(
+                        f.width > 8.0 * root,
+                        "{root}: {field} takes the rest: {l:?} {f:?}"
+                    );
+                } else {
+                    assert_eq!(f.width, 8.0 * root, "{root}: {field} is 8rem");
+                }
+                assert!(l.height < 1.5 * root * 1.3, "{root}: {label} on one line");
+            }
+        }
+        // LLP 1116.020 D4: a menu's value is a picker as the date is. Its width is the host's (a pop-up button), so the
+        // row's wrap is what says it goes under its label where both do not fit.
+        let style = |t: &str| k.node(id(&r, t)).unwrap().computed_style(StyleMask::ALL);
+        let wrap = style("menu-row").flex_wrap;
+        assert_eq!(wrap, exact_kernel::FlexWrap::Wrap, "{root}: wraps");
+        let basis = style("aisle").flex_basis;
+        assert_eq!(basis, exact_kernel::Dimension::Auto, "{root}: grown");
+        for (label, field) in [("date-label", "date"), ("menu-label", "menu")] {
+            let (l, f) = (frame(label), frame(field));
+            assert!(l.width > 0.0, "{root}: {label} keeps its words");
+            assert!(
+                l.x + l.width <= f.x || f.y >= l.y + l.height,
+                "{root}: {field} does not overlap its label"
+            );
+        }
     }
 }
 
@@ -731,10 +790,9 @@ fn a_transparent_section_has_no_card() {
 fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\"\n    button press=go testId=\"a\"\n      text \"A\"\n    button press=go testId=\"b\"\n      text \"B\"");
     let k = r.kernel();
-    let a = k.node(id(&r, "a")).unwrap();
     assert_eq!(
-        a.style.border_widths()[2],
-        0.0,
+        k.grouped_separator(id(&r, "a")),
+        None,
         "no separator under a card-less row"
     );
     let m = refused(
@@ -785,13 +843,13 @@ fn authored_margins_collapse_as_the_web_lays_them_out() {
         "30 and 40 meet as 40, not 70, above the header"
     );
     // The kernel's own layout (which the web host follows) agrees: the
-    // rows are 40 apart where the margins meet, less the separator's overlap.
+    // rows are 40 apart where the margins meet.
     let a = k.node(id(&r, "a")).unwrap().frame;
     let header_top = k.node(id(&r, "more")).unwrap().frame.y;
     assert!(
-        (header_top - (a.y + a.height - 1.0) - 40.0).abs() < 0.5,
+        (header_top - (a.y + a.height) - 40.0).abs() < 0.5,
         "web gap {}",
-        header_top - (a.y + a.height - 1.0)
+        header_top - (a.y + a.height)
     );
     assert_eq!(
         list.sections[2].space_above,
@@ -889,8 +947,13 @@ fn the_sheet_names_the_platforms_metrics_and_an_author_cannot() {
     assert_eq!(row.style.appearance, exact_kernel::Appearance::None);
     assert!(
         !row.style.mask.has(exact_kernel::StyleId::PaddingTop)
-            && !row.style.mask.has(exact_kernel::StyleId::PaddingLeft),
+            && !row.style.mask.has(exact_kernel::StyleId::MarginLeft),
         "the Mac's rows are no row here"
+    );
+    assert_eq!(
+        row.style.padding_left,
+        exact_kernel::Dimension::Points(16.0),
+        "a destructive row's inset is a row's here"
     );
     let red = ColorValue::Role(exact_kernel::style::roles::role("-exact-system-red").unwrap());
     assert_eq!(row.style.text_color, red);
@@ -1331,4 +1394,102 @@ fn the_sheets_symbol_and_checkmark_take_the_accent() {
         accent,
         "the chevron: grey"
     );
+}
+
+/// LLP 1116.019 D6 (round 17's book-club, contacts and workout-log): a
+/// `button` row that is an action cell is drawn in the accent, as a
+/// hand-built action cell and SwiftUI's `List { Button }` are, and the kernel
+/// tells a native list so; a forward chevron anywhere in a row is the
+/// disclosure's grey unless its author coloured it, and a link that ends in
+/// one is a row that pushes, in the label's colour.
+#[test]
+fn an_action_row_is_tinted_and_a_rows_chevron_is_the_disclosures_grey() {
+    let r = boot(
+        r#"list appearance="auto" testId="list" flex=1
+  section
+    button press=go testId="action"
+      text "Update my progress"
+    button press=go testId="symbol"
+      image "symbol:add"
+      text "Add"
+    button press=go testId="push"
+      text "Open"
+      image "symbol:forward-chevron"
+    row testId="plain"
+      text "Plain"
+    link href="/x" testId="nested"
+      row gap=12 flex=1
+        text "Nested" flex=1
+        image "symbol:forward-chevron" testId="chev-unsaid"
+    link href="/x" testId="said"
+      row gap=12 flex=1
+        text "Said" flex=1
+        image "symbol:forward-chevron" color="-exact-system-red" testId="chev-red"
+    row gap=8
+      link href="/x" flex=1 display="flex" testId="contacts"
+        text "Contacts" flex=1 testId="contacts-name"
+        image "symbol:forward-chevron" testId="chev-contacts"
+      button press=go aria-label="Star"
+        image "symbol:star"
+text "accent" color="AccentColor" testId="accent"
+image "symbol:star" color="-exact-system-red" testId="red-star"
+image "photo.png" color="-exact-system-red" width=20 height=20 testId="photo""#,
+    );
+    let k = r.kernel();
+    let list = k.grouped_list(id(&r, "list")).unwrap();
+    let action = |t: &str| {
+        let view = id(&r, t);
+        list.sections[0]
+            .rows
+            .iter()
+            .find(|row| row.view == view)
+            .unwrap()
+            .action
+    };
+    assert!(
+        action("action") && action("symbol"),
+        "a title, a symbol before it at most"
+    );
+    assert!(
+        !action("push"),
+        "a row that pushes keeps the label's colour"
+    );
+    assert!(!action("plain") && !action("nested"), "a `row`, a link");
+    let colour = |t: &str| k.node(id(&r, t)).unwrap().text_color();
+    assert_eq!(colour("action"), colour("accent"));
+    assert_eq!(colour("symbol"), colour("accent"));
+    let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
+    assert_eq!(colour("push"), role("-exact-label"));
+    assert_eq!(
+        colour("contacts-name"),
+        role("-exact-label"),
+        "not a link's colour"
+    );
+    let row = &list.sections[0].rows[0];
+    assert_eq!(
+        row.title_look,
+        TextLook::default(),
+        "the sheet's tint is unsaid"
+    );
+    let tint = |t: &str| {
+        k.node(id(&r, t))
+            .unwrap()
+            .computed_style(StyleMask::ALL)
+            .tint_color
+    };
+    assert_eq!(tint("chev-unsaid"), Some(role("-exact-tertiary-label")));
+    assert_eq!(tint("chev-contacts"), Some(role("-exact-tertiary-label")));
+    // `currentcolor` is the row's `None`: the symbol paints its `color`.
+    let red = role("-exact-system-red");
+    assert_eq!(
+        (tint("chev-red"), colour("chev-red")),
+        (None, red),
+        "the author's colour wins"
+    );
+    assert_eq!(
+        (tint("red-star"), colour("red-star")),
+        (None, red),
+        "a symbol's `color` is its colour"
+    );
+    assert!(tint("photo").is_some(), "a raster is given no tint");
 }

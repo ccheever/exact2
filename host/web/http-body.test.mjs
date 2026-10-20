@@ -6,7 +6,7 @@ import {dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {boundedHttpBody as readBody, request, waitForInflight} from './http-body.js';
-import {scopedGrantSet} from './grant-admission.js';
+import {admittingGrant, scopedGrantSet} from './grant-admission.js';
 import {createRequestExecutor} from '../web-js/admission.js';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'../..'),sets=new Map();
@@ -224,4 +224,19 @@ test('the wasm early GET follows a return chain and is claimed at the granted fi
     const response = await request(op, { grantSet: app, controllers: new Set(), moduleLoader: { claim } });
     expect([response.kind, new TextDecoder().decode(response.body), middleHits, finalHits]).toEqual([0, 'accepted', 1, 1]);
   } finally { origin.stop(true); middle.stop(true); final.stop(true); }
+});
+
+test('a scheme line admits every origin of its scheme, and a request names the line that admitted it', async () => {
+  const set = normalized('net.fetch https://api.example\nnet.fetch http:\nnet.websocket wss://feed.example\nnet.websocket ws:');
+  expect([
+    admittingGrant(set, 'http://127.0.0.1:49152/x', 'fetch'), admittingGrant(set, 'https://api.example/x', 'fetch'),
+    admittingGrant(set, 'ws://laptop.tailnet.ts.net:3773/ws', 'websocket'), admittingGrant(set, 'wss://feed.example/s', 'websocket'),
+    admittingGrant(set, 'https://other.example/x', 'fetch'), admittingGrant(set, 'wss://other.example/s', 'websocket'),
+  ]).toEqual(['net.fetch http:', 'net.fetch https://api.example', 'net.websocket ws:', 'net.websocket wss://feed.example', null, null]);
+  const controller = new AbortController();
+  const refused = await request({ method: 'GET', url: 'wss://other.example/s', headers: [], stream: true }, { grantSet: set, controllers: new Set(), controller });
+  expect([refused.kind, new TextDecoder().decode(refused.body), controller.grant]).toEqual([2, "outside the app's grants (net.websocket)", undefined]);
+  const admitted = new AbortController();
+  const unreachable = await request({ method: 'GET', url: 'http://127.0.0.1:1/events', headers: [], stream: true }, { grantSet: set, controllers: new Set(), controller: admitted });
+  expect([unreachable.kind, admitted.grant]).toEqual([1, 'net.fetch http:']);
 });

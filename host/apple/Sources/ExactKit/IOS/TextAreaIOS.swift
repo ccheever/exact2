@@ -6,8 +6,64 @@ import UIKit
 // empty field: its Backspace and Return are keys the `key` handlers hear
 // too. A hardware keyboard's keys reach them in `pressesBegan`, before UIKit
 // edits with them (KeyEvents.swift).
+/// Under the agent, the last things that took the focus from Exact's native
+/// editors or took an editor out of its window, so a test can tell UIKit's
+/// resignation of a focused editor from Exact's, and the same editor from a
+/// remounted one (`state`'s `focus.events` and `focus.native`). Each event has
+/// a number, a kind (`resign` or `detach`), the node and the editor's token,
+/// one per native editor and never reused in the process; a resignation says
+/// who called it: `uikit-keyboards` when UIKit's keyboard machinery did with
+/// no Exact frame between (as when the scene moves to the other display of an
+/// iPhone Duo), else `other`.
+enum ResignTrace {
+    nonisolated(unsafe) static var events: [[String: Any]] = []
+    nonisolated(unsafe) private static var seq = 0
+    nonisolated(unsafe) private static var tokens = 0
+    nonisolated(unsafe) private static var tokenKey: UInt8 = 0
+    /// A native editor's token, given on first use.
+    static func token(_ view: UIView) -> Int {
+        if let token = objc_getAssociatedObject(view, &tokenKey) as? Int { return token }
+        tokens += 1
+        objc_setAssociatedObject(view, &tokenKey, tokens, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return tokens
+    }
+    static func resigned(_ view: UIView, node: UInt32?) {
+        guard ExactEnv.agentMode else { return }
+        // UIKit's keyboard machinery, and no frame of the app between it and the
+        // editor's `resignFirstResponder` (this function and that override are
+        // below the override's frames)
+        let frames = Thread.callStackSymbols
+        let app = Bundle.main.executableURL?.lastPathComponent ?? "ExactKit"
+        let uikit: Bool = {
+            guard let k = frames.firstIndex(where: { $0.contains("_UIRemoteKeyboards") }),
+                  let j = frames[..<k].lastIndex(where: { $0.contains("resignFirstResponder") }) else { return false }
+            return !frames[(j + 1)..<k].contains { $0.contains(app) || $0.contains("ExactKit") }
+        }()
+        note(["kind": "resign", "node": node.map { Int($0) } ?? NSNull(), "token": token(view), "by": uikit ? "uikit-keyboards" : "other"])
+    }
+    static func detached(_ view: UIView, node: UInt32?) {
+        guard ExactEnv.agentMode else { return }
+        note(["kind": "detach", "node": node.map { Int($0) } ?? NSNull(), "token": token(view)])
+    }
+    private static func note(_ event: [String: Any]) {
+        seq += 1
+        events.append(event.merging(["seq": seq]) { a, _ in a })
+        if events.count > 16 { events.removeFirst(events.count - 16) }
+    }
+}
+
 final class TextField: UITextField {
     weak var owner: NodeView?
+    override func resignFirstResponder() -> Bool {
+        let wasFirst = isFirstResponder
+        let resigned = super.resignFirstResponder()
+        if resigned, wasFirst { ResignTrace.resigned(self, node: owner?.id) }
+        return resigned
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { ResignTrace.detached(self, node: owner?.id) }
+    }
     /// The hardware key whose handlers ran in `pressesBegan`: UIKit's own
     /// Backspace or Return for it does not run them again.
     var heard: String?
@@ -52,16 +108,22 @@ final class TextField: UITextField {
         return ok
     }
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        owner?.presenter?.supersedePress() // composed text, as typed text
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     override func insertText(_ text: String) {
+        owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
         } else { super.insertText(text) }
     }
     override func deleteBackward() {
+        owner?.presenter?.supersedePress()
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
@@ -83,9 +145,11 @@ package final class TextArea: UITextView {
             textUndo = NativeTextUndo(manager: manager, before: { [weak self] in
                 self?.markup?.applying = true
             }, after: { [weak self] in
-                guard let self, let editor = markup else { return }
-                editor.applying = false
-                editor.bookmark = selectedRange
+                guard let self else { return }
+                if let editor = markup {
+                    editor.applying = false
+                    editor.bookmark = selectedRange
+                }
                 owner?.textViewDidChange(self)
             })
         }
@@ -95,24 +159,42 @@ package final class TextArea: UITextView {
     weak var owner: NodeView?
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
     package var markup: MarkdownEditing?
+    /// A plain textarea's painted decorations (LLP 1114.007).
+    var decorations: FieldDecorations?
 
     package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        owner?.presenter?.supersedePress() // composed text, as typed text
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
+    // A commit that changes no text posts no change: paint held back while
+    // it was marked catches up here.
+    package override func unmarkText() {
+        super.unmarkText()
+        owner?.restyleDecorations()
+    }
     package override func insertText(_ text: String) {
+        owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         // UIKeyInput (including the software keyboard) need not ask the
-        // text-view delegate before insertion. Handle a plain Return here;
-        // the command's own native insertion bypasses through `applying`.
-        if text == "\n", let editor = markup, !editor.applying,
-           markedTextRange == nil, owner?.formatMarkup("newline", selection: selectedRange) == true { return }
+        // text-view delegate before insertion. Handle a plain Return here,
+        // the app's `beforeinput` first; the command's own native insertion
+        // bypasses through `applying`.
+        if text == "\n", let editor = markup, !editor.applying, markedTextRange == nil, let owner {
+            let line = { if !owner.formatMarkup("newline", selection: self.selectedRange) { super.insertText(text) } }
+            if let selections = owner.presenter?.fieldSelections { selections.nativeEdit(owner, replacement: text, marked: false, line) } else { line() }
+            return
+        }
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
         } else { super.insertText(text) }
     }
 
     package override func deleteBackward() {
+        owner?.presenter?.supersedePress()
+        owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go, a deletion that changes nothing included (HeldState.swift)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
         } else { super.deleteBackward() }
@@ -144,6 +226,7 @@ package final class TextArea: UITextView {
         let wasFirst = isFirstResponder
         if wasFirst, markedTextRange == nil { markup?.bookmark = selectedRange }
         let resigned = super.resignFirstResponder()
+        if resigned, wasFirst { ResignTrace.resigned(self, node: owner?.id) }
         // UITextView's editing delegate omits read-only selection sessions.
         // They still blur in HTML, and the app must be able to remove its
         // transient selection surface after focus moves elsewhere.
@@ -158,6 +241,10 @@ package final class TextArea: UITextView {
         }
         #endif
         return resigned
+    }
+    package override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { ResignTrace.detached(self, node: owner?.id) }
     }
     package override var keyCommands: [UIKeyCommand]? {
         #if os(tvOS)
@@ -214,12 +301,18 @@ package final class TextArea: UITextView {
     var placeholder = "" { didSet { setNeedsDisplay() } }
     /// The authored `::placeholder` colour (LLP 1104 D3); nil, UIKit's.
     var placeholderColor: UIColor?
+    // A scroll view's own drawing does not move with its content: the
+    // decorations' lines are drawn again at each new offset.
+    package override var contentOffset: CGPoint {
+        didSet { if contentOffset != oldValue, decorations?.drawsLines == true { setNeedsDisplay() } }
+    }
     package override func draw(_ rect: CGRect) {
         super.draw(rect)
+        decorations?.drawLines(in: self)
         if text.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
-                .foregroundColor: placeholderColor ?? ThemeRoles.color("placeholder", or: UIColor.placeholderText),
+                .foregroundColor: placeholderColor ?? ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText),
             ])
         }
     }
@@ -309,12 +402,16 @@ extension NodeView {
         guard let f = textArea else { return }
         configureMarkup()
         writeValue(props["value"] ?? "", into: f)
+        restyleDecorations()
         #if !os(tvOS)
         f.isEditable = !disabled && props["editable"] != "false"
         #endif
         f.isSelectable = !disabled
         let content = Autofill.contentType(props["autocomplete"], fallback: nil)
-        let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.smartQuotesType != inputSmartQuotes || f.smartDashesType != inputSmartDashes || f.textContentType != content
+        // Unsaid, a textarea's Return inserts a line break under UIKit's default label.
+        let returnKey = NodeView.returnKey(props["enterKeyHint"], unsaid: .default)
+        let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.smartQuotesType != inputSmartQuotes || f.smartDashesType != inputSmartDashes || f.textContentType != content || f.returnKeyType != returnKey
+        f.returnKeyType = returnKey
         f.autocapitalizationType = inputCapitalization
         f.autocorrectionType = inputCorrection
         f.spellCheckingType = inputSpellChecking
@@ -331,7 +428,7 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         guard f.markedTextRange == nil else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-        f.textColor = color("text_color", SystemColor.canvasText)
+        f.textColor = fieldInk
         f.tintColor = isNativeTextControl ? caretColor ?? channels("accent_color").map { TextEngine.color($0) } : caretColor
         if isNativeTextControl {
             f.typingAttributes[.kern] = number("letter_spacing")
@@ -352,7 +449,10 @@ extension NodeView {
         if isNativeTextControl {
             area.frame = bounds
             if let r = kernelContentBox {
-                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, bounds.height - r.maxY), right: max(0, bounds.width - r.maxX))
+                // Layout's inset less what the drawn box lost to the pixel
+                // grid, so the text keeps layout's width (`PixelGridIOS.swift`).
+                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, layoutBounds.height - r.maxY) + bounds.height - layoutBounds.height,
+                                                       right: max(0, layoutBounds.width - r.maxX) + bounds.width - layoutBounds.width)
             }
         } else { area.frame = contentBox() }
         #endif
@@ -393,6 +493,7 @@ extension NodeView {
         configureMarkup()
         restyleMarkup()
         publishMarkupSelection()
+        presenter?.revealCaret(of: self)
     }
     package func textViewDidChangeSelection(_ textView: UITextView) {
         presenter?.fieldSelections.changed(self) // a plain textarea's `select` (x2apps codeedit #2)

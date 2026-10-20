@@ -134,7 +134,11 @@ fn keyup_takes_keys_payload_and_record() {
     let e = contract::compile(&HINTS.replace("action bare(k: string)", "action bare(k: number)"))
         .unwrap_err();
     assert_eq!(e.id, "type-handler-payload", "{e}");
-    assert!(e.to_string().contains("`keyup=` supplies `string`"), "{e}");
+    assert!(
+        e.to_string()
+            .contains("`keyup=` passes its captured arguments, then its payload, a `string`"),
+        "{e}"
+    );
     // A third parameter is more than `keyup` hands.
     let e = contract::compile(&HINTS.replace(
         "action up(k: string, e: KeyboardEvent)",

@@ -3,20 +3,20 @@
    Compiling smallvec v1.16.1
    Compiling bytemuck v1.25.2
    Compiling libc v0.2.189
-   Compiling exact-game v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/engine)
-   Compiling contract-lower v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/lower)
+   Compiling exact-game v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/engine)
+   Compiling contract-lower v0.1.0 ($HOME/lanes/game/exact2-wt-game/contract/lower)
    Compiling raw-window-handle v0.6.2
    Compiling gpu-allocator v0.28.0
    Compiling bit-set v0.9.1
    Compiling hexf-parse v0.2.1
    Compiling naga v29.0.4
    Compiling spirv v0.4.0+sdk-1.4.341.0
-   Compiling contract v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/cli)
+   Compiling contract v0.1.0 ($HOME/lanes/game/exact2-wt-game/contract/cli)
    Compiling wgpu-types v30.0.1
    Compiling icu_normalizer v2.3.0
    Compiling safe_arch v1.2.0
    Compiling pkg-config v0.3.34
-   Compiling exact-game-app v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/app)
+   Compiling exact-game-app v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/app)
    Compiling idna_adapter v1.2.2
    Compiling idna v1.1.0
    Compiling wide v1.7.1
@@ -25,8 +25,8 @@
    Compiling parking_lot_core v0.9.12
    Compiling getrandom v0.2.17
    Compiling socket2 v0.6.5
-   Compiling greybox-logic v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/games/greybox/logic)
-   Compiling beacons-logic v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/games/beacons/logic)
+   Compiling greybox-logic v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/games/greybox/logic)
+   Compiling beacons-logic v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/games/beacons/logic)
    Compiling wayland-sys v0.31.11
    Compiling parking_lot v0.12.5
    Compiling ring v0.17.14
@@ -57,8 +57,8 @@
    Compiling ureq v3.4.0
    Compiling font-types v0.11.3
    Compiling euclid v0.22.14
-   Compiling ibex2 v0.1.0 (/home/ccheever/lanes/game/ibex/crates/ibex2)
-   Compiling exact-gpu-reflect v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/gpu/reflect)
+   Compiling ibex2 v0.1.0 ($HOME/lanes/game/ibex/crates/ibex2)
+   Compiling exact-gpu-reflect v0.1.0 ($HOME/lanes/game/exact2-wt-game/gpu/reflect)
    Compiling wgpu-naga-bridge v30.0.1
    Compiling wgpu-hal v30.0.1
    Compiling skrifa v0.44.0
@@ -68,11 +68,11 @@
    Compiling glamx v0.3.0
    Compiling parry3d v0.30.2
    Compiling wgpu-naga-bridge v29.0.4
-   Compiling exact-apple v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/apple)
+   Compiling exact-apple v0.1.0 ($HOME/lanes/game/exact2-wt-game/host/apple)
    Compiling wgpu v30.0.1
-   Compiling exact-web v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/web)
-   Compiling exact-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/gpu)
-   Compiling exact-game-render v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/render)
+   Compiling exact-web v0.1.0 ($HOME/lanes/game/exact2-wt-game/host/web)
+   Compiling exact-gpu v0.1.0 ($HOME/lanes/game/exact2-wt-game/gpu)
+   Compiling exact-game-render v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/render)
    Compiling rapier3d v0.35.3
    Compiling wgpu-core v29.0.4
    Compiling svg_fmt v0.4.5
@@ -92,7 +92,7 @@
    Compiling wgpu v29.0.4
    Compiling drm-fourcc v2.2.0
    Compiling tap v1.0.1
-   Compiling exact-game-physics v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/physics)
+   Compiling exact-game-physics v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/physics)
    Compiling linux-raw-sys v0.9.4
    Compiling roxmltree v0.20.0
    Compiling linux-raw-sys v0.12.1
@@ -117,8 +117,8 @@
    Compiling drm-ffi v0.9.1
    Compiling harfrust v0.5.2
    Compiling skrifa v0.40.0
-   Compiling bench-cubes-logic v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/bench/cubes/logic)
-   Compiling exact-game-audio v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/audio)
+   Compiling bench-cubes-logic v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/bench/cubes/logic)
+   Compiling exact-game-audio v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/audio)
    Compiling unicode-segmentation v1.13.3
    Compiling unicode-script v0.5.8
    Compiling sys-locale v0.3.2
@@ -133,19 +133,19 @@
    Compiling evdev v0.13.2
    Compiling vello v0.10.0
    Compiling tiny-skia v0.12.0
-   Compiling bench-cubes-web v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/565d29c341e2cf9e9f788d19-web)
-   Compiling greybox-web v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/439038419b445eab74ca29b4-web)
-   Compiling greybox-apple v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/439038419b445eab74ca29b4-apple)
-   Compiling beacons-apple v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-apple)
-   Compiling bench-cubes-apple v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/565d29c341e2cf9e9f788d19-apple)
-   Compiling beacons-web v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-web)
-   Compiling exact-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/linux)
-   Compiling beacons-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-linux)
-   Compiling bench-cubes-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/565d29c341e2cf9e9f788d19-linux)
-   Compiling greybox-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/439038419b445eab74ca29b4-linux)
-   Compiling greybox-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/439038419b445eab74ca29b4-gpu)
-   Compiling beacons-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-gpu)
-   Compiling bench-cubes-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/game/.shells/565d29c341e2cf9e9f788d19-gpu)
+   Compiling bench-cubes-web v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/565d29c341e2cf9e9f788d19-web)
+   Compiling greybox-web v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/439038419b445eab74ca29b4-web)
+   Compiling greybox-apple v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/439038419b445eab74ca29b4-apple)
+   Compiling beacons-apple v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-apple)
+   Compiling bench-cubes-apple v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/565d29c341e2cf9e9f788d19-apple)
+   Compiling beacons-web v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-web)
+   Compiling exact-linux v0.1.0 ($HOME/lanes/game/exact2-wt-game/host/linux)
+   Compiling beacons-linux v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-linux)
+   Compiling bench-cubes-linux v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/565d29c341e2cf9e9f788d19-linux)
+   Compiling greybox-linux v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/439038419b445eab74ca29b4-linux)
+   Compiling greybox-gpu v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/439038419b445eab74ca29b4-gpu)
+   Compiling beacons-gpu v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-gpu)
+   Compiling bench-cubes-gpu v0.1.0 ($HOME/lanes/game/exact2-wt-game/game/.shells/565d29c341e2cf9e9f788d19-gpu)
     Finished `test` profile [optimized + debuginfo] target(s) in 1m 02s
      Running unittests src/lib.rs (target/debug/deps/beacons_apple-85a6bd0695ee26b5)
 

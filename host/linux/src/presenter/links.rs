@@ -39,7 +39,8 @@ impl<D: DataSource> Presenter<D> {
         let paragraph = self.paragraph(id)?;
         let b = self.boxes.iter().find(|b| b.id == id)?;
         let content = exact_kernel::svg::scene::content_box(kernel, &node);
-        let (px, py) = (x - b.rect.0 - content.0, y - b.rect.1 - content.1);
+        let down = kernel.text_line_offset(&node);
+        let (px, py) = (x - b.rect.0 - content.0, y - b.rect.1 - content.1 - down);
         // The line whose box the point is in: from a little over the glyphs'
         // ascent above its baseline to their descent below it.
         let run = paragraph

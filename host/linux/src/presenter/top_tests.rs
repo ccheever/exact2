@@ -105,6 +105,11 @@ component App
           text "Archive"
         button commandfor="light" command="close" testId="light-cancel"
           text "Cancel"
+      dialog id="notice" role="alertdialog"
+        text "Couldn't save."
+        text "The disk is full."
+        button commandfor="notice" command="close"
+          text "OK"
       dialog id="chooser" role="alertdialog"
         button press=keep commandfor="chooser" command="close"
           text "One"
@@ -268,7 +273,7 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
 
     // Read from the tree: the cancel first, then the actions as written.
     let p = boot();
-    let plan = |name: &str| p.surface_plan(named(&p, name));
+    let plan = |name: &str| p.surface_plan(named(&p, name), true);
     let Some(Plan::Alert {
         title,
         message,
@@ -315,6 +320,24 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
     );
     let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
     assert_eq!(titles, ["Cancel", "Save", "Not now"]);
+    // Text and its one closing button: the one-button alert, which tells.
+    let Some(Plan::Alert {
+        title,
+        message,
+        rows,
+        cancellable,
+        outside,
+    }) = plan("notice")
+    else {
+        panic!("notice is an alert");
+    };
+    assert_eq!(
+        (title.as_deref(), message.as_deref()),
+        (Some("Couldn't save."), Some("The disk is full."))
+    );
+    let titles: Vec<_> = rows.iter().map(|r| (r.title.as_str(), r.cancel)).collect();
+    assert_eq!(titles, [("OK", true)]);
+    assert!(cancellable && !outside);
     assert_eq!(
         plan("chooser"),
         None,
@@ -738,7 +761,9 @@ fn a_long_press_opens_the_context_menu_a_node_names_where_the_finger_is() {
     let held = p.rect_of(id(&p, "held")).unwrap();
     let at = (held.0 + 120.0, held.1 + 10.0);
     assert_eq!(p.pointer_down(at.0, at.1, 0.0), Ok(true));
+    let before = p.long_presses();
     assert!(p.long_press(at.0, at.1, 500.0));
+    assert_eq!(p.long_presses(), before.wrapping_add(1));
     // Its `contextmenu` ran first, then the menu opened at the finger.
     assert_eq!(text(&p, "aimed"), "row");
     assert_eq!(p.surface().map(|s| s.kind), Some(SurfaceKind::Menu));
@@ -757,6 +782,11 @@ fn a_long_press_opens_the_context_menu_a_node_names_where_the_finger_is() {
     assert!(
         !p.long_press(poke.0 + 5.0, poke.1 + 5.0, 800.0),
         "a node that names none"
+    );
+    assert_eq!(
+        p.long_presses(),
+        before.wrapping_add(1),
+        "counted only when taken"
     );
 }
 
@@ -826,6 +856,7 @@ fn a_surface_follows_the_scheme_the_font_scale_and_a_reader_made_again() {
         high_contrast: false,
         touch: true,
         touch_slop: 8.0,
+        dates: String::new(),
     };
     assert!(p.set_device(&phone).is_none());
     let dark = told(&mut p);
@@ -1111,6 +1142,13 @@ fn focus_after_show_selects_the_shell_menu_row_and_escape_restores_the_trigger()
     let second = id(&p, "menu-share");
     p.set_focus(Some(trigger), 0.0);
     p.popover_command("showPopover", &[Value::str("menu"), Value::str("trigger")]);
+    assert_eq!(p.focus_command(&[Value::str("trigger")]), None);
+    assert_eq!(p.focus(), None);
+    let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
+    assert!(
+        journal.contains(r#"focus \"trigger\" refused: page under surface is inert"#),
+        "{journal}"
+    );
     assert_eq!(p.focus_command(&[Value::str("second")]), Some(second));
     assert_eq!(p.top.open.as_ref().unwrap().focused, Some(1));
     assert_eq!(p.focus(), None, "the menu owns focus, not the page");
@@ -1122,4 +1160,276 @@ fn focus_after_show_selects_the_shell_menu_row_and_escape_restores_the_trigger()
     );
     p.key_down("Escape", 2.0);
     assert_eq!(p.focus(), Some(trigger));
+}
+
+#[test]
+fn shell_top_layer_reports_viewport_frames_and_modal_visibility_to_reads() {
+    let source = APP
+        .replace(
+            "  state said",
+            r#"  state hit = ""
+  state hits = []
+  state shown = []
+  state bounds = []
+  action probe(x: number, y: number)
+    hit = match elementFromPoint(x, y) { case some(id) => id, case none => "none" }
+    hits = elementsFromPoint(x, y)
+    shown = querySelectorAll("[data-paint~=\"accent\"]")
+    bounds = [frame("menu").x, frame("menu").y, frame("menu").width, frame("menu").height]
+  state said"#,
+        )
+        .replace(
+            "main navigationKey",
+            "main id=\"page\" data-paint=\"accent\" navigationKey",
+        )
+        .replace(
+            "id=\"menu\" popover",
+            "id=\"menu\" data-paint=\"accent\" popover",
+        )
+        .replace(
+            "id=\"confirm\" role",
+            "id=\"confirm\" data-paint=\"accent\" role",
+        )
+        .replace(
+            "dialog id=\"light\"",
+            "column id=\"light\" popover=\"auto\" data-paint=\"accent\"",
+        )
+        .replace(
+            "commandfor=\"light\" command=\"close\"",
+            "popovertarget=\"light\" popovertargetaction=\"hide\"",
+        );
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(&source),
+        (),
+        (400., 800.),
+        2.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.serve_requests();
+    p.serve_windows(Box::new(Pixels(Rc::new(RefCell::new(Vec::new())))));
+    let probe = |p: &mut Presenter<()>, x: f64, y: f64| {
+        p.host
+            .runner_mut()
+            .act("probe", vec![Value::Number(x), Value::Number(y)])
+            .unwrap();
+    };
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("page")]))
+    );
+    tap(&mut p, "more").unwrap();
+    for (width, height) in [(400.0, 800.0), (320.0, 400.0)] {
+        assert!(p
+            .set_window(super::super::window::Window {
+                size: (width, height),
+                bars: [24.0, 0.0, 0.0, 13.0],
+                ..Default::default()
+            })
+            .is_none());
+        let frame = told(&mut p).into_iter().find(|s| s.1 == 2).unwrap().2;
+        let [px, py, ..] = p.chrome().frame;
+        let (x, y) = (
+            f64::from(frame[0]) / 2.0 - f64::from(px) + 1.0,
+            f64::from(frame[1]) / 2.0 - f64::from(py) + 1.0,
+        );
+        probe(&mut p, x, y);
+        assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("menu")));
+        assert_eq!(
+            p.host.runner().slot("bounds"),
+            Some(&Value::list(vec![
+                Value::Number(x - 1.0),
+                Value::Number(y - 1.0),
+                Value::Number(f64::from(frame[2]) / 2.0),
+                Value::Number(f64::from(frame[3]) / 2.0),
+            ]))
+        );
+        assert_eq!(
+            p.host.runner().slot("hits"),
+            Some(&Value::list(vec![Value::str("menu"), Value::str("page")]))
+        );
+        assert_eq!(
+            p.host.runner().slot("shown"),
+            Some(&Value::list(vec![Value::str("page"), Value::str("menu")]))
+        );
+        probe(&mut p, 1.0, 1.0);
+        assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("page")));
+    }
+    p.key_down("Escape", 1.0);
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("page")));
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("page")]))
+    );
+    tap(&mut p, "ask").unwrap();
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("none")));
+    assert_eq!(p.host.runner().slot("hits"), Some(&Value::list(vec![])));
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("confirm")]))
+    );
+    let serial = p.surface().unwrap().serial;
+    p.surface_event(serial, event::REFUSED, 0.0, 0.0, 2.0);
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("page")]))
+    );
+    p.popover_command("showPopover", &[Value::str("light")]);
+    assert_eq!(p.surface().unwrap().kind, SurfaceKind::Alert);
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("page")));
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("page"), Value::str("light")]))
+    );
+}
+
+#[test]
+fn shell_surface_geometry_tracks_insets_cutouts_and_scale() {
+    let source = r#"component App
+  state bounds = []
+  state hit = ""
+  action probe(x: number, y: number)
+    bounds = [frame("menu").x, frame("menu").y, frame("menu").width, frame("menu").height]
+    hit = match elementFromPoint(x, y) { case some(id) => id, case none => "none" }
+  action done
+    hit = "done"
+  view
+    column viewport-fit="cover" width="100%" height="100%"
+      button popovertarget="menu" testId="more" position="absolute" left=20 top=0 width=100 height=40
+        text "More"
+      column id="menu" popover="auto" role="menu"
+        button press=done popovertarget="menu" popovertargetaction="hide"
+          text "Done"
+"#;
+    let mut failures = Vec::new();
+    for (name, anchor, bars, cutout, scale) in [
+        ("top bar", 0, [96., 0., 48., 0.], [0.; 4], 1.),
+        ("top cutout", 0, [48., 0., 48., 0.], [96., 0., 0., 0.], 1.),
+        ("bottom bar", 740, [48., 0., 160., 0.], [0.; 4], 1.),
+        (
+            "bottom cutout",
+            740,
+            [48., 0., 48., 0.],
+            [0., 0., 160., 0.],
+            1.,
+        ),
+        ("scale", 0, [48., 0., 48., 0.], [0.; 4], 2.),
+    ] {
+        let source = source.replace("top=0", &format!("top={anchor}"));
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(&source),
+            (),
+            (400., 800.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.serve_requests();
+        p.serve_windows(Box::new(Pixels(Rc::new(RefCell::new(Vec::new())))));
+        let window = Window {
+            size: (400., 800.),
+            bars: [48., 0., 48., 0.],
+            ..Default::default()
+        };
+        assert!(p.set_window(window).is_none());
+        tap(&mut p, "more").unwrap();
+        let initial = told(&mut p).into_iter().find(|s| s.1 == 2).unwrap().2;
+        assert!(p
+            .set_window(Window {
+                bars,
+                cutout,
+                ..window
+            })
+            .is_none());
+        assert!(p.resize_scaled(400., 800., scale).is_none());
+        let sent = told(&mut p);
+        let updated = sent.iter().find(|s| s.1 == 2).map(|s| s.2);
+        // Compare with the last statement delivered, even when no update arrived.
+        let last = updated.unwrap_or(initial);
+        let rect = last.map(|v| f64::from(v) / f64::from(scale));
+        p.host
+            .runner_mut()
+            .act(
+                "probe",
+                vec![Value::Number(rect[0] + 1.), Value::Number(rect[1] + 1.)],
+            )
+            .unwrap();
+        let expected = Value::list(rect.into_iter().map(Value::Number).collect());
+        if updated.is_none()
+            || p.host.runner().slot("bounds") != Some(&expected)
+            || p.host.runner().slot("hit") != Some(&Value::str("menu"))
+        {
+            failures.push(format!(
+                "{name}: shell={last:?}, updated={updated:?}, runner={:?}, hit={:?}",
+                p.host.runner().slot("bounds"),
+                p.host.runner().slot("hit")
+            ));
+        }
+        assert!(
+            told(&mut p).is_empty(),
+            "an unchanged surface is not sent twice"
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn mouse_invocation_keeps_the_nearest_press_handler() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for handler in ["child", "invoker", "parent"] {
+        for feedback in ["", "-exact-press-opacity=0.5"] {
+            let at = |name| if handler == name { "press=record" } else { "" };
+            let source = format!(
+                r#"component App
+  state seen = ""
+  action record
+    seen = `${{seen}}press `
+  view
+    column width=300 height=200
+      box width=200 height=80 {parent} {feedback}
+        button testId="invoker" popovertarget="menu" width=160 height=60 {invoker} {feedback}
+          box testId="child" width=100 height=40 {child} {feedback}
+      column id="menu" popover="auto" role="menu"
+        button press=record
+          text "First"
+"#,
+                parent = at("parent"),
+                invoker = at("invoker"),
+                child = at("child"),
+            );
+            let (mut p, error) = Presenter::boot_with(
+                &crate::test_plan(&source),
+                (),
+                (300., 200.),
+                1.,
+                PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            assert!(error.is_none(), "{error:?}");
+            p.serve_requests();
+            p.serve_windows(Box::new(Pixels(Rc::new(RefCell::new(Vec::new())))));
+            let (x, y, w, h) = p.rect_of(id(&p, "child")).unwrap();
+            p.pointer_down(x + w / 2., y + h / 2., 1.).unwrap();
+            p.pointer_up(x + w / 2., y + h / 2., 2.).unwrap();
+            actual.push((
+                handler,
+                feedback,
+                p.host.runner().slot("seen").cloned(),
+                p.surface().is_some(),
+            ));
+            expected.push((handler, feedback, Some(Value::str("press ")), true));
+        }
+    }
+    assert_eq!(actual, expected);
 }

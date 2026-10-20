@@ -10,9 +10,11 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
 - `#[derive(Component)]` declares per-entity data; `#[derive(Resource)]` declares
   singleton data. Both use `Data` for saves, hashes and agent JSON.
 - Use `spawn_named`, `require::<T>("player")` and `require_mut::<T>("player")` for
-  named entities. `get::<T>` returns `Option<Ref<T>>`; dereference the borrow guard
-  for value comparisons: `*w.get::<Mesh>("player").unwrap()`. Entity handles work too. Duplicate
-  names resolve to the lowest living slot, including after recycling or loading.
+  named entities. `get::<T>` returns `Option<Ref<T>>`, a borrow guard that compares
+  and prints as its value (`assert_eq!(w.get::<Transform>("a"), w.get::<Transform>("b"))`);
+  dereference it to copy the value out: `*w.get::<Mesh>("player").unwrap()`. Entity
+  handles work too. Duplicate names resolve to the lowest living slot, including
+  after recycling or loading.
 - `query::<Q>().one()` returns an optional row, refuses a second match and keeps
   its lease for the returned row. [Borrowing](#borrowing) is per row.
 - Use `insert_resource`, `resource`, `resource_mut` and `try_resource` for singleton
@@ -22,6 +24,13 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   `Lit`) are registered by every world.
 - `near` and `near_xz` read global poses in entity order, including parented
   entities. `nearest_xz_mut` supplies one entity and its mutable component together.
+- A child's `Transform` composes with its parent's, scale included, axis by axis.
+  Under a root scaled `(diameter, height, diameter)` so its parts can be authored in
+  a unit box, every `Mesh::sphere` draws as an ellipsoid. Give a part that must stay
+  round the inverse of the root's aspect in its own scale.
+- Repeated global-pose reads can use `let globals = w.globals(); globals.get(entity)`
+  to resolve component columns once. Roots still read current local poses,
+  parented entities use propagated poses, and row-borrow checks still apply.
 - `Visible(false)` hides the entity and all `Parent` descendants from drawing,
   shadows, lights and picking. `is_visible(e)` reads current ancestor rows even
   while paused; absent `Visible` rows are true, but children cannot override a
@@ -108,6 +117,38 @@ uses saved arguments; a canvas uses `Sim::restore_bound` to retain current app
 bindings. Keep state that should travel with a save in components or resources,
 and app-owned settings in live arguments.
 
+## Tick diagnostics
+
+`let _s = w.span("enemies");` measures until the guard drops and captures the
+caller's source line. Drop the guard before returning from `Game::tick`; guards
+retained beyond a tick produce no named trace interval. Spans aggregate by name per tick. Nested spans are exclusive;
+`tick.other` is reserved for time outside every span. Physics, animation, emitters,
+audio and followers open their own spans when stepped. Diagnostics are outside
+saves and hashes, expose no elapsed time to gameplay, and do no clock or allocation
+work until a host arms them. `perf world:world` arms and reads p50, p95, maximum and
+mean milliseconds per tick; `perf world:world during "clock +1000"` reads only the
+ticks the operation added. Rings retain 16,384 ticks; an expired difference refuses.
+
+## Tick admission
+
+Everything that changes a world from outside the tick enters through the tick-stamped
+input queue, in stamp order, applied at the start of the tick its stamp falls in:
+keys and pads, messages, `set`, a replaced table. Everything the tick itself produces
+for a later tick enters a hashed world queue: typed events, sequence markers.
+Messages and typed events do not coalesce or reorder; overflow journals a named refusal.
+Device input is normalized within one projected tick boundary and across only
+other moves/wheels, never across a key, contact edge or message: pointer moves with
+the same contact and buttons keep the latest position/stamp and sum deltas; control
+moves with the same action/contact keep the latest position/stamp; wheels sum
+at the earlier wheel's stamp. Duplicate key states are omitted. At the 1,024-event
+bound a new message refuses. A device event displaces the oldest move, otherwise
+the oldest non-message; if all entries are messages it refuses the new device event.
+A displaced pointer's deltas join its next queued event when one exists. Each
+kind journals once per overflow episode, which ends below capacity. Paused input
+updates held state directly without tick edges or queued wheel deltas.
+Tables, pads and sequence markers use this contract when admitted;
+this engine currently admits keys, pointers, controls, wheels, messages and typed events.
+
 ## HUD and events
 
 Publish ordinary scalars with `w.publish("lit", count)`. For a structured HUD,
@@ -124,7 +165,17 @@ Contract JSON. Record publication rejects enum variants and integers outside
 publication accepts u8/u16/u32 and i8/i16/i32; larger integers can use the checked
 record path. See the [HUD example](../README.md#publications-and-events).
 
-`w.emit("won")` queues a string for the canvas's `message=` handler. Undelivered
+`#[derive(Default, Event)] struct Hit { target: Entity, damage: f32 }` declares
+a simulation event. The derive implements `TypedEvent`. Call `w.register_event::<Hit>()` in `Game::register` and
+`w.emit_event(Hit { .. })` in the tick. The next tick reads `input.events::<Hit>()`
+in emission order; every tick replaces that delivered batch, even when empty.
+`#[event(capacity = 32)]` overrides the default 256 emissions per type per tick.
+Overflow leaves the queue unchanged and journals one named refusal per type per tick.
+Pending and delivered batches are resources, saved and hashed; restoring before delivery
+reproduces the next tick. `state world events` lists delivered batches with their tick;
+`state world events Hit` filters by type. Same-tick consequences are function calls.
+
+`w.emit("won")` is the presentation path: it queues a string for the canvas's `message=` handler. Undelivered
 messages save in order and stay outside the simulation hash. The journal is
 telemetry; reading it does not change the world.
 
@@ -140,6 +191,27 @@ the world and post commands. A full input queue (1,024 events) refuses a new pos
 with a journal line (one per overflow episode) and counts it in `state`'s `input.refusedPosts`; device events
 never displace a message. `Sim::post(text)` does the same in tests.
 
+## Development edits
+
+Post `set player Character.speed 8` to the canvas (`Sim::post` in tests). The
+message uses the same stamped input queue as every post and applies at the start
+of its next tick. The target resolves by name then. Values are scalars or strings decoded against the field's `Data` schema; strings
+use JSON quotes. Structured fields and arrays refuse. Unknown names, unknown fields,
+wrong types and non-finite values refuse by name without changing a component.
+The whole candidate is decoded and validated before replacement. Production bakes
+refuse `set` by name. The complete `set entity Component.field value` form reserves the message only
+when the edit succeeds. Refused forms journal and remain available to `input.messages()`;
+other `set` messages are ordinary gameplay messages. A saved sticky diagnostic records
+successful edits after admission. Simulation provenance survives consecutive raw-world
+loads, restart and restore;
+host-session provenance also survives canvas removal and remount, even within one
+agent operation. Neither depends on retained journal lines. State exposes `queuedSets`;
+`pin` and `pinSave` refuse while a complete edit command awaits admission in any
+observed session. `pinSave` also checks the saved marker and retained input queue.
+`prove.mjs` and `Sim::assert_pin` refuse a run carrying that diagnostic: put tuning
+that a pin should accept in the authored files. Arguments tune settings a save
+should not carry.
+
 ## Movement, animation and sound
 
 `w.character("player").step(direction, jump)` moves a `Character` and reports its
@@ -150,10 +222,14 @@ actual displacement and contact state. Collision movement uses the separate
 new followers and preserves saved poses. It then steps after each tick. Call
 `scene::follow(w)` inside the tick to choose an earlier order; it will not step
 twice. Primitive dimensions belong to `Mesh`;
-`Collider::of(&mesh)` supplies matching collision geometry.
+`Collider::of(&mesh)` supplies matching collision geometry for cube, cuboid, sphere, capsule, cylinder and plane. Ring, torus and cone require an explicitly authored collider.
 
-Retarget `Glow(Tween)` or `Lit(Spring)` once, using `w.tick_end()`. The renderer
-samples them between ticks; keep authored emission or light intensity constant.
+Retarget a glow through its row handle: `w.require_mut::<Glow>("beacon").glow_to(1.0, 0.5)`,
+or `beacon.glow_to(1.0, 0.5)` on the row from `nearest_xz_mut`. Handles also offer
+`name()`, `tint([r, g, b])` (authored linear colour) and `offset(x, y, z)` (local
+simulation metres). The related components must already exist; row leases still apply.
+Retarget `Lit(Spring)` using `lit.to(w.tick_end(), intensity)`. The renderer
+samples both between ticks; keep authored emission or light intensity constant.
 Negative light overshoot clamps to zero. See [effects](../render/README.md#effects).
 
 Animation order is explicit: `let motion = animation::step(w)`, apply root motion,
@@ -228,6 +304,28 @@ the blended stride, and above the fastest it plays faster. Zero or negative spee
 mark each footfall `step`. Every number comes from the engine's portable math, so
 the generated model's identity is the same on every host and saves restore.
 
+### Environment and scene sampling
+
+The saved `Environment` resource controls linear sky colours, exposure, fog, bloom
+and the output curve. `Environment::default()` retains height fog, bloom and ACES.
+`Environment::underwater()` is clear water seen from inside it, with uniform fog
+that hides 90% of a surface 32.9 m away ([underwater recipe](../recipes/underwater.md)).
+`Fog::new(density, height_falloff)` integrates exponential height fog;
+`Fog::linear(near, far)` uses smoothstep between camera-space forward depths in
+metres, as three.js `Fog`. `Fog.color = None` uses the horizon; use `Some(clear)`
+when fog should match a flat `Environment.background`.
+`Environment.tone_mapping = ToneMapping::None` preserves linear colour before
+sRGB encoding. Use exposure 1 and `bloom: None` to avoid those effects too.
+
+`Game::SAMPLES` selects scene sampling for the renderer's lifetime: override it
+with `const SAMPLES: SceneSamples = SceneSamples::One` for 1×, or leave the 4×
+MSAA default. It is a renderer construction choice, not saved simulation state.
+At 1×, `Game::DEPTH_PREPASS = true` can reduce opaque overdraw. It adds a depth
+pass and uses equal-depth colour testing; coplanar ties follow draw order. It is
+off by default. See [the renderer](../render/README.md) for coverage and measurement.
+See [toon rendering and parity options](../render/README.md#toon-models) for
+`MeshData.outline`, `MaterialData.rim` and their glTF import names.
+
 ## Saves and assets
 
 `Sim::save` captures the simulation; `Sim::restore` validates format, game identity,
@@ -238,7 +336,9 @@ consume input.
 
 `sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies, including
 declared `.sound` assets, which the primitive module also decodes; a save records
-their content identity, as it does a level's.
+their content identity, as it does a level's (a delivered model records none).
+A game's own tests use `exact_game::sim_with_art!(args)`: the game's `art/` baked in
+memory and passed to `Sim::with_assets`.
 `sim.save()?` checks current mesh roots even before requests are drained and
 reports pending or failed declarations by name. Failed cosmetics do not block saves.
 Declared (`Game::ASSETS`) and streamed (`Game::STREAMED`) assets stay resident
@@ -303,6 +403,44 @@ for models, `NodeMaterials`/`MaterialOverrides`. `World::drawn(e)` is the displa
 pose and opacity, in the same walk as `World::is_visible`. Picking, layout, physics
 and gameplay use the simulated pose.
 
+`NodeOffsets` moves marked model nodes after clips, layers and IK. Save a gait's
+phase and amplitude, then derive its rows without collecting entities:
+
+```rust
+# use exact_game::*;
+# #[derive(Default, Component)] struct Gait { phase: f32, swing: f32 }
+fn present(p: &mut Present<'_>, _: &()) {
+    p.insert_each::<Gait, NodeOffsets>(|reads, _, gait| {
+        let angle = math::sin(gait.phase) * gait.swing;
+        let _tick = reads.tick();
+        Some(NodeOffsets::default().with(NodeName::new("armL"), Transform {
+            rotation: Quat::from_rotation_x(angle), ..Transform::default()
+        }))
+    });
+}
+```
+
+The closure receives a read-only `PresentRead`, the entity and its source row;
+there is no live query guard during insertion. Names are string-authoritative,
+with cached hashes for lookup; their diagnostic `Data` output is write-only.
+Sixteen distinct names fit; replacing a name costs no extra row, and overflow
+is dropped with bounded renderer diagnostics. Each node must have glTF
+`extras.posable: true` (or `asset::Node.posable` for generated models).
+Offsets compose in node-frame TRS: `p + r*(s*p′)`, `r*r′`, `s*s′`.
+Nonuniform scale drops the shear an affine product would produce. Rows with
+non-finite values or nonpositive scale are ignored; zero quaternions mean identity.
+Rest mirrors keep their winding. Clip scale tracks must retain each rest-axis sign;
+validation names the clip and node on refusal. Cubic Bezier controls must also
+retain those signs, conservatively excluding tangent overshoot through zero.
+Presentation payload pages are reused, then reclaimed after two consecutive
+empty presents. `World::presentation_bytes()` reports retained payload and index
+metadata, whose capacity is bounded by the highest entity index used.
+
+Node offsets are invisible to IK and `animation::socket`, as well as picking and
+physics. An IK target on an offset chain will therefore miss in the drawn picture;
+a simulated socket returns the unswung hand. Displayed `SocketFollow` props do
+follow the offsets. Keep any pose gameplay needs in simulation state.
+
 **The authoring rule: save the cause, derive the appearance.** Anything later
 gameplay reads stays simulation state; only its look is presentation. Examples:
 
@@ -335,7 +473,7 @@ NaNs canonicalize and negative zero survives. Their JSON output is a bytes/hash
 summary, while input accepts numeric arrays. Summaries cannot be loaded as data.
 Other vectors remain structural sequences.
 
-World saves (EXGAME v4) are columnar: the entity table and each component
+World saves (EXGAME v6) are columnar: the entity table and each component
 storage store their rows' shape (tags, field and variant names, sequence lengths)
 once and their scalars as run-length or dictionary-coded columns, so repeated
 values cost nothing per entity and no name or entity key is repeated per row.

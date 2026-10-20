@@ -1,9 +1,12 @@
 //! Host measurements enter layout without changing authored rows.
 
 use super::Kernel;
+use crate::arena::NodeArena;
 use crate::error::{KernelError, LayoutError};
 use crate::generated::PropId;
 use crate::id::ViewId;
+use crate::NodeType;
+use taffy::prelude::length;
 
 impl Kernel {
     /// Host intrinsic size (`None` to forget it). Replaced elements keep
@@ -72,8 +75,10 @@ impl Kernel {
     /// rather than wait for a view to report it: the first layout has its box
     /// and its ratio. A host's report does not replace a measured size while
     /// those inputs stand. A symbol the measurer cannot size has the size its
-    /// host reports.
-    pub(crate) fn measure_symbols(&mut self) {
+    /// host reports. With `laid_out_only`, a symbol in a box covered whole
+    /// (`display: none`: a closed popover or dialog, LLP 1021 §5) stays owed
+    /// until a layout places it, so one a UIKit menu shows is never measured.
+    pub(crate) fn measure_symbols(&mut self, laid_out_only: bool) {
         // Ask about every symbol again, one the measurer declined too, under a new measurer or new traits (a content size, a scale)
         let revision = Some(self.measurer.measure_revision());
         if revision != self.symbol_revision {
@@ -90,8 +95,11 @@ impl Kernel {
             return;
         }
         let owed: Vec<u32> = self.arena.symbols_owed.iter().collect();
-        self.arena.symbols_owed.clear();
         for slot in owed {
+            if laid_out_only && covered_whole(&self.arena, slot) {
+                continue;
+            }
+            self.arena.symbols_owed.remove(slot);
             let measured = crate::replaced::symbol_role(&self.arena, slot)
                 .and_then(|role| {
                     let font = self.arena.computed_style(slot, crate::StyleMask::TEXT);
@@ -123,5 +131,52 @@ impl Kernel {
                 layout.mark_dirty(node);
             }
         }
+    }
+}
+
+/// Whether `slot` or a box above it is covered whole, so not laid out.
+fn covered_whole(arena: &NodeArena, slot: u32) -> bool {
+    std::iter::successors(Some(slot), |&s| arena.parent(s))
+        .any(|s| arena.cover(s) == Some(super::HostCover::Whole))
+}
+
+/// A projected tablist's or radio group's box. A native tab bar fills the
+/// tablist's box, a segmented control its content box. Its measured height
+/// supplies the automatic minimum, so even a short authored row reserves the
+/// control. Its width is the narrowest the control can be, the automatic
+/// minimum width in place of the hidden tabs' own (LLP 1116.004 D2): UIKit's
+/// fits its segments to any box, so a grouped row's tablist shrinks to the
+/// row; AppKit's keeps its natural width. An explicit CSS min-height or
+/// min-width still owns that constraint; no natural ratio or preferred width
+/// is inferred from this container measurement. A radio group is never a
+/// tab bar but always the segmented control (LLP 1116.004 D5.2), whose height
+/// is its own: its automatic height is the measured one, so the hidden
+/// radios, whose text follows Dynamic Type where the control's does not, no
+/// longer make it taller (LLP 1116.019 D1).
+pub(crate) fn apply_projection(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    if arena.node_type(slot).is_replaced()
+        || matches!(
+            arena.node_type(slot),
+            NodeType::Control | NodeType::NativeView
+        )
+    {
+        return;
+    }
+    let Some((width, height)) = arena.intrinsic(slot) else {
+        return;
+    };
+    if s.min_size.height.is_auto() {
+        s.min_size.height = length(height);
+    }
+    let radios = arena
+        .props(slot)
+        .get(PropId::AccessibilityRole)
+        .and_then(|v| v.as_str())
+        == Some("radiogroup");
+    if radios && s.size.height.is_auto() {
+        s.size.height = length(height);
+    }
+    if s.min_size.width.is_auto() {
+        s.min_size.width = length(width);
     }
 }

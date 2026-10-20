@@ -1,0 +1,413 @@
+// A Live Activity's placements through the snapshot driver (LLP 1126.001
+// WP10): Caltrain's two activities and three fixtures (a tinted root with
+// links, a gradient root, the sizes a region takes), each placement laid
+// out at the widths the system proposes to a region (finite, none, zero,
+// infinite), rendered in-process with `ImageRenderer` as the widget tests
+// are (a `Link`, which `ImageRenderer` refuses, through a hosting view).
+// The 1x PNGs go to `EXACT_WP10_OUT` for the eye. The resolver, its cache
+// and the presentation are `ActivityResolverTests`'.
+import XCTest
+import SwiftUI
+import ImageIO
+import UniformTypeIdentifiers
+import ExactCore
+import ExactSnapshot
+#if canImport(WidgetKit)
+import WidgetKit
+#endif
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
+
+#if canImport(WidgetKit)
+@MainActor
+@available(iOS 17.0, macOS 14.0, visionOS 26.0, *)
+final class ActivityDriverTests: XCTestCase {
+    static func plan(_ key: String) throws -> Data {
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_\(key)_PLAN"], "EXACT_\(key)_PLAN: build.mjs --test compiles it")
+        return try Data(contentsOf: URL(fileURLWithPath: path))
+    }
+    static let out: URL = {
+        let dir = ProcessInfo.processInfo.environment["EXACT_WP10_OUT"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.temporaryDirectory.appending(path: "exact-wp10-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+    static let facts = SessionFacts(displayScale: 1, preferences: [], rootFontSize: 17)
+    static let assets = AssetResolver(root: FileManager.default.temporaryDirectory)
+    static let margin = ActivityPlacementView.platformMargins.leading
+
+    /// The widths stage 0 saw the system propose (one phone's evidence): the
+    /// expanded leading and trailing regions, the centre, the bottom and the
+    /// Lock Screen; the tests take them as a set of region widths, not as facts.
+    static let widths: [CGFloat] = [165, 109.33, 338, 362]
+
+    func render(_ plan: Data, kind: String, state: String?) throws -> ActivityRender {
+        try ActivityRender(plan: plan, kind: kind, state: state.map { Data($0.utf8) }, facts: Self.facts, assets: Self.assets)
+    }
+
+    /// No content margins: the placement's view is its kernel size, so the
+    /// sizes compare; the Lock Screen's margins have their own assertion.
+    func environment(_ placement: ActivityPlacement, placeholder: Bool = false, link: URL? = nil, margins: EdgeInsets? = EdgeInsets()) -> SnapshotEnvironment {
+        SnapshotEnvironment(family: .liveActivity, placement: placement, placeholder: placeholder, linkBase: link, contentMargins: margins, rootFontSize: 17)
+    }
+
+    func image<V: View>(_ view: V, proposal: ProposedViewSize) -> CGImage? {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 1
+        renderer.proposedSize = proposal
+        return renderer.cgImage
+    }
+
+    /// The platform's own hosting view drawing a SwiftUI view at 1x: what
+    /// `ImageRenderer` refuses (a `Link`) draws here as the archive draws it.
+    func hosted<V: View>(_ view: V, size: CGSize) -> CGImage? {
+        #if canImport(UIKit)
+        let controller = UIHostingController(rootView: view)
+        controller.view.bounds = CGRect(origin: .zero, size: size)
+        controller.view.backgroundColor = .white
+        controller.view.layoutIfNeeded()
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            controller.view.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+        }.cgImage
+        #else
+        let host = NSHostingView(rootView: view)
+        host.frame = CGRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
+        bitmap.size = size
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        return bitmap.cgImage
+        #endif
+    }
+
+    @discardableResult
+    func write(_ image: CGImage?, _ name: String) throws -> URL {
+        let url = Self.out.appending(path: "\(name).png")
+        let image = try XCTUnwrap(image, name)
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination), name)
+        return url
+    }
+
+    /// RGBA8 pixels of a 1x image.
+    func pixels(_ image: CGImage) throws -> (width: Int, height: Int, data: [UInt8]) {
+        let w = image.width, h = image.height
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        let context = try XCTUnwrap(CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return (w, h, data)
+    }
+
+    /// How many pixels in `rect` (the whole image when nil) differ from
+    /// `background` by more than 32 in some channel: the ink the leaves drew.
+    func ink(_ image: CGImage, in rect: CGRect? = nil, background: [UInt8]) throws -> Int {
+        let p = try pixels(image)
+        let rect = rect ?? CGRect(x: 0, y: 0, width: p.width, height: p.height)
+        var count = 0
+        for y in max(0, Int(rect.minY))..<min(p.height, Int(rect.maxY.rounded(.up))) {
+            for x in max(0, Int(rect.minX))..<min(p.width, Int(rect.maxX.rounded(.up))) {
+                let at = (y * p.width + x) * 4
+                if (0..<3).contains(where: { abs(Int(p.data[at + $0]) - Int(background[$0])) > 32 }) { count += 1 }
+            }
+        }
+        return count
+    }
+
+    func color(_ image: CGImage, x: Int, y: Int) throws -> [Int] {
+        let p = try pixels(image)
+        let at = (y * p.width + x) * 4
+        return [Int(p.data[at]), Int(p.data[at + 1]), Int(p.data[at + 2])]
+    }
+
+    func texts(_ laid: ActivityRender.Laid) -> [String] {
+        var found: [String] = [], stack = [laid.root.id]
+        while let id = stack.popLast() {
+            guard let node = laid.snapshot.nodes[id] else { continue }
+            if node.kind == "text" || node.kind == "time" { found.append(contentsOf: node.lines.map(\.text)) }
+            stack.append(contentsOf: node.children.reversed())
+        }
+        return found
+    }
+
+    // MARK: Caltrain's two activities, every placement, at the region widths
+
+    func testCaltrainPlacementsLayOutAtEveryRegionWidthAndDraw() throws {
+        for (key, kind, dark) in [("SNAPSHOT_DEPARTURE", "departure", false), ("SNAPSHOT_SERVICE_ALERT", "service-alert", true)] {
+            let render = try self.render(try Self.plan(key), kind: kind, state: nil)
+            for placement in ActivityPlacement.allCases {
+                for width in Self.widths {
+                    let proposal = ProposedViewSize(width: width, height: nil)
+                    let size = render.size(placement, proposal: proposal)
+                    XCTAssertGreaterThan(size.height, 0, "\(kind) \(placement.name) at \(width)")
+                    if placement.fillsWidth { XCTAssertEqual(size.width, width, "\(kind) \(placement.name) fills its region") }
+                    else { XCTAssertLessThanOrEqual(size.width, width, "\(kind) \(placement.name) shrinks to its content") }
+                    let laid = try XCTUnwrap(render.laidOut(placement, proposal: proposal))
+                    XCTAssertEqual(laid.size.height, size.height, "\(kind) \(placement.name): the view's height is the placement's margin box")
+                    if placement.fillsWidth { XCTAssertEqual(laid.size.width, width, "\(kind) \(placement.name): fills the region it was laid out in") }
+                    else if laid.size.width > size.width + 0.5 {
+                        XCTAssertFalse(laid.authoredWidth, "\(kind) \(placement.name): a content the region cannot hold is cut at the region, \(laid.size.width) in \(size.width)")
+                        XCTAssertEqual(size.width, width)
+                    }
+                    // The layout drawn is the one in the region's viewport (narrower only when a wrapped paragraph settled the region).
+                    XCTAssertTrue(laid.viewport.width == width || (laid.viewport.width < width && ActivityRender.wraps(under: laid.root, in: laid.snapshot)), "\(kind) \(placement.name): the region's viewport, \(laid.viewport.width) for \(width)")
+                    let view = SnapshotActivity.view(render, placement: placement, environment: environment(placement))
+                        .environment(\.colorScheme, dark ? .dark : .light).background(dark ? Color.black : Color.white)
+                    let name = "\(kind)-\(placement.name)-\(Int(width))"
+                    let image = image(view, proposal: proposal)
+                    try write(image, name)
+                    XCTAssertEqual(image?.width, Int(size.width.rounded(.up)), name)
+                    XCTAssertEqual(image?.height, Int(size.height.rounded(.up)), name)
+                    if !texts(laid).isEmpty || placement == .minimal {
+                        XCTAssertGreaterThan(try ink(try XCTUnwrap(image), background: dark ? [0, 0, 0] : [255, 255, 255]), 8, "\(name) drew")
+                    }
+                }
+                // The system's probes before a finite width: nothing for zero, the content's own for none and infinity.
+                XCTAssertEqual(render.size(placement, proposal: .zero), .zero, "\(kind) \(placement.name) minimum")
+                let ideal = render.size(placement, proposal: .unspecified)
+                XCTAssertEqual(ideal, render.size(placement, proposal: .infinity), "\(kind) \(placement.name) ideal is the maximum")
+                XCTAssertGreaterThan(ideal.width, 0); XCTAssertLessThanOrEqual(ideal.width, ActivityRender.widest)
+            }
+            // The preview state is what an unstated state renders.
+            let lock = try render.layout(.lockScreen, width: 362, height: nil)
+            XCTAssertTrue(texts(lock).contains { $0.contains(kind == "departure" ? "Mountain View" : "Service delay") }, "\(texts(lock))")
+            // D5: the Lock Screen placement sits inside the content margins, the HIG's 14 pt when the system gives none.
+            XCTAssertEqual(Self.margin, 14)
+            let padded = image(SnapshotActivity.view(render, placement: .lockScreen, environment: environment(.lockScreen, margins: nil)), proposal: ProposedViewSize(width: 362, height: nil))
+            let inner = try render.layout(.lockScreen, width: 362 - 2 * Self.margin, height: nil)
+            XCTAssertEqual(padded?.width, 362); XCTAssertEqual(padded?.height, Int((inner.size.height + 2 * Self.margin).rounded(.up)), kind)
+            // The Island's regions take no margins, and a region's fixed height is the viewport's while the view stays its content's height.
+            let compact = try render.layout(.compactLeading, width: render.size(.compactLeading, proposal: ProposedViewSize(width: 100, height: 22)).width, height: 22)
+            XCTAssertEqual(compact.viewport.height, 22)
+            XCTAssertEqual(image(SnapshotActivity.view(render, placement: .compactLeading, environment: environment(.compactLeading, margins: nil)), proposal: ProposedViewSize(width: 100, height: 22))?.height, Int(compact.size.height.rounded(.up)), kind)
+        }
+    }
+
+    /// The compact regions and the minimal view are as wide as what they
+    /// hold: a train number, a countdown in the width the kernel reserved
+    /// for its widest value, a symbol.
+    func testCompactPlacementsAreAsWideAsTheirContent() throws {
+        let render = try self.render(try Self.plan("SNAPSHOT_DEPARTURE"), kind: "departure", state: nil)
+        let leading = render.size(.compactLeading, proposal: ProposedViewSize(width: 200, height: 22.667))
+        XCTAssertGreaterThan(leading.width, 8); XCTAssertLessThan(leading.width, 60, "the train number: \(leading)")
+        let trailing = render.size(.compactTrailing, proposal: ProposedViewSize(width: 200, height: 22.667))
+        let laid = try render.layout(.compactTrailing, width: trailing.width, height: 22.667)
+        let time = try XCTUnwrap(laid.snapshot.nodes.values.first { $0.kind == "time" || $0.props["semanticTag"] == "time" })
+        XCTAssertNotNil(time.props["textReservation"], "the kernel reserved the countdown's widest value")
+        XCTAssertGreaterThanOrEqual(trailing.width, time.lines.map(\.width).max() ?? 0, "the reserved width holds the current value")
+        XCTAssertLessThan(trailing.width, 120, "\(trailing)")
+        XCTAssertEqual(laid.viewport.height, 22.667, "the Island's height proposal is the viewport's")
+        let minimal = render.size(.minimal, proposal: .unspecified)
+        XCTAssertGreaterThan(minimal.width, 8); XCTAssertLessThan(minimal.width, 40, "the symbol: \(minimal)")
+        // A centred line comes to its own width, not the line it was first laid out in.
+        let tinted = try self.render(try Self.plan("SNAPSHOT_TINTED"), kind: "tinted", state: "{\"title\":\"Hi\"}")
+        let centred = tinted.size(.compactTrailing, proposal: ProposedViewSize(width: 300, height: nil))
+        XCTAssertLessThan(centred.width, 40, "\(centred)")
+    }
+
+    /// The sizes a region takes, by CSS 2.1 §10.3.7 (the bake positions a
+    /// placement's root absolutely at its region's top left): an authored
+    /// width is kept, a `flex-basis` does not apply (the root is no flex
+    /// item), a `min-width` past the proposal is kept, a percentage resolves
+    /// against the region and is drawn so, `margin: auto` is nothing,
+    /// justified content is its own width, a paragraph that wraps is as
+    /// wide as its widest ink line, a content the region cannot hold takes
+    /// the region and no more, viewport-dependent content reads the
+    /// region, and a root's margins are the region's. Each size is the
+    /// layout the view draws.
+    func testRegionSizesHonourTheAuthorsConstraints() throws {
+        let sized = try self.render(try Self.plan("SNAPSHOT_SIZED"), kind: "sized", state: nil)
+        func drawn(_ placement: ActivityPlacement, _ proposal: CGFloat) throws -> (size: CGSize, laid: ActivityRender.Laid) {
+            let size = sized.size(placement, proposal: ProposedViewSize(width: proposal, height: nil))
+            return (size, try XCTUnwrap(sized.laidOut(placement, proposal: ProposedViewSize(width: proposal, height: nil))))
+        }
+        // compactLeading: `width=120 min-width=0 flex-basis=0`, proposed 165: 120, the basis of no flex item.
+        let basis = try drawn(.compactLeading, 165)
+        XCTAssertEqual(basis.size.width, 120); XCTAssertEqual(basis.laid.root.frame.width, 120); XCTAssertEqual(basis.laid.viewport.width, 165)
+        // compactTrailing: `min-width=200` holding "Hi", proposed 165: 200, the author's minimum, drawn 200 wide.
+        let minimum = try drawn(.compactTrailing, 165)
+        XCTAssertEqual(minimum.size.width, 200); XCTAssertEqual(minimum.laid.root.frame.width, 200); XCTAssertFalse(minimum.laid.authoredWidth); XCTAssertEqual(minimum.laid.minimumWidth, 200)
+        // minimal: `width="50%"`, proposed 200: 100, and the drawn root is 100 wide in the 200 region it was resolved against.
+        let percent = try drawn(.minimal, 200)
+        XCTAssertEqual(percent.size.width, 100); XCTAssertEqual(percent.laid.root.frame.width, 100); XCTAssertEqual(percent.laid.viewport.width, 200)
+        // expanded.center: `margin="auto"` with "Hi": no margin, the text's width.
+        let auto = try drawn(.expandedCenter, 165)
+        XCTAssertEqual(auto.laid.margins.left, 0); XCTAssertEqual(auto.laid.margins.right, 0)
+        XCTAssertLessThan(auto.size.width, 40); XCTAssertGreaterThan(auto.size.width, 8)
+        // expanded.leading: a row justified to its end with "Hi": the text's width, not the row's proposal.
+        let justified = try drawn(.expandedLeading, 165)
+        XCTAssertLessThan(justified.size.width, 40, "\(justified.size)"); XCTAssertGreaterThan(justified.size.width, 8)
+        // expanded.trailing: a paragraph that wraps to the proposal: its widest ink line, narrower than the proposal, drawn at that width.
+        let wrapped = try drawn(.expandedTrailing, 165)
+        XCTAssertGreaterThan(texts(wrapped.laid).count, 1, "wrapped: \(texts(wrapped.laid))")
+        XCTAssertLessThan(wrapped.size.width, 165, "\(wrapped.size)")
+        XCTAssertEqual(wrapped.laid.viewport.width, wrapped.size.width, "the drawn layout is the one measured")
+        XCTAssertEqual(wrapped.size.width, ActivityRender.widestLine(under: wrapped.laid.root, in: wrapped.laid.snapshot).rounded(.up))
+        XCTAssertGreaterThan(wrapped.size.height, 30, "two lines or more")
+        // expanded.bottom: viewport-dependent content reads the region it is laid out in.
+        XCTAssertTrue(texts(try drawn(.expandedBottom, 338).laid).contains { $0.hasPrefix("A long") })
+        XCTAssertFalse(texts(try drawn(.expandedBottom, 120).laid).contains { $0.hasPrefix("A long") })
+        // A `time` whose reserved value is wider than the region takes the region, never more (the Island keeps its neighbours).
+        let alert = try self.render(try Self.plan("SNAPSHOT_SERVICE_ALERT"), kind: "service-alert", state: nil)
+        XCTAssertGreaterThan(alert.size(.expandedTrailing, proposal: ProposedViewSize(width: 400, height: nil)).width, 109.33, "the relative time's reservation")
+        XCTAssertEqual(alert.size(.expandedTrailing, proposal: ProposedViewSize(width: 109.33, height: nil)).width, 109.33)
+        // lockScreen: `margin=12` on the root: the margins are the region's, the root at its own offset.
+        let lock = try sized.layout(.lockScreen, width: 362, height: nil)
+        XCTAssertEqual(lock.margins.left, 12); XCTAssertEqual(lock.margins.top, 12); XCTAssertEqual(lock.margins.right, 12); XCTAssertEqual(lock.margins.bottom, 12)
+        XCTAssertEqual(lock.root.frame.origin, CGPoint(x: 12, y: 12))
+        XCTAssertEqual(lock.root.frame.width, 362 - 24)
+        XCTAssertEqual(lock.size, CGSize(width: 362, height: lock.root.frame.height + 24))
+        XCTAssertEqual(sized.size(.lockScreen, proposal: ProposedViewSize(width: 362, height: nil)), lock.size)
+        let picture = try XCTUnwrap(image(SnapshotActivity.view(sized, placement: .lockScreen, environment: environment(.lockScreen)).background(Color.white), proposal: ProposedViewSize(width: 362, height: nil)))
+        try write(picture, "sized-lockScreen")
+        XCTAssertEqual(picture.height, Int(lock.size.height.rounded(.up)))
+        XCTAssertEqual(try ink(picture, in: CGRect(x: 0, y: 0, width: 362, height: 11), background: [255, 255, 255]), 0, "nothing above the top margin")
+        XCTAssertEqual(try ink(picture, in: CGRect(x: 0, y: 0, width: 11, height: picture.height), background: [255, 255, 255]), 0, "nothing left of the left margin")
+        XCTAssertGreaterThan(try ink(picture, background: [255, 255, 255]), 8)
+    }
+
+    /// Proposals interleave across regions and the view draws the layout its
+    /// size was measured from, never the one another region left in the
+    /// session: the departure's bottom region shows the status only past
+    /// 160 pt (`snapshot_viewport.width`).
+    func testInterleavedProposalsDrawTheLayoutTheyWereMeasuredFrom() throws {
+        let render = try self.render(try Self.plan("SNAPSHOT_DEPARTURE"), kind: "departure", state: nil)
+        let wide = render.size(.expandedBottom, proposal: ProposedViewSize(width: 338, height: nil))
+        XCTAssertTrue(texts(try XCTUnwrap(render.laidOut(.expandedBottom, proposal: ProposedViewSize(width: 338, height: nil)))).contains("On time"))
+        _ = render.size(.expandedLeading, proposal: ProposedViewSize(width: 109.33, height: nil))
+        _ = render.size(.compactTrailing, proposal: ProposedViewSize(width: 101.67, height: 36.67))
+        _ = render.size(.expandedBottom, proposal: ProposedViewSize(width: 120, height: nil))
+        XCTAssertFalse(texts(try XCTUnwrap(render.laidOut(.expandedBottom, proposal: ProposedViewSize(width: 120, height: nil)))).contains("On time"))
+        XCTAssertEqual(render.size(.expandedBottom, proposal: ProposedViewSize(width: 338, height: nil)), wide)
+        let again = try XCTUnwrap(render.laidOut(.expandedBottom, proposal: ProposedViewSize(width: 338, height: nil)))
+        XCTAssertTrue(texts(again).contains("On time"), "the wide layout, after a narrow one laid the session out")
+        XCTAssertEqual(again.viewport.width, 338)
+        XCTAssertEqual(try XCTUnwrap(render.laidOut(.expandedLeading, proposal: ProposedViewSize(width: 109.33, height: nil))).viewport.width, 109.33)
+    }
+
+    // MARK: D8: account content is private but for a node that says `data-privacy="public"`
+
+    func testContentIsRedactedOnALockedPhoneUnlessANodeSaysPublic() throws {
+        func region(_ image: CGImage, _ rect: CGRect) throws -> [UInt8] {
+            let p = try pixels(image)
+            var out: [UInt8] = []
+            for y in Int(rect.minY)..<Int(rect.maxY) { for x in Int(rect.minX)..<Int(rect.maxX) { out.append(contentsOf: p.data[((y * p.width + x) * 4)..<((y * p.width + x) * 4 + 3)]) } }
+            return out
+        }
+        // Caltrain's departure says `data-privacy="public"` on every placement: a locked phone shows it unchanged.
+        let departure = try self.render(try Self.plan("SNAPSHOT_DEPARTURE"), kind: "departure", state: nil)
+        let open = try XCTUnwrap(image(SnapshotActivity.view(departure, placement: .lockScreen, environment: environment(.lockScreen)).background(Color.white), proposal: ProposedViewSize(width: 362, height: nil)))
+        let locked = try XCTUnwrap(image(SnapshotActivity.view(departure, placement: .lockScreen, environment: environment(.lockScreen)).background(Color.white).environment(\.redactionReasons, .privacy), proposal: ProposedViewSize(width: 362, height: nil)))
+        XCTAssertEqual(try pixels(open).data, try pixels(locked).data, "Caltrain's departure shows the same on a locked phone")
+        XCTAssertGreaterThan(try ink(locked, background: [255, 255, 255]), 8)
+        // An activity that says nothing is account content: redacted on a locked phone, every line of it.
+        let sized = try self.render(try Self.plan("SNAPSHOT_SIZED"), kind: "sized", state: nil)
+        let laid = try sized.layout(.lockScreen, width: 362, height: nil)
+        let lines = laid.root.children.compactMap { laid.snapshot.nodes[$0] }.filter { $0.kind == "text" }.sorted { $0.frame.minY < $1.frame.minY }
+        XCTAssertEqual(lines.count, 2)
+        let shown = try XCTUnwrap(image(SnapshotActivity.view(sized, placement: .lockScreen, environment: environment(.lockScreen)).background(Color.white), proposal: ProposedViewSize(width: 362, height: nil)))
+        let redacted = try XCTUnwrap(image(SnapshotActivity.view(sized, placement: .lockScreen, environment: environment(.lockScreen)).background(Color.white).environment(\.redactionReasons, .privacy), proposal: ProposedViewSize(width: 362, height: nil)))
+        try write(redacted, "sized-lockScreen-privacy")
+        for line in lines {
+            let rect = line.frame.offsetBy(dx: laid.root.frame.minX, dy: laid.root.frame.minY)
+            XCTAssertNotEqual(try region(shown, rect), try region(redacted, rect), "the unannotated line is redacted: \(line.lines.map(\.text))")
+        }
+        // The placeholder carries no privacy: it is redacted as a placeholder and no further.
+        let placeholder = try XCTUnwrap(image(SnapshotActivity.view(sized, placement: .lockScreen, environment: environment(.lockScreen, placeholder: true)).redacted(reason: .placeholder).background(Color.white), proposal: ProposedViewSize(width: 362, height: nil)))
+        let placeholderLocked = try XCTUnwrap(image(SnapshotActivity.view(sized, placement: .lockScreen, environment: environment(.lockScreen, placeholder: true)).redacted(reason: .placeholder).background(Color.white).environment(\.redactionReasons, [.placeholder, .privacy]), proposal: ProposedViewSize(width: 362, height: nil)))
+        XCTAssertEqual(try pixels(placeholder).data, try pixels(placeholderLocked).data)
+    }
+
+    // MARK: D5 and D7: the tint, the gradient and the links of a Lock Screen placement
+
+    func testTheTintIsTheLockScreenColourAndALinkIsThePlacementURL() throws {
+        let base = URL(string: "https://tinted.exact.invalid")!
+        let tinted = try self.render(try Self.plan("SNAPSHOT_TINTED"), kind: "tinted", state: "{\"title\":\"Northbound delayed\"}")
+        let lock = try tinted.layout(.lockScreen, width: 362, height: nil)
+        let background = SnapshotActivity.background(of: lock, dark: false)
+        let tint = try XCTUnwrap(background.tint)
+        XCTAssertFalse(background.hasGradients)
+        let resolved = tint.resolve(in: EnvironmentValues())
+        XCTAssertEqual(Int((resolved.red * 255).rounded()), 0x1e); XCTAssertEqual(Int((resolved.green * 255).rounded()), 0x3a); XCTAssertEqual(Int((resolved.blue * 255).rounded()), 0x5f)
+        // The links, by content: the Lock Screen's and an expanded region's resolve against the origin, a compact region's is none.
+        XCTAssertEqual(SnapshotActivity.url(lock, environment: environment(.lockScreen, link: base)), URL(string: "https://tinted.exact.invalid/alerts"))
+        XCTAssertTrue(texts(lock).contains("Northbound delayed"), "\(texts(lock))")
+        XCTAssertEqual(SnapshotActivity.url(try tinted.layout(.expandedCenter, width: 109, height: nil), environment: environment(.expandedCenter, link: base))?.path, "/alerts")
+        XCTAssertNil(SnapshotActivity.url(try tinted.layout(.compactLeading, width: 60, height: nil), environment: environment(.compactLeading, link: base)))
+        XCTAssertTrue(environment(.lockScreen).takesLinks); XCTAssertTrue(environment(.expandedBottom).takesLinks)
+        XCTAssertFalse(environment(.compactTrailing).takesLinks); XCTAssertFalse(environment(.minimal).takesLinks)
+        XCTAssertNil(SnapshotActivity.url(try tinted.layout(.lockScreen, width: 362, height: nil), environment: environment(.lockScreen, placeholder: true, link: base)), "the placeholder opens nothing")
+        // The link's content draws: the title's ink inside its line, and no prohibition mark (ImageRenderer's refusal of a
+        // Link) anywhere in the placement, through the platform's hosting view.
+        let size = tinted.size(.lockScreen, proposal: ProposedViewSize(width: 362, height: nil))
+        let drawn = try XCTUnwrap(hosted(SnapshotActivity.view(tinted, placement: .lockScreen, environment: environment(.lockScreen, link: base)).background(tint).environment(\.colorScheme, .light), size: size))
+        try write(drawn, "tinted-lockScreen-hosted")
+        let laid = try XCTUnwrap(tinted.laidOut(.lockScreen, proposal: ProposedViewSize(width: 362, height: nil)))
+        let title = try XCTUnwrap(laid.snapshot.nodes.values.first { $0.kind == "text" && $0.lines.first?.text == "Northbound delayed" })
+        var line = title.frame
+        var parent = laid.snapshot.nodes.values.first { $0.children.contains(title.id) }
+        while let p = parent, p.id != laid.root.id { line = line.offsetBy(dx: p.frame.minX, dy: p.frame.minY); parent = laid.snapshot.nodes.values.first { $0.children.contains(p.id) } }
+        line = line.offsetBy(dx: laid.root.frame.minX, dy: laid.root.frame.minY)
+        // The hosting view draws at the screen's scale.
+        let scale = CGFloat(drawn.width) / size.width
+        let scaled = CGRect(x: line.minX * scale, y: line.minY * scale, width: line.width * scale, height: line.height * scale)
+        XCTAssertGreaterThan(try ink(drawn, in: scaled, background: [0x1e, 0x3a, 0x5f]), 8, "the white title over the tint")
+        let p = try pixels(drawn)
+        var yellow = 0
+        for at in stride(from: 0, to: p.data.count, by: 4) where p.data[at] > 200 && p.data[at + 1] > 180 && p.data[at + 2] < 90 { yellow += 1 }
+        XCTAssertEqual(yellow, 0, "no prohibition mark: the link draws its content")
+        // Caltrain's activities leave the background unsaid: the system's material.
+        let departure = try self.render(try Self.plan("SNAPSHOT_DEPARTURE"), kind: "departure", state: nil)
+        let unsaid = SnapshotActivity.background(of: try departure.layout(.lockScreen, width: 362, height: nil), dark: false)
+        XCTAssertNil(unsaid.tint); XCTAssertFalse(unsaid.hasGradients)
+    }
+
+    /// A root with a colour and a gradient: the colour is the tint (the
+    /// system's, not painted here), the gradient's layers alone paint full
+    /// bleed behind the margins over it, from the same layout as the content.
+    func testAGradientRootPaintsFullBleedBehindTheMargins() throws {
+        let graded = try self.render(try Self.plan("SNAPSHOT_GRADED"), kind: "graded", state: "{\"title\":\"Over the gradient\"}")
+        let lock = try graded.layout(.lockScreen, width: 300 - 2 * Self.margin, height: nil)
+        let background = SnapshotActivity.background(of: lock, dark: false)
+        XCTAssertNotNil(background.tint); XCTAssertTrue(background.hasGradients)
+        let tint = try XCTUnwrap(background.tint)
+        let picture = try XCTUnwrap(image(SnapshotActivity.view(graded, placement: .lockScreen, environment: environment(.lockScreen, margins: nil)).background(tint), proposal: ProposedViewSize(width: 300, height: nil)))
+        try write(picture, "graded-lockScreen")
+        XCTAssertEqual(picture.width, 300)
+        // Inside the margins, where no text is: red at the left edge, blue at the right, the gradient full bleed.
+        let y = picture.height - 3
+        let left = try color(picture, x: 2, y: y), right = try color(picture, x: 297, y: y)
+        XCTAssertGreaterThan(left[0], left[2] + 100, "red at the left: \(left)")
+        XCTAssertGreaterThan(right[2], right[0] + 100, "blue at the right: \(right)")
+        XCTAssertTrue(texts(lock).contains("Over the gradient"))
+        // A translucent gradient over the tint: the colour is composited once (the tint), the layers once.
+        let bare = try XCTUnwrap(image(SnapshotActivity.view(graded, placement: .lockScreen, environment: environment(.lockScreen, margins: nil)).background(Color.white), proposal: ProposedViewSize(width: 300, height: nil)))
+        let corner = try color(bare, x: 2, y: bare.height - 3)
+        XCTAssertGreaterThan(corner[0], corner[2] + 100, "the gradient's own red, not the tint's blue, over white: \(corner)")
+    }
+
+    /// One session serves every placement (D9): laid out again only at a
+    /// size it has not seen, and released with its render.
+    func testOneSessionServesEveryPlacementAndIsReleased() throws {
+        let plan = try Self.plan("SNAPSHOT_SERVICE_ALERT")
+        weak var session: HeadlessSession?
+        try autoreleasepool {
+            let render = try self.render(plan, kind: "service-alert", state: nil)
+            session = render.session
+            for placement in ActivityPlacement.allCases { _ = render.size(placement, proposal: ProposedViewSize(width: 165, height: nil)) }
+            let count = render.layoutCount
+            XCTAssertGreaterThan(count, 0)
+            for placement in ActivityPlacement.allCases { _ = render.size(placement, proposal: ProposedViewSize(width: 165, height: nil)) }
+            XCTAssertEqual(render.layoutCount, count, "a size seen before costs no layout")
+            XCTAssertGreaterThan(render.layoutMilliseconds, 0)
+            XCTAssertNotNil(session)
+        }
+        XCTAssertNil(session, "the session is retained after its render is gone")
+    }
+}
+#endif

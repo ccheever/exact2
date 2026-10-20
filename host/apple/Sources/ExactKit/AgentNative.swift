@@ -127,20 +127,20 @@ extension Agent {
     func inspectLayout(_ req: [String: Any]) -> [String: Any]? {
         let pick = req["world"] != nil || req["x"] != nil || req["y"] != nil
         if let native = req["native"] {
-            guard let spec = native as? [String: Any] else { return ["error": "layout native: `native` must be an object"] }
-            if let extra = spec.keys.first(where: { $0 != "depth" && $0 != "limit" }) { return ["error": "layout native: unknown field \(extra)"] }
-            guard let id = Agent.integer(req["id"]), id >= 0 else { return ["error": "layout native needs a target"] }
-            if req["agree"] != nil || pick { return ["error": "layout native: refused with agree, at or world"] }
+            guard let spec = native as? [String: Any] else { return ["malformed": true, "error": "layout native: `native` must be an object"] }
+            if let extra = spec.keys.first(where: { $0 != "depth" && $0 != "limit" }) { return ["malformed": true, "error": "layout native: unknown field \(extra)"] }
+            guard let id = Agent.integer(req["id"]), id >= 0 else { return ["malformed": true, "error": "layout native needs a target"] }
+            if req["agree"] != nil || pick { return ["malformed": true, "error": "layout native: refused with agree, at or world"] }
             let depth = spec["depth"] == nil ? 3 : Agent.integer(spec["depth"]), limit = spec["limit"] == nil ? 200 : Agent.integer(spec["limit"])
-            guard let depth, (1...12).contains(depth) else { return ["error": "layout native: depth must be an integer in 1...12"] }
-            guard let limit, (1...2000).contains(limit) else { return ["error": "layout native: limit must be an integer in 1...2000"] }
+            guard let depth, (1...12).contains(depth) else { return ["malformed": true, "error": "layout native: depth must be an integer in 1...12"] }
+            guard let limit, (1...2000).contains(limit) else { return ["malformed": true, "error": "layout native: limit must be an integer in 1...2000"] }
             return nativeSubviews(UInt32(id), depth: depth, limit: limit, plan: req["plan"] as? Bool == true)
         }
         if let agree = req["agree"] {
-            guard let flag = agree as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID(), flag.boolValue else { return ["error": "layout agree: `agree` must be true"] }
-            if req["id"] != nil || pick { return ["error": "layout agree: refused with a target, at or world (no scoped form)"] }
+            guard let flag = agree as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID(), flag.boolValue else { return ["malformed": true, "error": "layout agree: `agree` must be true"] }
+            if req["id"] != nil || pick { return ["malformed": true, "error": "layout agree: refused with a target, at or world (no scoped form)"] }
             let limit = req["limit"] == nil ? 32 : Agent.integer(req["limit"])
-            guard let limit, (1...500).contains(limit) else { return ["error": "layout agree: limit must be an integer in 1...500"] }
+            guard let limit, (1...500).contains(limit) else { return ["malformed": true, "error": "layout agree: limit must be an integer in 1...500"] }
             return agreement(limit: limit)
         }
         return nil

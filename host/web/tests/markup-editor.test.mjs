@@ -2,9 +2,8 @@
 import { afterAll, test, expect } from 'bun:test';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { chromium as installed } from '../../../scripts/agent-launch.mjs';
+import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { buildEditor } from '../../web-js/module.mjs';
-import * as playwright from 'playwright-core';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
@@ -18,7 +17,7 @@ const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) 
 async function editor(engine, source, drive, runtime = false) {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === '/markup-editor.js') return new Response(Bun.file(resolve(WEB, 'markup-editor.js')), { headers: { 'content-type': 'text/javascript' } });
+    if (['/markup-editor.js', '/navigation.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } }); // no data sources in this fixture
     if (runtime && path.endsWith('.js')) {
@@ -30,8 +29,16 @@ async function editor(engine, source, drive, runtime = false) {
         globalThis.exact = {};
         let field = document.getElementById('editor');
         field.value = ${JSON.stringify(source)};
+        // What the app hears: each field event's InputEvent fields. \`prevent(e)\` cancels a beforeinput.
+        window.events = []; window.logs = []; window.prevent = () => false;
+        const record = (type, value, start, end, direction, inputType, data, cancelable, composing) => events.push({ type, value, start, end, direction, inputType, data, cancelable, composing });
         if (${runtime}) {
-          const { mde, on, onKey, Hosts } = await import('./rt.js');
+          const { mde, on, onKey, onBeforeInput, onSelectionChange, onValue, Hosts } = await import('./rt.js');
+          const { commands } = await import('./commands.js');
+          window.command = (name, args) => commands(s => logs.push(s))[name](...args);
+          on(field, 'beforeinput', r => { record('beforeinput', r[0], ...r.slice(2)); if (prevent(r)) Hosts.preventDefault(); }, onBeforeInput);
+          on(field, 'selectionchange', r => record('selectionchange', r[0], ...r.slice(2)), onSelectionChange);
+          on(field, 'input', (v, r) => record('input', v, ...r.slice(2)), onValue);
           window.heard = [];
           on(document.body, 'keycapture', key => {
             heard.push('outer:' + key);
@@ -48,10 +55,15 @@ async function editor(engine, source, drive, runtime = false) {
           mde(field);
         } else {
           await import('./markup-editor.js');
+          const { runFocusCommands } = await import('./navigation.js');
+          window.command = (name, args) => runFocusCommands([{ name, args }], { root: document.body, ready: true, inertAncestor: () => false, log: s => logs.push(s) });
           const install = await exact.installMarkupEditor;
           const host = { live: el => el.isConnected, select() {}, replace(el) {
             field = el;
-            field.addEventListener('input', () => { document.getElementById('echo').textContent = field.value; field.value = field.value; });
+            const heard = e => record(e.type, el.value, el.selectionStart, el.selectionEnd, el.selectionDirection, e.inputType ?? '', e.data ?? null, e.cancelable ?? false, e.isComposing ?? false);
+            field.addEventListener('beforeinput', e => { heard(e); if (prevent(e)) e.preventDefault(); });
+            field.addEventListener('selectionchange', heard);
+            field.addEventListener('input', e => { heard(e); document.getElementById('echo').textContent = field.value; field.value = field.value; });
           } };
           window.restoreMarkup = () => { field.setAttribute('markup', 'markdown'); field = install(field, host); };
           field = install(field, host);
@@ -76,7 +88,7 @@ async function editor(engine, source, drive, runtime = false) {
 // its own (its page, its undo, its storage), closed when it is done.
 const launched = new Map();
 function browser(engine) {
-  if (!launched.has(engine)) launched.set(engine, playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: chrome.executable } : {}) }));
+  if (!launched.has(engine)) launched.set(engine, suiteBrowser(engine));
   return launched.get(engine);
 }
 afterAll(async () => { for (const b of launched.values()) await (await b.catch(() => null))?.close(); }, 60000);
@@ -203,7 +215,8 @@ for (const engine of engines) {
         getSelection().selectAllChildren(el);
         document.execCommand('insertText', false, 'composed\nnext');
       });
-      expect(await field.evaluate(el => el.value)).toBe('one\n\ntwo');
+      // While composing, the value is the text the input method left, as a plain field's.
+      expect(await field.evaluate(el => el.value)).toBe('composed\nnext');
       await field.evaluate(el => el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })));
       expect(await field.evaluate(el => el.value)).toBe('composed\nnext');
       expect(await page.locator('#echo').textContent()).toBe('composed\nnext');
@@ -239,3 +252,120 @@ for (const engine of engines) {
     });
   }, 60000);
 }
+
+// A frame and a task: the document's own selectionchange, and what it queues, have run.
+const settle = page => page.evaluate(() => new Promise(ok => requestAnimationFrame(() => setTimeout(ok))));
+const heard = page => page.evaluate(() => events.splice(0));
+const only = (list, type) => list.filter(e => e.type === type).map(({ value, start, end, direction, inputType, data, cancelable, composing }) => [value, start, end, direction, inputType, data, cancelable, composing]);
+
+for (const engine of engines) for (const runtime of [false, true]) {
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: source selection, range edits, their undo and the app's beforeinput`, async () => {
+    await editor(engine, 'hello', async (page, field) => {
+      const command = (name, ...args) => page.evaluate(([name, args]) => command(name, args), [name, args]);
+      const state = () => field.evaluate(el => [el.value, el.selectionStart, el.selectionEnd, el.selectionDirection]);
+      await field.focus(); await settle(page); await heard(page);
+      // A script's selection: source offsets and its direction, then one selectionchange.
+      await command('setSelectionRange', 'editor', 1, 4, 'backward'); await settle(page);
+      expect(await state()).toEqual(['hello', 1, 4, 'backward']);
+      expect(only(await heard(page), 'selectionchange')).toEqual([['hello', 1, 4, 'backward', '', null, false, false]]);
+      // Two range edits in one task: one insertReplacementText input each, and two undo steps.
+      await command('setSelectionRange', 'editor', 5, 5); await settle(page); await heard(page);
+      await page.evaluate(() => { command('setRangeText', ['editor', '!', 5, 5, 'end']); command('setRangeText', ['editor', '?', 6, 6, 'end']); });
+      await settle(page);
+      expect(await state()).toEqual(['hello!?', 7, 7, 'none']);
+      expect(only(await heard(page), 'input')).toEqual([['hello!', 6, 6, 'none', 'insertReplacementText', '!', false, false], ['hello!?', 7, 7, 'none', 'insertReplacementText', '?', false, false]]);
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect(await state()).toEqual(['hello!', 6, 6, 'none']);
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect(await state()).toEqual(['hello', 5, 5, 'none']);
+      await page.keyboard.press('ControlOrMeta+Shift+Z');
+      expect(await state()).toEqual(['hello!', 6, 6, 'none']);
+      const history = only(await heard(page), 'beforeinput');
+      expect(history.map(e => [e[4], e[6]])).toEqual([['historyUndo', true], ['historyUndo', true], ['historyRedo', true]]);
+      // The app's beforeinput runs first: one it cancels changes nothing.
+      await page.evaluate(() => { window.prevent = e => ['historyUndo', 'insertParagraph', 'insertLineBreak'].includes(e.inputType ?? e[5]); });
+      await page.keyboard.press('ControlOrMeta+Z');
+      await page.keyboard.press('Enter');
+      await settle(page);
+      expect(await state()).toEqual(['hello!', 6, 6, 'none']);
+      const cancelled = await heard(page);
+      expect(only(cancelled, 'input')).toEqual([]);
+      expect(only(cancelled, 'beforeinput').map(e => e[4])).toEqual(['historyUndo', expect.stringMatching(/^insert(Paragraph|LineBreak)$/)]);
+      await page.evaluate(() => { window.prevent = () => false; });
+      // Typing: the platform's input type and data, the selection it left.
+      await page.keyboard.type('y'); await settle(page);
+      expect(only(await heard(page), 'input')).toEqual([['hello!y', 7, 7, 'none', 'insertText', 'y', false, false]]);
+      // Return in a list: the app hears it before the list continues.
+      await command('setRangeText', 'editor', '- one', 0, 99, 'end'); await settle(page); await heard(page);
+      await page.keyboard.press('Enter'); await settle(page);
+      expect(await state()).toEqual(['- one\n- ', 8, 8, 'none']);
+      const enter = (await heard(page)).filter(e => e.type !== 'selectionchange');
+      expect(enter.map(e => [e.type, e.value, e.start, e.cancelable])).toEqual([['beforeinput', '- one', 5, true], ['input', '- one\n- ', 8, false]]);
+      // Each step undoes alone; the typing before the range edits survives.
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect(await state()).toEqual(['- one', 5, 5, 'none']);
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect((await state())[0]).toBe('hello!y');
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect((await state())[0]).toBe('hello!');
+      // HTML's refusals, logged; nothing changes.
+      await page.evaluate(() => { logs.length = 0; });
+      await command('setRangeText', 'editor', 'x', 3, 1);
+      expect(await page.evaluate(() => logs.splice(0))).toEqual(['setRangeText "editor" refused: start exceeds end']);
+      expect((await state())[0]).toBe('hello!');
+      // A caret the app puts in hidden syntax is drawn, and reads back, at its visible edge (LLP 1045 D6).
+      await command('setRangeText', 'editor', 'a **b** c', 0, 99, 'end');
+      await command('setSelectionRange', 'editor', 3, 3);
+      expect([2, 4]).toContain((await state())[1]);
+    }, runtime);
+  }, 60000);
+}
+
+// Chrome's input method, through CDP: a composition's events carry the DOM's
+// text and selection in source offsets, hidden syntax counted.
+engineTest.chromium('chromium: a composition reports source offsets as it composes', async () => {
+  for (const runtime of [false, true]) await editor('chromium', 'a **b** c', async (page, field) => {
+    const cdp = await page.context().newCDPSession(page);
+    await field.focus();
+    await page.evaluate(() => command('setSelectionRange', ['editor', 5, 5]));
+    await settle(page); await heard(page);
+    await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 });
+    await cdp.send('Input.imeSetComposition', { text: 'にほ', selectionStart: 2, selectionEnd: 2 });
+    await settle(page);
+    const composing = await heard(page);
+    expect(only(composing, 'beforeinput').map(e => [e[4], e[6], e[7]])).toEqual([['insertCompositionText', false, true], ['insertCompositionText', false, true]]);
+    expect(only(composing, 'input')).toEqual([['a **bに** c', 6, 6, 'none', 'insertCompositionText', 'に', false, true], ['a **bにほ** c', 7, 7, 'none', 'insertCompositionText', 'にほ', false, true]]);
+    // A range edit waits for the composition to end.
+    await page.evaluate(() => { logs.length = 0; command('setRangeText', ['editor', 'x', 0, 0]); });
+    expect(await page.evaluate(() => logs.splice(0))).toEqual(['setRangeText "editor" refused: text is being composed']);
+    await cdp.send('Input.insertText', { text: '日本' });
+    await settle(page);
+    expect(await field.evaluate(el => [el.value, el.selectionStart, el.selectionEnd])).toEqual(['a **b日本** c', 7, 7]);
+    expect(only(await heard(page), 'input').at(-1)).toEqual(['a **b日本** c', 7, 7, 'none', 'insertCompositionText', '日本', false, false]);
+    await page.keyboard.press('ControlOrMeta+Z');
+    expect(await field.evaluate(el => el.value)).toBe('a **b** c');
+  }, runtime);
+}, 60000);
+
+engineTest.chromium('chromium: Markdown editing escapes an inert ancestor at an open modal', async () => {
+  await editor('chromium', 'hello', async (page, field) => {
+    await field.evaluate(el => {
+      const ancestor = document.createElement('div'), dialog = document.createElement('dialog');
+      el.before(ancestor); ancestor.append(dialog); dialog.append(el); dialog.showModal(); ancestor.inert = true;
+      el.focus(); getSelection().selectAllChildren(el);
+    });
+    await page.keyboard.insertText('edited');
+    expect(await field.evaluate(el => el.value)).toBe('edited');
+    await page.keyboard.press('ControlOrMeta+Z');
+    expect(await field.evaluate(el => el.value)).toBe('hello');
+    for (const target of ['editor', 'dialog']) {
+      expect(await field.evaluate((el, target) => {
+        const blocked = target === 'editor' ? el : el.closest('dialog');
+        blocked.inert = true;
+        const accepted = el.exactMarkup.format('bold');
+        blocked.inert = false;
+        return [accepted, el.value];
+      }, target)).toEqual([false, 'hello']);
+    }
+  }, true);
+}, 60000);

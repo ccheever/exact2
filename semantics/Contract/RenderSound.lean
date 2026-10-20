@@ -123,6 +123,21 @@ theorem elementTestId_good {p : Program} (hfn : ProgOK p) {E : Err → Prop}
     simp [hs, bind, Except.bind, pure, Except.pure, GoodW]
   · trivial
 
+theorem tabValues_good {p : Program} (hfn : ProgOK p) {E : Err → Prop}
+    (hE : ∀ e, Legit e → e ≠ .pending → E e) {fuel G env Γ ls}
+    (henv : EnvOKE p E G env) (hl : LocalsOK p Γ ls) : ∀ {props : List (String × Expr)},
+    (∀ prop ∈ props, ∃ t, HasTy p G Γ prop.2 t) →
+    GoodW E (fun _ => True) (props.mapM fun (name, e) => do
+      pure (name, ← eval fuel env false ls e))
+  | [], _ => trivial
+  | (name, e) :: rest, h => by
+    simp only [List.mapM_cons]
+    obtain ⟨t, ht⟩ := h (name, e) (by simp)
+    refine GoodW.bind (P := fun _ => True) ?_ fun _ _ => ?_
+    · exact GoodW.bind (eval_sound_E hfn hE henv hl ht) fun _ _ => True.intro
+    · exact GoodW.bind (tabValues_good hfn hE henv hl (fun prop hp => h prop (List.mem_cons_of_mem _ hp)))
+        fun _ _ => True.intro
+
 theorem rowKey_good {E : Err → Prop} (hE : ∀ e, Legit e → e ≠ .pending → E e) (v : Value) :
     GoodW E (fun _ => True) (rowKey v) := by
   unfold rowKey
@@ -214,10 +229,18 @@ theorem render_good {p : Program} (hp : WellTyped p) {E : Err → Prop}
         · cases node with
           | element tag pos props hs children =>
             simp only [NodesTy] at hn
-            obtain ⟨⟨htext, htid, hhs⟩, hkids, -⟩ := hn
+            obtain ⟨⟨htext, htid, hnav, hhs⟩, hkids, -⟩ := hn
             refine GoodW.bind (elementText_good hfn hE hok hl htext) fun _ _ => ?_
             refine GoodW.bind (elementTestId_good hfn hE hok hl htid) fun _ _ => ?_
-            refine GoodW.bind (ihR henv hcm hst hlive hl hkids) fun ⟨kids, l2⟩ ⟨hv2, hs2⟩ => ?_
+            refine GoodW.bind (tabValues_good hfn hE hok hl hnav) fun values _ => ?_
+            have hk : GoodW E (fun r => ViewOK p r.1 ∧ StoreOK p r.2)
+                (if (cx.tabs.element props values).opened then
+                  render n { cx with tabs := cx.tabs.children props } ls children live
+                 else pure ([], live)) := by
+              split
+              · exact ihR henv hcm hst hlive hl hkids
+              · exact ⟨ViewOK.nil, hlive⟩
+            refine GoodW.bind hk fun ⟨kids, l2⟩ ⟨hv2, hs2⟩ => ?_
             refine ⟨ViewOK.single ?_ hv2, hs2⟩
             intro h hh
             obtain ⟨a, ha, ts, hts, hle⟩ := hhs h hh
@@ -263,5 +286,26 @@ theorem render_good {p : Program} (hp : WellTyped p) {E : Err → Prop}
           fun ⟨vs, l1⟩ ⟨hv1, hs1⟩ => ?_
         refine GoodW.bind (ihW henv hcm hst hs1 hl hitems.2 hk hinit hbody) fun ⟨more, l2⟩ ⟨hv2, hs2⟩ => ?_
         exact ⟨hv1.append hv2, hs2⟩
+
+/-- Opening panels preserves rendering safety and the types of retained
+slots, including slots initialized by an earlier opening in this commit. -/
+theorem renderTabs_good {p : Program} (hp : WellTyped p) {E : Err → Prop}
+    (hE : ∀ e, Legit e → e ≠ .pending → E e) : ∀ n {cx},
+    EnvGood p cx.env →
+    (Complete p { derives := cx.env.derives, resources := cx.env.resources } ∨ E .pending) →
+    StoreOK p cx.store →
+    GoodW E (fun r => ViewOK p r.1 ∧ StoreOK p r.2) (renderTabs n cx)
+  | 0, _, _, _, _ => hE _ trivial (by simp [outOfFuel])
+  | n + 1, cx, henv, hc, hst => by
+    unfold renderTabs
+    have hv : NodesTy p (compScope p) [] cx.env.prog.view := by rw [henv.prog]; exact hp.view
+    refine GoodW.bind ((render_good hp hE fuel).1 henv hc hst StoreOK.nil LocalsOK.nil hv)
+      fun ⟨view, live⟩ ⟨hv, hs⟩ => ?_
+    dsimp only
+    by_cases hopen : (Tabs.toOpen (tabIndex view)).isEmpty = true
+    · simp only [hopen, ite_true]
+      exact ⟨hv, hs⟩
+    · simp only [hopen]
+      exact renderTabs_good hp hE n henv hc hs
 
 end Contract

@@ -2,7 +2,7 @@
 // app's palette, and only a declaration at the top level is one.
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { tellsIn } from './no-tells.mjs';
+import { brokenWordsIn, fixedSizesIn, fixedSymbolsIn, tellsIn } from './no-tells.mjs';
 
 test("a theme's literals are its palette and a row naming an entry is no tell", () => {
   const source = 'theme\n  brand="#c8102e"\n  background = "light-dark(#fff, #000)"\n\ncomponent A\n  view\n    text "x" color="brand" background-color="#fff"\n';
@@ -59,4 +59,67 @@ test('a channel may read alpha, and an origin may be an expression over tokens',
 test("an inline theme's entries are tokens as a design's are", () => {
   const source = 'theme\n  brand="#c8102e"\n\ncomponent A\n  view\n    text "x" color="rgb(from brand r g b / 0.5)" background-color="rgb(from ink r g b)"\n';
   assert.deepEqual(tellsIn(source).map(t => [t.line, t.property]), [[6, 'background-color']]);
+});
+
+// LLP 1116.020 D4: what verify names as a size Dynamic Type does not move.
+test('a fixed font size is a bare number, px or pt, whole or a branch; rem, a role, a control and a kept line are not', () => {
+  const source = [
+    'component A',
+    '  view',
+    '    column',
+    '      text "a" font-size=28 testId="big"',
+    '      text "b" font-size="2rem" font-variant-numeric="tabular-nums"',
+    '      text "c" font-size=(wide ? 48 : 28) font-variant-numeric="tabular-nums"',
+    '      text "d" font-size=(wide ? "3rem" : "2rem")',
+    '      text "e" font-size="-exact-title1"',
+    '      text "f" font-size="20px"',
+    '        testId=`ff`',
+    '      input value=v font-size=17',
+    '      text "g" font-size=72 // no-tells: a poster',
+    '      text "h" font-size=(items.length > 3 ? "2rem" : "1rem")',
+    'style Big',
+    '  font-size="30pt"',
+  ].join('\n');
+  assert.deepEqual(fixedSizesIn(source).map((f) => [f.line, f.tag, f.size, f.testId]), [[4, 'text', 28, 'big'], [6, 'text', 48, null], [9, 'text', 20, 'ff'], [15, 'style', 30, null]]);
+});
+
+// LLP 1116.021 D6: text that breaks inside words, and a symbol that stays small beside text that grows.
+test('overflow-wrap anywhere on prose is a tell; on a link, in a monospace face or kept, it is not', () => {
+  const source = [
+    'component A',
+    '  view',
+    '    column',
+    '      text month overflow-wrap="anywhere" testId="month"',
+    '      link href=url overflow-wrap="anywhere"',
+    '        text url',
+    '      text password font-family="monospace" overflow-wrap="anywhere"',
+    '      text body overflow-wrap="break-word"',
+    '      text hash overflow-wrap="anywhere" // no-tells: a commit hash',
+    '      text note',
+    '        overflow-wrap=(wide ? "normal" : "anywhere")',
+  ].join('\n');
+  assert.deepEqual(brokenWordsIn(source).map((f) => [f.line, f.tag, f.testId]), [[4, 'text', 'month'], [11, 'text', null]]);
+  assert.deepEqual(tellsIn(source).filter((t) => t.kind === 'break').map((t) => t.line), [4, 11]);
+});
+
+test('a symbol sized in points beside text that scales is named; alone, in rem, or beside fixed text it is not', () => {
+  const source = [
+    'component A',
+    '  view',
+    '    column',
+    '      row gap=8',
+    '        image "symbol:delete" width=28 height=28 testId="trash"',
+    '        column',
+    '          text "Bananas"',
+    '      button aria-label="Add"',
+    '        image "symbol:add" width=28 height=28',
+    '      row',
+    '        image "symbol:star" width="1.5rem" height="1.5rem"',
+    '        text "Starred"',
+    '      row',
+    '        image "symbol:timer" width=40 height=40',
+    '        text clock font-size=40',
+    '      image "symbol:sf/cloud.sun.rain" width=28 height=28',
+  ].join('\n');
+  assert.deepEqual(fixedSymbolsIn(source).map((f) => [f.line, f.property, f.size, f.testId]), [[5, 'width', 28, 'trash'], [5, 'height', 28, 'trash']]);
 });

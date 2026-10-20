@@ -230,13 +230,22 @@ impl<'a> Layout<'a> {
         // A named argument's `=` stays against its name, as an attribute's
         // does: `Fields(base, title=value)`, `empty(field=value)`. Only a
         // call's arguments put a name and `=` after `(` or `,`.
+        // A platform's word on a module call is a dotted name, `apple.word=`.
         let ordinary: Vec<&Token> = self.tokens.iter().filter(|t| ordinary(t)).collect();
-        for w in ordinary.windows(3) {
-            if matches!(w[0].kind, TokenKind::Punct("(" | ","))
-                && matches!(w[1].kind, TokenKind::Ident(_))
-                && w[2].kind == TokenKind::Punct("=")
+        for (i, t) in ordinary.iter().enumerate() {
+            if !matches!(t.kind, TokenKind::Punct("(" | ",")) {
+                continue;
+            }
+            let mut at = i + 1;
+            while matches!(ordinary.get(at).map(|t| &t.kind), Some(TokenKind::Ident(_)))
+                && ordinary.get(at + 1).map(|t| &t.kind) == Some(&TokenKind::Punct("."))
             {
-                self.attributes.insert(w[1].span);
+                at += 2;
+            }
+            if matches!(ordinary.get(at).map(|t| &t.kind), Some(TokenKind::Ident(_)))
+                && ordinary.get(at + 1).map(|t| &t.kind) == Some(&TokenKind::Punct("="))
+            {
+                self.attributes.insert(ordinary[at].span);
             }
         }
         for route in file.routes.iter().flat_map(|r| &r.rows) {
@@ -251,7 +260,7 @@ impl<'a> Layout<'a> {
                 self.ty(ty);
             }
         }
-        for style in &file.styles {
+        for style in file.styles.iter().chain(&file.decorations) {
             self.attributes.extend(style.attrs.iter().map(|a| a.span));
         }
         if let Some(theme) = &file.theme {
@@ -323,6 +332,14 @@ impl<'a> Layout<'a> {
         let start = self.position(ty.span()).unwrap();
         match ty {
             TypeExpr::Named(..) => start + 1,
+            TypeExpr::Enum(..) => {
+                self.type_angles.insert(self.tokens[start + 1].span);
+                let end = (start + 2..self.tokens.len())
+                    .find(|&i| self.tokens[i].kind == TokenKind::Punct(">"))
+                    .unwrap();
+                self.type_angles.insert(self.tokens[end].span);
+                end + 1
+            }
             TypeExpr::List(inner, _) | TypeExpr::Option(inner, _) => {
                 let end = self.ty(inner);
                 self.type_angles.insert(self.tokens[start + 1].span);
@@ -364,11 +381,19 @@ impl<'a> Layout<'a> {
                             }
                         }
                         // A part's declarations (`::placeholder` and its
-                        // block) are not on the element's head.
-                        let (parts, head): (Vec<Attr>, Vec<Attr>) = attrs
+                        // block) and a state part's (`:disabled`) are not on
+                        // the element's head.
+                        // A continuation after such a block keeps its own
+                        // line: the head ends at the block.
+                        let block = attrs
                             .iter()
-                            .cloned()
-                            .partition(|a| a.name.starts_with("::"));
+                            .filter(|a| a.name.starts_with(':'))
+                            .map(|a| a.span.line)
+                            .min();
+                        let (parts, head): (Vec<Attr>, Vec<Attr>) =
+                            attrs.iter().cloned().partition(|a| {
+                                a.name.starts_with(':') || block.is_some_and(|b| a.span.line >= b)
+                            });
                         self.attributes.extend(parts.iter().map(|a| a.span));
                         self.header(*span, &head, false, last_positional);
                     }
@@ -515,7 +540,14 @@ impl<'a> Layout<'a> {
                     && self
                         .position(previous.span)
                         .and_then(|i| i.checked_sub(1))
-                        .is_some_and(|i| self.tokens[i].kind == TokenKind::Punct(":")));
+                        .is_some_and(|i| self.tokens[i].kind == TokenKind::Punct(":")))
+                // A state part's name against its `:` at the start of its
+                // line (`:disabled`, states.rs).
+                || (a == ":"
+                    && !self.ternary_colons.contains(&previous.span)
+                    && self.lines.get(previous.span.line as usize - 1).is_some_and(|l| {
+                        l.len() - l.trim_start().len() + 1 == previous.span.col as usize
+                    }));
             if !tight {
                 out.push(' ');
             }

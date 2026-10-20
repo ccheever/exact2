@@ -19,6 +19,9 @@ struct Invocation {
 
     /// Whether it can put its target up (`show`, `toggle`, `show-modal`)
     var opens: Bool { action != .hide && action != .close }
+    /// Whether it opens a popover, as a header's menu button does:
+    /// `show-modal` on a `dialog` that is also a popover is no menu
+    var opensPopover: Bool { action == .show || action == .toggle }
     /// Whether it closes `target` while that shows modally or as a popover:
     /// HTML's dialog `close` closes a modal dialog, and `hide-popover` a popover.
     func closes(_ target: NodeView, modally: Bool) -> Bool {

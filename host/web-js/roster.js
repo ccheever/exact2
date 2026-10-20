@@ -3,8 +3,7 @@
 export const x_length = v => v.length;
 export const x_isEmpty = v => v.length === 0;
 export const x_floor = Math.floor;
-// `f64::max`/`min` (runner/src/stdlib.rs): a NaN operand gives the other one.
-export const x_max = (a, b) => a !== a ? b : b !== b ? a : Math.max(a, b), x_min = (a, b) => a !== a ? b : b !== b ? a : Math.min(a, b);
+export const x_max = Math.max, x_min = Math.min;
 // Numbers print as JavaScript prints them (`push_number`), `-0` as `0`.
 export const x_toString = v => String(v);
 export const x_startsWith = (a, b) => a.startsWith(b), x_endsWith = (a, b) => a.endsWith(b);
@@ -14,6 +13,8 @@ export const x_first = l => l.length ? l[0] : null;
 export const x_at = (l, i) => { const v = l.at(i); return v === undefined ? null : v; };
 // LLP 1102 §3.1–§3.4 (runner/src/stdlib.rs `js_round`, `parse_number`, `calendar_diff`).
 export const x_ceil = Math.ceil, x_round = Math.round;
+// The native runners' `libm` and the engine's `Math` may differ in the last bits (format.json `sin`).
+export const x_sin = Math.sin, x_cos = Math.cos;
 /** `parseNumber`: `trim`'s whitespace, a sign, digits and an optional fraction (or a fraction alone), an optional exponent;
  * `Number()`'s correctly rounded value, or null for other text, a result past the largest finite, or a nonzero numeral
  * that rounds to zero. `\d` without the `u` flag is ASCII only, as the runner's grammar is. */
@@ -41,5 +42,5 @@ export const x_calendarDiff = (from, to, unit) => {
     : b[0] - a[0] - (b[1] < a[1] || b[1] === a[1] && b[2] < a[2] ? 1 : 0);
   return n && sign * n;
 };
-export { x_formatTime, x_formatDate, x_formatNumber, x_toFixed, x_formatDecimal } from "./format.js";
+export { x_formatTime, x_formatDate, x_formatDay, x_formatNumber, x_toFixed, x_formatDecimal } from "./format.js";
 

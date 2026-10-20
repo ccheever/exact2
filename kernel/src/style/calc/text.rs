@@ -128,6 +128,14 @@ pub(super) fn env(term: EnvTerm, out: &mut String) {
             use std::fmt::Write as _;
             let _ = write!(out, "viewport-segment-{} {x} {y}", var.name());
         }
+        EnvTerm::Region(region, edge) => {
+            out.push_str(region.prefix());
+            out.push_str(edge.name());
+        }
+        EnvTerm::TitleBar(var) => {
+            out.push_str(super::super::env::TitleBarVar::PREFIX);
+            out.push_str(var.name());
+        }
     }
     out.push(')');
 }

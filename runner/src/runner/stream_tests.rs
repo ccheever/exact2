@@ -141,7 +141,8 @@ fn three_messages_then_a_close_commit_four_times() {
             ticket,
             StreamCount {
                 messages: 3,
-                coalesced: 0
+                coalesced: 0,
+                socket: None,
             }
         )]
     );
@@ -218,7 +219,8 @@ fn coalesced_messages_are_counted_and_the_newest_lands() {
         r.streams()[0].2,
         StreamCount {
             messages: 2,
-            coalesced: 7
+            coalesced: 7,
+            socket: None,
         }
     );
     let state = crate::agent::state(&r);

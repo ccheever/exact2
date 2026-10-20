@@ -1,15 +1,18 @@
 //! Form controls, painted (LLP 1069.001 D7): this host has no platform
 //! controls to show. Where it has no platform at all (the Linux desktop,
 //! Windows) each is the web's neutral look's (`neutral.rs`; LLP 1115.000
-//! D17). Else, which is Android's reader until its controls are Material's,
+//! D17). Under the Material look a checkbox and a radio are Material's
+//! (`material.rs`). Else, which is Android's reader until its other controls
+//! are Material's,
 //! a checkbox is Chrome's rounded square, a radio its circle and a switch a
 //! pill with a thumb, filled with `accent-color`, else the platform's accent
 //! where the host reported one ([`accents`]). `appearance: none` draws
 //! nothing here: the author's box is the whole look (D6).
 
+use super::material::Icon;
 use super::{look, neutral, rgba, Backend, Rect4, Shape};
 use exact_kernel::generated::metric;
-use exact_kernel::{Appearance, FieldChrome, NodeRef, PropId, StyleMask};
+use exact_kernel::{Appearance, FieldChrome, NodeRef, NodeType, PropId, StyleMask};
 use tiny_skia::Transform;
 
 /// This painter's own accent, Chrome's default `#0075ff`: what a control
@@ -33,11 +36,6 @@ pub(crate) fn accents(authored: Option<[u8; 4]>, dark: bool) -> ([u8; 4], [u8; 4
     }
 }
 
-// LLP 1104 D7: the host's field look, outside the author's box rows.
-const FIELD_BORDER: f32 = 1.0;
-const FIELD_RADIUS: f32 = 6.0;
-const FIELD_PADDING: (f32, f32) = (6.0, 8.0);
-
 // The existing system-ui stack selects the host's installed sans-serif face.
 // Linux's own control size is the page's initial 16px, independent of ancestors.
 pub(crate) fn control_text_styles() -> exact_kernel::ControlTextStyles {
@@ -55,14 +53,6 @@ pub(crate) fn control_text_styles() -> exact_kernel::ControlTextStyles {
     }
 }
 
-fn field_fill(dark: bool) -> [u8; 4] {
-    if dark {
-        [0x1c, 0x1c, 0x1e, 0xff]
-    } else {
-        [0xff; 4]
-    }
-}
-
 /// An authored `::placeholder` colour (LLP 1104 D3), its alpha its own;
 /// `None` leaves the platform's.
 pub(crate) fn authored_placeholder(
@@ -75,37 +65,22 @@ pub(crate) fn authored_placeholder(
         .then(|| super::rgba(style.placeholder_color.resolve(dark)))
 }
 
-// Keep the fill opaque; disabled border and unauthored ink approach that fill.
-pub(crate) fn disabled_field_ink(mut ink: [u8; 4], dark: bool) -> [u8; 4] {
-    let fill = field_fill(dark);
-    for i in 0..3 {
-        ink[i] = ((ink[i] as u16 + fill[i] as u16) / 2) as u8;
-    }
-    ink
-}
-
 /// What a field has round its text. Under the neutral look (LLP 1115.000
 /// D17) that is the control's line and the look's padding, of the field's
-/// font size, as the page's sheet has them; else this painter's own.
-pub(crate) fn field_chrome(font_size: f32) -> FieldChrome {
-    if look::neutral() {
-        let line = look::px(metric::CONTROL_LINE, font_size);
-        let block = line + look::px(metric::FIELD_PADDING_BLOCK, font_size);
-        let inline = line + look::px(metric::FIELD_PADDING_INLINE, font_size);
-        return FieldChrome {
-            top: block,
-            right: inline,
-            bottom: block,
-            left: inline,
-            minimum_height: 0.0,
-            provisional: false,
-        };
+/// font size, as the page's sheet has them; else Material's filled field's
+/// (`material.rs`).
+pub(crate) fn field_chrome(font_size: f32, labelled: bool) -> FieldChrome {
+    if !look::neutral() {
+        return super::material::chrome(labelled);
     }
+    let line = look::px(metric::CONTROL_LINE, font_size);
+    let block = line + look::px(metric::FIELD_PADDING_BLOCK, font_size);
+    let inline = line + look::px(metric::FIELD_PADDING_INLINE, font_size);
     FieldChrome {
-        top: FIELD_BORDER + FIELD_PADDING.0,
-        right: FIELD_BORDER + FIELD_PADDING.1,
-        bottom: FIELD_BORDER + FIELD_PADDING.0,
-        left: FIELD_BORDER + FIELD_PADDING.1,
+        top: block,
+        right: inline,
+        bottom: block,
+        left: inline,
         minimum_height: 0.0,
         provisional: false,
     }
@@ -124,16 +99,27 @@ pub(crate) fn choice<'a>(
         .map(|(c, _)| c.as_str())
 }
 
-/// What a date control shows: its [`choice`], else the bound value, HTML's
-/// placeholder form when empty.
-pub(super) fn date_text<'a>(node: &NodeRef<'a>, chosen: Option<&'a (String, String)>) -> &'a str {
+/// What a date control shows: its [`choice`], else the bound value. Under
+/// the neutral look that is HTML's value, its placeholder form when empty;
+/// else the device's writing of it (`dates.rs`), nothing when empty.
+pub(super) fn date_text(
+    node: &NodeRef<'_>,
+    chosen: Option<&(String, String)>,
+    dates: Option<&super::dates::Dates>,
+) -> String {
     let value = choice(node, chosen).unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
-    match (value, node.props.str(PropId::Type)) {
-        ("", Some("date")) => "yyyy-mm-dd",
-        ("", Some("time")) => "--:--",
+    let kind = node.props.str(PropId::Type).unwrap_or("date");
+    if !look::neutral() {
+        let shown = dates.and_then(|d| d.show(kind, value));
+        return shown.unwrap_or_else(|| value.to_string());
+    }
+    match (value, kind) {
+        ("", "date") => "yyyy-mm-dd",
+        ("", "time") => "--:--",
         ("", _) => "yyyy-mm-ddT--:--",
         (v, _) => v,
     }
+    .to_string()
 }
 
 /// A select's label: its [`choice`]'s option, else the bound one's.
@@ -159,8 +145,43 @@ pub(crate) fn accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
         .map(|c| rgba(c.resolve(dark)))
 }
 
-/// The colour of a focused node's ring: its accent ([`accents`]).
+/// An authored accent: an `accent-color` on the node or above it, else the
+/// design's `AccentColor` (LLP 1121 D9); none where only the platform's.
+/// `accent-color: AccentColor` names the platform's (or the design's), not
+/// an authored one, except under an authored accent, which it keeps, as the
+/// web's `var(--exact-accent, AccentColor)` does (stage 9 F1): the painting
+/// scope holds that one ([`roles::scoped_accent`]).
+pub(crate) fn authored_accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
+    use exact_kernel::style::roles;
+    let platform = roles::role("AccentColor");
+    let accent = node.computed_style(StyleMask::INHERITED).accent_color;
+    let role = matches!(accent, Some(exact_kernel::ColorValue::Role(id)) if Some(id) == platform);
+    let written = if role {
+        roles::scoped_accent()
+            .filter(|c| !matches!(c, exact_kernel::ColorValue::Role(id) if Some(*id) == platform))
+    } else {
+        accent
+    };
+    written
+        .map(|c| rgba(c.resolve(dark)))
+        .or_else(|| roles::overridden(platform?).map(|c| rgba(c.resolve(dark))))
+}
+
+/// A focused node's accent ([`accents`]), except native neutral fields
+/// marked invalid, whose ring matches their system-red border.
 pub(crate) fn ring(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
+    if look::neutral()
+        && (node.node_type == NodeType::TextInput
+            || (node.node_type == NodeType::Control
+                && matches!(
+                    node.props.str(PropId::Type),
+                    Some("select" | "date" | "time" | "datetime-local")
+                )))
+        && node.style.appearance != Appearance::None
+        && node.props.str(PropId::AccessibilityInvalid) == Some("true")
+    {
+        return look::role("-exact-system-red", dark);
+    }
     accents(accent(node, dark), dark).0
 }
 
@@ -191,33 +212,23 @@ impl super::Painter {
         &mut self,
         node: &NodeRef<'_>,
         rect: Rect4,
-        disabled: bool,
+        focused: bool,
         ts: Transform,
     ) -> Shape {
         if look::neutral() {
             return neutral::field(self.backend.as_mut(), node, rect, ts, self.dark);
         }
-        let shape = Shape::new(rect, [FIELD_RADIUS; 4]);
-        let fill = field_fill(self.dark);
-        let mut line = if self.dark {
-            [0x48, 0x48, 0x4a, 0xff]
-        } else {
-            [0xc6, 0xc6, 0xc8, 0xff]
-        };
-        if disabled {
-            line = disabled_field_ink(line, self.dark);
-        }
-        self.backend.fill(&shape, line, ts);
-        self.backend.fill(&shape.inset(FIELD_BORDER), fill, ts);
-        shape
+        self.filled_field(node, rect, focused, false, ts)
     }
 
-    /// A closed select, or a field that shows a value (LLP 1069.001 D7): a
-    /// rounded box with the text, and a chevron when it opens a menu.
+    /// A closed select, or a field that shows a value (LLP 1069.001 D7):
+    /// the neutral look's field with the text, and a caret when it opens a
+    /// menu; else Material's filled field with its trailing icon.
     pub(super) fn field_control(
         &mut self,
         node: &NodeRef<'_>,
         content: Rect4,
+        focused: bool,
         ts: Transform,
         text: &str,
         chevron: bool,
@@ -227,9 +238,11 @@ impl super::Painter {
         }
         let dark = self.dark;
         if look::neutral() {
+            // Focus changes without a tree commit, so a row cannot keep this ring.
+            self.row_refuse();
             // The look's field: its ground and line, the text a field's
             // padding in, on the middle line, and a select's caret.
-            neutral::field(self.backend.as_mut(), node, content, ts, dark);
+            let shape = neutral::field(self.backend.as_mut(), node, content, ts, dark);
             let style = node.computed_style(StyleMask::INHERITED);
             let spec = super::text_spec(&style, text);
             let paragraph = self.text.borrow_mut().paragraph(&spec, None);
@@ -260,47 +273,21 @@ impl super::Painter {
             if chevron {
                 neutral::caret(self.backend.as_mut(), node, content, ts, dark);
             }
+            if focused
+                && self.ringless != Some(node.id)
+                && node.props.bool(PropId::Disabled) != Some(true)
+                && !node.style.mask.has(exact_kernel::StyleId::OutlineStyle)
+            {
+                self.field_ring(&shape, ring(node, dark), ts);
+            }
             return;
         }
-        let disabled = node.props.bool(PropId::Disabled) == Some(true);
-        let alpha = |mut c: [u8; 4]| {
-            if disabled {
-                c[3] /= 2;
-            }
-            c
+        let icon = match node.props.str(PropId::Type) {
+            Some("select") => Icon::Menu,
+            Some("time") => Icon::Clock,
+            _ => Icon::Calendar,
         };
-        let frame = Shape::new(content, [4.0; 4]);
-        let (line, fill) = if dark {
-            ([0x85, 0x85, 0x85, 0xff], [0x3b, 0x3b, 0x3b, 0xff])
-        } else {
-            ([0x76, 0x76, 0x76, 0xff], [0xff, 0xff, 0xff, 0xff])
-        };
-        self.backend.fill(&frame, alpha(line), ts);
-        self.backend.fill(&frame.inset(1.0), alpha(fill), ts);
-        let style = node.computed_style(StyleMask::INHERITED);
-        let ink = alpha(rgba(node.text_color().resolve(dark)));
-        let spec = super::text_spec(&style, text);
-        let paragraph = self.text.borrow_mut().paragraph(&spec, None);
-        let (x, y, w, h) = content;
-        let oy = y + ((h - paragraph.height) / 2.0).max(0.0);
-        {
-            let mut engine = self.text.borrow_mut();
-            let palette = [crate::text::RunPaint {
-                color: ink,
-                source: node.id,
-            }];
-            self.backend
-                .text(&mut engine, &paragraph, &palette, (x + 6.0, oy), ts);
-        }
-        if chevron {
-            // A "v": two bars from its point, below the middle at the right.
-            let (px, py) = (x + w - 11.0, y + h / 2.0 + 2.5);
-            for angle in [-135.0f32, -45.0] {
-                let turn = Transform::from_rotate_at(angle, px, py);
-                let bar = Shape::rect((px - 0.75, py - 0.75, 6.0, 1.5));
-                self.backend.fill(&bar, ink, ts.pre_concat(turn));
-            }
-        }
+        self.filled_value(node, content, focused, ts, text, icon);
     }
 
     /// A range (LLP 1069.001 D7): Chrome's track, filled with the accent to
@@ -415,7 +402,9 @@ impl super::Painter {
 
 /// Paint `node`'s control in its content box; `held` is an unbound
 /// checkbox's own state, which the host keeps as a browser does, and
-/// `hovered` whether a pointer that hovers is over it.
+/// `hovered` whether a pointer that hovers is over it. `scale` is device
+/// pixels a point.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint(
     backend: &mut dyn Backend,
     node: &NodeRef<'_>,
@@ -424,6 +413,7 @@ pub(super) fn paint(
     dark: bool,
     held: Option<bool>,
     hovered: bool,
+    scale: f32,
 ) {
     if node.style.appearance == Appearance::None {
         return;
@@ -436,6 +426,14 @@ pub(super) fn paint(
             neutral::mark(backend, node, content, ts, dark, on, hovered);
         }
         return;
+    }
+    let switch = node.props.str(PropId::AccessibilityRole) == Some("switch");
+    let radio = node.props.str(PropId::Type) == Some("radio");
+    if look::material() && !switch {
+        return match radio {
+            true => super::material::radio(backend, node, content, ts, dark, on, scale),
+            false => super::material::checkbox(backend, node, content, ts, dark, on, scale),
+        };
     }
     let disabled = node.props.bool(PropId::Disabled) == Some(true);
     let (accent, on_accent) = accents(accent(node, dark), dark);
@@ -526,7 +524,14 @@ pub(super) fn progress(
         return;
     }
     let (cx, cy) = (x + w / 2.0, y + h / 2.0);
-    let ink = rgba(node.text_color().resolve(dark));
+    // Its own `color`, else an authored accent, else the platform's
+    // (Material's spinner is in the primary colour): an inherited colour is
+    // not the spinner's (LLP 1115 D4, LLP 1121 D9).
+    let ink = if node.style.written.has(exact_kernel::StyleId::TextColor) {
+        rgba(node.text_color().resolve(dark))
+    } else {
+        accents(authored_accent(node, dark), dark).0
+    };
     let (thick, long) = (s * 0.1, s * 0.27);
     let spoke = Shape::new(
         (cx - thick / 2.0, cy - s / 2.0, thick, long),
@@ -603,15 +608,17 @@ mod field_tests {
                         style: FontStyle::Italic,
                     },
                     cell: false,
+                    labelled: false,
                 });
+                // Material's filled field, whatever the font (LLP 1115.001 D9).
                 assert_eq!(
                     chrome,
                     FieldChrome {
-                        top: 7.0,
-                        right: 9.0,
-                        bottom: 7.0,
-                        left: 9.0,
-                        minimum_height: 0.0,
+                        top: 16.0,
+                        right: 16.0,
+                        bottom: 16.0,
+                        left: 16.0,
+                        minimum_height: 56.0,
                         provisional: false,
                     }
                 );

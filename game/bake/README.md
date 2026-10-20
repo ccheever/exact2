@@ -35,7 +35,8 @@ MASK) and each level is then encoded. Encoders: Intel's ISPC kernels (prebuilt, 
 `ctt-intel-texture-compressor`) for BC and ARM's `astcenc` (via `ctt-astcenc`) for
 ASTC, both only in this crate. Their bytes can differ bit-wise between SIMD
 variants of one machine family and another; tests pin quality (top level above
-40 dB PSNR against RGBA8 on the sampled channels), not encoded bytes.
+40 dB PSNR against RGBA8 on the sampled channels), not encoded bytes. Proofs retain
+these exact bytes in their execution-input digest, separately from source provenance.
 
 Model textures are named by their content, `textures/<digest>.tex`: the digest of
 the full RGBA8 chain (texels, sampler, mips) and of the channels the material reads.
@@ -82,6 +83,12 @@ decoder. A `.sound` stores each channel's wrapping first differences, channels o
 another, which gzip compresses 1.3–2.2× smaller than interleaved PCM on recordings. More than
 32 MiB of 16-bit PCM, compressed WAV, more than two channels and other rates are
 refused by name. The CLI accepts `INPUT.wav|.ogg OUTPUT.sound`.
+
+Lewton's Vorbis decode uses `f32`: across architectures such as x86_64 and arm64,
+rounding can change a decoded 16-bit PCM sample value by ±1. Baked `.sound` bytes
+may therefore differ for identical Ogg sources. The proof's exact execution-input
+digest includes those bytes and their manifest digests; portable `sourceInputs`
+identifies the authored sound source instead.
 
 The digest manifest protects authored files from replacement or pruning. Obsolete
 list-form manifests refuse with instructions to remove the manifest and its generated

@@ -1,0 +1,66 @@
+# Code review: LLP 1122 T2c steps 2-3 (inspect on iOS and the Mac), round 2, 2026-10-17 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via the Codex CLI, reasoning effort xhigh, read-only sandbox, a throwaway worktree at `8f3b89c30`.
+- **Method:** one brief (sha256 `f1d3e8cf37d9e801647f02c7d2b6bd6de7decb75a7838c357a4fdb9602ba335a`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** request changes (8 high, 8 medium).
+- **Disposition:** taken, except the limits named below. review2's round-2 notes are folded in as well.
+  - 1: entry resets every enabled gesture recognizer, a waiting one too, and cancels the press each node holds (`cancelPressContact`).
+  - 2: nothing goes on to UIKit any more. The banner's close is pressed inside `take` (a touch begun on it and ended on it). Every touch is owned to its end: one begun in inspect mode, one already down when it began, and, after inspect mode ends, a finger put down beside an owned one. Ownership is a weak table, so a reused address is never mistaken for an old touch.
+  - 3: presses are owned to their end like touches, so Escape's own event and its release reach nothing.
+  - 4: while inspect mode is on, a keyboard about to show ends editing again (a field focused later, as by an autofocus or a sheet).
+  - 5: the Mac takes every event in every window of the app (none passes for want of an overlay). A sheet's, a popover's or a later window's overlay is made on its first event (`presenter.hosts`).
+  - 6: `flagsChanged` is taken. The app's own key monitor (ExactViewMac) also does nothing while inspect mode is on or draining, whichever monitor runs first.
+  - 7: an open menu closes at entry, and one opened later closes as it opens. Inspect mode ending with a button or key down keeps the monitor until that sequence ends. Limit: an AppKit control's own tracking loop already running when inspect mode comes on is not cancelled.
+  - 8: a Mac click is reported in the session whose view it lands on (the node id must name the very view hit). The title bar belongs to the session whose bar the window shows.
+  - 9: the overlay takes no touch. A tap on the banner beside its close inspects what is under it.
+  - 10: a swipe action UIKit draws selects its action's node (`SwipeActionsHost.action(for:)`). A grouped row's switch or detail button selects its own node: `part` is asked with the hit view and names the control's `target`.
+  - 11: the Mac toolbar's search field selects its input, and its segments select the tab under the point (AppKit's segment widths, else equal ones).
+  - 12: a squeezed segmented control is read from its segment views (`segmentViews`); a tab bar standing for a tablist from its buttons, where a gap selects nothing.
+  - 13: among the labels saying the title, the bar's title is the lowest one (a large title is under Back's row), then the one nearest the middle.
+  - 14: outlines and the press or hover highlight follow where a node shows: its view, or, for a node a bar stands in for, its bar button item, the bar's title, its tab's button (iOS), and its toolbar item, search field or window title (Mac). Limit: a grouped row's cell and a tab of the Mac bar's segments are not boxed.
+  - 15: an overlay goes once no session of the app shows in its window (checked each frame). The display link holds a weak target, and leaving drops the marks.
+  - 16: instance paths are compared as JSON with sorted keys.
+  - Not taken: tests that synthesize UIEvents or NSEvents (no public way to make them). Input isolation is checked end to end on the simulator (a real tap through `--touch platform` was taken and selected), and by the gate.
+
+---
+
+Input isolation remains incomplete on both hosts, and several native projections still select or outline incorrectly.
+
+1. **High — Pending iOS recognizers survive entry.** [InspectIOS.swift:49](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/InspectIOS.swift:49) excludes `.possible`. A long press waiting for its recognition deadline is still `.possible`; enabling inspect leaves it armed, and it can subsequently invoke `contextmenu`. Reset pending recognizers too, and explicitly cancel the host’s existing press contacts.
+
+2. **High — Touch ownership still has gaps across mode changes.** [InspectIOS.swift:107](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/InspectIOS.swift:107) records only touches beginning while inspect is on. A pre-existing touch can pass through when its current position overlaps the banner; `onBanner` never checks its original destination. After exit, a new finger’s beginning can be swallowed alongside an owned finger without being recorded, allowing its later phases through. Track every suppressed sequence through termination and handle close internally; currently another finger down also prevents close from working.
+
+3. **High — Escape reaches the iOS app after closing inspect.** [InspectIOS.swift:102](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/InspectIOS.swift:102) calls `leaveInspect()` and then returns the now-false `Inspect.on`. `ExactWindow` consequently forwards the same Escape event, potentially dismissing an app dialog or invoking its shortcut. Return `true` for the consumed event and retain ownership through the key’s release.
+
+4. **High — Dismissing the keyboard once does not isolate later typing.** [InspectIOS.swift:45](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/InspectIOS.swift:45) ends editing only when creating an overlay. An asynchronous update can subsequently mount an autofocus field or open an autofocusing sheet; existing focus code allows this during inspection. Software-keyboard input then reaches that field outside `ExactWindow`’s touch interception. Keep focus with the inspector or gate application focus and text-input delivery for the mode’s lifetime.
+
+5. **High — Mac sheets and later windows remain interactive.** [InspectMac.swift:23](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/Mac/InspectMac.swift:23) collects only each session’s root-view window, and [line 44](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/Mac/InspectMac.swift:44) passes events through when no overlay exists. An already-open `DialogSheet`, alert, or popover has another window; a subsequently attached session window also escapes interception. Reconcile every window hosting session content, including presentations, and block input before requiring an overlay.
+
+6. **High — Mac modifier keys still invoke application handlers.** [InspectMac.swift:35](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/Mac/InspectMac.swift:35) omits `.flagsChanged`. Pressing Shift while inspecting reaches the existing monitor in [ExactViewMac.swift:268](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/Mac/ExactViewMac.swift:268), which dispatches application keydown/keyup handlers. Include modifier events and gate application dispatch itself so interception does not depend on ordering between monitors.
+
+7. **High — Mac menu and control tracking bypass the monitor.** [InspectMac.swift:35](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/Mac/InspectMac.swift:35) relies entirely on a local event monitor. AppKit’s `NSEvent` API explicitly excludes events consumed by nested menu/control tracking loops. An open menu or tracking control can therefore complete an application action after inspect starts; menu activation has no inspect guard. Cancel existing tracking and gate menu actions/key equivalents. Also drain intercepted mouse/key sequences before removing the monitor on exit.
+
+8. **High — Mac selection can report another session’s node.** [InspectMac.swift:70](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/Mac/InspectMac.swift:70) chooses the first session in the window before hit-testing. In the two-session embedding fixture, clicking session B finds B’s `NodeView.id` but reports that number through session A’s runner. Overlapping IDs produce an unrelated, apparently valid selection. Determine the owning session from the hit view before resolving or reporting its node.
+
+9. **Medium — The iOS banner obstructs navigation-bar inspection.** [InspectIOS.swift:279](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/InspectIOS.swift:279) makes the entire banner intercept touches, while [line 286](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/InspectIOS.swift:286) positions it across the inline navigation row. On an ordinary portrait phone, title and bar-item taps land on the banner instead. Move the banner away from these targets or provide an inspection path through its non-control area. The title tests run without showing the overlay.
+
+10. **Medium — Projected iOS accessories and swipe actions still lose their identities.** [InspectIOS.swift:158](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/InspectIOS.swift:158) recognizes generic ownership and cells, but never resolves rendered swipe buttons to their action nodes. A grouped-list switch/detail button likewise reaches the cell lookup and selects its row. Resolve these native presentations to their existing action/accessory targets before accepting the row, while preserving the nearer-node rule for custom row content.
+
+11. **Medium — Authored Mac toolbar search and segments are rejected as system chrome.** [InspectMac.swift:103](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/Mac/InspectMac.swift:103) considers only `toolbar.items` and `exact.command.`/`exact.menu.` identifiers. Header search and segmented items are stored separately and use `exact.search.`/`exact.segments.`. Clicking these authored controls therefore selects nothing. Resolve their retained node/tab associations before terminating at the toolbar boundary.
+
+12. **Medium — Segment selection assumes equal widths.** [SegmentsIOS.swift:151](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/SegmentsIOS.swift:151) divides the control into equal horizontal slices, although [line 493](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/SegmentsIOS.swift:493) explicitly enables content-proportional widths when space is tight. A tap near an unequal segment boundary selects the wrong tab. The same arithmetic treats standalone tab-bar empty space as an item. Use actual segment/item rectangles and reject gaps.
+
+13. **Medium — Plain-title matching still confuses identical Back text.** [InspectIOS.swift:233](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/InspectIOS.swift:233) accepts the first label whose text equals the current title. When consecutive routes share a title, Back’s label also qualifies, so traversal order can make Back select the heading. Identify the actual title presentation and exclude back/item subtrees rather than matching text alone.
+
+14. **Medium — Outlines omit visible native replacements.** [InspectIOS.swift:70](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/InspectIOS.swift:70) and [InspectMac.swift:131](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/Mac/InspectMac.swift:131) still resolve sites exclusively through source `NodeView`s. Filtering hidden ancestors removes bogus boxes but also removes projected headings, items, tabs, and grouped rows that visibly exist. Resolve each node to its visible native view/rectangle and scroll container; use that mapping for press/hover highlights too.
+
+15. **Medium — Overlay cleanup still depends on another command.** [InspectIOS.swift:26](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/IOS/InspectIOS.swift:26) and [InspectMac.swift:24](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/Mac/InspectMac.swift:24) reconcile removal only in `show`. Detaching or destroying the last session in a window leaves its overlay and frame callback registered until another inspect command. On iOS the display link also retains its target. Tie teardown to window/session lifecycle and explicitly invalidate callbacks and release marked views.
+
+16. **Medium — Refresh compares noncanonical JSON strings.** [Inspect.swift:175](/tmp/rv-dt-ios-r2/host/apple/Sources/ExactKit/Inspect.swift:175) compares separately serialized instance paths. Their steps contain dictionaries such as `{region, key}`; JSON object-key order is not guaranteed without `.sortedKeys`. Equivalent paths can serialize differently and falsely report the selection gone after a generation change. Compare the parsed structures or canonicalize both stored and candidate paths.
+
+The round-one fixes for report overhead, status-before-refresh ordering, reconnect exits, heading-property lookup, bar-item associations, tvOS exclusion, and compile-time metadata guards look correct by inspection. I found no unguarded `Inspect` reference or new threading issue.
+
+The tests do **not** establish input isolation: iOS uses ordinary `UIWindow`s and helper calls; Mac tests call `pick` directly. Neither suite exercises interception, mixed input, menus, ownership transitions, reconnects, generation refresh, or overlay cleanup. Builds and tests were not run under the read-only restriction.
+
+**Verdict: Request changes — input isolation and native selection remain incorrect, and several round-one fixes are incomplete.**

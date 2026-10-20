@@ -85,6 +85,25 @@ pub(super) fn push_style(
             range.clone(),
         );
     }
+    // CSS `font-optical-sizing: auto` (CSS Fonts 4 §2.7): a face's `opsz` is
+    // the size, as the browser and CoreText set it; one without the axis
+    // ignores it. Parley applies it after fontique's synthesis.
+    builder.push(
+        StyleProperty::FontVariations(parley::FontVariations::List(
+            vec![parley::FontVariation::new(
+                parley::setting::Tag::new(b"opsz"),
+                run.size,
+            )]
+            .into(),
+        )),
+        range.clone(),
+    );
+    if run.stretch != 100.0 {
+        builder.push(
+            StyleProperty::FontWidth(parley::FontWidth::from_percentage(run.stretch)),
+            range.clone(),
+        );
+    }
     if run.letter_spacing != 0.0 && run.size > 0.0 {
         builder.push(
             StyleProperty::LetterSpacing(run.letter_spacing),
@@ -149,7 +168,7 @@ type Pieces = Vec<(Range<usize>, usize)>;
 /// each paragraph separator (`\r\n` one), the last empty piece dropped,
 /// and one empty line for no text. Each line's pieces: (range in the
 /// line, run index).
-fn hard_lines(spec: &Spec) -> Vec<(String, Pieces)> {
+pub(super) fn hard_lines(spec: &Spec) -> Vec<(String, Pieces)> {
     let mut out: Vec<(String, Pieces)> = vec![(String::new(), Vec::new())];
     let mut after_cr = false;
     for (index, run) in spec.runs.iter().enumerate() {
@@ -838,7 +857,8 @@ pub(super) fn line_box<'a>(
 pub struct LayoutRun<'a> {
     /// Its hard line's index.
     pub line_i: usize,
-    /// Its hard line's text (glyph ranges index it).
+    /// The source text indexed by its glyph ranges: a hard line for ordinary
+    /// layout, the whole paragraph for flow across collapsed hard breaks.
     pub text: &'a str,
     /// The hard line's base direction.
     pub rtl: bool,
@@ -884,7 +904,11 @@ impl<'a> Iterator for Runs<'a> {
             };
         Some(LayoutRun {
             line_i: line.hard as usize,
-            text: &hard.text,
+            text: p
+                .flow
+                .as_ref()
+                .filter(|f| !f.incomplete)
+                .map_or(&hard.text, |f| &f.text),
             rtl: hard.rtl,
             glyphs: record.glyphs_of(line),
             line_y,

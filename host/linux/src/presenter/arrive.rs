@@ -21,9 +21,9 @@
 //!   after a pointer's press, one after a key's.
 //!
 //! The stack is the first navigation root's, as the host's navigation last
-//! projected it (`Host::shown_stack`). A press is noted as it begins: the
-//! pointer going down (`focus_for_press`), or the key that presses the
-//! focused control (`typing.rs`); system Back is no press, as the
+//! projected it (`Host::shown_stack`). A pointer press is noted at activation
+//! (`press_at` or a press-scale contact's lift), a canvas contact at its down,
+//! and a key at its press (`typing.rs`); system Back is no press, as the
 //! browser's own Back is none. A commit's `focus()` command runs after its
 //! commit here (`run_commands`), so it takes the focus from where this put
 //! it, which leaves it where the web leaves it.
@@ -135,6 +135,12 @@ impl<D: DataSource> Presenter<D> {
     /// A press on `hit` begins, a key's or a pointer's, with the focus
     /// where it is now: what a route that arrives next came from.
     pub(crate) fn note_press(&mut self, hit: ViewId, key: bool) {
+        self.note_press_from(hit, key, self.focus);
+    }
+
+    /// A field's mouse activation remembers focus before its down default,
+    /// but begins the route-arrival window only when the press completes.
+    pub(crate) fn note_press_from(&mut self, hit: ViewId, key: bool, focus: Option<ViewId>) {
         let mut control = Some(hit);
         while let Some(id) = control {
             if self.presses(id) {
@@ -144,7 +150,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.route_focus.pressed = Some(Press {
             control,
-            focus: self.focus,
+            focus,
             key,
             at: Instant::now(),
         });

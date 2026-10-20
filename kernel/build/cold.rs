@@ -65,6 +65,35 @@ fn emit_cold(w: &mut String, schema: &Schema) {
     writeln!(w, "    /// The rows [`ColdRows`] holds.").unwrap();
     writeln!(w, "    pub fn cold() -> StyleMask {{ let mut m = StyleMask::EMPTY; {mask}m }}").unwrap();
     writeln!(w, "}}").unwrap();
+    emit_inherited_colors(w, schema);
+}
+
+/// The colours an `InheritedStyle` holds, for the wide table's sweep (LLP
+/// 1121 stage 4). Here, not in build.rs, which the schema digest hashes: it
+/// changes no wire byte.
+fn emit_inherited_colors(w: &mut String, schema: &Schema) {
+    writeln!(w, "impl crate::style::wide::Colors for InheritedStyle {{").unwrap();
+    writeln!(w, "    fn colors(&self, m: &mut crate::style::wide::WideMark) {{").unwrap();
+    for row in schema.styles.iter().filter(|r| r.inherited) {
+        let coloured = match parse_codec(&row.codec) {
+            Codec::ColorValue | Codec::KeywordColor(_) => true,
+            Codec::CssValue { path, .. } => matches!(
+                path,
+                "crate::svg::Paint"
+                    | "crate::svg::filter::FilterList"
+                    | "crate::gradient::BackgroundImage"
+                    | "crate::style::BoxShadows"
+                    | "crate::style::TextShadow"
+                    | "crate::style::symbols::SymbolPalette"
+            ),
+            _ => false,
+        };
+        if coloured {
+            writeln!(w, "        crate::style::wide::Colors::colors(&self.{}, m);", row.field).unwrap();
+        }
+    }
+    writeln!(w, "    }}").unwrap();
+    writeln!(w, "}}").unwrap();
 }
 
 /// `copy_rows`' cold rows: nothing to do, and no allocation, when neither

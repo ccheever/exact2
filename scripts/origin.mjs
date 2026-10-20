@@ -6,7 +6,11 @@
 // record of each publish). A client resolves the head's relative `url`s to
 // the immutable blob tree; no mutable payload copy lives under a stream.
 //
-// Two adapters. A **directory** is v1's writable origin: any directory a
+// Three adapters. An **AppDrop** origin (`https://appdrop.app/u/<key id>`,
+// which app.json spells `"appdrop"`) is the one that needs no account and no
+// server: every PUT is signed with the app's update key, and AppDrop keeps
+// blobs content-addressed, release records write-once and each head's seq
+// rising, with `If-Match` on the ETag as the conditional put. A **directory** is v1's writable origin: any directory a
 // supported serve.mjs origin handler serves. Every file lands whole or absent (a temp file beside
 // it, then a rename), blobs are immutable and skipped when present by
 // digest, and the head is a **conditional put**: one writer per stream at a
@@ -117,10 +121,34 @@ export function safeRelative(rel) {
   return rel;
 }
 
-/** The origin `spec` names: a directory (created on first write) or an https URL (read-only). */
+/** The origin `spec` names: an AppDrop origin, a directory (created on first write) or an https URL (read-only). */
 export function openOrigin(spec) {
+  if (APPDROP_PATH.test(spec)) return new AppDropOrigin(spec);
   if (/^https?:\/\//.test(spec)) return new HttpsOrigin(spec);
   return new DirectoryOrigin(spec);
+}
+
+const APPDROP_PATH = /^https?:\/\/[^/]+\/u\/[0-9a-f]{32}\/?$/;
+
+/** AppDrop's key id for a raw Ed25519 public key: the first 32 hex digits of its sha256. */
+export const appdropKeyId = (rawPublicKey) => sha256(rawPublicKey).slice(0, 32);
+
+/** AppDrop's origin for the app's update key (`deploy.signing.key`, or the
+ * only key): `<base>/u/<key id>`, the base `https://appdrop.app` unless
+ * `EXACT_APPDROP_ORIGIN` names another. Matches `Manifest::appdrop_origin`
+ * in contract/cli, which bakes the same URL into the binary. */
+export function appdropOrigin(manifest) {
+  const keys = manifest.deploy?.signing?.keys ?? {};
+  const id = manifest.deploy?.signing?.key ?? (Object.keys(keys).length === 1 ? Object.keys(keys)[0] : null);
+  if (!id || !keys[id]) throw new Error('the origin "appdrop" is named after the update key: set deploy.signing.key and deploy.signing.keys');
+  const base = (process.env.EXACT_APPDROP_ORIGIN ?? 'https://appdrop.app').replace(/\/+$/, '');
+  return `${base}/u/${appdropKeyId(Buffer.from(keys[id], 'base64'))}`;
+}
+
+/** The origin spec a channel names in app.json (`deploy.channels.<channel>`, else `app.origin`), with `"appdrop"` resolved. */
+export function channelOrigin(manifest, channel) {
+  const spec = manifest.deploy?.channels?.[channel] ?? manifest.app?.origin ?? null;
+  return spec === 'appdrop' ? appdropOrigin(manifest) : spec;
 }
 
 /** A directory served by host/web/serve.mjs --origin: the one writable origin in v1, one publisher per stream at a time. */
@@ -237,4 +265,80 @@ export class HttpsOrigin {
   async put() { this.readOnly(); }
   async withLock() { this.readOnly(); }
   async putHead() { this.readOnly(); }
+}
+
+/** An AppDrop origin: reads like any https origin, lists its directories,
+ * and writes with every request signed by the update key its URL is named
+ * after (`useSigner`). There is no lock to hold: AppDrop refuses a head that
+ * doesn't raise the stream's seq, and the head is put `If-Match` the ETag of
+ * the head whose digest the publisher read. */
+export class AppDropOrigin extends HttpsOrigin {
+  constructor(url) {
+    super(url);
+    this.kind = 'appdrop';
+    this.writable = true;
+    // AppDrop holds update streams, not a web app's root files.
+    this.servesWeb = false;
+    this.keyId = this.url.split('/').at(-1);
+  }
+
+  /** Sign writes with the deploy signer, refused when its key isn't the one this origin is named after. */
+  useSigner(signer) {
+    const raw = Buffer.from(signer.publicKey, 'base64');
+    if (appdropKeyId(raw) !== this.keyId) throw new Error(`${this.url} belongs to another update key; ${signer.keyId} publishes to ${this.url.replace(/[0-9a-f]{32}$/, appdropKeyId(raw))}`);
+    this.signer = signer;
+    return this;
+  }
+
+  async list(rel) {
+    const url = `${this.url}/${safeRelative(rel)}/`;
+    let response;
+    try { response = await fetch(url, { headers: { 'cache-control': 'no-cache' } }); }
+    catch (error) { throw new OriginUnavailable(`${url}: ${error.cause?.code ?? error.message}`); }
+    if (!response.ok) throw new OriginUnavailable(`${url}: HTTP ${response.status}`);
+    return (await response.json()).names;
+  }
+
+  async send(rel, bytes, headers = {}) {
+    if (!this.signer) throw new Error(`${this.url}: writes are signed with the update key; no signer was given`);
+    const path = safeRelative(rel);
+    const body = Buffer.from(bytes);
+    const digest = path.startsWith('.exact/blobs/') ? path.slice('.exact/blobs/'.length) : sha256(body);
+    const message = Buffer.from(`appdrop-exact-put\n${this.keyId}\n${path}\n${digest}`);
+    let response;
+    try {
+      response = await fetch(`${this.url}/${path}`, { method: 'PUT', body, headers: {
+        'x-exact-public-key': this.signer.publicKey,
+        'x-exact-signature': this.signer.signBytes(message).toString('base64'),
+        ...headers,
+      } });
+    } catch (error) {
+      throw new OriginUnavailable(`${this.url}/${path}: ${error.cause?.code ?? error.message}`);
+    }
+    const reply = await response.json().catch(() => ({}));
+    if (response.status >= 500) throw new OriginUnavailable(`${this.url}/${path}: HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`${this.url}/${path}: ${reply.error ?? `HTTP ${response.status}`}`);
+    return reply;
+  }
+
+  /** A blob or release record: written once, `present` when it already is. */
+  async put(rel, bytes) {
+    return (await this.send(rel, bytes)).written ? 'written' : 'present';
+  }
+
+  async withLock(stream, fn) { return fn(); }
+
+  /** Replace the head only if it is still the one whose digest the publisher read (none, when `previousDigest` is null). */
+  async putHead(stream, bytes, { previousDigest = null } = {}) {
+    const rel = `${streamPath(stream)}/exact.json`;
+    if (previousDigest === null) return this.send(rel, bytes, { 'if-none-match': '*' });
+    const url = `${this.url}/${rel}`;
+    let response;
+    try { response = await fetch(url, { headers: { 'cache-control': 'no-cache' } }); }
+    catch (error) { throw new OriginUnavailable(`${url}: ${error.cause?.code ?? error.message}`); }
+    if (!response.ok) throw new Error(`${url}: the head the publisher read is gone (HTTP ${response.status})`);
+    const etag = response.headers.get('etag');
+    if (sha256(Buffer.from(await response.arrayBuffer())) !== previousDigest) throw new Error(`${url}: the head changed since it was read`);
+    return this.send(rel, bytes, { 'if-match': etag });
+  }
 }

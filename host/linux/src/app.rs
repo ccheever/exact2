@@ -131,6 +131,11 @@ pub struct Config {
     /// The app's hatches (LLP 1075.003.000.001 §5): only their type, until
     /// the presenter makes the value after first pixel.
     pub hatches: Option<crate::hatches::Install>,
+    /// Where the display's live clock reads zero, when one will own time:
+    /// a fresh boot starts the runner's clock at its reading then, so a
+    /// slow start (a plan fetched from a URL) does not fire the boot's
+    /// timers at the first frame. `None`: a driver's clock, from zero.
+    pub clock_started: Option<std::time::Instant>,
 }
 
 impl Config {
@@ -257,6 +262,7 @@ impl Config {
                 }),
             updates: None,
             hatches: None,
+            clock_started: None,
         }
     }
 
@@ -316,12 +322,17 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     let place = crate::zone::launch_place(|key| std::env::var(key).ok())?;
     let agent_time = crate::zone::agent_time(|key| std::env::var(key).ok(), &place.time_zone)?;
     // What the host knows at launch, read from the first settle. The date is
-    // sampled once, here, as the runner's clock zero (it starts at the boot):
-    // `delivered` tells the same fact after, which commits nothing.
+    // sampled once, here, at the runner's clock zero: the display's clock's
+    // start, where each boot attempt's clock begins at its reading then,
+    // else the boot: a driver's launch (the Android reader's `--agent`
+    // included) runs on the runner's clock from zero, as the stdio agent
+    // does. `delivered` tells the same fact after, which commits nothing.
+    let clock_started = config.clock_started.filter(|_| !config.agent);
+    let clock = move || clock_started.map(|started| started.elapsed().as_secs_f64() * 1000.0);
     let (epoch_at_zero, utc_offset) = agent_time.unwrap_or_else(|| {
         let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
         (
-            wall.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
+            wall.map_or(0.0, |d| d.as_secs_f64() * 1000.0) - clock().unwrap_or(0.0),
             crate::zone::local_offset_minutes(),
         )
     });
@@ -331,12 +342,13 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             utc_offset,
         }),
         place: Some(place.clone()),
+        clock: None,
     };
     let dev_url = config.dev_url.clone();
-    let dev_identity = config.dev_identity.clone();
     let hatches = config.hatches;
     let delivered = |mut booted: (Presenter<D>, Option<String>),
-                     updates: Option<Box<dyn Store>>| {
+                     updates: Option<Box<dyn Store>>,
+                     dev_identity: Option<String>| {
         // The accepted runner already has the complete facts. Attaching the
         // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
@@ -351,10 +363,12 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         }
         // @ref LLP 1069.000 D2, D6 — this host has no share sheet and no
         // document picker; under the agent the drive's substitute answers
-        // both, as on every host.
+        // each, files and pictures in a share too, as on every host.
         if std::env::var("EXACT_AGENT").as_deref() == Ok("1") {
             let page = exact_runner::Page {
                 can_share: true,
+                can_share_files: true,
+                can_share_pictures: true,
                 can_open_files: true,
                 ..Default::default()
             };
@@ -362,9 +376,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
                 eprintln!("exact: {e}");
             }
         }
-        booted
-            .0
-            .set_development(dev_url.clone(), dev_identity.clone());
+        booted.0.set_development(dev_url.clone(), dev_identity);
         booted
     };
     // The selected bytes passed verification. Record the attempt before
@@ -390,7 +402,11 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     let booted = source
         .map_err(crate::host::HostError::Asset)
         .and_then(|data| {
-            exact_runner::time::launching_with(launch_facts.clone(), || {
+            let launch = exact_runner::time::Launch {
+                clock: clock(),
+                ..launch_facts.clone()
+            };
+            exact_runner::time::launching_with(launch, || {
                 Presenter::boot_selected(
                     match &config.plan {
                         std::borrow::Cow::Borrowed(lent) => PlanBytes::Static(lent),
@@ -411,7 +427,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     match booted {
         Ok(mut value) => {
             value.0.set_module(module.unwrap_or(None));
-            Ok(delivered(value, updates))
+            Ok(delivered(value, updates, config.dev_identity.clone()))
         }
         Err(fetched_error) => {
             let Some(baked) = config.fallback_plan.as_deref() else {
@@ -432,7 +448,11 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             }
             config.entry = None;
             config.selected_assets = None;
-            exact_runner::time::launching_with(launch_facts, || {
+            let launch = exact_runner::time::Launch {
+                clock: clock(),
+                ..launch_facts
+            };
+            exact_runner::time::launching_with(launch, || {
                 Presenter::boot_selected(
                     PlanBytes::Copied(baked),
                     D::default(),
@@ -446,7 +466,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
                     painter,
                 )
             })
-            .map(|v| delivered(v, updates))
+            .map(|v| delivered(v, updates, None))
             .map_err(|baked_error| {
                 format!("fetched plan refused: {fetched_error}; baked plan refused: {baked_error}")
             })
@@ -570,6 +590,15 @@ pub fn print_baked_receipt(compat: &str) -> bool {
 /// has a platform, and paints Material (LLP 1115.001).
 pub fn show_neutral_look() {
     exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+}
+
+/// Say that this process paints Android's Material look (LLP 1115.001.001
+/// D2.4), before it boots a plan: the schema's metrics are read in their
+/// Material column, which is the web's first look's wherever a row has no
+/// Material value. Android's reader says it, and the Material oracle's
+/// specimen door.
+pub fn show_material_look() {
+    exact_kernel::style::metrics::set_column(exact_kernel::style::metrics::Column::Material);
 }
 
 /// Run a configured app, optionally composed with a delivery adapter.

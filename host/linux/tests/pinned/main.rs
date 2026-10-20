@@ -17,6 +17,9 @@ mod visual;
 /// the driver sets, so every number in these tests is the same on a Mac and
 /// on a builder. Set once, before the first engine is made; the environment
 /// is process-wide and every test in this binary wants the same values.
+/// Every test that makes an engine calls it first: the process reads its
+/// installed fonts once, at its first engine, so one test that boots
+/// unpinned leaves the tests that start after it without the font.
 fn pin_font() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {

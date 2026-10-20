@@ -29,6 +29,9 @@ pub struct Device {
     /// tap, in points (Android's scaled touch slop); 0 where the shell
     /// knows none, which keeps the shared one.
     pub touch_slop: f32,
+    /// How the device writes a date and a time, in lines
+    /// (`paint::dates::Dates::from_lines`); empty where the shell tells none.
+    pub dates: String,
 }
 
 /// The root font size at a font scale of 1: CSS's `medium`.
@@ -47,9 +50,12 @@ impl<D: DataSource> Presenter<D> {
     /// - "remove animations" is `prefers-reduced-motion`, high contrast is
     ///   `prefers-contrast: more`;
     /// - a touch screen is `pointer: coarse` and `hover: none`, and its
-    ///   touch slop is how far a contact moves before it is a drag.
+    ///   touch slop is how far a contact moves before it is a drag;
+    /// - how the device writes dates is how a date control shows its value;
+    /// - bold text (Android's font weight adjustment) is Bold Text, which
+    ///   weights the system font (LLP 1115.000 D12.3).
     ///
-    /// The layout direction, the 12 or 24-hour clock and bold text are kept
+    /// The layout direction and the 12 or 24-hour clock are kept
     /// ([`Presenter::device`]) and change nothing yet: the runner has no
     /// door for them.
     pub fn set_device(&mut self, device: &Device) -> Option<String> {
@@ -70,6 +76,7 @@ impl<D: DataSource> Presenter<D> {
             true => exact_runner::Contrast::More,
             false => exact_runner::Contrast::NoPreference,
         };
+        preferences.bold_text = device.bold_text;
         (preferences.pointer, preferences.hover) = match device.touch {
             true => (exact_runner::Pointer::Coarse, exact_runner::Hover::None),
             false => (exact_runner::Pointer::Fine, exact_runner::Hover::Hover),
@@ -88,6 +95,13 @@ impl<D: DataSource> Presenter<D> {
         // A tag the runner refuses (an empty one) leaves the place as it was.
         if !device.locale.is_empty() && place != *self.host.runner().place() {
             error = error.or(self.set_place(&place));
+        }
+        // A date control shows its value as the device writes it (D9).
+        let dates = crate::paint::dates::Dates::from_lines(&device.dates);
+        if self.brush.dates != dates {
+            self.brush.dates = dates;
+            self.dirty = true;
+            error = error.or(self.after_commit());
         }
         error
     }
@@ -118,6 +132,28 @@ impl<D: DataSource> Presenter<D> {
         self.bars_reset();
         self.dirty = true;
     }
+}
+
+/// One open device's pointing class, as [`touch_only`] reads it (the evdev reader's, `input.rs`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Pointing {
+    /// Relative axes: a mouse, a trackball.
+    pub relative: bool,
+    /// Absolute X and Y: a touch screen, a touchpad, a tablet, a KVM's mouse.
+    pub absolute: bool,
+    /// BTN_TOUCH: a finger or stylus contact.
+    pub touch: bool,
+    /// BTN_LEFT: a button that clicks, which a touchpad and a KVM's mouse have.
+    pub left: bool,
+}
+
+/// Whether a touch screen is the only thing that points, CSS's primary
+/// `pointer: coarse` and `hover: none`: an absolute device that reports
+/// touch and no left button, beside no mouse or touchpad.
+pub fn touch_only(devices: &[Pointing]) -> bool {
+    let screen = |d: &Pointing| d.absolute && d.touch && !d.left;
+    let cursor = |d: &Pointing| d.relative || (d.absolute && d.left);
+    devices.iter().any(screen) && !devices.iter().any(cursor)
 }
 
 #[cfg(test)]

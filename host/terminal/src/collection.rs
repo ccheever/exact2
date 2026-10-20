@@ -40,7 +40,7 @@ impl<D: DataSource> Host<D> {
                 return false;
             };
             if n.style.display == Display::None
-                || (Self::is_layer(&n) && !self.layers.iter().any(|(open, _)| *open == id))
+                || (Self::is_layer(&n) && !self.layers.iter().any(|(open, ..)| *open == id))
             {
                 return false;
             }
@@ -225,7 +225,7 @@ impl<D: DataSource> Host<D> {
         }
         self.collections.settling = false;
         if let Some(layer) = self.collections.focus_layer.take() {
-            if self.layers.last().is_some_and(|(top, _)| *top == layer) {
+            if self.layers.last().is_some_and(|(top, ..)| *top == layer) {
                 self.focus_open_layer();
             }
         }

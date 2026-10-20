@@ -5,8 +5,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 const root = resolve(new URL('../../..', import.meta.url).pathname);
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-textrows-'));
@@ -46,7 +45,7 @@ beforeAll(async () => {
 afterAll(() => { server?.stop(true); rmSync(dir, { recursive: true, force: true }); });
 
 test('literal and bound auto override balance; a bound placeholder colour clears', async () => {
-  const browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+  const browser = await suiteBrowser();
   try {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${server.port}/`);
