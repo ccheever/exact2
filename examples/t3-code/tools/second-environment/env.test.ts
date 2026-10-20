@@ -11,7 +11,7 @@ import { forget as forgetStandin } from "../acp-standin/install.mjs";
 import { makeHub, HUB_ACCOUNTS } from "./usage-hub.mjs";
 import { answer, PULL_REQUEST } from "./gh-standin.mjs";
 import { respond } from "./github-api-standin.mjs";
-import { ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait } from "./lib.mjs";
+import { githubCertificates, ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait } from "./lib.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "t3-fixture-env-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -189,6 +189,15 @@ describe("the GitHub API stand-in (seed --pull-request)", () => {
     expect(graphql("query PullRequestCore($owner:String!){}", {}).errors[0].message).toContain("PullRequestCore");
     expect(JSON.parse(respond("GET", "/user", "").body)).toMatchObject({ login: PULL_REQUEST.author });
     expect(respond("GET", "/repos/t3-fixture/shared-notes/pulls/7/files", "").status).toBe(404);
+  });
+  test("its certificate is made once, and again when it would expire within a day", () => {
+    const dir = join(root, "github-certs");
+    expect(githubCertificates(dir)).toBe(true);
+    expect(run("/usr/bin/openssl", ["verify", "-CAfile", join(dir, "ca.crt"), join(dir, "api.crt")]).stdout).toContain("OK");
+    expect(run("/usr/bin/openssl", ["x509", "-noout", "-ext", "subjectAltName", "-in", join(dir, "api.crt")], { allowFail: true }).stdout + run("/usr/bin/openssl", ["x509", "-noout", "-text", "-in", join(dir, "api.crt")]).stdout).toContain("DNS:api.github.com");
+    expect(githubCertificates(dir)).toBe(false);
+    run("/usr/bin/openssl", ["x509", "-req", "-in", "api.csr", "-CA", "ca.crt", "-CAkey", "ca.key", "-out", "api.crt", "-days", "1", "-extfile", "api.cnf", "-extensions", "ext"], { cwd: dir });
+    expect(githubCertificates(dir)).toBe(true);
   });
   test("a --pull-request server trusts the stand-in's CA and sends its HTTPS to the stand-in's proxy", () => {
     const built = serverEnv(paths, "second", { T3_FIXTURE_GITHUB_PORT: "16592" }, { githubApi: true });

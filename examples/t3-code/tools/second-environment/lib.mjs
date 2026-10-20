@@ -226,6 +226,8 @@ export async function stopServer(paths, name) {
   process.kill(running.pid, "SIGTERM");
   for (let i = 0; i < 100 && alive(running.pid); i++) await Bun.sleep(100);
   if (alive(running.pid)) process.kill(running.pid, "SIGKILL");
+  // The GitHub API stand-in goes with the last server behind it.
+  if (running.githubApi && !Object.keys(ENVIRONMENTS).some((other) => recorded(paths, other)?.githubApi)) await stopGithubApi(paths);
   return running;
 }
 
@@ -385,9 +387,10 @@ export async function seed(paths, name, seeds = SEEDS[name] ?? [{ repo: "shared-
   let running = recorded(paths, name);
   if (!running) throw new Error(`${name}: no fixture server running`);
   // The server reads pull requests from GitHub's API over HTTPS: it starts again behind the API stand-in.
-  if (pullRequest && !running.githubApi) {
-    await startGithubApi(paths);
+  const github = pullRequest ? await startGithubApi(paths) : null;
+  if (github && (!running.githubApi || github.renewed)) {
     await stopServer(paths, name);
+    await startGithubApi(paths);
     running = await startServer(paths, name, { port: running.port, githubApi: true });
   }
   // Project scripts, the stand-in's provider pin and usage accounts are settings and provider writes.
@@ -453,8 +456,12 @@ export function installGhStandin(paths, name) {
 export const githubPort = (env = process.env) => checkPort(Number(env.T3_FIXTURE_GITHUB_PORT ?? 16592), env);
 const githubDir = (paths) => join(paths.root, "github-api");
 const githubPidFile = (paths) => join(githubDir(paths), "standin.pid");
-function githubCertificates(dir) {
-  if (existsSync(join(dir, "api.crt"))) return;
+/** Whether the stand-in's certificate is there and valid for at least another day. */
+const certificateFresh = (dir) => existsSync(join(dir, "api.crt"))
+  && run("/usr/bin/openssl", ["x509", "-checkend", "86400", "-noout", "-in", join(dir, "api.crt")], { allowFail: true }).status === 0;
+/** The CA and api.github.com certificate, made again when missing or about to expire. Returns whether it made them. */
+export function githubCertificates(dir) {
+  if (certificateFresh(dir)) return false;
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "ca.cnf"), "[req]\ndistinguished_name=dn\nx509_extensions=ca\n[dn]\n[ca]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\n");
   writeFileSync(join(dir, "api.cnf"), "[req]\ndistinguished_name=dn\n[dn]\n[ext]\nsubjectAltName=DNS:api.github.com\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n");
@@ -462,13 +469,18 @@ function githubCertificates(dir) {
   openssl(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "ca.key", "-out", "ca.crt", "-days", "365", "-subj", "/CN=T3 lane fixture CA", "-config", "ca.cnf"]);
   openssl(["req", "-newkey", "rsa:2048", "-nodes", "-keyout", "api.key", "-out", "api.csr", "-subj", "/CN=api.github.com", "-config", "api.cnf"]);
   openssl(["x509", "-req", "-in", "api.csr", "-CA", "ca.crt", "-CAkey", "ca.key", "-CAcreateserial", "-out", "api.crt", "-days", "365", "-extfile", "api.cnf", "-extensions", "ext"]);
+  return true;
 }
-/** Starts the GitHub API stand-in (detached, its pid recorded) unless it runs; returns { pid, port }. */
+/**
+ * Starts the GitHub API stand-in (detached, its pid recorded) unless it runs; returns { pid, port, renewed }.
+ * `renewed`: the certificates were made again, so a server started under the old CA must start again too.
+ */
 export async function startGithubApi(paths) {
   const dir = githubDir(paths), file = githubPidFile(paths);
   const running = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
-  if (running && alive(running.pid)) return running;
-  githubCertificates(dir);
+  const renewed = githubCertificates(dir);
+  if (renewed && running) await stopGithubApi(paths);
+  else if (running && alive(running.pid)) return { ...running, renewed };
   const port = githubPort(), apiPort = checkPort(port + 1);
   const log = openSync(join(dir, "standin.log"), "a");
   const child = spawn(process.execPath, [join(import.meta.dir, "github-api-standin.mjs"), String(port), String(apiPort), dir, join(dir, "api-calls.log")], { stdio: ["ignore", log, log], detached: true });
@@ -477,7 +489,7 @@ export async function startGithubApi(paths) {
   writeFileSync(file, JSON.stringify(entry));
   for (let i = 0; i < 50; i++) {
     const open = await new Promise((done) => { const socket = netConnect({ host: "127.0.0.1", port }, () => { socket.destroy(); done(true); }); socket.on("error", () => done(false)); });
-    if (open) return entry;
+    if (open) return { ...entry, renewed };
     await Bun.sleep(100);
   }
   await stopGithubApi(paths);

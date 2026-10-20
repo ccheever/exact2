@@ -6,6 +6,8 @@ import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 // reference renders them, so thread.jump and prev/next follow the same list)
 // plus the sidebar's own view state. Pure over the client and `now`.
 import { arr, obj, str, type Obj } from '../client/domain';
+import { effectiveShortcut } from '../shell/shortcut-labels';
+import { PLATFORM } from '../settings/desktop-shell-favicon';
 import { machineKind } from '../connections/connections';
 import { fleet, fleetThreads, parseFleetThreadId, fleetRunningTerminalIds, remoteThread } from '../connections/settings-b-fleet'; // settings-b: background environments' threads
 import type { T3Client } from '../client/client';
@@ -320,16 +322,18 @@ export function shortcutLabel(client: T3Client, command: string): string {
   return binding && key ? `${shortcut.ctrlKey ? '⌃' : ''}${shortcut.altKey ? '⌥' : ''}${shortcut.shiftKey ? '⇧' : ''}${shortcut.modKey || shortcut.metaKey ? '⌘' : ''}${key.length === 1 ? key.toUpperCase() : key}` : '';
 }
 /**
- * The modifiers of each thread.jump.N shortcut, named as the window names the ones held (press-modifiers.contract
- * heldModifiers), mod as ⌘: the window shows the rows' jump labels while one set is held alone
- * (shouldShowThreadJumpHintsForModifiers, app.contract threadJumpsHeld).
+ * The modifiers of each thread.jump.N shortcut in effect (effectiveShortcutsForCommand: the newest binding whose
+ * `when` holds and whose chord no newer binding claims), named as the window names the ones held
+ * (press-modifiers.contract heldModifiers), mod as ⌘ on a Mac and Control elsewhere: the window shows the rows'
+ * jump labels while one set is held alone (shouldShowThreadJumpHintsForModifiers, app.contract threadJumpsHeld).
  */
-export function threadJumpModifiers(client: T3Client): string[] {
-  const sets = new Set<string>();
+export function threadJumpModifiers(client: T3Client, platform = PLATFORM): string[] {
+  const mac = /mac|iphone|ipad|ipod/i.test(platform), sets = new Set<string>();
   for (let index = 1; index <= 9; index++) {
-    const binding = [...arr(client.config.keybindings)].reverse().find(entry => entry.command === `thread.jump.${index}`);
-    const shortcut = obj(binding?.shortcut);
-    if (binding && str(shortcut.key)) sets.add([shortcut.modKey || shortcut.metaKey ? 'meta' : '', shortcut.ctrlKey ? 'control' : '', shortcut.altKey ? 'alt' : '', shortcut.shiftKey ? 'shift' : ''].filter(Boolean).join('+'));
+    const shortcut = effectiveShortcut(client.config, `thread.jump.${index}`);
+    if (!shortcut) continue;
+    const meta = shortcut.metaKey === true || (shortcut.modKey === true && mac), control = shortcut.ctrlKey === true || (shortcut.modKey === true && !mac);
+    sets.add([meta ? 'meta' : '', control ? 'control' : '', shortcut.altKey ? 'alt' : '', shortcut.shiftKey ? 'shift' : ''].filter(Boolean).join('+'));
   }
   return [...sets];
 }

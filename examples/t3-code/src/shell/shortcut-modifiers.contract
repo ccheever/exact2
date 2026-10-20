@@ -19,5 +19,3 @@ fn shortcutModifierStateAfterKeyboardEvent(current: ShortcutModifierState, down:
 fn anyShortcutModifier(state: ShortcutModifierState): bool = state.metaKey or state.ctrlKey or state.altKey or state.shiftKey
 // The Pull Requests route's speedMode: Shift alone (routes/_chat.pull-requests.tsx).
 fn speedModifiers(state: ShortcutModifierState): bool = state.shiftKey and not state.metaKey and not state.ctrlKey and not state.altKey
-// The thread jumps' modifiers (shouldShowThreadJumpHintsForModifiers for thread.jump.N's mod+digit): ⌘ alone.
-fn threadJumpModifiers(state: ShortcutModifierState): bool = state.metaKey and not state.ctrlKey and not state.altKey and not state.shiftKey

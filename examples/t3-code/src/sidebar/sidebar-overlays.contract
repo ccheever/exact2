@@ -197,7 +197,7 @@ component SidebarSnoozeDialog
                 SnoozeDateField(cal=data.sidebar.calendar, local=local)
               column flex=1 min-width=0 gap="0.375rem"
                 text "Time" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-                input type="time" value=data.sidebar.dialogTime change=local("dialog-field", "time") aria-label="Time" testId="snooze-time" box-sizing="border-box" height="2rem" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+                input type="time" value=data.sidebar.dialogTime change=local("dialog-field", "time") aria-label="Time" testId="snooze-time" box-sizing="border-box" height="2rem" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" id="field-snooze-time" data-editable="yes"
           else
             row gap="0.75rem"
               column flex=1 min-width=0 gap="0.375rem"
@@ -208,12 +208,12 @@ component SidebarSnoozeDialog
                     SidebarIcon(name="minus", size=16, color="light-dark(#27272a, #f5f5f5)")
                   // The host input does not center its text: the input fits the amount and centers in the field.
                   row flex=1 min-width=0 justify-content="center" align-items="center"
-                    input value=data.sidebar.dialogAmount input=local("dialog-field", "amount") inputmode="decimal" aria-label="Snooze for" testId="snooze-amount" width=(max(9, data.sidebar.dialogAmount.length * 8.5 + 2) * rem / 16) height="1.25rem" line-height="1.25rem" padding=0 box-sizing="border-box" border-width=0 background-color="#00000000" text-align="center" font-variant-numeric="tabular-nums" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+                    input value=data.sidebar.dialogAmount input=local("dialog-field", "amount") inputmode="decimal" aria-label="Snooze for" testId="snooze-amount" width=(max(9, data.sidebar.dialogAmount.length * 8.5 + 2) * rem / 16) height="1.25rem" line-height="1.25rem" padding=0 box-sizing="border-box" border-width=0 background-color="#00000000" text-align="center" font-variant-numeric="tabular-nums" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" id="field-snooze-amount" data-editable="yes"
                   button press=local("dialog-step", "amount", "+1") aria-label="Increase duration" testId="snooze-increase" flex-shrink=0 padding-left="0.6875rem" padding-right="0.6875rem" border-width=0 border-radius="0.4375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                     SidebarIcon(name="plus", size=16, color="light-dark(#27272a, #f5f5f5)")
               column flex=1 min-width=0 gap="0.375rem"
                 text "Unit" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-                select value=data.sidebar.dialogUnit change=local("dialog-field", "unit") aria-label="Unit" testId="snooze-unit" width="100%" height="2rem" font-size="0.875rem"
+                select value=data.sidebar.dialogUnit change=local("dialog-field", "unit") aria-label="Unit" testId="snooze-unit" width="100%" height="2rem" font-size="0.875rem" id="field-snooze-unit" data-editable="yes"
                   option "Minutes" value="minutes"
                   option "Hours" value="hours"
                   option "Days" value="days"
