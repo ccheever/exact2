@@ -878,6 +878,12 @@ screen, 2026-10-16.)
   a form does. (Authoring bench, LLP 1087, codex17 t7-wizard, 2026-10-05; the overlay
   checked on the web with a save that never answers, 2026-10-09.)
 
+- **A long unbroken word runs off its box.** A 500-character word, a URL or an ID in a
+  message overflows its card on every host, where UIKit's label would break it. Cause:
+  Exact keeps CSS's `overflow-wrap: normal` (LLP 1001 bit 90; ruled 2026-10-20). Fix:
+  write `overflow-wrap="anywhere"` on a text that may hold one, or `break-word` on a box
+  whose width is bounded (the chat recipe's bubble). (Round 23's chat-rooms.)
+
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
   a touch as the finger leaving clears the hover the next assertion still wants.
