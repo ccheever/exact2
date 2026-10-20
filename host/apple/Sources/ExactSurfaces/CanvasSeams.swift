@@ -175,13 +175,22 @@ extension CanvasesHost {
     /// `postMessage(text, name)`: one message event for the live canvas of that
     /// surface name with the lowest view id, stamped now, held until one is live.
     func hasSurface(_ name: String) -> Bool { entries.values.contains { $0.name == name } }
-    func post(_ name: String, _ text: String) {
+    /// The surface name of canvas `view`, and the names of the canvases on the
+    /// page: the driver's `post` (LLP 1139.004 D1) names a surface by either.
+    func surfaceName(_ view: UInt32) -> String? { entries[view]?.name }
+    func surfaceNames() -> [String] { Array(Set(entries.values.map(\.name))).sorted() }
+    /// Whether posts to `name` still wait for a canvas of it.
+    func waiting(_ name: String) -> Bool { pendingPosts.contains { $0.name == name } }
+    /// The refusal when the post is dropped (`postBound` already wait for the name), else nil.
+    @discardableResult func post(_ name: String, _ text: String) -> String? {
         guard pendingPosts.filter({ $0.name == name }).count < CanvasesHost.postBound else {
-            fputs("exact: postMessage: dropped: \(CanvasesHost.postBound) posts already wait for surface \"\(name)\"\n", stderr)
-            return
+            let refused = "postMessage: dropped: \(CanvasesHost.postBound) posts already wait for surface \"\(name)\""
+            fputs("exact: \(refused)\n", stderr)
+            return refused
         }
         pendingPosts.append((name, text, session?.clock ?? session?.now() ?? 0))
         deliverPosts()
+        return nil
     }
     func deliverPosts() {
         guard !pendingPosts.isEmpty else { return }

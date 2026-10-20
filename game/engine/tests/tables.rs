@@ -297,7 +297,7 @@ fn restart_and_initial_barrier_admit_the_latest_pending_transaction() {
     assert!(s.is_loading());
     s.asset(
         "barrier.model",
-        Some(&bin::to_vec(&asset::Model::default())),
+        Some(&asset::encode_model(&asset::Model::default())),
     )
     .unwrap();
     assert_eq!(s.get::<Seen>("player").unwrap().speed, 8.0);
@@ -318,7 +318,7 @@ fn paused_table_delivery_settles_without_a_tick_and_resumes_on_the_first_tick() 
     setup_delivery(&mut s, 4.0);
     s.asset(
         "barrier.model",
-        Some(&bin::to_vec(&asset::Model::default())),
+        Some(&asset::encode_model(&asset::Model::default())),
     )
     .unwrap();
     s.bind(&[Value::Bool(true), Value::Bool(false)], None)
@@ -347,7 +347,7 @@ fn paused_table_delivery_settles_without_a_tick_and_resumes_on_the_first_tick() 
     setup_delivery(&mut old, 4.0);
     old.asset(
         "barrier.model",
-        Some(&bin::to_vec(&asset::Model::default())),
+        Some(&asset::encode_model(&asset::Model::default())),
     )
     .unwrap();
     old.run(1.0);
@@ -523,7 +523,7 @@ fn restore_distinguishes_same_named_types_in_different_modules() {
 fn complete_barrier(s: &mut Sim<SetupTables>) {
     s.asset(
         "barrier.model",
-        Some(&bin::to_vec(&asset::Model::default())),
+        Some(&asset::encode_model(&asset::Model::default())),
     )
     .unwrap();
 }

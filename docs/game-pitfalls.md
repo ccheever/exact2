@@ -42,6 +42,15 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
   for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
   1046.012 F5, 2026-10-07.)
 
+- **A model fails with ``baked before model records (record 1, no material names)``.**
+  Cause: a `.model` from a bake older than material names (LLP 1139.004 D3) still
+  loads, as from a copied `assets/`; the engine reads model record 2 and refuses
+  another by name. Fix: bake again (any build, or `sim_with_art!` in a test, bakes
+  `art/` afresh). The new record changes every baked model's bytes and so a repin's
+  `inputs`; world saves and generated models' identities do not change. An empty
+  `materials[i].name` then means the glTF material has no name. Select a material by
+  index: names may repeat.
+
 ## Input
 
 - **A HUD shortcut's chord does not reach the focused world.** On every host a shown
@@ -70,6 +79,12 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
   between presses meant as separate turns; in the game, decide whether a lock is read
   before or after the tick's purchases. ([Shop recipe](../game/recipes/shop.md),
   LLP 1139.001, 2026-10-19.)
+- **`clock settle` after a post into a paused world reports `NOT settled (world)`,
+  `changing: ["paused","input queued"]`.** Cause: a paused world holds a posted message
+  (the page's `postMessage` or the driver's `post`) for its first tick after the pause,
+  and a held input counts as work. Fix: resume (`tap pause` in the starter); the first
+  tick after it reads the message once. `clock +<ms>` while paused returns with the
+  message still held and does not settle.
 
 ## Tests, the proof and setup
 

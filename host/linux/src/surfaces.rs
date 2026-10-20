@@ -1013,6 +1013,18 @@ impl Surfaces {
         self.deliver_posts();
         true
     }
+    /// The surface name of canvas `view`.
+    pub(crate) fn surface_of(&self, view: u32) -> Option<&str> {
+        self.canvases.get(&view).map(|c| c.name.as_str())
+    }
+    /// The surface names of the canvases on the page.
+    pub(crate) fn surface_names(&self) -> BTreeSet<&str> {
+        self.canvases.values().map(|c| c.name.as_str()).collect()
+    }
+    /// Whether posts to `name` still wait for a canvas of it.
+    pub(crate) fn waiting(&self, name: &str) -> bool {
+        self.posts.contains_key(name)
+    }
     /// Deliver held posts whose surface has a live canvas now, in order.
     pub(crate) fn deliver_posts(&mut self) {
         let names: Vec<String> = self.posts.keys().cloned().collect();

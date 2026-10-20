@@ -58,7 +58,7 @@ fn main() {
             std::fs::create_dir_all(out.parent().unwrap()).map_err(|e| e.to_string())?;
             std::fs::write(
                 out,
-                exact_game_bake::encode(&out.display().to_string(), &m)?,
+                exact_game_bake::encode_model(&out.display().to_string(), &m)?,
             )
             .map_err(|e| e.to_string())?;
             for (name, texture) in textures {

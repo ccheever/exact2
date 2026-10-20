@@ -1080,7 +1080,54 @@ impl<G: Game> Sim<G> {
         });
     }
     /// Post a message into the world at the current clock, as Contract's
-    /// `postMessage(text, surface)` does; the next tick reads it in `Input::messages`.
+    /// `postMessage(text, surface)` and the driver's `post [<surface>] <text>`
+    /// do; the next tick reads it in `Input::messages`. It is input, saved with
+    /// the queue until a tick reads it; a paused world holds it for the first
+    /// tick after the pause. For staging and scripting a scene the game already
+    /// listens to, never a way into state the game does not handle.
+    ///
+    /// ```
+    /// use exact_game::*;
+    /// #[derive(Default, Args)]
+    /// pub struct Options {
+    ///     #[live]
+    ///     pub paused: bool,
+    /// }
+    /// #[derive(Default, Component)]
+    /// pub struct Gulper;
+    /// pub struct Tank;
+    /// impl Game for Tank {
+    ///     const ID: &'static str = "tank";
+    ///     type Args = Options;
+    ///     fn setup(_: &mut World, _: &Options) {}
+    ///     fn paused(args: &Options) -> bool {
+    ///         args.paused
+    ///     }
+    ///     fn tick(w: &mut World, input: &Input, _: &Options) {
+    ///         for m in input.messages() {
+    ///             if m == "spawn-gulper" {
+    ///                 w.spawn(Gulper);
+    ///             }
+    ///         }
+    ///     }
+    /// }
+    /// let gulpers = |s: &Sim<Tank>| s.world().count::<Gulper>(|_| true);
+    /// let mut sim = Sim::<Tank>::new(Options { paused: true }).unwrap();
+    /// sim.run(0.);
+    /// sim.post("spawn-gulper");
+    /// sim.run(500.);
+    /// assert_eq!(gulpers(&sim), 0, "paused: held");
+    /// // Saved before its tick, it is read exactly once after a restore.
+    /// let saved = sim.save().unwrap();
+    /// let mut fresh = Sim::<Tank>::new(Options { paused: true }).unwrap();
+    /// fresh.restore(&saved).unwrap();
+    /// for s in [&mut sim, &mut fresh] {
+    ///     s.bind(&[Value::Bool(false)], None).unwrap();
+    ///     s.run(1000.);
+    ///     assert_eq!(gulpers(s), 1);
+    /// }
+    /// assert_eq!(fresh.world().hash(), sim.world().hash());
+    /// ```
     pub fn post(&mut self, text: impl Into<String>) {
         self.input(InputEvent::Message {
             text: text.into(),

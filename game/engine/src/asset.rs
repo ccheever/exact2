@@ -52,8 +52,26 @@ pub struct MeshOutline {
     pub normals: Vec<f32>,
     pub reach: Vec<f32>,
 }
-#[derive(Data, Clone, Debug)]
+/// One material of a model. Its record (model record 2, [`MODEL_RECORD`]) is
+/// the derive's field-named record plus `name`, written first and only when
+/// it is not empty: an absent name is an unnamed material. So a model with
+/// no names, as every generated one has, keeps its bytes and its identity in
+/// saves. The rule is this record's: the derive drops no field by its value,
+/// since the hash does not name fields and two dropped fields would collide.
+///
+/// ```compile_fail
+/// use exact_game::*;
+/// #[derive(Data, Default)]
+/// pub struct Record {
+///     #[data(omit_default)]
+///     pub a: u32,
+/// }
+/// ```
+#[derive(Clone, Debug)]
 pub struct MaterialData {
+    /// The glTF material's name, empty when it has none. Informational only:
+    /// names may repeat, and a mesh's `material` index is what selects one.
+    pub name: String,
     pub base_color: [f32; 4],
     pub metallic: f32,
     pub rim: f32,
@@ -75,6 +93,7 @@ pub struct MaterialData {
 impl Default for MaterialData {
     fn default() -> Self {
         Self {
+            name: String::new(),
             base_color: [1.0; 4],
             metallic: 1.0,
             rim: 0.0,
@@ -94,6 +113,68 @@ impl Default for MaterialData {
         }
     }
 }
+/// The derive's encoding of every field but `name`, which the record rule
+/// above writes; the field list is the struct's, in its order.
+macro_rules! material_record {
+    ($($field:ident),* $(,)?) => {
+        impl Data for MaterialData {
+            const TYPE_ID: &'static str = concat!("table:", module_path!(), "::MaterialData");
+            fn write(&self, w: &mut dyn crate::Writer) {
+                w.begin_struct();
+                if !self.name.is_empty() {
+                    w.field("name");
+                    self.name.write(w);
+                }
+                $(
+                    w.field(stringify!($field));
+                    Data::write(&self.$field, w);
+                )*
+                w.end_struct();
+            }
+            fn read(&mut self, r: &mut dyn crate::Reader) -> Result<(), crate::DataError> {
+                // The record's rule, not a patch: no name read is no name.
+                self.name.clear();
+                let fields = [$(stringify!($field)),*];
+                let mut seen = [false; [$(stringify!($field)),*].len()];
+                r.begin_struct()?;
+                while let Some(field) = r.field()? {
+                    if let Some(i) = fields.iter().position(|f| *f == field) {
+                        seen[i] = true;
+                    }
+                    match field.as_str() {
+                        "name" => self.name.read(r).map_err(|e| e.at("name"))?,
+                        $(stringify!($field) => Data::read(&mut self.$field, r)
+                            .map_err(|e| e.at(stringify!($field)))?,)*
+                        _ => r.skip().map_err(|e| e.at(&field))?,
+                    }
+                }
+                // A complete record (a tuning table's) names every field but the name, as the derive requires.
+                if let Some(i) = seen.iter().position(|s| !s).filter(|_| r.complete()) {
+                    return Err(crate::DataError::new("missing field").at(fields[i]));
+                }
+                Ok(())
+            }
+        }
+    };
+}
+material_record!(
+    base_color,
+    metallic,
+    rim,
+    roughness,
+    emissive,
+    base_color_texture,
+    normal_texture,
+    metallic_roughness_texture,
+    emissive_texture,
+    occlusion_texture,
+    uv_transforms,
+    normal_scale,
+    occlusion_strength,
+    alpha_mode,
+    alpha_cutoff,
+    double_sided,
+);
 #[derive(Data, Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AlphaMode {
     #[default]
@@ -857,6 +938,36 @@ impl crate::Mesh {
     }
 }
 
+/// The baked `.model` file's record: material names (record 2). A file is
+/// [`MODEL_MAGIC`], this number as one byte, then the model in the engine's
+/// codec ([`encode_model`]).
+pub const MODEL_RECORD: u8 = 2;
+/// The first bytes of a baked `.model` file; the next is its record.
+pub const MODEL_MAGIC: &[u8; 7] = b"EXMODEL";
+/// A model as the bake writes it: the versioned header, then the codec's bytes.
+pub fn encode_model(model: &Model) -> Vec<u8> {
+    let mut bytes = MODEL_MAGIC.to_vec();
+    bytes.push(MODEL_RECORD);
+    bytes.extend(crate::bin::to_vec(model));
+    bytes
+}
+/// Read a baked `.model` file, refusing one of another record by name.
+pub fn decode_model(bytes: &[u8]) -> Result<Model, String> {
+    let rebake = "bake art/ again (any build does, and `sim_with_art!` in a test)";
+    let Some(rest) = bytes.strip_prefix(MODEL_MAGIC) else {
+        return Err(format!(
+            "baked before model records (record 1, no material names); {rebake}"
+        ));
+    };
+    match rest.split_first() {
+        Some((&MODEL_RECORD, body)) => crate::bin::from_slice(body).map_err(|e| e.to_string()),
+        Some((record, _)) => Err(format!(
+            "baked as model record {record}; this engine reads record {MODEL_RECORD}: {rebake}"
+        )),
+        None => Err("model record missing".into()),
+    }
+}
+
 /// Validated content delivered to the name/dependency gate.
 pub enum Content {
     Model(Model),
@@ -897,7 +1008,7 @@ impl Content {
             texture.validate()?;
             Ok(Self::Texture(texture))
         } else if MODELS && name.ends_with(".model") {
-            let model: Model = crate::bin::from_slice(bytes).map_err(|e| e.to_string())?;
+            let model = decode_model(bytes)?;
             model.validate()?;
             Ok(Self::Model(model))
         } else {
