@@ -445,3 +445,24 @@ test('round 2: the relay\'s certificate names its domain alone', async () => {
   writeFileSync(accounts, JSON.stringify({ accounts: {}, revoked: [] }));
   expect(() => relayServer({ domain: DOMAIN, tls: selfSignedCertificate([DOMAIN, 'also.example.com']), accounts })).toThrow(`tls.cert does not name ${DOMAIN} alone`);
 });
+
+test('round 3: the parser touches no byte past the first record (instrumented), and the relay hands it no more than that record', async () => {
+  const named = await helloTo('s1-tool.acct.relay.test');
+  const end = 5 + named.readUInt16BE(3);
+  const whole = Buffer.concat([named, Buffer.from('later records, never read')]);
+  let furthest = -1;
+  const watched = new Proxy(whole, { get: (t, k) => { if (typeof k === 'string' && /^\d+$/.test(k)) furthest = Math.max(furthest, Number(k)); const v = t[k]; return typeof v === 'function' ? v.bind(t) : v; } });
+  expect(helloName(watched)).toMatchObject({ state: 'ok', sni: 's1-tool.acct.relay.test', read: end });
+  expect(furthest).toBe(end - 1);
+});
+
+test('round 3: a label ends in a letter or digit, and its sessions\' names must fit under the domain', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-relay-label-'));
+  try {
+    const path = join(dir, 'accounts.json');
+    writeFileSync(path, JSON.stringify({ accounts: { 'bad-': { token_sha256: hash('x') } }, revoked: [] }));
+    expect(() => loadAccounts(path, DOMAIN)).toThrow('is no label');
+    writeFileSync(path, JSON.stringify({ accounts: { ['a'.repeat(63)]: { token_sha256: hash('x') } }, revoked: [] }));
+    expect(() => loadAccounts(path, `${'d'.repeat(60)}.${'e'.repeat(60)}.${'f'.repeat(60)}.test`)).toThrow('would be too long');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

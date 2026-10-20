@@ -46,7 +46,7 @@ export function relayArgs(argv, { env = process.env, home = homedir() } = {}) {
   const m = /^([a-z0-9.-]+)(?::(\d{1,5}))?$/i.exec(r);
   if (!m || Number(m[2] ?? 443) > 65535) throw new Error(`--relay takes the relay's host[:port] (relay.example.com), not ${JSON.stringify(r)}`);
   const account = value('--relay-account');
-  if (!account || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(account)) throw new Error('--relay needs --relay-account <label>, the account the relay gave you (lowercase letters, digits and -)');
+  if (!account || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(account)) throw new Error('--relay needs --relay-account <label>, the account the relay gave you (lowercase letters, digits and -)');
   // The certificate: the developer's own (`--relay-cert`/`--relay-key`), or
   // got here by ACME (R2): through the relay for its names, or with names of
   // the developer's own domain, through their DNS by `--relay-dns-hook`, a

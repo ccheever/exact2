@@ -30,7 +30,7 @@ import { createServer as createTLS } from 'node:tls';
 import { dnsHook, LINE, NAME, RECORD } from './tamber-relay.mjs';
 
 /** An account's label, as the connector checks one. */
-export const LABEL = /^[a-z0-9][a-z0-9-]{0,62}$/;
+export const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 /** A TLS record's body, at most (RFC 8446 §5.1). */
 const RECORD_MAX = 16_384;
 /** What a session's limits are when the config says none. */
@@ -46,12 +46,14 @@ const MINUTE = 60_000;
  * fields run past their bounds. `read` is the bytes looked at: never more
  * than that first record. */
 export function helloName(buf) {
+  // (`buf` read by index only, and no index past the first record: a test holds it to that)
   if (buf.length < 5) return { state: 'more' };
   if (buf[0] !== 0x16 || buf[1] !== 0x03) return { state: 'bad' };
-  const length = buf.readUInt16BE(3);
+  const length = (buf[3] << 8) | buf[4];
   if (length > RECORD_MAX || length < 4) return { state: 'bad' };
   if (buf.length < 5 + length) return { state: 'more' };
-  const rec = buf.subarray(5, 5 + length), read = 5 + length;
+  const rec = Buffer.alloc(length), read = 5 + length;
+  for (let i = 0; i < length; i++) rec[i] = buf[5 + i];
   if (rec[0] !== 0x01) return { state: 'bad' };
   const hello = (rec[1] << 16) | (rec[2] << 8) | rec[3];
   if (hello + 4 > rec.length) return { state: 'bad' };
@@ -107,7 +109,8 @@ export function loadAccounts(path, domain) {
   for (const label of revoked) if (!LABEL.test(label)) throw new Error(`revoked: ${JSON.stringify(label).slice(0, 70)} is no label`);
   const parents = [];
   for (const [label, a] of Object.entries(file.accounts ?? {})) {
-    if (!LABEL.test(label)) throw new Error(`${JSON.stringify(label).slice(0, 70)} is no label (lowercase letters, digits and -)`);
+    if (!LABEL.test(label)) throw new Error(`${JSON.stringify(label).slice(0, 70)} is no label (lowercase letters, digits and -, a letter or digit at each end)`);
+    if (!NAME.test(`${'0'.repeat(12)}-canvas.${label}.${domain}`)) throw new Error(`${label}: its sessions' names would be too long under ${domain}`);
     if (revoked.has(label) || gone.has(label)) throw new Error(`${label} is revoked: a label is never given out again`);
     if (!/^[0-9a-f]{64}$/.test(a?.token_sha256 ?? '')) throw new Error(`${label}: token_sha256 is not 64 hex digits`);
     const names = a.names ?? [];
@@ -232,13 +235,19 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     const ip = socket.remoteAddress ?? 'unknown';
     if (pending.size >= limits.pendingTotal || (pendingPerIp.get(ip) ?? 0) >= limits.pendingPerIp) return socket.destroy();
     hold(socket, ip);
-    let buf = Buffer.alloc(0);
+    // The chunks as they came, kept to be handed on whole; the parser given only the first record's bytes (the
+    // header's five, then as many as it says), copied out of them, never a byte past it.
+    const chunks = [];
+    let total = 0;
     const late = setTimeout(() => socket.destroy(), limits.helloMs);
+    socket.once('close', () => clearTimeout(late));
     const onData = d => {
-      // (held only to be handed on whole: the parser reads the first record of it and no further)
-      buf = Buffer.concat([buf, d]);
-      const h = helloName(buf);
-      if (h.state === 'more') { if (buf.length > 5 + RECORD_MAX) socket.destroy(); return; }
+      chunks.push(d);
+      total += d.length;
+      const need = total < 5 ? 5 : 5 + ((Buffer.concat(chunks, 5)[3] << 8) | Buffer.concat(chunks, 5)[4]);
+      const h = helloName(Buffer.concat(chunks, Math.min(total, need)));
+      if (h.state === 'more') { if (total > 5 + RECORD_MAX) socket.destroy(); return; }
+      const buf = Buffer.concat(chunks);
       clearTimeout(late);
       socket.off('data', onData);
       socket.pause();
@@ -291,6 +300,7 @@ export function relayServer(config, { log = line => console.log(line), now = () 
     conn.on('error', () => conn.destroy());
     let head = '';
     const late = setTimeout(() => conn.destroy(), limits.helloMs);
+    conn.once('close', () => clearTimeout(late));
     // (a refusal it can't count, its counts full, is answered nothing)
     const refuse = why => { if (!refusals.take(ip)) return conn.destroy(); log(`relay: refused ${masked(ip)}: ${why}`); finish(conn, `REFUSED ${why}\n`); };
     const onData = d => {
