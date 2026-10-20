@@ -1439,7 +1439,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
   `:focus-visible` part's: the map keys each part by its row and state, never by its row alone, so
   a look's row is never offered at its base row's place. A row a `:disabled` or `:checked` part
   folds over its base (one value, `disabled ? D : B`, the runtime's `dynamic`) is read through the
-  map (*1.14*, LLP 1122's queue item (2)) where it says both the base and the parts: its `editable`
+  map (*1.15*, LLP 1122's queue item (2)) where it says both the base and the parts: its `editable`
   is its base's rung, whichever branch the runtime shows now (param, one `param.<name>` as written,
   by its full name among the params read for the component it is written in, a package's included,
   its template address the base attribute's, never a part's; template, style or token), and it adds `states: [{state, source, editable}]`, one per folded part
