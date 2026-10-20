@@ -899,3 +899,38 @@ test('a linked package outside the app whose design (under a missing dist/) is m
     rmSync(outside, { recursive: true, force: true });
   }
 }, 600_000);
+
+// The path fix's last finding (theme2: refuse it): a package linked from
+// outside the app and the home directory whose `package.json` has no `name`
+// is a compile refusal, `contract-package-unnamed`, at the app's `use`,
+// naming the package as the `use` does (`uses` says it). No answer to a remote client carries
+// any of its path: not its directories, nor its place from the app
+// (`../../…`) as an identity.
+test('an unnamed package linked from far outside the app is refused, and no remote answer carries its path', async () => {
+  const { homedir } = await import('node:os');
+  const { realpathSync } = await import('node:fs');
+  const { basename } = await import('node:path');
+  const { dir, outside, authored } = await machineApp();
+  writeFileSync(join(outside, 'package.json'), '{"version":"1.0.0","exports":{".":"./index.contract"}}');
+  const app = await pairedApp(dir);
+  try {
+    const writer = await app.pair('write');
+    const machine = [...new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir()), outside, realpathSync(outside), basename(outside), '../'])];
+    let refused = 0;
+    for (const request of [{ method: 'hello' }, { method: 'describe' }, { method: 'explain', token: 'LinkedCard.inset' }, { method: 'resolve', token: 'LinkedCard.inset' }, { method: 'uses', token: 'ink' }]) {
+      const r = await app.remote(writer, request);
+      // (The design's authored `help` holds the app's path, and goes as written.)
+      const text = r.text.replaceAll(JSON.stringify(authored).slice(1, -1), '');
+      if (text.includes('the package `@acme/linked` is outside the app and its `package.json` has no `name`')) refused += 1;
+      for (const m of machine) expect([request.method, m, text.includes(m)]).toEqual([request.method, m, false]);
+    }
+    expect(refused).toBeGreaterThan(0);
+    // `uses` says why the app does not build, to the local tool too.
+    expect(await app.local({ method: 'uses', token: 'ink' })).toContain('needs a name in its package.json');
+  } finally {
+    await app.doors.close();
+    await app.wire.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+}, 600_000);

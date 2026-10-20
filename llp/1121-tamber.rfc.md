@@ -1266,7 +1266,9 @@ component PostButton
   modes, and a change to it re-folds every param and token that reads it.
 - **Its identity is stable.** A component's identity is its declaring file, relative to its
   app or package root, and its name: `post.contract#PostButton`, or
-  `@scope/reading/article.contract#Article` for a package's. A param's full name is that
+  `@scope/reading/article.contract#Article` for a package's. A package outside the app needs a
+  name in its `package.json` (`contract-package-unnamed`, the path fix): its place from the app
+  would spell this machine's directories. A param's full name is that
   identity and the param (`post.contract#PostButton.radius`). The short form
   `PostButton.radius` is accepted wherever it is unambiguous and refused where two
   components share the name (`tamber-param-ambiguous`); an import alias (`use X as Y`)
@@ -4711,6 +4713,27 @@ still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it)
     package outside the app. `uses` of a duration its view writes finds each instance (`site` set), named
     `@acme/linked/index.contract`; `explain` gives the param's default as written (`"4px"`); neither names the
     outside directory. It fails with either fix reverted.
+
+**After the path fix's re-check 3 (Astra; theme2's ruling: refuse it):**
+- **A package outside the app needs a name.** A linked package whose `package.json` has no `name` got an identity from its place from the app (`../../../Users/alice/shared/cards/index.contract#Card`),
+  which `describe` and `explain` sent whole and every param's full name carried. It is now a compile refusal,
+  `contract-package-unnamed`, at the `use` that reaches it: "the package `a` is outside the app and its `package.json`
+  has no `name`: a package outside the app needs a name in its package.json", naming the package as the `use` does,
+  never its path. `sources::home` answers none for it and the loader refuses, so no relative identity is made.
+- **A linked package ends at its root.** `home` walked every directory above a file to the app's, so a package with no
+  name inside an outer directory whose `package.json` has a name took that name: the same leak by another route. A
+  package's file is now named only by a directory between it and its package's root. A package that holds its own
+  test app (`packages/geolocation/test/fixture`) is its own: its root's name names it, where it was `../../…` before.
+- **Apps unchanged.** `contract build --json --errors-only` of all 90 `app.contract` roots in the checkout, before and
+  after: the same diagnostics (74 build, 16 refused as before). None hits the refusal; the geolocation fixture did
+  until the package-holds-the-app case above.
+- **Tests:** `tamber_params_tools.rs` `an_unnamed_package_outside_the_app_is_refused_even_inside_a_named_directory`
+  (two unnamed linked packages, refused at the app's `use` line with the package's `use` name and no directory of
+  theirs; again inside an outer named directory; named, two identities by their names) and
+  `a_package_holding_its_own_test_app_names_its_files_by_its_name`; `tamber-remote.test.mjs`'s
+  unnamed `@acme/linked` linked from outside the app and the home directory: a paired client's hello, describe,
+  explain, resolve and uses hold neither its directories nor its name nor any `../`, and `uses` says the refusal. Each
+  fails without the change.
 
 ### Stage 11, commit B1: the base scale table (draft for theme2)
 

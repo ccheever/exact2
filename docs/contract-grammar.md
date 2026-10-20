@@ -204,7 +204,9 @@ belongs to (`contract-use-path`); an `exact:` built-in (`exact:motion`, `exact:c
 `contract-use-builtin`); or a package name, `name[/sub]` or
 `@scope/name[/sub]`, found in the nearest `node_modules` above the using file
 and mapped through its `package.json` `exports` (a string, or the `contract` or
-`default` condition), else `index.contract` (`contract-use-package`).
+`default` condition), else `index.contract` (`contract-use-package`). A package
+outside the app needs a `name` in its `package.json` (`contract-package-unnamed`):
+its components' identities are named by it (LLP 1121 D15).
 `contract sources <file>` prints every file a compile reads, as JSON. A file's
 names are its own declarations and the names its `use` lines list, each
 optionally renamed with `as` (LLP 1091): a component, shape, function, style,
