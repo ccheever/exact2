@@ -404,6 +404,7 @@ dependencies = [
  "exact-data",
  "exact-kernel",
  "exact-markdown",
+ "exact-markdown-editor",
  "exact-motion",
  "exact-plan",
  "exact-raster",
@@ -569,6 +570,13 @@ dependencies = [
 [[package]]
 name = "exact-markdown"
 version = "0.1.0"
+
+[[package]]
+name = "exact-markdown-editor"
+version = "0.1.0"
+dependencies = [
+ "exact-markdown",
+]
 
 [[package]]
 name = "exact-motion"
