@@ -221,6 +221,26 @@ fn a_propose_and_a_removed_override_are_checked_too() {
 }
 
 #[test]
+fn a_removed_override_is_checked_when_the_design_it_replaces_did_not_fold() {
+    // An unrelated `bad = missing` keeps the design as it was from folding: the plan's changed
+    // names (two folds compared) have no `radius.sm`, the names the write removes do.
+    let dir = app(
+        "removed-unfolded",
+        "tamber app\n\ntheme\n  other = 2px\n  radius.sm = 8px\n  bad = missing\n",
+    );
+    std::fs::write(
+        dir.join("node_modules/@acme/lib/index.contract"),
+        "component Card\n  slot\n  view\n    column width=\"radius.sm\"\n      children\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let files = || json!({"app.tamber": digest(&dir.join("app.tamber"))});
+    let (removed, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "remove-token", "name": "radius.sm"}, {"op": "remove-token", "name": "bad"}]}));
+    assert_eq!(refusals(&removed).len(), 1, "{removed}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_package_default_the_app_replaced_selects_no_chain() {
     // The app's own `lib.w` (8px) replaces the package's `space.md`; `lib.op` is already 0.
     let dir = app(
@@ -248,8 +268,9 @@ fn a_base_name_reached_only_through_the_apps_own_aliases_is_checked() {
     let files = || json!({"app.tamber": digest(&dir.join("app.tamber"))});
     let (base, _) = s.ask(json!({"method": "transaction", "client": "t", "files": files(), "ops": [{"op": "set-token", "name": "space.md", "value": "0px"}]}));
     assert_eq!(refusals(&base).len(), 1, "{base}");
-    // A scrub's verify, as the server pays it (its plan, its fold, the check): well under a frame budget's tenfold.
-    let op = json!([{"op": "set-token", "name": "other", "value": "5px"}]);
+    // A scrub's verify, as the server pays it (its plan, its fold, the check on the chain a safe
+    // `lib.w` reaches): well under a frame budget's tenfold.
+    let op = json!([{"op": "set-token", "name": "lib.w", "value": "12px"}]);
     let (open, _) =
         s.ask(json!({"method": "scrub-fold", "open": true, "files": files(), "ops": op}));
     assert!(open["ok"].is_object(), "{open}");

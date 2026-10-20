@@ -221,13 +221,46 @@ impl Server {
         // checker, only on the chains the write's tokens reach (closed over
         // aliases and expressions by the checker), refused in its words.
         // (the app design's own changed tokens: one of another `.tamber` file is no name here)
-        let touched: Vec<&str> = planned
+        let mut touched: Vec<&str> = planned
             .changed
             .iter()
             .filter(|(f, _)| *f == self.design)
             .map(|(_, t)| t.as_str())
             .collect();
-        if let (Some(chains), Some((path, folding)), false) = (&chains, &folded, touched.is_empty())
+        // A name the write removes is touched though the plan's changes miss
+        // it (they compare folds, and a design that didn't fold before has
+        // none to compare); every chain when either side doesn't parse.
+        let names = |text: &str| -> Option<Vec<String>> {
+            exact_tamber::parse(text)
+                .ok()
+                .map(|d| d.tokens.iter().map(|t| t.name.value.clone()).collect())
+        };
+        let was = texts
+            .iter()
+            .find(|(p, _)| *p == self.design)
+            .map(|(_, t)| names(t));
+        let now = planned
+            .files
+            .iter()
+            .find(|(p, _, _)| *p == self.design)
+            .map(|(_, t, _)| names(t));
+        let mut every = false;
+        let removed: Vec<String> = match (was, now) {
+            (Some(Some(was)), Some(Some(now))) => {
+                was.into_iter().filter(|n| !now.contains(n)).collect()
+            }
+            (Some(_), Some(_)) => {
+                every = true;
+                Vec::new()
+            }
+            _ => Vec::new(),
+        };
+        touched.extend(removed.iter().map(String::as_str));
+        if every {
+            touched.clear();
+        }
+        if let (Some(chains), Some((path, folding)), false) =
+            (&chains, &folded, touched.is_empty() && !every)
         {
             let mut all =
                 contract_lower::anatomy::slot::check_slots(folding, None, chains, &touched);
