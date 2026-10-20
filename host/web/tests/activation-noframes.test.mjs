@@ -40,7 +40,8 @@ test('a wasm page given no frames activates within its second, once; one with fr
   let said = '';
   dev.stdout.on('data', d => { said = (said + d).slice(-8000); });
   dev.stderr.on('data', d => { said = (said + d).slice(-8000); });
-  for (const end = Date.now() + 600_000; !said.includes(`127.0.0.1:${port}/`);) { if (Date.now() > end || dev.exitCode !== null) throw new Error(`the dev loop never served: ${said}`); await Bun.sleep(100); }
+  // Served, and its first plan ready: a generation published later would restart the page (glue.js), a second activation by design.
+  for (const end = Date.now() + 600_000; !said.includes(`127.0.0.1:${port}/`) || !said.includes('plan ready:');) { if (Date.now() > end || dev.exitCode !== null) throw new Error(`the dev loop never served: ${said}`); await Bun.sleep(100); }
   const browser = await (await import('playwright-core')).chromium.launch({ executablePath: chromium().executable, headless: true });
   try {
     const page = await browser.newPage();

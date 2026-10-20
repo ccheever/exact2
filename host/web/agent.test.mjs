@@ -850,7 +850,7 @@ test('a pressable that is no button activates by Enter or Space', () => {
 
 // @ref LLP 1043.000 §3 D7/D8 — optional host code cannot gate data readiness.
 const checkpoint = () => new Promise(resolve => setImmediate(resolve));
-async function startupFixture(rustOnly = false, served = null) {
+async function startupFixture(rustOnly = false, served = null, timerFirst = false) {
   const data = deferred(), input = deferred(), timer = deferred();
   const frames = [], timeouts = [], loads = [], errors = [], events = [];
   const exports = { memory: {}, exact_compat: () => '{"inputs":{}}',
@@ -888,15 +888,15 @@ async function startupFixture(rustOnly = false, served = null) {
   if (served) return { f }; // a served document's first pixel is painted: activation is not a frame away
   expect(events).toEqual(['boot', 'navigation']); // Adoption activates navigation before optional modules or data.
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
-  frames.shift()();
-  expect(loads).toEqual([]);
-  const activation = frames.shift()(); expect(timeouts.map(([, ms]) => ms)).toEqual([1000]); expect(timeouts[0][0]()).toBe(activation); // a frameless page's second (glue.js activateOnce): the same activation
+  const early = timerFirst && timeouts[0][0](); // a frameless page's second (glue.js activateOnce) first: its frames, back later, start nothing more
+  frames.shift()(); if (!early) expect(loads).toEqual([]);
+  const activation = frames.shift()(); expect(timeouts.map(([, ms]) => ms)).toEqual([1000]); expect(timeouts[0][0]()).toBe(activation); if (early) expect(activation).toBe(early); // one activation, whichever comes first
   return { f, data, input, timer, activation };
 }
 
 test('pending, failed and invalid optional modules leave Rust and JS apps ready after paint', async () => {
-  for (const rustOnly of [false, true]) for (const failure of ['pending', 'reject', 'invalid']) {
-    const h = await startupFixture(rustOnly), { f } = h;
+  for (const rustOnly of [false, true]) for (const failure of ['pending', 'reject', 'invalid']) for (const timerFirst of [false, true]) {
+    const h = await startupFixture(rustOnly, null, timerFirst), { f } = h;
     if (!rustOnly) expect(f.inputReady).toBe(false);
     h.data.resolve({});
     await checkpoint();
