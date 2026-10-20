@@ -1,7 +1,10 @@
 import { notePagePullRequest } from '../panel/closed-views';
 import { buildAddSelectionToAgentHandoff, buildAskAboutGuideStopHandoff, contextMetadata } from './pages-pr-handoffs-logic';
 import { openPullRequestIn } from '../panel/pr-attachment-surfaces';
-import { panelState } from '../panel/panel-surfaces';
+import { openFileSurface, panelState, workspacePath } from '../panel/panel-surfaces';
+import { markdownFileMenu } from '../panel/files-surface';
+import { environmentClient } from '../settings/projects-fleet';
+import { pullRequestServer } from './pages-pr-environments';
 import { emptyGuideView, generateGuide, guideEntry, guideNavigate, guideReader, presentGuide, readGuide } from './pages-pr-guide';
 import { guideDiffLocal, presentGuideDiff, type GuideDiffCard } from './pages-pr-guide-diff';
 import { checkoutCommand, sourceControlHostName } from '../shared/source-control-hosts';
@@ -23,7 +26,7 @@ import { sharedPullRequestSummary } from './pages-pr-shared';
 // (pages-pr-refresh.ts), Refresh, the live-refresh interval or an arrival — reads while the last
 // detail stays on screen; the activity reads again when the server announced a change, on
 // Refresh, or when the detail's `updatedAt` moved (shouldRefreshPullRequestActivity).
-import { diffSchemeOf, markdownEnv, type MarkdownEnv } from '../timeline/message-chips';
+import { diffSchemeOf, markdownEnv, messageChips, type MarkdownEnv } from '../timeline/message-chips';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -306,7 +309,8 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
     links.push(...linked.links, ...pullRequestUrls(linked.text).map(href => ({ href, kind: '' })));
     return { ...body, body: linked.text };
   });
-  view.md = { ...view.md, chips: [...view.md.chips, ...linkChips(client, context.environmentId, links)] };
+  const fileChips = view.bodies.flatMap(body => messageChips({ text: body.body }, str(display.workspaceRoot), [], body.id).filter(chip => chip.kind === 'link'));
+  view.md = { ...view.md, chips: [...view.md.chips, ...fileChips, ...linkChips(client, context.environmentId, links)] };
   return view;
 }
 /** Web links in Markdown source (inline `](url)`, `<url>`, bare URLs) that name a change request: the ones a card can preview. */
@@ -448,6 +452,19 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   if (op === 'quick') return runQuickAction(client, native, value, ref => { const row = parseSelection(ref); return row ? listEntryFor(client, row) : null; }, () => stale(client));
   const selection = parseSelection(selected);
   if (!selection) throw new ClientError('Choose a pull request first.');
+  if (op === 'file-open' || op === 'file-menu') {
+    const detail = contextOf(client, selected)?.detail;
+    if (!detail) throw new ClientError('The pull request is still loading.');
+    const split = value.indexOf('\n'), surface = value.slice(0, split), target = value.slice(split + 1), cwd = str(detail.workspaceRoot);
+    if (op === 'file-open' && surface === 'thread') {
+      const { path, line } = workspacePath(target, cwd);
+      await openFileSurface(client, native, path, line);
+    } else {
+      const owner = environmentClient(client, pullRequestServer(client, selection.environmentId ?? '', selectionRef(selection)), native);
+      await markdownFileMenu(owner, native, target, { cwd, previewMedia: surface === 'thread' });
+    }
+    return '';
+  }
   if (op === 'guide-ask' || op === 'guide-lines') {
     const ctx = contextOf(client, selected)!;
     if (!ctx.detail) throw new ClientError('The pull request is still loading.');
