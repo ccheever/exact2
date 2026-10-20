@@ -834,11 +834,32 @@ to `space.xl`, `radius.sm` to `radius.full`), each a length in each host's colum
 kernel's table. A design value or a `when` arm may name one bare (`card.pad: length = space.md`,
 an alias), and what it means depends on the app's design:
 - **the base name is unset:** the alias is a per-host reference, kept as written and never
-  folded, so each host reads its own column; an expression over it (`calc(space.md + 4px)`) is
-  refused until QUEUE's entry lands;
+  folded, so each host reads its own column; an expression over it is kept too (below);
 - **the app's design sets it:** it is the app's own token, and every reader folds through it as
   through any token reference, so the app's value wins everywhere, an edit of it re-folds the
   alias, and a ranged param naming it keeps its px.
+
+*Amended 2026-10-20 (stage 12 B2; theme2's 00:42 ruling):* an expression over an unset base
+name (`calc(space.md * 2)`, `min(space.lg, 20px)`; lengths only, with px and numbers beside it)
+is kept as written, its token references inlined and its constant parts folded, so one
+expression has one text (`calc(space.md + 2px + 2px)` is `calc(space.md + 4px)`). The scale
+table carries no arithmetic, and the schema, its digest and the wire don't move: the theme
+row's value is the expression.
+- **Each host evaluates it in its own column at run time.** The kernel substitutes each
+  base's length (the design's own definition first, as an alias reads it; the reads recorded)
+  and folds the `calc()`, `min()`, `max()` or `clamp()` with its own calc code, so Apple,
+  Linux, Android and the runner's bindings read px. The JS target writes
+  `calc(var(--exact-space-md) * 2)`, and an SVG attribute the build's column's px. The
+  terminal evaluates it in its column (cells as px), and its spaces then round as every space
+  does there (LLP 1101 §4).
+- **The compiler checks the expression in every column** and names the column it fails in
+  (`card.pad` is the length `-2px` on mac (`calc(space.md - 12px)`), which `padding` does not
+  take), a param's range included. A bare unset base name in a ranged param is checked the
+  same way, per column, where it was refused before.
+- **What is refused:** `rem`, `em` or `%` beside a base name (as in any `calc()`), a base name
+  times or over a length (a base name's or px), a length added to a number, and shadow lengths
+  over a base name (`tamber-base-expression`, QUEUE). A base name the app's design sets folds
+  through as before.
 
 **Packages.** A package (`packages/reading`) may ship `<package>.tamber` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
@@ -1274,7 +1295,10 @@ component PostButton
   appear) and `priority=` (1 surfaced first, 3 behind "more", default 2) apply to all. App
   dials (D4) take the same metadata.
 - **What a range checks.** A ranged length takes px literals only, so it can be checked at
-  build; a `rem`, `em` or text-style value there is refused (`tamber-range-unit`). The default,
+  build; a `rem`, `em` or text-style value there is refused (`tamber-range-unit`). A base
+  name the design leaves unset, bare or in an expression (D11, stage 12 B2), is checked in
+  every column of the scale instead, the refusal naming the first column outside the range
+  (`tamber-param-range`; theme2's 01:13 ruling). The default,
   folded for every tuple, must be inside the range (`radius.md` is 12 px in the example).
   An override that is a literal is checked against it; one that names a token is checked
   after folding. A scrub in the tool that replaces a token default with a literal is a pinned
@@ -3536,7 +3560,7 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - `border-color` and `box-shadow` in `:active` (`lower-state-row`: the press can't paint them yet);
   - `-exact-press-scale` in `:hover` or `:focus-visible` (`lower-state-row`, pointing at `:active`);
   - a node, or its class, saying a press paint both ways (`lower-state-press-paint`): `-exact-press-background-color`, `-exact-press-color`, `-exact-press-opacity` or `-exact-press-scale` beside the same `:active` row.
-- **Where an `:active` row is written** (theme2's 06:14 condition). The map's binding for a lowered row carries `"state": "active"` and `at`, the `:active` row's file and span (`sites::Origin::State`; its `origin` is still the node's or class's). `uses`, and so explain, name that line, not the node's.
+- **Where an `:active` row is written** (theme2's 06:14 condition). The map's binding for a lowered row carries `"state": "active"` and `at`, the `:active` row's file and span (`sites::Origin::State`; its `origin` is still the node's or class's). `uses`, and so explain, name that line, not the node's. (Since LLP 1122's queue item (1), on theme2's 2026-10-20 ruling: the part is the press row binding's `states` entry, `{state: "active", origin, at}`, and the binding has no base fields; `:hover` and `:focus-visible` rows are entries of their rows' `states` too.)
 - **The absolute press opacity.** The press eases from the opacity shown at the press, a hover or focus look's included, to the target. For that node it replaces D7's clamped share. A hand-written `-exact-press-opacity` keeps the share.
   - Web: `--exact-press-opacity-to`. The glue's `PAINT` list takes it, and index.html computes `base + (to − base) × paint`.
   - Apple, Linux and Android: B2 and B3.
@@ -5160,3 +5184,29 @@ Built to theme2's 15:32 approval, on B1 and B2.
     16; gaps 0, 8, 8, 16, 16 px across; the header 44; corners 0).
 - The other hosts run the same plan, now 21 checks with the `even` box: 21/21 each on web, Linux, macOS, iOS and the
   reader. conform: 5/5, and Linux 5/5.
+
+### Stage 11's gate: met (2026-10-20; the run is `~/x2theme/stage11-gate-run.txt`)
+
+The run on `558b0bcf8e` (E on main), every host fresh: web, iOS, the Mac, Linux, Android's reader and the terminal.
+Stage 11's parts, all on main: A1 package designs in the compiler (`d5b4507d63` and records), A2 part 1 (the server
+and `contract tamber` fold packages) and part 2 (package designs on the wire, `d98591ee32`, *1.14*); B1 the scale
+table (through `d7671b5263`) and B2 the hosts' columns (through `d750c4e996`); C2 conform and scale-check, the
+Android reader by a plan push, the terminal host, and (c) the terminal's spaces in whole cells laid out by the kernel
+(`8ddfce36be`); D's server (`ed6e1720fa` and before) and tool half (`e8cd42223a`..`7a9da404a4`); E the fixtures and
+the gate script.
+
+| Gate line | Result |
+|---|---|
+| Two packages restyle together from one app value | **Met**: `@exact/cards` and `@exact/notes` both move with the app's `space.md = 20px` on web, iOS, the Mac, Linux and the terminal; live on the web, `set-token space.md` moves both with no reload and `remove-token` returns them. |
+| With no app value, `space.*` and `radius.*` are each host's | **Met** on every host, both packages included; every scale row cites a metric reference, a measured id or a guideline, and none is a bare number. |
+| Package designs: set by full name; one name in two packages refused unless the app sets it; no dials, axes or base names in a package; a `when` only on the app's axes | **Met**, each by its test. |
+| The server and the tool | **Met**: base rows with their columns and the app's override; package tokens with `package` and `file`; `set-token` of a base or package name writes the app's line, never a package file; `add-token` of a base name points to `set-token`; the design tool's real-server test. |
+| No regressions | **Met**: the clone's own `space.header` keeps its meaning (on a signed-out copy); conform `--synthetic --strict --linux` 0 failures in 110 targets (two older Linux reds fixed first: metronome by LLP 1125 D12, decorations by the grammar's `unavailable`); release output over 504 comparisons: 446 identical, 45 only B1's schema digest, 2 the design tool's own source, 11 failing alike on both sides. |
+
+**Decided in stage 11 and recorded here:** no web column (the web reads the neutral one); an app may set a base name
+and a package may not; the terminal rounds padding, margin and gap to whole cells in the kernel
+(`Env::cell_spaces`, LLP 1101 §4); a package file is what D11, D15 and the resolver see, judged on real paths; one
+write op for overrides (`set-token`). **Left to QUEUE:** expressions over base names (stage 12 B2), the Stretch cell
+form, incremental retention after a name-moving edit, a Linux InlineGeometry reader.
+
+**Stage 11 is closed.** The `tamber/1.14` window is closed; the next wire change takes `tamber/1.15` (stage 12).

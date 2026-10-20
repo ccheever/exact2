@@ -1,0 +1,9 @@
+// The design of @exact/notes (LLP 1121 D11): its gap the base space.md, its
+// corner radius.lg, and a rule colour an app may set by its full name.
+tamber notes
+
+theme
+  notes.gap = space.md
+  notes.corner = radius.lg
+  notes.fill = #ff0000  scheme=fixed
+  notes.rule = #ffff00  scheme=fixed

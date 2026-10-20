@@ -121,7 +121,7 @@ test('the remote listener speaks TLS only and serves only the wire, as a remote 
     expect(paired.status).toBe(200);
     expect(paired.fingerprint).toBe(fingerprint);
     expect(paired.headers['cache-control']).toBe('no-store');
-    expect(wire.seen.at(-1)).toEqual({ path: '/__tamber/pair', access: { allowed: true, local: false, remote: true, tunnel: false, peer: '127.0.0.1' }, cookie: undefined, token: undefined, anyCookie: false });
+    expect(wire.seen.at(-1)).toEqual({ path: '/__tamber/pair', access: { allowed: true, local: false, remote: true, tunnel: false, door: 'tls', peer: '127.0.0.1' }, cookie: undefined, token: undefined, anyCookie: false });
     // Two Cookie headers, in two cases: none in any view of the headers.
     await rawTLS(port, 'POST /__tamber HTTP/1.1\r\nHost: 127.0.0.1:' + port + '\r\nCookie: a=1\r\ncOOkie: b=2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
     expect(wire.seen.at(-1)).toMatchObject({ path: '/__tamber', cookie: undefined, anyCookie: false });
@@ -148,7 +148,7 @@ test('another TLS port shares the certificate and hands its requests over as the
     const r = await send(true, port, { path: '/page', headers: { cookie: '__Host-c=1' } });
     expect(r.text).toBe('canvas');
     expect(r.fingerprint).toBe(remote.info().fingerprint);
-    expect(got).toEqual({ path: '/page', cookie: '__Host-c=1', access: { allowed: true, local: false, remote: true, tunnel: false, peer: '127.0.0.1', port: 'canvas' } });
+    expect(got).toEqual({ path: '/page', cookie: '__Host-c=1', access: { allowed: true, local: false, remote: true, tunnel: false, door: 'tls', peer: '127.0.0.1', port: 'canvas' } });
     got = null;
     expect((await send(true, port, { path: '/page', headers: { host: `evil.example:${port}` } })).status).toBe(404);
     expect((await send(true, port, { path: '//evil.example/page' })).status).toBe(404);

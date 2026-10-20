@@ -22,6 +22,7 @@ final class TextFlowPresentationTests: XCTestCase {
         let measured = Array(text.utf8).withUnsafeBufferPointer { bytes in
             var run = ExactTextRun()
             run.text = bytes.baseAddress; run.len = bytes.count; run.font_size = 16; run.font_weight = 400
+            run.font_stretch = 100
             run.has_line_height = 1; run.line_height = 24
             return withUnsafePointer(to: &run) { pointer in
                 TextFlowShape.withCShapes([circle]) { shapes in

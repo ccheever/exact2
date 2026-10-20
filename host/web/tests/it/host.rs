@@ -392,7 +392,7 @@ fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
     let catalog = host.font_catalog();
     assert_eq!(
         catalog,
-        "[{\"family\":\"ExactPlanStack8\",\"declared\":\"Fixture Sans\",\"source\":\"assets/DejaVuSans.ttf\",\"weight\":400,\"style\":\"normal\"},{\"family\":\"ExactPlanStack8\",\"declared\":\"Fixture Sans\",\"source\":\"assets/DejaVuSans-Bold.ttf\",\"weight\":700,\"style\":\"normal\"}]"
+        "[{\"family\":\"ExactPlanStack8\",\"declared\":\"Fixture Sans\",\"source\":\"assets/DejaVuSans.ttf\",\"weight\":\"400\",\"stretch\":\"100%\",\"style\":\"normal\"},{\"family\":\"ExactPlanStack8\",\"declared\":\"Fixture Sans\",\"source\":\"assets/DejaVuSans-Bold.ttf\",\"weight\":\"700\",\"stretch\":\"100%\",\"style\":\"normal\"}]"
     );
     assert!(
         !batch.contains("\"fonts\""),

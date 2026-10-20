@@ -59,8 +59,16 @@ final class PresentedText: TextPresentation {
             a[.strokeColor] = TextEngine.color(Array(st[1...]))
         }
         if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
-        if r.underlined { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
-        if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+        // A run's own line is in its own colour and shows over its boxes';
+        // a box's alone is in that box's colour (`Run.propagate`).
+        if r.underlined || r.underlineColor != nil {
+            a[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            if !r.underlined, let c = r.underlineColor { a[.underlineColor] = TextEngine.color(c) }
+        }
+        if r.decoration.contains("line-through") || r.strikeColor != nil {
+            a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            if !r.decoration.contains("line-through"), let c = r.strikeColor { a[.strikethroughColor] = TextEngine.color(c) }
+        }
         if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
             let f = a[.font] as! PlatformFont
             let (ascent, descent) = CSSLineBox.content(f as CTFont)

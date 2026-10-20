@@ -17,16 +17,19 @@ impl DataSource for Nothing {
 }
 
 /// Every command the channel carries, a link of each kind that leaves the
-/// app, a pressable with a press haptic, two fields and a second route.
+/// app, a pressable with a press haptic, two fields and a second route. The
+/// unknown haptic is computed: a literal one is refused at compile time
+/// (`type-haptic`), a kind read from state reaches the host.
 const APP: &str = r#"routes nav
   home "/"
     detail "/detail"
 component App
   state name = ""
+  state unknown = "purr"
   action buzz
     haptic("success")
   action purr
-    haptic("purr")
+    haptic(unknown)
   action copy
     copyText("Copied from a test")
   action web

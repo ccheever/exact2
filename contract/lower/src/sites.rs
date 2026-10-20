@@ -33,6 +33,9 @@ pub struct NodeSite {
     /// Every style row the node binds, with where the binding came from —
     /// the winner when two bindings named one row.
     pub rows: Vec<(StyleId, Origin)>,
+    /// Each host-known state's look rows (`hover`, `focus-visible`), each
+    /// an [`Origin::State`] at its part's row (LLP 1122 queue item (1)).
+    pub looks: Vec<(&'static str, Vec<(StyleId, Origin)>)>,
     /// The button's compile-time appearance decision, absent on other tags.
     pub button: Option<ButtonSite>,
 }
@@ -79,8 +82,9 @@ pub enum Origin {
     Class(String, Option<Written>),
     /// The tag's fixed row (`row` sets `flex_direction`).
     Tag,
-    /// A state part's row lowered onto the node (LLP 1121 D8: `:active`'s
-    /// press paint), the node's or its class's, and where it is written.
+    /// A state part's row: `:active`'s lowered onto the node as its press
+    /// paint (LLP 1121 D8), or a `:hover` or `:focus-visible` look's row;
+    /// the node's or its class's, and where it is written.
     State {
         /// The node's or its class's.
         of: Box<Origin>,
@@ -149,24 +153,31 @@ impl Sites {
     }
 }
 
-/// A node's site: its element and every style row it binds, by origin.
+/// A node's site: its element, every style row it binds, by origin, and
+/// its looks' rows.
 pub(crate) fn node_site(
     span: Span,
     instance: u32,
     button: Option<ButtonSite>,
     bindings: &[BindingsRow],
     origins: &[Origin],
+    looks: Vec<(&'static str, Vec<(StyleId, Origin)>)>,
 ) -> NodeSite {
-    let rows = bindings
+    NodeSite {
+        span,
+        instance,
+        rows: style_rows(bindings, origins),
+        looks,
+        button,
+    }
+}
+
+/// The style rows of `bindings`, each with its origin.
+pub(crate) fn style_rows(bindings: &[BindingsRow], origins: &[Origin]) -> Vec<(StyleId, Origin)> {
+    bindings
         .iter()
         .zip(origins)
         .filter(|(b, _)| b.kind == BindingKind::Style)
         .filter_map(|(b, o)| StyleId::from_bit(b.id as u32).map(|row| (row, o.clone())))
-        .collect();
-    NodeSite {
-        span,
-        instance,
-        rows,
-        button,
-    }
+        .collect()
 }

@@ -182,6 +182,8 @@ export function connectRelay({ host, port, account, token, names = null }, { cli
         if (!greeted) {
           // Its names: well formed, and the developer's own when given.
           if (word !== 'READY' || !NAME.test(a) || !NAME.test(b) || a === b || !clean(a) || !clean(b) || (names && (a !== names.tool || b !== names.canvas))) return conn.destroy();
+          // (one session a run: a connection greeted with other names is not this run's, its origins and grants another's)
+          if (served && (a !== served.tool || b !== served.canvas)) return conn.destroy();
           greeted = true;
           clearTimeout(late);
           late = null;
