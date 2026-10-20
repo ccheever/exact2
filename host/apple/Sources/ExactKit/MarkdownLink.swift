@@ -48,6 +48,59 @@ package protocol MarkdownEditing: AnyObject {
     var plainAttributes: [NSAttributedString.Key: Any] { get }
     /// Remove every Markdown attribute.
     func detach(_ storage: NSTextStorage)
+    /// Where a person's selection change from `old` to `new` lands beside a
+    /// hidden link destination (LLP 1045 D5).
+    func place(_ new: NSRange, from old: NSRange?, in storage: NSAttributedString) -> NSRange
+    /// The caret a native move or deletion should start from: the other
+    /// edge of a hidden run the caret sits at, on the side it moves to; nil
+    /// when it starts where it is.
+    func crossing(_ caret: Int, backward: Bool, in storage: NSAttributedString) -> Int?
+    /// A native replacement of `range` by `text` as the editor's rules make
+    /// it: hidden source stays, and only the visible parts change. Nil when
+    /// the native edit is already that.
+    func rewrite(_ range: NSRange, with text: String, in storage: NSAttributedString) -> MarkupRewrite?
+    /// The source a copy of `range` takes.
+    func copyRange(_ range: NSRange, in storage: NSAttributedString) -> NSRange
+}
+
+/// An edit the Markdown editor makes in place of a native one: replacements
+/// in ascending order, and the caret after them (nil: unchanged).
+package struct MarkupRewrite {
+    package var edits: [(range: NSRange, text: String)]
+    package var caret: Int?
+    package init(edits: [(range: NSRange, text: String)], caret: Int?) {
+        self.edits = edits
+        self.caret = caret
+    }
+}
+
+extension NSAttributedString.Key {
+    /// Source the Markdown editor keeps out of layout: a link's `](target)`
+    /// (LLP 1045 D5). TextKit draws it as nothing; the storage keeps it.
+    package static let markupHidden = NSAttributedString.Key("ExactMarkupHidden")
+}
+
+extension NSAttributedString {
+    /// The text in `range` a person reads: without what the editor hides.
+    package func shownText(in range: NSRange) -> String {
+        let text = string as NSString
+        var out = ""
+        var at = range.location
+        enumerateAttribute(.markupHidden, in: range) { value, run, _ in
+            guard value != nil else { return }
+            out += text.substring(with: NSRange(location: at, length: run.location - at))
+            at = NSMaxRange(run)
+        }
+        return out + text.substring(with: NSRange(location: at, length: NSMaxRange(range) - at))
+    }
+    /// Whether any source in `range` is hidden.
+    package func hidesSource(in range: NSRange) -> Bool {
+        var found = false
+        enumerateAttribute(.markupHidden, in: range) { value, _, stop in
+            if value != nil { found = true; stop.pointee = true }
+        }
+        return found
+    }
 }
 
 /// The Markdown module, installed by the composition.

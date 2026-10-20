@@ -507,3 +507,36 @@ fn an_app_caret_in_hidden_syntax_moves_to_its_visible_edge() {
     p.e.set_selection(99, 99);
     assert_eq!(p.e.selection(), (9, 9));
 }
+
+#[test]
+fn link_destinations_are_the_runs_a_caret_steps_over() {
+    // A long percent-encoded target, a title, an image and a file link.
+    let cite = "t3-citation://v1?text=%E2%80%9Cquoted%E2%80%9D&comment=a%20b";
+    let text =
+        format!("Ask [Assistant quote]({cite}) and [x](y \"t\") ![i](p.png) [a.rs](./src/a.rs)");
+    let runs = exact_markdown_editor::link_destinations(&text);
+    let units = u(&text);
+    let shown: Vec<String> = runs
+        .iter()
+        .map(|&(a, b)| String::from_utf16(&units[a as usize..b as usize]).unwrap())
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            format!("]({cite})"),
+            "](y \"t\")".into(),
+            "](p.png)".into(),
+            "](./src/a.rs)".into()
+        ]
+    );
+    // The editor's own caret rule over the same runs: anywhere from the
+    // run's start to its end, a caret sits after it.
+    let mut p = Page::open(&text);
+    let (a, b) = runs[0];
+    for at in [a, a + 1, b - 1, b] {
+        p.caret(at);
+        assert_eq!(p.e.selection(), (b, b), "{at}");
+    }
+    // Code spans and plain brackets hide nothing.
+    assert!(exact_markdown_editor::link_destinations("`[a](b)` [c] (d)").is_empty());
+}

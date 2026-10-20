@@ -256,6 +256,15 @@ impl Projection {
             .copied()
     }
 
+    /// The link closers' runs, start and end.
+    pub fn link_closes(&self) -> Vec<(u32, u32)> {
+        self.runs
+            .iter()
+            .filter(|r| r.kind == RunKind::LinkClose)
+            .map(|r| (r.start, r.end))
+            .collect()
+    }
+
     pub fn hidden_indices(&self) -> impl Iterator<Item = u32> + '_ {
         self.runs.iter().flat_map(|r| r.start..r.end)
     }

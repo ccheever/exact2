@@ -1158,7 +1158,8 @@ source, so storage, search and export are the string.
   code and links painted as one node, on every host.
 - `textarea id="editor" value=draft input=edit markup="markdown"` is the editor:
   on the web, Markdown shown as it reads, with the syntax hidden away from the
-  caret; on macOS and iOS, the platform's text view with the syntax dimmed. Linux
+  caret; on macOS and iOS, the platform's text view with the syntax dimmed and
+  each link's `](destination)` hidden, as the web hides it. Linux
   edits it as a plain textarea. Without `markup` the same source is a plain
   textarea: the source mode.
 

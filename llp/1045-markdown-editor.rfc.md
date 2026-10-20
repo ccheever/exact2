@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Claude (Fable 5.1)
 **Implementer:** Claude (initial slices); Codex / Astra (editing slice, 2026-09-21)
 **Date:** 2026-09-21
-**Revised:** 2026-10-19 r5, the editor's source selection and range edits (D1 Undo, D5, D6); 2026-09-22 r4, CodeMirror removed; the editing rules are one crate, an on-demand wasm on the web (r3, 2026-09-21: the source-editing plan)
+**Revised:** 2026-10-20 r6, Apple hides link destinations by the editor crate's rules (D5); 2026-10-19 r5, the editor's source selection and range edits (D1 Undo, D5, D6); 2026-09-22 r4, CodeMirror removed; the editing rules are one crate, an on-demand wasm on the web (r3, 2026-09-21: the source-editing plan)
 **Related:** LLP 1001 §6 (text measurement), LLP 1008 §3/§5/§9 (the Apple textarea, keyboard viewport), LLP 1007 (web textarea), LLP 1005 §3 (capability commands), LLP 1020 (`iframe`), LLP 1033 / 1044 (the reader and what its rows cost), LLP 1035.001 D7 (draft lifetime), LLP 1024 (native modules — not used)
 
 ## 1. Ask
@@ -286,8 +286,9 @@ and the row is kept only if the numbers say so.
 
 - **iOS / macOS:** the existing `UITextView` / `NSTextView`, storage = source,
   on **TextKit 2** (Charlie, 2026-09-21). The source-visible editing slice
-  replaces the iOS prototype's near-zero-font hiding: every character keeps
-  its normal advance, with inactive syntax dimmed. Shared styling lives in
+  replaces the iOS prototype's near-zero-font hiding: syntax keeps its normal
+  advance, with inactive syntax dimmed, except a link's `](destination)`
+  (r6, below). Shared styling lives in
   `host/apple/Sources/ExactKit/MarkupEditor.swift`; the platform adapters apply
   edits through native text insertion and undo. Neither adapter touches
   `layoutManager`, which would switch back to TextKit 1.
@@ -295,9 +296,32 @@ and the row is kept only if the numbers say so.
   attributes in place after text or selection changes and skips marked text
   throughout composition. `format`, `select`, list Return, selection bookmarks
   across a link field, and alternate plain copy are implemented on both hosts.
-  Native markers remain visible until caret movement, selection gestures and
-  accessibility have been judged on a phone. The current proof uses a fixed
-  editor height; intrinsic `field-sizing: content` parity remains owed.
+  Other native markers remain visible until caret movement, selection
+  gestures and accessibility have been judged on a phone. The current proof
+  uses a fixed editor height; intrinsic `field-sizing: content` parity
+  remains owed.
+- **Link destinations on Apple (r6, 2026-10-20).** A link's `](destination)`
+  is hidden whatever the selection, as the web hides it: a composer's
+  citation link, whose percent-encoded target runs to thousands of
+  characters, reads as its label. Which runs are hidden is the editor
+  crate's (`exact_markdown_editor::link_destinations`, the styler's `l`), and
+  so are the rules around them: a caret in one or at its start sits after
+  it; an arrow, word move or deletion from either edge steps over visible
+  text (Backspace after the link deletes the label's last letter, and typing
+  then goes back into the label); a range's ends inside one go to its outer
+  edges; a deletion or replacement across one changes only the visible
+  text, its destination kept; a copy whose edge meets one takes it. The
+  styler marks each run, and TextKit 2's paragraph delegate
+  (`NSTextContentStorageDelegate`) draws a copy of the paragraph whose
+  hidden code units are word joiners (U+2060: no advance, no glyph, no line
+  break). The storage keeps the source, so offsets, `rangeFrame`, native
+  undo, composition and `setRangeText` are unchanged, and `layoutManager`
+  is not touched. VoiceOver's value and its strings for a range omit the
+  destination; its ranges stay source ranges. The `[` before the label stays
+  dimmed, as other syntax does. The judgement for this slice is a macOS drive
+  and an iOS simulator drive (2026-10-20); a phone's VoiceOver line reading
+  through UIKit's own text input is not proven. Implemented by Claude (Opus
+  5.5), 2026-10-20.
 - **Web:** `contentEditable`, no library (Charlie, 2026-09-22). Each source
   line is a block; hidden syntax is a `display: none` span, out of layout,
   caret movement and the accessibility tree. `beforeinput` goes to
@@ -396,8 +420,9 @@ as a plain textarea does (LLP 1069.001), over its source, and no new verb:
 - **Declared deviation (web).** Hidden syntax is `display: none`, so the
   platform cannot draw a caret inside it: a caret the app sets there is
   drawn at the visible edge beside it and reads back there. A range keeps
-  the ends it was given. Apple draws every source character, so it keeps the
-  offset as given.
+  the ends it was given. Apple draws every source character but a link's
+  destination (D5 r6): a caret set in one sits after it, as on the web, and
+  a range's end in one goes to its edge; any other offset is kept as given.
 - **Hosts.** Linux edits Markdown as a plain textarea until its v2 (D5):
   its `setSelectionRange` already takes the source, and it refuses
   `setRangeText` there with a log, as Windows and Android, on its presenter,
