@@ -98,7 +98,7 @@ let copyDelays: Record<string, number> = {}, noNavigate: string[] = [], refuseLa
 let LIBRARY: Record<string, { name: string; parts: unknown[]; variants: unknown[] }> = {};
 // A package's component with params on describe, and the app's own Contract sources in its files (a server lists
 // them since 1.11), as a test turns them on (`/__stub/package-component`).
-let PACKAGED: { components: Record<string, unknown>[]; files: Record<string, string>; tokens?: Record<string, string> } | null = null, filesBefore: Record<string, string> | null = null;
+let PACKAGED: { components: Record<string, unknown>[]; files: Record<string, string>; tokens?: Record<string, string>; base?: Record<string, unknown>[] } | null = null, filesBefore: Record<string, string> | null = null;
 const navs: { client: string; build: string; location: string }[] = [];
 const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(async () => {
   const r = await fetch('/__stub/copy', { method: 'POST', body: JSON.stringify({ name: window.name, location: location.pathname + location.search }) });
@@ -310,7 +310,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
         if (PACKAGED) ir.components = [...ir.components, ...PACKAGED.components];
         // (A token a package's design defines: its describe row says the package.)
         if (PACKAGED?.tokens) ir.tokens = ir.tokens.map((t: { name: string }) => (PACKAGED!.tokens![t.name] ? { ...t, package: PACKAGED!.tokens![t.name] } : t));
-        if (Object.keys(LIBRARY).length) { const known = ir.components.map((c: { identity: string }) => c.identity); ir.components = [...ir.components.map((c: { identity: string }) => (LIBRARY[c.identity] ? { ...c, ...LIBRARY[c.identity] } : c)), ...Object.entries(LIBRARY).filter(([id]) => !known.includes(id)).map(([identity, l]) => ({ identity, params: [], ...l }))]; } return send({ ok: { ...DIALS.describe, ir, files: FILES } }); }
+        if (Object.keys(LIBRARY).length) { const known = ir.components.map((c: { identity: string }) => c.identity); ir.components = [...ir.components.map((c: { identity: string }) => (LIBRARY[c.identity] ? { ...c, ...LIBRARY[c.identity] } : c)), ...Object.entries(LIBRARY).filter(([id]) => !known.includes(id)).map(([identity, l]) => ({ identity, params: [], ...l }))]; } return send({ ok: { ...DIALS.describe, ir, files: FILES, ...(PACKAGED?.base ? { base: PACKAGED.base } : {}) } }); }
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
       const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));

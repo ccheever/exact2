@@ -387,6 +387,8 @@ shape ParamRow
   // "Set for this app" writes the app's line).
   token: string
   tokenPackage: string
+  // Whether that token is a base name the app leaves unset (Exact's base).
+  tokenBase: bool
   package: bool
 
 shape ParamGroup
@@ -2287,6 +2289,6 @@ component ParamControl
             text (r.package ? "Back to the default" : "Reset")
       if r.package and r.token != ""
         button press=onToken disabled=(locked) testId=`param-${r.short}-token`
-          text (r.tokenPackage != "" ? `Edit the package token ${r.token} instead` : `Edit the token ${r.token} instead`)
+          text (r.tokenPackage != "" ? `Edit the package token ${r.token} instead` : r.tokenBase ? `Edit Exact's base ${r.token} instead` : `Edit the token ${r.token} instead`)
       if r.pinned.length > 0
         text `pinned: no longer follows ${r.pinned.join(", ")}` color="-exact-system-orange" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-pinned`
