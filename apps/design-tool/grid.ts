@@ -62,7 +62,7 @@ page.addEventListener?.('message', onCopyWord);
  * first `cap`. */
 export function modeTiles(axis: { name: string; values: string[] } | undefined, large: number, cap: number): Tile[] {
   const modes: { label: string; pin: Pin }[] = [{ label: 'Light', pin: { scheme: 'light' } }, ...(axis?.values.length ? axis.values.map(v => ({ label: title(v), pin: { scheme: 'dark', mode: { [axis.name]: v } } })) : [{ label: 'Dark', pin: { scheme: 'dark' } }])];
-  const big = large >= 4 && large <= 58 ? large : 0, sizes = [0, big, big && big + 6].filter((s, i) => i === 0 || s > 0);
+  const big = large >= 4 && large <= 64 ? large : 0, sizes = [0, big, big && big + 6 <= 64 ? big + 6 : 0].filter((s, i) => i === 0 || s > 0);
   return sizes.flatMap(size => modes.map(m => ({ label: size ? `${m.label} · ${size}px` : m.label, pin: size ? { ...m.pin, rootFontSize: size } : m.pin }))).slice(0, Math.max(1, Math.min(MOST, cap))).map((t, i) => ({ ...t, name: NAMES[i], state: '' }));
 }
 
@@ -94,9 +94,9 @@ const heldText = (h: Build['holding']) => !h.hold ? '' : `${h.held?.state === h.
 // selection States shows, as it was when chosen.
 const owned = new Map<string, { pin?: { json: string; revision: number }; hold?: { state: string; instance: string } }>();
 const asked = new Map<string, string>();
-const seen = new Map<string, string>(), sentTo = new Map<string, string>(), reloaded = new Map<string, string>(), refusals = new Map<string, number>();
-let run = '', place = '', handle = '', chosen = 0, policy = '';
-let shown: { e: any; facts: Pin; location: string; words: string; chosen: number } | null = null;
+const seen = new Map<string, string>(), sentTo = new Map<string, string>(), sentAt = new Map<string, number>(), went = new Map<string, string>(), reloaded = new Map<string, string>(), refusals = new Map<string, number>();
+let run = '', place = '', handle = '', chosen = 0, policy = '', passNo = 0;
+let shown: { sel: object; e: any; facts: Pin; location: string; words: string; chosen: number } | null = null;
 // The passes asked: each runs in turn, and one a newer ask has superseded
 // sends nothing more (the newer pass reconciles from what is then).
 let passes: Promise<unknown> = Promise.resolve(), asks = 0;
@@ -130,16 +130,19 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
   };
   const pass = async (mine: number, [client, view, axisName, large, cap, at, mirror, canWrite, epoch, local]: any[]) => {
     // Another server run (an answer that says one, not a failed hello's none): nothing the grid set survives it.
-    if (epoch && epoch !== run) { run = epoch; handle = ''; owned.clear(); asked.clear(); seen.clear(); sentTo.clear(); refusals.clear(); }
-    // (Where copies were sent is the navigation policy's: another view, or Mirror turned off or on, starts again.)
-    if (`${view} ${mirror}` !== policy) { policy = `${view} ${mirror}`; sentTo.clear(); }
+    if (epoch && epoch !== run) { run = epoch; handle = ''; owned.clear(); asked.clear(); seen.clear(); sentTo.clear(); went.clear(); reloaded.clear(); refusals.clear(); }
+    // (Where copies were sent, and what they said since, is the navigation policy's: another view, or Mirror turned off or on, starts again.)
+    if (`${view} ${mirror}` !== policy) { policy = `${view} ${mirror}`; sentTo.clear(); went.clear(); seen.clear(); }
+    const moving = (view === 'grid' && mirror) || view === 'states';
+    passNo += 1;
     const now = builds(), sel = selection();
     let tiles: Tile[] = [], note = '';
     if (view === 'states') {
       // The selection as it was when chosen (a copy's pin moves its build's
       // facts, which makes it stale), until the person selects again.
       const b = sel && !sel.stale ? now.get(String(sel.e.build)) : undefined;
-      if (b && sel!.e !== shown?.e) shown = { e: sel!.e, facts: factsOf(b.status), location: String(b.status?.location ?? ''), words: factsText({ ...b.status, location: undefined }), chosen: ++chosen };
+      // (Chosen again is a new selection, not the same one's report moved by a hold.)
+      if (b && sel !== shown?.sel) shown = { sel: sel!, e: sel!.e, facts: factsOf(b.status), location: String(b.status?.location ?? ''), words: factsText({ ...b.status, location: undefined }), chosen: ++chosen };
       if (shown) {
         tiles = stateTiles(shown.facts);
         note = `${shown.e.type ?? 'The view'} #${shown.e.node ?? shown.e.site}, in ${shown.words || 'its build\'s mode'}.`;
@@ -168,18 +171,18 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
     // What the grid set and no longer wants given back: copies not shown, holds off the selection's plan or on the grid.
     if (canWrite) for (const id of [...owned.keys()]) { const t = wanted.get(id), b = now.get(id); await giveBack(mine, client, id, !!t, !!t?.state && !!b && planned(b)); }
     // Where the copies go: the selection's screen in States; with Mirror navigation, a copy that moved
-    // (not one sent somewhere, which has arrived once it says any new place, nor one saying its first).
+    // (not one sent somewhere, which has gone once it says any new place or five passes on, and isn't sent there
+    // again, a router's rewrite or a Back included; nor one saying its first).
+    for (const t of tiles) {
+      const b = of(t), loc = String(b?.status?.location ?? '');
+      if (!b || !loc) continue;
+      const was = seen.get(b.id);
+      if (sentTo.has(b.id) && (loc !== was || passNo - (sentAt.get(b.id) ?? 0) > 5)) { went.set(b.id, sentTo.get(b.id)!); sentTo.delete(b.id); }
+      else if (view === 'grid' && mirror && was !== undefined && loc !== was && !sentTo.has(b.id)) place = loc;
+      seen.set(b.id, loc);
+    }
     if (view === 'states' && shown) place = shown.location;
-    else if (view === 'grid' && mirror) {
-      for (const t of tiles) {
-        const b = of(t), loc = String(b?.status?.location ?? '');
-        if (!b || !loc) continue;
-        const was = seen.get(b.id);
-        if (sentTo.has(b.id) && loc !== was) sentTo.delete(b.id);
-        else if (was !== undefined && loc !== was && !sentTo.has(b.id)) place = loc;
-        seen.set(b.id, loc);
-      }
-    } else place = '';
+    else if (!moving) place = '';
     const views = [];
     for (const t of tiles) {
       const b = of(t);
@@ -197,7 +200,7 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
           const key = JSON.stringify([shown!.chosen, e.site, e.instance ?? [], e.planDigest ?? null, t.state]);
           if (!planned(b)) words = 'This copy runs another plan than the selection (or says none): reload it.';
           else if (!b.holding.can) words = 'This copy\'s build cannot hold states.';
-          else if (shown!.location && String(b.status?.location ?? '') !== shown!.location) words = 'Going to the selection\'s screen.';
+          else if (shown!.location && String(b.status?.location ?? '') !== shown!.location && went.get(b.id) !== shown!.location) words = 'Going to the selection\'s screen.';
           else if (!same(b.holding.hold, want) && asked.get(b.id) !== key) {
             asked.set(b.id, key);
             const { why } = await send(mine, { method: 'hold', client, build: b.id, site: want.site, instance: want.instance, state: want.state, plan: e.planDigest });
@@ -207,10 +210,13 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
         }
         // The leader's place, sent once; a build that can't navigate (refused at once, or by its page since) is reloaded there.
         const loc = String(b.status?.location ?? ''), refused = Number(b.navRefusals ?? 0);
-        if (sentTo.has(b.id) && refused > (refusals.get(b.id) ?? 0)) { reloaded.set(t.name, sentTo.get(b.id)!); sentTo.delete(b.id); }
+        if (sentTo.has(b.id) && refused > (refusals.get(b.id) ?? 0)) { if (moving) reloaded.set(t.name, sentTo.get(b.id)!); sentTo.delete(b.id); }
         refusals.set(b.id, refused);
-        if (place && loc && loc !== place && !sentTo.has(b.id) && !reloaded.has(t.name)) {
+        // (A copy reloaded once, its build unable to navigate, is reloaded again at each new place.)
+        if (place && reloaded.has(t.name) && reloaded.get(t.name) !== place) reloaded.set(t.name, place);
+        else if (place && loc && loc !== place && !sentTo.has(b.id) && went.get(b.id) !== place && !reloaded.has(t.name)) {
           sentTo.set(b.id, place);
+          sentAt.set(b.id, passNo);
           const { why } = await send(mine, { method: 'navigate', client, build: b.id, location: place });
           if (why.startsWith('unsupported:')) { sentTo.delete(b.id); reloaded.set(t.name, place); }
           else if (why) { sentTo.delete(b.id); if (why !== 'superseded') words ||= `Not moved: ${why}`; }
