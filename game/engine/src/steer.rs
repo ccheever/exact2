@@ -151,8 +151,9 @@ pub fn wander(
 /// mean facing (`alignment`, a weight) and toward their centre (`cohesion`, a
 /// weight), at `max_speed`. The mover's own heading counts with weight one,
 /// and a neighbour closer than `separation` pushes away with weight up to eight,
-/// rising as it nears, so spacing wins over the other two. With no neighbours
-/// it keeps its heading.
+/// rising as it nears, so spacing wins over the other two; one at exactly the
+/// same position pushes along a direction fixed by its entity index. With no
+/// neighbours it keeps its heading.
 ///
 /// `neighbours` are `(entity, global pose)` rows, as
 /// [`World::near_xz`](crate::World::near_xz) yields them; `.limit(n)` bounds
@@ -182,11 +183,13 @@ pub fn school(
     let ahead = forward(from);
     let (mut apart, mut heading, mut centre, mut count) =
         (Vec3::ZERO, Vec3::ZERO, Vec3::ZERO, 0u32);
-    for (_, other) in neighbours {
+    for (entity, other) in neighbours {
         let away = from.position - other.position;
         let distance = away.length();
         if distance > 0.0 && distance < separation {
             apart += away / distance * (1.0 - distance / separation);
+        } else if distance == 0.0 && separation > 0.0 {
+            apart += coincident(entity);
         }
         heading += forward(&other);
         centre += other.position;
@@ -199,6 +202,17 @@ pub fn school(
     }
     let direction = want.try_normalize().unwrap_or(ahead);
     motion(from, direction, max_speed, turn_rate, dt)
+}
+
+/// The push from a neighbour at exactly the mover's position, where there is no
+/// direction away from it: a horizontal unit vector at the neighbour's entity
+/// index times the golden angle, so two coincident movers, each pushed by the
+/// other's index, part in different directions on every host.
+fn coincident(neighbour: Entity) -> Vec3 {
+    const GOLDEN_ANGLE: f32 = 2.399_963;
+    let turn = math::wrap_angle(neighbour.index() as f32 * GOLDEN_ANGLE);
+    let (sin, cos) = math::sin_cos(turn);
+    Vec3::new(cos, 0.0, sin)
 }
 
 /// How hard a neighbour at zero distance pushes, against the mover's own heading's one.

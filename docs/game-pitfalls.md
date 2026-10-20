@@ -73,12 +73,12 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
 
 ## Tests, the proof and setup
 
-- **`clock settle` returns while a spawn is still owed.** A `Spawner`'s next tick,
-  or hunger computed from a saved tick, is a schedule, not motion: a world whose
-  critter has stopped answers quiescent though a coin drops 1.3 s later. Cause:
-  quiescence observes changes and declared `busy` work, not a game's future ticks
-  (LLP 1128 I2). Fix: wait for a spawn with `clock +<ms>` (the spawner's interval),
-  not `clock settle`. (Starter drive, LLP 1139.001, 2026-10-19.)
+- **`clock settle` reports rest between a game's scheduled events.** A world whose
+  creatures have stopped answers quiescent though a `Spawner`'s next spawn, or hunger
+  computed from a saved tick, comes later. Cause: quiescence observes changes and
+  declared work, not a game's schedule (LLP 1128 I2). Fix: call `w.busy(reason)` each
+  tick such work is pending, as the starter's critter and the
+  [spawner recipe](../game/recipes/spawner.md) do. (Starter drive, LLP 1139.001.)
 - **A continued proof uses its saved source copy.** Keep the SDK unchanged until
   it finishes. Edit the original game freely during a new run; `--continue` refuses
   if its authored inputs differ from the snapshot, naming the file. Start a new

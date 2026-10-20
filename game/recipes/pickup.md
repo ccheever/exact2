@@ -16,6 +16,8 @@ impl Game for Coins {
     type Args = ();
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
         w.register_resource::<Purse>();
+        // Pickups spawned after setup restore in a fresh process only if registered.
+        w.register::<Collectable>();
     }
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Purse::default());
@@ -63,7 +65,8 @@ assert_eq!(sim.world().published("near").unwrap().as_str(), Some(""));
 - `drift` is 3D: a coin on the floor rises into the player's middle. Its radius is
   inclusive and its step never passes the collector.
 - `Collectable` is a marker for queries (`.with::<Collectable>()`, `nearest_xz`).
-  Adding it, or any component type, changes the world hash: a game repins.
+  Register it in `Game::register` when pickups first appear after setup. Adding it,
+  or any component type, changes the world hash: a game repins.
 - A pickup that waits for a press: `w.nearest_xz_mut::<Pickup>("player", 1.5, |p| !p.taken)`
   yields the row and its handle, whose `name()` feeds the prompt and whose
   `glow_to` lights it ([Beacons](../games/beacons/logic/src/lib.rs)). Keep authored

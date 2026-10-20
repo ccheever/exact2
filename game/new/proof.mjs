@@ -159,14 +159,22 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await petWorld.run(100);
   shop = await pet.tree();
   check('Digit1 feeds it once, for six coins', node(shop, 'hud-coins')?.props.text === 'Coins 4 · critter fed', node(shop, 'hud-coins')?.props);
+  // Pins after the kit has run, so the first baseline compares its state across
+  // hosts: the critter steered, a coin drifted, the shop sold. Ticks: 72 walking,
+  // 12 + 300 + 2220 waiting, 12 after the purchase.
   await petWorld.save(resolve(out, 'critter.world'));
+  pinSave('critter-fed', resolve(out, 'critter.world'));
   await petWorld.run(4000);
-  const fedOn = JSON.stringify(await petWorld.snapshot());
+  const fedOnState = await petWorld.snapshot();
+  pin(3096, fedOnState);
+  const fedOn = JSON.stringify(fedOnState);
   await petWorld.hold('KeyD', 1100);
   await petWorld.tap('KeyE');
   await petWorld.run(3000);
   const [bx, , bz] = await petWorld.global_position('beacon-1'), [kx, , kz] = await petWorld.global_position('critter');
-  check('it keeps 3 m from a lit beacon', (await petWorld.get('beacon-1', 'Beacon')).lit && Math.hypot(kx - bx, kz - bz) > 2.9, {critter: [kx, kz]});
+  const fromLight = Math.hypot(kx - bx, kz - bz);
+  check('it keeps 3 m from a lit beacon, beside the player', (await petWorld.get('beacon-1', 'Beacon')).lit && fromLight > 2.9 && fromLight < 3.5, {critter: [kx, kz], fromLight});
+  pin(3588, await petWorld.snapshot());
   await pet.close();
   // Its hunger, its next coin and the coins' serials travel in a save.
   const petAgain = await open({fresh:true, world:resolve(out, 'critter.world')});

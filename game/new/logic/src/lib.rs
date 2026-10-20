@@ -25,8 +25,10 @@ pub struct Critter {
     pub fed_at: u64,
     /// Its turning rate while it wanders, for `steer::wander`.
     pub turn: f32,
-    /// When its next coin drops, and that coin's serial.
+    /// When its next coin is owed, and that coin's serial.
     pub drops: Spawner,
+    /// Serials of coins owed but not yet dropped: at most five lie on the ground.
+    pub owed: Vec<u32>,
 }
 impl Critter {
     /// From 0, just fed, to 1, starved.
@@ -35,6 +37,16 @@ impl Critter {
             .min(1.0)
     }
 }
+/// The shape of this game's saves. `Game::restorable` refuses a save of another
+/// version by name, so a save from before a change fails at restore, not on a
+/// later tick.
+#[derive(Default, Resource)]
+pub struct SaveContract {
+    pub version: u32,
+}
+/// Bump when a save from the previous version cannot run in this one. Version 2
+/// adds the critter, its coins and the shop.
+pub const SAVE_CONTRACT: u32 = 2;
 /// What the player owns: coins and the shoes' level.
 #[derive(Default, Resource)]
 pub struct Shop {
@@ -121,8 +133,24 @@ impl Game for SmallGame {
             .button("feed", &["Digit1"])
             .button("shoes", &["Digit2"])
     }
+    fn restorable(saved: &World) -> Result<(), String> {
+        match saved.try_resource::<SaveContract>().map(|c| c.version) {
+            Some(SAVE_CONTRACT) => Ok(()),
+            found => Err(format!(
+                "its save contract is {}; this build reads version {SAVE_CONTRACT}",
+                found.map_or("absent (version 1)".into(), |v| v.to_string())
+            )),
+        }
+    }
+    fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
+        // Coins first appear after setup; a fresh process restores them only if registered.
+        w.register::<Collectable>();
+    }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
+        w.insert_resource(SaveContract {
+            version: SAVE_CONTRACT,
+        });
         // Colours are CSS, as in app.contract; the renderer decodes them to linear light.
         let sky = Color::hex("#bad6d1");
         w.insert_resource(Environment {
@@ -229,8 +257,8 @@ impl Game for SmallGame {
     }
 }
 
-/// Wake on the player's approach; then run from the light, else follow the
-/// player, else wander; drop coins while fed; starve when not.
+/// Wake on the player's approach; then run from the nearest lit beacon, else
+/// follow the player, else wander; owe coins while fed; starve when not.
 fn critter(w: &mut World) {
     let (dt, tick) = (w.dt(), w.tick());
     let player = w.require::<Transform>("player").position;
@@ -240,8 +268,8 @@ fn critter(w: &mut World) {
         .filter(|(_, (_, b))| b.lit)
         .map(|(_, (t, _))| t.position)
         .collect();
-    let mut drops = Vec::new();
-    for (_, (pose, critter)) in w.query::<(&mut Transform, &mut Critter)>().iter() {
+    let mut droppers = Vec::new();
+    for (e, (pose, critter)) in w.query::<(&mut Transform, &mut Critter)>().iter() {
         let level = |p: Vec3| Vec3::new(p.x, pose.position.y, p.z);
         let from_player = level(player) - pose.position;
         if !critter.awake {
@@ -259,40 +287,55 @@ fn critter(w: &mut World) {
             critter.starved = true;
             continue;
         }
-        let light = lights
-            .iter()
-            .find_map(|l| steer::flee(pose, level(*l), 3.0, 3.5, 5.0, dt));
-        let s = light.unwrap_or_else(|| {
-            if from_player.length() < 12.0 {
-                // Stop a little short of the player rather than inside it.
-                let short = level(player) - from_player.normalize_or_zero() * 1.2;
-                steer::arrive(pose, short, 2.0, 3.0, 5.0, dt)
-            } else {
-                steer::wander(pose, &mut w.rng(), &mut critter.turn, 1.2, 2.0, dt)
-            }
+        // Its hunger and its next coin come on later ticks, which observation
+        // cannot see: `clock settle` keeps running while it is awake and fed.
+        w.busy("critter awake: hunger and coins pending");
+        // Equal distances keep the first beacon in entity order.
+        let nearest = lights.iter().map(|l| level(*l)).min_by(|a, b| {
+            a.distance(pose.position)
+                .total_cmp(&b.distance(pose.position))
         });
+        let s = nearest
+            .and_then(|light| steer::flee(pose, light, 3.0, 3.5, 5.0, dt))
+            .unwrap_or_else(|| {
+                if from_player.length() < 12.0 {
+                    // Stop a little short of the player rather than inside it.
+                    let short = level(player) - from_player.normalize_or_zero() * 1.2;
+                    steer::arrive(pose, short, 2.0, 3.0, 5.0, dt)
+                } else {
+                    steer::wander(pose, &mut w.rng(), &mut critter.turn, 1.2, 2.0, dt)
+                }
+            });
         pose.position =
             (pose.position + s.velocity * dt).clamp(Vec3::splat(-19.6), Vec3::splat(19.6));
         pose.rotation = s.facing;
         while let Some(serial) = critter.drops.due(tick) {
-            drops.push((serial, pose.position));
+            critter.owed.push(serial);
+        }
+        if !critter.owed.is_empty() {
+            droppers.push((e, pose.position));
         }
     }
-    // Five coins on the ground at most: the rest wait for the player.
-    for (serial, at) in drops {
-        if w.count::<Collectable>(|_| true) >= 5 {
-            break;
+    // Five coins on the ground at most; owed ones wait in the critter, in order.
+    for (critter, at) in droppers {
+        while w.count::<Collectable>(|_| true) < 5 {
+            let mut owed = w.require_mut::<Critter>(critter);
+            if owed.owed.is_empty() {
+                break;
+            }
+            let serial = owed.owed.remove(0);
+            drop(owed);
+            let at = Vec3::new(at.x + w.rand(-0.5..0.5), 0.06, at.z + w.rand(-0.5..0.5));
+            w.spawn_named(
+                format!("coin-{serial}"),
+                (
+                    Transform::at(at.x, at.y, at.z),
+                    Mesh::cylinder(0.22, 0.06),
+                    Material::hex("#f2c94c").emissive(0.6, 0.45, 0.1),
+                    Collectable,
+                ),
+            );
         }
-        let at = Vec3::new(at.x + w.rand(-0.5..0.5), 0.06, at.z + w.rand(-0.5..0.5));
-        w.spawn_named(
-            format!("coin-{serial}"),
-            (
-                Transform::at(at.x, at.y, at.z),
-                Mesh::cylinder(0.22, 0.06),
-                Material::hex("#f2c94c").emissive(0.6, 0.45, 0.1),
-                Collectable,
-            ),
-        );
     }
 }
 

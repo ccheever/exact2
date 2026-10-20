@@ -522,3 +522,67 @@ fn near_xz_limit_keeps_the_nearest_in_entity_order() {
     assert_eq!(read(Some(2)), [near, tie_low]);
     assert_eq!(read(None), [far, near, tie_high]);
 }
+
+#[test]
+fn coincident_fish_with_one_heading_part() {
+    let mut w = World::new(HZ, 0);
+    let pose = Transform::at(1.0, 0.0, 1.0);
+    let fish = [w.spawn((Fish, pose)), w.spawn((Fish, pose))];
+    let gap = |w: &World| {
+        w.require::<Transform>(fish[0])
+            .position
+            .distance(w.require::<Transform>(fish[1]).position)
+    };
+    for _ in 0..2 * HZ {
+        let steers: Vec<Steer> = fish
+            .iter()
+            .map(|&e| {
+                let pose = *w.require::<Transform>(e);
+                steer::school(
+                    &pose,
+                    w.near_xz::<Fish>(e, 3.0),
+                    1.0,
+                    0.5,
+                    0.3,
+                    1.5,
+                    3.0,
+                    DT,
+                )
+            })
+            .collect();
+        for (&e, s) in fish.iter().zip(steers) {
+            advance(&mut w.require_mut::<Transform>(e), s);
+        }
+    }
+    assert!(gap(&w) > 0.8, "two fish at one pose part: {}", gap(&w));
+}
+
+#[derive(Default, Resource)]
+struct Late {
+    spawner: Spawner,
+}
+
+#[test]
+fn an_exhausted_spawner_owes_nothing_more_across_a_restore() {
+    let mut w = World::new(HZ, 0);
+    w.insert_resource(Late {
+        spawner: Spawner {
+            serial: u32::MAX - 1,
+            ..Spawner::every(1)
+        },
+    });
+    assert_eq!(w.resource_mut::<Late>().spawner.due(5), Some(u32::MAX - 1));
+    let saved = w.save();
+    let mut fresh = World::new(HZ, 0);
+    fresh.register_resource::<Late>();
+    fresh.load(&saved).unwrap();
+    let mut s = fresh.resource_mut::<Late>();
+    assert_eq!((s.spawner.due(6), s.spawner.due(u64::MAX)), (None, None));
+    // The far end of the clock neither overflows nor owes.
+    let mut edge = Spawner {
+        next: u64::MAX - 1,
+        ..Spawner::every(u64::MAX / 2)
+    };
+    assert_eq!(edge.due(u64::MAX), Some(0));
+    assert_eq!(edge.due(u64::MAX), None);
+}

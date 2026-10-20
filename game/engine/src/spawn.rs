@@ -11,7 +11,8 @@
 pub struct Spawner {
     /// The tick the next spawn is owed at.
     pub next: u64,
-    /// The serial the next spawn gets; serials count up from zero and never repeat.
+    /// The serial the next spawn gets; serials count up from zero and never
+    /// repeat. At `u32::MAX` the spawner is exhausted and spawns nothing more.
     pub serial: u32,
     /// Ticks between spawns; zero never spawns, which is what `default()` gives.
     pub every: u64,
@@ -39,22 +40,31 @@ impl Spawner {
     }
     /// The serial of a spawn owed at `tick`, advancing the schedule, or None.
     /// Call it in a loop, `while let Some(serial) = spawner.due(w.tick())`,
-    /// so a late call pays everything it owes.
+    /// so a late call pays everything it owes. A spawner that has given serial
+    /// `u32::MAX - 1`, or whose next spawn would fall past tick `u64::MAX`, is
+    /// exhausted: it owes nothing more, so no serial repeats.
     pub fn due(&mut self, tick: u64) -> Option<u32> {
-        if self.every == 0 || tick < self.next {
+        if self.every == 0 || tick < self.next || self.serial == u32::MAX {
             return None;
         }
-        let owed = (tick - self.next) / self.every + 1;
+        let owed = ((tick - self.next) / self.every).saturating_add(1);
         if owed > u64::from(self.cap) {
             // Skip the oldest, keeping the schedule on its grid.
-            self.next += (owed - u64::from(self.cap)) * self.every;
+            let skipped = (owed - u64::from(self.cap)).saturating_mul(self.every);
+            self.next = self.next.saturating_add(skipped);
             if self.cap == 0 {
                 return None;
             }
         }
         let serial = self.serial;
-        self.serial += 1;
-        self.next += self.every;
+        // A schedule that would pass the end of the clock is exhausted too.
+        match self.next.checked_add(self.every) {
+            Some(next) => {
+                self.serial += 1;
+                self.next = next;
+            }
+            None => self.serial = u32::MAX,
+        }
         Some(serial)
     }
 }

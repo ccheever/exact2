@@ -55,6 +55,11 @@ every 2 s, which `collect::drift` brings to the player within 3 m. It starves 40
 after it last ate; the shop's Feed (1) unlocks when it is half hungry, and Shoes (2)
 adds a metre a second to the player, three times. The rows, prices and lock reasons
 are published as `shop` and the HUD's buttons hold the same actions as the keys.
+While it is awake and fed the critter declares `busy`, so `clock settle` does not
+report rest between coins; asleep or starved it does not. At most five coins lie on
+the ground; the ones it owes beyond that wait in `Critter.owed`, in order.
+`SaveContract` versions the saves: `Game::restorable` refuses a save of another
+version by name. Bump it when a save from before a change cannot run after it.
 `a_bot_plays_five_minutes_and_the_loop_pays` in `logic/tests/sim.rs` plays five
 minutes on three seeds in about a second and checks the critter never starves and
 the income pays for all three pairs of shoes: change a price or the income and it

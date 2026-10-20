@@ -4,6 +4,12 @@ use exact_game::{Sim, Transform};
 use small_game_logic::SmallGame;
 use small_game_logic::{shop_rows, Beacon, Critter, Options, Shop, FEED_PRICE};
 
+/// Walk left to the critter and wake it.
+fn wake(game: &mut Sim<SmallGame>) {
+    game.hold("KeyA", 600.0);
+    assert!(game.get::<Critter>("critter").unwrap().awake);
+}
+
 /// The world every test here starts from.
 fn start(options: Options) -> Sim<SmallGame> {
     Sim::new(options).unwrap()
@@ -223,18 +229,88 @@ fn a_bot_plays_five_minutes_and_the_loop_pays() {
         }
         let critter = game.get::<Critter>("critter").unwrap();
         let shop = game.world().resource::<Shop>();
-        let (earned, shoes) = (shop.earned, shop.shoes);
         assert!(
             critter.awake && !critter.starved,
             "seed {seed}: the critter starved"
         );
-        assert!(
-            earned >= 140,
-            "seed {seed}: earned {earned} coins in five minutes"
-        );
+        // A coin every 2 s from the first, 2 s after waking: 149 in five minutes;
+        // a feed every 20 s; the surplus buys every pair of shoes.
         assert_eq!(
-            shoes, 3,
-            "seed {seed}: {earned} coins earned, {feeds} feeds bought, shoes {shoes}"
+            (shop.earned, feeds, shop.shoes, shop.coins),
+            (149, 14, 3, 17),
+            "seed {seed}: coins earned, feeds bought, shoes, coins left"
         );
     }
+}
+
+/// An awake, fed critter has work on later ticks (hunger, its next coin), so the
+/// world never reports rest; asleep, and once starved, it does.
+#[test]
+fn the_critter_keeps_the_world_busy_only_while_it_lives() {
+    let mut game = start(Options::default());
+    assert!(game.settle(), "asleep: nothing pending");
+    wake(&mut game);
+    game.run(5000.0);
+    assert!(!game.settle(), "awake and fed: hunger and coins pending");
+    game.run(40_000.0);
+    assert!(game.get::<Critter>("critter").unwrap().starved);
+    assert!(game.settle(), "starved: nothing pending");
+}
+
+/// Far from the player the critter wanders; with five coins on the ground the
+/// ones it owes wait, in order, and drop when one is picked up.
+#[test]
+fn owed_coins_wait_for_room_while_the_critter_wanders() {
+    use exact_game::collect::Collectable;
+    let mut game = start(Options {
+        seed: 3,
+        ..Options::default()
+    });
+    wake(&mut game);
+    game.world().require_mut::<Transform>("player").position =
+        exact_game::Vec3::new(19.0, 0.9, 19.0);
+    let facing = game.world().require::<Transform>("critter").rotation;
+    // Seven intervals: five coins on the ground, two owed.
+    game.run(14_000.0);
+    let w = game.world();
+    assert_ne!(
+        w.require::<Transform>("critter").rotation,
+        facing,
+        "it wandered"
+    );
+    assert_eq!(w.count::<Collectable>(|_| true), 5);
+    assert_eq!(w.require::<Critter>("critter").owed, [5, 6]);
+    let first = w.named("coin-0").unwrap();
+    game.world_mut().despawn(first);
+    game.run(10.0);
+    assert!(
+        game.world().named("coin-5").is_some(),
+        "the sixth serial drops next"
+    );
+    assert_eq!(game.world().require::<Critter>("critter").owed, [6]);
+    // A fresh game restores the coins, which first appeared after setup.
+    let saved = game.save().unwrap();
+    let mut fresh = start(Options::default());
+    fresh.restore(&saved).unwrap();
+    assert_eq!(fresh.world().count::<Collectable>(|_| true), 5);
+}
+
+/// Between two lit beacons the critter runs from the nearer, even when the
+/// farther comes first in entity order.
+#[test]
+fn the_critter_flees_the_nearest_lit_beacon() {
+    let mut game = start(Options::default());
+    wake(&mut game);
+    let w = game.world();
+    for beacon in ["beacon-1", "beacon-2"] {
+        w.require_mut::<Beacon>(beacon).lit = true;
+    }
+    // 2.5 m from beacon-1 at x = 2, 1.5 m from beacon-2 at x = 6.
+    w.require_mut::<Transform>("critter").position.x = 4.5;
+    w.require_mut::<Transform>("critter").position.z = 0.0;
+    game.run(500.0);
+    assert!(
+        game.global_position("critter").unwrap().x < 4.5,
+        "it fled beacon-2"
+    );
 }

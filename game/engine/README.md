@@ -21,7 +21,7 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   state. Register types that first appear mid-game in `Game::register` so a fresh
   process can restore them. The engine's scene components (`Transform`, `Parent`,
   `Mesh`, `Material`, `Camera`, lights, `Visible`, `Ambient`, `Follow`, `Glow`,
-  `Lit`, `collect::Collectable`) are registered by every world.
+  `Lit`) are registered by every world.
 - `near` and `near_xz` read global poses in entity order, including parented
   entities, as the loop reaches each row. `.limit(n)` keeps the `n` nearest, still
   in entity order (equal distances keep the lower index), and reads every row when
@@ -236,7 +236,8 @@ Negative light overshoot clamps to zero. See [effects](../render/README.md#effec
 
 `steer`, `collect` and `spawn` are the gameplay kit: functions and values the tick
 calls, none stepped by the engine ([what every game needs](../README.md#what-every-game-needs)).
-`steer::*` returns a `Steer { velocity, facing }`: the facing turns at most
+`steer::*` returns a `Steer { velocity, facing }` (`flee`, an `Option` of one, `None`
+outside its radius): the facing turns at most
 `turn_rate × dt` toward the goal and the speed scales with the cosine of the turn
 left, so a mover turns before it goes. `collect::drift` moves a pickup toward its
 collector inside a radius and reports `taken` on arrival. A `spawn::Spawner` saves
@@ -344,6 +345,12 @@ registered types and assets before replacing anything. Failed restores leave the
 receiver intact. Restore reinstates the saved input queue, held keys and touch
 viewport; a later host resize replaces the viewport. Agent inspection does not
 consume input.
+
+A game whose saved shape changes under the same `Game::ID` versions it: insert a
+save-contract resource in setup and check it in `Game::restorable`, which sees the
+decoded world before it replaces anything and refuses with the reason it returns
+(`restore refused: \`small-game\` refuses this save: …`). The starter does this
+(`SaveContract`, version 2 since its critter and shop).
 
 `sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies, including
 declared `.sound` assets, which the primitive module also decodes; a save records

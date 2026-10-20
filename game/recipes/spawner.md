@@ -24,6 +24,9 @@ impl Game for Tank {
     }
     fn tick(w: &mut World, _: &Input, _: &()) {
         let tick = w.tick();
+        // The next spawn is work on a later tick that observation cannot see:
+        // declared, `clock settle` keeps running instead of reporting rest.
+        w.busy("spawners: next fish and bubble owed");
         // Take the serials, then release the resource: spawning needs `&mut World`.
         let mut s = w.resource_mut::<Spawners>();
         let fish: Vec<u32> = std::iter::from_fn(|| s.fish.due(tick)).collect();
@@ -55,6 +58,7 @@ let mut fresh = Sim::<Tank>::new(()).unwrap();
 fresh.restore(&saved).unwrap();
 fresh.run(5000.);
 assert_eq!(fresh.world().hash(), expected);
+assert!(!fresh.settle(), "a spawner on a schedule never reports rest");
 ```
 
 - `due` takes `w.tick()`, the number of the tick running. The first spawn is owed
@@ -63,8 +67,12 @@ assert_eq!(fresh.world().hash(), expected);
 - Call `due` in a loop. A call that comes late (the game skipped it while a gate
   was shut) owes one spawn per interval that passed, up to `cap` (one unless set);
   the oldest beyond the cap are skipped and the grid is kept.
+- Declare `w.busy(reason)` each tick a spawn is still owed later (LLP 1128 I2):
+  quiescence observes changes, not a schedule, so without it `clock settle` and
+  `sim.settle()` report rest between spawns. Stop declaring when nothing more is owed.
 - Serials count from zero and save with the resource, so a restore never repeats a
-  name. `Spawner::default()` has `every` 0 and never spawns.
+  name; at `u32::MAX` a spawner is exhausted and owes nothing more.
+  `Spawner::default()` has `every` 0 and never spawns.
 - Adding a `Spawner` to an existing resource changes its hash: a game repins. A
   game owns its calls; nothing steps a spawner but `due`. This fragment is a doc-test;
   [particles](../games/particles-fixture) shows an engine emitter.
