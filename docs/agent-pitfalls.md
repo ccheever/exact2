@@ -32,6 +32,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   where it can prove the box keeps its px width around such text, and is silent where it
   cannot. (Bake-off round 13, weather; LLP 1116.011 D2.4.)
 
+- **A border on one cell of a grid of `flex=1` cells pushes its column out of line.**
+  A border adds to a box's outer size (CSS's `content-box`, and `border-box` too: a
+  `flex-basis` of 0 is never smaller than the border), so a calendar's today with
+  `border-width=(isToday ? 2 : 0)` is wider and taller than its neighbours and
+  the days after it sit off the columns above. Fix: give every cell the border and vary
+  its colour, `border-width=2 border-color=(isToday ? "-exact-label" : "transparent")`.
+  (Bake-off round 28, mood journal: 50.9 points against 47.4 on iOS; Chrome alike, with
+  `border-box` too.)
+
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
   scroll and the document scrolls instead: on the web a screenshot shows only the first
