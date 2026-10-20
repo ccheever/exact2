@@ -47,10 +47,16 @@ describe('⇧⇥ in the composer (onComposerCommandKey)', () => {
     code.key('Tab', { shiftKey: true });
     expect(code.calls).toEqual([['preventDefault'], ['intent', 'key', 'Tab', true]]);
   });
-  test('without plan mode a list outdents and other text lets the focus go back', () => {
+  test('without plan mode the focus goes back, from a list item too; a code block still outdents', () => {
     const list = composer({ planVisible: false, inList: true });
     list.key('Tab', { shiftKey: true });
-    expect(list.calls).toEqual([['preventDefault'], ['intent', 'key', 'Tab', true]]);
+    expect(list.calls).toEqual([]);
+    const tab = composer({ planVisible: false, inList: true });
+    tab.key('Tab');
+    expect(tab.calls).toEqual([['preventDefault'], ['intent', 'key', 'Tab', false]]);
+    const code = composer({ planVisible: false, inCode: true });
+    code.key('Tab', { shiftKey: true });
+    expect(code.calls).toEqual([['preventDefault'], ['intent', 'key', 'Tab', true]]);
     const text = composer({ planVisible: false });
     text.key('Tab', { shiftKey: true });
     expect(text.calls).toEqual([]);
