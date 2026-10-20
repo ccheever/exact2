@@ -2023,7 +2023,7 @@ test "a folded :disabled row is read as its base, a param's rung, its part benea
 
 test "a library component's node: the part outline, its identity and part, its parts with this one and the slot marked; its package rows read only, with no write control (stage 12 D, LLP 1139 D5)"
   // The server's describe of the library component's parts (stage 12 D3), as the stub gives it.
-  request POST "/__stub/library" {"@acme/cards/card.contract#Card": {"name": "Card", "parts": [{"name": "root", "groups": ["box"], "slot": false}, {"name": "header", "groups": ["box", "text"], "slot": false}, {"name": "body", "groups": ["box"], "slot": true}], "variants": []}} as ada
+  request POST "/__stub/library" {"@acme/cards/card.contract#Card": {"name": "Card", "parts": [{"name": "root", "groups": ["paint", "shape"], "slot": false}, {"name": "header", "groups": ["paint", "text"], "slot": false}, {"name": "body", "groups": ["space"], "slot": true}], "variants": []}} as ada
   type "name" "Ada"
   tap "save-name"
   clock data
@@ -2035,7 +2035,7 @@ test "a library component's node: the part outline, its identity and part, its p
   clock +1
   clock data
   // A node that is the Card's header part: its rows are the package's recipe, read only through the package guard.
-  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/node_modules/@acme/cards/card.contract", "line": 9, "col": 5, "end_col": 9, "component": "Card", "chain": [], "library": {"identity": "@acme/cards/card.contract#Card", "part": "header"}}, "rows": [{"name": "background_color", "value": "#ffffff", "source": "authored", "origin": "class:CardHeader", "library": {"identity": "@acme/cards/card.contract#Card", "part": "header"}, "editable": {"rung": null, "reason": "a package's style (CardHeader): read-only here"}}]} as ada
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/node_modules/@acme/cards/card.contract", "line": 9, "col": 5, "end_col": 9, "component": "Card", "chain": [], "library": {"identity": "@acme/cards/card.contract#Card", "part": "header"}}, "rows": [{"name": "background_color", "value": "#ffffff", "source": "authored", "origin": "class:CardHeader", "library": {"identity": "@acme/cards/card.contract#Card", "part": "header"}, "editable": {"rung": null, "reason": "a package's style (CardHeader): read-only here"}}, {"name": "text_color", "value": "#0a7aff", "source": "authored", "origin": "class:CardHeader", "library": {"identity": "@acme/cards/card.contract#Card", "part": "header"}, "token": {"names": ["accent.fill"], "text": "accent.fill", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "accent.fill", "modes": ""}}]} as ada
   clock +1
   clock data
   expect text "library-identity" == "Library: @acme/cards/card.contract#Card"
@@ -2043,7 +2043,7 @@ test "a library component's node: the part outline, its identity and part, its p
   expect text "library-part-root" == "root"
   expect text "library-part-header" == "▸ header"
   expect text "library-part-body" == "body · its slot"
-  expect text "library-readonly" == "Its rows are the package's recipe: read only here."
+  expect text "library-readonly" == "Its rows are the package's recipe, read only here; a token or param a row reads is set for this app."
   // Read only: the reason, and no write control of any kind on its row.
   expect text "selrow-reason-background-color" == "a package's style (CardHeader): read-only here"
   expect tree missing "selrow-edit-background-color"
@@ -2052,12 +2052,33 @@ test "a library component's node: the part outline, its identity and part, its p
   expect tree missing "selrow-param-background-color"
   expect tree missing "selrow-detach-background-color"
   expect tree missing "selrow-token-background-color"
+  expect tree missing "selrow-tokenize-background-color"
+  // A recipe row reading a token: the token (the library's knob, set for this app) is offered; the row itself is not.
+  expect text "selrow-edit-color" == "Edit accent.fill"
+  expect tree missing "selrow-row-color"
+  expect tree missing "selrow-state-color"
+  expect tree missing "selrow-param-color"
+  expect tree missing "selrow-tokenize-color"
+  expect tree missing "selrow-detach-color"
   // A node of its view that is no part: its identity, and so.
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 8, "site": 4, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/node_modules/@acme/cards/card.contract", "line": 11, "col": 7, "end_col": 11, "component": "Card", "chain": [], "library": {"identity": "@acme/cards/card.contract#Card", "part": null}}, "rows": []} as ada
   clock +1
   clock data
   expect text "library-part" == "This node is no part of it"
   expect text "library-part-header" == "header"
+  // Another design file open: the app's describe still gives the parts, and the outline follows it (a part gone).
+  type "file" "brand.tamber"
+  clock settle
+  request POST "/__stub/library" {"@acme/cards/card.contract#Card": {"name": "Card", "parts": [{"name": "root", "groups": ["paint", "shape"], "slot": false}, {"name": "body", "groups": ["space"], "slot": true}], "variants": []}} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "files": {"app.tamber": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  clock settle
+  expect state file == "brand.tamber"
+  expect tree missing "library-part-header"
+  expect text "library-part-body" == "body · its slot"
   // A node outside a library component (the app's own, or a slot's fill): no outline.
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 9, "site": 5, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 3, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": []} as ada
   clock +1
