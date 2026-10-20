@@ -498,9 +498,13 @@ export const RESTYLE = [
     reads: [
       // cards.pad-end, and in a thread cards.pad-end-thread: both space.md.
       { who: 'PostCard', what: 'its end padding (cards.pad-end, -thread)', ids: POST_CARDS, is: true, axis: 'w', at: (L, id) => right(L, `post-${id}`) - right(L, `postcard-content-${id}`) },
-      // Between its counted buttons' row and save's: three equal columns
-      // (flex 1 each), so the first row ends a column past like's.
-      { who: 'ActionRow', what: 'its gap (param gap, actions.row-gap)', ids: ACTION_ROWS, is: true, axis: 'w', at: (L, id) => box(L, `bookmark-${id}`).x - (2 * box(L, `like-${id}`).x - box(L, `repost-${id}`).x) },
+      // Between its counted buttons' row and save's: three columns of flex
+      // 1 each, like's as wide as repost's or, squeezed, its own button
+      // (a flex item's min-content), so the first row ends there.
+      { who: 'ActionRow', what: 'its gap (param gap, actions.row-gap)', ids: ACTION_ROWS, is: true, axis: 'w', at: (L, id) => {
+        const like = box(L, `like-${id}`);
+        return box(L, `bookmark-${id}`).x - (like.x + Math.max(like.x - box(L, `repost-${id}`).x, like.w));
+      } },
       { who: 'AtCard', what: 'its padding (cards.link-pad), the visit button\'s move', ids: ['at-base'], once: true, axis: 'w', at: (L, id) => box(L, `atcard-visit-${id}`).x - box(L, `atcard-${id}`).x },
       { who: 'PostButton', what: 'its side padding (actions.post-pad), its width', ids: POST_BUTTONS, twice: true, axis: 'w', at: (L, id) => box(L, `compose-post-${id}`).w },
     ],

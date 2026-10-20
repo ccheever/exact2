@@ -46,10 +46,11 @@ component App
         PostCard(id="sample-pc-reposted", press=press, inThread=false, lineAbove=false, lineBelow=false, context="reposted", contextText="Reposted by Fen", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="")
           box testId="marker-sample-pc-reposted" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
-        // The action rows no wider than 23rem, so a row's counted buttons fill it
-        // on every host (the terminal's 64 columns too), where its gap shows (the
-        // gate's restyle line reads it).
-        column max-width="23rem"
+        // The action rows no wider than 20rem, the counted buttons' own widest
+        // (actions.row-max, 320px), so those buttons always fill what the row
+        // leaves them on every host, where its gap shows (the gate's restyle
+        // line reads it).
+        column max-width="20rem"
           ActionRow(id="ar-base", big=false, haptics=false, replyDisabled=false, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
           ActionRow(id="ar-big", big=true, haptics=false, replyDisabled=false, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
           ActionRow(id="ar-haptics", big=false, haptics=true, replyDisabled=false, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
