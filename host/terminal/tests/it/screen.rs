@@ -947,3 +947,89 @@ fn a_disabled_or_inert_box_takes_no_press_and_a_buttons_label_is_its_own() {
         "{screen}"
     );
 }
+
+/// An `autofocus` control takes the focus once, as it arrives with nothing
+/// focused (HTML's candidates): a press on a box that can't hold the focus
+/// blurs it and the focus stays empty, so a key types nowhere; one that
+/// arrives later, with nothing focused, takes it (QUEUE: "the terminal
+/// refills autofocus whenever the focus is empty").
+const AUTOFOCUS: &str = r#"component App
+  state draft = ""
+  state other = ""
+  state shown = false
+  state presses = 0
+  state more = false
+  state third = ""
+  action showMore
+    more = true
+  action writeThird(v: string)
+    third = v
+  action write(v: string)
+    draft = v
+  action writeOther(v: string)
+    other = v
+  action pressed
+    presses = presses + 1
+    shown = true
+  view
+    column
+      input testId="field" value=draft input=write autofocus=true appearance="none" placeholder="type"
+      box testId="card" press=pressed
+        text "card"
+      if shown
+        input testId="late" value=other input=writeOther autofocus=true appearance="none" placeholder="late"
+      button testId="more" press=showMore
+        text "more"
+      if more
+        input testId="third" value=third input=writeThird autofocus=true appearance="none" placeholder="third"
+      text `draft [${draft}] other [${other}] third [${third}] presses ${presses}`
+"#;
+
+#[test]
+fn autofocus_takes_the_focus_once_and_never_refills_it() {
+    let plan = contract::compile(AUTOFOCUS).expect("compiles");
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).expect("boots");
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Char('a')]);
+    assert!(vt.text(false).contains("draft [a]"), "{}", vt.text(false));
+    // The press blurs the field and shows `late`, which arrives with
+    // nothing focused and takes the focus: the next key is its.
+    let (x, y) = find(&vt, "card");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Char('b')]);
+    assert!(
+        vt.text(false)
+            .contains("draft [a] other [b] third [] presses 1"),
+        "{}",
+        vt.text(false)
+    );
+    // Pressed again: nothing new arrives, so the focus stays empty.
+    let (x, y) = find(&vt, "card");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Char('c')]);
+    assert!(
+        vt.text(false)
+            .contains("draft [a] other [b] third [] presses 2"),
+        "{}",
+        vt.text(false)
+    );
+    // One that arrives while something holds the focus (the button just
+    // pressed) is spent: after a blur, a key still types nowhere.
+    press(&mut host, &mut vt, "more");
+    let (x, y) = find(&vt, "card");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Char('d')]);
+    assert!(
+        vt.text(false)
+            .contains("draft [a] other [b] third [] presses 3"),
+        "{}",
+        vt.text(false)
+    );
+}

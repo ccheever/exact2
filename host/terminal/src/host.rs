@@ -195,6 +195,11 @@ pub struct Host<D: DataSource> {
     /// frame written before the key was read had shown. No timer.
     pub frames: u64,
     pub(crate) born: HashMap<ViewId, u64>,
+    /// Each `autofocus` control already offered the focus: HTML's
+    /// candidates, each taken once, when it arrives with nothing focused.
+    /// One that can't take the focus yet (disabled, hidden, in a closed
+    /// layer) is offered when it can, as the Linux host has it.
+    autofocused: std::collections::HashSet<exact_kernel::NodeKey>,
     /// Largest settled tree since the last trim; halve before sweeping again.
     trim_at: usize,
     /// The frame count when the keys being handled were read.
@@ -286,6 +291,7 @@ impl<D: DataSource> Host<D> {
             outbound: Vec::new(),
             frames: 0,
             born: HashMap::new(),
+            autofocused: Default::default(),
             trim_at: 0,
             read_at: 0,
             arm: true,
@@ -437,8 +443,12 @@ impl<D: DataSource> Host<D> {
         if self.focus.is_some_and(|f| !self.focusables().contains(&f)) {
             self.focus = None;
         }
+        // An `autofocus` control takes the focus once, as it arrives with
+        // nothing focused; one arriving while something is (or after a blur
+        // or a click away) is spent, never refilling an empty focus later.
+        let fresh = self.autofocus();
         if self.focus.is_none() {
-            self.focus = self.autofocus();
+            self.focus = fresh;
             if let Some(f) = self.focus {
                 self.caret = self.value(f).graphemes(true).count();
             }
@@ -771,13 +781,24 @@ impl<D: DataSource> Host<D> {
         out
     }
 
-    fn autofocus(&self) -> Option<ViewId> {
+    /// The first `autofocus` control not yet offered the focus; every such
+    /// control now present is spent.
+    fn autofocus(&mut self) -> Option<ViewId> {
         let kernel = self.runner.kernel();
-        self.focusables().into_iter().find(|id| {
-            kernel
-                .node(*id)
-                .is_some_and(|n| n.props.bool(PropId::Autofocus) == Some(true))
-        })
+        let fresh: Vec<(ViewId, exact_kernel::NodeKey)> = self
+            .focusables()
+            .into_iter()
+            .filter_map(|id| {
+                let n = kernel.node(id)?;
+                (n.props.bool(PropId::Autofocus) == Some(true)
+                    && !self.autofocused.contains(&n.key))
+                .then_some((id, n.key))
+            })
+            .collect();
+        self.autofocused
+            .retain(|key| kernel.node_by_key(*key).is_some());
+        self.autofocused.extend(fresh.iter().map(|(_, key)| *key));
+        fresh.first().map(|(id, _)| *id)
     }
 
     /// Move the focus to a node (or nowhere), telling the app.
