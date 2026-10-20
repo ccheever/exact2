@@ -253,13 +253,20 @@ fn written(node: &Node, row: &dyn Fn(&Node, bool) -> Node) -> Option<Node> {
     .iter()
     .any(|p| last(attrs, p).is_some());
     // The content may stand in a wrapper (a row holding leading actions and
-    // the content, as Messages' inbox writes it): it is found through elements.
+    // the content, as Messages' inbox writes it), or in an `if` or `match`
+    // arm, one at a time: it is found through elements and arms. In a `for`
+    // it would be several elements of one `id`, so none is the row.
     fn count(nodes: &[Node], named: &dyn Fn(&Node) -> bool) -> usize {
         nodes
             .iter()
             .map(|n| match n {
                 _ if named(n) => 1,
                 Node::Element { children, .. } => count(children, named),
+                Node::When {
+                    then, otherwise, ..
+                } => count(then, named).max(count(otherwise, named)),
+                Node::Match { some, none, .. } => count(&some.1, named).max(count(none, named)),
+                Node::Each { body, .. } if count(body, named) > 0 => 2,
                 _ => 0,
             })
             .sum()
@@ -287,9 +294,40 @@ fn written(node: &Node, row: &dyn Fn(&Node, bool) -> Node) -> Option<Node> {
             .map(|c| match c {
                 _ if named(c) => {
                     let (content, rows) = swiped(c, row, span);
-                    outer.extend(rows);
+                    // Each arm's content gives the scroll the same rows.
+                    for r in rows {
+                        if !outer.iter().any(|o| o.name == r.name) {
+                            outer.push(r);
+                        }
+                    }
                     content
                 }
+                Node::When {
+                    tag,
+                    cond,
+                    then,
+                    otherwise,
+                    span: at,
+                } => Node::When {
+                    tag: *tag,
+                    cond: cond.clone(),
+                    then: styled(then, named, row, span, outer),
+                    otherwise: styled(otherwise, named, row, span, outer),
+                    span: *at,
+                },
+                Node::Match {
+                    tag,
+                    subject,
+                    some,
+                    none,
+                    span: at,
+                } => Node::Match {
+                    tag: *tag,
+                    subject: subject.clone(),
+                    some: (some.0.clone(), styled(&some.1, named, row, span, outer)),
+                    none: styled(none, named, row, span, outer),
+                    span: *at,
+                },
                 Node::Element {
                     tag,
                     positional,
