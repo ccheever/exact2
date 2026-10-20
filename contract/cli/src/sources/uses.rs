@@ -395,62 +395,6 @@ pub(crate) fn apply(src: &str, lines: &[UseLine]) -> String {
     text
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_relative_path_is_written_as_a_use_writes_one() {
-        let at = |d: &str, t: &str| relative(Path::new(d), Path::new(t));
-        assert_eq!(
-            at("/a/app", "/a/app/shapes.contract").as_deref(),
-            Some("./shapes.contract")
-        );
-        assert_eq!(
-            at("/a/app", "/a/app/lib/x.contract").as_deref(),
-            Some("./lib/x.contract")
-        );
-        assert_eq!(
-            at("/a/app/lib", "/a/app/x.contract").as_deref(),
-            Some("../x.contract")
-        );
-        assert_eq!(
-            at("/a/app/lib", "/a/app/ui/x.contract").as_deref(),
-            Some("../ui/x.contract")
-        );
-    }
-
-    #[test]
-    fn lines_extend_their_use_or_follow_the_last() {
-        let src = "// A note.\nuse A from \"./a.contract\" // the first\nuse B from \"./b.contract\"\ncomponent App\n";
-        let out = apply(
-            src,
-            &[
-                UseLine {
-                    line: Some(2),
-                    text: "use A, C from \"./a.contract\"".into(),
-                },
-                UseLine {
-                    line: None,
-                    text: "use D from \"./d.contract\"".into(),
-                },
-            ],
-        );
-        assert_eq!(out, "// A note.\nuse A, C from \"./a.contract\" // the first\nuse B from \"./b.contract\"\nuse D from \"./d.contract\"\ncomponent App\n");
-        let out = apply(
-            "// A note.\n// More.\ncomponent App\n",
-            &[UseLine {
-                line: None,
-                text: "use D from \"./d.contract\"".into(),
-            }],
-        );
-        assert_eq!(
-            out,
-            "// A note.\n// More.\nuse D from \"./d.contract\"\ncomponent App\n"
-        );
-    }
-}
-
 /// A loader holding the root at `root_key` alone, `src` its text.
 fn root_loader<'a>(app_root: &'a Path, root_key: &Path, src: &str) -> Loader<'a> {
     Loader {
@@ -633,4 +577,60 @@ pub(crate) fn unreached(root: &Path, reached: impl Fn(&Path) -> bool) -> Vec<Pat
         .collect();
     out.sort();
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_relative_path_is_written_as_a_use_writes_one() {
+        let at = |d: &str, t: &str| relative(Path::new(d), Path::new(t));
+        assert_eq!(
+            at("/a/app", "/a/app/shapes.contract").as_deref(),
+            Some("./shapes.contract")
+        );
+        assert_eq!(
+            at("/a/app", "/a/app/lib/x.contract").as_deref(),
+            Some("./lib/x.contract")
+        );
+        assert_eq!(
+            at("/a/app/lib", "/a/app/x.contract").as_deref(),
+            Some("../x.contract")
+        );
+        assert_eq!(
+            at("/a/app/lib", "/a/app/ui/x.contract").as_deref(),
+            Some("../ui/x.contract")
+        );
+    }
+
+    #[test]
+    fn lines_extend_their_use_or_follow_the_last() {
+        let src = "// A note.\nuse A from \"./a.contract\" // the first\nuse B from \"./b.contract\"\ncomponent App\n";
+        let out = apply(
+            src,
+            &[
+                UseLine {
+                    line: Some(2),
+                    text: "use A, C from \"./a.contract\"".into(),
+                },
+                UseLine {
+                    line: None,
+                    text: "use D from \"./d.contract\"".into(),
+                },
+            ],
+        );
+        assert_eq!(out, "// A note.\nuse A, C from \"./a.contract\" // the first\nuse B from \"./b.contract\"\nuse D from \"./d.contract\"\ncomponent App\n");
+        let out = apply(
+            "// A note.\n// More.\ncomponent App\n",
+            &[UseLine {
+                line: None,
+                text: "use D from \"./d.contract\"".into(),
+            }],
+        );
+        assert_eq!(
+            out,
+            "// A note.\n// More.\nuse D from \"./d.contract\"\ncomponent App\n"
+        );
+    }
 }
