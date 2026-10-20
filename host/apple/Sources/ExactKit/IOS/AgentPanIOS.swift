@@ -287,7 +287,8 @@ extension Agent {
     /// weather, mood journal): what a finger's drag on a scroller ends with,
     /// its content moved with the finger — up 300 points for a drag of
     /// -300 — as far as its range allows, lifted with no fling, and its bars
-    /// as the finger leaves them (`rest`). Only on a
+    /// as the finger leaves them (`rest`); pulled far enough past the top, its
+    /// pull to refresh started (`refreshed`). Only on a
     /// node that scrolls itself (a scroll container, a grouped list), where
     /// the scroll view's pan is what takes the drag; a finger there must
     /// land on it. A drag on anything else reaches whatever UIKit's
@@ -318,9 +319,20 @@ extension Agent {
         // A finger's drag shows the indicators, which fade once it lifts; an
         // offset written directly shows none.
         if by != o { sv.flashScrollIndicators() }
+        // A finger pulled far enough past the top starts the refresh
+        // control as it lifts. Measured with real touches (iOS 27
+        // simulator, Shelf's discover list): 200 points past the top
+        // refreshes, 180 does not.
+        let pull = CGFloat(delta[1]) - (o.y + sv.adjustedContentInset.top)
+        var refreshed = false
+        if scrollsY, pull >= 200, let control = sv.refreshControl, control.isEnabled, !control.isRefreshing {
+            control.beginRefreshing()
+            control.sendActions(for: .valueChanged)
+            refreshed = true
+        }
         presenter.settlePump()
         return ["tapped": Int(v.id), "at": [Agent.r2(start.x), Agent.r2(start.y)], "scrolledBy": [Agent.r2(by.x - o.x), Agent.r2(by.y - o.y)],
-                "delivery": "recognized", "native": "scroll"]
+                "delivery": "recognized", "native": "scroll", "refreshed": refreshed]
     }
 
     /// Leaves `sv` where a person's scroll to `want` leaves it, on the axes
