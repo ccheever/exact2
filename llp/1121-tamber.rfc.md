@@ -5334,3 +5334,17 @@ Stage 12 §B's first commit, under no wire change (the server's existing fields 
     compile, as round 3's key did, in the same time. The old key took 222 ms there only because it did not rebuild
     and kept a stale retention. (An earlier run, under heavier load, had the old key at 469 ms after a value edit and
     round 3's at 5639 and 7695.)
+  - **After the key's re-check (Astra, blocking):**
+    - **Names compared as the checker resolves them.** A role's spelling is matched in any case and with or without
+      `-exact-` (`CANVAS` is `Canvas`), so the key folded only exact matches: `pick = CANVAS` moved to
+      `pick = CANVASTEXT` kept it while the retained chain moved. Names and references are now folded (lowercased,
+      `-exact-` dropped) before they are compared and keyed. Test: `a_role_alias_moved_by_its_case_is_followed`: a
+      param set to `pick` with `Canvas = old` and `CanvasText = fresh`. Moving `pick` by case builds again, and the
+      primed server's answers (a value edit of `old`, of `fresh`) are a fresh server's.
+    - **Each row says its section.** A token's row and an icon's were alike (`icon.brand None other []`), so a name
+      moved from `icons` to `theme` kept the key though it changes what the views may read. Rows now open with
+      `token` or `icon`. In the same sweep, a token's metadata keys the names it references (`pair=` another token).
+      Params, components, axes, dials and `exports` already have rows of their own, and colour profiles are the
+      Contract sources' (in the walk's key). Test: `a_name_moved_between_sections_or_a_pair_moved_builds_again`:
+      `pair=paper` to `pair=ground` builds again, and so does `icon.brand = icon(sf "star")` moved verbatim from
+      `icons` to `theme`. Both tests fail without their fixes, checked by hand.

@@ -280,20 +280,31 @@ impl Server {
 pub(super) fn retention_key(texts: &[&str]) -> String {
     let parsed: Vec<Option<exact_tamber::Design>> =
         texts.iter().map(|t| exact_tamber::parse(t).ok()).collect();
-    let names: std::collections::HashSet<&str> = parsed
+    // A name as the checker resolves one: a role's spelling in any case and
+    // with or without `-exact-` (`CANVAS` is `Canvas`), so a reference and a
+    // name are compared, and keyed, folded (re-check: a role alias moved by
+    // case alone kept the key).
+    let fold = |name: &str| {
+        let lower = name.to_ascii_lowercase();
+        lower
+            .strip_prefix("-exact-")
+            .map_or(lower.clone(), str::to_string)
+    };
+    let names: std::collections::HashSet<String> = parsed
         .iter()
         .flatten()
         .flat_map(|d| {
             d.tokens
                 .iter()
                 .chain(&d.icons)
-                .map(|t| t.name.value.as_str())
-                .chain(d.dials.iter().map(|x| x.name.value.as_str()))
+                .map(|t| fold(&t.name.value))
+                .chain(d.dials.iter().map(|x| fold(&x.name.value)))
         })
         .collect();
     let refs = |text: &str| -> String {
         let words = text
             .split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
+            .map(fold)
             .filter(|w| names.contains(w));
         words.collect::<Vec<_>>().join(" ")
     };
@@ -335,12 +346,28 @@ pub(super) fn retention_key(texts: &[&str]) -> String {
             continue;
         };
         key.push_str("design\n");
-        for t in d.tokens.iter().chain(&d.icons) {
+        // Each row says its section: a name moved from `icons` to `theme`
+        // changes what the views may read (re-check).
+        let sections = d
+            .tokens
+            .iter()
+            .map(|t| ("token", t))
+            .chain(d.icons.iter().map(|t| ("icon", t)));
+        for (section, t) in sections {
             let (v, n) = (&t.value.value, &t.name.value);
-            key.push_str(&format!("{n} {:?} {} [{}]", t.kind, class(v), refs(v)));
+            key.push_str(&format!(
+                "{section} {n} {:?} {} [{}]",
+                t.kind,
+                class(v),
+                refs(v)
+            ));
             for w in &t.whens {
                 let v = &w.value.value;
                 key.push_str(&format!(" when {:?} {} [{}]", w.conds, class(v), refs(v)));
+            }
+            // What its metadata names (`pair=` another token).
+            for (k, v) in &t.meta {
+                key.push_str(&format!(" {k}=[{}]", refs(v)));
             }
             key.push('\n');
         }

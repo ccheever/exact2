@@ -636,3 +636,73 @@ fn a_value_edit_naming_nothing_keeps_the_cached_retention() {
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The retention key's re-check (Astra): names compared as the checker
+/// resolves them. A param set to `pick`, which names a role override in
+/// another case (`CANVAS`, the design's `Canvas = old`), moved to
+/// `CANVASTEXT` (`CanvasText = fresh`): retention follows, as a fresh
+/// server's does, and the server builds it again.
+#[test]
+fn a_role_alias_moved_by_its_case_is_followed() {
+    let dir = reading("pkg-params-role-case");
+    let file = dir.join("app.tamber");
+    let log = dir.join("retention.log");
+    let builds = || std::fs::read_to_string(&log).map_or(0, |t| t.lines().count());
+    let design = |to: &str| {
+        format!("tamber t\n\naxes\n  mode = a | b\n\ntheme\n  old = #111111\n  fresh = #222222\n  Canvas = old\n  CanvasText = fresh\n  pick = {to}\n\nparams\n  Map.pin = pick\n")
+    };
+    std::fs::write(&file, design("CANVAS")).unwrap();
+    // (A token under a role can't vary by an axis, the role would: a value edit, its whole answer compared.)
+    let vary = |name: &str| json!({"method": "propose", "ops": [{"op": "set-token", "name": name, "value": "#444444"}]});
+    let mut s = Serve::start(
+        &dir,
+        &[("EXACT_TAMBER_RETENTION_LOG", log.to_str().unwrap())],
+    );
+    let (before, _) = s.ask(vary("old"));
+    assert!(before.get("ok").is_some(), "{before}");
+    assert_eq!(builds(), 1);
+    std::fs::write(&file, design("CANVASTEXT")).unwrap();
+    let primed = [s.ask(vary("old")).0, s.ask(vary("fresh")).0];
+    assert_eq!(builds(), 2, "the alias moved by case alone");
+    drop(s);
+    let mut fresh = Serve::start(&dir, &[]);
+    for (p, name) in primed.iter().zip(["old", "fresh"]) {
+        let (e, _) = fresh.ask(vary(name));
+        assert!(e.get("ok").is_some(), "{e}");
+        let (mut p, mut e) = (p["ok"].clone(), e["ok"].clone());
+        for v in [&mut p, &mut e] {
+            v.as_object_mut().unwrap().remove("files");
+        }
+        assert_eq!(p, e, "{name}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The re-check (Astra): each key row says its section, so a name moved
+/// from `icons` to `theme` builds again; and a token's `pair=` naming
+/// another token keys too.
+#[test]
+fn a_name_moved_between_sections_or_a_pair_moved_builds_again() {
+    let dir = reading("pkg-params-sections");
+    let file = dir.join("app.tamber");
+    let log = dir.join("retention.log");
+    let builds = || std::fs::read_to_string(&log).map_or(0, |t| t.lines().count());
+    std::fs::write(&file, "tamber t\n\ntheme\n  ink = #111111\n  paper = #ffffff\n  ground = #eeeeee\n  text = #000000  pair=paper\n\nicons\n  icon.brand = icon(sf \"star\")\n").unwrap();
+    let mut s = Serve::start(
+        &dir,
+        &[("EXACT_TAMBER_RETENTION_LOG", log.to_str().unwrap())],
+    );
+    let propose = |s: &mut Serve| {
+        s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]})).0
+    };
+    assert!(propose(&mut s).get("ok").is_some());
+    assert_eq!(builds(), 1);
+    std::fs::write(&file, "tamber t\n\ntheme\n  ink = #111111\n  paper = #ffffff\n  ground = #eeeeee\n  text = #000000  pair=ground\n\nicons\n  icon.brand = icon(sf \"star\")\n").unwrap();
+    propose(&mut s);
+    assert_eq!(builds(), 2, "a pair moved");
+    std::fs::write(&file, "tamber t\n\ntheme\n  ink = #111111\n  paper = #ffffff\n  ground = #eeeeee\n  text = #000000  pair=ground\n  icon.brand = icon(sf \"star\")\n").unwrap();
+    propose(&mut s);
+    assert_eq!(builds(), 3, "icon.brand moved from icons to theme");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
