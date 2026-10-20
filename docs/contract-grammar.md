@@ -328,7 +328,8 @@ different one ends the sequence's voices that have not started (`by edit`)
 and plays the new value from that commit, a new `bpm` without a jump in
 phase. A step whose `note` is not −1, on a track whose `output` names a MIDI
 output, is a note-on there (`velocity` 1–127, `channel` 0–15) and a note-off
-`duration` beats later; a track's `offset` (within ±500 ms) moves its
+`duration` beats later (on `output=""`, no output, it goes to no device and
+`exactMIDI().sent` lists it with `output: ""`); a track's `offset` (within ±500 ms) moves its
 samples', notes' and haptics' times, as a latency is lined up by ear.
 `clockOut="<output id>"` sends Timing Clock 24 times a beat, Start before the
 first tick at a beat at or after 0, and Stop at the stop or the end
@@ -428,7 +429,9 @@ arguments (`type-request-midi-access`). `sendMIDI(output, data, at=)` sends
 no SysEx; a literal one is checked, `type-send-midi`), to an output by `id`
 at `at` on the runner's clock (the commit's time by default, and the past is
 now); what is not well-formed, an output not connected, or the 1,025th
-message waiting is dropped and journaled (note-offs and Stop never are). The
+message waiting is dropped and journaled (note-offs and Stop never are).
+`""` is no output: what is sent there reaches no device, needs no access, and
+`sent` lists it with `output: ""` (an activity log with no device, LLP 1125 D6). The
 runner keeps the queue: a host hands a message to its output 50 ms before it
 is due and holds it until then, so an edit or a stop takes back what is
 still held, and a note already handed still gets its note-off. A sequence's

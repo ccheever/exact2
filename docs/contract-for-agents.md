@@ -1785,7 +1785,7 @@ MIDI is Web MIDI's, and the runner keeps its queue as it keeps the voices (LLP
 `strings/en.json`: `"purpose.midi": "…"`, the text the person is shown when asked. Read the ports with `resource midi = exactMIDI() as
 shape MIDI` (`state`: `prompt`, `granted`, `denied`, `unavailable`; `outputs` and
 `inputs`, each `{id, name, manufacturer, state}`; `sent`, the last 128 messages that
-went out in time order, each `{output, data, timeStamp}`, Timing Clock left out: an activity log), ask for them from a press with
+went out in time order, each `{output, data, timeStamp}`, Timing Clock left out: an activity log; a track whose `output` is `""`, and `sendMIDI("", …)`, go to no device but are listed with `output: ""`, so the log shows what plays with none connected), ask for them from a press with
 `requestMIDIAccess()`, and let the person pick an output (a `select` of
 `midi.outputs` by `id`). Then a step's `note` plays on its track's `output` (a
 note-on, and a note-off `duration` beats later), `clockOut=output` on `play`

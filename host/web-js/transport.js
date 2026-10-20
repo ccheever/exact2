@@ -51,7 +51,7 @@ let End = null; // the armed end's `clock.timers` entry: a new one per arming, s
 const Wake = { due: Infinity, hatch: true, i: Infinity, name: '', action: () => (wake(clock.now), true) };
 
 const whole = (n, low, high) => n % 1 === 0 && n >= low && n <= high;
-// A step read from its record, or null (journaled when it is not played for a reason); `output` its track's.
+// A step read from its record, or null (journaled when it is not played for a reason); `output` its track's (`''` no output, where its notes go only into `sent`), null for the count-in's, which sends no note.
 function step(v, length, output, label) {
   const f = items(v), beat = number(f[0]), src = text(f[1]), haptic = text(f[8]);
   const gain = number(f[2]), rate = f.length > 9 ? number(f[9]) : 1, pan = f.length > 10 ? number(f[10]) : 0;
@@ -66,8 +66,8 @@ function step(v, length, output, label) {
     : note !== -1 && !whole(channel, 0, 15) ? `channel ${num(channel)} is not 0–15`
     : note !== -1 && !(Number.isFinite(duration) && duration > 0) ? `duration ${num(duration)} is not a positive number of beats` : null;
   if (why) { say(`${label} dropped: ${why}`); return null; }
-  if (!src && !haptic && (note === -1 || !output)) return null;
-  return { beat, src, gain, group: text(f[3]), note: output ? note : -1, velocity, channel, duration, rate, pan, haptic };
+  if (!src && !haptic && (note === -1 || output == null)) return null;
+  return { beat, src, gain, group: text(f[3]), note: output == null ? -1 : note, velocity, channel, duration, rate, pan, haptic };
 }
 // `play`'s arguments read (runner `Play::read`): the play, or `{ why }` for a tempo that is none.
 function read(name, args) {
@@ -87,7 +87,7 @@ function read(name, args) {
     if (why) return void say(`${label} dropped: ${why}`);
     tracks.push({ length, loops, offset, output, steps: items(f[4]).map((s, j) => step(s, length, output, `${label} step ${j + 1}`)).filter(Boolean) });
   });
-  const countIn = from < 0 ? items(args[3]).map((s, j) => step(s, -from, '', `sequence ${name}: count-in step ${j + 1}`)).filter(Boolean) : [];
+  const countIn = from < 0 ? items(args[3]).map((s, j) => step(s, -from, null, `sequence ${name}: count-in step ${j + 1}`)).filter(Boolean) : [];
   const clockIn = text(args[4]);
   let clockOut = text(args[5]);
   if (clockIn && clockOut) { say(`sequence ${name}: clock out ignored: it follows ${clockIn}`); clockOut = ''; } // rulings #4
