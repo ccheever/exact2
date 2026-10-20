@@ -441,7 +441,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     unowned let host: GroupedListHost
     let collection: UICollectionView
     private(set) var model = GroupedListModel()
-    private var source: UICollectionViewDiffableDataSource<UInt32, UInt32>!
+    private var source: GroupedSource!
     private var rows: [UInt32: GroupedListModel.Row] = [:]
     /// Some row is custom: its views, carried, are laid out by the kernel.
     private(set) var carriesCustomRows = false
@@ -501,7 +501,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let footer = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionFooter) { [unowned self] view, _, path in
             label(view, header: false, section: path.section)
         }
-        source = UICollectionViewDiffableDataSource(collectionView: collection) { view, path, id in
+        source = GroupedSource(collectionView: collection) { view, path, id in
             view.dequeueConfiguredReusableCell(using: cell, for: path, item: id)
         }
         source.supplementaryViewProvider = { view, kind, path in
@@ -650,6 +650,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             }
         }
         snapshot.reconfigureItems(changed.filter { $0 != flipping })
+        #if os(iOS)
+        // Sections each headed by one letter (Contacts' A to Z) have UIKit's
+        // section index at the trailing edge, as a hand-built list of them
+        // does (`indexTitles(for:)`); a jump lands on a section's first row.
+        let lettered = next.sections.allSatisfy { s in s.header.map { $0.count == 1 && ($0.first!.isLetter || $0 == "#") } == true }
+        source.titles = lettered ? Dictionary(next.sections.map { ($0.view, $0.header!) }, uniquingKeysWith: { a, _ in a }) : [:]
+        #endif
         // Headers and footers live in the sections' layout: one that came,
         // went or changed lays the list out again.
         let texts = previous.sections.map { [$0.header, $0.footer] } != next.sections.map { [$0.header, $0.footer] }
@@ -1290,6 +1297,22 @@ extension UICollectionViewListCell {
     func marginsIgnoreSafeArea() {
         insetsLayoutMarginsFromSafeArea = false
         contentView.insetsLayoutMarginsFromSafeArea = false
+    }
+}
+
+/// The list's data, and its section index: each section's title, read
+/// against the sections UIKit has, which it asks about before and after a
+/// snapshot is applied. No index unless every section has a title and a row.
+final class GroupedSource: UICollectionViewDiffableDataSource<UInt32, UInt32> {
+    var titles: [UInt32: String] = [:]
+    override func indexTitles(for collectionView: UICollectionView) -> [String]? {
+        let shown = snapshot()
+        let all = shown.sectionIdentifiers.compactMap { titles[$0] }
+        let full = shown.sectionIdentifiers.allSatisfy { shown.numberOfItems(inSection: $0) > 0 }
+        return all.count > 1 && all.count == shown.numberOfSections && full ? all : nil
+    }
+    override func collectionView(_ collectionView: UICollectionView, indexPathForIndexTitle title: String, at index: Int) -> IndexPath {
+        IndexPath(item: 0, section: index)
     }
 }
 
