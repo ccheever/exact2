@@ -1131,9 +1131,16 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
     const frame = page.frames().find(f => f.url().startsWith(base.replace('127.0.0.1', 'localhost')));
     await frame.locator('#exact-inspect').waitFor();
     // Another site than the tool's: the browser runs it out of the tool's
-    // process (an iframe target of its own).
-    const { targetInfos } = await (await page.context().newCDPSession(page)).send('Target.getTargets');
-    expect(targetInfos.some(t => t.type === 'iframe' && t.url.startsWith(base.replace('127.0.0.1', 'localhost')))).toBe(true);
+    // process (an iframe target of its own). Its target's URL can trail the
+    // frame's first navigation (most likely: one loaded run saw it not yet
+    // there), so it is asked again for a while; a frame in the tool's own
+    // process never shows as one.
+    const cdp = await page.context().newCDPSession(page), here = base.replace('127.0.0.1', 'localhost');
+    let isolated = false;
+    for (const end = Date.now() + 10_000; Date.now() < end; await Bun.sleep(200)) {
+      if ((await cdp.send('Target.getTargets')).targetInfos.some(t => t.type === 'iframe' && t.url.startsWith(here))) { isolated = true; break; }
+    }
+    expect(isolated).toBe(true);
     const at = await frame.locator('[data-testid="swap"]').boundingBox();
     await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
     const line = readFileSync(resolve(ROOT, 'apps/theme-fixture/app.contract'), 'utf8').split('\n').findIndex(l => l.includes('text "Swap pins"')) + 1;

@@ -180,7 +180,9 @@ const scrubbed = (rows, params) => (rows ?? []).map(r => (r.token ? { ...r, toke
 const heldOf = (held, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
 // A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below).
-const authored = name => AUTHORED[name] ?? String(name).replace(/_/g, '-');
+const authored = name => AUTHORED[name] ?? WRITTEN[name] ?? String(name).replace(/_/g, '-');
+// Rows a part may fold whose attribute is named otherwise (contract/lower/src/states.rs RUNNER_ROWS).
+const WRITTEN = { text_color: 'color', tint_color: '-exact-tint-color' };
 // A state part's row as its author wrote it at its place (`at`, in `lines`): a look's border side is the `border-color`
 // written there, its four sides whole, or the side's own longhand (`border-top-color`), as the source says; null for
 // another, which no edit of this row may write. Else its name (`authored`).
@@ -436,10 +438,71 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       const written = b?.at && !b.state ? { at: { ...b.at, ...(sha(b.at.file) ? { sha256: sha(b.at.file) } : {}) }, attr: b.attr, ...(b.layout ? { layout: true } : {}) } : {};
       const part = b?.state ? { state: b.state, ...(b.at ? { at: b.at } : {}) } : written;
       const { unread, ...row } = r;
-      const offered = editable({ ...row, ...part }, origin, params, unread, stateRung(row, b, app, read, own), rowRung(row, b, map, app, copies, read, own));
-      return { ...row, origin, ...part, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.param ?? offered.token ?? null } : offered };
+      // A folded `:disabled` or `:checked` row (queue item (2)) is the runtime's choice over its base and its parts,
+      // so `dynamic`: where the map says both, it is read as its base, its rung the base's, each part beside it in
+      // `states` with its own (theme2's and review2's 04:24). One the map can't explain stays dynamic, read-only.
+      const folds = asBase(bound.get(r.name)) && row.source === 'dynamic' ? (bound.get(r.name).states ?? []).filter(p => p.state === 'disabled' || p.state === 'checked') : [];
+      const rung = rowRung(row, b, map, app, copies, read, own);
+      // (Its base's token, from the base as written, whichever branch the runtime shows now.)
+      const base = folds.length ? writtenToken(row, writtenAt(b, b.attr, read, map), params) : null;
+      const shown = base ? { ...row, source: 'authored', token: base.token } : row;
+      const offered = editable({ ...shown, ...part }, origin, params, unread || !!base?.unread, stateRung(row, b, app, read, own), rung);
+      const shut = o => (readOnly ? { rung: null, reason: readOnly, link: o.link ?? o.param ?? o.token ?? null } : o);
+      const states = folds.map(p => {
+        const v = { row: r.name, origin: p.origin, state: p.state, at: p.at }, w = rowRung(row, v, map, app, copies, read, own), st = stateRung(row, v, app, read, own);
+        // A part's edit is that part's alone: never a param its value names, which the base and every other use share
+        // (nor refused for one the row the host shows reads).
+        const e = editable({ ...row, source: 'authored', token: writtenToken(row, writtenAt(v, null, read), params, true).token, state: p.state }, p.origin, params, false, st, w);
+        // (Its place; a part with none, a conditional class's, its node's.)
+        const at = p.at ?? node;
+        return { state: p.state, source: { file: at.file, line: at.line, col: at.col, end_col: at.end_col }, editable: shut(e) };
+      });
+      return { ...row, origin, ...part, editable: shut(offered), ...(folds.length ? { states } : {}) };
     }),
   };
+}
+
+/** A row's value as written at its place (`b.at`), its base attribute's (`attr`) or, for a part, by the name written
+ * there (`writtenAs`), the component it is written in (the top-level `component` above it, none under another
+ * declaration), and that component's identity (`<home>#<component>`, its file's home as `map` says it); null where
+ * the file can't be read or the place says no such name. Read whether or not the file is the app's own: a param a
+ * package's component reads is overridden in the app's design. */
+function writtenAt(b, attr, read, map = null) {
+  if (!b?.at?.file) return null;
+  let lines;
+  try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
+  const name = attr ?? writtenAs(lines, b.at, b.row);
+  if (!name) return null;
+  let component = null;
+  for (let i = b.at.line - 2; i >= 0; i--) {
+    const l = lines[i] ?? '';
+    if (/^\S/.test(l) && !/^\/\//.test(l)) { component = /^component\s+([A-Za-z_][\w-]*)/.exec(l)?.[1] ?? null; break; }
+  }
+  const home = (map?.sources ?? []).find(x => x.file === b.at.file)?.home;
+  return { text: plainAt(lines[b.at.line - 1] ?? '', b.at.col, name), component, identity: home && component ? `${home}#${component}` : null };
+}
+
+/** The token a folded row's base or part reads, from its value as written (`w`, `writtenAt`'s), whichever branch the
+ * runtime shows now (queue item (2)): a param, one `param.<name>`, by its full name, its component's identity and
+ * the name (`<home>#<component>.<name>`, as the compiler names it), among the params read; never for a part
+ * (`part`), whose edit is its own; a token by its name or its role's spelling (any case, `-exact-`) where the row's
+ * names hold it; else none. `unread` where that param is not read (yet, or the map names no home for its file). */
+function writtenToken(row, w, params, part = false) {
+  const names = row.token?.names ?? [], modes = row.token?.modes ?? '';
+  const text = typeof w?.text === 'string' ? w.text.trim() : null;
+  const none = { token: { names: [], text: text ?? '', modes } };
+  if (text == null) return none;
+  const name = /^param\.([A-Za-z_][\w-]*)$/.exec(text)?.[1];
+  if (name) {
+    if (part) return none;
+    const full = w.identity ? `${w.identity}.${name}` : null;
+    const param = full && [...params.values()].find(p => p.param === full);
+    return param ? { token: { names: [param.param], text: param.param, modes } } : { ...none, unread: true };
+  }
+  // (A role's `-exact-` spelling in any case, as the kernel parses it; any other name exactly: a custom token's case
+  // is its own, so `Brand.Fill` is never `brand.fill`.)
+  const low = text.toLowerCase(), token = names.find(n => n === text || (low.startsWith('-exact-') && low.slice(7) === n));
+  return token ? { token: { names: [token], text: token, modes } } : none;
 }
 
 /** The sites of `map` at `source`'s location: every copy of that node. */
