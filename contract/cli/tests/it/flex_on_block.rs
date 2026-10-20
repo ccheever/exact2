@@ -80,6 +80,18 @@ fn a_flex_property_on_a_block_is_named_with_its_repair() {
         assert!(messages[0].contains(says), "{boxed}: {}", messages[0]);
         assert_eq!(child_x(boxed), 0.0, "{boxed}: CSS ignores it");
     }
+    // A button is a block too, as Chrome's is: its children stack (the euxy port).
+    let button = flagged("button appearance=\"none\" flex-direction=\"row\"");
+    assert_eq!(button.len(), 1, "{button:?}");
+    assert!(
+        button[0].contains("on this `button`: it is `display: block`")
+            && button[0].contains("`text-align=\"left\"`"),
+        "{button:?}"
+    );
+    assert_eq!(flagged("link href=\"/a\" gap=4").len(), 1);
+    assert!(
+        flagged("button appearance=\"none\" display=\"flex\" flex-direction=\"row\"").is_empty()
+    );
     let grid = flagged("view grid-template-columns=\"1fr 1fr\"");
     assert!(grid[0].ends_with("write `display=\"grid\"`"), "{grid:?}");
     // The repairs it names lay the child out as the author meant.
