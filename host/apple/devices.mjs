@@ -108,6 +108,46 @@ export async function withDisplay(r, path, udid, appTop = 0, { own = false, prob
   finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+/** What a drive passes from its own environment to an app that `simctl launch` (which forwards only `SIMCTL_CHILD_`
+ *  names) or `devicectl` (only what it is given) starts: `EXACT_STORE`, so `EXACT_STORE=real` gives an iOS drive the
+ *  Keychain a normal launch reads, as a macOS drive, whose app inherits the environment, has it (host/apple/src/store.rs). */
+export function forwardedEnv(env = process.env) {
+  return env.EXACT_STORE ? { EXACT_STORE: env.EXACT_STORE } : {};
+}
+
+/** A page capture (`path`) whose area holds glass or a blur, its pixels then the display's there too: the app names
+ *  that area only then (`r.materials`: x, y, width and height in window points), and `window(p)` takes a window
+ *  capture into `p` through `withDisplay`. Where that capture's pixels are the display's, the page's area is cut from
+ *  it; otherwise the picture stays the app's and says its materials are approximate, and why. Returns `r`. */
+export async function withMaterials(r, path, window) {
+  const area = r.materials;
+  delete r.materials;
+  if (!Array.isArray(area) || !(r.scale > 0)) return r;
+  const keep = (why) => {
+    r.pixels = 'app'; r.pixelsWhy = why;
+    const note = `the picture is the app's own drawing, not the display's (${why}): glass and other backdrop materials in it are approximate; \`screenshot <png> window\` takes the display's while the app is in front`;
+    r.note = r.note ? `${r.note}; ${note}` : note;
+    return r;
+  };
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-glass-'));
+  try {
+    const shot = resolve(dir, 'window.png'), whole = await window(shot);
+    if (whole.pixels !== 'display') return keep(whole.pixelsWhy ?? 'the window capture was the app\'s');
+    const display = decodePng(readFileSync(shot)), app = decodePng(readFileSync(path));
+    const [x, y] = area.map((v) => Math.round(v * r.scale));
+    if (x < 0 || y < 0 || x + app.width > display.width || y + app.height > display.height) return keep('the page lies outside the window');
+    for (let row = 0; row < app.height; row++) {
+      const from = ((y + row) * display.width + x) * 4;
+      app.data.set(display.data.subarray(from, from + app.width * 4), row * app.width * 4);
+    }
+    writeFileSync(path, encodePng(app));
+    r.pixels = 'display';
+    if (r.keyboard?.visible) { r.keyboard.captured = true; r.note = 'the software keyboard is up and in the capture where it covers the page, as the simulator draws it'; }
+    return r;
+  } catch (e) { return keep(String(e.message ?? e).split('\n')[0]); }
+  finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
 /** Why the display is not the app's at the points the app drew itself (`points`, window points), or null: around a
  *  point whose 5x5 pixels the app drew in one colour (no edge of text or shape) the display's must be within 2 levels of
  *  it, as they are exactly where nothing lies over the app (measured on the euxy port, light and dark). A notification

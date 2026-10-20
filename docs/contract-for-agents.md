@@ -198,6 +198,10 @@ record, even where a view carries the same name. Every other reply is one line t
 1206×2622 at its own 3, 402×874 with `--scale 1`, one pixel a point as on the
 web, at about a ninth of the pixels. An app's `bun exact.mjs agent ios|macos`
 takes `--scale 1` unless told otherwise; ask for more only to check fine pixels.
+On a simulator a `window` screenshot's pixels are the display's (`pixels="display"`):
+glass, blur and the keyboard as the device draws them. So are a plain one's where glass
+or a blur lies in the page; where the display cannot be read (the app not in front, an
+overlay) the reply says its materials are approximate, and why.
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -1118,7 +1122,7 @@ A token, a password or a key the module keeps is a secret, not a file: grant
 `store.forget(name)` in an answer (LLP 1018). It is the Keychain on Apple; on the
 web, the page's `localStorage`, readable by any script on that origin; a Linux
 launch keeps it only until the app exits for now. A drive keeps it, by default,
-only in a named `--storage` store (`EXACT_STORE=real` gives an Apple drive the Keychain).
+only in a named `--storage` store (`EXACT_STORE=real` gives an Apple drive, on a Mac, a simulator or a phone, the Keychain a normal launch reads).
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain

@@ -1,6 +1,7 @@
 # agent ios screenshots draw glass and backdrop blur as clear
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** A plain iOS screenshot over glass or a blur takes the display's pixels in the page's area (AgentIOS materials, devices.mjs withMaterials), or says why its materials are approximate
 **Systems:** agent (scripts/agent.mjs), Apple host (iOS), materials
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from the Linear Port lane's friction log

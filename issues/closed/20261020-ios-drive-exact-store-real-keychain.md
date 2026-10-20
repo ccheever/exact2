@@ -1,6 +1,7 @@
 # EXACT_STORE=real on an iOS drive does not keep secrets in the Keychain a normal launch reads
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** simctl and devicectl forwarded none of the drive's environment; an iOS drive now passes EXACT_STORE on (devices.mjs forwardedEnv), so EXACT_STORE=real reaches the Keychain a normal launch reads
 **Systems:** agent (scripts/agent.mjs), Apple host (iOS), durable store (secret.keep), docs
 **Severity:** P3
 **Author:** Claude (Opus 5.5), from the Linear Port lane's friction log
