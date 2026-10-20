@@ -21,6 +21,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
     fn default() -> Self {
         Self {
             sim: None,
+            development_edits: true,
             pending_restore: None,
             placed: Default::default(),
             refusal: None,
@@ -51,6 +52,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
             audio_requested: false,
             hidden: false,
             interrupted: false,
+            look: Default::default(),
         }
     }
 }
@@ -142,6 +144,8 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             return sim.assets_pending();
         }
         sim.viewport(frame.width, frame.height);
+        self.look.points = (frame.width, frame.height);
+        self.look.held = Some(*frame);
         if self.format != Some(format) {
             self.gpu_timing = None;
             self.hook_clock.reset();
@@ -414,8 +418,29 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             return;
         };
         renderer.submitted();
+        let frame = self.sim.as_mut().map_or(0, Sim::trace_frame);
         if let Some(timing) = &mut self.gpu_timing {
-            timing.submitted(&renderer.queue, timed);
+            timing.submitted(&renderer.queue, timed, frame);
         }
     }
+}
+
+pub(super) fn append_trace(
+    out: &mut String,
+    mut events: String,
+    timing: Option<&crate::hooks::gpu_timing::GpuTiming>,
+) {
+    events.pop();
+    if let Some(timing) = timing {
+        let gpu = timing.trace_json();
+        if gpu.len() > 2 {
+            if events.len() > 1 {
+                events.push(',');
+            }
+            events.push_str(&gpu[1..gpu.len() - 1]);
+        }
+    }
+    events.push(']');
+    out.push_str(",\"traceEvents\":");
+    out.push_str(&events);
 }

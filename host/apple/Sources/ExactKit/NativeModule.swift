@@ -102,6 +102,14 @@ private final class NativeTable {
     static let major: UInt32 = 3
     /// The hatch words the module handles, or nil for one that does not say.
     var hatchWords: Set<String>?
+    /// Whether its `tabContainer` takes a tab Exact holds without a
+    /// navigation controller (HeldStackIOS.swift); an older module's does not.
+    var heldStacks = false
+    /// The modules' extensions the artifact composes (LLP 1133.001 D4).
+    var extensions: [String] = []
+    /// The module reads `app.onLine` through the host table's `on_line`
+    /// (its roster's `facts`); an older module reads only the app facts.
+    var asksOnLine = false
     static let size: UInt32 = 104
     typealias CreateFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, NativeEventFn?, NativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
     typealias ViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -184,7 +192,10 @@ private final class NativeTable {
         else { return .failure(NativeFailure(state: "unavailable", message: "\(path): unreadable roster")) }
         // The hatch words the module was built to handle, under a key no tag
         // can take (LLP 1075.003.000.001 §4.3); an older module names none.
-        let hatchWords = (roster.removeValue(forKey: "hatches")?["words"] as? [String]).map(Set.init)
+        let hatches = roster.removeValue(forKey: "hatches")
+        let hatchWords = (hatches?["words"] as? [String]).map(Set.init)
+        let extensions = roster.removeValue(forKey: "extensions")?["names"] as? [String] ?? []
+        let asksOnLine = roster.removeValue(forKey: "facts")?["onLine"] as? String == "asks"
         guard let create = pointer(16), let view = pointer(24), let set = pointer(32), let destroy = pointer(48),
               let moduleCreate = pointer(72), let moduleDestroy = pointer(80), let moduleLater = pointer(88),
               let moduleCall = pointer(96) else {
@@ -200,6 +211,9 @@ private final class NativeTable {
             moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self),
             moduleCall: unsafeBitCast(moduleCall, to: ModuleLaterFn.self))
         loaded.hatchWords = hatchWords
+        loaded.heldStacks = hatches?["heldStacks"] as? Bool == true
+        loaded.extensions = extensions
+        loaded.asksOnLine = asksOnLine
         loaded.agentInput = pointer(64).map { unsafeBitCast($0, to: SetFn.self) }
         loaded.focusTarget = size >= 120 ? pointer(112).map { unsafeBitCast($0, to: ViewFn.self) } : nil
         loaded.prepareForReuse = size >= 112 ? pointer(104).map { unsafeBitCast($0, to: ReuseFn.self) } : nil
@@ -532,6 +546,10 @@ final class NativeViews {
     /// The hatch words the loaded module was built to handle (LLP
     /// 1075.003.000.001 §4.3), or nil when it does not say: then every word is called.
     var handledHatches: Set<String>? { if case .success(let t) = NativeProcess.table { t.hatchWords } else { nil } }
+    /// Whether the loaded module's `tabContainer` takes held tabs (HeldStackIOS.swift).
+    var takesHeldStacks: Bool { if case .success(let t) = NativeProcess.table { t.heldStacks } else { false } }
+    /// Whether the loaded module asks the host for `app.onLine` (`NativeTable.asksOnLine`).
+    var moduleAsksOnLine: Bool { if case .success(let t) = NativeProcess.table { t.asksOnLine } else { false } }
     var onHatchesConnected: (() -> Void)?
     var hatchCalls: (navigation: HatchNavigationFn, route: HatchRouteFn)?
     var tabCalls: (HatchTabsFn, HatchTabContainerFn)?
@@ -628,6 +646,13 @@ final class NativeViews {
         activateHatches()
         guard hasAppModule, instance == nil, case .success(let table) = self.table() else { return }
         _ = module(table)
+        // Its extensions answer their names from now on, outside the agent;
+        // under the agent the runner's substitute does (LLP 1124 D7), unless
+        // the drive binds one (`--bind`).
+        let bound = ExactEnv.agentMode ? table.extensions.filter(ExactEnv.agentBind.contains) : table.extensions
+        if !bound.isEmpty, let session {
+            session.runtime.bindExtensions(bound)
+        }
     }
 
     /// A long call, on the main thread: the artifact loads, the instance is

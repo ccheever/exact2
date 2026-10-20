@@ -78,7 +78,8 @@ fn refusal(id: &str, message: String, span: Span) -> CompileError {
     }
 }
 
-/// Whether one written length is a terminal length.
+/// Whether one written length is a terminal length: a base scale name is,
+/// cells in the terminal's column (LLP 1121 stage 11 B2).
 fn cell_length(part: &str) -> bool {
     let part = part.trim();
     matches!(
@@ -86,6 +87,7 @@ fn cell_length(part: &str) -> bool {
         "0" | "auto" | "none" | "min-content" | "max-content" | "fit-content"
     ) || part.ends_with('%')
         || exact_kernel::style::cells::parse(part).is_some()
+        || exact_kernel::style::scale::is_base(part)
 }
 
 /// The literal lengths in `value` that are not in cells.
@@ -212,6 +214,8 @@ mod tests {
     #[test]
     fn cells_pass_and_pixels_shadows_and_canvases_are_refused() {
         let ok = "component A\n  view\n    column padding=\"0 1ch\" gap=\"1lh\" width=\"50%\" min-height=0 color=\"#fff\" font-weight=700\n      text \"hi\" margin-left=\"auto\"\n";
+        // The base scale's names are cells in the terminal's column (stage 11 B2).
+        assert_eq!(ids("component A\n  view\n    column padding=\"space.lg\" gap=\"space.sm\"\n      text \"hi\"\n"), Vec::<String>::new());
         assert_eq!(ids(ok), Vec::<String>::new());
         let bad = "component A\n  view\n    column padding=16 box-shadow=\"0 1px #000\"\n      text \"hi\" font-size=20 margin=\"1lh 2px\"\n      canvas width=\"1ch\"\n";
         assert_eq!(

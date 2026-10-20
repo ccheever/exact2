@@ -91,7 +91,7 @@ pub(super) fn eval(
     let string = |pc: usize| {
         let index = u32::from_le_bytes(code[pc + 1..pc + 5].try_into().unwrap());
         env.strings
-            .get(index as usize)
+            .get(env.plan, index as usize)
             .cloned()
             .ok_or(Trap::Malformed { pc })
     };

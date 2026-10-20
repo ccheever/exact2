@@ -31,7 +31,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The window's tuple with each `(axis, value)` of `pins`; `None` when
     /// one names no axis or value of the plan's, or an axis twice.
-    fn window_with(&self, pins: &[(&str, &str)]) -> Option<u32> {
+    pub(super) fn window_with(&self, pins: &[(&str, &str)]) -> Option<u32> {
         let axes: Vec<(&str, Vec<&str>)> = self
             .plan
             .axes
@@ -78,7 +78,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Set the window's tuple, to be set again in the next visit.
-    fn set_window(&mut self, tuple: u32) -> bool {
+    pub(super) fn set_window(&mut self, tuple: u32) -> bool {
         let moved = tuple != self.ids.theme.window;
         self.ids.theme.window = tuple;
         self.ids.theme.moved |= moved;
@@ -104,6 +104,18 @@ impl<D: DataSource> Runner<D> {
     /// called it. `false`, and a journal line, for an axis or value the plan
     /// does not have, which changes nothing.
     pub(super) fn app_set_mode(&mut self, args: &[Value]) -> bool {
+        // (On an axis a development host holds over the app's own: kept as asked, not applied.)
+        if let [axis, value] = args {
+            if let Some(pin) = axis
+                .as_str()
+                .zip(value.as_str())
+                .filter(|pin| self.window_with(&[*pin]).is_some())
+            {
+                if self.held_mode(pin.0, pin.1) {
+                    return true;
+                }
+            }
+        }
         let tuple = match args {
             [axis, value] => axis
                 .as_str()
@@ -189,6 +201,61 @@ impl<D: DataSource> Runner<D> {
         self.set_modes(&[(axis, value)])
     }
 
+    /// `view`'s look row `style` in `state` (LLP 1121 D8) as the theme index
+    /// holds it, for `layout <node>`: the tokens its written text read, the
+    /// text, and the tuple; `None` when it read no token.
+    pub fn look_token(
+        &self,
+        view: exact_kernel::ViewId,
+        state: u8,
+        style: exact_kernel::StyleId,
+    ) -> Option<(Vec<String>, String, String, bool)> {
+        let looks = self.ids.theme.looks().find(|(v, _)| *v == view)?.1;
+        let (_, rows) = looks.states.iter().find(|(s, _)| *s == state)?;
+        let (_, value, _) = rows.iter().find(|(id, _, _)| *id == style as u16)?;
+        let tuple = crate::bridge::set_tuple(looks.tuple);
+        let mut scratch = exact_kernel::StyleProps::default();
+        let (_, read) = exact_kernel::style::theme::recorded(|| {
+            crate::bridge::set_plan_style(&mut scratch, style as u16, value, &self.plan)
+        });
+        crate::bridge::set_tuple(tuple);
+        let names = self.token_names(read);
+        if names.is_empty() {
+            return None;
+        }
+        let text = match value {
+            t @ exact_plan::str_value!() => t.text().to_string(),
+            other => {
+                let mut s = String::new();
+                crate::agent::untyped_json(other, &mut s);
+                s
+            }
+        };
+        let modes = (self.modes_of(looks.tuple).into_iter())
+            .map(|(a, v)| format!("{a}={v}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        Some((names, text, modes, false))
+    }
+
+    /// The theme's names for what a parse read, each once (an override read
+    /// by a role's spelling too).
+    fn token_names(&self, read: impl IntoIterator<Item = impl AsRef<str>>) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for entry in read {
+            let entry = entry.as_ref();
+            let token = self.plan.theme.iter().find(|t| {
+                *self.plan.str(t.name) == *entry
+                    || self.plan.str(t.role).eq_ignore_ascii_case(entry)
+            });
+            let name = token.map_or(entry.to_string(), |t| self.plan.str(t.name).to_string());
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        names
+    }
+
     /// `view`'s `style` row as D7's index holds it, for `layout <node>`:
     /// the tokens it read (the theme's names its text names), its text, the
     /// tuple it was set in as `axis=value` by commas, and whether a boundary
@@ -216,17 +283,7 @@ impl<D: DataSource> Runner<D> {
             crate::bridge::set_plan_style(&mut scratch, style as u16, &row.text, &self.plan)
         });
         crate::bridge::set_tuple(tuple);
-        let mut names: Vec<String> = Vec::new();
-        for entry in read {
-            let token = self.plan.theme.iter().find(|t| {
-                *self.plan.str(t.name) == *entry
-                    || self.plan.str(t.role).eq_ignore_ascii_case(&entry)
-            });
-            let name = token.map_or(entry.to_string(), |t| self.plan.str(t.name).to_string());
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
+        let names = self.token_names(read);
         let modes = self
             .modes_of(row.tuple)
             .into_iter()

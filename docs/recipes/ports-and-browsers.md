@@ -17,3 +17,4 @@ keeps its data per port, so drive one store on one port.
   Firefox/WebKit use a new profile each drive and do not preserve named stores.
 - **Native stores.** `agent ios --storage s1` (macOS, Linux, Android alike) is kept
   between drives; `--reset-storage` empties it. One drive holds a store at a time.
+  An iOS, macOS or Linux drive that names no store uses `default`, kept the same way.

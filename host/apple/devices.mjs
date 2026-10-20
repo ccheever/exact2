@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
-import { basename, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
@@ -147,11 +147,11 @@ export function simulators() {
   return Object.entries(JSON.parse(r.stdout).devices).flatMap(([runtime, list]) => list.map((d) => ({ udid: d.udid, name: d.name, runtime, state: d.state, type: d.deviceTypeIdentifier?.split('.').pop() ?? '' })));
 }
 
-/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. When several are booted, the one `app` (a bundle id) is installed on, said on stderr; refused when that is none or several, naming how to choose: `hint`, the caller's own way. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
+/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. When several are booted, the one `app` (a bundle id) is installed on, and of several so, the one the app in `dir` last used (its `.exact/simulator`, written when a simulator is named or chosen so), said on stderr; refused when that is none or several, naming how to choose: `hint`, the caller's own way. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
 const saidSimulator = new Set(); // a verify opens a dozen sessions: the choice is said once
 export function simulator(pick = process.env.EXACT_SIM, options = {}) { return bootSimulator(chooseSimulator(pick, options)); }
 /** `simulator`'s choice, booting nothing: what a drive locks before it launches (agent.mjs `resolveDevice`). */
-export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>', app } = {}) {
+export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>', app, dir } = {}) {
   const all = simulators();
   const version = (d) => Number(/(?:iOS|tvOS)-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
   const kind = (d) => d.type || d.name.replaceAll(' ', '-');
@@ -161,13 +161,19 @@ export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint
   // Several booted: whose is which is not this process's to guess (an install onto another drive's simulator,
   // 2026-10-09: build.mjs --ios takes --sim, not --phone, for a simulator). One booted, or none, is still chosen.
   const booted = iphones.filter((d) => d.state === 'Booted');
+  const used = dir ? resolve(dir, '.exact', tv ? 'simulator-tv' : 'simulator') : null;
+  let last = null; try { last = used && readFileSync(used, 'utf8').trim(); } catch { /* none chosen yet */ }
+  // What `used` remembers: a simulator named, or one the installed-app check chose.
+  let chosen = Boolean(pick);
   if (!pick && booted.length > 1) {
     // An app's bundle id is its own (`exact new` suffixes it), so the simulator it is installed on is the one
-    // its last build or drive used; another session's app is not there.
+    // its last build or drive used; another session's app is not there. A bundle id two apps share (a port renamed
+    // to its original's) is on several: of those, the one this app last used.
     const has = app ? booted.filter((d) => read('xcrun', ['simctl', 'get_app_container', d.udid, app]).status === 0) : [];
-    if (has.length === 1) {
-      dev = has[0];
-      if (!saidSimulator.has(dev.udid)) { saidSimulator.add(dev.udid); console.error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted; using ${dev.name} ${dev.udid}, the one with ${app} installed; name another with ${hint}`); }
+    const mine = has.length > 1 ? has.find((d) => d.udid === last) : null;
+    if (has.length === 1 || mine) {
+      dev = mine ?? has[0]; chosen = true;
+      if (!saidSimulator.has(dev.udid)) { saidSimulator.add(dev.udid); console.error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted; using ${dev.name} ${dev.udid}, ${mine ? `the one this app last used of those with ${app} installed` : `the one with ${app} installed`}; name another with ${hint}`); }
     } else {
       const named = (d) => `${d.name} ${d.udid}${has.includes(d) ? ` (has ${app})` : ''}`;
       throw new Error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted (${booted.map(named).join(', ')})${app ? `, ${has.length ? 'several' : 'none'} with ${app} installed` : ''}: name one with ${hint}`);
@@ -175,6 +181,7 @@ export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint
   }
   dev ??= booted[0] ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
   if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator on ${tv ? 'tvOS' : 'iOS'}; add one in Xcode, or name any simulator by udid or name with EXACT_SIM (or --sim)`);
+  if (used && chosen && dev.udid !== last) try { mkdirSync(dirname(used), { recursive: true }); writeFileSync(used, `${dev.udid}\n`); } catch { /* remembered next time, if it can be */ }
   return dev;
 }
 /** `dev` booted and waited for; `bootedHere` when this call booted it, not when another process had just done so. */
@@ -506,34 +513,70 @@ const missing = (bundle, required, why) => new Error(`grant-device-profile: ${re
 
 /** A development profile on this Mac covering the phone and the bundle id (the team's wildcard or the id itself, under the profile's App ID prefix, which an older team's App IDs keep apart from its team id), unexpired; EXACT_PROFILE names one.
  * With `required` (a grant's signing entitlements), only one that allows them all, which is one for the id itself. */
-export function profile(udid, bundle, required = []) {
-  if (process.env.EXACT_PROFILE) {
-    const named = decodeProfile(process.env.EXACT_PROFILE);
+export function profile(udid, bundle, required = [], { installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null } = {}) {
+  if (named) {
+    if (!iosProfile(named)) throw new Error(`EXACT_PROFILE (${named.name}) is not an iOS profile; its platform is ${named.platforms.join(', ')}`);
     if (!allows(named, required)) throw missing(bundle, required, `EXACT_PROFILE (${named.name}) does not allow ${required.length > 1 ? 'them' : 'it'}`);
     return named;
   }
-  const dirs = ['Library/Developer/Xcode/UserData/Provisioning Profiles', 'Library/MobileDevice/Provisioning Profiles'].map((d) => resolve(homedir(), d)).filter(existsSync);
-  const covering = dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.mobileprovision')).map((f) => decodeProfile(resolve(d, f))))
-    .filter((p) => p.dev && p.expires > new Date() && p.devices.includes(udid) && (p.appId === `${p.prefix}.*` || p.appId === `${p.prefix}.${bundle}`))
-    .sort((a, b) => b.expires - a.expires);
+  const covering = coveringProfiles(udid, bundle, installed);
   if (!covering.length) throw new Error(`no development provisioning profile on this Mac covers ${bundle} on this phone (${udid}); run any app on it from Xcode once with team signing, or name one with EXACT_PROFILE`);
   const found = covering.filter((p) => allows(p, required));
   if (!found.length) throw missing(bundle, required, `no development profile on this Mac for ${bundle} on this phone allows ${required.length > 1 ? 'them' : 'it'}`);
   return found[0];
 }
 
+/** The unexpired development profiles on this Mac that cover the phone and the bundle id (the team's wildcard or
+ * the id itself), the longest-lived first. */
+export function coveringProfiles(udid, bundle, installed = installedProfiles()) {
+  return profilesFor(bundle, installed).filter((p) => iosProfile(p) && p.dev && !profileMisfit(p, udid)).sort(byExpiry);
+}
+export const byExpiry = (a, b) => b.expires - a.expires;
+export const iosProfile = p => !p.platforms?.length || p.platforms.includes('iOS');
+/** The profiles among `installed` whose App ID is `bundle` itself or its team's wildcard. */
+export const profilesFor = (bundle, installed) => installed.filter((p) => p.appId === `${p.prefix}.*` || p.appId === `${p.prefix}.${bundle}`);
+/** How a profile distributes, from what it carries: a debugger (development), named devices (Ad Hoc), every device
+ * (enterprise), or none of those (the App Store). */
+export const METHODS = { development: 'development', adhoc: 'Ad Hoc', enterprise: 'enterprise', appstore: 'App Store' };
+/** Why `p` cannot sign on `udid`, or null when it can: its expiry, and with a phone named, that phone (an App Store
+ * profile names none). `like`, another profile (the app's, when `p` is for its extension), asks for its team, App
+ * ID prefix and method too, and that `p` name the phone, or, for an archive, every device `like` names. */
+export function profileMisfit(p, udid, like = null) {
+  if (!(p.expires > new Date())) return `expired on ${p.expires.toISOString().slice(0, 10)}`;
+  if (!like) return !udid || p.devices.includes(udid) ? null : p.devices.length ? 'does not include this phone' : `is ${METHODS[p.method]} and names no device`;
+  if (p.team !== like.team) return `is team ${p.team}'s, not ${like.team}'s`;
+  if (p.prefix !== like.prefix) return `has the App ID prefix ${p.prefix}, not ${like.prefix}`;
+  if (p.method !== like.method) return `is ${METHODS[p.method]}, not ${METHODS[like.method]}`;
+  if (!like.devices.length) return null;
+  const missing = (udid ? [udid] : like.devices).filter((d) => !p.devices.includes(d));
+  return !missing.length ? null : udid ? 'does not include this phone' : `does not include ${missing.length} of the ${like.devices.length} devices the app's profile names`;
+}
+
+/** Every `.mobileprovision` or `.provisionprofile` Xcode or a download installed, decoded once per process (a hundred of them is two seconds). */
+let decoded = null;
+export function installedProfiles() {
+  const dirs = ['Library/Developer/Xcode/UserData/Provisioning Profiles', 'Library/MobileDevice/Provisioning Profiles'].map((d) => resolve(homedir(), d)).filter(existsSync);
+  return decoded ??= dirs.flatMap((d) => readdirSync(d).filter((f) => /\.(mobileprovision|provisionprofile)$/.test(f)).map((f) => decodeProfile(resolve(d, f))));
+}
+
 /** The fields of a `.mobileprovision` this script reads (it is a CMS-signed XML plist). */
-function decodeProfile(path) {
+export function decodeProfile(path) {
   const xml = read('security', ['cms', '-D', '-i', path]).stdout ?? '';
   const str = (key) => new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(xml)?.[1];
+  const strings = (key) => [...(new RegExp(`<key>${key}</key>\\s*<array>([\\s\\S]*?)</array>`).exec(xml)?.[1] ?? '').matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
   const team = /<key>TeamIdentifier<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(xml)?.[1];
-  const devices = [...(/<key>ProvisionedDevices<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(xml)?.[1] ?? '').matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
+  const devices = strings('ProvisionedDevices');
   const expires = /<key>ExpirationDate<\/key>\s*<date>([^<]*)<\/date>/.exec(xml)?.[1];
   // The keys of its Entitlements whose value is not `false`: what it allows.
   const allowed = /<key>Entitlements<\/key>\s*<dict>([\s\S]*?)<\/dict>/.exec(xml)?.[1] ?? '';
   const entitlements = [...allowed.matchAll(/<key>([^<]+)<\/key>\s*(<false\/>)?/g)].filter((m) => !m[2]).map((m) => m[1]);
-  const appId = str('application-identifier');
-  return { path, name: str('Name'), team, appId, prefix: appId?.split('.')[0], devices, dev: /<key>get-task-allow<\/key>\s*<true\/>/.test(xml), expires: new Date(expires ?? 0), entitlements };
+  const appId = str('application-identifier') ?? str('com.apple.application-identifier');
+  // What an app with widgets or Live Activities needs of it (LLP 1126.001 WP13): the App Groups it grants, the
+  // Keychain groups (the team's `<prefix>.*`, usually) and the push environment.
+  const dev = /<key>(?:com.apple.security.)?get-task-allow<\/key>\s*<true\/>/.test(xml), enterprise = /<key>ProvisionsAllDevices<\/key>\s*<true\/>/.test(xml);
+  return { path, name: str('Name'), team, appId, prefix: appId?.split('.')[0], devices, dev, expires: new Date(expires ?? 0), entitlements, platforms: strings('Platform'),
+    method: dev ? 'development' : devices.length ? 'adhoc' : enterprise ? 'enterprise' : 'appstore',
+    groups: strings('com.apple.security.application-groups'), keychain: strings('keychain-access-groups'), aps: str('aps-environment') ?? null };
 }
 
 /** The Apple Development identity (its SHA-1) for a team, from the keychain; EXACT_IDENTITY names one. */

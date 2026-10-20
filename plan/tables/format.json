@@ -281,6 +281,44 @@
       ]
     },
     {
+      "name": "modules",
+      "_comment": "LLP 1133.002 D13, LLP 1124 D5: the sources that are a native module's names, which the runner routes to the native slot rather than the app's data. `declared` and `extension` are what the wire carries; `request` is `always`, `when-prompt` or `never`; `sync` is the synchronous form's name, or empty; `substitute` is what the agent's runner answers with no implementation bound (LLP 1133.002 §6), a JSON object.",
+      "fields": [
+        {
+          "name": "source",
+          "codec": "idx:sources"
+        },
+        {
+          "name": "extension",
+          "codec": "str"
+        },
+        {
+          "name": "declared",
+          "codec": "str"
+        },
+        {
+          "name": "send",
+          "codec": "bool"
+        },
+        {
+          "name": "live",
+          "codec": "bool"
+        },
+        {
+          "name": "request",
+          "codec": "str"
+        },
+        {
+          "name": "sync",
+          "codec": "str"
+        },
+        {
+          "name": "substitute",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "source_params",
       "fields": [
         {
@@ -534,6 +572,20 @@
         {
           "name": "surface",
           "codec": "opt:surfaces"
+        }
+      ]
+    },
+    {
+      "name": "activity_slots",
+      "_comment": "LLP 1126.001 WP8: independent placement roots in one snapshot session; no refresh. Names are lockScreen, compactLeading, compactTrailing, minimal, expanded.leading, expanded.trailing, expanded.center and expanded.bottom.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "root",
+          "codec": "idx:nodes"
         }
       ]
     },
@@ -1604,7 +1656,7 @@
       "name": "rangeFrame",
       "params": ["string", "number", "number"],
       "returns": "Geometry",
-      "_comment": "LLP 1114.007: action-time viewport geometry of the UTF-16 source range in a live text field. Hosts read their actual editor layout; an unmounted or unsupported field is unavailable."
+      "_comment": "@ref LLP 1114.007: `Range.getBoundingClientRect()` of a text field's UTF-16 range, read in an action from the field's last presented layout: offsets truncated toward zero; a collapsed range the caret's rectangle, a wider one the union of its line fragments, untrimmed by scrolling or the field's clip. Unavailable for a non-finite or negative offset, a start past the end, an end past the text, a missing or hidden field, active composition, or a host with no reader."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

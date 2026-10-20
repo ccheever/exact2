@@ -22,16 +22,28 @@ impl Collection {
     /// where the host left it on the page: offsets count from the first
     /// row, which a grown padding before it moved down by as much. The
     /// index takes `padding`.
+    ///
+    /// `resized`: the port changed size and the reader is not moving it. An
+    /// end the last report was at is kept: the host may have clamped the
+    /// port to the end of a size it never reported, short of the new end
+    /// (UIKit, as the keyboard goes down in two frames between reports).
     pub(super) fn report_anchor(
         &mut self,
         offset: f64,
         port: f64,
         padding: [f64; 2],
+        resized: bool,
     ) -> Result<index::Anchor, InstanceError> {
         let capture = |c: &Self, offset: f64| {
             c.index
                 .capture_anchor(c.anchor_offset(offset), port, c.follows())
                 .map_err(index_error)
+        };
+        let at_end = match &self.geometry {
+            Some(g) if resized && self.follows() => {
+                index::SizeIndex::follows_end(&capture(self, g.offset)?)
+            }
+            _ => false,
         };
         let was = self.padding();
         // Before a first report the runner knew no padding to move.
@@ -47,6 +59,9 @@ impl Collection {
             if index::SizeIndex::follows_end(&at_new) {
                 anchor = at_new;
             }
+        }
+        if at_end && !index::SizeIndex::follows_end(&anchor) {
+            anchor = capture(self, self.index.max_offset(port))?;
         }
         Ok(anchor)
     }

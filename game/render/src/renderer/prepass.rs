@@ -63,6 +63,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if !self.prepass_active {
             return 0;
         }
+        self.probe_stage(super::probe::Stage::Prepass);
         pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
         let mut draws = 0;
@@ -71,7 +72,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let mut bound = super::passes::Bound::default();
         bound.group(pass, 1, &self.shadow_sample);
         for (index, group) in self.cull.groups.iter().enumerate() {
-            if group.flags & 1 == 0 {
+            // Posed batches draw their depth with their colour (`batch_skinned`).
+            if group.flags & 1 == 0 || self.batch_skinned(group.batch) {
                 continue;
             }
             let viewmodel = self.batches[group.batch].viewmodel;
@@ -242,7 +244,7 @@ mod tests {
                 }),
             }),
             environment: Environment {
-                background: Some([0.; 3]),
+                background: Some([0.; 3].into()),
                 fog: None,
                 bloom: None,
                 ..Default::default()
@@ -492,7 +494,7 @@ mod tests {
                 sun: None,
                 environment: Environment {
                     ambient: 0.,
-                    background: Some([0.; 3]),
+                    background: Some([0.; 3].into()),
                     fog: None,
                     bloom: None,
                     tone_mapping: ToneMapping::None,

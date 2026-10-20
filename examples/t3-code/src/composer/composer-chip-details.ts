@@ -13,7 +13,7 @@
 // the action (T3ComposerChipPress.swift `act`); the window's `chipAct` task sends `editorlocal:chip-act` once per press.
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
-import { bridgeReply, ClientError, type Native } from '../client/protocol';
+import { ClientError, type Native } from '../client/protocol';
 import { openFileSurface } from '../panel/panel-surfaces';
 import { chatLocal } from '../timeline/timeline-presentation';
 import { parseAssistantCitationHref } from '../timeline/diff-citations';
@@ -24,6 +24,7 @@ import { videoOp } from './composer-attachments';
 import { openComposerFile } from './composer-chip-file';
 import { openPullRequest } from '../pull-requests/pr-chip-open';
 import { previewAnnotationContextLabel, type PreviewAnnotationPayload, type SavedAnnotation } from '../browser/browser-annotation';
+import { composerChipTake } from './composer-chip-bridge';
 
 /** What a context chip's details popover shows (the rest of composer-chip-popover.ts's ChipPopover). */
 export type ChipDetails = { kind: string; label: string; title: string; description: string; lines: string; rows: number; diff: string; image: string; aspect: number };
@@ -158,12 +159,7 @@ export async function performChipAct(client: T3Client, native: Native, press: Ob
 
 /** `editorlocal:chip-act`: the press the window saw (`seq`), taken from the editor once, then performed. */
 export async function chipAct(client: T3Client, native: Native, seq: number): Promise<string> {
-  let press: Obj = {};
-  try { const reply = await bridgeReply(native, { op: 'editorChip' }); press = reply.ok ? obj(reply.value) : {}; } catch { return ''; }
-  if (Number(press.seq) !== seq || press.open === true || !str(press.act)) return '';
-  await bridgeReply(native, { op: 'editorChipClose', seq }).catch(() => undefined);
-  // The Settings prompt sample has no actions (SettingsFontPreviews renders no ComposerContextActionsContext); a press
-  // from another draft's composer is stale.
-  if (str(press.surface) !== 'composer' || (str(press.owner) && str(press.owner) !== client.snapshotOwner)) return '';
+  const press = composerChipTake(client, seq);
+  if (!press) return '';
   return performChipAct(client, native, press);
 }

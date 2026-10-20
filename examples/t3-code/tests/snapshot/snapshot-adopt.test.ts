@@ -1,3 +1,4 @@
+import { observeComposer } from '../support/composer-field-fixture';
 import { test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { obj, type Obj } from '../../src/client/domain';
@@ -48,6 +49,7 @@ test('failed deferred persist removes only this capture; an unrelated removal is
   const gate = f.hold(holdsCapture, true);
   const adoption = f.client.adoptSnapshots(f.native, f.files);
   await gate.entered;
+  observeComposer(f.client, f.client.draft);
   const removal = f.client.command('remove-snapshot', unrelated, '', 0, f.native, f.files);
   gate.release(); await adoption; await removal;
   expect(f.client.local.snapshotDrafts['env:t']).toEqual([]);
@@ -65,6 +67,7 @@ test('destination lost after a deferred successful persist compensates against t
   const gate = f.hold(holdsCapture);
   const adoption = f.client.adoptSnapshots(f.native, f.files);
   await gate.entered;
+  observeComposer(f.client, f.client.draft);
   const removal = f.client.command('remove-snapshot', unrelated, '', 0, f.native, f.files);
   f.setCatalog(() => ({ projects: [{ id: 'p' }], threads: [] }));
   gate.release(); await adoption; await removal;

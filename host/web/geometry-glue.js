@@ -36,6 +36,11 @@ function restore(style, [name, value, priority]) {
   if (value) style.setProperty(name, value, priority); else style.removeProperty(name);
 }
 
+// Fields with text being composed: a range read then answers nothing.
+const composing = new WeakSet();
+addEventListener('compositionstart', e => composing.add(e.target), true);
+addEventListener('compositionend', e => composing.delete(e.target), true);
+
 function createGeometry(root) {
   // Where the viewer sees `el`'s border box: its client rect.
   const frame = el => {
@@ -118,16 +123,23 @@ function createGeometry(root) {
 
   return {
     point, points, namedPoints,
+    // `rangeFrame` (LLP 1114.007): a plain textarea's range through
+    // `createValueRange` (OpaqueRange), the Markdown editor's through its own
+    // source mapping; a collapsed range is the caret's rectangle. Offsets are
+    // truncated toward zero; a bad range, one past the text, a hidden field
+    // and composition answer nothing.
     range(el, start, end, out) {
       if (!el?.isConnected || !root.contains(el) || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return 0;
-      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > end || end > (el.value?.length ?? 0)) return 0;
-      let box = el.exactDecorations?.rangeFrame(start, end);
-      if (!el.exactDecorations && typeof el.createValueRange === 'function') {
-        try { const range = el.createValueRange(start, end); box = range.getBoundingClientRect(); range.disconnect(); } catch { return 0; }
+      [start, end] = [Math.trunc(start), Math.trunc(end)];
+      if (!(start >= 0 && start <= end && end <= (el.value?.length ?? 0)) || composing.has(el) || el.exactComposing) return 0;
+      let box = null;
+      if (el.exactMarkup) box = el.exactMarkup.rangeFrame?.(start, end) ?? null;
+      else if (el instanceof HTMLTextAreaElement && typeof el.createValueRange === 'function') {
+        try { const range = el.createValueRange(start, end); box = range.getBoundingClientRect(); range.disconnect?.(); } catch { return 0; }
       }
       if (!box) return 0;
       out.set([box.x, box.y, box.width, box.height]);
-      return ANSWERED | (el.exactDecorations?.applied?.provisional ? PROVISIONAL : 0);
+      return ANSWERED | (provisional(el) ? PROVISIONAL : 0);
     },
     read(op, el, out) {
       if (!el?.isConnected || !root.contains(el)) return 0;

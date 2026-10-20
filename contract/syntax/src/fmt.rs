@@ -230,13 +230,22 @@ impl<'a> Layout<'a> {
         // A named argument's `=` stays against its name, as an attribute's
         // does: `Fields(base, title=value)`, `empty(field=value)`. Only a
         // call's arguments put a name and `=` after `(` or `,`.
+        // A platform's word on a module call is a dotted name, `apple.word=`.
         let ordinary: Vec<&Token> = self.tokens.iter().filter(|t| ordinary(t)).collect();
-        for w in ordinary.windows(3) {
-            if matches!(w[0].kind, TokenKind::Punct("(" | ","))
-                && matches!(w[1].kind, TokenKind::Ident(_))
-                && w[2].kind == TokenKind::Punct("=")
+        for (i, t) in ordinary.iter().enumerate() {
+            if !matches!(t.kind, TokenKind::Punct("(" | ",")) {
+                continue;
+            }
+            let mut at = i + 1;
+            while matches!(ordinary.get(at).map(|t| &t.kind), Some(TokenKind::Ident(_)))
+                && ordinary.get(at + 1).map(|t| &t.kind) == Some(&TokenKind::Punct("."))
             {
-                self.attributes.insert(w[1].span);
+                at += 2;
+            }
+            if matches!(ordinary.get(at).map(|t| &t.kind), Some(TokenKind::Ident(_)))
+                && ordinary.get(at + 1).map(|t| &t.kind) == Some(&TokenKind::Punct("="))
+            {
+                self.attributes.insert(ordinary[at].span);
             }
         }
         for route in file.routes.iter().flat_map(|r| &r.rows) {

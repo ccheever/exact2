@@ -47,6 +47,31 @@ ExactEnv.stamp("NSApplication.shared")
 // typing; its window is made key for a `type` when one comes (`AgentMac`).
 app.setActivationPolicy(agentMode ? .accessory : .regular)
 ExactEnv.stamp("setActivationPolicy")
+// EXACT_AGENT_ACTIVATE=1 (set only by scripts/measure-controls.mjs, never by
+// default): this one run is activated and its window made key, as AppKit
+// draws a control's accent only in a key window; the app in front before it
+// is put back when it quits (LLP 1121 stage 9 F2).
+let agentActivates = agentMode && ExactEnv.environment["EXACT_AGENT_ACTIVATE"] == "1"
+let frontBefore = agentActivates ? NSWorkspace.shared.frontmostApplication : nil
+/// The app in front before an activated agent run, in front again: at every
+/// exit (the agent's own `exit` at the end of its input, AppKit's quit, an
+/// interrupt), never launching or reopening one that has gone.
+func frontAgain() {
+    guard let front = frontBefore, !front.isTerminated, front.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+    // (Cooperative activation: this app, still in front, yields to it.)
+    if #available(macOS 14.0, *) { NSApp.yieldActivation(to: front) }
+    if !front.activate() { fputs("exact: could not put \(front.bundleIdentifier ?? "the app that was in front") back in front\n", stderr) }
+}
+nonisolated(unsafe) var interrupted: DispatchSourceSignal?
+if agentActivates {
+    atexit { frontAgain() }
+    // An interrupt (a terminal's ctrl-c reaches the whole group) quits through exit too, on the main queue (not in
+    // the signal handler, where AppKit's restore is not safe).
+    signal(SIGINT, SIG_IGN)
+    interrupted = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+    interrupted?.setEventHandler { exit(130) }
+    interrupted?.resume()
+}
 let appReadyMs = ExactEnv.wall()
 
 /// The one session and its view; the session's clock is the agent's under a script.
@@ -87,11 +112,20 @@ final class Adapter: ExactSessionDelegate {
         guard !target.isEmpty else { return }
         // A link beside a document the person chose (LLP 1069.010 D1).
         if target.hasPrefix("doc:/") { ExactDocuments.deliver([target], to: session); return }
+        // The app's settings (LLP 1133.002 D11): macOS has no page per app, so
+        // Privacy & Security's Location Services, the one permission a module
+        // asks for today. Under the agent, journaled only.
+        if target == "app-settings:" {
+            let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+            session.log("openURL app-settings: opens \(pane)\(agentMode ? " (not under the agent)" : "")")
+            if !agentMode, let url = URL(string: pane) { NSWorkspace.shared.open(url) }
+            return
+        }
         let url = URL(string: target)
         let local = url?.isFileURL == true ? url!.standardizedFileURL.path
             : target.hasPrefix("/") ? URL(fileURLWithPath: target).standardizedFileURL.path : nil
         if let local, FileManager.default.fileExists(atPath: local) {
-            ExactDocuments.deliver([local], to: session)
+            ExactDocuments.deliver([local], to: session, keep: false)
             return
         }
         guard let url, ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") else {
@@ -329,7 +363,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// In front — never activated under a script (LLP 1012), so a running
     /// smoke never takes the focus from whoever is typing.
     func front() {
-        if agentMode { window.orderFrontRegardless() } else {
+        if agentMode && !agentActivates { window.orderFrontRegardless() } else {
             window.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
         }
@@ -346,7 +380,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         var row: [String: Any] = [
             "session": label, "title": window.title, "document": document ?? NSNull(),
             "edited": window.isDocumentEdited, "representedURL": window.representedURL?.path ?? NSNull(),
-            "key": window.isKeyWindow, "tabs": window.tabbedWindows?.count ?? 1,
+            "key": window.isKeyWindow, "visible": window.isVisible, "tabs":window.tabbedWindows?.count ?? 1,
             "footprintBefore": footprintBefore,
         ]
         // The first window's is from the process's start (what `metrics`
@@ -356,9 +390,11 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     }
 
     /// The red button, File ▸ Close Window and ⌘W ask the app first
-    /// (`beforeunload`, studio diary R17); a window it keeps stays.
+    /// (`beforeunload`, studio diary R17); a window it keeps stays. The one
+    /// window of an app that keeps running is hidden instead (LLP 1069.010 D8).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        closing || session.beforeUnload()
+        if !closing, ExactDocuments.hidesOnClose(window, only: windows.count == 1) { return false }
+        return closing || session.beforeUnload()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -515,11 +551,21 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// A one-window app quits with its window; one whose documents each
     /// get a window (`navigate-new`, LLP 1069.010 D4) stays, as a Mac
     /// document app does, for File ▸ New Window, Open and the Dock (LLP 1115 D8).
+    /// AppKit asks this when its last window is ordered out, so it is asked
+    /// too when an app that keeps running hides its window (LLP 1069.010 D8), and that
+    /// app ends only after its own `close()`.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        ExactDocuments.launchMode != "navigate-new"
+        ExactDocuments.endsWithoutWindows(hiding: windows.contains { !$0.closing })
     }
-    /// The Dock icon clicked with no window showing: a new one.
+    /// The Dock icon clicked, or the app opened again, with no window
+    /// showing: the window an app that keeps running hid comes back as it
+    /// was (LLP 1069.010 D8); a `navigate-new` app opens a new one.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag, ExactDocuments.keepsRunning(),
+           let hidden = windows.first(where: { !$0.window.isVisible && !$0.window.isMiniaturized }) {
+            hidden.front()
+            return false
+        }
         guard !flag, windows.isEmpty, ExactDocuments.launchMode == "navigate-new" else { return true }
         openWindow()
         return false
@@ -713,7 +759,7 @@ func finishLaunching() {
     ExactEnv.stamp("makeKeyAndOrderFront")
     // Under a script: in front regardless, so the window is seen (a covered
     // window's canvases render nothing, LLP 1009 D4) — but never activated.
-    if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
+    if agentMode && !agentActivates { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
     ExactEnv.stamp("activate")
 
     /// Agent mode: the driver owns the process from here — one JSON line in,

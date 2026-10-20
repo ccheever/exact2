@@ -507,7 +507,7 @@ impl<'a> Resolver<'a> {
         contract_types::infer(expr, &self.scope, &self.types.shapes).unwrap_or(Ty::Unknown)
     }
     fn file(&mut self, expanded_root: Option<&Component>) {
-        for style in self.file.styles.iter().chain(&self.file.decorations) {
+        for style in &self.file.styles {
             for attr in style.attrs.iter().filter(|a| a.name == "font-family") {
                 self.attr(attr);
             }

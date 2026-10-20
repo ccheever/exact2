@@ -4,12 +4,15 @@ import android.os.Build
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -35,11 +38,11 @@ import org.robolectric.annotation.GraphicsMode
  * Draws each specimen and each defect of `specimens.json` under each scheme, and writes beside each picture what
  * LLP 1115.001.001 D5 compares: the layout box, and every semantics node and text box under it, in dp from the
  * window's corner. The SDK is the pin's (`libs.versions.toml` `referenceSdk`, which the build passes as
- * `reference.sdk`); the density is the Pixel 10 Pro XL's, 2.4375.
+ * `reference.sdk`); the window is the Pixel 10 Pro XL's, 1080 × 2404 pixels at 2.4375.
  */
 @RunWith(ParameterizedRobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [36], qualifiers = "w411dp-h891dp-390dpi")
+@Config(sdk = [36], qualifiers = "w443dp-h986dp-390dpi")
 class DrawTest(private val id: String, private val scheme: String) {
     @get:Rule val rule = createComposeRule()
 
@@ -64,21 +67,37 @@ class DrawTest(private val id: String, private val scheme: String) {
             if (text != null) {
                 val layouts = mutableListOf<TextLayoutResult>()
                 node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action?.invoke(layouts)
+                val l = layouts.firstOrNull()
+                // A text field's node is its whole decoration box, and its layout is in the coordinates of its inner
+                // text field: the one node under it that names no text (the clip round the value). Its value's box
+                // is the first line's, there.
+                val editable = node.config.getOrNull(SemanticsProperties.EditableText) != null
+                val inner = if (!editable) node.boundsInRoot else node.children
+                    .filter { it.config.getOrNull(SemanticsProperties.Text) == null }
+                    .singleOrNull()?.boundsInRoot ?: error("$id: a text field with no single inner text field")
                 val lines = JSONArray()
-                layouts.firstOrNull()?.let { l ->
-                    for (i in 0 until l.lineCount) {
-                        lines.put(JSONObject().put("top", (node.positionInRoot.y + l.getLineTop(i)) / density)
-                            .put("bottom", (node.positionInRoot.y + l.getLineBottom(i)) / density)
-                            .put("baseline", (node.positionInRoot.y + l.getLineBaseline(i)) / density))
-                    }
+                if (l != null) for (i in 0 until l.lineCount) {
+                    lines.put(JSONObject().put("top", (inner.top + l.getLineTop(i)) / density)
+                        .put("bottom", (inner.top + l.getLineBottom(i)) / density)
+                        .put("baseline", (inner.top + l.getLineBaseline(i)) / density))
                 }
-                texts.put(JSONObject().put("text", text).put("box", box(node.boundsInRoot, density)).put("lines", lines))
+                val at = if (!editable || l == null || l.lineCount == 0) node.boundsInRoot else Rect(
+                    inner.left + l.getLineLeft(0), inner.top + l.getLineTop(0),
+                    inner.left + l.getLineRight(0), inner.top + l.getLineBottom(0))
+                // An empty field's value is nothing to compare.
+                if (text.isNotEmpty() || !editable) {
+                    texts.put(JSONObject().put("text", text).put("box", box(at, density)).put("lines", lines))
+                }
             }
             node.children.forEach(::walk)
         }
         walk(tagged)
+        // An inline control's layout box is its own node's (the tagged box's child), without the 48 dp
+        // minimumInteractiveComponentSize puts round it: Exact lays a control out at its drawn size and its padding,
+        // and answers the 48 dp as a touch target apart (LLP 1115.001.001 §5 Q5). Anything else's is the tagged box.
+        val control = tagged.children.firstOrNull { it.config.getOrNull(SemanticsProperties.Role) in CONTROLS }
         val facts = JSONObject().put("id", id).put("scheme", scheme).put("density", density.toDouble())
-            .put("layout", box(tagged.boundsInRoot, density)).put("nodes", nodes).put("texts", texts)
+            .put("layout", box((control ?: tagged).boundsInRoot, density)).put("nodes", nodes).put("texts", texts)
         File(out, "$name.json").writeText(facts.toString(2))
     }
 
@@ -99,6 +118,9 @@ class DrawTest(private val id: String, private val scheme: String) {
         }
 
         fun schemeOf(name: String) = if (name == "dark") darkColorScheme() else lightColorScheme()
+
+        /** The roles whose node is a control's own box. */
+        val CONTROLS = setOf(Role.Button, Role.Checkbox, Role.RadioButton, Role.Switch)
     }
 }
 
@@ -108,12 +130,17 @@ class DrawTest(private val id: String, private val scheme: String) {
  */
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [36], qualifiers = "w411dp-h891dp-390dpi")
+@Config(sdk = [36], qualifiers = "w443dp-h986dp-390dpi")
 class InputsTest {
+    @get:Rule val rule = createComposeRule()
+
     @Test fun write() {
+        var touch = 0f
+        rule.setContent { touch = LocalMinimumInteractiveComponentSize.current.value }
+        rule.waitForIdle()
         val out = File(System.getProperty("reference.out")!!).apply { mkdirs() }
         val schemes = JSONObject()
-        for (name in listOf("light", "dark")) schemes.put(name, roles(DrawTest.schemeOf(name)))
+        for (name in listOf("light", "dark")) schemes.put(name, scheme(DrawTest.schemeOf(name)))
         File(out, "schemes.json").writeText(schemes.toString(2))
         val padding = ButtonDefaults.ContentPadding
         val defaults = JSONObject()
@@ -127,26 +154,13 @@ class InputsTest {
             .put("ButtonDefaults.ContentPadding.top", padding.calculateTopPadding().value)
             .put("ButtonDefaults.ContentPadding.end", padding.calculateEndPadding(LayoutDirection.Ltr).value)
             .put("ButtonDefaults.ContentPadding.bottom", padding.calculateBottomPadding().value)
+            .put("CheckboxDefaults.StrokeWidth", CheckboxDefaults.StrokeWidth.value)
+            .put("LocalMinimumInteractiveComponentSize", touch)
         File(out, "defaults.json").writeText(defaults.toString(2))
     }
 
-    private fun roles(s: ColorScheme) = JSONObject().apply {
-        listOf(
-            "primary" to s.primary, "onPrimary" to s.onPrimary, "primaryContainer" to s.primaryContainer,
-            "onPrimaryContainer" to s.onPrimaryContainer, "inversePrimary" to s.inversePrimary,
-            "secondary" to s.secondary, "onSecondary" to s.onSecondary, "secondaryContainer" to s.secondaryContainer,
-            "onSecondaryContainer" to s.onSecondaryContainer, "tertiary" to s.tertiary, "onTertiary" to s.onTertiary,
-            "tertiaryContainer" to s.tertiaryContainer, "onTertiaryContainer" to s.onTertiaryContainer,
-            "background" to s.background, "onBackground" to s.onBackground, "surface" to s.surface,
-            "onSurface" to s.onSurface, "surfaceVariant" to s.surfaceVariant, "onSurfaceVariant" to s.onSurfaceVariant,
-            "surfaceTint" to s.surfaceTint, "inverseSurface" to s.inverseSurface, "inverseOnSurface" to s.inverseOnSurface,
-            "error" to s.error, "onError" to s.onError, "errorContainer" to s.errorContainer,
-            "onErrorContainer" to s.onErrorContainer, "outline" to s.outline, "outlineVariant" to s.outlineVariant,
-            "scrim" to s.scrim, "surfaceBright" to s.surfaceBright, "surfaceDim" to s.surfaceDim,
-            "surfaceContainerLowest" to s.surfaceContainerLowest, "surfaceContainerLow" to s.surfaceContainerLow,
-            "surfaceContainer" to s.surfaceContainer, "surfaceContainerHigh" to s.surfaceContainerHigh,
-            "surfaceContainerHighest" to s.surfaceContainerHighest,
-        ).forEach { (k, v) -> put(k, v.toArgb().toLong() and 0xFFFFFFFFL) }
+    private fun scheme(s: ColorScheme) = JSONObject().apply {
+        roles(s).forEach { (k, v) -> put(k, v.toArgb().toLong() and 0xFFFFFFFFL) }
     }
 }
 

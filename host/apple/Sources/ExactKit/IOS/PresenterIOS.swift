@@ -11,6 +11,7 @@ package final class Presenter {
     var documentDirection = "ltr"
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    weak var autofocusedThisTurn: NodeView? // taken out of the window this turn, it has not had its autofocus (NodeViewIOS)
     var pressHandoff: PressHandoff? // the press whose work may hand its control's focus on (PressHandoffIOS)
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
@@ -309,16 +310,17 @@ package final class Presenter {
             if self.keyboardPolicy == "resizes-content" {
                 self.onKeyboardResize?()
             } else if self.keyboardPolicy == "overlays-content" {
-                let frame = parent.convert(self.viewport.frame, to: window)
+                let frame = parent.convert(self.pageFrame, to: window)
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.keyboardInset = overlap
                 self.keyboardToolbars.ride(overlap: overlap)
             } else {
-                let frame = parent.convert(self.viewport.frame, to: window)
+                let frame = parent.convert(self.pageFrame, to: window)
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.setKeyboardInset(overlap)
             }
             if top == nil { self.pinnedRoom.release() }
+            self.menus.rehostPopovers()
             self.revealEditorAsTheKeysMove()
         }
         // Under the agent (LLP 1012) the change applies at once, as the
@@ -339,8 +341,9 @@ package final class Presenter {
         viewport.verticalScrollIndicatorInsets = indicators
     }
 
-    /// The viewport's size in points: what the kernel lays out under.
-    var viewportSize: CGSize { viewport.bounds.size }
+    /// The viewport's size in points: what the kernel lays out under, the
+    /// page's area (`pageMargins`, PageEdgesIOS.swift).
+    var viewportSize: CGSize { viewport.pageSize }
     /// The first root's frame size, zero before the first batch.
     var rootSize: CGSize { root.subviews.first?.frame.size ?? .zero }
 
@@ -354,6 +357,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
         WakeLock.hold(self, false) // the new host's first batch says it again
         focusEvents.reset()
         // Every hatched node ends first, its view and platform object there.
@@ -379,7 +383,7 @@ package final class Presenter {
         flats.reset()
         owners.reset {
             modals.reset()
-            navigation.reset()
+            navigation.reset(); navigation.rebooting()
         }
         session?.canvases.reset()
         for id in Array(leaving.keys) { _ = endExit(id) }
@@ -399,15 +403,19 @@ package final class Presenter {
         videoVisibility?.reset()
     }
 
-    /// Size the document to its roots, never smaller than the viewport.
+    /// Size the document to its roots and what overflows one that does not clip (`content`), never smaller
+    /// than the page's area, at the area's origin inside the viewport's page margins.
     func fitDocument() {
-        var size = viewport.bounds.size
+        let m = pageMargins; var size = viewportSize
         for r in root.subviews {
-            size.width = max(size.width, r.frame.maxX)
-            size.height = max(size.height, r.frame.maxY)
+            let v = r as? NodeView, extent = v.flatMap { $0.scrollView == nil && !$0.overflowClips && !$0.isHidden ? $0.content : nil }
+            let reach = extent.map { r.convert(CGRect(origin: .zero, size: $0), to: root) } ?? .zero // through the root's transform
+            size = CGSize(width: max(size.width, r.frame.maxX, reach.maxX), height: max(size.height, r.frame.maxY, reach.maxY))
         }
-        if root.frame.size != size { root.frame = CGRect(origin: .zero, size: size) }
-        if viewport.contentSize != size { viewport.contentSize = size }
+        let frame = CGRect(origin: CGPoint(x: m.left, y: m.top), size: size)
+        if root.frame != frame { root.frame = frame }
+        let content = CGSize(width: size.width + m.left + m.right, height: size.height + m.top + m.bottom)
+        if viewport.contentSize != content { viewport.contentSize = content }
     }
     var onPress, onClose: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
@@ -883,7 +891,7 @@ package final class Presenter {
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
-                if flats.isFlat(id) { if FlatLeaves.onlyData(op) { continue }; flats.promote(id) }
+                if flats.isFlat(id) { if flats.props(id, op) { continue }; flats.promote(id) }
                 views[id]?.applyProps(set: op.props, clear: op.clear)
                 elements.propsChanged(id)
             case .flow:
@@ -906,7 +914,7 @@ package final class Presenter {
                     session?.noteAppearance(v)
                 }
             case .children:
-                if flats.isFlat(id) { if op.ids.isEmpty { continue }; flats.promote(id) }
+                if flats.isFlat(id) { if flats.adopt(id, op.ids) { continue }; flats.promote(id) }
                 guard let parent = views[id] else { continue }
                 placeChildren(parent, op.ids)
             case .surface:
@@ -938,6 +946,7 @@ package final class Presenter {
                 if flats.isFlat(id) { flats.promote(id) }
                 views[id]?.applyColumns(op.payload)
             case .destroy:
+                views[id]?.holdGone()
                 elements.destroyed(id)
                 stickies.forget(id)
                 forgetFlight(id)
@@ -985,7 +994,7 @@ package final class Presenter {
         flats.flush()
         // A view the flush promoted and mounted may have moved its children.
         while !gridMoved.isEmpty { regridMoved(); flats.flush() }
-        fitDocument()
+        fitDocument(); reachPageEdges()
         paintCanvas()
         let first = root.subviews.first as? NodeView
         interactiveWidget = first?.props["interactiveWidget"]
@@ -997,7 +1006,7 @@ package final class Presenter {
         let changed = touchedAndAbove(touchedIDs + geometryApplied)
         geometryApplied = []
         swipeActions.sync(changed: changed); rowCells.sync(changed: changed)
-        groupedLists?.sync(changed: changed)
+        groupedLists?.sync(changed: changed); reachPageEdges() // a list mounted now reaches its bands too
         if !flights.isEmpty { flightsBatchApplied() }
         #if os(tvOS)
         menuKey.sync()
@@ -1251,7 +1260,7 @@ package final class Presenter {
             let anchor = contextAnchors[preview.id]!
             let sourceBox = (anchor.port ?? viewport).convert(anchor.box, to: parent)
             let content = preview.convert(preview.bounds, to: parent)
-            let port = vp.convert(vp.bounds, to: parent)
+            let port = vp.convert(vp === viewport ? vp.bounds.inset(by: pageMargins) : vp.bounds, to: parent)
             // Public UIKit target-preview fixture, iPhone 17 / iOS 26.5.
             let scale = preview.props["contextMagnify"] == "false" ? 1 : min(1.15, 1 + 26 / max(content.width, content.height))
             let extra = content.height * (scale - 1)

@@ -93,9 +93,11 @@ pub struct Host<D: DataSource> {
     pub(crate) flow_damage: crate::paint::damage::Changes,
     /// What changed for the painter's kept rows since its last frame.
     pub(crate) row_dirty: crate::paint::rows::Dirty,
-    /// The nodes whose `:hover` look holds, and the one whose `:focus-visible`
-    /// does (LLP 1121 D8; the presenter's, `presenter/feedback.rs`).
-    pub(crate) looks_shown: (Vec<ViewId>, Option<ViewId>),
+    pub(crate) scroll_anchors: crate::scroll_anchor::State,
+    /// The nodes whose `:hover` look holds, the one whose `:focus-visible`
+    /// does (LLP 1121 D8), and the state held (LLP 1122 D8; the presenter's,
+    /// `presenter/feedback.rs`, `presenter/held.rs`): a new host holds none.
+    pub(crate) looks_shown: press::Shown,
     height_bindings: height_binding::Bindings,
     transform_bindings: transform_binding::Bindings,
     height_projection: Option<exact_kernel::PresentedHeight>,
@@ -272,6 +274,7 @@ impl<D: DataSource> Host<D> {
             height_owner: None,
             flow_damage: Default::default(),
             row_dirty: Default::default(),
+            scroll_anchors: Default::default(),
             looks_shown: Default::default(),
             height_bindings: Default::default(),
             transform_bindings: Default::default(),
@@ -676,10 +679,7 @@ impl<D: DataSource> Host<D> {
         shown.lowered = self.lowered_mask(node.key);
         // @ref LLP 1061 D7, LLP 1121 D8 — the press and the looks that hold;
         // the painter shows their colours from the same progress.
-        let looks = [
-            self.looks_shown.0.contains(&id),
-            self.looks_shown.1 == Some(id),
-        ];
+        let looks = self.looks_shown.on(id);
         press::present(&node, self.press_progress(node.key), looks, &mut shown);
         shown
     }
@@ -1288,6 +1288,7 @@ impl<D: DataSource> Host<D> {
                 if let Some(id) = self.keys.get(key).copied() {
                     self.presented.remove(&id);
                     self.renewed.push(id);
+                    self.scroll_anchors.renewed(id, *key);
                     self.values.committed(id, None);
                 }
             }

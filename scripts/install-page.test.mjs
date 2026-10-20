@@ -7,11 +7,11 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 // The fixtures name their apps; a caller's EXACT_APP_DIR would redirect every one.
 delete process.env.EXACT_APP_DIR;
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync, mkdirSync, renameSync, symlinkSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync, mkdirSync, renameSync, symlinkSync, existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { closeFilesystemReader, filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { createServer } from 'node:http';
 import { allowHostArgs, allowHostName, developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
@@ -20,6 +20,7 @@ import { request as httpRequest } from 'node:http';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { publishRoot } from './deploy.mjs';
 import { DirectoryOrigin, webReleasePath } from './origin.mjs';
+import { developmentLinks } from '../host/apple/build.mjs';
 const manifest = {name:'Interview',app:{id:'com.interview.app',name:'Interview'}};
 
 test('static ancestor notifications reconcile nested trees and retain refused replacements', () => {
@@ -312,7 +313,11 @@ chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
     writeFileSync(join(dir,'helper-source'),helper('rebuilt'));
     const get=(helperPath)=>spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';console.log(filesystem({op:'get'}));"],
       {cwd:dir,encoding:'utf8',env:{...env,EXACT_FILESYSTEM_HELPER:helperPath}});
+    const claim=join(dirname(named.stdout),'.bootstrap.lock');
+    writeFileSync(claim,`${process.pid}-${'0'.repeat(24)}`);
     let run=get(named.stdout);
+    assert.equal(readFileSync(claim,'utf8'),`${process.pid}-${'0'.repeat(24)}`,'a valid named capture bypasses even a live build claim');
+    rmSync(claim);
     assert.equal(run.status,0,run.stderr);
     assert.equal(run.stdout.trim(),'checked');
     assert.equal(readFileSync(join(dir,'builds'),'utf8'),'x','a named helper needs no build');
@@ -342,6 +347,11 @@ function helperBuilds() {
 set -e
 out=target/exact-filesystem-tool/debug
 mkdir -p $out
+if [ -e exclusive ]; then
+  if ! mkdir critical; then : > overlapping; exit 77; fi
+  trap 'rmdir critical' EXIT
+fi
+printf x >> build-count
 : > building
 while [ -e hold ]; do sleep 0.05; done
 cp helper-source $out/exact-filesystem.$$
@@ -385,7 +395,7 @@ test('helper callers wait out a build that holds its claim for minutes, and each
   } finally {rmSync(dir,{recursive:true,force:true});}
 },120_000);
 
-test('a helper claim whose builder was killed, or whose pid a later process has, fails its caller and stays in place', async () => {
+test('a helper claim whose builder was killed, or whose pid a later process has, is recovered', async () => {
   const {dir,call,claim,has}=helperBuilds();
   try {
     writeFileSync(join(dir,'hold'),'');
@@ -396,31 +406,81 @@ test('a helper claim whose builder was killed, or whose pid a later process has,
     const killed=readFileSync(claim,'utf8');
     assert.match(killed,new RegExp(`^${builder.child.pid}-`),'a killed builder leaves its claim');
     const stopped=await call('a').done;
-    assert.equal(stopped.code,3,stopped.out);
-    assert.ok(stopped.out.includes(`(${claim}: pid ${builder.child.pid} has stopped)`),stopped.out);
-    assert.equal(readFileSync(claim,'utf8'),killed,'a stale claim is never taken');
+    assert.deepEqual(stopped,{code:0,out:'helper'});
+    assert.equal(existsSync(claim),false,'the replacement builder releases the claim');
     // This process is running, and it started an hour after this claim was written.
     const later=`${process.pid}-${'0'.repeat(24)}`;
     writeFileSync(claim,later);
     const written=new Date(Date.now()-process.uptime()*1000-3_600_000);utimesSync(claim,written,written);
     const recycled=await call('b').done;
-    assert.equal(recycled.code,3,recycled.out);
-    assert.ok(recycled.out.includes(`(${claim}: pid ${process.pid} is a later process, not its builder)`),recycled.out);
-    assert.equal(readFileSync(claim,'utf8'),later,'a stale claim is never taken');
+    assert.deepEqual(recycled,{code:0,out:'helper'});
+    assert.equal(existsSync(claim),false,'a recycled pid does not wedge the helper');
   } finally {rmSync(dir,{recursive:true,force:true});}
 },120_000);
 
-test('a helper claim nobody is building under fails saying what was waited on, for how long, and what to do', async () => {
+test('concurrent dead-claim recovery keeps build and capture exclusive', async () => {
+  const {dir,call,claim,has}=helperBuilds(), callers=[];
+  try {
+    mkdirSync(dirname(claim),{recursive:true});
+    const gone=spawnSync(process.execPath,['-e','']).pid;
+    writeFileSync(claim,`${gone}-${'0'.repeat(24)}`);
+    writeFileSync(join(dir,'exclusive'),'');writeFileSync(join(dir,'hold'),'');
+    const names=Array.from({length:12},(_,i)=>String(i));
+    callers.push(...names.map(call));
+    await shown('one builder and every other caller waiting',()=>has('building') && names.filter(name=>has('waited-'+name)).length===names.length-1);
+    assert.equal(has('overlapping'),false);
+    rmSync(join(dir,'hold'));
+    for (const caller of callers) assert.deepEqual(await caller.done,{code:0,out:'helper'});
+    assert.equal(has('overlapping'),false,'two callers must never build under separate live claims');
+    assert.equal(readFileSync(join(dir,'build-count'),'utf8').length,names.length);
+    assert.equal(existsSync(claim),false);
+    assert.deepEqual(readdirSync(join(dir,'target/exact-filesystem-tool/.bootstrap.claims')),[],'each successful caller releases its own ticket');
+  } finally {
+    rmSync(join(dir,'hold'),{force:true});
+    for (const caller of callers) if (caller.child.exitCode===null) caller.child.kill();
+    await Promise.all(callers.map(caller=>caller.done));
+    rmSync(dir,{recursive:true,force:true});
+  }
+},120_000);
+
+test('a live choosing ticket is respected and a killed or recycled ticket owner is ignored', async () => {
+  const {dir,call,has}=helperBuilds(), tickets=join(dir,'target/exact-filesystem-tool/.bootstrap.claims');
+  let waiter;
+  try {
+    mkdirSync(tickets,{recursive:true});
+    const live=join(tickets,`${process.pid}-${'0'.repeat(24)}`);
+    writeFileSync(live,'');
+    waiter=call('live');
+    await shown('the live-ticket waiter to have waited',()=>has('waited-live'));
+    assert.equal(has('building'),false,'a choosing owner may still publish an earlier ticket');
+    assert.equal(waiter.child.exitCode,null);
+    rmSync(live);
+    assert.deepEqual(await waiter.done,{code:0,out:'helper'});
+    const gone=spawnSync(process.execPath,['-e','']).pid, dead=join(tickets,`${gone}-${'1'.repeat(24)}`);
+    writeFileSync(dead,'1');
+    const recycled=join(tickets,`${process.pid}-${'2'.repeat(24)}`), written=new Date(Date.now()-process.uptime()*1000-3_600_000);
+    writeFileSync(recycled,'1');utimesSync(recycled,written,written);
+    assert.deepEqual(await call('dead').done,{code:0,out:'helper'});
+    assert.deepEqual(readdirSync(tickets).sort(),[basename(dead),basename(recycled)].sort(),'a caller removes only its own ticket');
+  } finally {
+    if (waiter?.child.exitCode===null) { waiter.child.kill();await waiter.done; }
+    rmSync(dir,{recursive:true,force:true});
+  }
+},120_000);
+
+test('a dead helper owner is recovered and a malformed claim names the capture override', async () => {
   const {dir,call,claim}=helperBuilds();
   try {
     mkdirSync(join(claim,'..'),{recursive:true});
     const gone=spawnSync(process.execPath,['-e','']).pid;
     writeFileSync(claim,`${gone}-${'0'.repeat(24)}`);
-    assert.deepEqual(await call('a').done,{code:3,out:`filesystem helper: nothing has been building it for 60 s, yet its build claim is held (${claim}: pid ${gone} has stopped). This is the tooling's own helper, not the code being built. A stale claim is never taken automatically: remove it only after verifying its owner has exited.`});
+    assert.deepEqual(await call('a').done,{code:0,out:'helper'});
     writeFileSync(claim,''); // a builder killed between making its claim and signing it
     const unsigned=await call('b').done;
     assert.equal(unsigned.code,3,unsigned.out);
     assert.ok(unsigned.out.includes(`(${claim}: it reads "", which names no process)`),unsigned.out);
+    assert.match(unsigned.out,/EXACT_FILESYSTEM_HELPER/);
+    assert.equal(readFileSync(claim,'utf8'),'','an unsigned claim is not assumed dead');
   } finally {rmSync(dir,{recursive:true,force:true});}
 },120_000);
 
@@ -449,11 +509,15 @@ test('a development server answers only to its printed names; its token and phon
   assert.deepEqual(local.check(request('rebound.example:8879','127.0.0.1')),{allowed:false,local:false});
   assert.deepEqual(local.check(request('192.168.1.20:8879','127.0.0.1')),{allowed:false,local:false});
   assert.deepEqual(local.check(request(undefined,'127.0.0.1')),{allowed:false,local:false});
+  // The design tool's live copies (LLP 1122 T7): exact-copy-<n>.localhost at this port, admitted, never local; no other name under localhost.
+  assert.deepEqual(local.check(request('exact-copy-3.localhost:8879','127.0.0.1')),{allowed:true,local:false});
+  for (const host of ['exact-copy-0.localhost:8879','exact-copy-100.localhost:8879','exact-copy-3.localhost:8880','evil.localhost:8879','exact-copy-3.localhost.example:8879']) assert.deepEqual(local.check(request(host,'127.0.0.1')),{allowed:false,local:false},host);
   assert.deepEqual(shared.check(request('192.168.1.20:8879','192.168.1.33')),{allowed:true,local:false});
   // A peer naming the loopback host is still not local.
   assert.deepEqual(shared.check(request('127.0.0.1:8879','192.168.1.33')),{allowed:true,local:false});
   assert.deepEqual(shared.loopbackOrigins,['http://127.0.0.1:8879','http://localhost:8879']);
   assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('127.0.0.1','127.0.0.1')).allowed,true);
+  assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('exact-copy-2.localhost','127.0.0.1')).allowed,true);
   assert.equal(localInstallURL('simulator',lan,8879),'http://127.0.0.1:8879/');
   assert.equal(localInstallURL('device',lan,8879),'http://192.168.1.20:8879/');
   assert.throws(()=>localInstallURL('device',loopback,8879),/--lan/);
@@ -479,8 +543,12 @@ test('--allow-host admits a tunnel name to every request but never makes it loca
   assert.equal(gate.check(request('rebound.example:8879')).allowed,false);
   assert.deepEqual(gate.check(request('127.0.0.1:8879')),{allowed:true,local:true});
   // A tunnel that rewrites Host to loopback still carries the internet: not local.
-  for (const header of ['forwarded','x-forwarded-for','x-forwarded-host'])
+  // Any proxy's mark, a later x-forwarded-* and the canvas gateway's fixed one included.
+  for (const header of ['forwarded','x-forwarded-for','x-forwarded-host','x-forwarded-proto','x-forwarded-port','X-Forwarded-Server'])
     assert.deepEqual(gate.check({headers:{host:'127.0.0.1:8879',[header]:'for=203.0.113.9'},socket:{remoteAddress:'127.0.0.1'}}),{allowed:true,local:false},header);
+  assert.deepEqual(gate.check({headers:{host:'127.0.0.1:8879',forwarded:'for="_exact-canvas"'},socket:{remoteAddress:'127.0.0.1'}}),{allowed:true,local:false});
+  // So the opening page offers such a request no native client's token-bearing links.
+  assert.deepEqual(developmentLinks({}, 'http://127.0.0.1:8879/', gate.check({headers:{host:'127.0.0.1:8879',forwarded:'for="_exact-canvas"'},socket:{remoteAddress:'127.0.0.1'}})), []);
   // A cross-site browser POST is refused; a same-origin or Origin-less one is not.
   const post=(origin,host='127.0.0.1:8879')=>gate.check({method:'POST',headers:{host,...(origin===undefined?{}:{origin})},socket:{remoteAddress:'127.0.0.1'}});
   assert.deepEqual(post('https://evil.example'),{allowed:false,local:false});

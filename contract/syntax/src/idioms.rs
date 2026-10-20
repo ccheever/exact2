@@ -141,9 +141,10 @@ pub fn refusal(name: &str) -> Option<String> {
             "`{name}` is refused: a list is never changed in place, and a comparator is not Contract's; write `sortBy(xs, x => x.name)`, a stable sort by one number or string key (`sortBy(xs, x => x.count, \"desc\")` for descending, equal keys keeping their order, so a second key is an earlier `sortBy`). A locale's collation, a stored or canonical order, and rows the view has not loaded are still the data module's: order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
         ),
         // LLP 1116.016 §7: told only to sort in the data source, a builder
-        // writing the view alone dropped the order; named, it kept it.
+        // writing the view alone dropped the order; named, it kept it. The
+        // euxy port built a list the view held last to first by hand.
         "reverse" | "toReversed" => format!(
-            "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
+            "`{name}` is refused: a list the view holds reads last to first as `sortBy(xs, (x, i) => i, \"desc\")`, a step an item; a stored order is the data module's: order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
         ),
         "reduce" | "reduceRight" => format!(
             "`{name}` is refused (LLP 1017.003): a total is `sum(xs)`, or `sum(xs.map(x => …))` over a field; compute any other fold in the data source and hand the view the result"

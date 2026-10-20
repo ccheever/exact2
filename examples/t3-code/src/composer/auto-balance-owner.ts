@@ -7,6 +7,7 @@
 // keeps the owner it had, for as long as it stays the open draft: the window's typed text stays
 // the composer's value, so the field is not rewritten and keeps its caret and focus.
 import type { T3Client } from '../client/client';
+import { requestPresentation } from './requests';
 
 const aliases = new WeakMap<T3Client, { key: string; owner: string }>();
 
@@ -20,6 +21,9 @@ export function composerOwner(client: T3Client): string {
   if (alias) aliases.delete(client);
   return plainOwner(client);
 }
+
+/** Matches the root field's owner, including its question or queued-edit draft. */
+export function composerFieldOwner(client: T3Client): string { return composerOwner(client) + requestPresentation(client).requestKey; }
 
 /** After a move: the open draft (now at its new key) keeps `owner`, the one it had before. */
 export function keepComposerOwner(client: T3Client, owner: string): void {

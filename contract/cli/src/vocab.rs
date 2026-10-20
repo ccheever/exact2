@@ -409,6 +409,12 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if name == "navigationSplit" {
             println!("  on a stack's root route (LLP 1116.004 D1.2). A wide window (900 px and up on the web) shows a stack whose root route is a list whose rows push beside its top, as a split view does, with nothing to write: a row pushes when it draws the disclosure, an `image \"symbol:forward-chevron\"` (the chevron an iOS list draws) in a `link`, or in a `button` or pressable whose action writes the router (`push`, `open`, `go`); a chevron on a row that only selects is decoration, and its route is left unsplit, `navigationSplit=\"none\"` said for you. The list is a 320-wide column, its chevrons hidden and the row whose press pushed the detail marked; the top route is the detail beside it (a detail a row pushed has no Back), a `navigationPresentation=\"modal\"` route stays a sheet, and a phone pushes. The router is unchanged: a push from a row while a detail shows stacks it, so `replace` there to swap the detail. \"none\" keeps the stack pushed; a number is the column's width and splits a list the rule does not find. While nothing is selected the detail pane shows the platform's placeholder (\"No Selection\", centred, in the secondary label's colour); \"placeholder\" on a box in the root route (an `EmptyState`) is your own instead, shown only there and then and laid out nowhere else. A root `tablist` left as the tabs recipe places it is a sidebar on the same window. docs/recipes/navigation-stack.md");
         }
+        if matches!(
+            name,
+            "transition" | "animation" | "-exact-exit-animation" | "-exact-layout-transition"
+        ) {
+            println!("  how motion is written, and what animates: `contract vocab motion` (docs/recipes/motion.md)");
+        }
         if name == "-exact-fit" {
             println!("  on a `text`: \"shrink\" draws a line too wide for its box smaller until it fits, down to half its size, as UIKit's adjustsFontSizeToFitWidth (a timer's readout at the largest text size); with `white-space=\"nowrap\"` the whole line fits, else its longest word (LLP 1116.001 D1.4)");
         }
@@ -523,6 +529,8 @@ fn refused(name: &str) -> String {
     let near = named_like(name);
     if !near.is_empty() {
         out += &format!("; try {}", near.join(", "));
+    } else if means(name).is_none() {
+        out += "; `bun exact.mjs docs <words>` prints the guides' section on a topic";
     }
     out
 }
@@ -556,6 +564,26 @@ const MEANS: &[(&[&str], &str)] = &[
     (
         &["clipboard", "pasteboard", "UIPasteboard"],
         "copying is the host command `copyText(text)` (`contract vocab copyText`)",
+    ),
+    (
+        &[
+            "keyframes",
+            "@keyframes",
+            "Animated",
+            "Reanimated",
+            "LayoutAnimation",
+            "withSpring",
+            "withTiming",
+        ],
+        "transitions, keyframes, exit and layout animation are the recipe `motion`",
+    ),
+    (
+        &["NativeModules", "TurboModule", "requireNativeModule", "ExactModule"],
+        "a module in Swift that `app.ts` asks is the recipe `native-module`",
+    ),
+    (
+        &["useColorScheme", "Appearance", "darkMode"],
+        "colours, light and dark, are the recipe `theme`",
     ),
 ];
 
@@ -685,7 +713,7 @@ fn function_text(f: &Function) -> String {
 fn command_text(name: &str) -> String {
     let what = match name {
         "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
-        "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText), no undo step by default. The core also accepts a third argument \"undo\" for the current selection or sixth argument \"undo\" after selectionMode; host undo adoption is pending (LLP 1114.007). Markdown, Windows, Android and terminal are not supported yet (LLP 1069.001)",
+        "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement, and on web/macOS/iOS the Markdown editor's, over its source; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText); no undo step on a plain field, one undo step each on the Markdown editor (LLP 1045 D1). Markdown on Linux, Windows, Android and terminal are not supported yet (LLP 1069.001)",
         "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
         "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
         _ => "",
@@ -716,7 +744,7 @@ fn kind(a: &AttrTarget) -> &'static str {
 
 fn prop_type(p: PropId) -> String {
     if p == PropId::Decorations {
-        return "TextDecorations(value, spans, blocks, hidden, atoms)".into();
+        return "TextDecorations(value, spans): the text the spans were computed for, and TextDecorationSpan(name, start, end) in UTF-16 offsets".into();
     }
     format!("{:?}", tags::prop_ty(p)).to_lowercase()
 }
@@ -731,12 +759,15 @@ const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username
 /// `anywhere` broke their words.
 const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large text size give the row room (flex-wrap=\"wrap\" with a flex-basis in rem) rather than breaking words. `break-word` breaks only a word wider than its line (a pasted link); `anywhere` breaks inside any word (\"Octo/ber\"), which verify names on prose: it is for a URL or a token on a `link` or in a monospace face. `word-break` is not admitted";
 
+/// Round 23's chat drew its transcript as a grouped list, open at the oldest message.
+const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never is): `scroll-start=\"end\"` opens it at its last row, `scrollFollowEnd=true` keeps it at the end as rows arrive and the port resizes, while the reader is there. A chat's transcript: `contract vocab chat-thread`";
+
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
 
 /// `border-radius` on a sheet route (ModalIOS.swift `cornerRadius(of:)`).
 const SHEET_RADIUS: &str = "on iOS a sheet route's (`navigationPresentation=\"modal\"`) top-left radius is also its sheet's corner radius (`preferredCornerRadius`), which seats a large sheet flat on the bottom edge. Unsaid, the sheet is UIKit's: on iOS 26 and later rounded like the display and inset from the bottom edge, as Apple's own sheets are";
-const DETENT: &str = "on a sheet route (`navigationPresentation=\"modal\"`), its resting heights; it opens at the first, the shortest, unless `navigationInitialDetent` names another: `\"45%\"` is that share of the sheet's maximum (UIKit's maximumDetentValue; React Native's `sheetAllowedDetents: [0.45]`), so a share of the screen needs no measure. A point height and fit-content stop at that maximum. UIKit takes detents shortest to tallest, and a point height and a share cross on some screen, so the words before large are one kind (points, or shares with medium as half), each taller than the one before. A bound value iOS cannot use is journaled (`logs`) with the route, and the sheet keeps its other detents or opens large. iOS alone sizes a sheet; other hosts ignore it (LLP 1075.003 §9.11, §9.13)";
+const DETENT: &str = "on a sheet route (`navigationPresentation=\"modal\"`), its resting heights; it opens at the first, the shortest, unless `navigationInitialDetent` names another: `\"45%\"` is that share of the sheet's maximum (UIKit's maximumDetentValue; React Native's `sheetAllowedDetents: [0.45]`, and `[1.0]` is `large`), so a share of the screen needs no measure. A sheet's corners are the route's `border-radius` (React Native's `sheetCornerRadius`); unsaid, a large sheet on iOS 26 and later floats inset from the bottom edge, as UIKit's does. A point height and fit-content stop at that maximum. UIKit takes detents shortest to tallest, and a point height and a share cross on some screen, so the words before large are one kind (points, or shares with medium as half), each taller than the one before. A bound value iOS cannot use is journaled (`logs`) with the route, and the sheet keeps its other detents or opens large. iOS alone sizes a sheet; other hosts ignore it (LLP 1075.003 §9.11, §9.13)";
 /// LLP 1116.020 D3: round 18's builders drew search as a field and a Search
 /// button in the content; the bar's search field is one attribute away.
 const SEARCH_TYPE: &str = "on an `input`, HTML's (`number`, `date`, `checkbox`, …); `type=\"search\"` in a route's `header` is the bar's search field, filtering as you type (iOS: UIKit's search controller; `contract vocab search`)";
@@ -745,7 +776,7 @@ const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the au
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
     if name == "decorations" {
-        return Some("plain `textarea`; host adoption pending (LLP 1114.007)");
+        return Some("plain `textarea`: paint only, each span's name a `decoration` declaration (color, background-color, text-decoration, text-shadow); the web paints it where `createValueRange` exists, Apple, Linux and Windows all but its text-shadow, Android and the terminal not yet (LLP 1114.007)");
     }
     // `title` is every element's, HTML's tooltip; `head`'s is the document's.
     if tags::HEAD_FIELDS.contains(&name) && name != "title" {
@@ -832,6 +863,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "autocapitalize" {
         doc["note"] = AUTOCAPITALIZE.into();
+    }
+    if matches!(name, "scroll-start" | "scrollFollowEnd") {
+        doc["note"] = TRANSCRIPT_END.into();
     }
     if name == "accept" {
         doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
@@ -983,6 +1017,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "autocapitalize" {
                 return vec![line, AUTOCAPITALIZE.into()];
+            }
+            if matches!(name, "scroll-start" | "scrollFollowEnd") {
+                return vec![line, TRANSCRIPT_END.into()];
             }
             if name == "accept" {
                 return vec![line, "on input type=file: omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into()];

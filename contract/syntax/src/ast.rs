@@ -2,7 +2,8 @@
 pub use crate::colours::{ColorProfileDecl, DesignSource, ThemeDecl};
 use crate::Span;
 use std::collections::BTreeMap;
-/// Tooling-only identifier ranges, distinct from AST diagnostic spans and absent from executable plans.
+/// Identifier ranges that are distinct from their AST construct's diagnostic span.
+/// Compiler tooling consumes these; they never enter an executable plan.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NameSpans {
     /// Declaration, local binding, or target name, keyed by its construct.
@@ -50,13 +51,19 @@ pub struct File {
     pub theme: Option<ThemeDecl>,
     /// The app's design, `app.tamber` (LLP 1121 D2), set by the driver.
     pub design: Option<DesignSource>,
+    /// The designs of the packages the app's sources link (LLP 1121 D11),
+    /// each `<name>.tamber` beside its package's entry, set by the driver.
+    pub package_designs: Vec<DesignSource>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
+    /// Native modules' sources and sends, read from packages (LLP 1133.001).
+    pub modules: Vec<crate::ModuleDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
     /// their own beside the app, `app.test.contract`.
     pub tests: Vec<TestDecl>,
-    /// Default test launch lines (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`),
-    /// unless overridden by the test (habits F7, calendar F13).
+    /// A test file's launch lines (`size`, `epoch`, `time-zone`, `locale`,
+    /// `seed`, `before data`), which every test in the file opens with unless it names its
+    /// own (habits F7, calendar F13).
     pub launch: Vec<Step>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
@@ -363,6 +370,13 @@ pub enum Step {
     Screenshot {
         /// The file.
         path: String,
+        /// Where.
+        span: Span,
+    },
+    /// `expect refusal "mutation"`: the named send must be refused.
+    ExpectRefusal {
+        /// Mutation name, as reported by the runner.
+        target: String,
         /// Where.
         span: Span,
     },
@@ -1167,22 +1181,27 @@ pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
 /// [`input_control`], or `Some("field")` for a text field whose `select`
 /// is HTML's (x2apps codeedit #2): an `input` that is no control, or a
 /// `textarea` that is not the Markdown editor (no `markup`, or literally
-/// `none`), whose `select` carries the field's `InputEvent`; the editor's
-/// carries its `MarkdownSelection`. What a handler's payload is typed by.
+/// `none`), whose `select` carries the field's `InputEvent`; or
+/// `Some("markdown")` for a textarea that may be the editor, whose `select`
+/// carries its `MarkdownSelection` and whose other field events are a text
+/// field's, over its source (LLP 1045 D6). What a handler's payload is
+/// typed by.
 pub fn payload_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
-    let field = match tag {
-        "input" => input_control(tag, attrs).is_none(),
-        "textarea" => attrs
-            .iter()
-            .find(|a| a.name == "markup")
-            .is_none_or(|a| matches!(&a.value, Expr::Str(m, _) if m == "none")),
-        _ => false,
-    };
-    if field {
-        Some("field")
-    } else {
-        input_control(tag, attrs)
+    match tag {
+        "input" if input_control(tag, attrs).is_none() => Some("field"),
+        "textarea" => Some(match attrs.iter().find(|a| a.name == "markup") {
+            Some(a) if !matches!(&a.value, Expr::Str(m, _) if m == "none") => "markdown",
+            _ => "field",
+        }),
+        _ => input_control(tag, attrs),
     }
+}
+
+/// Whether a [`payload_control`] edits text: a text field's or the
+/// Markdown editor's `input`, `selectionchange` and `beforeinput` carry the
+/// field's `InputEvent`.
+pub fn edits_text(control: Option<&str>) -> bool {
+    matches!(control, Some("field" | "markdown"))
 }
 
 /// The control an `input`'s literal `type` names; `None` for a text field's
@@ -1379,44 +1398,6 @@ pub enum TemplatePart {
     Text(String),
     /// `${expr}`.
     Expr(Expr),
-}
-
-impl Step {
-    /// Where: the step's line.
-    pub fn span(&self) -> Span {
-        match self {
-            Step::Tap { span, .. }
-            | Step::Drag { span, .. }
-            | Step::Size { span, .. }
-            | Step::Epoch { span, .. }
-            | Step::TimeZone { span, .. }
-            | Step::Locale { span, .. }
-            | Step::Seed { span, .. }
-            | Step::Fresh { span, .. }
-            | Step::BeforeData { span }
-            | Step::FailFetch { span, .. }
-            | Step::PassFetch { span, .. }
-            | Step::Request { span, .. }
-            | Step::Type { span, .. }
-            | Step::Key { span, .. }
-            | Step::Pick { span, .. }
-            | Step::Clipboard { span, .. }
-            | Step::Clock { span, .. }
-            | Step::Reload { span, .. }
-            | Step::Close { span }
-            | Step::Back { span }
-            | Step::Resize { span, .. }
-            | Step::Screenshot { span, .. }
-            | Step::ExpectTree { span, .. }
-            | Step::ExpectDisabled { span, .. }
-            | Step::ExpectText { span, .. }
-            | Step::ExpectState { span, .. }
-            | Step::ExpectSound { span, .. }
-            | Step::Midi { span, .. }
-            | Step::ExpectMediaSession { span, .. }
-            | Step::ExpectMediaSessionAction { span, .. } => *span,
-        }
-    }
 }
 
 impl Expr {

@@ -57,7 +57,7 @@
 use crate::agent::num;
 use crate::midi::{Midi, Queued, HOLD, TICKS_PER_SECOND};
 use crate::sound::{Added, By, Cut, Sounds};
-use exact_plan::{ActionsId, Plan, Value};
+use exact_plan::{ActionsId, Plan, Value, HAPTIC_KINDS};
 use std::collections::VecDeque;
 
 pub mod clock;
@@ -89,19 +89,6 @@ pub const SHORTEST: f64 = 1.0 / 1048576.0;
 /// cannot, and past 2^53 a loop index no longer steps by 1. A finite track
 /// with fewer loops is never iterated there (its last loop is behind).
 pub const EXACT: f64 = 4503599627370496.0;
-/// A step's `haptic` kinds: `haptic()`'s (LLP 1077 D14).
-pub const HAPTIC_KINDS: [&str; 10] = [
-    "selection",
-    "impact",
-    "impact-light",
-    "impact-medium",
-    "impact-heavy",
-    "impact-soft",
-    "impact-rigid",
-    "success",
-    "warning",
-    "error",
-];
 
 /// What the transport is doing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

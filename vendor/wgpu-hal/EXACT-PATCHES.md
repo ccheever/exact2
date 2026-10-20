@@ -1,4 +1,4 @@
-# wgpu-hal 30.0.1 — twelve local patches: five in Metal, seven in Vulkan
+# wgpu-hal 30.0.1 — fourteen local patches: five in Metal, nine in Vulkan
 
 Complete crates.io archive, including the upstream MIT/Apache licenses and
 `.cargo_vcs_info.json`. No dependency upgrade. Patch 11 offers an explicit native arithmetic-only f16 opt-in. Every changed
@@ -248,6 +248,32 @@ reported GPU faults (`IOCTL_KGSL_GPU_COMMAND ... errno 71`) and the device was
 lost. The semaphores a texture still holds are now left to it and logged; the
 texture's drop makes no Vulkan call, so a few handles of a lost device are
 never destroyed.
+
+## 13. Every lasting framebuffer is the device's (Vulkan)
+
+`src/vulkan/mod.rs`, `src/vulkan/device.rs`, `src/vulkan/command.rs`,
+`src/vulkan/adapter.rs`. Patch 6 kept framebuffers of swapchain views on the
+device; every other render pass still made a `VkFramebuffer` each frame, since
+the command encoder's cache is emptied whenever the encoder is reset. On a
+Galaxy Note 9 (Adreno 630) drawing Castle Town with 150 players, creating them
+was 4% of the presenting thread (`vkCreateFramebuffer`, about 0.6 ms a frame).
+Now a render pass whose attachments are all views (not the encoder's temporary
+slice views) uses the device's framebuffer (`DeviceShared::framebuffers`),
+made once per pass key; destroying a view destroys the framebuffers that draw
+into it (`forget_view`), as wgpu-core destroys a view only after the
+submissions that used it have finished. Nothing a caller can observe changes
+but the count of framebuffers made. Upstreamable.
+
+## 14. A `maxBufferSize` below the spec's minimum is unreported (Vulkan)
+
+`src/vulkan/adapter.rs`. The Android emulator's Vulkan (emulator 37.2.12,
+`-gpu host` and `swiftshader_indirect`, 2026-10-19) reports
+`VkPhysicalDeviceMaintenance4Properties::maxBufferSize` as 0, where the spec
+requires at least 2^30, so the adapter's `max_buffer_size` limit was 0 and
+`exact-gpu`'s device request (downlevel's 256 MiB) failed with "no device".
+A value below 2^30 is now read as not reported, as on a driver without
+maintenance4: the memory allocation limit and the platform cap still bound
+it. A conformant driver is unaffected. Upstreamable.
 
 ## Updating
 

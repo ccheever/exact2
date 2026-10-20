@@ -49,7 +49,7 @@ fn frame() -> FrameInput<'static> {
         camera_position: Vec3::new(0., 0., 5.),
         sun: None,
         environment: Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ambient: 0.,
             fog: None,
             bloom: None,
@@ -438,7 +438,7 @@ fn hull_never_expands_the_shadow_and_is_fogged() {
     );
     f = frame();
     f.environment.fog = Some(Fog {
-        color: Some([0., 1., 0.]),
+        color: Some([0., 1., 0.].into()),
         ..Fog::linear(0., 1.)
     });
     let fogged = render(
@@ -507,7 +507,7 @@ fn rim_linear_fog_output_transfer_and_single_sample_edges() {
     assert!(curved.at(64, 64)[0] > linear.at(64, 64)[0] + 20);
     let mut fog = frame();
     fog.environment.fog = Some(Fog {
-        color: Some([0.75; 3]),
+        color: Some([0.75; 3].into()),
         ..Fog::linear(2., 7.)
     });
     // Sphere's front centre is at view depth 4.5: halfway from 2 to 7.
@@ -522,7 +522,7 @@ fn rim_linear_fog_output_transfer_and_single_sample_edges() {
     .0;
     assert!((i32::from(mid.at(64, 64)[0]) - srgb(0.5)).abs() <= 2);
     fog.environment.fog = Some(Fog {
-        color: Some([0.75; 3]),
+        color: Some([0.75; 3].into()),
         ..Fog::linear(6., 7.)
     });
     let near = render(
@@ -862,7 +862,7 @@ fn linear_fog_leaves_the_sky_unchanged_even_with_height_density() {
     for density in [Fog::linear(0., 1.).density, 1.] {
         f.environment.fog = Some(Fog {
             density,
-            color: Some([0., 1., 0.]),
+            color: Some([0., 1., 0.].into()),
             ..Fog::linear(0., 1.)
         });
         let foggy = render(

@@ -62,7 +62,8 @@ fn css_text_in(
             }
             // @ref LLP 1115 D3 — a text style is the ramp's size at CSS's
             // `medium`, in `rem`, so it follows the browser's root size.
-            Unit::TextStyle(_) => {
+            // @ref LLP 1137 — a length ramp likewise.
+            Unit::TextStyle(_) | Unit::Ramp(_) => {
                 let medium = exact_kernel::style::relative::MEDIUM;
                 num_into(out, n * unit.basis(medium, medium, 1.0) / medium);
                 out.push_str("rem");
@@ -349,11 +350,27 @@ fn css_text_in(
                 out.push_str(";--exact-accent:");
                 let start = out.len();
                 declared(&mut out, id, &value);
-                if &out[start..] == "auto" {
+                let auto = &out[start..] == "auto";
+                if auto {
                     out.truncate(start);
                     out.push_str("AccentColor");
                 }
+                // The ink on the accent is worked out from the accent (neutral.css):
+                // as the accent itself it is the browser's keyword, no cycle.
+                if &out[start..] == "var(--exact-accent-text, AccentColorText)" {
+                    out.truncate(start);
+                    out.push_str("AccentColorText");
+                }
                 out.push(';');
+                // An authored accent, apart from the page's own in
+                // --exact-accent: what a spinner reads (LLP 1121 D9). The
+                // page's sheet takes a bound or live one from the element
+                // that writes --exact-accent itself (neutral.css).
+                if !auto {
+                    out.push_str("--exact-accent-said:");
+                    declared(&mut out, id, &value);
+                    out.push(';');
+                }
             }
             // @ref LLP 1077 D14 — host-owned feedback, as `-exact-press-scale`: a
             // custom property input-glue.js reads from the pressed element's

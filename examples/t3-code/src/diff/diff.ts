@@ -1,15 +1,16 @@
 import { DiffFind, markDiffRows, findGap } from './diff-find';
 // Changes panel state and projection, adapted from T3 Code (MIT); see LICENSE-T3.
 // Sources: apps/web/src/components/DiffPanel.tsx, diffPanelStore.ts, components/diffs/*
-// and the served @pierre/diffs rendering (stacked/split rows, bars). The panel passes
-// `lineDiffType: "none"` (DiffPanel.tsx), so changed words are not marked.
+// and the served @pierre/diffs rendering (stacked/split rows, bars). DiffPanel.tsx passes
+// `lineDiffType: "none"`, but the served panel still marks changed words with Pierre's default
+// "word-alt" (measured on the 9c161462c9 oracle), so a replaced line pair carries its marks.
 // The server owns every patch: turn diffs come from orchestration.getTurnDiff and
 // working-tree/branch diffs from review.getDiffPreview. The tree (diff-tree.ts), large
 // diffs and hidden lines (diff-lazy.ts) and line comments (diff-comments.ts) are
 // projected here; their commands are diff-review.ts.
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import { diffFileTreeEntries, diffTreeRows, collectDirectoryPaths, allDirectoriesExpanded } from './diff-tree';
-import { diffSource, lazyPatches, settledFileCount, fileState, type DiffSource, type LazyPatches, type FileContents, type Expansion } from './diff-lazy';
+import { diffSource, lazyPatches, settledFileCount, fileState, changeType, type DiffSource, type LazyPatches, type FileContents, type Expansion } from './diff-lazy';
 import { diffReviewLines, type ReviewLine, type SelectedLineRange } from './diff-comments';
 import { AUTOMATIC_BASE_REF, baseRefView, emptyBaseRefPicker, normalizeBaseRef, type BaseRefPicker } from './diff-base-ref';
 import { compactCount } from '../timeline/timeline-tree';
@@ -18,6 +19,7 @@ import { peekVcsStatus } from '../details/shell-vcs';
 import type { T3Client } from '../client/client';
 import { messageTime } from '../timeline/timeline-presentation';
 import { lineTokens, overlay } from '../highlight/timeline-diff-syntax';
+import { wordAltMarks } from '../appearance/settings-font-previews'; // Pierre's word-alt marks, ported
 import type { Token } from '../highlight/timeline-highlight';
 import { utilityPlacement, type LineDrag } from './diff-line-drag';
 
@@ -227,8 +229,11 @@ export function wordMarks(before: string, after: string): [Segment[], Segment[]]
 /** A drawn line: its tone and number, and the line it is on each side (0 for none), for line selection and comments. */
 export type Row = { tone: string; number: string; segments: Segment[]; oldLine: number; newLine: number };
 export const plain = (text: string): Segment[] => [{ id: '0', text, mark: false, syntax: '' }];
-/** One hunk as stacked rows and split pairs (no word marks: `lineDiffType: "none"`); the pull request Code tab draws the same rows (pages-pr-code-rows.ts). */
-export function hunkRows(hunk: Hunk, path: string): { stacked: Row[]; split: { left: Row; right: Row }[] } {
+/**
+ * One hunk as stacked rows and split pairs; the pull request Code tab draws the same rows (pages-pr-code-rows.ts).
+ * With `marks`, each deletion and the addition at its index in a change block carry word-alt marks (wordAltMarks).
+ */
+export function hunkRows(hunk: Hunk, path: string, marks = false): { stacked: Row[]; split: { left: Row; right: Row }[] } {
   const stacked: Row[] = [], split: { left: Row; right: Row }[] = [];
   const empty: Row = { tone: 'empty', number: '', segments: [], oldLine: 0, newLine: 0 };
   // Each side is highlighted as one text (timeline-diff-syntax.ts).
@@ -237,7 +242,7 @@ export function hunkRows(hunk: Hunk, path: string): { stacked: Row[]; split: { l
   const syntax = new Map<Line, { old: Token[]; next: Token[] }>();
   oldSide.forEach((line, at) => syntax.set(line, { old: oldTokens[at] ?? [], next: [] }));
   newSide.forEach((line, at) => syntax.set(line, { old: syntax.get(line)?.old ?? [], next: newTokens[at] ?? [] }));
-  const paint = (line: Line, side: 'old' | 'next') => overlay(plain(line.text), syntax.get(line)?.[side] ?? []);
+  const paint = (line: Line, side: 'old' | 'next', marked?: Segment[]) => overlay(marked ?? plain(line.text), syntax.get(line)?.[side] ?? []);
   for (let index = 0; index < hunk.lines.length;) {
     const line = hunk.lines[index]!;
     if (line.kind === 'context') {
@@ -249,8 +254,10 @@ export function hunkRows(hunk: Hunk, path: string): { stacked: Row[]; split: { l
     const deletions: Line[] = [], additions: Line[] = [];
     while (hunk.lines[index]?.kind === 'deletion') deletions.push(hunk.lines[index++]!);
     while (hunk.lines[index]?.kind === 'addition') additions.push(hunk.lines[index++]!);
-    const left = deletions.map(entry => ({ tone: 'deletion', number: String(entry.old), segments: paint(entry, 'old'), oldLine: entry.old, newLine: 0 }));
-    const right = additions.map(entry => ({ tone: 'addition', number: String(entry.next), segments: paint(entry, 'next'), oldLine: 0, newLine: entry.next }));
+    // computeLineDiffDecorations: no marks when either line is longer than maxLineDiffLength (1000).
+    const pairs = deletions.map((entry, at) => marks && additions[at] && entry.text.length <= 1000 && additions[at]!.text.length <= 1000 ? wordAltMarks(entry.text, additions[at]!.text) : null);
+    const left = deletions.map((entry, at) => ({ tone: 'deletion', number: String(entry.old), segments: paint(entry, 'old', pairs[at]?.[0]), oldLine: entry.old, newLine: 0 }));
+    const right = additions.map((entry, at) => ({ tone: 'addition', number: String(entry.next), segments: paint(entry, 'next', pairs[at]?.[1]), oldLine: 0, newLine: entry.next }));
     stacked.push(...left, ...right);
     for (let at = 0; at < Math.max(left.length, right.length); at++) split.push({ left: left[at] ?? empty, right: right[at] ?? empty });
   }
@@ -395,27 +402,34 @@ export function diffSnapshot(client: T3Client, now: number) {
       push(state.layout === 'split' ? { left: { tone: 'context', number: String(oldLine), segments: plain(text), oldLine, newLine: 0 }, right: { tone: 'context', number: String(newLine), segments: plain(text), oldLine: 0, newLine } }
         : { tone: 'context', number: String(newLine), segments: plain(text), oldLine, newLine }, key);
     };
-    const hidden = (count: number, gapIndex: number, newFirst: number, delta: number, trailing: boolean) => {
+    const hidden = (count: number, gapIndex: number, newFirst: number, delta: number) => {
       if (count <= 0) return;
       const key = `${scope}::${file.path}::${gapIndex}`, opened = state.expansions[key] ?? { fromStart: 0, fromEnd: 0 };
       const fromStart = Math.min(count, opened.fromStart), fromEnd = Math.min(count - fromStart, opened.fromEnd), left = count - fromStart - fromEnd;
       for (let k = 0; k < fromStart; k++) context(newFirst + k, delta, `x${gapIndex}:${k}`);
       const failed = contents?.state === 'error';
       if (left > 0) items.push({ ...base, id: `gap:${file.path}:${gapIndex}`, kind: 'gap', path: file.path, expanded, line: gapIndex, expandable: gitSource && !failed,
-        label: failed ? contents.error || 'Unable to load file contents.' : trailing && left === count && !contents ? 'More unchanged context may be available' : `${left} unmodified ${left === 1 ? 'line' : 'lines'}` });
+        label: failed ? contents.error || 'Unable to load file contents.' : `${left} unmodified ${left === 1 ? 'line' : 'lines'}` });
       for (let k = left + fromStart; k < count; k++) context(newFirst + k, delta, `x${gapIndex}:${k}`);
     };
     let oldNext = 1, newNext = 1;
     file.hunks.forEach((hunk, hunkIndex) => {
       const oldCount = hunk.lines.filter(line => line.kind !== 'addition').length, newCount = hunk.lines.filter(line => line.kind !== 'deletion').length;
       const oldStart = hunk.oldStart + (oldCount === 0 ? 1 : 0), newStart = hunk.newStart + (newCount === 0 ? 1 : 0);
-      hidden(newStart - newNext, hunkIndex, newNext, newStart - oldStart, false);
-      const { stacked, split } = hunkRows(hunk, file.path);
+      hidden(newStart - newNext, hunkIndex, newNext, newStart - oldStart);
+      const { stacked, split } = hunkRows(hunk, file.path, true);
       (state.layout === 'split' ? split : stacked).forEach((row, index) => push(row, `${hunkIndex}:${index}`));
       oldNext = oldStart + oldCount; newNext = newStart + newCount;
     });
-    // After the last hunk: known once the contents are in.
-    if (contents?.state === 'loaded' && file.hunks.length > 0) hidden(Math.max(0, newLines.length - (contents.newContents.endsWith('\n') ? 1 : 0) - newNext + 1), file.hunks.length, newNext, newNext - oldNext, true);
+    // After the last hunk: counted once the contents are in. Before that, a changed file of a git source (Pierre's
+    // canHydrateCollapsedContext: a partial patch, a file loader, a change or a rename with changes) has a row for an
+    // unknown count, which a press loads.
+    if (contents?.state === 'loaded' && file.hunks.length > 0) hidden(Math.max(0, newLines.length - (contents.newContents.endsWith('\n') ? 1 : 0) - newNext + 1), file.hunks.length, newNext, newNext - oldNext);
+    else if (gitSource && file.hunks.length > 0 && ['change', 'rename-changed'].includes(changeType(file.status, file.hunks.length))) {
+      const failed = contents?.state === 'error';
+      items.push({ ...base, id: `gap:${file.path}:${file.hunks.length}`, kind: 'gap', path: file.path, expanded, line: file.hunks.length, expandable: !failed,
+        label: failed ? contents.error || 'Unable to load file contents.' : 'More unchanged context may be available' });
+    }
     // The code block ends with 8pt of padding before the next file header.
     items.push({ ...base, id: `pad:${file.path}`, kind: 'pad', path: file.path, expanded });
   }

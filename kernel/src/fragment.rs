@@ -201,7 +201,11 @@ pub(crate) fn taffy_multicol(arena: &NodeArena, slot: u32) -> Option<taffy::Mult
             Dimension::Points(w) => Some(w.max(0.0)),
             _ => None,
         },
-        gap: gap(s),
+        // Across, in whole columns under a terminal's space rule.
+        gap: match arena.env().cell_spaces {
+            true => crate::style::cells::space(gap(s), crate::style::cells::COLUMN),
+            false => gap(s),
+        },
         used_height: cut.and_then(|c| c.used_height),
         overflow: cut.and_then(|c| c.overflow),
     })

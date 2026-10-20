@@ -297,5 +297,9 @@ shape PanelView
   tabStrip: TabStrip // the tab strip's scroll (tab-strip.ts)
   browser: BrowserPanel // the active Browser tab (browser-surface.ts browserView)
   browserMini: BrowserMini // the floating player's browser tab (browser-capture.ts browserMiniView)
+  annotationOwner: string
+  annotationValue: string
+  annotationSnapshot: string
+  annotationGeneration: number
   annotationSend: number // an annotation's ⌘Return asks the window's Send, whatever the panel shows
   automationRecording: AutomationRecording // a recording request the agent's previewAutomation host handed over

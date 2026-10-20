@@ -81,6 +81,44 @@ test('a simulator is chosen without booting it, and is the drive\'s own only whe
   }
 });
 
+test('of several booted simulators, the one with the app installed; of several so, the one this app last used', () => {
+  // A fake `xcrun simctl` with three booted iPhones; the app is installed on those HAS names.
+  const bin = mkdtempSync(resolve(tmpdir(), 'devices-pick-bin-')), dir = resolve(bin, 'app'), used = resolve(dir, '.exact/simulator');
+  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR, HAS: process.env.HAS };
+  const phone = (udid) => ({ udid, name: `phone ${udid}`, state: 'Booted', deviceTypeIdentifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro' });
+  const quiet = console.error;
+  try {
+    writeFileSync(resolve(bin, 'list.json'), JSON.stringify({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-27-0': ['A', 'B', 'C'].map(phone) } }));
+    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\ncase "$2" in\n  list) cat '${resolve(bin, 'list.json')}' ;;\n  get_app_container) case " $HAS " in *" $3 "*) exit 0 ;; esac; exit 1 ;;\nesac\nexit 0\n`);
+    chmodSync(resolve(bin, 'xcrun'), 0o755);
+    process.env.PATH = `${bin}:${saved.PATH}`;
+    process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
+    console.error = () => {};
+    const choose = (pick) => chooseSimulator(pick, { app: 'com.example.app', dir, hint: '--sim' }).udid;
+    const last = () => (existsSync(used) ? readFileSync(used, 'utf8').trim() : null);
+    // Installed on none: refused, and nothing remembered.
+    process.env.HAS = '';
+    expect(() => choose()).toThrow(/none with com\.example\.app installed: name one with --sim/);
+    expect(last()).toBe(null);
+    // Named: used and remembered.
+    expect(choose('C')).toBe('C');
+    expect(last()).toBe('C');
+    // Installed on one: that one, though another is remembered, and it is remembered instead.
+    process.env.HAS = 'A';
+    expect(choose()).toBe('A');
+    expect(last()).toBe('A');
+    // Installed on two: the one remembered; one remembered without the app decides nothing.
+    process.env.HAS = 'A B';
+    expect(choose()).toBe('A');
+    writeFileSync(used, 'C\n');
+    expect(() => choose()).toThrow(/several with com\.example\.app installed/);
+  } finally {
+    console.error = quiet;
+    for (const k of ['PATH', 'DEVELOPER_DIR', 'HAS']) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
 test('a drive shows the software keyboard on a simulator it booted and puts the setting back, durably; on another it only says so', () => {
   // A fake `xcrun simctl spawn <udid> defaults <verb> …` over one state file: the key's value, absent when deleted;
   // a write fails while FAIL_WRITE is set (the simulator shut down under the drive).

@@ -143,7 +143,7 @@ extension Agent {
     /// A viewport point (`box`'s space) in the window.
     func windowPoint(_ at: CGPoint) -> CGPoint {
         let vp = presenter.viewport
-        return vp.convert(CGPoint(x: at.x + vp.contentOffset.x, y: at.y + vp.contentOffset.y), to: nil)
+        return vp.convert(CGPoint(x: at.x + vp.pageOrigin.x, y: at.y + vp.pageOrigin.y), to: nil)
     }
 
     /// A finger's `pointerdown` or `pointerup` at `window` (a window point)
@@ -286,7 +286,8 @@ extension Agent {
     /// `tap <scroller> drag <dx> <dy>` without real touches (LLP 1116.003; r5
     /// weather, mood journal): what a finger's drag on a scroller ends with,
     /// its content moved with the finger — up 300 points for a drag of
-    /// -300 — as far as its range allows, lifted with no fling. Only on a
+    /// -300 — as far as its range allows, lifted with no fling, and its bars
+    /// as the finger leaves them (`rest`). Only on a
     /// node that scrolls itself (a scroll container, a grouped list), where
     /// the scroll view's pan is what takes the drag; a finger there must
     /// land on it. A drag on anything else reaches whatever UIKit's
@@ -303,36 +304,91 @@ extension Agent {
         // Where the finger goes down: the request's point in the viewport, else the middle.
         let b = box(v), vp = presenter.viewport
         let start = (req["from"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: b.midX, y: b.midY)
-        let p = vp.convert(CGPoint(x: start.x + vp.contentOffset.x, y: start.y + vp.contentOffset.y), to: nil)
+        let p = vp.convert(CGPoint(x: start.x + vp.pageOrigin.x, y: start.y + vp.pageOrigin.y), to: nil)
         if let why = offscreen(v, box: CGRect(origin: start, size: .zero), hit: win.hitTest(p, with: nil)) { return ["error": "drag #\(v.id): \(why)"] }
         if let hit = win.hitTest(p, with: nil), let why = obscured(v, at: p, hit: hit) { return ["error": "drag #\(v.id) at (\(Agent.r2(start.x)), \(Agent.r2(start.y))): \(why)"] }
+        MainActor.assumeIsolated { HeldState.input(at: win.hitTest(p, with: nil)) } // the finger's accepted down: real input, which lets a held state go
         let scrollsX = (sv as? ScrollView)?.scrollsX ?? false, scrollsY = (sv as? ScrollView)?.scrollsY ?? true
-        let inRange = { (p: CGPoint) -> CGPoint in
-            let i = sv.adjustedContentInset
-            let maxX = max(-i.left, sv.contentSize.width + i.right - sv.bounds.width), maxY = max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)
-            return CGPoint(x: scrollsX ? min(max(p.x, -i.left), maxX) : p.x, y: scrollsY ? min(max(p.y, -i.top), maxY) : p.y)
-        }
         let o = sv.contentOffset
-        let to = inRange(CGPoint(x: scrollsX ? o.x - CGFloat(delta[0]) : o.x, y: scrollsY ? o.y - CGFloat(delta[1]) : o.y))
         // A drag ends a smooth correction, as a wheel does (LLP 1070.000 §11).
         if let owner = sv.superview as? NodeView, presenter.collections.animating.contains(owner.id) { presenter.collections.animationEnded(owner.id, dragging: true) }
-        sv.setContentOffset(to, animated: false)
-        // A large title collapsing as its content moves changes the range
-        // under the lifted finger (UIKit takes the title's height off the top
-        // inset and adds it to the offset), which left the content 52 points
-        // past its end; UIKit's bounce brings it back inside, here at once.
-        // Within the range the added height is no motion of the content, so
-        // the drag's own distance is what it scrolled by.
-        win.layoutIfNeeded()
-        let rest = inRange(sv.contentOffset)
-        let by = rest != sv.contentOffset ? rest : to
-        if rest != sv.contentOffset { sv.setContentOffset(rest, animated: false) }
+        // The content follows the finger, within the range; past it UIKit's bounce brings it back inside, here at once
+        Agent.rest(sv, at: CGPoint(x: o.x - CGFloat(delta[0]), y: o.y - CGFloat(delta[1])), x: scrollsX, y: scrollsY)
+        let by = sv.contentOffset
         // A finger's drag shows the indicators, which fade once it lifts; an
         // offset written directly shows none.
         if by != o { sv.flashScrollIndicators() }
         presenter.settlePump()
         return ["tapped": Int(v.id), "at": [Agent.r2(start.x), Agent.r2(start.y)], "scrolledBy": [Agent.r2(by.x - o.x), Agent.r2(by.y - o.y)],
                 "delivery": "recognized", "native": "scroll"]
+    }
+
+    /// Leaves `sv` where a person's scroll to `want` leaves it, on the axes
+    /// `x` and `y`: as `place` does, then, under a large title, at one of the
+    /// title's two rests. A person's scroll does not stop with the content
+    /// partway under a large title: as the finger lifts, UIKit eases it to the
+    /// title's open rest or its closed one, whichever is nearer (iOS 27, a
+    /// 52-point title alone in its bar: 23 and 25 points in went back open, 28
+    /// and 31 closed). The rests are found by moving just past the top and
+    /// half a window down, laid out: no view the window shows goes as far as
+    /// the 1.25 windows at which a native module's view is released
+    /// (`HeavyLeaves.hideFar`). A bar with a search field, whose rests were
+    /// not measured, is left as `place` leaves it.
+    static func rest(_ sv: UIScrollView, at want: CGPoint, x: Bool, y: Bool) {
+        place(sv, at: want, x: x, y: y)
+        let o = sv.contentOffset, top = -sv.adjustedContentInset.top, reach = min(sv.bounds.height, sv.window?.bounds.height ?? 0) / 2
+        guard y, o.y > top + 0.5, o.y < top + reach, let c = bar(following: sv), c.navigationItem.searchController == nil,
+              c.navigationController?.navigationBar.prefersLargeTitles == true, c.navigationItem.largeTitleDisplayMode != .never else { return }
+        let move = { (to: CGFloat) -> CGFloat in
+            sv.setContentOffset(CGPoint(x: o.x, y: to), animated: false)
+            sv.window?.layoutIfNeeded()
+            return -sv.adjustedContentInset.top
+        }
+        let open = move(top - 1)
+        let closed = move(min(open + reach, max(open, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)))
+        let inBand = closed - open > 0.5 && o.y > open + 0.5 && o.y < closed - 0.5
+        place(sv, at: CGPoint(x: o.x, y: !inBand ? o.y : o.y - open < closed - o.y ? open : closed), x: false, y: true)
+    }
+
+    /// Leaves `sv` where a scroll with motion to `want` leaves it, on the axes
+    /// `x` and `y`: the content moved by the difference, held within the
+    /// range, and UIKit's bars as that scroll leaves them. UIKit moves a bar
+    /// only as it lays out after an offset, and a large title the bar closes
+    /// or opens takes its height off the top inset or adds it, moving the
+    /// offset by as much; so the offset is set, laid out, and set again within
+    /// the range the bars leave, up to four times, until it holds. The
+    /// scroller a navigation bar follows is first set a point past its top
+    /// when the scroll goes past it, as a pull does: that opens a large title
+    /// the bar had closed, and no offset strays further from the range
+    /// (measured against `setContentOffset(_:animated: true)` on iOS 27).
+    static func place(_ sv: UIScrollView, at want: CGPoint, x: Bool, y: Bool) {
+        let range = { () -> (min: CGPoint, max: CGPoint) in
+            let i = sv.adjustedContentInset
+            return (CGPoint(x: -i.left, y: -i.top), CGPoint(x: max(-i.left, sv.contentSize.width + i.right - sv.bounds.width), y: max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)))
+        }
+        let held = { (pull: Bool) -> CGPoint in
+            let r = range()
+            return CGPoint(x: x ? min(max(want.x, r.min.x), r.max.x) : sv.contentOffset.x,
+                           y: y ? min(max(want.y, r.min.y - (pull ? 1 : 0)), r.max.y) : sv.contentOffset.y)
+        }
+        sv.setContentOffset(held(y && want.y < range().min.y && bar(following: sv) != nil), animated: false)
+        sv.window?.layoutIfNeeded()
+        for _ in 0..<4 {
+            let settled = held(false)
+            if abs(sv.contentOffset.x - settled.x) <= 0.5 && abs(sv.contentOffset.y - settled.y) <= 0.5 { break }
+            sv.setContentOffset(settled, animated: false)
+            sv.window?.layoutIfNeeded()
+        }
+    }
+
+    /// The view controller whose navigation bar follows `sv`'s offset at its top edge (UIKit's `contentScrollView(for: .top)`)
+    static func bar(following sv: UIScrollView) -> UIViewController? {
+        var at: UIResponder? = sv
+        while let cur = at {
+            if let c = cur as? UIViewController, c.contentScrollView(for: .top) === sv { return c }
+            at = cur.next
+        }
+        return nil
     }
 
     /// The phase's reply, or nil where no pan contact applies (`unsupported`).
@@ -362,6 +418,7 @@ extension Agent {
                     return ["error": "tap #\(v.id) down: \(why)"]
                 }
                 let touched = seen ?? v
+                MainActor.assumeIsolated { HeldState.input(at: touched) } // a finger on a held node lets its hold go (HeldState.swift)
                 var contact = AgentPan(node: nil, pressing: true, pointer: Agent.pointerNode(from: touched).map(HeldNode.init), path: Agent.fingerPath(from: touched),
                                        reach: fingerReach(touched, at: p), at: at, t: t, held: Agent.heldPrefix(req))
                 panPointer(contact, .down)
@@ -383,6 +440,7 @@ extension Agent {
             var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: hit).map(HeldNode.init), path: Agent.fingerPath(from: hit), at: at, t: t, held: Agent.heldPrefix(req))
             // A lift that never panned is the press it landed on, through a finger's lift (`lift`).
             if pressInside || node.handlers.contains("press") { contact.reach = fingerReach(hit, at: p) }
+            MainActor.assumeIsolated { HeldState.input(at: hit) } // where the finger lands, a held node inside the pan's included
             panContact = contact
             panPointer(contact, .down)
             return ["contact": Int(node.id), "phase": "down", "at": point(at), "delivery": "recognized"]

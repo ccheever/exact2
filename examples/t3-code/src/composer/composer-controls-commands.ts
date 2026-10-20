@@ -206,9 +206,11 @@ export async function composerCommand(client: T3Client, native: Native, storage:
   if (op === 'branch-restore' || op === 'branch-restore-confirmed') return restoreThreadBranch(client, native, storage, op === 'branch-restore-confirmed');
   if (op === 'branch' || op === 'branch-create') return selectBranch(client, native, storage, value, op === 'branch-create');
   if (op === 'stop-background') {
-    // A PR watch can hold a thread that never ran (interruptThreadTurn).
+    // interruptThreadTurn: the active run, else the latest one while background work is pending; with
+    // neither, a PR watch can still hold the thread (one that never ran too).
     const projection = requireThread(client), threadId = client.threadId;
-    const runs = arr(projection.runs), run = activeRun(projection) ?? runs.reduce<Obj | undefined>((latest, entry) => !latest || Number(entry.ordinal) > Number(latest.ordinal) ? entry : latest, undefined);
+    const pending = arr(client.shell?.threads.find(thread => thread.id === threadId)?.pendingBackgroundTasks).length > 0;
+    const run = activeRun(projection) ?? (pending ? arr(projection.runs).at(-1) : undefined);
     if (!run) {
       for (const link of visiblePullRequests(obj(projection.thread).pullRequests)) {
         if (link.watch === undefined) continue;
@@ -218,7 +220,8 @@ export async function composerCommand(client: T3Client, native: Native, storage:
       return '';
     }
     const [commandId] = await access.ids(1);
-    await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId, runId: str(run.id) }, 'Stop background work');
+    // holdQueue interrupts every provider thread with pending work, a delegated child's too.
+    await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId, runId: str(run.id), holdQueue: true }, 'Stop background work');
     return '';
   }
   if (op === 'queued-key') {

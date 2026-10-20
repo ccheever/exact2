@@ -41,14 +41,17 @@ It needs the Android SDK (`ANDROID_HOME`, else `~/Library/Android/sdk` or `~/And
 NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and the Rust target
 (`rustup target add aarch64-linux-android`). It:
 
-1. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev` (`--release`: at `release`, for
-   measuring). The crate is a cdylib whose source is `exact_linux::canvas_jni!(<the data source>, hatches =
+1. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev` (`--release`: at `release` with fat
+   LTO, as a production build links, for measuring). The crate is a cdylib whose source is `exact_linux::canvas_jni!(<the data source>, hatches =
    crate::exact_hatches())`, with a build script that bakes the plan and calls `contract::native::android_entry`,
    which writes the app's hatches' install (`hatches.rs`) and the plan's uses (`uses.txt`) beside it; `apps/caltrain/android` is the one to copy for an app whose data is Rust and
    `apps/shelf/android` for one whose data is TypeScript (three files each, and a line in the root `Cargo.toml`'s
    `members`). A game's is generated in its `.shells/` (`game/app/shells.mjs`). An app with a GPU module (LLP 1009;
    every game) is built as a Linux bake is (`buildBake`): the module first, then the crate, whose bake records the
-   module's SHA-256;
+   module's product digest. The shared Linux/Android loader checks baked cards against that digest: on
+   macOS, signed 64-bit Mach-O code omits the signature and normalizes its three size fields, matching
+   the definition in `update/src/gpu.rs` through a parity-tested host copy; other files hash whole. Completed development receipts always
+   bind the whole file. Both the process cache and Android's persistent cache distinguish these digests;
 2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so`, the GPU module beside it under
    its own name, the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`, and a GPU module's shaders
    (`gpu/shaders/*.wgsl`, as a Linux bake packs them) to `app/build/<app>/rust/assets/app/shaders/`, where the host
@@ -57,11 +60,15 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
    `app.json` is resolved), with `-PgpuModule=<file>` for a module: the APK then extracts its libraries and leaves
    the module unstripped, since the host opens it by path and checks its digest; with `-Pcompose=1` when the plan's
    uses name `dates` (a date or time control), which links Compose Material 3 for its pickers; and with the Kotlin
-   in the app's `modules/android`, its hatches, compiled in,
+   in the app's `modules/android`, its hatches and module roster, compiled in,
 
 and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id and the label are the app's
 `app.json` (`app.id`, with `-` as `_`, which a package name cannot hold; `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
 (`<app id>.dev`). `./gradlew :canvas:assembleRelease` builds the reader alone.
+
+A component fixture may compile the real app's Kotlin with
+`ORG_GRADLE_PROJECT_modulesDir=<absolute path to the app's modules/android>`. The default
+is the built app's own `modules/android`; this override avoids copying a provider into fixtures.
 
 Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`, or drive it:
 `bun scripts/agent.mjs android --reader --app <app> …` (below, "Driving the reader").
@@ -385,6 +392,7 @@ capability has a call of its own.
 | 8 | whether a displayed element says `wakelock="screen"` (LLP 1125 D11) | one word: 1 or 0; a reader's view starts at 0, so a reader made again is told only a 1 | `View.setKeepScreenOn` on the reader's view, so the screen stays on while its window is shown | none |
 | 9 | a date or time control's picker (LLP 1115.001.000 D1) | the control's node; then five strings: its kind (`date`, `time`, `datetime-local`), what it shows now, its `min`, `max` and `step`, each as HTML writes it; then its `accent-color`, opaque ARGB, or 0 for none | asks the node's Kotlin hatch (D3), then shows the activity's `pickers`: Compose Material 3's where the app links it, else the framework's dialogs ("Pickers and hatches", below) | the value chosen in HTML's form, which exact2 sets as a person's choice (`input`, then `change`), or null when dismissed; exact2 journals `picker: dismissed for <node>` |
 | 10 | the moments the app's Kotlin hatches hear, and what their clock and input call back (LLP 1115.001.000 D4) | for each, led by its scope: 1 the app or 3 a node, then its moment (0 built, 1 changed, 2 ended), the node, its box (four floats as bits, the document's points), its word and `id` as strings, the count of its `data-*` words and each name and value; 5 a tick, its ticket, the clock (an `f64`'s bits, high word first) and the commit; 6 an `after`, its ticket; 7 input, its ticket, the node, then 1 and a pointer's phase, points and whether it was handled, or 2 and a key's `key`, `code`, down, repeat and handled (`hatches/reader.rs`) | calls the app's `exact.app.Hatches` (`HatchReader.told`) | none: what a hatch asks goes by `Native.hatchAct` |
+| 11 | a call of a module a package implements here (LLP 1133.001 D5) | one string: the runner's body, `{"extension", "source"\|"send", "args"}` or `{"extension", "release"}` | calls the extension's `later` or `release` (`Extensions.call`, "Module implementations", below) | the reply's JSON, `{"error": code}` for a failure; null fails the call |
 
 Kinds 5, 6, 7 and 8 are statements of the app's state, told when it changes and anew to a reader made again; exact2
 reads them as the queue is taken (`Presenter::tell_shell`), Back and the wake lock only after a commit or (Back) when
@@ -453,6 +461,32 @@ clock, or show its own (`ExactPicker.show`). `apps/native-fixture/modules/androi
 under `ExactHatch`, gives its `due` pickers titles, no weekends and a 24-hour clock, and hosts a dial at `spin` that
 turns on exact2's clock and stops at a tap. `bun scripts/exact.mjs hatch <word> <app>` writes the class for an app
 with an `android/` crate.
+
+An app's optional native module views (LLP 1024) live in the same `modules/android` source directory. Define
+`class exact.app.Modules : dev.exact.canvas.NativeModules` with a `modules: Map<String, NativeModule>` roster;
+the APK resolves it only at the first module view. Each module creates and updates its real Android `View`.
+`events(view, emit)` binds before its first update; call `emit("change", value)` or `emit("input", value)` with
+string values, `emit("message", payload)` with the guest message, `emit("load", "")`, or `emit("press", "")`.
+Retired bindings and events for an old node allocation are ignored. A module button receives `performClick()`
+for an unscrolled tap that no long press took, at its painted position so a platform popup can anchor to it. Native drags, arbitrary
+pointer forwarding and zero-size service modules are not implemented by this button seam.
+
+## Module implementations (LLP 1133.001 D5)
+
+A package that implements a module on Android (`"platform": "android"` in its `exact.json`, with its `class` and its
+Kotlin under `sources.kotlin`) is compiled into the APK when the app binds it (LLP 1133.001 D4):
+`agent-android.mjs` adds its Kotlin to the build (`-PextensionDirs`) with a roster it writes,
+`exact.app.ExactExtensions`, and the permissions the app's grant lines derive (the bake's `reach.android`, from
+`runner/src/device.rs`) to the release manifest (`-Ppermissions`). The class subclasses `ExactExtension`
+(`Extensions.kt`): `later(name, args, reply)` for each source read and send, `release(name)` when a live source's
+last reader goes, and `resumed()` when the activity is in front again, which is where it reads again what the person
+changed in Settings, since Android sends no event for it. Its `ExtensionContext` gives the application, the activity
+in front, `changed(topic)`, which asks the topic's readers again, and `requestPermissions(permissions, done)`: one
+platform request, answered by `onRequestPermissionsResult`, or by the next resume when a recreated activity lost the
+result (LLP 1133.002 D9). The activity binds the roster's names as it is made (`Native.bindExtensions`); the host binds
+them outside the agent and, under it, only those a drive names (`--bind`), so the substitute answers the rest.
+`openURL("app-settings:")` opens the app's page in Settings (`ACTION_APPLICATION_DETAILS_SETTINGS`), journaled only
+under the agent. `packages/geolocation/android/Geolocation.kt` is one.
 
 ## Text fields (LLP 1115.001 D8)
 
@@ -551,6 +585,7 @@ ScrollView would.
 | `Native.fieldComposing(id, generation, composing, value)` | the field's text began to compose, holding `value`, or its composition ended, committed or cancelled: before the edit that began or ended it | while it composes a statement says the field's own text, and the app's value is held; once it ends, the value the app then shows |
 | `Native.fieldSelected(id, generation, start, end)` | the selection moved with no edit | kept for the next `input`; `select` fires for a range |
 | `Native.fieldAction(id, generation, action)` | the action key, or Enter or Tab on a hardware keyboard: 0 Enter with no action, 2 done, 3 go, 4 next, 5 previous, 6 search, 7 send, 16 Tab, 17 Shift+Tab | Enter's `key` handlers, then `change` and `submit` for a single line; then `next` and `previous` move to the field after or before (the focus leaves where there is none), and `done`, `go`, `search` and `send` leave the field, which puts the keyboard away. Tab is the page's own Tab |
+| `Native.fieldInput(id, generation)` | a finger came down in the field (it is the field's), or a key went down in it | real input on the field: a state held on it (LLP 1122 D8, `hold`, `holdState`) lets go |
 
 What a call says of a generation exact2 has moved on from is dropped.
 
@@ -646,7 +681,8 @@ dialog's button are refused by the words they always were, and `showModal` is an
 tree, so it is written twice; it belongs in shared Rust.
 
 - *An alert*: an `alertdialog` (a `dialog`, or a popover) whose rows are text, actions (a `button` with a `press`
-  that closes it) and one cancel (a closing `button` with no `press`), at most three buttons. Opened by
+  that closes it) and one cancel (a closing `button` with no `press`), at most three buttons; text and the cancel
+  alone are the one-button alert. Opened by
   `showModal(id)` or a button's `commandfor` with `command="show-modal"`. Material's basic dialog: `surfaceContainerHigh`,
   28 dp corners, 24 dp padding, 280 to 560 dp wide and 24 dp from the window's sides; the `aria-label` (else the first
   line) as its headline, the rest as supporting text; text buttons at the trailing edge, the cancel first and then
@@ -794,7 +830,7 @@ the bar took of the routes goes to nothing while it is covered (`Presenter::fit_
 |---|---|---|
 | Height | 64 dp, under the status bar | 64 dp |
 | Colour | `surface`; `surfaceContainer` once the route's content has scrolled; the status bar's area the same | the same two (`OnScrollContainerColor`) |
-| Title | the heading, title-large (22/28 sp, regular), `onSurface`, one line cut with an ellipsis; 16 dp from the side, or 52 dp after the Up arrow | title-large; 16 dp, and after a 48 dp navigation icon 4 dp from the side |
+| Title | the heading, title-large (22/28 sp, regular), `onSurface`, one line cut with an ellipsis; 16 dp from the side, or 4 dp after what leads it (56 dp after the Up arrow) | the same (`TopAppBarLayout`: the title's box at `TopAppBarTitleInset` or after the navigation icon, its own 4 dp padding) |
 | Up arrow | on a pushed route: Material Symbols' `arrow_back`, 24 dp in a 48 dp target 4 dp from the side, `onSurface` | the same |
 | Buttons | the header's, at the trailing side, 4 dp from it: a 24 dp symbol in a 48 dp target (`onSurfaceVariant`) where the button has a symbol, else a text button (label-large, `primary`, 12 dp padding, at least 58 dp wide) | icon buttons and text buttons, the same metrics |
 | Held | a state layer (10%): a 40 dp circle on an icon, a pill on a text button | a state layer and a ripple |
@@ -819,17 +855,18 @@ that opens a search view, or a search action in the bar; neither is built.
 |---|---|---|
 | Height | 80 dp, over the gesture bar | 80 dp |
 | Colour | `surfaceContainer`, the gesture bar's area the same | `surfaceContainer` |
-| Destinations | the root tablist's tabs that name a panel, sharing the width | 3 to 5, sharing the width |
+| Destinations | the root tablist's tabs that name a panel, sharing the width 8 dp apart | 3 to 5, the same (`NavigationBarItemHorizontalPadding`) |
 | Symbol and label | a 24 dp symbol 16 dp from the top, its label under it (label-medium, 12/16 sp), 16 dp from the bottom | the same |
-| Active indicator | a 64 by 32 dp pill in `secondaryContainer` behind the selected symbol | the same |
-| Colours | the selected destination `onSurface`, the others `onSurfaceVariant` | the same for labels; the selected symbol is `onSecondaryContainer`, a role the reader does not report yet |
+| Active indicator | a 56 by 32 dp pill in `secondaryContainer` behind the selected symbol | the same |
+| Colours | the selected destination's symbol `onSecondaryContainer` and its label `secondary`; the others `onSurfaceVariant`, at 38 % when disabled | the same (`NavigationBarItemDefaults.colors`) |
 
 "Here" in both tables is what was seen on a Pixel 10 Pro XL (Android 16, 2.4375 pixels a dp), from `state.bars`
 and its screenshots: the top bar's view is 317 pixels tall (a 66.05 dp status bar and 64 dp), the navigation bar's
 254 (80 dp and a 24.2 dp gesture bar); read off the pictures, the indicator is about 156 by 77 pixels and the
 title's first glyph about 40 pixels from the side, about 129 after the arrow. "Material 3" is the Compose Material 3 library's `TopAppBar` and `NavigationBar`
 and their tokens (`TopAppBarSmallTokens`, `NavigationBarTokens`) as remembered, not read against the library that
-day, and no reference app was beside it: the one S2 builds is what checks these.
+day. Both bars' are now read from it at the pinned version: their numbers are the schema's `top-` and `nav-` rows
+(`reference/rows.json`), and the Material oracle compares each with Compose's.
 
 A destination tapped again while it is selected and its stack is at its root scrolls that route's content to its
 top, as iOS does (in one step: nothing animates it). Above its root the tap is the app's own. At the largest font
@@ -1113,11 +1150,13 @@ The cut was the smallest one. Left in the reader:
     does no frame work while the activity is stopped. Android discards a stopped window's display lists, the reader's
     kept rows among them, so a start after a stop makes the reader again (`ExactActivity.read`) and the host paints
     everything for it; hosted views are made again with it. Nothing is saved for a process the system kills (D15.3).
-- **No check builds any of it.** Gradle is in none of the six checks or the async lane, and nothing builds
-  `exact-linux` for the Android target.
+- **Only the async lane's second tier builds it** (LLP 1133.002 stage 4): Weatherlight's APK, hourly, which
+  compiles `exact-linux` for the Android target and the reader's Kotlin with a module's. Gradle is in none of the
+  six checks.
 - **The shell is a development build**: signed with the debug key, with no icon. Its one activity turns keys on for
-  every app, and gives none a native module (LLP 1024) or a video player, which the benchmark's apps passed from an
-  activity of their own.
+  every app, and gives none an app's own native module (LLP 1024) or a video player, which the benchmark's apps
+  passed from an activity of their own. A package's implementation of a module is the exception (below, "Module
+  implementations").
 - **A GPU canvas over children draws nothing**: Caltrain's sky (`glass`, which refracts the content inside it) is
   blank with its module packaged, where a canvas without children (a game's world) draws (QUEUE.md).
 - **No update store** and no replaced Rust module: the Canvas host has neither, though an app's compatibility
@@ -1136,6 +1175,19 @@ app. On a machine with the SDK, Java 21 (`JAVA_HOME`) and Cargo:
 
     bun host/android/reference/oracle.mjs            # draw both sides, compare, report
     bun host/android/reference/oracle.mjs --compare  # compare what is already drawn
+    bun host/android/reference/tokens.mjs            # hold the schema's Material column to the pinned source
+    bun host/android/reference/tokens.mjs --diff 1.3.2   # what a version changed, for a bump
 
 The report is `reference/build/oracle/report.html`. `specimens.json` lists the specimens, their probes and the planted
 defects; each specimen's Exact half is `apps/material-specimens/specimens/<id>.contract`.
+
+On a phone (D4's calibration, LLP 1115.001.001 §3), after the build box's run:
+
+    bun host/android/reference/oracle.mjs --phone <adb serial>
+
+builds and installs the catalogue (`:reference`'s debug APK, which draws the specimen `--es id <id> --es scheme
+light|dark|dynamic-light|dynamic-dark` names over the whole screen and logs `drawn` once settled) and the specimen app
+(`agent-android.mjs build material-specimens --apk`), draws each specimen on the phone both ways (the reader driven by
+`agent.mjs android --reader --plan`, which pushes the plan), and writes `phone/floors.json`: each layer's largest
+difference between two renders of one side, and between the two sides on the phone. It moves the phone's night mode
+and puts it back.

@@ -401,4 +401,18 @@ impl HookClock {
             shader_generation: frame.shader_generation,
         }
     }
+    /// A look frame's time (LLP 1127.000): `frame` held, no time passing, and
+    /// the clock untouched, so the next live frame's delta is the one it would
+    /// have had without the look.
+    pub fn held(&self, frame: &exact_gpu::Frame, generation: u64, paused: bool) -> HookTime {
+        HookTime {
+            dt: 0.,
+            reset: self.last.is_none() || self.generation != Some(generation),
+            paused,
+            seekable: frame.seekable,
+            points: (frame.width, frame.height),
+            scale: frame.scale,
+            shader_generation: frame.shader_generation,
+        }
+    }
 }

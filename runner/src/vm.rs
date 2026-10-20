@@ -93,11 +93,8 @@ impl Frame {
 pub struct Env<'a> {
     /// The plan the code belongs to.
     pub plan: &'a Plan,
-    /// The plan's string pool, interned once per runner ([`intern`]) as
-    /// values: a string literal is inline text or one shared allocation,
-    /// never a fresh one, and two evaluations of one literal are the same
-    /// object.
-    pub strings: &'a [Value],
+    /// The plan's strings as values ([`Strings`]), made as they are read.
+    pub strings: &'a Strings,
     /// Checked route table and shapes; present only for a plan with a router.
     /// @ref LLP 1038 D3/D9 — the same table across all calls in this runner.
     pub router: Option<&'a dyn crate::runner::Routing>,
@@ -287,12 +284,52 @@ pub struct Outcome {
     pub store_dependent: bool,
 }
 
-/// The plan's string pool as values, for [`Env::strings`].
-pub fn intern(plan: &Plan) -> Vec<Value> {
-    plan.strings
-        .iter()
-        .map(|s| Value::str(s.as_str()))
-        .collect()
+/// The plan's strings as values (`Env::strings`), each made when first read:
+/// a plan has a thousand strings and a screen's bindings read a hundred of
+/// them. A string read twice is the same object, inline text or one shared
+/// allocation, never a fresh one.
+pub struct Strings {
+    cells: Vec<std::cell::OnceCell<Value>>,
+}
+
+impl Strings {
+    /// The table `plan`'s strings fill as they are read.
+    pub fn new(plan: &Plan) -> Strings {
+        let cells = (0..plan.strings.len()).map(|_| std::cell::OnceCell::new());
+        Strings {
+            cells: cells.collect(),
+        }
+    }
+
+    /// A table holding `values` already (a test's: shorter than the plan's,
+    /// or holding what is not text).
+    pub fn of(values: impl IntoIterator<Item = Value>) -> Strings {
+        Strings {
+            cells: values.into_iter().map(std::cell::OnceCell::from).collect(),
+        }
+    }
+
+    /// The string with id `id`, as a value; `plan` is the plan the table was
+    /// made for.
+    pub fn get(&self, plan: &Plan, id: usize) -> Option<&Value> {
+        let cell = self.cells.get(id)?;
+        Some(cell.get_or_init(|| Value::str(&plan.strings[id])))
+    }
+
+    /// How many strings the table covers.
+    pub fn len(&self) -> usize {
+        self.cells.len()
+    }
+
+    /// Whether it covers none.
+    pub fn is_empty(&self) -> bool {
+        self.cells.is_empty()
+    }
+}
+
+/// The plan's strings as values, for [`Env::strings`].
+pub fn intern(plan: &Plan) -> Strings {
+    Strings::new(plan)
 }
 
 /// Decode the instruction at `r`: the one decoder the VM, the dependency
@@ -444,12 +481,12 @@ fn projected_string_default(code: &[u8], env: &Env<'_>, value: &Value) -> Option
     }
     let (literal, replacement) = prepared::string_default(code)?;
     let literal = literal as usize;
-    let literal = env.strings.get(literal)?;
+    let literal = env.strings.get(env.plan, literal)?;
     if !literal.is_str() {
         return None;
     }
     if value == literal {
-        env.strings.get(replacement as usize).cloned()
+        env.strings.get(env.plan, replacement as usize).cloned()
     } else {
         Some(value.clone())
     }
@@ -667,7 +704,7 @@ impl Host<Value> for Run<'_, '_> {
     fn string(&self, i: u64, pc: usize) -> Result<Value, Trap> {
         self.env
             .strings
-            .get(i as usize)
+            .get(self.env.plan, i as usize)
             .cloned()
             .ok_or(Trap::Malformed { pc })
     }

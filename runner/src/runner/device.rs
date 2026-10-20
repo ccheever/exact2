@@ -216,6 +216,11 @@ impl<D: DataSource> Runner<D> {
                 }
                 "answered: a value".to_owned()
             }
+            // A module's value (LLP 1133.002 §6), checked before it is spent.
+            HoldAnswer::Value(v) if self.module_check(ticket, v).is_some() => {
+                self.module_check(ticket, v).expect("a module's hold")?;
+                "answered: a value".to_owned()
+            }
             HoldAnswer::Value(_) if hold.takes_value => "answered: a value".to_owned(),
             HoldAnswer::Value(_) => {
                 return Err(format!(
@@ -232,6 +237,7 @@ impl<D: DataSource> Runner<D> {
                 HoldAnswer::Choice(_) => crate::auth::settle(self, ticket, 499, "cancelled"),
             }
         }
+        self.module_answered(ticket, answer);
         Ok(hold)
     }
 
@@ -255,6 +261,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Retire every hold whose node is gone (after a commit).
     pub(super) fn retire_holds(&mut self) {
+        self.retire_modules();
         let kernel = &self.kernel;
         let pending = &self.pending;
         let (live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.device_holds)

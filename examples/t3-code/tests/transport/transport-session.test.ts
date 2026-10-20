@@ -100,6 +100,14 @@ describe('pairing (authorization/remote.ts, resolver.ts)', () => {
     expect(value(await drive.op({ op: 'environments' })).saved).toEqual([]);
   });
 
+  // The welcome wizard's Pair and Settings › Add environment both pair here (connections.ts runConnectionOp).
+  test("a pairing target that refuses the connection names the reference's transport error", async () => {
+    const { drive } = await paired();
+    const reply = await drive.op({ op: 'pairEnvironment', origin: 'http://127.0.0.1:16617', credential: 'abc' });
+    expect(reply.ok).toBe(false);
+    expect((reply.error as Obj).message).toBe('Failed to fetch remote environment endpoint http://127.0.0.1:16617/.well-known/t3/environment (HttpClientError: Transport error (GET http://127.0.0.1:16617/.well-known/t3/environment)).');
+  });
+
   test('an incompatible server keeps its descriptor and stops', async () => {
     const server = new FakeServer(ORIGIN, 'env-1', { orchestrationProtocolVersion: 1, capabilities: { serverSelfUpdate: 'respawn' } });
     const drive = new Drive(server);

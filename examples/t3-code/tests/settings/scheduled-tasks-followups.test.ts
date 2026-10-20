@@ -15,6 +15,7 @@ import { cloneToast } from '../../src/shell/project-clones';
 import { toasts } from '../../src/shell/toast';
 import { fleet, focusFleetProject, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { threadOps } from '../../src/client/client-ops-threads';
+import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 
 const NOW = Date.parse('2026-10-11T12:00:00.000Z');
 
@@ -93,6 +94,18 @@ describe('Runs on switches a new task to another environment', () => {
     expect(there.branches.map(group => [group.projectId, group.refs.map(ref => [ref.value, ref.badge])])).toEqual([['q1', [['develop', ''], ['origin/develop', 'remote']]]]);
     const reads = calls.filter(call => call.method === 'vcs.listRefs').map(call => [call.fleet, call.fleet ? obj(call.payload.payload) : call.payload]);
     expect(reads).toEqual([['', { cwd: '/repo', limit: 100 }], ['http://127.0.0.1:16423\nenv2', { cwd: '/studio', limit: 100 }], ['http://127.0.0.1:16423\nenv2', { cwd: '/studio', query: 'main', limit: 10 }]]);
+  });
+  test('a new task starts on the primary environment, listed first, when the window is focused elsewhere', async () => {
+    const { client, native, subscriptions } = harness();
+    await studio();
+    await watchLive(client, native);
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionsOf(subscriptions), value: { tasks: [] } });
+    primaryAt('http://127.0.0.1:16423', 'env2', 'Studio');
+    try {
+      const page = await scheduledPage(client, native, 'env', '', 'task', '', true, NOW);
+      expect([page.environment, page.editors.map(editor => editor.environmentId)]).toEqual(['Studio', ['env2']]);
+      expect(page.environments.map(option => [option.value, option.selected])).toEqual([['env2', true], ['env', false]]);
+    } finally { resetPrimary(); }
   });
   test("Runs on lists the settings scope's connected environments only", async () => {
     const { client, native } = harness();

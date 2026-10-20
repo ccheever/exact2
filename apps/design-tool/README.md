@@ -75,6 +75,62 @@ whose design the port serves.
   `resolve`; a cell edits the branch it shows, and every edit is proposed
   (its diff and "live" or "rebuilds") before Apply writes it. Undo and redo
   are this run of the server's inverses: a new run starts them again.
+- The component panel (T3, LLP 1122 D7; `components.ts`) lists every
+  component with params (`describe`'s `components`, a native view's
+  declared in the design too), grouped and ordered as the dials are, each
+  param with its declared control; `control=token`, the default, is a
+  field that takes a token or a literal. An edit is `set-param` (its line
+  in the design's `params` block), proposed with its chip and scrubbed when
+  live; a duration or easing param rebuilds. A param the app sets says so,
+  with Reset (`unset-param`, one undo), and a literal that no longer
+  follows the tokens its default reads is marked pinned.
+- A selected row that reads a param (the join's param rung) opens the param,
+  never the token it aliases (D6): on the branch that won for the copy, its
+  typed fields and "only this mode" as a token's, its edit `set-param`. The
+  token it aliases directly is offered beside it.
+- Held states (T4, LLP 1122 D8; `holds.ts`): Pressed, Hovered or Focused
+  holds that state on the selected copy (`hold`), one a build, a new one
+  replacing the last; Let go ends it. The status says whether the build has
+  confirmed it (Holding, then Held), where it is (here, the node its press
+  resolves to when the build names it, or another node of the build), why
+  the last one went (real input, disabled, its node gone in a new plan,
+  another hold) and a state a build cannot hold. While it is held here,
+  the selection's page is asked again for the held look's rows, each shown
+  at its part's place; a host that reports none, or not their tokens, says
+  provenance incomplete and leaves them read-only.
+- A style's state part row (an `:active` part's, the map's `state` and
+  `at`) is edited by `set-state` by default (D6): "Edit Style :active row"
+  opens a field from the value as written in the part (empty when it is not
+  one literal), proposed as Rebuilds and applied; the token its whole value
+  is, offered beside it. The edit is bound to the copy and the files it was
+  opened on: a write since, or a stale or read-only copy, refuses Apply
+  until the copy is selected and the row opened again. A part in a package
+  is read-only; an inline state row on a node waits for `set-row` (T5).
+- A row its author wrote (T5, D6; `set-row`): where the map places it, the
+  default edit is "Edit this template · N instances" (the node's own
+  attribute, every copy of it) or "Edit style X" (in the style's own file,
+  every node using it), the token its whole value is offered beside; the
+  editor names the attribute it writes (a shorthand's whole for a longhand)
+  and starts from the value as written. It rebuilds; the server refuses a
+  file moved since the copy was compiled, a value the app does not build
+  with (its diagnostics shown) and a layout row (D14), and the tool refuses
+  an edit of files other than the ones the copy was selected under.
+- Moves (T5, D6's enumerated set; `moves.ts`): a template row's "Make it a
+  param" (a new param of its component, its kind the row's, its default the
+  value as written, the row reading it) and "Make it a token" (an
+  unconditional value only); a param row's "Detach to this template" (the
+  param's value written at the row, the param removed with any param it
+  alone left read, as the server names them, kept where another row reads
+  it, refused where the app's design sets it). Each is one transaction and
+  one undo.
+- Act first, re-scope after (D6, `rescope.ts`): the last edit of a param
+  whose value there aliases one token offers "Apply to the token … instead",
+  and the last edit of a token that one param aliases there offers "Apply to
+  … instead". The move is one transaction (the edit's inverse, then the same
+  value at the other rung, on the same `when`), worked out from the revision
+  the edit was reviewed on and refused if any file it read has changed since
+  (another write, a hand edit, the component's source). It is a write of
+  its own: one undo takes back the move, a second the edit.
 - A cell's value has typed fields by its kind (`parts.ts`): a length's
   amount and unit, a number, each shadow's inset, offsets, blur, spread
   and colour (a literal or a token's name), a type's style, weight, size,
@@ -119,6 +175,36 @@ whose design the port serves.
   reason, and the count: source values = mapped + reported. Accepting is
   one transaction, and Undo one step. Astryx's import comes from its CLI
   (`bun exact.mjs tamber import astryx …`) and is reviewed the same way.
+- Pairing (T6, LLP 1122 D12): the local tool's Clients panel mints a code at
+  a scope ("Pair a client"), shows it with each remote door's address and
+  certificate fingerprint, lists the paired clients and revokes one. On the
+  other machine, open the door's address (`https://<host>:<port>/__tamber/tool/`,
+  its certificate's SHA-256 checked), and type the address and the code: the
+  tool works there at its scope. What its scope can't do is greyed and said;
+  at `propose` an edit is held for review. The canvas comes through the
+  server's gateway on its own origin (a grant in the frame's `#g=`, dropped
+  once entered); revoked, the tool says so and sends nothing more.
+- Several live copies (T7, LLP 1122 §4 item 10): the canvas shows one copy,
+  a grid of modes (Light, then dark at each value of an axis, at the app's
+  own text size and larger; 6 copies by default, 4 or 8), or the selected
+  view's states side by side (at rest, pressed, hovered, focused). Each copy
+  is pinned on its own build, at `exact-copy-<n>.localhost` on the dev
+  loop's port, with its own storage. A pinned copy holds its mode, scheme
+  and text size over the app's own and says what the app asked. With Mirror
+  navigation, a copy you move leads the others (`navigate`, or a reload
+  where its build can't). Through a paired server's gateway, at most 4
+  show.
+- Exact's base scale and packages (LLP 1121 stage 11): `space.*` and
+  `radius.*` are listed read-only, each platform's value and its source,
+  the columns the app ships first; a package's tokens under their package.
+  Set for this app writes the app's override line (`set-token`); Back to
+  the base or the package removes it.
 - `app.test.contract` runs against `stub/tamber-stub.ts`, canned replies;
   `scripts/design-tool.test.mjs` drives the built tool against a real
-  server on a copy of `apps/theme-fixture`.
+  server on a copy of `apps/theme-fixture`. Both run on the checkout's own
+  port (`EXACT_TOOL_PORT` names another), never a person's 7740: `bun
+  exact.mjs test` here runs a copy staged for that origin
+  (`scripts/tamber-tool-port.mjs`), and so does a drive or verify named
+  straight to `scripts/agent.mjs` or `scripts/verify.mjs` (`--app
+  design-tool`, `scripts/tool-drive.mjs`). `EXACT_TOOL_PORT=7740` runs any
+  of them in place, on 7740.

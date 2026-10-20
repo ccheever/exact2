@@ -10,7 +10,7 @@ test "it asks for the person's name once, then shows the server's hello"
   clock data
   expect text "person" == "design-tool:Ada"
   expect text "app" == "/stub/theme-fixture"
-  expect text "protocol" == "tamber/1.1 · IR format 1"
+  expect text "protocol" == "tamber/1.13 · IR format 1"
   expect tree has "file-app.tamber"
   expect tree has "file-brand.tamber"
   reload
@@ -90,6 +90,86 @@ test "the dials panel is drawn from each dial's declared metadata"
   expect tree has "dial-paint-select"
   expect text "dial-paint-value" == "#f00"
   expect text "dial-paint-help" == "brand.red is not a value a dial can take (a dial is a literal), so it is not offered."
+
+test "the component panel: each component's params from describe, grouped and ordered as declared, a native one named so"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "component-Card"
+  expect text "component-Card-identity" == "app.contract#Card"
+  expect text "component-MapCard-identity" == "app.tamber#MapCard · a native view's"
+  expect tree has "dial-app.contract#Card.fill-color"
+  expect text "dial-app.contract#Card.fill-value" == "accent.fill"
+  expect tree has "dial-app.contract#Card.pad-slider"
+  expect text "dial-app.contract#Card.pad-value" == "12px"
+  expect text "dial-app.contract#Card.pad-bounds" == "0px – 24px · step 1px"
+  expect text "param-Card.pad-source" == "set here · default 8px"
+  // `control=token`, the default: a field for a token or a literal.
+  expect tree has "dial-app.contract#Card.fade-field"
+  expect text "param-Card.fade-source" == "the default"
+  expect tree missing "param-Card.tone"
+  tap "more-Card-Colour"
+  expect tree has "dial-app.contract#Card.tone-select"
+  expect text "param-Card.tone-pinned" == "pinned: no longer follows surface.card"
+  expect tree has "dial-app.tamber#MapCard.zoom-stepper"
+  expect text "param-MapCard.zoom-source" == "the default"
+
+test "the component panel's other kinds: a duration's slider writes ms, an icon param shows its sources, a panel edit beside an open param's branch is no stale draft"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "dial-app.tamber#MapCard.pan-bounds" == "0ms – 1000ms · step 50ms"
+  type "dial-app.tamber#MapCard.pan-slider" "400"
+  expect state editKind == "set-param"
+  expect state editValue == "400ms"
+  expect text "dial-app.tamber#MapCard.glyph-value" == "sf star · material star"
+  expect tree missing "dial-app.tamber#MapCard.glyph-field"
+  // A param's branch open in the editor, then another param edited in the
+  // panel: that draft is the panel's, not a stale branch draft.
+  tap "cell-surface.card-0-light"
+  clock data
+  type "dial-app.contract#Card.pad-slider" "18"
+  expect state editTarget == "app.contract#Card.pad"
+  expect tree missing "draft-stale"
+
+test "a param edit is set-param with its chip, scrubbed when live; Reset is unset-param, applied and undone in one step"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  clock +1
+  clock data
+  type "dial-app.contract#Card.pad-slider" "16"
+  expect state editKind == "set-param"
+  expect state editTarget == "app.contract#Card.pad"
+  expect state editValue == "16px"
+  clock data
+  expect text "chip" == "Live"
+  tap "scrub-start"
+  clock data
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  tap "scrub-cancel"
+  clock data
+  // A duration param is substituted at build: it rebuilds, with no scrub.
+  type "dial-app.contract#Card.fade-field" "200ms"
+  type "dial-app.contract#Card.fade-field" key "Enter"
+  expect state editTarget == "app.contract#Card.fade"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect tree has "scrub-unavailable"
+  tap "param-Card.pad-reset"
+  expect state editKind == "unset-param"
+  expect state editTarget == "app.contract#Card.pad"
+  clock data
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  tap "undo"
+  clock data
+  expect text "undo" == "Undo (0)"
+  request POST "/__stub/restart" {} as ada
 
 test "a length dial's slider and stepper write a px length, as a length dial takes"
   type "name" "Ada"
@@ -431,6 +511,40 @@ test "another design file is read when chosen, and a refused one shows its error
   clock data
   expect tree missing "design-error"
   expect tree has "dial-accent-color"
+
+test "while a scrub is open a build's status reads no commit scope again, and the scrub's end does"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/refuse-commit" {"nothing": true} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  request POST "/__stub/event" {"events": [{"event": "builds", "builds": [{"id": "ios-1", "host": "ios", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-7", "reason": "opened"}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  // A dry commit read now would find an edit, and turn Commit on.
+  request POST "/__stub/refuse-commit" {"nothing": false} as ada
+  request POST "/__stub/event" {"events": [{"event": "build-status", "build": {"id": "ios-1", "host": "ios", "design": "d1", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}}, {"event": "build-status", "build": {"id": "ios-1", "host": "ios", "design": "d2", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  // Its end (another opened in the same answer still counts) reads it again.
+  request POST "/__stub/event" {"events": [{"event": "scrub", "client": "agent:codex", "scrub": "scrub-7", "reason": "cancelled"}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-8", "reason": "opened"}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect enabled "commit"
+  request POST "/__stub/refuse-commit" {"why": ""} as ada
+  request POST "/__stub/restart" {} as ada
 
 test "the changeset lists each write since the tool opened, and commit reports what it took or why not"
   type "name" "Ada"
@@ -1020,6 +1134,391 @@ test "the inspector: inspect mode on the builds, a selection's source and rows, 
   expect text "inspect-toggle" == "Inspect"
   request POST "/__stub/restart" {} as ada
 
+test "the param rung: a row that reads a component param opens the param on the branch that won, its edit set-param, the token it aliases offered, never the default"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 1, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1083feff", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fill"], "text": "app.contract#Card.fill", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fill", "short": "Card.fill", "token": "accent.fill", "modes": ""}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.pad"], "text": "app.contract#Card.pad", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.pad", "short": "Card.pad", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-edit-background-color" == "Edit Card.fill"
+  expect text "selrow-token-background-color" == "Edit the token accent.fill instead"
+  expect text "selrow-edit-padding" == "Edit Card.pad"
+  expect tree missing "selrow-token-padding"
+  expect tree missing "selrow-reason-padding"
+  tap "selrow-edit-padding"
+  clock data
+  expect state selToken == "app.contract#Card.pad"
+  expect state selColumn == "2-dark"
+  clock +1
+  clock data
+  expect tree missing "rename-to"
+  type "part-amount-field" "14"
+  expect state editKind == "set-param"
+  expect state editTarget == "app.contract#Card.pad"
+  expect state editValue == "14px"
+  // Another param edited in the panel while Card.pad's branch is open: the
+  // panel's draft, not a stale one of the branch.
+  type "dial-app.tamber#MapCard.zoom-stepper" "13"
+  expect state editTarget == "app.tamber#MapCard.zoom"
+  expect state editValue == "13"
+  expect tree missing "draft-stale"
+  tap "selrow-token-background-color"
+  clock data
+  expect state selToken == "accent.fill"
+  request POST "/__stub/restart" {} as ada
+
+test "Only this mode on a param with no line: its line is written first, in the one reviewed transaction, which has no scrub"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 1, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1083feff", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fill"], "text": "app.contract#Card.fill", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fill", "short": "Card.fill", "token": "accent.fill", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-edit-background-color"
+  clock data
+  clock +1
+  clock data
+  tap "only-this-mode"
+  expect state editKind == "set-param"
+  expect state editWhen == "dark-style=dim density=regular"
+  clock data
+  expect text "chip" == "Live"
+  expect disabled "scrub-start"
+  request POST "/__stub/restart" {} as ada
+
+test "holding a state on the selected copy: one a build, held once its build says so, why it went, the held look's rows at their part asked of its page, or provenance incomplete"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": null, "held": null}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}]} as ada
+  clock +1
+  clock data
+  expect tree has "hold-active"
+  expect disabled "hold-release"
+  // What its page reports once asked again (an inspect refresh) while it is held.
+  request POST "/__stub/held-answer" {"held": {"state": "active", "rows": [{"name": "press_background_color", "value": "#0f73ffff", "state": "active", "source": {"file": "/stub/post.contract", "line": 20, "col": 5, "end_col": 30}}]}} as ada
+  tap "hold-active"
+  clock data
+  clock +1
+  clock data
+  expect text "hold-status" == "Holding pressed."
+  // The build's own report, as the server publishes it (no new listing).
+  request POST "/__stub/event" {"event": "held", "build": "web-1", "state": "active"} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "Held pressed."
+  expect text "held-note" == "Its page is asked for the held look's rows."
+  // Its rows, as its page reports them again: each at its part's place, with its state.
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "heldrow-:active background-color" == ":active background-color#0f73ffff:active part at post.contract:20"
+  expect tree missing "held-note"
+  // Another state held in its place: the pressed rows are not the hovered look's.
+  request POST "/__stub/held-answer" {"held": {"state": "hover", "rows": [{"name": "background_color", "value": "#222222ff", "state": "hover", "source": {"file": "/stub/post.contract", "line": 24, "col": 5, "end_col": 30}}]}} as ada
+  tap "hold-hover"
+  clock data
+  clock +1
+  clock data
+  expect text "hold-status" == "Holding hovered."
+  expect tree missing "heldrow-:active background-color"
+  request POST "/__stub/event" {"event": "held", "build": "web-1", "state": "hover"} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "hold-status" == "Held hovered."
+  expect text "heldrow-:hover background-color" == ":hover background-color#222222ff:hover part at post.contract:24"
+  // Another node of that build selected: one hold a build, so a hold there replaces this one.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 6, "site": 5, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}]} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "Held hovered on another node of this build: a hold here replaces it."
+  // Held, but this host reports no rows for it: read-only, said so.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}], "held": {"state": "hover", "rows": []}} as ada
+  clock +1
+  clock data
+  expect text "held-note" == "Provenance incomplete: this host reports no rows (or not their tokens) for the held look, so it is read-only here."
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}], "held": {"state": "hover", "rows": [{"name": "background_color", "value": "#222222ff", "state": "hover", "source": {"file": "/stub/post.contract", "line": 24, "col": 5, "end_col": 30}}]}} as ada
+  clock +1
+  clock data
+  expect tree has "heldrow-:hover background-color"
+  // Real input lets it go; the rows it showed go with it.
+  request POST "/__stub/event" {"event": "held", "build": "web-1", "state": null, "reason": "input"} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "The hold was let go: real input on the node let it go."
+  expect tree missing "held-note"
+  expect tree missing "heldrow-:hover background-color"
+  // Held again in the same state: that report was the last hold's, so its page is asked again.
+  request POST "/__stub/held-answer" {"held": {"state": "hover", "rows": [{"name": "background_color", "value": "#333333ff", "state": "hover", "source": {"file": "/stub/post.contract", "line": 24, "col": 5, "end_col": 30}}]}} as ada
+  tap "hold-hover"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "held", "build": "web-1", "state": "hover"} as ada
+  clock +1
+  clock data
+  expect text "held-note" == "Its page is asked for the held look's rows."
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "heldrow-:hover background-color" == ":hover background-color#333333ff:hover part at post.contract:24"
+  // Another client holds another node, then this one is held again: its page is asked again.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": {"site": 9, "instance": [], "state": "hover"}, "held": {"state": "hover"}}]} as ada
+  clock +1
+  clock data
+  expect tree missing "heldrow-:hover background-color"
+  request POST "/__stub/held-answer" {"held": {"state": "hover", "rows": [{"name": "background_color", "value": "#444444ff", "state": "hover", "source": {"file": "/stub/post.contract", "line": 24, "col": 5, "end_col": 30}}]}} as ada
+  tap "hold-hover"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "held", "build": "web-1", "state": "hover"} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "heldrow-:hover background-color" == ":hover background-color#444444ff:hover part at post.contract:24"
+  // Then let go from here: said, not as an empty reason.
+  tap "hold-release"
+  clock data
+  clock +1
+  clock data
+  expect text "hold-status" == "Let go."
+  // A host that cannot hold that state says so by name.
+  request POST "/__stub/event" {"event": "unsupported", "build": "web-1", "what": "hold", "detail": "hover: iOS has no pointer"} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "This build cannot hold that state: hover: iOS has no pointer."
+  // Another client's hold ends that word; a let-go only a listing says (its event missed) says why.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": {"site": 3, "instance": [], "state": "active"}, "held": null}]} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "Holding pressed."
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": null, "held": {"state": null, "reason": "disabled"}}]} as ada
+  clock +1
+  clock data
+  expect text "hold-status" == "The hold was let go: the node is disabled, which refuses a hold."
+  request POST "/__stub/restart" {} as ada
+
+test "a style's state part row is edited by set-state, the default, from its value as written: a field, Rebuilds, Apply; a token it reads offered beside; a held one too; a stale copy's edit is not applied"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": {"site": 3, "instance": [], "state": "active"}, "held": {"state": "active"}}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  // The held look as its page reports it when asked (its first report, unasked, is asked again).
+  request POST "/__stub/held-answer" {"held": {"state": "active", "site": 3, "rows": [{"name": "press_opacity_to", "value": "0.8", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract"}}]}} as ada
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/post.contract", "line": 9, "col": 5, "end_col": 11, "component": "PostButton", "chain": []}, "rows": [{"name": "press_opacity_to", "value": "0.8", "source": "authored", "origin": "class:PostButton", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract", "text": "0.8"}}, {"name": "press_background_color", "value": "#0f73ffff", "source": "authored", "origin": "class:PostButton", "state": "active", "token": {"names": ["accent.fill"], "text": "accent.fill", "modes": "", "implied": false}, "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "background-color", "file": "post.contract", "text": "accent.fill", "token": "accent.fill"}}], "held": {"state": "active", "site": 3, "rows": [{"name": "press_opacity_to", "value": "0.8", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract"}}]}} as ada
+  clock +1
+  clock data
+  expect text "selrow-state-:active opacity" == "Edit PostButton :active opacity"
+  expect text "selrow-token-:active background-color" == "Edit the token accent.fill instead"
+  expect text "selrow-state-:active background-color" == "Edit PostButton :active background-color"
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "heldrow-state-:active opacity" == "Edit PostButton :active opacity"
+  tap "selrow-state-:active opacity"
+  expect state editKind == "set-state"
+  expect state editTarget == "PostButton|active|opacity|post.contract"
+  expect state editValue == "0.8"
+  type "state-value" "0.7"
+  expect state editValue == "0.7"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect tree missing "scrub-start"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  // The write moved the files: the copy is reported again (a rebuild would), and is current.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/post.contract", "line": 9, "col": 5, "end_col": 11, "component": "PostButton", "chain": []}, "rows": [{"name": "press_opacity_to", "value": "0.8", "source": "authored", "origin": "class:PostButton", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract", "text": "0.8"}}, {"name": "press_background_color", "value": "#0f73ffff", "source": "authored", "origin": "class:PostButton", "state": "active", "token": {"names": ["accent.fill"], "text": "accent.fill", "modes": "", "implied": false}, "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "background-color", "file": "post.contract", "text": "accent.fill", "token": "accent.fill"}}], "held": {"state": "active", "site": 3, "rows": [{"name": "press_opacity_to", "value": "0.8", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract"}}]}} as ada
+  clock +1
+  clock data
+  // An edit opened on that copy, then the selection goes stale (its page left inspect mode): not applied.
+  tap "selrow-state-:active background-color"
+  expect state editValue == "accent.fill"
+  expect tree missing "state-stale"
+  // Another client writes the file meanwhile: stale, and the same copy reported afresh does not revive it.
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["post.contract"], "changed": [], "files": {"post.contract": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}} as ada
+  clock +1
+  clock data
+  expect tree has "state-stale"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/post.contract", "line": 9, "col": 5, "end_col": 11, "component": "PostButton", "chain": []}, "rows": [{"name": "press_opacity_to", "value": "0.8", "source": "authored", "origin": "class:PostButton", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract", "text": "0.8"}}, {"name": "press_background_color", "value": "#0f73ffff", "source": "authored", "origin": "class:PostButton", "state": "active", "token": {"names": ["accent.fill"], "text": "accent.fill", "modes": "", "implied": false}, "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "background-color", "file": "post.contract", "text": "accent.fill", "token": "accent.fill"}}], "held": {"state": "active", "site": 3, "rows": [{"name": "press_opacity_to", "value": "0.8", "state": "active", "editable": {"rung": "state", "style": "PostButton", "state": "active", "row": "opacity", "file": "post.contract"}}]}} as ada
+  clock +1
+  clock data
+  expect tree has "state-stale"
+  expect disabled "apply"
+  tap "selrow-state-:active background-color"
+  expect tree missing "state-stale"
+  request POST "/__stub/event" {"events": [{"event": "inspect", "client": "design-tool:Ada", "on": false, "builds": ["web-1"]}, {"event": "selected", "build": "web-1", "selected": null}]} as ada
+  clock +1
+  clock data
+  expect tree has "state-stale"
+  expect disabled "apply"
+  request POST "/__stub/restart" {} as ada
+
+test "a row its author wrote is edited by set-row, the default: this template (every copy) at its place, or its style in its own file, the attribute named; the token beside; a refusal (a moved file, a value the app does not build with) writes nothing"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 3, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "template", "file": "card.contract", "at": {"line": 3, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "background-color", "instances": 2, "text": "surface.card", "token": "surface.card", "modes": ""}}, {"name": "text_color", "value": "#ff0000ff", "source": "authored", "origin": "class:Panel", "editable": {"rung": "style", "style": "Panel", "row": "color", "file": "styles.contract", "text": "red"}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-row-background-color" == "Edit this template · 2 instances"
+  expect text "selrow-token-background-color" == "Edit the token surface.card instead"
+  expect text "selrow-row-color" == "Edit style Panel"
+  tap "selrow-row-background-color"
+  expect state editKind == "set-row"
+  expect state editTarget == "{\"file\":\"card.contract\",\"at\":{\"line\":3,\"col\":9},\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"row\":\"background-color\"}"
+  expect state editValue == "surface.card"
+  expect text "row-label" == "This template · 2 instances: background-color"
+  // A value the app does not build with: the server's refusal, nothing written.
+  type "state-value" "not-a-colour"
+  clock data
+  expect text "proposal-error" == "the app does not build with that: card.contract:3:9: `not-a-colour` is not a colour"
+  expect disabled "apply"
+  type "state-value" "#ff0000"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect tree missing "scrub-start"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  // The style's row, in its own file.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 3, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "template", "file": "card.contract", "at": {"line": 3, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "background-color", "instances": 2, "text": "surface.card", "token": "surface.card", "modes": ""}}, {"name": "text_color", "value": "#ff0000ff", "source": "authored", "origin": "class:Panel", "editable": {"rung": "style", "style": "Panel", "row": "color", "file": "styles.contract", "text": "red"}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-row-color"
+  expect state editTarget == "{\"style\":\"Panel\",\"row\":\"color\",\"file\":\"styles.contract\"}"
+  expect state editValue == "red"
+  expect text "row-label" == "Style Panel: color"
+  type "state-value" "blue"
+  clock data
+  expect text "chip" == "Rebuilds"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (2)"
+  // A file moved since it was compiled: refused, said so.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 3, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "template", "file": "card.contract", "at": {"line": 3, "col": 9}, "sha256": "stale", "row": "background-color", "instances": 2, "text": "surface.card", "token": "surface.card", "modes": ""}}, {"name": "text_color", "value": "#ff0000ff", "source": "authored", "origin": "class:Panel", "editable": {"rung": "style", "style": "Panel", "row": "color", "file": "styles.contract", "text": "red"}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-row-background-color"
+  type "state-value" "#00ff00"
+  clock data
+  expect text "proposal-error" == "card.contract changed since it was compiled (sha256): select the view again"
+  expect disabled "apply"
+  request POST "/__stub/restart" {} as ada
+
+test "a template row moves to a new param or token, and a param row detaches to its template: each one transaction, one undo; a name the component has is refused; a detach removes the params it alone left read"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "editable": {"rung": "template", "file": "app.contract", "at": {"line": 9, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "background-color", "instances": 1, "text": "#1e2732"}}, {"name": "border_color", "value": "#0f73ffff", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fill"], "text": "app.contract#Card.fill", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fill", "short": "Card.fill", "token": "accent.fill", "modes": "", "template": {"rung": "template", "file": "app.contract", "at": {"line": 10, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "border-color", "instances": 1, "text": "Card.fill"}}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-param-background-color" == "Make it a param"
+  expect text "selrow-tokenize-background-color" == "Make it a token"
+  expect text "selrow-detach-border-color" == "Detach to this template"
+  tap "selrow-param-background-color"
+  expect state editKind == "promote-param"
+  expect text "row-label" == "background-color, as a new param"
+  type "move-name" "taken"
+  clock data
+  expect text "proposal-error" == "a param `taken` exists on `Card` already: give it another name"
+  type "move-name" "ground"
+  clock data
+  expect text "chip" == "Rebuilds"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "editable": {"rung": "template", "file": "app.contract", "at": {"line": 9, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "background-color", "instances": 1, "text": "#1e2732"}}, {"name": "border_color", "value": "#0f73ffff", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fill"], "text": "app.contract#Card.fill", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fill", "short": "Card.fill", "token": "accent.fill", "modes": "", "template": {"rung": "template", "file": "app.contract", "at": {"line": 10, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "border-color", "instances": 1, "text": "Card.fill"}}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-tokenize-background-color"
+  type "move-name" "surface.ground"
+  clock data
+  expect text "chip" == "Rebuilds"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (2)"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "editable": {"rung": "template", "file": "app.contract", "at": {"line": 9, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "background-color", "instances": 1, "text": "#1e2732"}}, {"name": "border_color", "value": "#0f73ffff", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fill"], "text": "app.contract#Card.fill", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fill", "short": "Card.fill", "token": "accent.fill", "modes": "", "template": {"rung": "template", "file": "app.contract", "at": {"line": 10, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "border-color", "instances": 1, "text": "Card.fill"}}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-detach-border-color"
+  expect state editKind == "detach-param"
+  clock data
+  expect tree missing "proposal-error"
+  expect text "chip" == "Rebuilds"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (3)"
+  // A param another row still reads: detached here, its declaration kept (the server says the other reads it).
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 5, "site": 4, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 11, "col": 5, "end_col": 8, "component": "Card", "chain": []}, "rows": [{"name": "transition_duration", "value": "150ms", "source": "authored", "origin": "own", "token": {"names": ["app.contract#Card.fade"], "text": "app.contract#Card.fade", "modes": "", "implied": false}, "editable": {"rung": "param", "param": "app.contract#Card.fade", "short": "Card.fade", "modes": "", "template": {"rung": "template", "file": "app.contract", "at": {"line": 11, "col": 9}, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "row": "transition-duration", "instances": 1, "text": "Card.fade"}}}]} as ada
+  clock +1
+  clock data
+  tap "selrow-detach-transition-duration"
+  clock data
+  expect tree missing "proposal-error"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (4)"
+  request POST "/__stub/restart" {} as ada
+
 test "the inspector places a light copy on the light column, and a build whose scheme is not known, or that went, offers no edit"
   type "name" "Ada"
   tap "save-name"
@@ -1172,4 +1671,410 @@ test "the inspect toggle follows the server's inspect events: another client tak
   clock +1
   clock data
   expect text "inspect-toggle" == "Inspect"
+  request POST "/__stub/restart" {} as ada
+
+test "Enter in Rename or in a new token's fields proposes it, as its button does, and only when the button would"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-space.edge-0-light"
+  clock data
+  type "rename-to" key "Enter"
+  expect state editKind == ""
+  type "rename-to" "space.gutter"
+  type "rename-to" key "Enter"
+  expect state editKind == "rename-token"
+  expect state editValue == "space.gutter"
+  type "new-name" "surface.raised"
+  type "new-name" key "Enter"
+  expect state editKind == "rename-token"
+  type "new-value" "#ffffff"
+  type "new-value" key "Enter"
+  expect state editKind == "add-token"
+  expect state editTarget == "surface.raised"
+  expect state editValue == "#ffffff"
+
+test "pairing: a code at the scope chosen, with each remote door's fingerprint to check; the clients as they pair; a revoke ends one"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/remote" {"remote": [{"origin": "https://192.168.1.20:7743", "fingerprint": "AB:CD:EF:01"}, {"origin": "http://127.0.0.1:7744", "tunnel": true}]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "no-clients" == "No client is paired."
+  expect text "pair-scope-note" == "Propose: it reads, and offers changes for someone with write to accept."
+  type "pair-scope" "read"
+  expect text "pair-scope-note" == "Read: it sees the design and its history, and inspects without moving anyone's screens."
+  tap "pair-mint"
+  clock data
+  expect text "pair-code-text" == "7Q2KD-M4X01"
+  expect text "pair-fingerprint-https://192.168.1.20:7743" == "AB:CD:EF:01"
+  expect text "pair-door-http://127.0.0.1:7744" == "Through the tunnel you trusted, at http://127.0.0.1:7744"
+  request POST "/__tamber/pair" {"code": "7Q2KD-M4X01", "name": "laptop"} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "client-scope-remote:laptop#1" == "read"
+  expect tree missing "no-clients"
+  tap "revoke-remote:laptop#1"
+  clock data
+  expect text "revoke-result" == "remote:laptop#1 was revoked: its token is refused from now on, and its stream and long poll end."
+  expect tree missing "client-remote:laptop#1"
+  expect text "no-clients" == "No client is paired."
+  request POST "/__stub/restart" {} as ada
+
+test "a refused pair-code or clients read is said, and the clients are asked again with the poll"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/refuse-pairing" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "clients-error" == "clients: refused, as the test asked"
+  tap "pair-mint"
+  clock data
+  expect text "pair-error" == "pair-code: refused, as the test asked"
+  clock +3000
+  clock data
+  expect text "no-clients" == "No client is paired."
+  request POST "/__stub/restart" {} as ada
+
+test "pairing with no remote door open says how to open one"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "pair-mint"
+  clock data
+  expect text "pair-code-text" == "7Q2KD-M4X01"
+  expect text "pair-no-door" == "No remote door is open: start the dev loop or tamber serve with --remote <host:port> for a client on another machine."
+  request POST "/__stub/restart" {} as ada
+
+test "remote mode: the tool pairs with another machine's server by its address and code, only over an https door or a tunnel to loopback; at propose an edit is held for review and what writes is greyed and never sent; a revoke ends it and says so"
+  // No server on this machine: the browser is the other machine's (the stub stands in for that
+  // machine's server, through a tunnel to loopback, so only this machine's token is refused).
+  fail fetch "http://127.0.0.1:7740/__tamber/token"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "pair-remote"
+  expect disabled "remote-pair"
+  // A plain http door off this machine is refused before anything is sent.
+  type "remote-at" "http://192.168.1.20:7740"
+  type "remote-code" "7Q2KD-M4X01"
+  tap "remote-pair"
+  clock data
+  expect text "remote-error" == "Pairing goes only over an encrypted connection: an https address, or a tunnel to this machine (http://127.0.0.1:<port>). Nothing was sent."
+  // The code was not kept.
+  expect state remoteCode == ""
+  type "remote-at" "http://127.0.0.1:7740"
+  type "remote-code" "7Q2KD-M4X99"
+  tap "remote-pair"
+  clock data
+  expect text "remote-error" == "no such pairing code: it may have expired, been used, or been burned by failed attempts"
+  request POST "/__stub/pair-code" {"scope": "propose"} as ada
+  type "remote-code" "7q2kd-m4x01"
+  tap "remote-pair"
+  clock data
+  clock +1
+  clock data
+  expect text "person" == "remote:Ada#1"
+  expect text "paired-scope" == "Paired as remote:Ada#1, at propose: an edit is held for review, for someone with write to accept; undo, commit, pins, holds, outlines, inspect mode and scrubs are greyed."
+  // The local tool's own: no clients panel.
+  expect tree missing "pairing"
+  expect disabled "inspect-toggle"
+  expect disabled "commit"
+  type "dial-hue-stepper" "210"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect text "apply" == "Propose for review"
+  tap "apply"
+  clock data
+  expect text "write-note" == "Held for review as held-1: someone with write accepts it."
+  expect disabled "undo"
+  // Its canvas comes only through the server's TLS door (stage 10 C): through this tunnel there is none.
+  expect text "canvas-remote-none" == "No canvas: the design server named no gateway this tool can frame (its canvas is https, on its TLS door's host, another machine, and another port)."
+  expect tree missing "canvas-frame"
+  // Revoked on the other machine: the next request is refused, and the tool says so and sends no more.
+  request POST "/__stub/revoke" {"client": "remote:Ada#1"} as ada
+  clock +1
+  clock data
+  clock +3000
+  clock data
+  expect text "no-server-title" == "Revoked"
+  expect tree missing "canvas-frame"
+  expect text "no-server-message" == "This client was revoked, or its pairing expired: nothing more is sent to the design server. Pair again with a new code."
+  request POST "/__stub/restart" {} as ada
+
+test "a paired tool frames no page of this machine, whatever the server's hello says"
+  fail fetch "http://127.0.0.1:7740/__tamber/token"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/pair-code" {"scope": "read"} as ada
+  request POST "/__stub/forge-local" {} as ada
+  type "remote-at" "http://127.0.0.1:7740"
+  type "remote-code" "7Q2KD-M4X01"
+  tap "remote-pair"
+  clock data
+  clock +3000
+  clock data
+  expect text "person" == "remote:Ada#1"
+  expect tree missing "canvas-frame"
+  expect tree missing "canvas-open"
+  expect tree missing "pairing"
+  request POST "/__stub/restart" {} as ada
+
+test "stage 11: the base scale's rows are read-only, with each platform the app ships and its source; a package's tokens name their package; set for this app, and back to the base"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/scale" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  expect text "token-group-Base scale (Exact)" == "Base scale (Exact)"
+  expect text "token-source-space.md" == "Exact's base, per platform"
+  // The columns this app's targets draw (iOS, the Mac, the web's neutral), then the rest one expand away.
+  expect text "token-base-space.md-ios" == "iOS 16px · grouped-row-inset"
+  expect text "token-base-space.md-mac" == "Mac 10px · grouped-row-inset"
+  expect text "token-base-space.md-neutral" == "neutral 16px · grouped-row-inset"
+  expect tree missing "token-base-space.md-material"
+  tap "token-base-more-space.md"
+  expect text "token-base-space.md-material" == "Android 16px · M3 spacing"
+  expect text "token-base-space.md-terminal" == "terminal 1cell · cells"
+  expect text "token-base-radius.md-mac" == "Mac 6px (a stretch) · control-radius, the Mac draws no larger control"
+  expect text "token-group-reading package" == "reading package"
+  expect text "token-source-reading.measure" == "From the reading package"
+  expect text "token-over-radius.md" == "Set for this app, over Exact's base (iOS 8px)."
+  expect tree missing "set-for-app-radius.md"
+  // A package's value opens read-only in the branch editor.
+  tap "cell-reading.measure-0-light"
+  clock data
+  expect text "branch-readonly" == "The reading package's, read only: Set for this app (in the grid) to change it here."
+  expect disabled "branch-value"
+  tap "set-for-app-space.md"
+  clock data
+  expect state editKind == "set-token"
+  expect state editTarget == "space.md"
+  expect state editValue == "16px"
+  expect text "set-for-app-note" == "space.md for this app starts from iOS's 16px, and the app's value is every platform's."
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  // Set for this app, the base name is the app's: said over the base, no second Set, its way back offered.
+  clock +1
+  clock data
+  expect tree missing "set-for-app-space.md"
+  expect text "token-over-space.md" == "Set for this app, over Exact's base (iOS 16px)."
+  // Its cell edits the app's line, not read-only.
+  tap "cell-space.md-0-light"
+  clock data
+  expect tree missing "branch-readonly"
+  expect text "branch-value" == "16px"
+  expect enabled "branch-value"
+  tap "back-radius.md"
+  clock data
+  expect state editKind == "remove-token"
+  expect state editTarget == "radius.md"
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (2)"
+  // Back to the base: Exact's again, set for this app offered once more.
+  clock +1
+  clock data
+  expect tree has "set-for-app-radius.md"
+  expect tree missing "token-over-radius.md"
+  // A package's token set for this app: the app's line over the package's, and back to the package.
+  tap "set-for-app-reading.measure"
+  clock data
+  expect state editKind == "set-token"
+  expect state editValue == "640px"
+  tap "apply"
+  clock data
+  clock +1
+  clock data
+  expect text "token-over-reading.measure" == "Set for this app, over the reading package's value."
+  expect tree missing "set-for-app-reading.measure"
+  tap "back-reading.measure"
+  clock data
+  expect state editKind == "remove-token"
+  tap "apply"
+  clock data
+  clock +1
+  clock data
+  expect tree has "set-for-app-reading.measure"
+  request POST "/__stub/restart" {} as ada
+
+test "T7: a grid of live copies, each pinned to its mode on the build its own frame said, whichever registers first; a copy moved leads the others, one that can't navigate is reloaded there; Mirror off moves none; a smaller grid and one copy hand the pins back"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/copies" {"delays": {"exact-copy-1": 4000}, "noNavigate": ["exact-copy-3"], "refuseLater": ["exact-copy-5"]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "canvas-view" "grid"
+  clock data
+  expect text "grid-shared" == "Each copy is its own origin, with its own storage: each starts with its own data. Mirrored navigation replays no actions."
+  expect tree missing "canvas-frame"
+  // Copy 1's build registers last (4 s after the others), and still takes its own pin, no other's.
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-label-exact-copy-1" == "Light"
+  expect text "grid-label-exact-copy-2" == "Black"
+  expect text "grid-label-exact-copy-3" == "Dim"
+  expect text "grid-label-exact-copy-4" == "Light · 22px"
+  expect text "grid-label-exact-copy-6" == "Dim · 22px"
+  expect tree missing "grid-tile-exact-copy-7"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  expect text "grid-note-exact-copy-6" == "dark · dark-style=dim · 22px · /"
+  expect text "grid-note-exact-copy-1" == "light · 16px · /"
+  expect text "grid-note-exact-copy-4" == "light · 22px · /"
+  expect text "build-pin-copy-1" == "pinned: light"
+  expect text "build-pin-copy-3" == "pinned: dark, dark-style=dim"
+  // Copy 2's app asked for Dim; its pin held (theme2's F2 ruling), and the tile says so.
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "copy-2", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0, "location": "/", "app": {"mode": {"dark-style": "dim"}}}}} as ada
+  clock +1000 real
+  clock data
+  expect text "grid-app-exact-copy-2" == "The app set dark-style=dim; pinned to dark, dark-style=black."
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "copy-2", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0, "location": "/"}}} as ada
+  // The person moves copy 2: the others follow; copy 3's build can't navigate, so its frame reloads there, and says so.
+  request POST "/__stub/move" {"build": "copy-2", "location": "/post/3"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-1" == "light · 16px · /post/3"
+  expect text "grid-note-exact-copy-6" == "dark · dark-style=dim · 22px · /post/3"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3 · reloaded there: its build can't navigate"
+  // Copy 5's page took the command and then refused it: reloaded there too.
+  expect text "grid-note-exact-copy-5" == "dark · dark-style=black · 22px · /post/3 · reloaded there: its build can't navigate"
+  // Mirror off: a copy moved leads no other.
+  tap "grid-mirror"
+  request POST "/__stub/move" {"build": "copy-1", "location": "/post/9"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-1" == "light · 16px · /post/9"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /post/3"
+  // Fewer copies: the two left out are handed back.
+  type "grid-cap" "4"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect tree missing "grid-tile-exact-copy-5"
+  expect tree missing "build-pin-copy-5"
+  expect text "build-pin-copy-4" == "pinned: light, 22px"
+  // One copy again: every pin the grid made handed back.
+  type "canvas-view" "one"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect tree missing "grid-section"
+  expect tree missing "build-pin-copy-1"
+  expect tree missing "build-pin-copy-4"
+  request POST "/__stub/restart" {} as ada
+
+test "T7: the selected view's states side by side, each copy holding one on the selection's site in the selection's plan and mode, kept while its pins move the selected build; the grid lets the holds go, and so does One copy"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/copies" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "canvas-view" "states"
+  clock +1000 real
+  clock data
+  expect text "grid-note" == "Select a view (Inspect, then click it in a copy) to see its states side by side."
+  expect tree missing "grid-tile-exact-copy-1"
+  // A view selected in a copy registered meanwhile (the grid's frames register as the grid opens).
+  type "canvas-view" "grid"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "copy-5", "node": 4, "site": 3, "instance": [], "type": "Card", "planDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "tuple": {"dark-style": "dim"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": []} as ada
+  clock +1
+  clock data
+  type "canvas-view" "states"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note" == "Card #4, in dark · dark-style=black · 22px."
+  expect text "grid-label-exact-copy-1" == "At rest"
+  expect text "grid-label-exact-copy-2" == "Pressed"
+  expect text "grid-label-exact-copy-4" == "Focused"
+  expect tree missing "grid-tile-exact-copy-5"
+  expect text "grid-note-exact-copy-1" == "dark · dark-style=black · 22px · /"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 22px · / · holding pressed"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=black · 22px · / · holding hovered"
+  expect text "grid-note-exact-copy-4" == "dark · dark-style=black · 22px · / · holding focused"
+  // Its build says it holds it.
+  request POST "/__stub/event" {"event": "held", "build": "copy-2", "state": "active"} as ada
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 22px · / · held pressed"
+  // The copy the view was selected in, no longer shown, is handed back.
+  expect tree missing "build-pin-copy-5"
+  // The grid again: its copies hold no state.
+  type "canvas-view" "grid"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /"
+  // One copy: the pins handed back.
+  type "canvas-view" "one"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect tree missing "build-pin-copy-2"
   request POST "/__stub/restart" {} as ada

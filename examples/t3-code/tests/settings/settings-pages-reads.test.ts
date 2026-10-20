@@ -121,7 +121,7 @@ describe('each settings page reads the subscribed config and asks the server onl
 describe('a change still reaches each page, without a read', () => {
   test('Source control and Storage show a settingsUpdated value from subscribeServerConfig', async () => {
     const { server, ask, wake } = await launched();
-    expect((await ask(PAGES['Source control']!)).view.repositories).toMatchObject([{ checked: false }, {}]);
+    expect((await ask(PAGES['Source control']!)).view.repositories).toMatchObject([{ checked: false }, {}, {}]);
     expect(obj(arr((await ask(PAGES.Storage!)).view.artifacts).find(row => row.key === 'logsAfterDays'))).toMatchObject({ enabled: true, days: '7' });
     server.config.settings = { ...obj(server.config.settings), defaultAutoPull: true, storageCleanup: { logsAfterDays: 14 } };
     server.emit('config', { type: 'settingsUpdated', payload: { settings: server.config.settings } });

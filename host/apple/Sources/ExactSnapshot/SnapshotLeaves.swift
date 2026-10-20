@@ -24,7 +24,7 @@ struct SnapshotTextView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        if let live = SnapshotLive.presentation(node, entryDate: environment.entryDate) {
+        if environment.frozenDate == nil, let live = SnapshotLive.presentation(node, entryDate: environment.entryDate) {
             SnapshotLiveText(node: node, presentation: live).widgetAccentable()
         } else {
             let box = node.contentBox
@@ -176,10 +176,14 @@ struct SnapshotLiveText: View {
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotProgressView: View {
     let node: HeadlessSession.Node
+    let environment: SnapshotEnvironment
 
     var body: some View {
         Group {
-            if let interval = SnapshotLive.interval(node) {
+            if let interval = SnapshotLive.interval(node), let date = environment.frozenDate {
+                let fraction = min(1, max(0, date.timeIntervalSince(interval.lowerBound) / max(0.001, interval.upperBound.timeIntervalSince(interval.lowerBound))))
+                ProgressView(value: (node.props["timeFormat"] ?? node.props["format"]) == "countdown" ? 1 - fraction : fraction)
+            } else if let interval = SnapshotLive.interval(node) {
                 ProgressView(timerInterval: interval, countsDown: (node.props["timeFormat"] ?? node.props["format"]) == "countdown") { EmptyView() } currentValueLabel: { EmptyView() }
             } else if let value = Double(node.props["value"] ?? "") {
                 ProgressView(value: min(value, total), total: total)
@@ -252,7 +256,33 @@ struct SnapshotImageView: View {
             }
             .font(.system(size: points, weight: Font.Weight(css: Int(weight))))
             .foregroundStyle(ink)
+        } else if let commands = node.props["symbolPath"] {
+            // An icon with no SF Symbol draws its own path (LLP 1121 D10, stage 9 A), as the page hosts do: its
+            // em square placed by `object-fit` in the box, the viewBox met in that square, each path filled
+            // nonzero into one mask that its tint (else its colour) shows through once.
+            let style = SnapshotStyle(node)
+            let ink = SnapshotColor.style(style.color("tint_color") ?? style.color("text_color"), dark: scheme == .dark, context: .ink) ?? AnyShapeStyle(.tint)
+            let box = node.contentBox.size, viewBox = node.props["symbolViewBox"] ?? ""
+            let points = style.number("font_size") ?? 17
+            let square = IconPath.placed(em: points, fit: fit, in: CGRect(origin: .zero, size: box))
+            Rectangle().fill(ink)
+                .mask(ZStack {
+                    ForEach(Array(IconPath.paths(commands).enumerated()), id: \.offset) { _, path in
+                        IconShape(path: path, viewBox: viewBox, square: square).fill(Color.black)
+                    }
+                })
+                .frame(width: box.width, height: box.height)
+                .clipped()
         }
+    }
+}
+
+/// One of an icon's paths, its viewBox met in the em square placed in the box (`IconPath.placed`, `fitted`).
+private struct IconShape: Shape {
+    let path: CGPath, viewBox: String, square: CGRect
+    func path(in rect: CGRect) -> Path {
+        var transform = IconPath.fitted(IconPath.viewBox(viewBox), in: square)
+        return Path(path.copy(using: &transform) ?? path)
     }
 }
 

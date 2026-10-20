@@ -633,3 +633,135 @@ fn an_escaped_space_in_a_name_is_another_variable() {
         assert!(accepted(known), "{known}");
     }
 }
+
+/// LLP 1121 stage 11 (c): under the terminal's space rule a padding that
+/// resolves to points (a `calc()` of an `env()` included) lays out in whole
+/// cells, rows down; turning the rule on or off after a layout lays every
+/// box out again, plain px included.
+#[test]
+fn the_terminal_space_rule_rounds_resolved_spaces_and_relays_when_it_turns() {
+    let mut kernel = tree();
+    let mut child = StyleProps::default();
+    child
+        .set_dynamic(StyleId::MarginTop, &StyleValue::Number(8.0))
+        .unwrap();
+    child
+        .set_dynamic(StyleId::MarginLeft, &StyleValue::Number(12.0))
+        .unwrap();
+    kernel
+        .apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(child),
+            }],
+        )
+        .unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(320.0, 480.0))
+        .unwrap();
+    // Off: the inset is 0, so the top padding is 0 and the bottom's calc
+    // 12 px; the child's own margins 8 down and 12 across.
+    assert_eq!(frame(&kernel, 2), (12.0, 8.0, 308.0, 40.0));
+    kernel.set_cell_spaces(true);
+    kernel
+        .compute_layout(1, Offer::definite(320.0, 480.0))
+        .unwrap();
+    // On: 8 px down is none, 12 px across one column (8); the root's 12 px
+    // bottom a row, its content shorter by 4.
+    assert_eq!(frame(&kernel, 2), (8.0, 0.0, 312.0, 40.0));
+    let root = kernel.node(1).unwrap().key;
+    assert_eq!(kernel.resolved_padding(root).map(|p| p.3), Some(16.0));
+    kernel.set_cell_spaces(false);
+    kernel
+        .compute_layout(1, Offer::definite(320.0, 480.0))
+        .unwrap();
+    assert_eq!(frame(&kernel, 2), (12.0, 8.0, 308.0, 40.0));
+    assert_eq!(kernel.resolved_padding(root).map(|p| p.3), Some(12.0));
+}
+
+/// LLP 1121 stage 11 (c): a multi-column box's gap is a space across too,
+/// whole columns under the terminal's rule (12 px is one, 8).
+#[test]
+fn a_multicol_gap_is_whole_columns_under_the_terminal_space_rule() {
+    let gap_of = |cells: bool| {
+        let mut kernel = Kernel::with_monospace();
+        kernel.set_cell_spaces(cells);
+        let mut root = StyleProps::default();
+        for (id, v) in [
+            (StyleId::Width, StyleValue::Number(320.0)),
+            (StyleId::ColumnCount, StyleValue::Number(2.0)),
+            (StyleId::ColumnGap, StyleValue::Number(12.0)),
+        ] {
+            root.set_dynamic(id, &v).unwrap();
+        }
+        let mut child = StyleProps::default();
+        child
+            .set_dynamic(StyleId::Height, &StyleValue::Number(40.0))
+            .unwrap();
+        let ops = vec![
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(root),
+            },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 2,
+                patch: Box::new(child),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2],
+            },
+            Op::AttachRoot { id: 1 },
+        ];
+        kernel.apply(0, 1, &ops).unwrap();
+        kernel
+            .compute_layout(1, Offer::definite(320.0, 480.0))
+            .unwrap();
+        let key = kernel.node(1).unwrap().key;
+        kernel.columns(key).map(|c| c.gap)
+    };
+    assert_eq!(gap_of(false), Some(12.0));
+    assert_eq!(gap_of(true), Some(8.0));
+}
+
+/// The margins a keyed jump reads (`Kernel::laid_margins`): as layout reads
+/// them, whole cells under the terminal's rule, a percentage none.
+#[test]
+fn laid_margins_are_whole_cells_and_a_percentage_none() {
+    let mut kernel = tree();
+    let mut child = StyleProps::default();
+    for (id, v) in [
+        (StyleId::MarginTop, StyleValue::Number(8.0)),
+        (StyleId::MarginBottom, StyleValue::Number(14.0)),
+        (
+            StyleId::MarginLeft,
+            StyleValue::Text("calc(10% + 14px)".into()),
+        ),
+        (StyleId::MarginRight, StyleValue::Number(12.0)),
+    ] {
+        child.set_dynamic(id, &v).unwrap();
+    }
+    kernel
+        .apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(child),
+            }],
+        )
+        .unwrap();
+    assert_eq!(kernel.laid_margins(2), Some([8.0, 12.0, 14.0, 0.0]));
+    kernel.set_cell_spaces(true);
+    assert_eq!(kernel.laid_margins(2), Some([0.0, 8.0, 16.0, 0.0]));
+}

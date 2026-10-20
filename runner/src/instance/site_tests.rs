@@ -10,7 +10,7 @@ fn reused_frames_preserve_nested_scopes_and_release_rows_on_error() {
     let mut ids = Ids::default();
     let env = Env {
         plan: &plan,
-        strings: &[],
+        strings: &crate::vm::Strings::of([]),
         router: None,
         lists: None,
         format: None,

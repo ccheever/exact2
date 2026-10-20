@@ -21,6 +21,8 @@ import { environmentQueries, filterKeyOf, foldAnswers, largestPullRequestReadCou
 import { openOnHostLabel } from '../shared/context-menus'; // the number's menu label
 import { isScratchProject, scratchRoot } from '../pages/pages-home';
 import { projectScopes } from '../sidebar/sidebar-view'; // the project filter's order
+import { prEnvironments, readsPullRequests, type PrEnvironment } from './pages-pr-environments'; // the Server filter
+import { pullRequestHost } from '../palette/palette-linkpr';
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -41,8 +43,8 @@ const GROUP_LABELS: Record<string, string> = { authored: 'Authored', reviewReque
 
 // ── Preferences (pullRequestListPreferences.ts) ─────────────────────────────
 
-export type PrPrefs = { involvement: string; state: string; host: string; projectId: string; q: string; draft: string; review: string; checks: string; author: string; labels: string[]; sort: string };
-export const defaultPrPrefs = (): PrPrefs => ({ involvement: 'all', state: 'open', host: '', projectId: '', q: '', draft: '', review: '', checks: '', author: '', labels: [], sort: 'ready' });
+export type PrPrefs = { involvement: string; state: string; host: string; environmentId: string; projectId: string; q: string; draft: string; review: string; checks: string; author: string; labels: string[]; sort: string };
+export const defaultPrPrefs = (): PrPrefs => ({ involvement: 'all', state: 'open', host: '', environmentId: '', projectId: '', q: '', draft: '', review: '', checks: '', author: '', labels: [], sort: 'ready' });
 const bounded = (value: unknown) => str(value).trim().slice(0, 200);
 export function decodePrPrefs(saved: unknown): PrPrefs {
   const value = obj(saved), next = defaultPrPrefs();
@@ -52,7 +54,7 @@ export function decodePrPrefs(saved: unknown): PrPrefs {
   if (value.draft === 'only' || value.draft === 'hide') next.draft = value.draft;
   if (REVIEWS.some(option => option.value === value.review && option.value !== 'all')) next.review = str(value.review);
   if (value.checks === 'passing' || value.checks === 'failing') next.checks = value.checks;
-  next.host = bounded(value.host); next.projectId = bounded(value.projectId); next.q = bounded(value.q); next.author = bounded(value.author);
+  next.host = bounded(value.host); next.environmentId = bounded(value.environmentId); next.projectId = bounded(value.projectId); next.q = bounded(value.q); next.author = bounded(value.author);
   next.labels = (Array.isArray(value.labels) ? value.labels : []).map(bounded).filter(Boolean).slice(0, 10);
   return next;
 }
@@ -388,7 +390,10 @@ const lastDrawn = new WeakMap<object, { environmentId: string; view: PrListView 
 export async function pullRequestsPage(client: T3Client, native: Native | null | undefined, input: PrInput & { visible?: boolean; returns?: number }) {
   const prefs = prPrefs(client);
   const query = input.typed ? input.query : prefs.q;
-  const view = emptyList(prefs, query);
+  // usePullRequestScope: the servers that read pull requests, by id; a saved server none of them is scopes nothing.
+  const capable = prEnvironments(client).filter(readsPullRequests).sort((left, right) => left.id.localeCompare(right.id));
+  const scopedServer = capable.some(environment => environment.id === prefs.environmentId) ? prefs.environmentId : '';
+  const view = emptyList({ ...prefs, environmentId: scopedServer }, query);
   view.diffScheme = diffSchemeOf(client);
   view.available = obj(obj(client.config.environment).capabilities).pullRequests === true;
   const projects = pullRequestProjects(client);
@@ -397,6 +402,13 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     const identity = projectIdentity(str(project.title));
     return { id: str(project.id), name: str(project.title), mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface, selected: prefs.projectId === project.id, unavailable: '' };
   });
+  view.servers = [{ value: '', label: 'All servers', icon: 'layers', selected: !scopedServer },
+    ...capable.map(environment => ({ value: environment.id, label: environment.label, icon: machineIcon(environment.machine), selected: environment.id === scopedServer }))];
+  const chosenServer = view.servers.find(server => server.selected);
+  view.serverLabel = chosenServer?.label ?? 'All servers'; view.serverIcon = chosenServer?.icon ?? 'layers';
+  // hostMenuOptions before a list answers, or when it failed: the hosts the servers' projects expect (expectedHosts).
+  view.hosts = hostOptions([], expectedHosts(scopedServer ? capable.filter(environment => environment.id === scopedServer) : capable), prefs.host);
+  view.hostLabel = view.hosts.find(host => host.selected)?.label ?? 'All';
   if (!input.open) listLiveAsk(client, input);
   if (!input.open && native?.available && client.ready) await holdPullRequestRefreshes(client, native, 'list', false);
   const carried = lastDrawn.get(client);
@@ -414,7 +426,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   // Every server that reads pull requests, a page at a time (pages-pr-paging.ts). A refresh
   // (Refresh, an announcement, a live read, a relist) reads the whole visible list again, never only the last slice.
   const { limit: _limit, ...question } = payload;
-  const queries = environmentQueries(client, prefs.projectId), filterKey = filterKeyOf(queries, question);
+  const queries = environmentQueries(client, prefs.projectId, prefs.environmentId), filterKey = filterKeyOf(queries, question);
   const refreshing = !!cached && cached.scope === filterKey && (cached.refresh !== input.refresh || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client) || live.due);
   if (refreshing) refreshPaging(client);
   const round = listTargets(client, question, queries);
@@ -469,7 +481,7 @@ export function listEntryFor(client: object, selection: { projectId: string; hos
 
 export function emptyList(prefs: PrPrefs, query: string) {
   const labels = prefs.labels;
-  const filterCount = [prefs.state !== 'open', prefs.involvement !== 'all', prefs.host, prefs.projectId, prefs.draft, prefs.review, prefs.checks, prefs.author, ...labels].filter(Boolean).length;
+  const filterCount = [prefs.state !== 'open', prefs.involvement !== 'all', prefs.host, prefs.environmentId, prefs.projectId, prefs.draft, prefs.review, prefs.checks, prefs.author, ...labels].filter(Boolean).length;
   return {
     available: true, loading: false, hasProjects: true, error: '', empty: '', emptyDetail: '', emptyAction: '', query, diffScheme: 'red-green',
     sort: prefs.sort, sortLabel: SORTS.find(option => option.value === prefs.sort)?.label ?? 'Merge readiness',
@@ -480,6 +492,8 @@ export function emptyList(prefs: PrPrefs, query: string) {
     draftLabel: DRAFTS.find(option => option.value === (prefs.draft || 'all'))?.label ?? 'All', reviewLabel: REVIEWS.find(option => option.value === (prefs.review || 'all'))?.label ?? 'All',
     checksLabel: CHECKS.find(option => option.value === (prefs.checks || 'all'))?.label ?? 'All', projectLabel: 'All projects', projectId: prefs.projectId,
     hosts: [] as { value: string; label: string; selected: boolean; unavailable: string }[],
+    // The Server filter (serverMenuOptions): All servers, then each server that reads pull requests; shown with two or more.
+    server: prefs.environmentId, serverLabel: 'All servers', serverIcon: 'layers', servers: [] as { value: string; label: string; icon: string; selected: boolean }[],
     projects: [] as { id: string; name: string; mark: string; ink: string; surface: string; selected: boolean; unavailable: string }[],
     authors: [] as { key: string; login: string; name: string; avatar: string; initial: string; detail: string; selected: boolean }[],
     labelFacets: [] as { key: string; name: string; color: string; count: number; selected: boolean }[],
@@ -519,9 +533,7 @@ export function presentList(view: PrListView, result: Obj | null, error: string,
   view.projects = view.projects.map(project => ({ ...project, unavailable: unavailable.get(project.id) ?? '' }));
   view.projectLabel = view.projects.find(project => project.selected)?.name ?? 'All projects';
   const providers = arr(result.providers);
-  view.hosts = [{ value: '', label: 'All', selected: !prefs.host, unavailable: '' },
-    ...providers.map(provider => ({ value: str(provider.host), label: providers.filter(other => other.kind === provider.kind).length > 1 ? str(provider.host) : providerName(str(provider.kind)),
-      selected: prefs.host === provider.host, unavailable: provider.configured === false ? str(provider.detail, 'Not signed in') : '' }))];
+  if (providers.length) view.hosts = hostOptions(providers, providers.map(provider => ({ host: str(provider.host), kind: str(provider.kind) })), prefs.host);
   view.hostLabel = view.hosts.find(host => host.selected)?.label ?? 'All';
   // collectPullRequestListFacets: authors by merges then count; labels by count.
   const authors = new Map<string, { actor: Obj; count: number; merged: number }>(), labels = new Map<string, { name: string; color: string; count: number }>();
@@ -549,11 +561,33 @@ export function presentList(view: PrListView, result: Obj | null, error: string,
 function providerName(kind: string): string {
   return sourceControlHostName(kind);
 }
+/** hostMenuOptions: All, then each host (by its provider's name, or its own when two share a provider), unavailable when its summary says so. */
+function hostOptions(summaries: Obj[], entries: { host: string; kind: string }[], chosen: string): PrListView['hosts'] {
+  return [{ value: '', label: 'All', selected: !chosen, unavailable: '' }, ...entries.map(entry => {
+    const summary = summaries.find(candidate => str(candidate.host) === entry.host);
+    return { value: entry.host, label: entries.filter(other => other.kind === entry.kind).length > 1 ? entry.host : providerName(entry.kind),
+      selected: chosen === entry.host, unavailable: summary && summary.configured === false ? str(summary.detail, 'Not signed in') : '' };
+  })];
+}
+/** expectedHosts: one entry per host the servers' projects name in their repository identity. */
+function expectedHosts(environments: PrEnvironment[]): { host: string; kind: string }[] {
+  const byHost = new Map<string, { host: string; kind: string }>();
+  for (const environment of environments) for (const project of environment.projects) {
+    if (isScratchProject(project, scratchRoot(environment.config))) continue;
+    const identity = obj(project.repositoryIdentity), kind = str(identity.provider);
+    if (!kind) continue;
+    const host = pullRequestHost(identity, kind);
+    if (!byHost.has(host)) byHost.set(host, { host, kind });
+  }
+  return [...byHost.values()];
+}
+/** environmentMachineIcon in the menu's glyphs: a laptop, a cloud, else a monitor. */
+const machineIcon = (machine: string) => machine === 'laptop' || machine === 'cloud' ? machine : 'monitor';
 
 // ── Commands ────────────────────────────────────────────────────────────────
 
 /** pageslocal:pr-* — the list controls, remembered as the reference remembers them. */
-export function prLocal(client: { local: object }, op: string, value: string): string {
+export function prLocal(client: { local: object; environmentId?: string }, op: string, value: string): string {
   const prefs = prPrefs(client);
   if (op === 'sort' && SORTS.some(option => option.value === value)) prefs.sort = value;
   else if (op === 'state' && STATES.some(option => option.value === value)) prefs.state = value;
@@ -563,7 +597,9 @@ export function prLocal(client: { local: object }, op: string, value: string): s
   else if (op === 'checks' && CHECKS.some(option => option.value === value)) prefs.checks = value === 'all' ? '' : value;
   else if (op === 'author') prefs.author = prefs.author.toLowerCase() === value.toLowerCase() ? '' : bounded(value);
   else if (op === 'host') prefs.host = bounded(value);
-  else if (op === 'project') prefs.projectId = bounded(value);
+  // A server scopes the projects too, so choosing one drops the project; a project brings its own server (the focused one's).
+  else if (op === 'server') { prefs.environmentId = bounded(value); prefs.projectId = ''; }
+  else if (op === 'project') { prefs.projectId = bounded(value); if (prefs.projectId && client.environmentId) prefs.environmentId = client.environmentId; }
   else if (op === 'label') prefs.labels = prefs.labels.some(label => label.toLowerCase() === value.toLowerCase()) ? prefs.labels.filter(label => label.toLowerCase() !== value.toLowerCase()) : [...prefs.labels, bounded(value)].slice(0, 10);
   else if (op === 'query') prefs.q = bounded(value);
   else if (op === 'load-more') { loadMore(client); return ''; } // the next page

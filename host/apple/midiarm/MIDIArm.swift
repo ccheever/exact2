@@ -85,7 +85,10 @@ private final class MIDIArm {
     private var outPort = MIDIPortRef()
     /// Messages held until 50 ms before they are due, by (at, id).
     private var held: [(at: Double, id: UInt64, uid: Int32, bytes: [UInt8])] = []
-    private var timer: CFRunLoopTimer?
+    /// Strict: a run loop timer is coalesced like any other, up to 150 ms
+    /// late where the system coalesces (an occluded or App Napped app, a
+    /// session without a console), past the hold, so a send went out late.
+    private var timer: DispatchSourceTimer?
     private var watchdog: CFRunLoopTimer?
     /// The inputs to listen to, by unique ID, and the sources connected now.
     private var wanted: Set<Int32> = []
@@ -324,7 +327,7 @@ private final class MIDIArm {
 
     /// Hand out what is due within the hold; the timer at the next one's.
     private func schedule() {
-        if let timer { CFRunLoopTimerInvalidate(timer); self.timer = nil }
+        timer?.cancel(); timer = nil
         let now = CACurrentMediaTime()
         while let first = held.first, first.at - HOLD <= now {
             held.removeFirst()
@@ -335,10 +338,11 @@ private final class MIDIArm {
             }
         }
         guard let next = held.first else { return }
-        let fire = CFAbsoluteTimeGetCurrent() + (next.at - HOLD - now)
-        let timer = CFRunLoopTimerCreateWithHandler(nil, fire, 0, 0, 0) { [weak self] _ in self?.schedule() }
+        let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .global(qos: .userInteractive))
+        timer.schedule(deadline: .now() + (next.at - HOLD - now), leeway: .nanoseconds(0))
+        timer.setEventHandler { [weak self] in self?.perform { self?.schedule() } }
         self.timer = timer
-        CFRunLoopAddTimer(loop, timer, .defaultMode)
+        timer.resume()
     }
 
     /// A note message's key: output, channel and note.
@@ -373,7 +377,7 @@ private final class MIDIArm {
 
     func close() {
         perform {
-            if let timer = self.timer { CFRunLoopTimerInvalidate(timer) }
+            self.timer?.cancel()
             if let watchdog = self.watchdog { CFRunLoopTimerInvalidate(watchdog) }
             self.held = []
             if self.client != 0 { MIDIClientDispose(self.client) }

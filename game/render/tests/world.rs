@@ -11,6 +11,8 @@ use exact_gpu::{
     Frame, Gpu, InputEvent, Surface, Value,
 };
 
+#[path = "fixture/model.rs"]
+mod skin_fixture;
 #[path = "visibility/mod.rs"]
 mod visibility_tests;
 
@@ -493,7 +495,7 @@ impl Game for SpringLight {
             ambient: 0.,
             bloom: None,
             fog: None,
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ..Default::default()
         });
     }
@@ -546,7 +548,7 @@ impl Game for Viewmodel {
         w.insert_resource(exact_game::Environment {
             bloom: None,
             fog: None,
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ..Default::default()
         });
         let camera = w.spawn((Transform::at(0., 1.6, 0.), Camera::default()));

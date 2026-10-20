@@ -26,6 +26,10 @@ pub fn role(text: &str) -> Option<u8> {
     {
         return role(name).filter(|&id| role_of(id).is_some_and(web_accent));
     }
+    // The ink on the accent as the web writes it (`reference_css`).
+    if lower.split_whitespace().collect::<String>() == "var(--exact-accent-text,accentcolortext)" {
+        return role("AccentColorText");
+    }
     let var = lower.strip_prefix("var(--exact-");
     let exact = match var {
         Some(rest) => Some(&rest[..rest.find([',', ')'])?]),
@@ -311,6 +315,10 @@ pub fn theme_css() -> String {
                 "color:var(--exact-canvas-text);--exact-scheme-color:var(--exact-canvas-text);",
             ),
             "Canvas" => out.push_str("background-color:var(--exact-canvas);"),
+            // The design's accent is authored (LLP 1121 D9): a spinner reads it.
+            "AccentColor" => out.push_str(
+                "--exact-accent-design:var(--exact-accent);--exact-accent-said:var(--exact-accent-design);",
+            ),
             _ => {}
         }
     }
@@ -477,6 +485,12 @@ pub fn authored_accent(accent: Option<ColorValue>) -> AccentScope {
         AUTHORED.with(|a| a.replace(accent)),
         std::marker::PhantomData,
     )
+}
+
+/// The accent the painting scope holds now ([`authored_accent`]): the
+/// nearest one the node being painted or an ancestor authored, or none.
+pub fn scoped_accent() -> Option<ColorValue> {
+    AUTHORED.with(|a| a.get())
 }
 
 /// What [`authored_accent`] restores; the thread's, so it stays on it.
@@ -741,6 +755,11 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
                 if named {
                     out.push(')');
                 }
+            } else if mode == ColorText::Css && r.name == "AccentColorText" {
+                // The ink on the accent is the web's filled button's: black or
+                // white by the accent's lightness (`neutral.css`), where the
+                // browser's keyword is white on any accent.
+                out.push_str("var(--exact-accent-text, AccentColorText)");
             } else if is_css_system(r) {
                 out.push_str(r.name);
             } else {
@@ -1218,6 +1237,19 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_ink_on_the_accent_reads_back_as_itself() {
+        let ink = role("AccentColorText").unwrap();
+        let mut css = String::new();
+        reference_css(&mut css, ColorValue::Role(ink), ColorText::Css);
+        assert_eq!(css, "var(--exact-accent-text, AccentColorText)");
+        assert_eq!(
+            role(&css),
+            Some(ink),
+            "the web's spelling is the role again"
+        );
     }
 
     #[test]

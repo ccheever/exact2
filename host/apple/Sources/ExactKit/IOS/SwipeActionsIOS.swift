@@ -199,7 +199,7 @@ package final class SwipeActionsHost {
     /// An action's name; a native button's is its label, else its title
     /// (LLP 1069.011.000 D6).
     private func label(_ node: NodeView) -> String {
-        node.accessibilityLabel ?? node.props["accessibilityLabel"] ?? (node.isNativeButton ? node.face?.title : nil) ?? ""
+        node.accessibilityLabel ?? node.props["accessibilityLabel"] ?? (node.isNativeButton ? node.face?.title : nil) ?? node.accessibleName
     }
     /// LLP 1080.001 D3: a projected row's table, the views it hides, and
     /// the content it carries into its cell.
@@ -616,7 +616,7 @@ package final class SwipeActionsHost {
                        let accent = target.channels("accent_color").map({ TextEngine.color($0) }) {
                         action.backgroundColor = accent
                     }
-                    if let symbol = target.face?.symbol, let image = UIImage(systemName: symbol) {
+                    if let symbol = target.face?.symbol, let image = FaceSymbol.image(symbol) {
                         image.accessibilityLabel = host.label(target)
                         images[target.id] = image; action.image = image
                         action.title = shownTitle(target)
@@ -627,7 +627,7 @@ package final class SwipeActionsHost {
                 if let fill = target.cgColor("background_color") { action.backgroundColor = UIColor(cgColor: fill) }
                 // A custom action's symbol is a system image, as a native one's
                 // is (LLP 1069.011.000 D1); anything else is its snapshot.
-                if let face = target.face, face.fits, !face.raster, let symbol = face.symbol, let image = UIImage(systemName: symbol) {
+                if let face = target.face, face.fits, !face.raster, let symbol = face.symbol, let image = FaceSymbol.image(symbol) {
                     image.accessibilityLabel = host.label(target)
                     images[target.id] = image; action.image = image
                     action.title = shownTitle(target)

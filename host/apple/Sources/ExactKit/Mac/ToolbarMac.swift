@@ -597,12 +597,13 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if item.label != label { item.label = label; item.paletteLabel = label; item.toolTip = label }
             let image = children(node).first { $0.kind == "image" }
             // Standard toolbar items own their image sizing, tint and glass.
-            let symbol = face?.symbol ?? image?.props["symbolName"] ?? ""
+            // An svg-only icon's path is a template image too (stage 9 A2).
+            let symbol = face?.symbol ?? image?.faceSymbol ?? ""
             if symbol.isEmpty {
                 if item.image !== image?.image { item.image = image?.image }
                 symbols.removeValue(forKey: node.id)
             } else if symbols[node.id] != symbol {
-                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                item.image = FaceSymbol.image(symbol, points: FaceSymbol.toolbarPoints)
                 symbols[node.id] = symbol
             }
             item.isBordered = true

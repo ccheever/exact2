@@ -42,19 +42,23 @@ public enum ExactDocuments {
 
     /// Files the person chose in the app's own picker (studio diary R18):
     /// each joins Open Recent — a save's once it is written, since AppKit
-    /// lists only files that exist — and the window shows the last.
+    /// lists only files that exist — and is kept for an app granted
+    /// `doc.keep` (LLP 1069.010.000 D3); the window shows the last.
     static func chosen(_ urls: [URL], in session: ExactSession) {
-        for url in urls { noteWhenWritten(url) }
+        // One that exists was noted and kept as it was chosen (`keptChoice`).
+        for url in urls where !FileManager.default.fileExists(atPath: url.path) {
+            noteWhenWritten(url) { [weak session] in session?.keepDocument(url) }
+        }
         if let url = urls.last { shown?(session, url) }
     }
 
     /// AppKit drops a recent file that does not exist yet, which a save's
-    /// is until the app writes it: it is noted once it does, looked for a
-    /// few times a second for two minutes.
-    static func noteWhenWritten(_ url: URL, tries: Int = 480) {
-        if FileManager.default.fileExists(atPath: url.path) { NSDocumentController.shared.noteNewRecentDocumentURL(url); return }
+    /// is until the app writes it: it is noted, then `noted`, once it does,
+    /// looked for a few times a second for two minutes.
+    static func noteWhenWritten(_ url: URL, tries: Int = 480, noted: @escaping () -> Void = {}) {
+        if FileManager.default.fileExists(atPath: url.path) { NSDocumentController.shared.noteNewRecentDocumentURL(url); noted(); return }
         guard tries > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { noteWhenWritten(url, tries: tries - 1) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { noteWhenWritten(url, tries: tries - 1, noted: noted) }
     }
 
     /// Whether a file at `url` is of a type the app declares: its type
@@ -98,6 +102,35 @@ public enum ExactDocuments {
         ExactEnv.appMetadata["ExactLaunchMode"] as? String ?? "navigate-existing"
     }
 
+    /// Whether the app outlives its one window (LLP 1069.010 D8): the
+    /// manifest's `host.macos.window.keepRunning`, baked into `ExactWindow`.
+    /// A `navigate-new` app outlives its last window without it, and its
+    /// windows close as documents do.
+    public static func keepsRunning(_ metadata: [String: Any] = ExactEnv.appMetadata) -> Bool {
+        (metadata["ExactWindow"] as? [String: Any])?["keepRunning"] as? Bool == true
+            && metadata["ExactLaunchMode"] as? String != "navigate-new"
+    }
+
+    /// Whether the app ends once no window shows
+    /// (`applicationShouldTerminateAfterLastWindowClosed`): a one-window app
+    /// does, unless it keeps running and its window is only hidden (`hiding`:
+    /// a window is open that its app has not closed); a `navigate-new` app
+    /// stays for File ▸ New Window, Open and the Dock (LLP 1115 D8).
+    public static func endsWithoutWindows(hiding: Bool, _ metadata: [String: Any] = ExactEnv.appMetadata) -> Bool {
+        metadata["ExactLaunchMode"] as? String != "navigate-new" && !(hiding && keepsRunning(metadata))
+    }
+
+    /// The person closes `window` (⌘W, File ▸ Close Window, the red button):
+    /// the only window of an app that keeps running is hidden rather than
+    /// closed, with its session and view as they were, and nothing is asked
+    /// (`beforeunload`), as nothing unloads. Whether it was hidden, which
+    /// the window's `windowShouldClose` answers `false` for.
+    public static func hidesOnClose(_ window: NSWindow, only: Bool, keepsRunning: Bool = keepsRunning()) -> Bool {
+        guard keepsRunning, only else { return false }
+        window.orderOut(nil)
+        return true
+    }
+
     /// What the adapter tells a window it has just made (LLP 1115.000 D7.9).
     ///
     /// It opens with AppKit's own animation: `animationBehavior` is left as
@@ -138,9 +171,11 @@ public enum ExactDocuments {
 
     /// Hand each path to the app, in order. Returns whether every one
     /// landed: `change` refuses a path when the app has no `open-file` node
-    /// mounted, which is the app saying it opens nothing.
+    /// mounted, which is the app saying it opens nothing. A route's file is
+    /// kept for an app granted `doc.keep`, the file alone (LLP 1069.010.000
+    /// D3); a followed link (`keep: false`) is not.
     @discardableResult
-    public static func deliver(_ paths: [String], to session: ExactSession) -> Bool {
+    public static func deliver(_ paths: [String], to session: ExactSession, keep: Bool = true) -> Bool {
         var delivered = true
         for path in paths where !path.isEmpty {
             if !session.change(testId: testId, value: path) {
@@ -150,6 +185,7 @@ public enum ExactDocuments {
                 delivered = false
             } else if FileManager.default.fileExists(atPath: path) {
                 noteRecent(path)
+                if keep { session.keepDocument(URL(fileURLWithPath: path)) }
             }
         }
         return delivered

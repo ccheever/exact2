@@ -15,6 +15,7 @@ import { videoMimeType } from '../composer/composer-video'; // sent videos (User
 import { markdownDocument, markdownGallery, markdownMedia, markdownMediaUrls, type GalleryImage, type MediaScope } from '../media/media-views'; // the transcript's host-path media
 import { letGo } from '../client/let-go';
 import { encodeMediaSource, mediaTooltip } from '../media/media-actions';
+import { syncInlineDocuments } from './inline-documents';
 import { draftThreadId } from '../composer/draft-thread-id';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
@@ -43,8 +44,9 @@ const isSentVideo = (attachment: Obj) => videoMimeType({ name: str(attachment.na
 const urls = new Map<string, { url: string; expiresAt: number }>();
 /** Signed preview URLs for the selected thread's sent images (useAssetUrls), cached until shortly before they expire. */
 type AttachmentUrl = { id: string; url: string; fill: string; hover: string; border: string; ink: string };
-export async function attachmentUrls(client: T3Client, native: Native | null | undefined, now: number): Promise<{ items: AttachmentUrl[] }> {
+export async function attachmentUrls(client: T3Client, native: Native | null | undefined, now: number, systemScheme?: string): Promise<{ items: AttachmentUrl[] }> {
   if (!native?.available || client.connection !== 'connected') return { items: [] };
+  await syncInlineDocuments(client, native, now, systemScheme);
   if (!client.threadId) return { items: await galleryUrls(client, native, now, new Set()) }; // a draft's Files preview
   const wanted: Obj[] = [];
   for (const row of arr(client.projection.visibleTurnItems)) {
@@ -119,6 +121,13 @@ function messageImages(client: T3Client, messageId: string, selected = ''): Mess
   const all = messageAttachments(obj(row?.item)).images, video = all.find(image => image.id === selected && image.video);
   // buildAttachmentVideoPreview opens a video alone; buildExpandedImagePreview steps through the images.
   return video ? [video] : all.filter(image => !image.video);
+}
+/** An inline HTML render's image opens the same expanded-image dialog as Markdown. */
+export function openInlineDocumentImage(client: T3Client, src: string, name: string, opener: string): void {
+  if (!/^(?:https?:\/\/|data:image\/)/i.test(src)) throw new ClientError('That image URL is not supported.');
+  const source = { kind: 'image' as const, name, src };
+  previews.set(client, null); mediaPreviews.set(client, null);
+  galleries.set(client, { threadId: client.threadId, signThread: '', text: '', root: '', scope: {}, items: [{ key: src, name, access: 'direct', source }], index: 0, opener });
 }
 /** ExpandedImageDialog: open on an image, step to its neighbours, close. */
 export function imagePreviewAction(client: T3Client, op: string, id: string, value: string): string {

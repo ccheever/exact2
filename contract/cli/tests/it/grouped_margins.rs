@@ -99,11 +99,13 @@ const ROWS: &str = "list appearance=\"auto\" listStyle=\"STYLE\" testId=\"list\"
         text \"One\"
         text \"Two\"
         text \"Three\"
-    row margin-left=0 padding-right=4 testId=\"own\"
+    row padding-left=0 padding-right=4 testId=\"own\"
       view width=28 height=28 flex-shrink=0 testId=\"own-box\"
       text \"Flush\" flex=1 testId=\"own-end\"
     button appearance=\"auto\" press=drop(\"n\") testId=\"native\"
       text \"Go\"
+    button appearance=\"auto\" press=drop(\"w\") width=\"100%\" testId=\"native-full\"
+      text \"Wide\"
     if gone == \"n\"
       row testId=\"late\"
         view width=28 height=28 flex-shrink=0 testId=\"late-box\"
@@ -167,14 +169,19 @@ fn custom_rows_follow_the_platforms_cards_and_cell_margins() {
         "a native button row starts at the margin and keeps its own padding, so it still ends with the card"
     );
     assert_eq!(
+        edges(&r, "native-full", false),
+        (40.0, 402.0),
+        "a native button as wide as its row: its widest moves with its inset, so it ends with the card"
+    );
+    assert_eq!(
         content(&r, "own-box", "own-end"),
         (20.0, 398.0),
         "an end the author wrote stays the author's"
     );
     assert_eq!(
         (content(&r, "hand-text", "hand-text"), edges(&r, "hand", false).1),
-        ((40.0, 382.0), 382.0),
-        "a swipe written by hand is styled as any row: its insets on its scroll, its content within it"
+        ((40.0, 382.0), 402.0),
+        "a swipe written by hand is styled as `delete=`'s: its row spans the card, its insets inside it"
     );
     r.dispatch(id(&r, "native"), Event::Press).unwrap();
     lay_out(&mut r);

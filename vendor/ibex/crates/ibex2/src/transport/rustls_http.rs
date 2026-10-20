@@ -59,6 +59,10 @@ impl Pool {
 /// owns its agent, so a signal never becomes ambient state shared by requests.
 pub struct RustlsHttpTransport {
     pool: Arc<Pool>,
+    // ureq snapshots the environment proxy into an agent's Config. Snapshot it
+    // once for the transport too, so validation, TLS selection, and every
+    // pooled agent always describe the same route.
+    proxy: Option<ureq::Proxy>,
 }
 impl RustlsHttpTransport {
     pub fn new() -> Self {
@@ -67,6 +71,7 @@ impl RustlsHttpTransport {
                 plain_idle: Mutex::new(Vec::new()),
                 tls_idle: Mutex::new(Vec::new()),
             }),
+            proxy: ureq::Proxy::try_from_env(),
         }
     }
     pub fn roots(&self) -> Roots {
@@ -85,7 +90,7 @@ impl RustlsHttpTransport {
                     .chain(CancellableConnector(context.clone()))
                     .chain(ureq::unversioned::transport::RustlsConnector::default());
                 let agent = ureq::Agent::with_parts(
-                    agent_config(tls),
+                    agent_config(tls, self.proxy.clone()),
                     connector,
                     Resolver(context.clone()),
                 );
@@ -102,6 +107,27 @@ impl RustlsHttpTransport {
             tls,
         }
     }
+
+    // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — proxy routing is transport policy; an unsupported route must fail before DNS or a socket
+    fn proxy_for(&self, target: &ureq::http::Uri) -> Result<Option<&ureq::Proxy>, HostError> {
+        let Some(proxy) = self.proxy.as_ref() else {
+            return Ok(None);
+        };
+        if proxy.is_no_proxy(target) {
+            return Ok(None);
+        }
+        if matches!(
+            proxy.protocol(),
+            ureq::ProxyProtocol::Http | ureq::ProxyProtocol::Https
+        ) {
+            return Ok(Some(proxy));
+        }
+        Err(failed(format!(
+            "the environment's proxy {} is not supported by portable fetch; use an http:// or \
+             https:// proxy or name the target in NO_PROXY",
+            named(proxy)
+        )))
+    }
 }
 impl Default for RustlsHttpTransport {
     fn default() -> Self {
@@ -114,8 +140,9 @@ fn needs_tls(target_https: bool, proxy: Option<&ureq::Proxy>) -> bool {
     target_https || proxy.is_some_and(|proxy| proxy.protocol() == ureq::ProxyProtocol::Https)
 }
 
-fn agent_config(tls: bool) -> ureq::config::Config {
+fn agent_config(tls: bool, proxy: Option<ureq::Proxy>) -> ureq::config::Config {
     let builder = ureq::Agent::config_builder()
+        .proxy(proxy)
         .max_redirects(0)
         .max_redirects_will_error(false)
         .http_status_as_error(false)
@@ -144,6 +171,8 @@ fn tls_config() -> &'static (ureq::tls::TlsConfig, Roots) {
 
 #[cfg(test)]
 static NATIVE_CERT_LOADS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static RESOLVER_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 fn tls_config_from(
     certs: Vec<rustls::pki_types::CertificateDer<'static>>,
@@ -201,6 +230,8 @@ impl ureq::unversioned::resolver::Resolver for Resolver {
         config: &ureq::config::Config,
         timeout: NextTimeout,
     ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        #[cfg(test)]
+        RESOLVER_CALLS.fetch_add(1, Ordering::SeqCst);
         let signal = self.0.lock().unwrap().signal.clone().expect("active lease");
         signal.check().map_err(interrupted)?;
         let started = Instant::now();
@@ -431,6 +462,12 @@ impl WireTransport for CancellableSocket {
 fn failed(error: impl std::fmt::Display) -> HostError {
     HostError::Failed(format!("TypeError: Failed to fetch — {error}"))
 }
+
+/// A proxy as an error names it: scheme, host, and port, without credentials.
+fn named(proxy: &ureq::Proxy) -> String {
+    let scheme = proxy.uri().scheme_str().unwrap_or("http");
+    format!("{scheme}://{}:{}", proxy.host(), proxy.port())
+}
 struct Source {
     reader: Option<ureq::BodyReader<'static>>,
     lease: Option<Lease>,
@@ -473,12 +510,12 @@ impl Transport for RustlsHttpTransport {
         // before constructing the first TLS-capable agent, and so does a plain
         // request through an HTTPS proxy: ureq speaks TLS to that proxy, whose
         // certificate may be trusted only by the system store.
+        // Validate the exact proxy snapshot installed in the leased agent.
+        // This precedes leasing (and therefore TLS setup), DNS, and connection.
+        let proxy = self.proxy_for(req.uri())?;
         let lease = self.lease(
             signal,
-            needs_tls(
-                req.uri().scheme_str() == Some("https"),
-                ureq::Proxy::try_from_env().as_ref(),
-            ),
+            needs_tls(req.uri().scheme_str() == Some("https"), proxy),
         );
         let agent = &lease.slot.as_ref().unwrap().agent;
         // Replace all agent defaults: no shorter internal phase limit may win
@@ -536,7 +573,9 @@ impl Transport for RustlsHttpTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::MutexGuard;
+    use std::net::TcpListener;
+    use std::process::Command;
+    use std::sync::{mpsc, MutexGuard};
 
     fn tls_test_lock() -> MutexGuard<'static, ()> {
         static LOCK: Mutex<()> = Mutex::new(());
@@ -561,6 +600,230 @@ mod tests {
             let (tls, roots) = tls_config_from(certs);
             assert_eq!(roots, Roots::CompiledIn);
             assert!(matches!(tls.root_certs(), ureq::tls::RootCerts::WebPki));
+        }
+    }
+
+    fn request_head(socket: &mut TcpStream) -> String {
+        socket
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut head = Vec::new();
+        while !head.ends_with(b"\r\n\r\n") {
+            let mut byte = [0];
+            socket.read_exact(&mut byte).unwrap();
+            head.push(byte[0]);
+            assert!(head.len() < 64 * 1024);
+        }
+        String::from_utf8(head).unwrap()
+    }
+
+    fn direct_target() -> (String, mpsc::Sender<()>, std::thread::JoinHandle<bool>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let (stop, stopped) = mpsc::channel();
+        let peer = std::thread::spawn(move || loop {
+            match listener.accept() {
+                Ok((mut socket, _)) => {
+                    socket.set_nonblocking(false).unwrap();
+                    request_head(&mut socket);
+                    socket
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\ndirect",
+                        )
+                        .unwrap();
+                    return true;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if stopped.try_recv().is_ok() {
+                        return false;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) => panic!("target accept failed: {error}"),
+            }
+        });
+        (url, stop, peer)
+    }
+
+    fn proxy_child(proxy: &str, url: &str, no_proxy: &str, mode: &str) -> Command {
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child
+            .args([
+                "--exact",
+                "transport::rustls_http::tests::environment_proxy_child",
+                "--ignored",
+                "--test-threads=1",
+            ])
+            .env_remove("ALL_PROXY")
+            .env_remove("all_proxy")
+            .env_remove("HTTPS_PROXY")
+            .env_remove("https_proxy")
+            .env_remove("HTTP_PROXY")
+            .env_remove("http_proxy")
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy")
+            .env("ALL_PROXY", proxy)
+            .env("NO_PROXY", no_proxy)
+            .env("IBEX2_PROXY_CHILD_URL", url)
+            .env("IBEX2_PROXY_CHILD_MODE", mode);
+        child
+    }
+
+    #[test]
+    fn environment_socks_proxies_fail_before_dns_or_a_direct_connection() {
+        for (scheme, named) in [
+            ("socks4", "socks4://127.0.0.1:9"),
+            ("socks4a", "socks4a://127.0.0.1:9"),
+            ("socks5", "socks5://127.0.0.1:9"),
+            ("socks5h", "socks5h://127.0.0.1:9"),
+        ] {
+            let (url, stop, peer) = direct_target();
+            let status = proxy_child(
+                &format!("{scheme}://user:secret@127.0.0.1:9"),
+                &url,
+                "",
+                &format!("failure:{named}"),
+            )
+            .status()
+            .unwrap();
+            let _ = stop.send(());
+            let reached_target = peer.join().unwrap();
+            assert!(status.success(), "{scheme} child failed");
+            assert!(!reached_target, "{scheme} reached the target directly");
+        }
+    }
+
+    #[test]
+    fn no_proxy_bypasses_an_unsupported_proxy() {
+        let (url, stop, peer) = direct_target();
+        let status = proxy_child(
+            "socks5://user:secret@127.0.0.1:9",
+            &url,
+            "127.0.0.1",
+            "direct",
+        )
+        .status()
+        .unwrap();
+        let _ = stop.send(());
+        let reached_target = peer.join().unwrap();
+        assert!(status.success());
+        assert!(reached_target);
+    }
+
+    struct HttpConnectProxy {
+        port: u16,
+        transactions: mpsc::Receiver<(String, String)>,
+        stop: mpsc::Sender<()>,
+        thread: std::thread::JoinHandle<()>,
+    }
+
+    fn connect_proxy(responses: usize) -> HttpConnectProxy {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (seen, transactions) = mpsc::channel();
+        let (stop, stopped) = mpsc::channel();
+        let proxy = std::thread::spawn(move || {
+            let mut index = 0;
+            while index < responses {
+                match listener.accept() {
+                    Ok((mut socket, _)) => {
+                        socket.set_nonblocking(false).unwrap();
+                        let connect = request_head(&mut socket);
+                        socket.write_all(b"HTTP/1.1 200 OK\r\n\r\n").unwrap();
+                        let request = request_head(&mut socket);
+                        index += 1;
+                        let body = format!("via{index}");
+                        write!(
+                            socket,
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .unwrap();
+                        seen.send((connect, request)).unwrap();
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if stopped.try_recv().is_ok() {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => panic!("proxy accept failed: {error}"),
+                }
+            }
+        });
+        HttpConnectProxy {
+            port,
+            transactions,
+            stop,
+            thread: proxy,
+        }
+    }
+
+    #[test]
+    fn a_transport_and_its_pooled_agents_keep_one_supported_proxy_snapshot() {
+        let proxy = connect_proxy(2);
+        let status = proxy_child(
+            &format!("http://user:secret@127.0.0.1:{}", proxy.port),
+            "http://target.invalid/path",
+            "",
+            "snapshot",
+        )
+        .env(
+            "IBEX2_PROXY_AFTER_CONSTRUCTION",
+            "socks5://changed:credentials@127.0.0.1:9",
+        )
+        .status()
+        .unwrap();
+        let _ = proxy.stop.send(());
+        proxy.thread.join().unwrap();
+        assert!(status.success());
+        let observed: Vec<_> = proxy.transactions.try_iter().collect();
+        assert_eq!(observed.len(), 2);
+        for (connect, request) in observed {
+            assert!(connect.starts_with("CONNECT target.invalid:80 HTTP/1.1\r\n"));
+            assert!(request.starts_with("GET /path HTTP/1.1\r\n"));
+        }
+    }
+
+    #[test]
+    #[ignore = "run by the environment proxy tests in a child process"]
+    fn environment_proxy_child() {
+        let url = std::env::var("IBEX2_PROXY_CHILD_URL").unwrap();
+        let mode = std::env::var("IBEX2_PROXY_CHILD_MODE").unwrap();
+        let transport = RustlsHttpTransport::new();
+        match mode.as_str() {
+            "direct" => {
+                let response = transport.send(&Request::get(&url)).unwrap();
+                assert_eq!(response.body, b"direct");
+            }
+            "snapshot" => {
+                let first = transport.send(&Request::get(&url)).unwrap();
+                assert_eq!(first.body, b"via1");
+                std::env::set_var(
+                    "ALL_PROXY",
+                    std::env::var("IBEX2_PROXY_AFTER_CONSTRUCTION").unwrap(),
+                );
+                let second = transport.send(&Request::get(&url)).unwrap();
+                assert_eq!(second.body, b"via2");
+            }
+            failure if failure.starts_with("failure:") => {
+                let before = RESOLVER_CALLS.load(Ordering::SeqCst);
+                let message = match transport.send(&Request::get(&url)) {
+                    Ok(_) => panic!("unsupported proxy reached the target"),
+                    Err(error) => error.to_string(),
+                };
+                assert_eq!(RESOLVER_CALLS.load(Ordering::SeqCst), before);
+                assert!(message.contains(&failure["failure:".len()..]), "{message}");
+                assert!(
+                    message.contains("is not supported by portable fetch"),
+                    "{message}"
+                );
+                assert!(!message.contains("user"), "{message}");
+                assert!(!message.contains("secret"), "{message}");
+            }
+            other => panic!("unknown proxy child mode {other}"),
         }
     }
 }

@@ -39,8 +39,10 @@ extension Presenter {
         guard !declared.isEmpty else { return StatusBarChoice() }
         let scope = modals.statusBarScope
         // A node shown in a context menu's preview is UIKit's, not the screen's:
-        // the scope is the session's view and the presentations.
-        let roots = [session?.view].compactMap { $0 } + scope.views
+        // the scope is the session's view, the route presentations and the
+        // popovers lifted over a dialog's sheet, as over the page. The sheet
+        // leaves the bar to the screen under it.
+        let roots = [session?.view].compactMap { $0 } + modals.surfaces(includingRetiring: false).map(\.view) + menus.sheetLayers
         let lifted = Set(navigation.controllers.values.compactMap { $0.lifted.map(ObjectIdentifier.init) })
         func shows(_ node: NodeView) -> Bool {
             // `visibility` is inherited and a child may show again: the node's own.

@@ -1,4 +1,5 @@
 // Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+import { instanceIconUrl } from '../providers/acp-icons';
 import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 // The sidebar's projection into the snapshot (Sidebar.tsx render): the rows in
 // paint order (collapsed shelves contribute only the open thread, as the
@@ -52,6 +53,8 @@ export const terminalProcessLabel = (count: number): string => count ? `${count}
 export interface SidebarThread {
   id: string; title: string; projectName: string; projectMark: string; projectInk: string; projectSurface: string;
   projectGray: string; projectGraySurface: string; providerDriver: string; providerBadge: string; providerBadgeColor: string; providerName: string;
+  /** An ACP Registry instance's agent icon (ProviderInstanceIcon's acpRegistryIconUrl); '' for other drivers. */
+  providerIcon: string;
   terminalCount: number; terminalLabel: string;
   age: string; badge: string; stacked: boolean; badgeIcon: string; badgeState: string; section: string; status: string; selected: boolean; searchFirst: boolean;
   matchLabel: string; matchUser: boolean; matchParts: SearchPart[];
@@ -241,9 +244,24 @@ export function scratchMachine(client: T3Client, thread: Obj, spans: boolean): {
   const project = entry?.shell.projects.find(candidate => `fleet:${ref.environmentId}:${str(candidate.id)}` === thread.projectId);
   return entry && isScratch(project, scratchRootOf(true, entry.config)) ? { machine: str(thread.fleetMachine, 'server'), label: str(thread.fleetEnvironmentLabel) } : null;
 }
+/**
+ * ProviderInstanceIcon's ACP icon (applyProviderInstanceSettings): an ACP Registry instance's agent id and icon
+ * come from its settings entry's config; a local agent has none.
+ */
+function providerIconUrl(instance: Obj | undefined, settings: Obj): string {
+  if (str(instance?.driver) !== 'acpRegistry') return '';
+  const config = obj(obj(obj(settings.providerInstances)[str(instance?.instanceId)]).config);
+  return config.source === 'local' ? '' : instanceIconUrl({ config }, 'acpRegistry');
+}
+/** The server config of the thread's own environment (Sidebar.tsx providerEntryByEnvironmentAndInstanceId). */
+function threadConfig(client: T3Client, thread: Obj): Obj {
+  const ref = parseFleetThreadId(str(thread.id));
+  if (!ref || ref.environmentId === client.environmentId) return client.config;
+  return obj([...fleet.entries.values()].find(entry => entry.environmentId === ref.environmentId)?.config);
+}
 function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[]; spans: boolean }): SidebarThread {
   const caps = capabilities(client.config), prefs = sidebarPrefs(client), session = sidebarSession(client);
-  const providers = arr(client.config.providers);
+  const environment = threadConfig(client, thread), providers = arr(environment.providers);
   const project = client.shell.projects.find(candidate => candidate.id === thread.projectId);
   // The label is the group's name (project-groups.ts); the favicon keeps the checkout's own title (ProjectFavicon).
   const projectTitle = str(thread.fleetProjectTitle) || str(project?.title), projectName = displayNames(client).get(str(thread.projectId)) || projectTitle;
@@ -263,7 +281,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
   const glyph = project ? projectGlyph(client, project, helpers.projectIdentity) : projectGlyph(client, { title: projectTitle }, helpers.projectIdentity);
   return {
     id, title: str(thread.title, 'Untitled thread'), projectName, ...helpers.projectIdentity(projectTitle), ...grayIdentity(helpers.projectIdentity(projectTitle).projectInk),
-    providerDriver: str(instance?.driver), ...helpers.providerBadge(instance, providers), providerName: str(instance?.displayName),
+    providerDriver: str(instance?.driver), ...helpers.providerBadge(instance, providers), providerName: str(instance?.displayName), providerIcon: providerIconUrl(instance, obj(environment.settings)),
     terminalCount, terminalLabel: terminalProcessLabel(terminalCount),
     age: section === 'settled' ? ageLabel(settledTimestamp(thread), now) : threadTimeLabel(thread, now),
     ...rowPrBadge(client, thread), // resolveThreadPullRequestBadge (pr-surface.ts), else the branch's pull request
@@ -328,7 +346,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const total = parts.pinned.length + parts.active.length + parts.working.length + parts.snoozed.length + parts.settled.length;
   const shownSettled = Math.min(parts.settled.length, session.settledVisible + (parts.settled.slice(session.settledVisible).some(thread => thread.id === client.threadId) ? 1 : 0));
   const hidden = parts.settled.length - shownSettled;
-  const identity = helpers.projectIdentity(scope?.name ?? '');
+  const identity = helpers.projectIdentity(scope ? groupTitle(scope) : '');
   const undo = session.undo, live = undoLive(client);
   const pill = sidebarProviderPill(client, clock(now));
   return {
@@ -391,16 +409,18 @@ function dialogDescription(dialog: { kind: string; threadIds: string[]; title: s
   return '';
 }
 
-/** A project group's glyph: its representative member under the group's name (the scoped logical project). */
-function groupGlyph(client: T3Client, group: { name: string; members: Obj[] } | undefined, identity: Identity): ProjectGlyph {
-  return projectGlyph(client, group ? { ...(group.members[0] ?? {}), title: group.name } : { title: '' }, identity);
+/** A project group's glyph: its representative member's own (ProjectFavicon over the snapshot, whose title is the member's). */
+function groupGlyph(client: T3Client, group: { key?: string; name: string; members: Obj[] } | undefined, identity: Identity): ProjectGlyph {
+  return projectGlyph(client, group ? { ...(group.members[0] ?? {}), title: groupTitle(group) } : { title: '' }, identity);
 }
+/** The representative member's title, which names the group's monogram; the group's name for No project or a member without one. */
+const groupTitle = (group: { key?: string; name: string; members: Obj[] }): string => group.key === NO_PROJECT_SCOPE ? group.name : str(group.members[0]?.title) || group.name;
 
 /** filterSidebarProjectScopeItems: a query hides "All projects" and keeps matching groups. */
 function scopeItems(client: T3Client, query: string, selected: string, scopes: { key: string; name: string; members: Obj[] }[], identity: Identity): SidebarScope[] {
   const needle = query.trim().toLowerCase();
   const items: SidebarScope[] = [{ key: '', label: 'All projects', mark: '', ink: '', surface: '', selected: selected === '', all: true, glyph: groupGlyph(client, undefined, identity) },
-    ...scopes.map(group => { const mark = identity(group.name); return { key: group.key, label: group.name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, selected: group.key === selected, all: false, glyph: groupGlyph(client, group, identity) }; })];
+    ...scopes.map(group => { const mark = identity(groupTitle(group)); return { key: group.key, label: group.name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, selected: group.key === selected, all: false, glyph: groupGlyph(client, group, identity) }; })];
   return needle ? items.filter(item => !item.all && item.label.toLowerCase().includes(needle)) : items;
 }
 

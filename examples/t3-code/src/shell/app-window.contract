@@ -52,6 +52,7 @@ use PrLinkPreviewCard from "../pull-requests/pages-pr-links.contract"
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-chip-popover.contract" // a skill chip's details
 use CitationCommentLayer from "../timeline/citation-comment.contract" // a citation chip's comment
 use CiteAction, CiteOffer, citeLineFrame from "../timeline/diff-cite.contract" // Cite over the timeline
+use AppConfirm from "./shell-panels.contract"
 use DialogFocusFrame, dialogFrame, dialogReturn, dialogLineage from "../shared/dialog-trap.contract"
 use PromptLinkPage, PromptLinkView from "../prompt-links/prompt-links.contract"
 component T3Window
@@ -126,6 +127,7 @@ component T3Window
     scrollToEnd: action
     editor: ComposerEditorView
     chip: ChipPopover
+    chipFocusChanged: action
     // Settings or a page covers the composer's chip (app.contract chipCover closes it).
     chipCovered: bool
     composerKey: action
@@ -388,9 +390,40 @@ component T3Window
   state dialogFocusOwner = ""
   state dialogFocusPopup = ""
   state dialogFocusInvoker = ""
+  derive documentPermissions = sortBy(data.messages.map(message => message.inlineDocuments).flat().filter(document => document.permission != ""), document => document.permissionSerial)
+  derive activeDocumentPermissions = (sshPrompt.open or confirmOp != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm) ? documentPermissions.slice(0, 0) : documentPermissions.slice(0, 1)
+  derive documentPermissionOwner = activeDocumentPermissions.map(document => `inline-permission-${document.key}-${document.permissionSerial}`).join("")
+  state documentPermissionFocusOwner = ""
+  state documentPermissionReturnKey = ""
+  state documentPermissionReturnSource = ""
+  derive documentPermissionFocusWidth = documentPermissionFocusOwner == documentPermissionOwner ? 1 : (documentPermissionFocusOwner == "" ? 2 : 3)
+  action syncDocumentPermissionFocus(width: number, height: number)
+    if documentPermissionFocusOwner != documentPermissionOwner
+      if documentPermissionFocusOwner != ""
+        dialogClosed(documentPermissionFocusOwner)
+        documentPermissionFocusOwner = ""
+      else if documentPermissionOwner != ""
+        documentPermissionOpened(documentPermissionOwner)
+        documentPermissionFocusOwner = documentPermissionOwner
+  action documentPermissionOpened(owner: string)
+    if owner == documentPermissionOwner
+      let previous = dialogLineage(dialogFrames, dialogFocusOwner)
+      let known = frame(dialogFocusId)
+      let hasFocus = dialogFocusOwner != owner and dialogFocusId != "" and not known.unavailable and known.width > 0 and known.height > 0
+      let key = activeDocumentPermissions.map(document => document.key).join("")
+      let target = `inline-frame-${key}`
+      let guest = frame(target)
+      // WK's internal field focus is private. Use this document only when no app focus or lineage is known.
+      if previous.filter(item => item.target != "").length == 0 and (not hasFocus or dialogFocusId == target) and key != "" and not guest.unavailable and guest.width > 0 and guest.height > 0
+        dialogFrames = dialogFrames.filter(item => item.owner != owner and not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).concat([dialogFrame(owner, [dialogReturn("", target, "", "")])])
+        documentPermissionReturnKey = key
+        documentPermissionReturnSource = activeDocumentPermissions.map(document => document.src).join("")
+      else
+        dialogOpened(owner)
   state dialogFrames: DialogFocusFrame[] = []
   state dialogSeated: string[] = []
   action windowFocused(e: FocusEvent)
+    chipFocusChanged(e.target)
     dialogFocusId = e.target
     dialogFocusOwner = ""
     dialogFocusPopup = ""
@@ -399,12 +432,14 @@ component T3Window
   // A menu within a live dialog retains that parent; a previously closed dialog is not its owner.
   action dialogMenuEntered(popup: string, invoker: string, e: FocusEvent)
     stopPropagation()
+    chipFocusChanged(e.target)
     dialogFocusId = e.target
     dialogFocusOwner = (frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) ? "" : dialogFocusOwner
     dialogFocusPopup = popup
     dialogFocusInvoker = invoker
   action windowBlurred(e: FocusEvent)
     if e.relatedTarget == none and querySelectorAll("[data-dialog-focus~=\"open\"]").length == 0
+      chipFocusChanged("")
       dialogFocusId = ""
   action dialogOpened(owner: string)
     if dialogFrames.filter(item => item.owner == owner).length == 0
@@ -415,6 +450,7 @@ component T3Window
       dialogFrames = dialogFrames.filter(item => not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).concat([dialogFrame(owner, returns)])
   action dialogEntered(owner: string, e: FocusEvent)
     stopPropagation()
+    chipFocusChanged(e.target)
     if dialogFrames.filter(item => item.owner == owner).length == 0
       let previous = dialogLineage(dialogFrames, dialogFocusOwner)
       let previousBox = frame(dialogFocusOwner)
@@ -440,7 +476,12 @@ component T3Window
     // Keep a departing frame until an as-yet unfocused replacement can inherit it.
     if unknown.length == 0 or not owns
       dialogFrames = dialogFrames.filter(item => item.owner != owner and (not owns or (not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0)))
-    if owns and unknown.length == 0 and top == parent and back != ""
+    let guestTarget = `inline-frame-${documentPermissionReturnKey}`
+    let currentGuest = back == guestTarget ? data.messages.map(message => message.inlineDocuments).flat().filter(document => document.key == documentPermissionReturnKey and document.src == documentPermissionReturnSource) : []
+    let guestBox = frame(guestTarget)
+    // Nested dialogs can inherit this return too; a reused id must never focus a replacement document.
+    let guestStillOwned = back != guestTarget or (currentGuest.length > 0 and not guestBox.unavailable and guestBox.width > 0 and guestBox.height > 0)
+    if owns and unknown.length == 0 and top == parent and back != "" and guestStillOwned
       let popup = returns.map(item => item.popup).join("")
       let invoker = returns.map(item => item.invoker).join("")
       let shown = querySelectorAll("[data-dialog-return~=\"menu\"]")
@@ -457,11 +498,11 @@ component T3Window
   // A link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
   // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button"). The
   // click's modifiers are its press's own (`kind|meta+shift`; no native gesture read).
-  // The Save panel copied the file out, or was dismissed: nothing follows, as a browser download shows nothing more.
+  // Complete this Save request before presenting the next file in an app download.
   action saveChosen(name: string)
-    let saved = name
+    chatLocal("save-complete", `${data.saveRequest.nonce}`, name)
   action saveDismissed
-    let dismissed = true
+    chatLocal("save-complete", `${data.saveRequest.nonce}`, "")
   // A ref list scrolled toward its end (ref-paging.contract RefPageScroll): ref-paging.ts loads its next page.
   action refScrollEnd(name: string)
     chatLocal("ref-scroll-end", name, "")
@@ -568,13 +609,11 @@ component T3Window
     chipClosed = chip.seq
     editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")
   // The window's Escape (ChipPopoverEscape): a citation's comment cancels when its textarea has the focus, as its editor's
-  // Escape does; elsewhere (the prompt's, or none: a draft past 8,000 characters held open) it closes as Base UI's escape-key
-  // dismissal and keeps the chip (the native editor tells which: T3ComposerChipPress.finishCitation `escape`). The popover
-  // stays drawn until the native editor closes it, so its textarea still holds the focus when the editor looks. Other
-  // details close at once and the prompt takes the focus back with the chip selected (PopoverPopup's `finalFocus`).
+  // Escape does; elsewhere it keeps the chip. Existing focus events identify
+  // the field; shared completion metadata lets the root restore its selection.
   action chipEscape
-    if chip.kind == "citation"
-      editorOp("chip-cite-escape", `${chip.seq}`, "")
+    if chip.kind == "citation" and dialogFocusId == "citation-comment-text"
+      citeCancel()
     else
       chipClosed = chip.seq
       editorOp("chip-close", `${chip.seq}`, "escape")
@@ -854,10 +893,10 @@ component T3Window
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
       // (composer-chip-popover.contract ChipPopoverEscape); outside the SSH prompt's inert
       // background, so it gives the key up while the prompt shows, as the details under it did.
-      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)
+      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or activeDocumentPermissions.length > 0 or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)
       // View › Reload and Force Reload, outside the inert background: the reference's work under any dialog.
       ViewReload(items=shortcuts)
-      row width="100%" height="100%" min-width=0 position="relative" inert=sshPrompt.open testId="ssh-background"
+      row width="100%" height="100%" min-width=0 position="relative" inert=(sshPrompt.open or activeDocumentPermissions.length > 0) testId="ssh-background"
         // Inert under the composer's file and image previews too: their trap passes over buttons with Keyboard
         // Navigation off (dialog-trap.contract ControlGuard), so nothing behind them may be a Tab stop.
         row width="100%" height="100%" min-width=0 inert=(modal or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0)
@@ -913,4 +952,8 @@ component T3Window
               HoverCode(tip=hoverTip)
             else
               HoverText(tip=hoverTip)
+      // Separate close/open layouts preserve replacement focus lineage without a child-owned timer.
+      box aria-hidden=true resize=syncDocumentPermissionFocus position="absolute" left=0 top=0 width=documentPermissionFocusWidth height=1 opacity=0 pointer-events="none"
       SshPasswordPrompt(prompt=sshPrompt, responding=sshResponding, answer=sshAnswer)
+      for document in activeDocumentPermissions key=`${document.key}:${document.permissionSerial}`
+        AppConfirm(title=document.permission.split("\n").slice(0, 1).join(""), body=document.permission.split("\n").slice(1).join("\n"), destructive=false, busy=false, confirmId=documentPermissionOwner, confirmLabel="Confirm", cancel=chatLocal("inline-doc-permission", document.key, `${document.permissionSerial}:deny`), confirm=chatLocal("inline-doc-permission", document.key, `${document.permissionSerial}:allow`))

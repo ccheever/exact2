@@ -3,8 +3,10 @@
 // the host binds, so a chord, its menu item and an agent press run one action.
 // None is a Tab stop (`tabindex=-1`): a 1pt button is one on the web and so on
 // every host, and Tab from a dialog's last control reached them (the reference
-// binds its chords on the window, with no element to focus). The chords, menu
-// items and presses do not depend on the Tab order.
+// binds its chords on the window, with no element to focus). The box is hidden
+// from assistive technology too: the reference's chords add no element to the
+// accessibility tree, and the menu items are how VoiceOver reaches them. The
+// chords, menu items and presses depend on neither.
 shape KeyDispatch
   id: string
   command: string
@@ -45,7 +47,7 @@ component ShortcutDispatch
     confirm("ui:confirm", extra, target, label, "This stops the running process and clears its history.", true)
     focus("app-confirm-cancel")
   view
-    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="keyboard-dispatch"
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" aria-hidden=true testId="keyboard-dispatch"
       for item in items key=item.id
         if item.kind == "thread"
           ShortcutButton(item=item, press=selectThread(item.target))

@@ -5,10 +5,12 @@ use crate::host::{handles, out, put};
 
 fn entry_plan() -> Vec<u8> {
     let widget = contract::Widget {
+        requires_secrets: false,
         kind: "card".into(),
         title: None,
         description: None,
         families: vec!["systemSmall".into()],
+        watch_families: vec![],
         component: "Card".into(),
         props: "Props".into(),
         refresh: "refresh".into(),
