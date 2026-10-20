@@ -1033,8 +1033,9 @@ screen, 2026-10-16.)
   an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
   "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
   prompt, and its tab bar after a relaunch, 2026-10-18.)
-- **A share link's sheet closes before the screenshot.** `xcrun simctl openurl`
-  asks "Open in …?" only sometimes (the first link after the simulator boots, in
+- **A deep link in a drive is `"type <root> euxy://p/…"`, not `simctl openurl`; a
+  blind tap where iOS's "Open in …?" alert was dismisses the sheet the link opened.**
+  `xcrun simctl openurl` asks "Open in …?" only sometimes (the first link after the simulator boots, in
   one run); otherwise the app opens the link at once. A drive that then taps where
   the confirmation's Open button would be (`axe tap -x 275 -y 474` on an iPhone 17)
   taps the dimmed screen just above the 45 % `navigationPresentation="modal"` route
