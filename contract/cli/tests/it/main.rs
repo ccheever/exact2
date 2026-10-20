@@ -155,6 +155,7 @@ mod tamber_icons;
 mod tamber_measures;
 mod tamber_motion;
 mod tamber_native_params;
+mod tamber_package_params;
 mod tamber_params;
 mod tamber_params_scope;
 mod tamber_params_tools;

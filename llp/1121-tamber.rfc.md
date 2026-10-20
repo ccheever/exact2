@@ -881,8 +881,9 @@ app's can tell their tokens apart (the one-name rule above is then the app's and
 app's definition wins). A token keeps its name in the one table; its source is
 `<package>/<file>` (`@exact/reading/reading.tamber`), and the design server names it
 `<package>/<file>#<token>` (stage 11 A2), as D15 names components. A package's design holds a
-`theme` block only: axes, dials, components' params, `params` lines, icon tokens and `exports`
-are refused (`tamber-package-block`; components are stage 12's, icons QUEUE). Its tokens join the
+`theme` block and its components' params (stage 12 B1: `component … params`, named
+`<package>/<file>#Name`): axes, dials, `params` lines, icon tokens and `exports` are refused
+(`tamber-package-block`; icons QUEUE). Its tokens join the
 app's design in the one fold; a token the app's design defines is the app's, whole (all its
 `when` lines). What a package token names, as the fold resolves it (its values and its `pair=`),
 is a token its own design declares, a role or one of the base scale's nine names (`space.xs`,
@@ -5210,3 +5211,144 @@ write op for overrides (`set-token`). **Left to QUEUE:** expressions over base n
 form, incremental retention after a name-moving edit, a Linux InlineGeometry reader.
 
 **Stage 11 is closed.** The `tamber/1.14` window is closed; the next wire change takes `tamber/1.15` (stage 12).
+
+### Stage 12, commit B1: package components' params (draft for theme2)
+
+Stage 12 §B's first commit, under no wire change (the server's existing fields carry it; the three levels in
+`explain`/`resolve` are B2, under tamber/1.15).
+
+- **What was there** (verified first): a package's Contract component's params already worked end to end. Its
+  identity is its file under its package (`sources.rs` `home`: `@acme/reading/index.contract#Card`), `describe`
+  lists them under `components`, `set-param`/`unset-param` by full or short name write the app's design (the server
+  writes only the app's own files), the build keeps a set one, and `uses` lists its sites in the package's file.
+  Only tests were missing.
+- **A package design's components** (D15; QUEUE "A package's `.tamber` components", closed). A package's design
+  may declare `component Name` with `params`, for a component that isn't Contract, as the app's design may. It is
+  no longer `tamber-package-block`. Its identity is its design's home and its name
+  (`@acme/reading/reading.tamber#Map`, `params::design_tokens`), so two packages' components of one name stay
+  apart: their token names differ by file, and a short name naming both is `tamber-param-ambiguous`. The three
+  places that read the app design's components read the packages' designs too: `params::tokens` (what `describe`,
+  the server and the build list), the build's retention roots (D7: such a component's params are kept, with what
+  their defaults name) and the loader's checks (`tamber-param-unknown`, `syntax-param-attribute`,
+  `tamber-param-collision`), which say a package's refusal at its line in the package's design.
+- **A package's `params` line stays refused** (`tamber-package-block`): a param's value is the app's to set, in the
+  app's design. The message says so.
+- **Tests** (`contract/cli/tests/it/tamber_package_params.rs`, through the server):
+  - `describe` lists `@acme/reading/index.contract#Card` (Contract) and `@acme/reading/reading.tamber#Map` (design)
+    with their params, full and short names, and the design param's default naming a package token;
+  - `set-param` by full name (`Card.inset`) and short name (`Map.pin`) writes the app's `params` block alone, the
+    package's files byte for byte unchanged; `resolve` and the build read both values (the plan keeps them);
+  - `uses` lists `Card.inset`'s sites in the package's `index.contract`;
+  - `unset-param` by short and full name removes both lines;
+  - a package design's `params` line is refused, and a package param's `param.nothing` is said at
+    `reading.tamber:9`;
+  - two packages each declaring `component Map`: both listed, the short name ambiguous, the full name set.
+  - `package_designs.rs`: the block test no longer lists components, and a package design with `component …
+    params` builds.
+- **Next (B2, tamber/1.15):** a param's three levels in `explain`/`resolve` (the package or base token its default
+  reaches with stage 11 D's `bases`, the app's override of that token, the param's own app value), with A2 part 2's
+  `package`/`file` fields once they land. Also: `uses` names a package file by its absolute path, where `explain`
+  names it relative to the app.
+- **After review round 1 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **A short name only where `set-param` takes it** (Astra 1 = Grok 1). `describe`'s `short` read the Contract
+    components' identities alone, so two packages' `Map`, or the app's `Map` and a package's, each said
+    `short: "Map.pin"`, which `set-param` refused as ambiguous. It now reads every param's identity too, as
+    `resolve` does (`tamber_params::short`). Tests: both `Map.pin`s, across two packages and across the app and a
+    package, have no `short`; `Card.inset` keeps its own.
+  - **The server's retention key sees a package's components** (Astra 2). Retention now has a package design's
+    component params as roots, but the server's cached build of it was keyed by the walk, which leaves design files
+    out. A param a package came to declare after the server primed was no root, and an override of it varying by an
+    axis said `live`. The key now holds each package design's components (`Server::synthetic`). Test: prime, add
+    `size` to the package's `Map`, then set it under `when mode=b`: `rebuild`, as a fresh server says. It said
+    `live` without the fix, checked by hand.
+  - **A package param's default names its package's own** (Grok 2). The package reference check (`references`)
+    read only the package band's tokens, so a param's default could name another package's token, an app token or
+    a dial. A package design's param is now held to its package's rule: its own tokens, roles, base names and its
+    component's other params (`param.pin`), and no dial. A refusal is `tamber-unknown-token` at the default, in the
+    package's file. A param the app sets is the app's value and is not held to it. Tests: `maps.pin` and `ink` are
+    refused at `reading.tamber:9`; a sibling param is admitted; the app's `Map.pin = ink` builds.
+- **After review round 2 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **The retention key holds each package design whole** (Astra 1). Round 1's key held a package design's
+    components, not its tokens, which a param's default reads through. The key now holds each package design's
+    digest (`Server::synthetic`). Test: `a_package_tokens_edit_moves_what_its_params_keep` primes on
+    `Map.pin → reading.pin → reading.old` (an override of `reading.old` over an axis is `rebuild`), moves
+    `reading.pin` to `reading.new`, and holds both overrides' classes to a fresh server's. With round 1's key the
+    primed server kept the old retention and classed `reading.old`'s override `rebuild` where a fresh server says
+    `live`; the package's digest is what makes them match (corrected in round 3: an earlier check ran before the
+    test primed on `reading.old`).
+  - **A written whole alias is judged as written** (Astra 2 = Grok 1, 2). A profile colour folds as `transparent`,
+    naming none, and an icon param lies on `icons`, so `pin: color = ink` (the app's `color(--brand …)`) and
+    `glyph: icon = icon.app` (the app's icon) passed. The default as written is now held to the package's rule as
+    the theme tokens' are: a whole token or icon name that isn't the package's, a role, a base name or a sibling param
+    is `tamber-unknown-token` at the default in the package's file. A literal `icon(sf "…")` names nothing. Tests:
+    both are refused at `reading.tamber:9`, and `glyph: icon = icon(sf "heart")` builds.
+  - **The app sets a package param only by a name only it answers** (Grok 3). Whether the app's `params` line sets
+    a param is decided with `resolve` over every param and the Contract components (`package_references` takes them
+    now), so an ambiguous short name sets none, and the default's refusal is said beside `tamber-param-ambiguous`.
+    Test: two packages' `Map`, the app's `Map.pin = ink`, and reading's default `ink`: `tamber-unknown-token` is
+    among the build's refusals.
+- **After review round 3 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **A package param's SVG is a source of the app** (Astra). The dependency scan (`source_graph`) folded only
+    Contract params, so `glyph: icon = icon(svg "pin.svg")` in a package's design read `assets/pin.svg` without its
+    being a source: no watcher rebuilt on it, and one made later was not looked for. The scan now takes each package
+    design's params too, and so runs when the app has no design file. Test: `a_package_icon_params_svg_is_a_source`,
+    with no `app.tamber`: `pin.svg`, there, is a source; `later.svg`, not there yet, is looked for (`consulted`).
+  - **The app's design whole keys the server's retention** (Grok 1). The key held the app design's token names and
+    components, not their values or its `params` block, so an app override of a package token moving what a param's
+    default reaches (`reading.pin = reading.old` to `reading.new`) left the old retention. It now holds the app
+    design's digest (`Server::synthetic`), as it holds each package design's. Each edit of the design builds the
+    retention again, a compile, where a value edit used to reuse it. A commit needs no reset: its text moves the key.
+    Test: `the_apps_design_whole_keys_what_its_params_keep`: prime on `reading.old`, move the app's override, then
+    set `Map.pin = ink2`. The overrides of `reading.old` and `ink2` over an axis are classed as a fresh server
+    classes them (`ink2`'s `rebuild`). With the names-and-components key it fails, checked by hand.
+  - **§10's round-2 note corrected** (Grok 2): the package's digest is what makes round 2's classes match.
+- **theme2's sign-off condition: the server's retention, timed on the clone, keyed narrower.** Round 3 keyed the
+  server's cached retention (`Server::synthetic`) by each design's digest, so any design edit rebuilt it, a whole
+  compile of the app. On the clone that added seconds to the next `propose`. The key is now what can move retention
+  or the synthetic tokens (`tamber_walk::retention_key`), parsed, never compiled: for the app's design and each
+  package's, each token's and icon's name, written kind, a value's rough kind (a colour, a length, a number, other),
+  the names its value and `when` values reference, and its `when` conditions; the `params` entries, name to value;
+  each component's params with their defaults; and the axes, dials and `exports`. A value that names nothing (a
+  hex, a length) is left out, so editing it keeps the cache. A design that does not parse is keyed whole.
+  - **Test:** `a_value_edit_naming_nothing_keeps_the_cached_retention` counts builds by the server's hook
+    (`EXACT_TAMBER_RETENTION_LOG`, one line a build), not by time. A primed server keeps its one build through
+    three value edits (a hex, a length, an alias target's colour). An alias moved, a param set to a token, and a
+    colour turned into a length each build again. Round 3's alias-move and set-param tests still pass.
+  - **Timed:** `/tmp/bsky-bench.py` on `/tmp/bsky-retention`, a copy of the clone's sources (the clone itself
+    untouched). It uses debug builds, as the dev loop runs `cargo run -p contract`. A server is primed with a
+    `propose`; then five times: an edit written to `app.tamber`, the next `propose` timed (after edit), and one
+    more with no edit (warm). The value edit flips `contrast_25`'s light hex; the alias edit makes `white_50` name
+    `black_20` and back. Medians of 5, in ms:
+
+    | binary | edit | prime (cold) | after edit | warm |
+    |---|---|---|---|---|
+    | old key (token names and components; the stage-11 path fix's build) | value | 2621 | 220 | 6 |
+    | old key | alias | 2528 | 222 (no rebuild: the stale case round 3 fixed) | 6 |
+    | round 3's key (each design's digest) | value | 2607 | 3433 | 8 |
+    | round 3's key | alias | 2717 | 2493 | 7 |
+    | this key | value | 3107 | 238 | 8 |
+    | this key | alias | 2507 | 2519 | 7 |
+
+    Two more value runs, the old key and this key back to back: 223 and 224, then 224 and 221. A value edit's
+    `propose` is the old key's (within 20 ms; the limit was 50). An edit that can move retention rebuilds it, a
+    compile, as round 3's key did, in the same time. The old key took 222 ms there only because it did not rebuild
+    and kept a stale retention. (An earlier run, under heavier load, had the old key at 469 ms after a value edit and
+    round 3's at 5639 and 7695.)
+  - **After the key's re-check (Astra, blocking):**
+    - **Names compared as the checker resolves them.** A role's spelling is matched in any case and with or without
+      `-exact-` (`CANVAS` is `Canvas`), so the key folded only exact matches: `pick = CANVAS` moved to
+      `pick = CANVASTEXT` kept it while the retained chain moved. Names and references are now folded (lowercased,
+      `-exact-` dropped) before they are compared and keyed. Test: `a_role_alias_moved_by_its_case_is_followed`: a
+      param set to `pick` with `Canvas = old` and `CanvasText = fresh`. Moving `pick` by case builds again, and the
+      primed server's answers (a value edit of `old`, of `fresh`) are a fresh server's.
+    - **Each row says its section.** A token's row and an icon's were alike (`icon.brand None other []`), so a name
+      moved from `icons` to `theme` kept the key though it changes what the views may read. Rows now open with
+      `token` or `icon`. In the same sweep, a token's metadata keys the names it references (`pair=` another token).
+      Params, components, axes, dials and `exports` already have rows of their own, and colour profiles are the
+      Contract sources' (in the walk's key). Test: `a_name_moved_between_sections_or_a_pair_moved_builds_again`:
+      `pair=paper` to `pair=ground` builds again, and so does `icon.brand = icon(sf "star")` moved verbatim from
+      `icons` to `theme`. Both tests fail without their fixes, checked by hand.
+
+  - After the key's second re-check (Astra): a reference is found by its folded form but keyed as written, so two tokens differing only in case (`Foo`, `foo`) stay two; a chain moved from one to the other builds again (`two_tokens_of_one_name_in_two_cases_stay_two`, failing without the fix)
+  - After the key's fourth re-check (Astra; theme2's pre-approved fallback): the key holds a value VERBATIM whenever it names anything (a name of the designs, as folded, or any dotted word, a package token or a component's generated `param.…` name the designs don't declare); only a literal that names nothing (a hex, a length, `light-dark(#fff, #000)`, `rgba(…)`) is kept by its rough kind, so its edit is a cache hit. Each design's header name is keyed too (a package header repaired joins its tokens). So a non-literal value edit now recomputes retention, as an alias move does. Re-measured on the clone copy (/tmp/bsky-bench.py, debug, median of 5, ms; old key vs this key): a literal edit 370 vs 364 (warm 10 vs 12, a cache hit); an alias move 399 (the old key never rebuilt) vs 3354 (a whole-app compile, as round 3's key). A unit test in tamber_walk.rs holds the key's rules.
+  - After the key's fifth re-check (Astra): every string the key holds (names, values, metadata, params, component params) is written quoted, so a metadata value decoding to a newline can't spell another token's row (a unit test, failing without the quoting)..

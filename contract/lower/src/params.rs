@@ -56,9 +56,16 @@ pub struct ParamToken {
 }
 
 /// Every param of `file`'s components, as tokens, in declaration order:
-/// its Contract components', then its design's ([`design_tokens`]).
+/// its Contract components', then its design's and its packages' designs'
+/// ([`design_tokens`]; a package's named `<package>/<file>#Name`, stage 12
+/// B1).
 pub fn tokens(file: &File) -> Vec<ParamToken> {
-    let designed = file.design.as_ref().map(|d| design_tokens(d).0);
+    let designed: Vec<ParamToken> = file
+        .design
+        .iter()
+        .chain(&file.package_designs)
+        .flat_map(|d| design_tokens(d).0)
+        .collect();
     file.components
         .iter()
         .flat_map(|c| {
@@ -70,7 +77,7 @@ pub fn tokens(file: &File) -> Vec<ParamToken> {
                 param: p.clone(),
             })
         })
-        .chain(designed.into_iter().flatten())
+        .chain(designed)
         .collect()
 }
 
