@@ -712,7 +712,8 @@ test('end to end: a compiled library app\'s own source map names a package compo
     writeFileSync(joinPath(lib, 'index.contract'), 'component Card\n  slot\n  parts\n    surface: paint shape space\n  view\n    column part="surface" padding="lib.pad"\n      children\n');
     writeFileSync(joinPath(lib, 'lib.tamber'), 'tamber lib\n\ntheme\n  lib.pad = 4px\n');
     writeFileSync(joinPath(dir, 'app.tamber'), 'tamber app\n');
-    writeFileSync(joinPath(dir, 'app.contract'), 'use Card from "@acme/lib"\n\ncomponent App\n  view\n    Card()\n      text "fill" color="#000000"\n');
+    // (by an alias: the call site's name is `Box`, the declaring identity still `Card`'s)
+    writeFileSync(joinPath(dir, 'app.contract'), 'use Card as Box from "@acme/lib"\n\ncomponent App\n  view\n    Box()\n      text "fill" color="#000000"\n');
     // Built as a dev loop builds it, with its map (`contract build --map`).
     const { spawnSync } = await import('node:child_process');
     const root = new URL('..', import.meta.url).pathname;
@@ -731,3 +732,19 @@ test('end to end: a compiled library app\'s own source map names a package compo
     expect(on(fill).source.library).toBeUndefined();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 600_000);
+
+test('round 1: a held state on a library node gives its rows and its source the held node\'s library; a library the host report carries is never published', () => {
+  const map = { digest: 'p1', sources: [], nodes: [
+    { file: 'node_modules/@acme/lib/index.contract', line: 4, col: 5, end_col: 11, component: 'Box', library: '@acme/lib/index.contract#Card', part: 'face', chain: [], bindings: [{ row: 'background_color', origin: 'own', states: [{ state: 'active', origin: 'own' }] }] },
+    { file: 'app.contract', line: 6, col: 7, end_col: 11, component: 'App', chain: [], bindings: [{ row: 'color', origin: 'own' }] },
+  ] };
+  const read = () => '';
+  // The fill's text selected, the press held on the library's face (the held node, site 0).
+  const s = join({ id: 'web-1' }, { node: 2, site: 1, instance: [], tuple: {}, rows: [{ name: 'color', value: '#000', source: 'authored', library: { identity: 123 } }], held: { state: 'active', node: 1, site: 0, instance: [], rows: [{ name: 'background_color', value: '#00f', library: 'forged' }] } }, map, { read });
+  expect(s.source.library).toBeUndefined(); // (the fill is the caller's)
+  expect(s.rows[0].library).toBeUndefined(); // (the host's own `library` dropped)
+  expect(s.held.rows[0].library).toEqual({ identity: '@acme/lib/index.contract#Card', part: 'face' });
+  // No map: nothing of the host's either.
+  const none = join({ id: 'web-1' }, { node: 2, site: 1, instance: [], tuple: {}, rows: [{ name: 'color', value: '#000', source: 'authored', library: { identity: 123 } }] }, null, { read });
+  expect(none.rows[0].library).toBeUndefined();
+});

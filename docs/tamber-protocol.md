@@ -1479,7 +1479,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
   component's own view, its declaring identity (`@scope/pkg/file.contract#Name`) and the part it is
   named as, or null, joined from the map since `part=` never reaches a host, apart from
   `component`, the call site's name; absent outside one, a slot's fill being the caller's), and each row with its map `origin`
-  (with the node's `library` too where it has one) (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
+  (with the node's `library` too, on a row whose map `origin` isn't null, where the node has one;
+  a held state's rows the held node's) (`own`, `class:<Name>`, `tag`) and `editable`: `{rung:
   "token", token, modes}` only for a row the node itself sets (`authored`, `own`) whose whole
   value is one token; `{rung: "param", param, short, token?, modes, template?}` (*1.11*, LLP 1122 T3; `template` *1.12*, T5: the template rung's fields where the map places the row, which a detach writes at) for
   such a row whose whole value is one component param: `param` its full name, `short` its short
