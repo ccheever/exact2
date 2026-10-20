@@ -341,8 +341,7 @@ impl StyleValue<'_> {
             || t.eq_ignore_ascii_case("unset")
             || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
             || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)
-            // @ref LLP 1034 §8 (amended 2026-10-20): `normal` and `light
-            // dark` follow the surrounding scheme, as no row does.
+            // @ref LLP 1034 §8: `normal`, `light dark` follow the surrounding scheme.
             || (style == StyleId::ColorScheme && {
                 let words = t.to_ascii_lowercase();
                 let words: Vec<&str> = words.split_ascii_whitespace().collect();

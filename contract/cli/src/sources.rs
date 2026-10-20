@@ -541,8 +541,10 @@ pub(crate) fn use_fixes(
             loader.refused.whole = false;
             loader.cache = cache;
             let s = &mut loader.sources;
-            (s.paths.truncate(units), s.origins.truncate(units));
-            (s.digests.truncate(units), s.texts.truncate(units));
+            s.paths.truncate(units);
+            s.origins.truncate(units);
+            s.digests.truncate(units);
+            s.texts.truncate(units);
         } else {
             loader.cache.insert(key, units);
         }
