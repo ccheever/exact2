@@ -163,6 +163,19 @@ describe('settled turns', () => {
   });
 });
 
+describe('thought traces', () => {
+  test('an open thought highlights its fences as ChatMarkdown does', async () => {
+    const value = client([user('u', 0, 'go'), item('think', 'reasoning', 1, { text: 'Plan:\n\n```ts\nconst answer = 42;\n```', streaming: false }), answer('a', 3, 'Done.')]);
+    await toggle(value, 'fold', 'r1');
+    const thought = () => rows(value).find(row => row.activities?.some(activity => activity.id === key('think')))!;
+    expect(thought().code).toEqual([]);
+    await chatLocal(value, native, 'item-detail', key('think'), 'open');
+    const [block] = thought().code!;
+    expect(block).toMatchObject({ id: `${key('think')}:0`, code: 'const answer = 42;' });
+    expect(block!.tokens.some(token => token.text.includes('const') && token.cls !== '')).toBeTrue();
+  });
+});
+
 describe('live runs', () => {
   const live = (items: Obj[]) => client(items, { runs: [{ id: 'r1', status: 'running', startedAt: at(0), completedAt: null }] });
   test('show "Working for", the latest tool as one live row and no fold', () => {

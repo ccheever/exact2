@@ -511,8 +511,8 @@ mod link_tests {
                     };
                     assert_eq!(
                         fields.len(),
-                        10,
-                        "id, text, weight, slant, mono, href, kind, icon, label, link"
+                        11,
+                        "id, text, weight, slant, mono, href, kind, icon, label, link, strike"
                     );
                     let text = |at: usize| fields[at].as_str().unwrap_or("").to_string();
                     (text(1), text(6), fields[4] == Value::Bool(true), text(8))
