@@ -421,7 +421,7 @@ export function lines(opts) {
         const pad = packageRow(described.ok, `${CARDS}.pad`);
         const packaged = a2In(described.ok);
         evidence.push(`describe: ${CARDS}.pad ${pad ? `package ${JSON.stringify(pad.package ?? null)}, file ${JSON.stringify(pad.file ?? null)}` : 'with no package row'}`);
-        if (packaged && (pad?.package !== `@exact/${CARDS}` || !String(pad?.file ?? '').endsWith(`${CARDS}.tamber`))) bad.push('describe: cards.pad is @exact/cards\'s, from its cards.tamber');
+        if (packaged && (pad?.package !== `@exact/${CARDS}` || String(pad?.file ?? '').split('/').pop() !== `${CARDS}.tamber`)) bad.push(`describe: ${CARDS}.pad is @exact/${CARDS}'s, from its ${CARDS}.tamber`);
         if (bad.length) return fail(...evidence, ...bad);
         return packaged ? pass(...evidence) : waits('A2 part 2 (package rows on describe)', ...evidence);
       } finally { await s.stop(); }
@@ -475,7 +475,7 @@ export function lines(opts) {
         evidence.push(`@exact/${p}: private ${manifest.private === true}`);
         if (manifest.private !== true || manifest.name !== `@exact/${p}`) bad.push(`@exact/${p} is not private`);
       }
-      const publishes = run('git', ['grep', '-n', '-E', '(npm|bun|pnpm|yarn) publish', '--', 'scripts', '.github', 'packages']).out.split('\n').filter(l => /cards|notes|workspaces?|packages\/\*/.test(l));
+      const publishes = run('git', ['grep', '-n', '-E', '(npm|bun|pnpm|yarn) publish', '--', 'scripts', '.github', 'packages']).out.split('\n').filter(l => FIXTURES.some(p => l.includes(p)) || /workspaces?|packages\/\*/.test(l));
       evidence.push(publishes.length ? `publishing: ${publishes.join(' / ')}` : 'no publish command names them or the workspace');
       if (publishes.length) bad.push('a publish names them');
       return bad.length ? fail(...evidence, ...bad) : pass(...evidence);
