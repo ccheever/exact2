@@ -193,6 +193,7 @@ include!("markdown_table_align.rs");
 include!("markdown_links.rs");
 include!("markdown_media.rs");
 include!("markdown_headings.rs");
+include!("markdown_runs.rs");
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
 const FILE_LINK: &str = "t3-file:";
@@ -489,42 +490,6 @@ fn isMarkdownFileLinkLabel(label: &str, href: &str) -> bool {
     destination_path == label_path || destination_path.ends_with(&format!("/{label_path}"))
 }
 
-fn chat_runs(value: &Value) -> Value {
-    let Value::List(runs) = value else {
-        return value.clone();
-    };
-    let mut previous = String::new();
-    let mut result = Vec::new();
-    for run in runs.iter() {
-        let href = match run {
-            Value::Record(fields) => fields
-                .get(5)
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            _ => String::new(),
-        };
-        let start = !href.is_empty() && href != previous;
-        // The words after an image inside a link's text continue that link.
-        previous = match media_link(&href) {
-            (_, "") => href.clone(),
-            (_, link) => link.to_string(),
-        };
-        if let (Some(target), Value::Record(fields)) = (href.strip_prefix(FILE_LINK), run) {
-            let label = fields[1].as_str().unwrap_or("");
-            if !isMarkdownFileLinkLabel(label, target) {
-                let mut prose = fields.to_vec();
-                prose[0] = Value::str(&format!("{}-label", fields[0].as_str().unwrap_or("")));
-                prose[1] = Value::str(&format!("{label} "));
-                prose[5] = Value::str("");
-                result.push(chat_run(Value::record(prose), false));
-            }
-        }
-        result.push(chat_run(run.clone(), start));
-    }
-    Value::list(link_labels(result))
-}
-
 // SkillInlineText's text-only traversal after Markdown parsing: code and links
 // retain their source. Names/display names come from the validated TS skill list.
 fn skill_runs(
@@ -659,13 +624,14 @@ fn document_with_links(
     let source = text;
     let text = image_chip_links(text);
     // An image inside a line of text is a media run.
-    let text = inline_image_links(&text);
+    let text = strike_marks(&inline_image_links(&text)).into_owned();
     let mut doc = markdown_parse::parse(&text, &|href| image_link(&link_href, href));
     linked_images(&mut doc.blocks, &|href| image_link(&link_href, href));
     if !cwd {
         links_without_cwd(&mut doc.blocks);
     }
     unmark_runs(&mut doc.blocks);
+    split_strikes(&mut doc.blocks);
     heading_ids(&mut doc.blocks);
     fragment_links(&mut doc.blocks);
     let gutters = list_gutters(&doc.blocks);
