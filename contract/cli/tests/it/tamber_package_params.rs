@@ -376,7 +376,7 @@ fn a_package_tokens_edit_moves_what_its_params_keep() {
     std::fs::write(&design, chain("reading.old")).unwrap();
     let vary = |name: &str| {
         json!({"method": "propose", "ops": [
-            {"op": "add-token", "name": name, "value": "#333333"},
+            {"op": "set-token", "name": name, "value": "#333333"},
             {"op": "set-token", "name": name, "when": [{"axis": "mode", "value": "b"}], "value": "#444444"}
         ]})
     };
@@ -536,7 +536,7 @@ fn the_apps_design_whole_keys_what_its_params_keep() {
     std::fs::write(&file, "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink2 = #222222\n  reading.pin = reading.old\n").unwrap();
     let vary = |name: &str| {
         json!({"method": "propose", "ops": [
-            {"op": "add-token", "name": name, "value": "#333333"},
+            {"op": "set-token", "name": name, "value": "#333333"},
             {"op": "set-token", "name": name, "when": [{"axis": "mode", "value": "b"}], "value": "#444444"}
         ]})
     };
