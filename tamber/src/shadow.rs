@@ -141,8 +141,9 @@ pub(crate) fn split(text: &str) -> Vec<&str> {
 }
 
 /// Whether a value reads as a shadow (a list, two or more lengths, a
-/// length token's or dial's name among them, or `inset`), so an unwritten
-/// kind is asked for rather than read as a colour.
+/// length token's or dial's name or a length's function among them, or
+/// `inset`), so an unwritten kind is asked for rather than read as a
+/// colour.
 pub(crate) fn looks(text: &str, length: &mut dyn FnMut(&str) -> bool) -> bool {
     let parts = split(text);
     parts.len() > 1
@@ -153,6 +154,8 @@ pub(crate) fn looks(text: &str, length: &mut dyn FnMut(&str) -> bool) -> bool {
                     Item::Dim(..) => true,
                     Item::Number(n) => *n == 0.0,
                     Item::Ident(name) => length(name),
+                    // A length's function (stage 12 B3, round 2, Grok 1).
+                    Item::Func(f, ..) => matches!(f.as_str(), "calc" | "min" | "max" | "clamp"),
                     _ => false,
                 })
                 .count();

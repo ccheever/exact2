@@ -5645,3 +5645,16 @@ codec and the wire don't move: the theme row's value is the shadow's text, its l
   over both), the literal's words for a border's and a gradient's base name and length token,
   `state_looks::a_look_follows_a_base_its_shadows_new_value_reads`, `tamber_serve_base`'s `length_texts` (and none
   for a px shadow), kernel `fold_lengths`' colour functions, tamber `an_export_from_before_the_shadow_clause_still_finds_its_baseline`.
+
+**After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES; every round 1 item confirmed):**
+- **`fold_lengths` folds only a length** (Astra 1): a bare word, or a `calc()`, `min()`, `max()` or `clamp()` in any
+  case; every other function is kept whole, so a platform colour whose asset is named `space.md`
+  (`-exact-platform-color(ios named:space.md, #000)`) or a `contrast-color()` no longer makes a px shadow unfoldable.
+- **A literal's name is Tamber's** (Astra 2): `scan::dotted_name` is tamber's own `is_name` (now exported) with a `.`,
+  so `_eu.nope` is looked up as a token.
+- **An unkinded shadow of lengths' functions** (Grok 1): `shadow::looks` counts a `calc()`, `min()`, `max()` or
+  `clamp()` as a length, so `card.shadow = 0 max(1px, 2px) calc(2px * 3) black` gets "reads as a shadow: write its
+  kind", not a colour's refusal.
+- **Tests:** kernel `fold_lengths` (a platform colour, `contrast-color()`, `CALC()`);
+  `a_platform_colour_named_for_a_base_is_kept_whole` (box and text); `an_unkinded_shadow_of_functions_asks_for_its_kind`
+  (both repros); the literal's words for `_eu.nope` on a shadow and a border.

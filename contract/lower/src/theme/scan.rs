@@ -437,15 +437,11 @@ fn expressions<'t>(text: &'t str, is_token: &dyn Fn(&str) -> bool) -> Vec<&'t st
 }
 
 /// Whether `word` is a dotted identifier, a name a design's token may have
-/// (`eu.glow`): a letter first, then only letters, digits, `.`, `_` and
-/// `-`, with a `.` among them. A number, a dimension (`-1.5px`) or a
-/// function (`rgb(0.5 0 0)`) is none (stage 12 B3, round 1, Astra 4).
+/// (`eu.glow`, `_eu.glow`): Tamber's own name grammar (`is_name`), with a
+/// `.`. A number, a dimension (`-1.5px`) or a function (`rgb(0.5 0 0)`) is
+/// none (stage 12 B3, round 1, Astra 4; round 2, Astra 2).
 pub(crate) fn dotted_name(word: &str) -> bool {
-    word.starts_with(|c: char| c.is_ascii_alphabetic())
-        && word.contains('.')
-        && word
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    word.contains('.') && exact_tamber::is_name(word)
 }
 
 /// `tamber-unknown-token` or `tamber-kind` for a word inside a literal the

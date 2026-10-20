@@ -220,6 +220,45 @@ fn a_shadows_function_folds_as_a_lengths_whatever_it_names() {
     }
 }
 
+/// Round 2 (Astra 1): a colour function whose words name a base (a
+/// platform colour's asset `space.md`) is a colour, kept whole: a shadow
+/// whose lengths are px is not refused as unfoldable, box or text.
+#[test]
+fn a_platform_colour_named_for_a_base_is_kept_whole() {
+    const COLOUR: &str = "-exact-platform-color(ios named:space.md, #000000)";
+    let theme = format!("  card.shadow: box-shadow = 0 1px 2px {COLOUR}\n  glow: text-shadow = 0 1px 2px {COLOUR}\n");
+    let view = "component App\n  view\n    column box-shadow=\"card.shadow\"\n      text \"a\" text-shadow=\"glow\"\n";
+    let plan = compiled("platform-colour", &theme, view).unwrap_or_else(|e| panic!("{e:?}"));
+    for name in ["card.shadow", "glow"] {
+        let text = value(&plan, name);
+        assert!(
+            text.starts_with("0px 1px 2px -exact-platform-color("),
+            "{text}"
+        );
+        assert_eq!(
+            folded(&text, exact_kernel::style::metrics::Column::Ios).as_deref(),
+            Some(text.as_str())
+        );
+    }
+}
+
+/// Round 2 (Grok 1): an unkinded value of lengths' functions and a colour
+/// reads as a shadow, so its kind is asked for.
+#[test]
+fn an_unkinded_shadow_of_functions_asks_for_its_kind() {
+    for (name, v) in [
+        ("unkinded-a", "0 max(1px, 2px) calc(2px * 3) black"),
+        ("unkinded-b", "min(1px, 2px) max(3px, 4px) calc(5px) #000"),
+    ] {
+        let (id, message) = compiled(name, &format!("  card.shadow = {v}\n"), VIEW).unwrap_err();
+        assert_eq!(id, "tamber-kind", "{name}: {message}");
+        assert!(
+            message.contains("reads as a shadow: write its kind"),
+            "{name}: {message}"
+        );
+    }
+}
+
 /// B2's refusals hold inside a shadow; a literal blur is still never
 /// negative.
 #[test]
@@ -408,6 +447,19 @@ fn a_word_in_a_literal_shadow_says_what_it_is() {
             "box-shadow=\"0px 0px 8px rgb(0.5 0.25)\"",
             "lower-attr-value",
             "",
+        ),
+        // Tamber's names may start with `_` (round 2, Astra 2).
+        (
+            "underscore-shadow",
+            "box-shadow=\"0px 0px 8px _eu.nope\"",
+            "tamber-unknown-token",
+            "`_eu.nope` is no token of this app's design",
+        ),
+        (
+            "underscore-border",
+            "border=\"1px solid _eu.nope\"",
+            "tamber-unknown-token",
+            "`_eu.nope` is no token of this app's design",
         ),
         (
             "gradient-base",

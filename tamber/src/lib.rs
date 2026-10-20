@@ -43,6 +43,7 @@ pub use fmt::format;
 pub use fold::{Folded, Half, Host};
 pub use icon::Icon;
 pub use ir::FORMAT;
+pub use lex::is_name;
 pub use measure::{Kind, Length, Value};
 pub use residual::{Atom, Residual};
 pub use session::{plan, Class, Planned, Refused, Retention, Synthetic};
