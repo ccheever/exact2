@@ -2189,3 +2189,24 @@ test "a package param the server can't resolve has no level words; the design st
   expect text "param-Pill.fill-source" == "the package's default #0a7aff: a change here is set for this app"
   expect tree missing "param-Pill.fill-level"
   request POST "/__stub/restart" {} as ada
+
+test "a library component's variant props listed in its panel entry, each with its options, nothing shown as chosen; one with variants and no params listed too (stage 12 D, LLP 1139 D5)"
+  // The server's describe of two library components (stage 12 D3): Chip with an enum and a bool variant, Badge with a variant and no params.
+  request POST "/__stub/library" {"@acme/cards/chip.contract#Chip": {"name": "Chip", "parts": [{"name": "root", "groups": ["paint"], "slot": false}], "variants": [{"prop": "tone", "options": ["plain", "accent"]}, {"prop": "compact", "options": ["false", "true"]}]}, "@acme/cards/badge.contract#Badge": {"name": "Badge", "parts": [{"name": "root", "groups": ["paint"], "slot": false}], "variants": [{"prop": "size", "options": ["small", "medium", "large"]}]}} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  // The design read again (an edit's event), so describe gives the library components.
+  request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock settle
+  expect text "component-Chip-identity" == "@acme/cards/chip.contract#Chip"
+  expect text "variant-Chip-tone" == "tone: plain · accent"
+  expect text "variant-Chip-compact" == "compact: false · true"
+  expect text "component-Badge-identity" == "@acme/cards/badge.contract#Badge"
+  expect text "variant-Badge-size" == "size: small · medium · large"
+  // No control: nothing to choose, and nothing claims a value is the one shown.
+  expect tree missing "param-group-Badge-"
+  // A component with neither (the app's own Card has params, no variants): no variants block.
+  expect tree missing "variants-Card"
+  request POST "/__stub/restart" {} as ada

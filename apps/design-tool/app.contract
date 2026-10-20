@@ -425,7 +425,15 @@ shape ComponentPanel
   // Declared in the design (`app.tamber#Name`): a view that isn't Contract.
   native: bool
   package: bool
+  // A library component's variant props (stage 12 D3), each with the
+  // options it takes: listed as text, nothing pinned or shown as chosen
+  // (per-instance pins are LLP 1139 §9 Q5).
+  variants: Variant[]
   groups: ParamGroup[]
+
+shape Variant
+  prop: string
+  options: string[]
 
 shape Column
   id: string
@@ -1853,6 +1861,11 @@ component DesignTool
                       row gap=8 align-items="baseline"
                         text k.name role="heading" aria-level=3
                         text (k.native ? `${k.identity} · a native view's` : k.identity) color="-exact-secondary-label" font="-exact-footnote" testId=`component-${k.name}-identity`
+                      if k.variants.length > 0
+                        column gap=4 testId=`variants-${k.name}`
+                          text "Variants (each varies its look; pins on an instance come later, LLP 1139 §9 Q5)" color="-exact-secondary-label" font="-exact-footnote"
+                          for v in k.variants key=v.prop
+                            text `${v.prop}: ${v.options.join(" · ")}` testId=`variant-${k.name}-${v.prop}`
                       for g in k.groups key=g.name
                         column gap=4 testId=`param-group-${k.name}-${g.name}`
                           if g.name != ""

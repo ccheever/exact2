@@ -133,18 +133,18 @@ const iconText = (v: unknown) => {
   return ['sf', 'material', 'svg'].filter(k => i[k]).map(k => `${k} ${i[k]}`).join(' · ');
 };
 
-/** The panel: every component with params (a native one declared in the
- * design too, `app.tamber#Name`), its groups in the order they first
+/** The panel: every component with params or variants (a native one declared in the
+ * design too, `app.tamber#Name`; a library one's variant props, D3's `variants`, listed), its groups in the order they first
  * appear, each by priority (1 first), priority 3 behind "more". A package's
  * component (its identity's file none of the app's own, `own`, describe's
  * `files`) says so: "Set for this app" writes the app's line, the package's
  * own files read only (LLP 1139 D5). */
-export function componentsOf(list: { identity: string; name: string; params: Param[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set()): Design['components'] {
-  return (list ?? []).filter(c => c.params?.length).map(c => {
+export function componentsOf(list: { identity: string; name: string; params: Param[]; variants?: { prop: string; options: string[] }[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set()): Design['components'] {
+  return (list ?? []).filter(c => c.params?.length || c.variants?.length).map(c => {
     const groups = new Map<string, Row[]>();
     // (A listing with none of the app's Contract sources, an older server's, says nothing of packages.)
     const home = c.identity.split('#')[0], fromPackage = [...own].some(f => f.endsWith('.contract')) && !own.has(home) && home !== design;
-    for (const p of c.params) {
+    for (const p of c.params ?? []) {
       const found = paramRow(p, tokens);
       if (!found) continue;
       const token = typeof p.default === 'string' ? tokenOf(p.default) ?? '' : '';
@@ -161,6 +161,7 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       name: c.name,
       native: c.identity.startsWith(`${design}#`),
       package: fromPackage,
+      variants: (c.variants ?? []).map(v => ({ prop: String(v.prop), options: (v.options ?? []).map(String) })),
       groups: [...groups].map(([name, all]) => {
         const sorted = all.map((r, i) => [r, i] as const).sort((a, b) => a[0].c.priority - b[0].c.priority || a[1] - b[1]).map(([r]) => r);
         return { name, params: sorted.filter(r => r.c.priority < 3), more: sorted.filter(r => r.c.priority === 3) };
