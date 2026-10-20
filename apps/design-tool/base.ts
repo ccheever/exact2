@@ -5,6 +5,10 @@
 // `package` and `file`; read-only, the app overrides it in its own file), or
 // the app's, whose line may override a base name.
 
+/** What an app's line may start from for a column's value: a length as written, and radius.full's pill
+ * (`full`, no length an app may write) as the large one a pill takes. */
+export const writable = (value: string) => value === 'full' ? '9999px' : value;
+
 /** The scale table's columns, in order, as the tool names them. */
 const COLUMNS: [string, string][] = [['ios', 'iOS'], ['mac', 'Mac'], ['neutral', 'neutral'], ['material', 'Android'], ['terminal', 'terminal']];
 
@@ -40,7 +44,7 @@ export function sourceOf(t: any, base: any, shipped: string[], appFile = ''): So
   const columns = base ? baseColumns(base, shipped) : [];
   // (The column an app value starts from, and the over-line names: the first this app ships, else the first.)
   const shown = columns[0];
-  const startFrom = shown ? `${shown.label}'s ${shown.value}` : '';
+  const startFrom = shown ? `${shown.label}'s ${shown.value === 'full' ? 'pill (9999px)' : shown.value}` : '';
   if (base && !base.override) return { source: 'base', package: '', of: 'base', over: '', back: '', columns, startFrom };
   if (base) return { source: 'app', package: '', of: 'base', over: `Set for this app, over Exact's base${shown ? ` (${shown.label} ${shown.value})` : ''}.`, back: 'Back to the base', columns, startFrom };
   // (A package's token the app sets: its row names the app's design as its file, A2; the tool reads that as the
