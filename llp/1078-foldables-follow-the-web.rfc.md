@@ -370,40 +370,52 @@ document's names exactly; the integrator checks them against the core lane.
   its own side; with `verticalViewportSegments == 2` (the Duo's inner panel upright
   reports a horizontal division) the list pane is `height="env(viewport-segment-height 0
   0)"` and the detail pane `position="absolute" top="env(viewport-segment-top 0 1)"
-  height="env(viewport-segment-height 0 1)"`, full width; otherwise one pane, the list
+  bottom=0`, full width, so it ends with the routes; otherwise one pane, the list
   above the detail; `selected` is shared. It
   prints the facts as `fact-posture`, `fact-h`, `fact-v`, `fact-size`; the panes are
   `pane-list` and `pane-detail`, the rows `item-<n>`, the detail `detail-title`; the tabs
   `tab-fold|images|reflow|combos`; `image-list`, `document`, `reflow-scroll`,
   `open-note`, `note-sheet`, `sheet-handle`, `note-title-input`, `note-textarea`,
   `note-dismiss`, `note-back`, `draft-echo`. The root is `viewport-fit="cover"` with
-  `interactive-widget="resizes-content"`, so the sheet rides the keyboard.
+  `interactive-widget="resizes-content"`, so the sheet rides the keyboard. Two down, the
+  sheet's `max-height` is the room below the note's header and, while the routes reach the
+  lower segment, no more than their part of it (`calc(100% - env(viewport-segment-top 0
+  1))`), so the sheet keeps to that segment and ends where the routes do. The keyboard
+  covers the segment and ends the routes above it, while the segments stay (they read the
+  window, as the viewport units do). A step lifts the second limit then:
+  `calc((env(viewport-segment-top 0 1) - 100%) * 1000)` is at most zero while the routes
+  reach the segment and past any cap once they end a point or more above it, and the
+  sheet riding the keyboard takes the room below the header.
 - **`bun scripts/smoke.mjs duo`** (D9): the dispatch in `scripts/smoke.mjs`, the suite in
   `scripts/smoke-duo.mjs`, the helper at `scripts/duo/hinge_helper.c` (MIT,
   artemnovichkov/hinge, attributed), compiled per run with the selected Xcode's simulator
   SDK, ad-hoc signed, run by `simctl spawn`; the angle read back and both panels captured
   by `devicectl`. Without `EXACT_SIM` naming an `iPhone Duo` on iOS ≥ 27.1 it prints
   `duo: unsupported — …` and exits 0. The matrix is open 180°, book 130°, half 90°,
-  closed 0°, upright (the rotate and resize legs turn the device); at each pose the `insets` and `keyboard-bar` fixtures (cover
+  closed 0°, upright (the rotate, resize and web legs turn the device); at each pose the `insets` and `keyboard-bar` fixtures (cover
   root, insets, keyboard, a fold while editing), the four screens (facts, panes on the
   segments from `layout.env`'s `device-posture`, `horizontal-viewport-segments`,
   `vertical-viewport-segments`, `viewport-segments`; a selection, a scroll offset, a
   pushed screen with its sheet and keyboard across a fold) and the two-session host. The
-  smoke opens every session with UIKit's bars as a person sees them (`--chrome platform`,
+  smoke opens every session but the web leg's with UIKit's bars as a person sees them (`--chrome platform`,
   2026-10-19): under the agent's default chrome the authored tablist takes its own place
   below the routes, as on the web, whereas the Duo shows UIKit's tab bar, a rail at the
   inner panel's right edge upright and a bar at its bottom turned. Its taps are real
   touches (`--touch platform`, 2026-10-20), its scrolls still the agent's wheel and its
   typing the agent's `type`: the touch runner names the app's display, the inner panel
   as the cover (#782), and the driver waits out SpringBoard's fold cloak before a tap
-  (`host/apple/cloak.mjs`). A tap that is not a real touch fails the smoke. A resize leg
-  (2026-10-20) starts a resizable app session (`devicectl device appResize`) with the
+  (`host/apple/cloak.mjs`). In those sessions a tap that is not a real touch fails the
+  smoke. A resize leg (2026-10-20) starts a resizable app session (`devicectl device appResize`) with the
   device turned on its side and sets sizes in it; UIKit gives the window one of its own
   choosing for each (475 wide for 400, 600×800 for 669×800, iOS 27.1), which devicectl
   does not report, and the Fold screen is checked against that window, flat and folded:
   its facts the window's, the panes on the segments, in a window shorter than the panel
   (which sits at the panel's bottom, its lower segment the panel's) and in the whole panel,
-  nothing on the band.
+  nothing on the band. A web leg (2026-10-20) drives duo-lab under the agent's default
+  chrome, flat and partially folded both ways: the Fold screen's panes and the note sheet
+  end where the routes do, above the tablist, the sheet on the lower segment until it
+  rides on the keyboard. Its taps are the agent's: under that chrome a finger misses the
+  tabs on iOS (QUEUE).
   When the open pose does not report the recorded 951×669 inner panel, the panel sizes
   and the segments are checked against what the device reports (see below); the panes
   are checked against the two rects `layout.env` reports, whichever axis the device
