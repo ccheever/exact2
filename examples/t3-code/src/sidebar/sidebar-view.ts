@@ -1,6 +1,5 @@
 // Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 import { instanceIconUrl } from '../providers/acp-icons';
-import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 // The sidebar's projection into the snapshot (Sidebar.tsx render): the rows in
 // paint order (collapsed shelves contribute only the open thread, as the
 // reference renders them, so thread.jump and prev/next follow the same list)
@@ -36,7 +35,8 @@ import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow
 import { draftMenuRows } from './draft-rows';
 import { replaceContextReferences } from '../composer/composer-editor-menu'; // a draft row's chips read as their labels
 import { renameHeld } from './sidebar-rename-wait';
-import { pullRequestSearchTerms, searchPullRequest } from './search-pull-request';
+import { pullRequestSearchTerms, rowPullRequestLinks, searchPullRequest } from './search-pull-request';
+import { routeRowThreadId } from './sidebar-lineage';
 import { isScratch, scratchRootOf } from '../composer/scratch-machine';
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
@@ -58,7 +58,7 @@ export interface SidebarThread {
   /** An ACP Registry instance's agent icon (ProviderInstanceIcon's acpRegistryIconUrl); '' for other drivers. */
   providerIcon: string;
   terminalCount: number; terminalLabel: string;
-  age: string; badge: string; stacked: boolean; badgeIcon: string; badgeState: string; section: string; status: string; selected: boolean; searchFirst: boolean;
+  age: string; badge: string; stacked: boolean; badgeIcon: string; badgeState: string; section: string; status: string; selected: boolean; routeThread: boolean; searchFirst: boolean;
   matchLabel: string; matchUser: boolean; matchParts: SearchPart[];
   card: boolean; statusIcon: string; statusColor: string; duration: string; titleColor: string; titleWeight: number;
   recede: boolean; pinned: boolean; canPin: boolean; canSettle: boolean; canSnooze: boolean; canUnsettle: boolean; canWake: boolean;
@@ -68,7 +68,7 @@ export interface SidebarThread {
   hoverEnvironment: string; hoverMachine: string; hoverModel: string; hoverHandoff: string; hoverError: string; hoverErrorWarning: boolean;
   workingSince: number; remoteMachine: string; // the ticking Working label; a background environment's machine glyph
   scratchMachine: string; scratchLabel: string; // a "No project" thread's machine, in the branch's place
-  searchPr: string; searchPrState: string; searchPrLabel: string; // a search result's matching pull request number
+  searchPr: string; searchPrIcon: string; searchPrState: string; searchPrLabel: string; // a search result's pull request badge (its row's)
   menu: MenuRow[]; // handleThreadContextMenu's items (the bulk menu's on a selected row), for the row's context popover
 }
 export interface SidebarScope { key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph }
@@ -166,10 +166,10 @@ export function partition(client: T3Client, now: number): Partition {
 /** Rows as painted: collapsed shelves keep only the open thread; the settled tail pages. */
 export function renderedRows(client: T3Client, parts: Partition): { thread: Obj; section: SidebarSection }[] {
   const prefs = sidebarPrefs(client), session = sidebarSession(client);
-  const open = (list: Obj[]) => list.filter(thread => thread.id === client.threadId);
+  const route = routeRowThreadId(client), open = (list: Obj[]) => list.filter(thread => thread.id === route);
   if (session.settledScope !== prefs.scope) { session.settledScope = prefs.scope; session.settledVisible = SETTLED_TAIL_INITIAL_COUNT; }
   let settled = parts.settled.slice(0, session.settledVisible);
-  const deep = parts.settled.slice(session.settledVisible).find(thread => thread.id === client.threadId);
+  const deep = parts.settled.slice(session.settledVisible).find(thread => thread.id === route);
   if (deep) settled = [...settled, deep];
   const rows: { thread: Obj; section: SidebarSection }[] = [];
   const push = (list: Obj[], section: SidebarSection) => list.forEach(thread => rows.push({ thread, section }));
@@ -206,8 +206,7 @@ function titleInk(card: boolean, section: SidebarSection, recede: boolean, unrea
 /** Sidebar.tsx prBadge: the thread's links (resolveThreadPullRequestBadge), else, with no current link, the pull request
  * useLinkedThreadPullRequest reads for it (its branch's; sidebar-branch-pr.ts). */
 function rowPrBadge(client: T3Client, thread: Obj): ReturnType<typeof sidebarPrBadge> {
-  const links = sharedPullRequestLinks(client, arr(thread.pullRequests), str(thread.projectId), parseFleetThreadId(str(thread.id))?.environmentId ?? client.environmentId);
-  const linked = sidebarPrBadge({ ...thread, pullRequests: links });
+  const linked = sidebarPrBadge({ ...thread, pullRequests: rowPullRequestLinks(client, thread) });
   if (linked.badge) return linked;
   const pr = branchPullRequest(client, thread);
   return pr ? branchPrBadge(pr) : linked;
@@ -270,7 +269,8 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
   const instance = providers.find(provider => provider.instanceId === obj(thread.modelSelection).instanceId);
   const prs = arr(thread.pullRequests), id = str(thread.id);
   const terminalCount = terminalProcessCount(client, id);
-  const active = id === client.threadId, multi = session.selection.includes(id);
+  // The open thread's row, or its ancestor's while a subagent is open; a draft and a PR click follow the open thread itself.
+  const active = id === routeRowThreadId(client), routeThread = id === client.threadId, multi = session.selection.includes(id);
   const visited = lastVisited(thread, prefs.visited[id]);
   const status = sidebarStatus(thread), unread = unseenCompletion(thread, visited), woke = isWoke(thread, wokeAt(thread, now), visited);
   const recede = recedes(status, unread, woke, active, multi), idleRecede = recedes(status, unread, woke, false, multi);
@@ -287,20 +287,20 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     terminalCount, terminalLabel: terminalProcessLabel(terminalCount),
     age: section === 'settled' ? ageLabel(settledTimestamp(thread), now) : threadTimeLabel(thread, now),
     ...rowPrBadge(client, thread), // resolveThreadPullRequestBadge (pr-surface.ts), else the branch's pull request
-    section, status: pill?.label ?? '', selected: active, searchFirst: extra.searchFirst,
+    section, status: pill?.label ?? '', selected: active, routeThread, searchFirst: extra.searchFirst,
     ...searchMatch(thread, client.query, serverMatches(client).get(id)),
     card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,
     duration: started ? workingDuration(now - Date.parse(started)) : '',
     workingSince: started ? Date.parse(started) : 0, remoteMachine: scratch ? '' : remoteThread(client, thread)?.machine ?? '',
     scratchMachine: scratch?.machine ?? '', scratchLabel: scratch?.label ?? '',
-    searchPr: searchPr ? String(searchPr.number) : '', searchPrState: searchPr?.state ?? '', searchPrLabel: searchPr?.label ?? '',
+    searchPr: searchPr?.text ?? '', searchPrIcon: searchPr?.icon ?? '', searchPrState: searchPr?.state ?? '', searchPrLabel: searchPr?.label ?? '',
     titleColor: titleInk(card, section, recede, unread, woke, status, active), titleWeight: recede ? 400 : 500, recede,
     pinned: thread.pinnedAt != null, canPin: caps.pinning,
     canSettle: caps.settlement && card, canSnooze: caps.snooze && card && canSnooze(thread, now),
     canUnsettle: caps.settlement && section === 'settled', canWake: caps.snooze && section === 'snoozed',
     wakeLabel: section === 'snoozed' && thread.snoozedUntil != null ? snoozeWakeLabel(thread.snoozedUntil, now) : '',
     // ThreadWorktreeIndicator: the row draws FolderGit2 only for a worktree thread; a checkout thread's branch stands alone.
-    woke, branch: str(thread.branch), worktree: str(thread.worktreePath).trim() !== '', draft: !active && !!(client.local.drafts[draftKey] ?? '').trim(),
+    woke, branch: str(thread.branch), worktree: str(thread.worktreePath).trim() !== '', draft: !routeThread && !!(client.local.drafts[draftKey] ?? '').trim(),
     jump: extra.jump, renaming: session.renameId === id, multi, regenerating: thread.titleRegeneration != null || session.regenerating.has(id),
     label: [str(thread.title, 'Untitled thread'), pill?.label ?? '', projectName].filter(Boolean).join(', '),
     // A row's hover belongs to its place: a row that moves to another shelf under a still pointer is not hovered.
@@ -308,7 +308,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     rowKey: scopedRowKey(client, id),
     // On a utility page no row is open (the route is not a thread): the open row paints as any other.
     idleRecede, idleTitleColor: titleInk(card, section, idleRecede, unread, woke, status, false), idleTitleWeight: idleRecede ? 400 : 500,
-    tips: extra.searching ? [] : rowTips({ card, draft: !active && !!(client.local.drafts[draftKey] ?? '').trim(), pinned: thread.pinnedAt != null, canPin: caps.pinning, woke,
+    tips: extra.searching ? [] : rowTips({ card, draft: !routeThread && !!(client.local.drafts[draftKey] ?? '').trim(), pinned: thread.pinnedAt != null, canPin: caps.pinning, woke,
       canSnooze: caps.snooze && card && canSnooze(thread, now), canSettle: caps.settlement && card, canWake: caps.snooze && section === 'snoozed', canUnsettle: caps.settlement && section === 'settled' }, textMeasure(client.presentation)),
     ...hoverDetails(client, thread, providers, instance, helpers),
     menu: extra.menu,
@@ -363,7 +363,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const threads = rows.map(({ thread, section }, index) => row(client, thread, section, now, helpers,
     { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching, menu: menuOf(thread), spans }));
   const total = parts.pinned.length + parts.active.length + parts.working.length + parts.snoozed.length + parts.settled.length;
-  const shownSettled = Math.min(parts.settled.length, session.settledVisible + (parts.settled.slice(session.settledVisible).some(thread => thread.id === client.threadId) ? 1 : 0));
+  const shownSettled = Math.min(parts.settled.length, session.settledVisible + (parts.settled.slice(session.settledVisible).some(thread => thread.id === routeRowThreadId(client)) ? 1 : 0));
   const hidden = parts.settled.length - shownSettled;
   const identity = helpers.projectIdentity(scope ? groupTitle(scope) : '');
   const undo = session.undo, live = undoLive(client);

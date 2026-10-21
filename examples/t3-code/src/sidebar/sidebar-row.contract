@@ -10,6 +10,7 @@ use SnoozePreset from "./sidebar-shapes.contract"
 use SidebarDraft from "./sidebar-shapes.contract"
 use SidebarMenuRow from "./sidebar-shapes.contract"
 use Icon from "../shared/icons.contract"
+use PgIcon from "../shared/pages-icons.contract"
 use SidebarProviderMark from "../shared/icons-kit.contract"
 use SidebarIcon from "./sidebar-icons.contract"
 use SidebarProjectGlyph from "./sidebar-icons-kit.contract"
@@ -124,7 +125,7 @@ component ThreadRow
   action filesDropped(e: DragEvent)
     fileDrag = false
     if not t.draft
-      attachFiles("row", e.files, [], false, `${isOpen ? "1" : "0"}\t${t.id}\t`)
+      attachFiles("row", e.files, [], false, `${t.routeThread and page == "" ? "1" : "0"}\t${t.id}\t`)
   derive recede = page == "" ? t.recede : t.idleRecede
   derive ink = page == "" ? t.titleColor : t.idleTitleColor
   derive weight = page == "" ? t.titleWeight : t.idleTitleWeight
@@ -203,9 +204,10 @@ component ThreadRow
                   SidebarTip(tip=`${t.hoverKey}#draft`, hoverCard=hoverCard)
                     SidebarIcon(name="square-pen", size=12, color="light-dark(#bb4d00, #ffb900)")
                 SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
-                text t.projectName font-size="0.75rem" line-height="1rem" font-weight=weight color="light-dark(#71717b, #818181)" flex=1 min-width=0 line-clamp=1 text-align="left"
+                // Left of the project name: beside the status slot, the pin would slide when hover swaps the status for the wider actions.
                 if t.pinned
                   SidebarPinButton(t=t, busy=busy, run=run, menu=menu, hoverCard=hoverCard, hoverId=hoverId)
+                text t.projectName font-size="0.75rem" line-height="1rem" font-weight=weight color="light-dark(#71717b, #818181)" flex=1 min-width=0 line-clamp=1 text-align="left"
                 if lifted and dragVerb != ""
                   SidebarDropVerb(verb=dragVerb, ink="light-dark(#1b4ed8, #346bf1)")
                 else
@@ -521,8 +523,11 @@ component SearchResult
       column flex=1 min-width=0
         row width="100%" gap="0.625rem" align-items="center"
           text t.title flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=(settled ? 400 : 500) color=(settled and not lit and not hovering ? "light-dark(#71717bb3, #818181b3)" : "light-dark(#27272a, #f1f3f7)") opacity=(t.regenerating ? 0.55 : 1) line-clamp=1 text-align="left"
+          // ThreadSearchPullRequestNumber: the row's badge without its controls (the result is the button).
           if t.searchPr != ""
-            text `#${t.searchPr}` flex-shrink=0 font-size="0.75rem" line-height="1rem" color=prInk font-variant-numeric="tabular-nums" aria-label=t.searchPrLabel testId=`search-pr-${t.id}`
+            row flex-shrink=0 gap="0.125rem" align-items="center" aria-label=t.searchPrLabel testId=`search-pr-${t.id}`
+              PgIcon(name=t.searchPrIcon, size=12, color=prInk)
+              text t.searchPr font-size="0.75rem" line-height="1rem" color=prInk font-variant-numeric="tabular-nums"
           text t.age width="2rem" flex-shrink=0 text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b8c, #a3a3a38c)" font-variant-numeric="tabular-nums"
         if t.matchLabel != ""
           text width="100%" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bd9, #a3a3a3d9)" line-clamp=1 text-align="left"

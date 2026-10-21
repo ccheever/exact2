@@ -95,6 +95,7 @@ component LegacySidebar
     openProviders: action
     hoverCard: action
     hoverId: string
+    focusWithin: action // the window's toggle hands the focus on when it collapses this sidebar
   derive legacy = data.legacy
   // Manual order: a project dropped before another (or at the end) keeps that place across launches.
   action dropped(item: string, before: option<string>)
@@ -108,7 +109,7 @@ component LegacySidebar
   action projectMenu(key: string)
     menuProject = key
   view
-    column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="legacy-sidebar" id="legacy-sidebar" data-paint=`${(data.look.themed ? "sidebar" : "")} ${(data.look.themed ? "border" : "")}` data-pick=((data.look.themed ? "sidebar" : "") != "" ? (data.look.themed ? "sidebar" : "") : ((data.look.themed ? "border" : "") != "" ? (data.look.themed ? "border" : "") : ""))
+    column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="legacy-sidebar" id="legacy-sidebar" focusin=focusWithin(true) focusout=focusWithin(false) data-paint=`${(data.look.themed ? "sidebar" : "")} ${(data.look.themed ? "border" : "")}` data-pick=((data.look.themed ? "sidebar" : "") != "" ? (data.look.themed ? "sidebar" : "") : ((data.look.themed ? "border" : "") != "" ? (data.look.themed ? "border" : "") : ""))
       LegacyThreadMenu(projects=legacy.projects, owner=menuThread, run=run)
       LegacyProjectMenu(projects=legacy.projects, owner=menuProject, run=run)
       // SidebarChromeHeader: the titlebar row with the stage artwork or the version pill.
