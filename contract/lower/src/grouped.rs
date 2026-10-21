@@ -845,8 +845,10 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     // a symbol before it at most, nothing at its trailing edge) is in the
     // platform's action ink: the tint in UIKit's list, as SwiftUI's
     // `List { Button }` and a hand-built action cell draw it. The kernel
-    // reads the same shape (`GroupedRow::action`).
-    let ink = if tag == "button" && action_cell(children) {
+    // reads the same shape (`GroupedRow::action`). A row that says whether
+    // it is selected is a choice, whose mark comes and goes: never one.
+    let choice = attrs.iter().any(|a| a.name == "aria-selected");
+    let ink = if tag == "button" && !choice && action_cell(children) {
         mv("action-color", span)
     } else {
         label()

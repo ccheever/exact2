@@ -2,9 +2,10 @@
 //! before it at most and nothing after it, is an action cell, in the accent
 //! on the sheet and in the kernel's model, however its symbol is given: a
 //! literal, a template a prop names (a library row's) or an `if` that shows
-//! it (theme2 16:37, stage 13 C).
+//! it (theme2 16:37, stage 13 C). A row that says whether it is selected
+//! is a choice, never one.
 
-use exact_kernel::{ColorValue, GroupedRow, Kernel, Offer};
+use exact_kernel::{Accessory, ColorValue, GroupedRow, Kernel, Offer};
 use exact_runner::{DataError, DataSource, Runner, Value};
 
 struct NoData;
@@ -182,4 +183,55 @@ fn a_rows_symbol_a_prop_names_or_an_if_shows_is_the_leading_symbol_of_an_action_
         );
         assert_eq!(colour(&r, &format!("{t}-title")), accent);
     }
+}
+
+const CHOICES: &str = r#"component App
+  state picked = false
+  action pick
+    picked = not picked
+  view
+    column testId="root" width=402 height=874
+      list appearance="auto" testId="list" flex=1
+        section
+          button press=pick aria-selected=picked testId="off"
+            text "Small" testId="off-title"
+            if picked
+              image "symbol:checkmark"
+          button press=pick aria-selected=false testId="bare"
+            text "Medium" testId="bare-title"
+          button press=pick aria-selected=true testId="on"
+            text "Large" testId="on-title"
+            image "symbol:checkmark"
+          button press=pick aria-selected=true testId="unmarked"
+            text "Huge" testId="unmarked-title"
+          button press=pick testId="action"
+            text "Update" testId="action-title"
+      text "accent" color="AccentColor" testId="accent"
+"#;
+
+/// An unpicked choice shows no checkmark, so it has an action cell's
+/// shape: `aria-selected`, true or false, says it is a choice, on the sheet
+/// and in the kernel, so a native list draws its title in the label's
+/// colour, as a checkmark list does.
+#[test]
+fn a_row_that_says_it_is_selected_is_a_choice_not_an_action() {
+    let mut r = boot(CHOICES);
+    let label = ColorValue::Role(exact_kernel::style::roles::role("-exact-label").unwrap());
+    for t in ["off", "bare", "on", "unmarked"] {
+        assert!(!row(&r, t).action, "{t}: a choice");
+        assert_eq!(colour(&r, &format!("{t}-title")), label, "{t}");
+    }
+    assert_eq!(row(&r, "off").accessory, Accessory::None);
+    assert!(row(&r, "action").action, "a row that says nothing is one");
+    assert_eq!(colour(&r, "action-title"), colour(&r, "accent"));
+    let off = id(&r, "off");
+    r.dispatch(off, exact_runner::Event::Press).unwrap();
+    layout(&mut r);
+    let picked = row(&r, "off");
+    assert_eq!(
+        (picked.accessory, picked.action),
+        (Accessory::Checkmark, false),
+        "picked, the same row"
+    );
+    assert_eq!(colour(&r, "off-title"), label);
 }
