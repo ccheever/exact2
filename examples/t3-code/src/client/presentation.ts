@@ -35,7 +35,9 @@ import { composerVideoSnapshot } from '../composer/composer-attachments';
 import { saveSnapshot } from '../media/save-file';
 import { transcriptFacts } from '../timeline/transcript-facts';
 import { composerImagePreview } from '../composer/composer-chip-details';
-import { alertClip } from '../shared/laid-out-widths';
+import { alertClip, heroInlineWidth } from '../shared/laid-out-widths';
+import { isScratch } from '../composer/scratch-machine';
+import { draftLaunching } from '../composer/draft-launch';
 import { tableMenuSnapshot } from '../timeline/table-menu';
 import { sidebarMinimumWidth, workspaceControlsLeft } from '../sidebar/sidebar-min-width';
 import { adoptHostLocale } from '../shared/timestamp-format'; // the Mac's locale, from the status presentation (T3Locale.swift)
@@ -134,13 +136,13 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
       : client.connection === 'reconnecting' ? 'Reconnecting…' : client.connection === 'connecting' ? 'Connecting…'
         : client.statusMessage || 'Disconnected';
   return {
-    revision: client.revision, telemetry: client.telemetryRevision, alertClip: alertClip(client.presentation), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
+    revision: client.revision, telemetry: client.telemetryRevision, alertClip: alertClip(client.presentation), heroInlineWidth: heroInlineWidth(client.presentation), draftLaunching: draftLaunching(client), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
     connecting: ['connecting', 'reconnecting'].includes(client.connection), syncComplete: client.ready,
     status: connectionMessage, serverUrl: client.origin, composerOwner: composerOwner(client), // a moved draft keeps its owner
     uncertain: pending?.uncertain === true,
     uncertainMessage: pending?.uncertain ? `${pending.description} may already have reached T3. Reconnect and check the thread before retrying.` : '',
     sidebarWidth: client.local.sidebarWidth, sidebarMinWidth: sidebarMinimumWidth(client.local.clientSettings?.fontSizeInterface, fullScreen), controlsLeft: workspaceControlsLeft(client.local.clientSettings?.fontSizeInterface, fullScreen), sidebarOpen: client.local.sidebarOpen, query: client.query,
-    projectId: client.projectId, projectName: str(project?.title, 'Choose a project'), threadId: client.threadId,
+    projectId: client.projectId, projectName: isScratch(project, str(client.config.scratchWorkspaceRoot).trim()) ? 'No project' : str(project?.title, 'Choose a project'), threadId: client.threadId, // ChatHeader: a scratch thread's crumb
     threadTitle: str(obj(client.projection.thread).title, 'New thread'),
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
     threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), parentThread: parentThreadLink(client), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
