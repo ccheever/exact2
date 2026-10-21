@@ -43,7 +43,8 @@ fn id(r: &Runner<NoData>, test_id: &str) -> u32 {
 /// Rows on the last node, the field in these plan assertions.
 fn rows(plan: &Plan, kind: BindingKind) -> Vec<u16> {
     plan.nodes
-        .last()
+        .iter()
+        .next_back()
         .unwrap()
         .bindings
         .iter()

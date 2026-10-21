@@ -160,7 +160,7 @@ pub fn static_tree(
                 },
                 (BindingKind::Prop, None) => {
                     let prop = PropId::from_wire(row.id).ok_or("unknown prop")?;
-                    if decides_tag(plan, node, prop) {
+                    if decides_tag(plan, &node, prop) {
                         ops.push(Op::SetProp {
                             id: view(i),
                             prop,
@@ -180,7 +180,7 @@ pub fn static_tree(
                 // With what the binding says of the row (the author wrote it, or the compiler
                 // implied it: LLP 1115.000 D2), which the page's marks read (`data-exact-said`).
                 (BindingKind::Style, Some(v)) => {
-                    bridge::set_binding_style(&mut patch, row, &v, plan)
+                    bridge::set_binding_style(&mut patch, &row, &v, plan)
                         .map_err(|e| format!("node {i}: {e:?}"))?;
                     styled = true;
                 }
@@ -211,7 +211,7 @@ pub fn static_tree(
                     }
                     continue;
                 }
-                bridge::set_binding_style(&mut patch, row, &v, plan)
+                bridge::set_binding_style(&mut patch, &row, &v, plan)
                     .map_err(|e| format!("node {i}: {e:?}"))?;
             }
             looks.push((look.state, patch));
@@ -254,7 +254,9 @@ pub fn project(
     // height may come to be the parent's).
     let repeated = each_rows(plan, sites);
     let bound = |i: usize, only_text: bool| {
-        plan.nodes[i]
+        plan.nodes
+            .get(i)
+            .unwrap()
             .bindings
             .iter()
             .map(|b| plan.binding(b))
@@ -275,12 +277,12 @@ pub fn project(
     };
     let may_fold: Vec<bool> = (0..plan.nodes.len())
         .map(|i| {
-            plan.nodes[i].handlers.len == 0
+            plan.nodes.get(i).unwrap().handlers.len == 0
                 && !repeated.contains(&i)
                 && !bound(i, true)
                 && parents[i].is_some_and(|p| {
-                    let button =
-                        NodeType::from_wire(plan.nodes[p].node_type) == Some(NodeType::Pressable);
+                    let button = NodeType::from_wire(plan.nodes.get(p).unwrap().node_type)
+                        == Some(NodeType::Pressable);
                     !bound(p, false) && !(button && parents[p].is_none_or(|g| bound(g, false)))
                 })
         })
@@ -305,7 +307,7 @@ pub fn project(
             let row = plan.binding(b);
             if row.kind == BindingKind::Prop && literal(plan, plan.code(row.expr)).is_none() {
                 if let Some(prop) =
-                    PropId::from_wire(row.id).filter(|p| decides_tag(plan, node, *p))
+                    PropId::from_wire(row.id).filter(|p| decides_tag(plan, &node, *p))
                 {
                     if let Ok(name) = prop_name(NodeType::from_wire(node.node_type).unwrap(), prop)
                     {
@@ -393,7 +395,14 @@ fn symbol_color(
     i: usize,
 ) -> Option<(Vec<(usize, Ink)>, bool)> {
     let view = |i: usize| -> ViewId { i as u32 + 1 };
-    let rows = |i: usize| plan.nodes[i].bindings.iter().map(|b| plan.binding(b));
+    let rows = |i: usize| {
+        plan.nodes
+            .get(i)
+            .unwrap()
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+    };
     let bound = |i: usize, kind: BindingKind, id: u16| {
         rows(i).find(|b| b.kind == kind && b.id == id && literal(plan, plan.code(b.expr)).is_none())
     };

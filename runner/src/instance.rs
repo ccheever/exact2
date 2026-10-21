@@ -966,7 +966,7 @@ impl NodeInst {
         // makes (LLP 1121 D5). Without a theme, nothing here runs.
         let themed_plan = !plan.theme.is_empty();
         let mode = themed_plan
-            .then(|| theme::binding_of(plan, row, exact_kernel::StyleId::Mode))
+            .then(|| theme::binding_of(plan, &row, exact_kernel::StyleId::Mode))
             .flatten();
         let (around, before) = (u.theme.tuple, self.tuple);
         // The tuple around moved: a pin's row is the tuple it makes over it.
@@ -1081,7 +1081,7 @@ impl NodeInst {
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(Box::default);
                     let (family_value, family_id) =
-                        bridge::family_binding(plan, u.fonts.as_deref(), binding, &value);
+                        bridge::family_binding(plan, u.fonts.as_deref(), &binding, &value);
                     // A row a runtime family or a refusal sets reads no token:
                     // the index forgets what it read before.
                     let row = exact_kernel::StyleId::from_bit(binding.id as u32);
@@ -1091,12 +1091,12 @@ impl NodeInst {
                         }
                         bridge::set_runtime_font_style(
                             p,
-                            binding,
+                            &binding,
                             id,
                             plan.stacks.len() + u.fonts.as_ref().unwrap().borrow().names().len(),
                         )
                     } else if let Err(e) =
-                        bridge::inherited_varying(plan, binding, family_value, self.node)
+                        bridge::inherited_varying(plan, &binding, family_value, self.node)
                     {
                         if let (true, Some(row)) = (themed_plan, row) {
                             self.unthemed(u, i, row);
@@ -1104,9 +1104,9 @@ impl NodeInst {
                         Err(e)
                     } else {
                         exact_kernel::style::theme::take_named();
-                        let styled = bridge::set_binding_style(p, binding, family_value, plan);
+                        let styled = bridge::set_binding_style(p, &binding, family_value, plan);
                         if themed_plan {
-                            self.index(u, i, binding, family_value, styled.is_ok());
+                            self.index(u, i, &binding, family_value, styled.is_ok());
                         }
                         styled
                     };
@@ -1153,7 +1153,7 @@ impl NodeInst {
         if !tuned {
             self.tuple = theme::tuple_of(plan, mode.and_then(|m| self.last[m].as_ref()), around);
         }
-        if themed_plan && theme::boundary(plan, row) {
+        if themed_plan && theme::boundary(plan, &row) {
             bridge::set_tuple(self.tuple);
             self.boundary_rows(
                 u,

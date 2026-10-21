@@ -427,16 +427,16 @@ impl Build<'_> {
                 }
                 BindingKind::Style => {
                     let (family_value, family_id) =
-                        bridge::family_binding(plan, Some(&*self.fonts), binding, value);
+                        bridge::family_binding(plan, Some(&*self.fonts), &binding, value);
                     let styled = if let Some(id) = family_id {
                         bridge::set_runtime_font_style(
                             &mut patch,
-                            binding,
+                            &binding,
                             id,
                             plan.stacks.len() + self.fonts.borrow().names().len(),
                         )
                     } else {
-                        bridge::set_binding_style(&mut patch, binding, family_value, plan)
+                        bridge::set_binding_style(&mut patch, &binding, family_value, plan)
                     };
                     match styled {
                         Ok(StyleId::Animation) => {

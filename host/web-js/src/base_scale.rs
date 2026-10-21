@@ -103,7 +103,7 @@ fn reads(plan: &Plan) -> Vec<&'static str> {
     let looks = plan
         .looks
         .iter()
-        .map(|l| (l.bindings, plan.nodes[l.node.0 as usize].arm));
+        .map(|l| (l.bindings, plan.nodes.get(l.node.0 as usize).unwrap().arm));
     for (range, arm) in plan.nodes.iter().map(|n| (n.bindings, n.arm)).chain(looks) {
         for b in range.iter() {
             arms[b.0 as usize] = arm;

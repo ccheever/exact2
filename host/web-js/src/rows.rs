@@ -6,7 +6,7 @@ use super::Em;
 use crate::style;
 use exact_kernel::PropId;
 use exact_kernel::{NodeType, StyleId};
-use exact_plan::{BindingKind, BindingsRow};
+use exact_plan::{BindingKind, BindingsRow, NodesId};
 use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
@@ -20,7 +20,7 @@ impl Em<'_> {
         scope: &crate::code::Scope,
     ) -> Result<(), String> {
         let plan = self.plan;
-        let row = &plan.nodes[i as usize];
+        let row = &plan.node(NodesId(i));
         if element == "time"
             || (element == "progress"
                 && row
@@ -48,7 +48,7 @@ impl Em<'_> {
             let live = self.uses.rt("liveTime");
             let inline = row
                 .parent
-                .is_some_and(|p| plan.nodes[p.0 as usize].node_type == NodeType::Text as u8);
+                .is_some_and(|p| plan.node(p).node_type == NodeType::Text as u8);
             let reserve = !inline
                 && !row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
                     b.kind == BindingKind::Style
@@ -68,7 +68,8 @@ impl Em<'_> {
     /// (`data-app-src`, LLP 1069.002 D7) — and whether its source is bound.
     pub(super) fn image_piece(&self, i: u32, parts: &Parts) -> Option<bool> {
         let plan = self.plan;
-        let bound = plan.nodes[i as usize]
+        let bound = plan
+            .node(NodesId(i))
             .bindings
             .iter()
             .map(|b| plan.binding(b))
@@ -157,7 +158,7 @@ impl Em<'_> {
         f: &str,
     ) -> Result<(), String> {
         let plan = self.plan;
-        let row = &plan.nodes[i as usize];
+        let row = &plan.node(NodesId(i));
         let press = parts.css.contains("--exact-press:");
         let binding = |id: StyleId| {
             row.bindings
@@ -659,7 +660,7 @@ impl Em<'_> {
     /// plain one with `decorations` keeps its textarea and is painted.
     pub(super) fn editor(&mut self, i: u32, element: &str, e: &str) -> Result<(), String> {
         let plan = self.plan;
-        let row = &plan.nodes[i as usize];
+        let row = &plan.node(NodesId(i));
         let markup = row
             .bindings
             .iter()
@@ -702,7 +703,8 @@ impl Em<'_> {
         scope: &crate::code::Scope,
     ) -> Result<(), String> {
         let plan = self.plan;
-        let Some(b) = plan.nodes[i as usize]
+        let Some(b) = plan
+            .node(NodesId(i))
             .bindings
             .iter()
             .map(|b| plan.binding(b))
@@ -725,7 +727,7 @@ impl Em<'_> {
         let plan = self.plan;
         let mut at = Some(i);
         while let Some(n) = at {
-            let row = &plan.nodes[n as usize];
+            let row = &plan.node(NodesId(n));
             if NodeType::from_wire(row.node_type) == Some(NodeType::SvgSymbol) {
                 return true;
             }
@@ -737,7 +739,7 @@ impl Em<'_> {
     /// Node `i`'s parent node, through regions' arms.
     pub(super) fn parent_of(&self, i: u32) -> Option<u32> {
         let plan = self.plan;
-        let row = &plan.nodes[i as usize];
+        let row = &plan.node(NodesId(i));
         match (row.parent, row.arm) {
             (Some(p), _) => Some(p.0),
             (None, Some(a)) => {
@@ -759,7 +761,7 @@ impl Em<'_> {
     /// when the template rewrites an SVG element's DOM ID.
     pub(super) fn exact_id(&self, i: u32) -> Option<String> {
         let plan = self.plan;
-        let node = &plan.nodes[i as usize];
+        let node = &plan.node(NodesId(i));
         if !self.refs && !NodeType::from_wire(node.node_type).is_some_and(|t| t.is_svg_element()) {
             return None;
         }

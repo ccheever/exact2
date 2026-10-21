@@ -235,7 +235,7 @@ impl super::NodeInst {
         let row = plan.node(self.node);
         // A row it sets passes its text on when that read a token, else
         // nothing; a row it does not set, its implied row's or the one around.
-        let inherited = std::array::from_fn(|k| match binding_of(plan, row, INHERITED[k]) {
+        let inherited = std::array::from_fn(|k| match binding_of(plan, &row, INHERITED[k]) {
             Some(b) if self.themed.sets(b) => {
                 self.themed.get(b).then(|| self.last[b].clone()).flatten()
             }
@@ -321,7 +321,7 @@ impl super::NodeInst {
         let row = plan.node(self.node);
         for (k, style) in INHERITED.into_iter().enumerate() {
             // Its own row stands: an implied one is set again when it goes.
-            if binding_of(plan, row, style).is_some_and(|b| self.themed.sets(b)) {
+            if binding_of(plan, &row, style).is_some_and(|b| self.themed.sets(b)) {
                 if let Some(implied) = self.implied.as_mut() {
                     implied[k] = None;
                 }
