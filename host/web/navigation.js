@@ -141,15 +141,15 @@ const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
 // @ref LLP 1116.000 D4 — a pushed route's bar draws Back as iOS draws UIKit's (NavigationBarIOS.swift `projectBack`),
 // with no Back control too: not on a stack's root, a sheet (whose Cancel is its Back) or a route with no bar, nor for a
-// disabled control. A control that is an item of the bar iOS makes of its header is pressed through it and not shown
-// (index.html). The button is the header's shadow root's, before its slot, so the header's children stay the
-// renderer's.
+// disabled control or one the author made inert. A control that is an item of the bar iOS makes of its header is
+// pressed through it and not shown (index.html). The button is the header's shadow root's, before its slot, so the
+// header's children stay the renderer's.
 const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.13;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15.35 5 8 12l7.35 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
 const authored = '[data-exact-said~="appearance"]'; // a header whose author wrote `appearance: none` (element.rs)
-// The items of the bar iOS makes of `header`, or null where it makes none: kernel/src/bars.rs `header_bar`, ported to
-// the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`: a bar's
-// header holds one heading, and an item is a pressable it reaches that is not the title's.
+// The items of the bar iOS makes of a shown `header`, or null where it makes none: kernel/src/bars.rs `header_bar`,
+// ported to the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`:
+// a bar's header holds one heading, and an item is a pressable it reaches that is not the title's.
 function barItems(route, header) {
   if (route.getAttribute("data-navigationbar") === "none" || route.firstElementChild !== header || header.matches(authored)) return null;
   const heading = "[data-exact-text][role=heading]", press = '[data-exact-on~="press"]', layer = el => el.matches("[popover], dialog");
@@ -157,14 +157,14 @@ function barItems(route, header) {
   let headings = 0, tap = null;
   const items = [], walk = node => {
     for (const child of node.children) {
-      if (layer(child) || child.matches("[role=tablist]")) continue;
+      if (layer(child) || child.matches('[role=tablist], input[type="search"]')) continue; // a layer, the bar's segments or its search field: no item
       if (child.matches(heading)) headings++;
       else if (child.matches(press) || opensPopover(child)) { if (!tap && child.matches(press) && holds(child)) walk(tap = child); else items.push(child); } // the first to hold a heading is the title, tapped
       else if (!child.matches("[role=status]") || holds(child)) walk(child); // a readout's face is no item
     }
   };
   walk(header);
-  return headings === 1 && getComputedStyle(header).display !== "none" ? items : null;
+  return headings === 1 ? items : null;
 }
 // Whether a button shows or toggles a popover, a header's menu (kernel/src/invocation.rs `opens_popover`).
 function opensPopover(el) {
@@ -186,14 +186,18 @@ export function pageTitle(said = saidTitle) {
 function appBarBack(nav, routes, index, split = false) {
   const route = routes[index], header = headerOf(route);
   if (!header) return;
+  const headerShown = getComputedStyle(header).display !== "none";
   // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1). Nor has a
   // route whose shown header's author wrote `appearance: none`, which keeps the bar they drew (HeaderRule.swift
   // `keepsAuthoredHeader`).
   const pushed = index > 0 && !sheet(route) && route.getAttribute("data-navigationbar") !== "none" && !(split && (index === 1 || rowOf.has(route)))
-    && !(route.firstElementChild === header && header.matches(authored) && getComputedStyle(header).display !== "none");
-  // A control in a header iOS makes no bar of is that header's way back, with no Back beside it.
-  const control = pushed ? backControl(nav, route) : null, inHeader = !!control && header.contains(control);
-  const items = inHeader ? barItems(route, header) : null, held = !!items?.includes(control), drawn = pushed && (!inHeader || !!items);
+    && !(route.firstElementChild === header && header.matches(authored) && headerShown);
+  // A header iOS makes no bar of that shows the control has no Back beside it, the web's choice so that one header shows
+  // one way back (iOS draws UIKit's there too). A control in its menu or a dialog, or in a header not shown, keeps the
+  // Back; in a header not shown, the Back is hidden with it. One hidden on its own in a shown header gets no Back, so
+  // nothing shows (QUEUE.md); there and in a header not shown, the browser's Back presses the control.
+  const control = pushed ? backControl(nav, route) : null, inShownHeader = headerShown && !!control && header.contains(control) && !header.contains(control.closest("[popover], dialog"));
+  const items = inShownHeader ? barItems(route, header) : null, held = !!items?.includes(control), drawn = pushed && (!inShownHeader || !!items);
   let button = header.shadowRoot?.querySelector('button[part="back"]');
   if (drawn && !button && !header.shadowRoot && header.attachShadow) { // not a shadow root of someone else's
     header.attachShadow({ mode: "open" }).innerHTML = BACK;
@@ -201,8 +205,9 @@ function appBarBack(nav, routes, index, split = false) {
     button.addEventListener("click", event => { event.stopPropagation(); appBack(header.parentElement); });
   }
   for (const el of [...route.querySelectorAll("[data-exact-bar-back]"), control]) el?.toggleAttribute("data-exact-bar-back", el === control && held && !!button);
-  // Until the page is interactive the glue disables every control itself (`aria-busy`): not the author's.
-  if (button) button.hidden = !drawn || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]'));
+  // A control the author disabled, or made inert in its route, leaves no Back, as `pressBack` refuses it. The glue's own
+  // disabling until the page is interactive (`aria-busy`) and the inert it gives a route a sheet covers are not theirs.
+  if (button) button.hidden = !drawn || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]')) || route.contains(inertAncestor(control)?.parentElement ?? null);
   if (!button || button.hidden) return;
   const words = control ? control.textContent.trim() : titleOf(routes[index - 1]), english = /^en\b/i.test(document.documentElement.lang || "en");
   const label = words.length <= 14 && (words || control) ? words : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || words || "Back" : !english ? words || "Back" : label === "Back" ? label : `Back to ${label}`;
@@ -224,15 +229,14 @@ function appBack(route) {
   if (!known || navigate(entry.url) === false) hostBack?.(id);
 }
 const closedNone = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none";
-/** Press the Back control: shown, the bar's or in a closed menu, as UIKit's Back presses it wherever it is
- * (PresenterIOS.swift `press`); else why it was not pressed. */
+/** Press the Back control wherever it is, shown or not, as UIKit's Back presses it (NavigationRules.swift `backControl`),
+ * unless it is disabled, or inert (the web's choice: iOS's Back reads no inert); else why it was not pressed. */
 function pressBack(nav) {
   const route = selectedRoute(nav), control = backControl(nav);
   if (!route) return "no route is selected";
   if (closedNone(route)) return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
   if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
-  if (control.matches(":disabled") || inertAncestor(control) || !(control.getClientRects().length || control.hasAttribute("data-exact-bar-back") || control.closest("[popover]:not(:popover-open)")) || getComputedStyle(control).visibility !== "visible")
-    return `its id="${control.id}" control is disabled, inert or not shown`;
+  if (control.matches(":disabled") || inertAncestor(control)) return `its id="${control.id}" control is disabled or inert`;
   control.click();
 }
 function go(to, from, finish = () => {}) {

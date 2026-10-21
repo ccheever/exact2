@@ -2,11 +2,12 @@
 // `navigationBack` control, as iOS draws UIKit's (NavigationBarIOS.swift `projectBack`): the chevron alone for a
 // control with no words, else its words, the control pressed through it. A control that is an item of the bar iOS makes
 // of its header is not shown; one elsewhere in the route, the title's own pressable or in a menu stays where it is, and
-// one in any other header is that header's way back, with no Back beside it. A disabled control, a route with no bar or
-// whose header's author wrote `appearance: none`, a stack's root and a sheet leave no Back. The chevron
-// is UIKit's back chevron at the bar's font. The page is the shell, the neutral look and the navigation glue, which
-// both runtimes run, over nodes as either writes them: an author's rows inline (the wasm runtime) or in a class (the
-// JS target).
+// one in any other header that shows it is that header's way back, with no Back beside it (the web's choice: iOS draws
+// UIKit's there too). The Back presses its control wherever it is, shown or not. A disabled control, one the author
+// made inert, a route with no bar or whose header's author wrote `appearance: none`, a stack's root and a sheet leave
+// no Back. The chevron is UIKit's back chevron at the bar's font. The page is the shell, the neutral look and the
+// navigation glue, which both runtimes run, over nodes as either writes them: an author's rows inline (the wasm
+// runtime) or in a class (the JS target).
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,7 +44,10 @@ const content = `<style>#exact-root#exact-root { & .sized { width: 44px; height:
   ${stack('authored', symbol(), 'header', '', heading('Updates'), 'data-exact-said="appearance"')}${stack('authored-content', symbol(), 'content', '', heading('Updates'), 'data-exact-said="appearance"')}
   ${stack('authored-alone', '', 'content', '', heading('Updates'), 'data-exact-said="appearance"')}${stack('alone', '', 'content')}
   ${stack('wraps', `<button type="button" id="back" data-exact-on="press" aria-label="Back"><img data-symbol-source="symbol:back" data-symbol-path="M15 5 8 12l7 7" style="width:20px;height:20px">${heading('Inbox')}</button>`, 'header', '', '')}
-  ${stack('in-menu', `<div popover="manual" id="back-menu">${symbol()}</div>`)}${stack('pressing', symbol(), 'header', '', heading('Updates'), 'data-exact-on="press"')}
+  ${stack('in-menu', `<div popover="manual" id="back-menu">${symbol()}</div>`)}${stack('in-dialog', `<dialog id="back-dialog">${symbol()}</dialog>`)}
+  ${stack('hidden-content', `<div hidden>${symbol()}</div>`, 'content')}${stack('inert-content', `<div inert>${symbol()}</div>`, 'content')}
+  ${stack('hidden-header', symbol(), 'header', '', heading('Updates'), 'style="display:none"')}${stack('two-dialog', `<dialog id="two-dialog">${symbol()}</dialog>`, 'header', '', heading('Updates') + heading('Today'))}${stack('search', '<input type="search" id="back" data-exact-on="press" aria-label="Back">')}
+  ${stack('pressing', symbol(), 'header', '', heading('Updates'), 'data-exact-on="press"')}
   ${stack('commanded', symbol(), 'header', '', `<button type="button" commandfor="dialog" command="show-modal">${heading('Updates')}</button><dialog id="dialog"></dialog>`)}
   ${stack('popover-first', symbol(), 'header', '', `<div popover id="menu"><button type="button" data-exact-on="press">${heading('Menu')}</button></div><div data-exact-on="press">${heading('Updates')}</div>`)}
   ${stack('titled-tap', symbol(), 'header', '', `<div data-exact-on="press">${heading('Updates')}</div><button type="button" data-exact-on="press">${heading('Edit')}</button>`)}
@@ -76,20 +80,25 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
     // back. The bar is kernel/src/bars.rs `header_bar`'s: a header whose author wrote `appearance: none` is none, nor
     // is one with no heading text, two, or a row whose role is `heading`; a heading in the title's pressable counts,
     // wrapped in a button that shows a dialog too, and one in another pressable (an item's) or a popover does not; the
-    // header's own `press` is not read. Its items are the pressables its walk reaches, not the title's.
+    // header's own `press` is not read. Its items are the pressables its walk reaches, not the title's nor a search
+    // field. A control in a closed dialog or hidden in the content is not shown, and the Back is drawn for it, as it is
+    // for one in a header not shown or in a dialog of a header iOS makes no bar of; one the author made inert has none.
     await page.evaluate(() => document.getElementById('back-menu').showPopover());
     const bars = (ids) => page.evaluate((ids) => ids.map((id) => {
       const route = document.getElementById(id), back = route.querySelector(':scope > header').shadowRoot?.querySelector('button[part="back"]');
       const shown = !!back && !back.hidden;
       return [id, shown, shown ? back.lastChild.hidden ? '' : back.lastChild.textContent : null, shown ? back.getAttribute('aria-label') : null, shown ? back.getAttribute('aria-keyshortcuts') : null, route.querySelector('#back')?.getClientRects().length > 0];
     }), ids);
-    expect(await bars(['wraps', 'in-menu', 'alone', 'authored-content', 'authored-alone'])).toEqual([
-      ['wraps', true, 'Inbox', 'Back', null, true], ['in-menu', true, '', 'Back', null, true], ['alone', true, 'Settings', 'Back to Settings', null, false],
-      ['authored-content', false, null, null, null, true], ['authored-alone', false, null, null, null, false],
+    expect(await bars(['wraps', 'in-menu', 'search', 'alone', 'authored-content', 'authored-alone', 'in-dialog', 'hidden-content', 'hidden-header', 'two-dialog', 'inert-content'])).toEqual([
+      ['wraps', true, 'Inbox', 'Back', null, true], ['in-menu', true, '', 'Back', null, true], ['search', true, '', 'Back', null, true],
+      ['alone', true, 'Settings', 'Back to Settings', null, false], ['authored-content', false, null, null, null, true],
+      ['authored-alone', false, null, null, null, false], ['in-dialog', true, '', 'Back', null, false], ['hidden-content', true, '', 'Back', null, false],
+      ['hidden-header', true, '', 'Back', null, false], ['two-dialog', true, '', 'Back', null, false], ['inert-content', false, null, null, null, true],
     ]);
     await page.evaluate(() => document.getElementById('back-menu').hidePopover());
-    // The Back presses a control in a closed menu, as UIKit's Back presses it wherever it is.
-    expect(await page.evaluate(() => (document.querySelector('#in-menu > header').shadowRoot.querySelector('button[part="back"]').click(), pressed.splice(0)))).toEqual(['back-menu']);
+    // The Back presses a control wherever it is, as UIKit's Back does: in a closed menu or dialog, or hidden in the content.
+    expect(await page.evaluate(() => ['in-menu', 'in-dialog', 'hidden-content', 'two-dialog'].flatMap((id) => (document.querySelector(`#${id} > header`).shadowRoot.querySelector('button[part="back"]').click(), pressed.splice(0)))))
+      .toEqual(['back-menu', 'back-dialog', 'hidden-content', 'two-dialog']);
     expect(await bars(['symbol', 'inline', 'titled', 'long', 'keys', 'disabled', 'content', 'bare', 'bare-content', 'headless', 'two', 'row', 'titled-tap', 'authored', 'pressing', 'commanded', 'popover-first', 'foreign', 'sheet', 'root'])).toEqual([
       ['symbol', true, '', 'Back', null, false], ['inline', true, '', 'Back', null, false], ['titled', true, 'Done', 'Done', null, false],
       ['long', true, 'Back', 'All my conversations', null, false], ['keys', true, '', 'Back', 'Meta+[', false],
