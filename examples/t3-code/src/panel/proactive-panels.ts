@@ -205,9 +205,14 @@ export function proactiveInput(client: T3Client, threadKey: string, sheet: boole
 }
 
 const memories = new WeakMap<T3Client, ProactiveMemory>();
-/** useProactivePanels for the client's open thread, over its panel. */
-export function applyProactivePanels(client: T3Client, threadKey: string, state: PanelState, sheet: boolean): '' | 'diff' | 'pull-request' | 'pull-requests' {
+/**
+ * useProactivePanels for the client's open thread, over its panel. The hook lives in ChatView, which Settings, a page
+ * and the welcome wizard unmount: while the chat view is not shown nothing runs, and the observation starts afresh on
+ * return (a first entry), keeping only the last link seen per thread.
+ */
+export function applyProactivePanels(client: T3Client, threadKey: string, state: PanelState, sheet: boolean, chatShown = true): '' | 'diff' | 'pull-request' | 'pull-requests' {
   let memory = memories.get(client);
   if (!memory) { memory = proactiveMemory(); memories.set(client, memory); }
+  if (!chatShown) { memory.observation = null; return ''; }
   return proactivePanels(memory, state, proactiveInput(client, threadKey, sheet));
 }

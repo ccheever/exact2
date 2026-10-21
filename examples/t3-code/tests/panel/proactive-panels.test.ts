@@ -4,10 +4,10 @@ import type { T3Client } from '../../src/client/client';
 import type { Files, Native } from '../../src/client/protocol';
 import { diffOps } from '../../src/client/client-ops-diff';
 import type { PanelState, Surface } from '../../src/panel/panel-surfaces';
-import { panelState } from '../../src/panel/panel-surfaces';
+import { panelState, surfaceLocal } from '../../src/panel/panel-surfaces';
 import { adoptRightPanels, restoreRightPanel, savedPanel, syncRightPanels } from '../../src/panel/saved-panel';
 import {
-  openProactive, proactiveInput, proactiveMemory, proactivePanels, resolveProactiveTurnDiffAction, shouldOpenProactiveTurnDiff,
+  applyProactivePanels, openProactive, proactiveInput, proactiveMemory, proactivePanels, resolveProactiveTurnDiffAction, shouldOpenProactiveTurnDiff,
   type LinkedPullRequest, type ProactiveInput, type TurnCheckpoint,
 } from '../../src/panel/proactive-panels';
 
@@ -159,6 +159,37 @@ describe('useProactivePanels', () => {
   });
 });
 
+describe('the chat view unmounts the hook', () => {
+  const client = (projection: object, change: object = {}) => ({
+    threadId: 't1', environmentId: 'env', generation: 1, preferencesLoaded: true, local: { clientSettings: { proactivePanelsEnabled: false } },
+    config: { environment: { capabilities: { pullRequests: true } } }, shell: { projects: [], threads: [{ id: 't1', projectId: 'p1', ...change }] },
+    thread: {}, projection,
+  }) as unknown as T3Client;
+  const enable = (app: T3Client) => { (app.local as { clientSettings: { proactivePanelsEnabled: boolean } }).clientSettings.proactivePanelsEnabled = true; };
+  test('enabled in Settings, returning to a thread with a linked pull request opens it', () => {
+    const app = client({}, { linkedPullRequest: linked }), state = empty();
+    expect(applyProactivePanels(app, 'env:t1', state, false)).toBe('');
+    enable(app);
+    expect(applyProactivePanels(app, 'env:t1', state, false, false)).toBe(''); // Settings shows
+    expect(applyProactivePanels(app, 'env:t1', state, false)).toBe('pull-request');
+    expect(state.active).toBe(`pull-request:p1:acme%2Fnotes:7`);
+  });
+  test('enabled in Settings, returning offers the latest qualifying turn once', () => {
+    const projection = { runs: [{ id: 'r1', ordinal: 1, status: 'completed' }], checkpoints: [{ runId: 'r1', appRunOrdinal: 1, status: 'ready', files: [{ additions: 1, deletions: 0 }, { additions: 1, deletions: 0 }, { additions: 1, deletions: 0 }] }] };
+    const app = client(projection), state = empty();
+    const memory = proactiveMemory();
+    // The repository state is the one input read from the VCS stream: feed it through the pure hook.
+    const read = (shown: boolean) => shown ? proactivePanels(memory, state, { ...proactiveInput(app, 'env:t1', false), isGitRepo: true }) : (memory.observation = null, '');
+    expect(read(true)).toBe('');
+    enable(app);
+    expect(read(false)).toBe('');
+    expect(read(true)).toBe('diff');
+    state.visible = false; state.userRevision++;
+    expect(read(false)).toBe('');
+    expect(read(true)).toBe('');
+  });
+});
+
 describe('the inputs ChatView hands the hook', () => {
   const client = (change: object = {}) => ({
     threadId: 't1', environmentId: 'env', generation: 1, preferencesLoaded: true, local: { clientSettings: { proactivePanelsEnabled: true } },
@@ -191,6 +222,21 @@ describe('the panel choices around the Diff', () => {
     expect(panelState(app).userRevision).toBe(1);
     await diffOps.call(app, 'diff-whitespace', '', '', 0, native, {} as Files, out);
     expect(panelState(app).userRevision).toBe(1);
+  });
+  test('an op inside a surface counts only when it changes the panel; a Files search during a turn still lets the Diff open', async () => {
+    const app = { local: {}, environmentId: 'env', threadId: 't1', projectId: 'p1', diffOpen: false, ready: true, shell: { projects: [], threads: [] },
+      get draftKey() { return 'env:t1'; }, restAccess: () => ({ call: async () => ({}), request: async () => ({}) }) } as unknown as T3Client;
+    const state = panelState(app); state.surfaces = [{ id: 'files', kind: 'files', path: '', line: 0, reveal: 0 }]; state.active = 'files'; state.visible = true;
+    const memory = proactiveMemory();
+    proactivePanels(memory, state, running('r1'));
+    await surfaceLocal(app, native, 'files-search', '', 'notes').catch(() => '');
+    await surfaceLocal(app, native, 'pr-tab', 'files', 'code');
+    expect(state.userRevision).toBe(0);
+    expect(proactivePanels(memory, state, completed('r1'))).toBe('diff');
+    // A panel op counts even when it changes nothing.
+    await surfaceLocal(app, native, 'hide', '', '');
+    await surfaceLocal(app, native, 'hide', '', '');
+    expect(state.userRevision).toBe(2);
   });
   test('the offered turn is saved with the panel, also with no surface, and read back after a relaunch', () => {
     const state = { ...empty(), proactiveDiffTurnId: 'r1' };

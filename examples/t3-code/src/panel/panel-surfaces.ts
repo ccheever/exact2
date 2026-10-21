@@ -1,7 +1,7 @@
 import { captureClosedView, rememberClosedView, reopenClosedView, rememberPagePullRequest } from './closed-views';
 import { can } from '../connections/command-permissions';
 import { parseScopedThreadKey } from '../terminal/terminal-ui-state';
-import { addTerminalSurface, focusPanelTerminal, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from '../terminal/terminal-panel';
+import { addTerminalSurface, focusPanelTerminal, isTerminalChoice, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from '../terminal/terminal-panel';
 import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerView, type TerminalDrawerView } from '../terminal/terminal-drawer-view';
 // The right panel's tabbed surfaces (MIT reference 9c161462c9, see LICENSE-T3:
 // apps/web/src/rightPanelStore.ts, components/RightPanelTabs.tsx, ChatView.tsx
@@ -272,10 +272,20 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (targetKey === panelKey(client)) syncDiff(client, state);
   if (op === 'maximize') { state.maximized = !state.maximized; return ''; }
   if (op === 'move') { moveSurface(state, id, Number(value)); return ''; }
-  // setPullRequestDetailTab: the tab a pull request surface shows, kept with the surface.
-  // The revision moves so the panels' save (syncRightPanels) writes the choice now, before a quick quit.
-  if (op === 'pr-tab') { const surface = state.surfaces.find(entry => entry.id === id && entry.kind === 'pull-request'); if (surface && isDetailTab(value) && surface.detailTab !== value) { surface.detailTab = value; state.userRevision++; } return ''; }
-  state.userRevision++;
+  // setPullRequestDetailTab: the tab a pull request surface shows, kept with the surface (an automatic update upstream;
+  // the panels' save compares what it writes, so the surface carries the choice).
+  if (op === 'pr-tab') { const surface = state.surfaces.find(entry => entry.id === id && entry.kind === 'pull-request'); if (surface && isDetailTab(value)) surface.detailTab = value; return ''; }
+  // rightPanelStore's userAction: the panel ops always count as the person's choice; an op inside a surface (a Files
+  // search, browser navigation, a pull request list filter) counts only when it changed the tabs, the active one or
+  // whether the panel shows. A proactive opening respects the choice (proactive-panels.ts).
+  const direct = PANEL_CHOICES.has(op) || (op.startsWith('terminal-') && isTerminalChoice(op.slice(9))), before = panelShape(state);
+  if (direct) state.userRevision++;
+  try { return await surfaceOp(client, native, state, targetKey, op, id, value); }
+  finally { if (!direct && panelShape(state) !== before) state.userRevision++; }
+}
+const PANEL_CHOICES = new Set(['open', 'file', 'activate', 'close', 'close-others', 'close-to-right', 'close-all', 'close-confirmed', 'hide', 'show']);
+const panelShape = (state: PanelState): string => JSON.stringify([state.surfaces.map(surface => [surface.id, surface.title ?? '']), state.active, state.visible]);
+async function surfaceOp(client: T3Client, native: Native, state: PanelState, targetKey: string, op: string, id: string, value: string): Promise<string> {
   installTerminalPanelCleanup(client, native, state, parseScopedThreadKey(targetKey)); installBrowserCleanup(client, native);
   if (op.startsWith('terminal-')) return terminalPanelLocal(client, native, op.slice(9), id, value);
   if (op === 'open') return openSurface(client, native, id || value);
@@ -392,7 +402,7 @@ function tabOf(client: T3Client, surface: Surface, active: string, pending: Read
 }
 
 /** The panel's projection for ShellView: tabs, the active surface's body and the device wizard. */
-export async function panelView(client: T3Client, native: Native | null | undefined, now: number, sheet = false): Promise<PanelView> {
+export async function panelView(client: T3Client, native: Native | null | undefined, now: number, sheet = false, chatShown = true): Promise<PanelView> {
   const state = panelState(client), store = surfaceStore(client);
   await threadDevices(client, native, sheet); // A thread's device session floats (ChatView autoShowFloatingPreview)
   if (restoreRightPanel(client, panelKey(client), state)) { // The device it showed and its open Diff
@@ -403,7 +413,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   // After the restore, so a turn's diff offered before the last relaunch is not offered again.
   if (client.preferencesLoaded && client.ready) {
     syncDiff(client, state);
-    const opened = applyProactivePanels(client, panelKey(client), state, sheet);
+    const opened = applyProactivePanels(client, panelKey(client), state, sheet, chatShown);
     if (opened === 'diff') { selectScope(client, 'branch'); if (native?.available) await showDiff(client, native, true); else client.diffOpen = true; }
     else if (opened) client.diffOpen = false;
   }
