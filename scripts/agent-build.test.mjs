@@ -4,14 +4,15 @@ import { afterEach, beforeEach, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
+import { listAssets } from '../host/web/serve.mjs';
 import { moduleGraph, notBuildInput } from './agent-launch.mjs';
 import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, linuxRebuild, nativeBuild, overrideDir, planOverride, planSource, ownVerb, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { openStdio } from './agent-stdio.mjs';
-import { linuxBinary, resolveApp } from './app.mjs';
+import { linuxBinary, resolveApp, verifyBakeFiles } from './app.mjs';
 
 test('Mac drives use the assembled app bundle even without catalogs or widgets', () => {
   const { dir } = scratchApp('ats-drive');
@@ -370,6 +371,89 @@ test('a product the build wrote and then read is judged by its recorded bytes; a
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
     if (macBin === undefined) delete process.env.EXACT_MAC_BIN; else process.env.EXACT_MAC_BIN = macBin;
     if (targetDir !== undefined) process.env.CARGO_TARGET_DIR = targetDir;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Admission of a complete bake receipt, without running Cargo or the packaging copier: a custom build script may
+// generate these files after the build starts, before the bake records the exact bytes packaging must match.
+test.each([
+  ...['assets', 'deck'].flatMap(tree => ['unchanged after build start', 'changed bytes with an older mtime', 'missing captured file',
+    'new file with an older mtime', 'empty inventory', 'empty inventory then new file', 'malformed bare tree card'].map(scenario => [tree, scenario])),
+  ...['ordinary source edited during build', 'legacy receipt without captured assets', 'malformed inventory array', 'malformed asset path',
+    'malformed asset hash', 'malformed asset size', 'malformed duplicate asset', 'malformed null card', 'symlinked captured file',
+    'dangling captured file', 'symlinked tree root', 'dangling tree root', 'non-directory tree root',
+    'shader source after start', 'entry source after start', 'unknown tree source after start',
+    'malformed shader digest array', 'malformed entry digest array'].map(scenario => ['assets', scenario]),
+])('captured native %s: %s', (tree, scenario) => {
+  const previous = process.env.EXACT_APP_DIR, targetDir = process.env.CARGO_TARGET_DIR;
+  const { dir, write } = scratchApp('generated-assets');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    delete process.env.CARGO_TARGET_DIR;
+    const app = resolveApp('generated-assets'), now = Date.now();
+    const at = seconds => new Date(now + seconds * 1000);
+    const stamp = (file, seconds) => utimesSync(resolve(dir, file), at(seconds), at(seconds));
+    for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
+    const files = ['preview.html', 'preview.js', 'device.html', 'device.js'].map(name => `${tree}/generated/${name}`);
+    for (const file of files) write(file, `generated ${file}\n`);
+    const emptyInventory = scenario.startsWith('empty inventory') || scenario === 'non-directory tree root' || scenario === 'malformed bare tree card';
+    if (emptyInventory) rmSync(resolve(dir, tree), { recursive: true });
+    if (scenario === 'malformed bare tree card') mkdirSync(resolve(dir, tree));
+    const other = { 'shader source after start': 'shaders/source.wgsl', 'entry source after start': 'plans/source.ts', 'unknown tree source after start': 'custom/source.rs',
+      'malformed shader digest array': 'shaders/source.wgsl', 'malformed entry digest array': 'plans/source.ts' }[scenario];
+    if (other) { write(other, 'source'); stamp(other, scenario.endsWith('digest array') ? -60 : -10); }
+    const plan = Buffer.from('baked plan');
+    const compat = { embedded: { plan: { bytes: plan.length, sha256: createHash('sha256').update(plan).digest('hex') }, assets: listAssets(dir) } };
+    verifyBakeFiles(compat, plan, listAssets(dir));
+    const target = 'aarch64-apple-ios-sim', profile = resolve(app.target, target, 'host-dev');
+    mkdirSync(profile, { recursive: true });
+    writeFileSync(resolve(profile, 'libgenerated_assets_apple.d'), `${profile}/libgenerated_assets_apple.a: ${[tree, ...(emptyInventory ? [] : files), ...(other ? [other] : [])].map(file => resolve(dir, file)).join(' ')}\n`);
+    const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
+    mkdirSync(bundle, { recursive: true });
+    const build = { target, started: at(-20).toISOString(), build: { compat } };
+    let expected = [];
+    if (scenario === 'changed bytes with an older mtime') { write(files[0], 'different bytes'); expected = [files[0]]; }
+    if (scenario === 'missing captured file') { rmSync(resolve(dir, files[1])); expected = [files[1]]; }
+    if (scenario === 'new file with an older mtime' || scenario === 'empty inventory then new file') { write(`${tree}/generated/extra.js`, 'new bytes'); expected = [`${tree}/generated/extra.js`]; }
+    if (scenario === 'ordinary source edited during build') { stamp('app.contract', -5); expected = ['app.contract']; }
+    if (scenario === 'legacy receipt without captured assets') delete build.build.compat;
+    if (scenario === 'malformed inventory array') compat.embedded.assets = {};
+    if (scenario === 'malformed asset path') compat.embedded.assets[0].name = `${tree}/../app.contract`;
+    if (scenario === 'malformed asset hash') compat.embedded.assets[0].sha256 = 'not a digest';
+    if (scenario === 'malformed asset size') compat.embedded.assets[0].bytes = -1;
+    if (scenario === 'malformed duplicate asset') compat.embedded.assets.push({ ...compat.embedded.assets[0] });
+    if (scenario === 'malformed null card') compat.embedded.assets.push(null);
+    if (scenario === 'malformed bare tree card') compat.embedded.assets.push({ name: tree, bytes: 0, sha256: createHash('sha256').update('').digest('hex') });
+    if (scenario.endsWith('digest array')) { const card = compat.embedded.assets.find(card => card.name === other); card.sha256 = [card.sha256]; }
+    if (scenario === 'symlinked captured file') {
+      renameSync(resolve(dir, files[0]), resolve(dir, '.held-file'));
+      symlinkSync(resolve(dir, '.held-file'), resolve(dir, files[0])); expected = [files[0]];
+    }
+    if (scenario === 'dangling captured file') { rmSync(resolve(dir, files[0])); symlinkSync(resolve(dir, '.missing-file'), resolve(dir, files[0])); expected = [files[0]]; }
+    if (scenario === 'symlinked tree root') { renameSync(resolve(dir, tree), resolve(dir, '.held-tree')); symlinkSync(resolve(dir, '.held-tree'), resolve(dir, tree), 'dir'); }
+    if (scenario === 'dangling tree root') { rmSync(resolve(dir, tree), { recursive: true }); symlinkSync(resolve(dir, '.missing-tree'), resolve(dir, tree), 'dir'); }
+    if (scenario === 'non-directory tree root') { write(tree, 'not a directory'); stamp(tree, -60); }
+    if (other) expected = [other];
+    // Backdate the mutation cases, including directory entry changes, so their bytes/inventory decide.
+    const assetTime = scenario === 'unchanged after build start' || scenario === 'legacy receipt without captured assets' || scenario.startsWith('malformed') ? -10 : -60;
+    for (const file of [...files, `${tree}/generated/extra.js`]) if (existsSync(resolve(dir, file))) stamp(file, assetTime);
+    for (const directory of [`${tree}/generated`, tree]) if (existsSync(resolve(dir, directory)) && lstatSync(resolve(dir, directory)).isDirectory()) stamp(directory, assetTime);
+    writeFileSync(receipt, JSON.stringify(build));
+    utimesSync(receipt, at(10), at(10));
+    const state = nativeBuild('ios', app), changed = state.changed.map(path => resolve(path)).sort();
+    if (scenario === 'malformed bare tree card') {
+      assert.deepEqual(changed, [resolve(dir, tree)], scenario);
+    } else if (scenario === 'legacy receipt without captured assets' || scenario.startsWith('malformed')) {
+      for (const file of files) assert.ok(changed.includes(resolve(dir, file)), file);
+    } else if (scenario.endsWith('tree root')) {
+      assert.ok(changed.includes(resolve(dir, tree)), scenario);
+    } else assert.deepEqual(changed, expected.map(file => resolve(dir, file)).sort(), scenario);
+    if (scenario === 'unchanged after build start' || scenario === 'empty inventory') assert.doesNotThrow(() => refuseBuild('ios', state, app));
+    else assert.throws(() => refuseBuild('ios', state, app), /ios build is stale/);
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    if (targetDir === undefined) delete process.env.CARGO_TARGET_DIR; else process.env.CARGO_TARGET_DIR = targetDir;
     rmSync(dir, { recursive: true, force: true });
   }
 });
