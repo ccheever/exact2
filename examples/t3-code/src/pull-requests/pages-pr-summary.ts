@@ -1,10 +1,11 @@
 // The pull request Summary tab's model (MIT reference, see LICENSE-T3, T3 Code
-// 9c161462c9 apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx): reviewers with the
+// 74541bab17 apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx): reviewers with the
 // verdict each last gave (a ring, the sr-only words and the "<name> — <outcome>" tooltip), the
 // checks with "Check details are out of date." when a newer rollup disagrees, and the
-// conversation through the comment filter — bot comments and finished work (a resolved thread's
-// comment, a dismissed review, drawn collapsed) shown only when the filter asks for them — windowed
-// 10 at a time from the newest. The filter is this device's (commentFilter, kept in the pages
+// conversation through the comment filter — bot comments and finished work (a resolved thread,
+// a dismissed review, drawn collapsed) shown only when the filter asks for them — as loose comments
+// and review threads (a finding with its replies under it), windowed 10 conversations at a time
+// from the newest. The filter is this device's (commentFilter, kept in the pages
 // preferences as the reference keeps it in localStorage); the window and the order are the tab's own
 // state (pages-pr-summary.contract); this model gives every card its place from the newest (`fromEnd`)
 // and both orders.
@@ -13,7 +14,10 @@ import { pagesPrefs } from '../pages/pages-prefs';
 import { relativeLabel } from './pages-prs';
 import { currentTimestampLocale } from '../shared/timestamp-format';
 import { checkStatusLabel, checksRollup } from '../details/pr-row-logic';
-import { latestPullRequestReviewOutcomes, orderPullRequestComments, pullRequestReviewOutcome, pullRequestReviewOutcomeLabel, pullRequestReviewOutcomeStaleLabel, visibleBody } from './pages-pr-logic';
+import {
+  filterPullRequestConversationItems, isPullRequestCommentFinished, latestPullRequestReviewOutcomes, orderPullRequestComments, pullRequestCommentCount, pullRequestConversationItemComments,
+  pullRequestConversationItems, pullRequestReviewOutcome, pullRequestReviewOutcomeLabel, pullRequestReviewOutcomeStaleLabel, visibleBody, type PullRequestConversationItem,
+} from './pages-pr-logic';
 import { pullRequestFindingKey, remarkFinding } from './pages-pr-handoffs-logic';
 
 export const COMMENT_PAGE = 10;
@@ -34,7 +38,14 @@ export type PrCommentCard = {
   fix: string;
   /** Finished work (a resolved thread's comment, a dismissed review): drawn collapsed. */
   finished: boolean;
+  /** A reply under its finding: no location and no Fix. */
+  reply: boolean;
 };
+/**
+ * One conversation: a loose comment (`replies` empty), or a review thread's finding (`card`) with its replies, the
+ * count the collapsed card shows ("N replies", the unread ones counted) and PullRequestMoreReplies' line and link.
+ */
+export type PrConversation = { key: string; fromEnd: number; finished: boolean; card: PrCommentCard; replies: PrCommentCard[]; replyCount: string; moreReplies: string; moreUrl: string };
 export type PrReviewerEntry = { key: string; login: string; avatar: string; initial: string; outcome: string; stale: boolean; outcomeText: string; tooltip: string };
 export type PrSummaryCheck = { key: string; name: string; status: string; statusLabel: string; url: string; fix: string };
 export type PrSummaryView = ReturnType<typeof emptySummary>;
@@ -43,7 +54,7 @@ export function emptySummary() {
   return {
     key: '', activityPending: false, activityError: '', reviewers: [] as PrReviewerEntry[], showLabels: true,
     checksStale: false, checksState: '', checks: [] as PrSummaryCheck[], commentsTitle: 'Comments (0)', truncated: false, truncatedText: '', empty: true,
-    activeCount: 0, newest: [] as PrCommentCard[], oldest: [] as PrCommentCard[],
+    activeCount: 0, newest: [] as PrConversation[], oldest: [] as PrConversation[],
     // The filter: what it shows, its trigger's words ("Filter", "3 hidden") and the line for a conversation it hides whole.
     showBots: false, showResolved: false, filterLabel: 'Filter', filteredOutText: '',
   };
@@ -78,13 +89,14 @@ const isBot = (actor: unknown) => { const person = obj(actor); return person.isB
 export const previewText = (body: string) => body.replace(/<!--[\s\S]*?-->/gu, '').replace(/^\s*>?\s*\[!\w+\]\s*$/gmu, '').replace(/!?(\[([^\]]+)\])\([^)]*\)/gu, '$2')
   .replace(/^[\s>#*-]+/gmu, '').replace(/[*`]/gu, '').replace(/\s+/g, ' ').trim();
 
-/** The markdown documents the conversation renders: every remark with something visible to say. */
+/** The markdown documents the conversation renders: every remark with something visible to say, thread-only replies included. */
 export function conversationBodies(activity: Obj | null): { id: string; kind: string; title: string; body: string }[] {
-  return arr(activity?.comments).flatMap(comment => { const body = visibleBody(str(comment.body)); return body === null ? [] : [{ id: `pr-comment:${str(comment.id)}`, kind: 'assistant', title: '', body }]; });
+  return pullRequestConversationItems(arr(activity?.comments), arr(activity?.reviewThreads)).flatMap(pullRequestConversationItemComments)
+    .flatMap(comment => { const body = visibleBody(str(comment.body)); return body === null ? [] : [{ id: `pr-comment:${str(comment.id)}`, kind: 'assistant', title: '', body }]; });
 }
 
-function card(comment: Obj, threads: Map<string, Obj>, url: string, now: number, fromEnd: number, remark: (comment: Obj) => RemarkWrites, canReact: boolean): PrCommentCard {
-  const thread = threads.get(str(comment.id)), person = face(comment.author), writes = remark(comment);
+function card(comment: Obj, thread: Obj | undefined, url: string, now: number, fromEnd: number, remark: (comment: Obj) => RemarkWrites, canReact: boolean, reply = false): PrCommentCard {
+  const person = face(comment.author), writes = remark(comment);
   const outcome = pullRequestReviewOutcome(str(comment.reviewState) || null), body = visibleBody(str(comment.body));
   const path = str(thread?.path) || str(comment.path), line = num(thread?.line);
   return {
@@ -92,14 +104,26 @@ function card(comment: Obj, threads: Map<string, Obj>, url: string, now: number,
     author: person.login, avatar: person.avatar, initial: person.initial, authorTip: named(comment.author),
     age: relativeLabel(comment.createdAt, now), ageTip: `${fullDate(str(comment.createdAt))}${str(comment.url) ? ' · Open comment on host' : ''}`, url: str(comment.url),
     outcome: outcome ?? '', outcomeLabel: outcome ? pullRequestReviewOutcomeLabel(outcome) : '', stateLabel: !outcome && str(comment.reviewState) ? reviewStateLabel(str(comment.reviewState)) : '',
-    location: path ? `${path}${thread && line ? `:${line}` : ''}` : '', outdated: thread?.isOutdated === true, fromEnd,
+    location: reply || !path ? '' : `${path}${thread && line ? `:${line}` : ''}`, outdated: !reply && thread?.isOutdated === true, fromEnd,
     finishedLabel: thread?.isResolved === true ? 'Resolved' : 'Review dismissed', preview: body === null ? '' : previewText(body),
     canEdit: writes.canEdit, raw: writes.raw, kind: writes.kind, saving: writes.saving, savedSerial: writes.savedSerial, reactions: writes.pills, reacted: writes.reacted, canReact,
-    fix: (finding => (finding ? pullRequestFindingKey(finding) : ''))(remarkFinding(comment, thread, outcome)),
-    finished: thread?.isResolved === true || outcome === 'dismissed',
+    fix: reply ? '' : (finding => (finding ? pullRequestFindingKey(finding) : ''))(remarkFinding(comment, thread, outcome)),
+    finished: isPullRequestCommentFinished(comment, thread), reply,
   };
 }
-const both = (cards: PrCommentCard[]) => ({ newest: [...orderPullRequestComments(cards, 'newest')], oldest: cards });
+/** PullRequestMoreReplies: "N more replies" (or "More replies" where the host did not count them). */
+export const moreRepliesText = (item: { moreReplies: number; hasMoreReplies: boolean }) => !item.hasMoreReplies ? ''
+  : item.moreReplies > 0 ? `${item.moreReplies.toLocaleString('en-US')} more ${item.moreReplies === 1 ? 'reply' : 'replies'}` : 'More replies';
+function conversation(item: PullRequestConversationItem, url: string, now: number, fromEnd: number, remark: (comment: Obj) => RemarkWrites, canReact: boolean): PrConversation {
+  if (item.kind === 'comment') {
+    const root = card(item.comment, undefined, url, now, fromEnd, remark, canReact);
+    return { key: `${url}:comment:${item.id}`, fromEnd, finished: root.finished, card: root, replies: [], replyCount: '', moreReplies: '', moreUrl: '' };
+  }
+  const root = card(item.root, item.thread, url, now, fromEnd, remark, canReact), count = item.replies.length + item.moreReplies;
+  return { key: `${url}:thread:${item.id}`, fromEnd, finished: root.finished, card: root, replies: item.replies.map(reply => card(reply, undefined, url, now, fromEnd, remark, canReact, true)),
+    replyCount: count > 0 ? `${count} ${count === 1 ? 'reply' : 'replies'}` : '', moreReplies: moreRepliesText(item), moreUrl: item.url ?? '' };
+}
+const both = (items: PrConversation[]) => ({ newest: [...orderPullRequestComments(items, 'newest')], oldest: items });
 
 export type SummaryInput = { detail: Obj; activity: Obj | null; activityPending: boolean; activityError: string; now: number; listEntry: Obj | null; remark?: (comment: Obj) => RemarkWrites; filter?: CommentFilter };
 export function presentSummary(input: SummaryInput): PrSummaryView {
@@ -129,24 +153,25 @@ export function presentSummary(input: SummaryInput): PrSummaryView {
   view.checks = arr(detail.checks).map((check, index) => ({ key: `${index}:${str(check.name)}:${str(check.url)}`, name: str(check.name), status: str(check.status, 'neutral'), statusLabel: checkStatusLabel(check), url: str(check.url),
     // Only where there is something to fix: a failing check (PullRequestSummaryTab's Fix).
     fix: check.status === 'failure' || check.status === 'cancelled' ? pullRequestFindingKey({ kind: 'check', check }) : '' }));
-  // The conversation, as the tab buckets it.
-  view.commentsTitle = `Comments (${num(activity?.commentCount)})`;
+  // The conversation, as the tab buckets it: loose comments and review threads, each thread one item.
+  const items = pullRequestConversationItems(comments, arr(activity?.reviewThreads));
+  const counted = (list: readonly PullRequestConversationItem[]) => list.reduce((count, item) => count + pullRequestConversationItemComments(item).length, 0);
+  const commentCount = counted(items);
+  view.commentsTitle = `Comments (${pullRequestCommentCount(activity)})`;
   view.truncated = activity?.commentsTruncated === true;
-  view.truncatedText = `This conversation is longer than this page reads in one go. The most recent ${comments.length} are here; open it on the host to read the rest.`;
-  view.empty = comments.length === 0;
-  const threads = new Map(arr(activity?.reviewThreads).flatMap(thread => arr(thread.comments).map(comment => [str(comment.id), thread] as const)));
+  view.truncatedText = `This conversation is only partially loaded. ${commentCount} comment${commentCount === 1 ? ' is' : 's are'} loaded; open it on the host to read the rest.`;
+  view.empty = items.length === 0;
   const filter = input.filter ?? { bots: false, resolved: false };
-  const isFinished = (comment: Obj) => threads.get(str(comment.id))?.isResolved === true || pullRequestReviewOutcome(str(comment.reviewState) || null) === 'dismissed';
-  const shown = comments.filter(comment => (filter.bots || !isBot(comment.author)) && (filter.resolved || !isFinished(comment)));
-  // The one count the filter shows. Per-kind counts would overlap, since a resolved bot comment
+  const shown = filterPullRequestConversationItems(items, filter);
+  // The one count the filter shows, in comments. Per-kind counts would overlap, since a resolved bot comment
   // is both kinds and needs both shown.
-  const hidden = comments.length - shown.length;
+  const hidden = commentCount - counted(shown);
   view.showBots = filter.bots; view.showResolved = filter.resolved;
   view.filterLabel = hidden > 0 ? `${hidden} hidden` : 'Filter';
   view.filteredOutText = shown.length === 0 && hidden > 0 ? (hidden === 1 ? 'The only comment is hidden by the filter.' : `All ${hidden} comments are hidden by the filter.`) : '';
   const remark = input.remark ?? noRemarkWrites, canReact = capabilities.reactions === true;
-  // Windowed by recency regardless of display order: `fromEnd` counts back from the newest shown.
-  const cards = both(shown.map((comment, index) => card(comment, threads, url, now, shown.length - 1 - index, remark, canReact)));
-  view.activeCount = shown.length; view.newest = cards.newest; view.oldest = cards.oldest;
+  // Windowed by recency regardless of display order: `fromEnd` counts back from the newest conversation shown.
+  const conversations = both(shown.map((item, index) => conversation(item, url, now, shown.length - 1 - index, remark, canReact)));
+  view.activeCount = shown.length; view.newest = conversations.newest; view.oldest = conversations.oldest;
   return view;
 }

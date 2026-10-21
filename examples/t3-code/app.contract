@@ -576,8 +576,9 @@ component T3Code
   resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", windowReturns, prTab, utilityPage == "pull-requests", floor(liveNow / 5000), page.visibilityState == "visible" and not settingsOpen and ((utilityPage == "pull-requests" and prPanelOpen) or (utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request"))) as shape PrDetailView // the page, the linked threads' 10 s tick
   task guideDisabled when prDetail.phase == "content" and prTab == "guide" and not prDetail.guide.enabled
     after(1, guideFallback)
+  // An unavailable tab falls back to the Summary without becoming the surface's remembered tab.
   action guideFallback
-    prSetTab("summary")
+    prTab = "summary"
   state guideFinishHandled = ""
   task guideFinishRequested when prDetail.guide.finishNonce > 0 and guideFinishHandled != `${prDetail.guide.key}:${prDetail.guide.finishNonce}` key=`${prDetail.guide.key}:${prDetail.guide.finishNonce}`
     after(1, guideFinishOpen)
@@ -626,11 +627,19 @@ component T3Code
     prPanelOpen = not prPanelOpen
   action prReload
     prRefresh = prRefresh + 1
+  // A thread's pull request surface remembers its tab (rightPanelStore setPullRequestDetailTab):
+  // a choice there is kept with the surface, and showing that surface again, in its thread, shows it.
   action prSetTab(value: string)
     prTab = value
+    if utilityPage == "" and shell.panel.kind == "pull-request" and shell.panel.pr.surface != ""
+      send prTabSaved = command("shelllocal:surface-pr-tab", shell.panel.pr.surface, value, 0)
+  task prSurfaceTab when utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request" and shell.panel.pr.surface != "" key=`${shell.panel.key}|${shell.panel.pr.surface}`
+    after(1, prSurfaceTabShown)
+  action prSurfaceTabShown
+    prTab = shell.panel.pr.tab
   action prAct(op: string, value: string)
     if op == "guide-write" and not prDetail.guide.hasGuide
-      prTab = "guide"
+      prSetTab("guide")
     if op == "quick" or op == "close-batch"
       send prQuickChanged = command(`pageslocal:pr-act-${op == "quick" ? "queue" : op}`, "", value, 0)
     else if not commandPending
@@ -909,6 +918,8 @@ component T3Code
   mutation inlineDocumentChanged as shape Change queue refreshes data
   mutation secretAnswered as shape Change queue refreshes data then dispatchTimelineReads
   mutation localChanged as shape Change refreshes data
+  // A pull request surface's remembered tab (prSetTab); queued, so quick tab presses land in order.
+  mutation prTabSaved as shape Change queue
   // A drop on the chat column or a legacy row, a paste into the composer, or Attach files' picks (composer-controls-attach.ts
   // attachIncoming, legacy-sidebar-drop.ts queueRowDrop). Queued: a second drop waits for the first.
   mutation filesAdded as shape Change queue refreshes data then filesAddedDone
@@ -927,6 +938,10 @@ component T3Code
   action fragmentOpened
     match fragmentChanged
       case some(result)
+        // A pull request link the system handed over: the Pull Requests page on that pull request.
+        if result.message.startsWith("sidebar:pr-page:")
+          openPage("pull-requests")
+          prSelect(result.message.slice(16))
         if result.message == "sidebar:new-thread"
           draftOwner = "__unset__"
           jumpRequest = jumpRequest + 1

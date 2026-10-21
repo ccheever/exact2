@@ -99,14 +99,17 @@ export async function openRowPullRequest(client: T3Client, native: Native, id: s
       return goTo(client, native, id, row.ref);
     }
   } else {
-    const selection = prLinksOpenInApp(client) ? pageSelection(client, url) : '';
+    const selection = prLinksOpenInApp(client) ? pullRequestPageSelection(client, url) : '';
     if (selection) return `sidebar:pr-page:${selection}`;
   }
   try { await openLink(client, native, url, { threadRef: besideThread ? row.ref : null }); } catch (error) { linkFailed(error); }
   return '';
 }
-/** useOpenChangeRequestLink with no thread: the exact project across the environments that read pull requests, the focused first. */
-function pageSelection(client: T3Client, url: string, source: EnvironmentFleet = fleet): string {
+/**
+ * useOpenChangeRequestLink with no thread: the Pull Requests page's selection for the exact project across the environments
+ * that read pull requests, the focused first; '' when none can read it (the caller opens the link).
+ */
+export function pullRequestPageSelection(client: T3Client, url: string, source: EnvironmentFleet = fleet): string {
   const parsed = parseChangeRequestUrl(url);
   if (!parsed) return '';
   const capabilities = (config: Obj) => obj(obj(config.environment).capabilities);

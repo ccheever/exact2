@@ -83,9 +83,12 @@ stand-in (`github-api-standin.mjs`, port `T3_FIXTURE_GITHUB_PORT`, default 16592
 port): a proxy that tunnels `api.github.com` to its own HTTPS server, whose certificate a CA made
 under `<root>/github-api` signs (the server trusts it by `NODE_EXTRA_CA_CERTS`), and refuses every
 other host. It answers the head lookup, the lookup by number and the summary
-(`api-calls.log` there lists each request); the detail panel's reads, which the gh stand-in
-answered for an older server (the actions menu, Merge, the patch and the review thread on
-`README.md` line 3), are not answered over the API yet. The
+(`api-calls.log` there lists each request), and the detail panel (`github-api-detail.mjs`): the
+detail with four checks (passed, skipped, running, and a status without a link), an issue comment
+and a review, a review thread on `README.md` line 3 with a reply, the files viewed, and a patch
+long enough to scroll (`GET pulls/7` as a diff). Comment and Close (and Reopen) change what the
+next read answers until the stand-in stops; Merge, reactions, edits and the rest are not answered.
+The
 stand-in answers the calls the reference server makes for these (`GitHubCli.ts`,
 `GitHubPullRequestCli.ts`; `gh auth token` gets a placeholder, which the server hands back only to
 the stand-in), logs each to `envs/<name>/gh-calls.log` and refuses every other one.

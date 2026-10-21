@@ -1,5 +1,5 @@
 // T3 Code 9c161462c9 (MIT, LICENSE-T3): components/promptLinks/{NewThreadLinkView,ThreadLinkPrompt}.tsx, and
-// components/desktop/DesktopWebLinkCoordinator.tsx for a web link or an HTML file the system hands the app.
+// components/desktop/DesktopWebLinkCoordinator.tsx (74541bab17) for a web link or an HTML file the system hands the app.
 // The connection fleet supplies the reference's environment registry; draft and checkout operations are shared with the app.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -25,6 +25,8 @@ import { activeRef } from '../terminal/terminal-drawer-view';
 import type { ScopedThreadRef } from '../terminal/terminal-ui-state';
 import { surfaceStore } from '../panel/panel-surfaces';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
+import { prLinksOpenInApp } from '../panel/pr-surface';
+import { pullRequestPageSelection } from '../sidebar/legacy-sidebar-links';
 
 type Project = Obj & { environmentId: string };
 type Pending = { link: NewThreadLink; repository: PromptLinkRepository; project?: Project };
@@ -161,6 +163,12 @@ async function openWebLink(client: T3Client, native: Native, storage: Files, url
 }
 
 export async function openPromptLink(client: T3Client, native: Native, storage: Files, value: string): Promise<string> {
+  if (!promptLinkAppPath(value) && isWebUrl(value) && prLinksOpenInApp(client)) {
+    // A pull request link a connected project reads opens the pull request view (openLink tries useOpenChangeRequestLink
+    // with a plain click first). promptLinksReady already waits for the environments' projects.
+    const selection = pullRequestPageSelection(client, value);
+    if (selection) return `sidebar:pr-page:${selection}`;
+  }
   // A web link leaves an open prompt-link dialog open, as the reference's does.
   if (!promptLinkAppPath(value) && (isWebUrl(value) || value.startsWith('file:'))) return await openWebLink(client, native, storage, value);
   dismissPromptLink(client);
