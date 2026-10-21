@@ -915,7 +915,10 @@ export function conformReport(file, root) {
     // longer first.
     const bare = String(root).replace(/\/+$/, '');
     const prefixes = [...new Set([bare, existsSync(bare) ? realpathSync(bare) : bare])].sort((a, b) => b.length - a.length).map(p => `${p}/`);
-    const strip = what => prefixes.reduce((w, p) => w.split(p).join('<checkout>/'), String(what));
+    // Only where a path starts: the text's start, or after a space, quote,
+    // bracket, colon or equals sign (not inside another path).
+    const escape = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const strip = what => prefixes.reduce((w, p) => w.replace(new RegExp(`(^|[\\s"'«(\\[:=,])${escape(p)}`, 'g'), '$1<checkout>/'), String(what));
     return { targets: Object.keys(r.targets ?? {}).length, failures: (r.failures ?? []).map(f => `${f.target} | ${f.step} | ${strip(f.what)}`) };
   } catch { return null; }
 }

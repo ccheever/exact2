@@ -188,5 +188,8 @@ test('a conform report\'s failures, keyed without the checkout\'s path', () => {
   // Only the checkout's own prefix: two paths under it stay apart.
   writeFileSync(f, JSON.stringify({ targets: { a: {} }, failures: [{ target: 'a', step: 's', what: '/r/exact2/host/a/exact2-one/t.contract' }, { target: 'a', step: 's', what: '/r/exact2/host/b/exact2-two/t.contract' }] }));
   expect(new Set(conformReport(f, '/r/exact2/').failures).size).toBe(2);
+  // Not inside another path: /archive/r/exact2/… is no checkout path.
+  writeFileSync(f, JSON.stringify({ targets: { a: {} }, failures: [{ target: 'a', step: 's', what: 'at /r/exact2/x and /archive/r/exact2/x' }] }));
+  expect(conformReport(f, '/r/exact2').failures).toEqual(['a | s | at <checkout>/x and /archive/r/exact2/x']);
   expect(conformReport(join(dir, 'none.json'), '/r')).toBe(null);
 });
