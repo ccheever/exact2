@@ -11,9 +11,11 @@ use contract_syntax::{Attr, Expr, Span};
 
 /// Whether `name` is a row that draws a box's surface: its background, a
 /// border's line or a shadow (a border's corner draws none), or a material,
-/// in any state (`:hover background-color` is the author's surface too).
+/// in any state (`:hover background-color`, and `-exact-press-background-color`,
+/// the press's own spelling, are the author's surface too).
 fn surface(name: &str) -> bool {
     let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
+    let name = name.strip_prefix("-exact-press-").unwrap_or(name);
     name.starts_with("background")
         || name == "box-shadow"
         || name.starts_with("border") && !name.ends_with("radius")

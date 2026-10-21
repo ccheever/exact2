@@ -1066,7 +1066,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     func updateMaterial() {
-        defer { syncGlassSlot(); syncGlassGroup(); settleVibrancy() }
+        defer { syncGlassSlot(); syncGlassGroup(); settleVibrancy(); syncDefaultSurfaceScroll() }
         let kind = materialRequest
         let supported = kind != nil
         let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
@@ -1105,8 +1105,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func applyMaterialRadius() {
         guard let materialView else { return }
         let authored = BorderPaint.clip(materialView.layer, in: bounds, radii: cornerSizes(in: bounds))
-        let corner = writesCorner ? nil : defaultSurfaceRadius, radius = corner ?? authored
-        if let corner, let scroll { scroll.layer.cornerRadius = corner; scroll.layer.cornerCurve = .continuous; scroll.clipsToBounds = true } // its scrolled children too
+        let radius = (writesCorner ? nil : defaultSurfaceRadius) ?? authored
         if #available(iOS 26.0, tvOS 26.0, *) {
             materialView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
         } else {

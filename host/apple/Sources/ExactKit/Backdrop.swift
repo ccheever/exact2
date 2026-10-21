@@ -170,6 +170,19 @@ extension NodeView {
         return CGFloat(radius)
     }
 
+    #if os(iOS) || os(tvOS)
+    /// A scrolling popover's children are its scroll view's, not the glass's
+    /// content view's: the scroll view takes the default surface's corner
+    /// while that applies, and gives it up when it no longer does.
+    func syncDefaultSurfaceScroll() {
+        let corner = materialView == nil || writesCorner ? nil : defaultSurfaceRadius
+        guard let scroll, corner != nil || scrollCornered else { return }
+        scroll.layer.cornerRadius = corner ?? 0
+        scroll.layer.cornerCurve = corner == nil ? .circular : .continuous
+        scrollCornered = corner != nil
+    }
+    #endif
+
     /// Whether its author wrote a corner, even 0: theirs, not the default's.
     var writesCorner: Bool {
         style["border_radius"] != nil || ["top_left", "top_right", "bottom_right", "bottom_left"].contains { style["border_radius_" + $0] != nil }

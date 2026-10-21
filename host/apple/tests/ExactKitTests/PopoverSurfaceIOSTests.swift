@@ -58,7 +58,7 @@ final class PopoverSurfaceIOSTests: XCTestCase {
         }
     }
 
-    private var decoded: [ObjectIdentifier: (width: Int, bytes: [UInt8])] = [:]
+    private var decoded: [ObjectIdentifier: (image: UIImage, width: Int, bytes: [UInt8])] = [:] // the image kept, so its id is not reused
 
     /// The pixel at `point` (points), as RGB.
     func pixel(_ image: UIImage, _ point: CGPoint) -> [Int] {
@@ -69,9 +69,9 @@ final class PopoverSurfaceIOSTests: XCTestCase {
             let ctx = CGContext(data: &buf, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                 space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
             ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-            decoded[key] = (w, buf)
+            decoded[key] = (image, w, buf)
         }
-        let (w, buf) = decoded[key]!
+        let (_, w, buf) = decoded[key]!
         let i = (Int(point.y * 3) * w + Int(point.x * 3)) * 4
         return [Int(buf[i]), Int(buf[i + 1]), Int(buf[i + 2])]
     }
@@ -181,6 +181,11 @@ final class PopoverSurfaceIOSTests: XCTestCase {
         XCTAssertNotNil(inline.materialView)
         p.apply(wireBatch([["op": "props", "id": 2, "set": [String: String](), "clear": ["popover"]]]))
         XCTAssertNil(inline.materialView, "no popover, no surface")
+        // A scrolling one's scroll view takes the corner, and gives it up with the surface.
+        let (q, scrolling, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["overflow_y": "scroll"], filled: true)
+        XCTAssertEqual(scrolling.scroll?.layer.cornerRadius, 30)
+        q.apply(wireBatch([["op": "props", "id": 2, "set": [String: String](), "clear": ["popover"]]]))
+        XCTAssertEqual(scrolling.scroll?.layer.cornerRadius, 0, "no popover, no corner on its scroll view")
         // An authored corner, even 0, is the author's.
         let (_, square, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["border_radius": 0.0])
         XCTAssertNotNil(square.materialView)
