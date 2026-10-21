@@ -1007,3 +1007,42 @@ fn a_marked_box_outside_a_section_keeps_its_look() {
         &design.replace("gap = 8px", "gap = #444444"),
     );
 }
+
+/// A write that fixes the file's failing row is accepted, before the
+/// background whole build's verdict and after it (theme2's 17:46 condition
+/// on the failed-build gate), and the build passes after it.
+#[test]
+fn a_write_fixing_the_failing_row_is_accepted_before_and_after_the_verdict() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  gap = #222222\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column padding=\"gap\"\n      Card()\n";
+    let fix = json!({"op": "set-token", "name": "gap", "value": "8px"});
+    let ink = json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]});
+    for wait in [false, true] {
+        let dir = reading(if wait {
+            "rows-fix-after"
+        } else {
+            "rows-fix-before"
+        });
+        std::fs::write(dir.join("app.tamber"), design).unwrap();
+        std::fs::write(dir.join("app.contract"), contract).unwrap();
+        assert!(contract::compile_path(&dir.join("app.contract")).is_err());
+        let mut s = Serve::start(&dir, &[]);
+        s.ask(ink.clone());
+        if wait {
+            let mut said = false;
+            for _ in 0..200 {
+                if s.ask(ink.clone()).0["ok"]["class"] == "rebuild" {
+                    said = true;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            assert!(said, "the whole build's failure is never said");
+        }
+        let w = transaction(&mut s, &dir, fix.clone());
+        assert!(w.get("ok").is_some(), "wait {wait}: {w}");
+        drop(s);
+        contract::compile_path(&dir.join("app.contract")).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
