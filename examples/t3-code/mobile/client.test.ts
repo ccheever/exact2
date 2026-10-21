@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { mobileClient, mobileCommand, mobileNative, mobilePairingFields, mobilePairingTarget, mobilePairingUrl, mobileSnapshotRead, mobileSnapshotProjection } from './client';
+import { mobileClient, mobileCommand, mobileNative, mobilePairingFields, mobilePairingPrefill, mobilePairingTarget, mobilePairingUrl, mobileSnapshotRead, mobileSnapshotProjection } from './client';
 import { bridgeReply, ClientError, type Files, type Native } from './shared/protocol';
 import { T3Client } from './shared/client';
 import { MobileDraftClient } from './mobile-draft-recovery';
@@ -405,6 +405,42 @@ describe('pinned shared sources', () => {
 });
 
 describe('upstream mobile pairing forms', () => {
+  test('normalizes retained form prefill synchronously without validating a native target', () => {
+    const cases = [
+      ['127.0.0.1:1', 'test-local-only', 'http://127.0.0.1:1/#token=test-local-only', 'http://127.0.0.1:1', 'test-local-only'],
+      ['[::1]:3773', 'code', 'http://[::1]:3773/#token=code', 'http://[::1]:3773', 'code'],
+      [' SERVER.example:3773 ', ' a b&c ', 'https://server.example:3773/#token=a+b%26c', 'https://server.example:3773', 'a b&c'],
+      ['https://server.example/path?token=query#token=old', 'new', 'https://server.example/path?token=query#token=new', 'https://server.example', 'new'],
+      [' server.example ', '', 'server.example', 'server.example', ''],
+      ['https://server.example/path?token=query#token=%20hash%20', '', 'https://server.example/path?token=query#token=%20hash%20', 'https://server.example', ' hash '],
+      ['https://t3.codes/pair?host=https%3A%2F%2Fserver.example%2F#token=%20code%20', '', 'https://t3.codes/pair?host=https%3A%2F%2Fserver.example%2F#token=%20code%20', 'https://server.example', 'code'],
+      ['not a host', 'synthetic', 'not a host#token=synthetic', 'not a host#token=synthetic', ''],
+      ['', 'unused', '', '', ''],
+    ];
+    for (const [host, code, url, expectedHost, expectedCode] of cases) {
+      const result = mobilePairingPrefill('submit', host!, code!, 7, 'visit', 3);
+      expect(result).not.toBeInstanceOf(Promise);
+      expect(result).toEqual({ url, host: expectedHost, code: expectedCode, generation: 7, visit: 'visit', editRevision: 3, scanned: false });
+    }
+    const pastedCode = 'https://other.example/#token=code';
+    expect(mobilePairingPrefill('submit', 'server.example', pastedCode, 1, 'visit', 0)).toMatchObject({
+      host: 'https://server.example', code: pastedCode,
+    });
+  });
+  test('retains the extracted scan URL and uses the reference display parser', () => {
+    const url = 'https://t3.codes/pair?host=https%3A%2F%2Fserver.example#token=scan';
+    const nested = `t3code://connect?pairingUrl=${encodeURIComponent(url)}`;
+    expect(mobilePairingPrefill('scan', nested, '', 2, 'visit', 4)).toEqual({
+      url, host: 'https://server.example', code: 'scan', generation: 2, visit: 'visit', editRevision: 4, scanned: true,
+    });
+    expect(mobilePairingPrefill('scan', 'server.example#token=raw', '', 3, 'visit', 4))
+      .toMatchObject({ url: 'server.example#token=raw', host: 'server.example#token=raw', code: '' });
+    expect(mobilePairingPrefill('scan', 'https://server.example/?token=query#token=%20', '', 4, 'visit', 4))
+      .toMatchObject({ host: 'https://server.example', code: ' ' });
+    expect(mobilePairingPrefill('scan', 'https://t3.codes/?host=https%3A%2F%2Fserver.example&token=query#token=%20', '', 5, 'visit', 4))
+      .toMatchObject({ host: 'https://server.example', code: 'query' });
+    expect(mobilePairingPrefill('submit', nested, '', 6, 'visit', 4)).toMatchObject({ url: nested, host: 't3code://connect', code: '' });
+  });
   test('unwraps mobile QR/deep links before the shared hosted parser', () => {
     const nested = 'https://t3.codes/pair?host=https%3A%2F%2Fmy-server.example#token=one-time';
     const input = `t3code://connect?pairingUrl=${encodeURIComponent(nested)}`;

@@ -65,7 +65,7 @@ import { mobileComposerAttachmentAction, mobileComposerAttachmentPreviews } from
 import {mobileComposerAttachmentMenuAction,mobileComposerAttachmentMenuSnapshot} from './composer-attachment-menu';
 // @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#decision
 import { applyMobileComposerBehavior } from './composer-behavior';
-import { mobileClient, mobileNative, mobileSnapshotRead, mobileSnapshotProjection, mobileCommand, mobilePairingFields } from './client';
+import { mobileClient, mobileNative, mobileSnapshotRead, mobileSnapshotProjection, mobileCommand, mobilePairingFields, mobilePairingPrefill } from './client';
 import { mobileEnvironmentDetail, mobileEnvironmentDetailCommand } from './environment-detail';
 import { arr, obj, str } from './shared/domain';
 import { fleet } from './shared/settings-b-fleet';
@@ -593,6 +593,7 @@ const sources: Sources = {
     const native = sourceNative('pairingFields', args, nativeInput);
     return mobilePairingFields(String(args[0] ?? ''));
   },
+  pairingPrefill: args => mobilePairingPrefill(String(args[0]), String(args[1]), String(args[2]), Number(args[3]), String(args[4]), Number(args[5])),
   theme: (args, _store, storage, nativeInput) => {
     const native = sourceNative('theme', args, nativeInput);
     return mobileTheme(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));

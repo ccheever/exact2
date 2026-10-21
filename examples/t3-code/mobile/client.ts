@@ -52,6 +52,38 @@ export function mobilePairingFields(input: string): { source: string; host: stri
   } catch { return { source: input, host: raw, code: '' }; }
 }
 
+/** Reference mobile form prefill, independent of native pairing target validation. */
+export function mobilePairingPrefill(kind: string, host: string, code: string, generation: number, visit: string, editRevision: number) {
+  const url = kind === 'scan' ? mobilePairingUrl(host) : mobilePairingFormUrl(host, code);
+  const fields = mobilePairingFormFields(url);
+  return { url, ...fields, generation, visit, editRevision, scanned: kind === 'scan' };
+}
+
+// ConnectionsNewRouteScreen retains buildPairingUrl's value, including when connect fails.
+function mobilePairingFormUrl(host: string, code: string): string {
+  const h = host.trim(), c = code.trim();
+  if (!h || !c) return h;
+  try {
+    const url = new URL(h.includes('://') ? h : `${isIpLiteral(h) ? 'http' : 'https'}://${h}`);
+    url.hash = new URLSearchParams([['token', c]]).toString();
+    return url.toString();
+  } catch { return `${h}#token=${c}`; }
+}
+
+// The reference's display parser preserves an unhosted token's whitespace.
+function mobilePairingFormFields(input: string): { host: string; code: string } {
+  const trimmed = input.trim();
+  if (!trimmed) return { host: '', code: '' };
+  try {
+    const url = new URL(trimmed);
+    const hash = new URLSearchParams(url.hash.slice(1)).get('token') ?? '', query = url.searchParams.get('token') ?? '';
+    const hosted = url.searchParams.get('host')?.trim() ?? '', hostedCode = hash.trim() || query.trim();
+    if (hosted && hostedCode) return { host: hosted.replace(/\/$/, ''), code: hostedCode };
+    url.hash = ''; url.search = ''; url.pathname = '/';
+    return { host: url.toString().replace(/\/$/, ''), code: hash || query };
+  } catch { return { host: trimmed, code: '' }; }
+}
+
 function isIpLiteral(host: string): boolean {
   try {
     const name = new URL(`http://${host}`).hostname.replace(/^\[|\]$/g, '');

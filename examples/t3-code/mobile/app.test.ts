@@ -2,6 +2,144 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import { answer } from './app';
 import { overlayMobilePreferenceChoices } from './settings-preferences';
+import { contractComponent, value, type Env } from '../tests/support/contract-action-fixture';
+
+const pairingContract = readFileSync(new URL('./mobile-root-state.contract', import.meta.url), 'utf8');
+const pairingNames = ['pairingUiInitial', 'pairingUiVisit', 'pairingUiPreparing', 'pairingUiPreparedApplies',
+  'pairingUiPrepared', 'pairingUiPreparedReply', 'pairingUiResolved', 'pairingReplyPlan'];
+
+// Only record construction and option matching are supplied as language semantics.
+// Every transition expression and root action is read from the production Contract.
+function pairingFunctions(): Env {
+  const scope: Env = {
+    PairingUi: (base: Env, fields: Env = {}) => ({ ...base, ...fields }),
+    PairingReplyPlan: (fields: Env) => fields,
+  };
+  for (const name of pairingNames) {
+    const header = new RegExp(`^fn ${name}\\(([^\\n]*)\\):[^\\n]* = `, 'm').exec(pairingContract)!;
+    const params = [...header[1]!.matchAll(/(\w+):/g)].map(match => match[1]!);
+    const body = pairingContract.slice(header.index + header[0].length).split(/\n(?=fn |shape |\/\/)/, 1)[0]!.trim();
+    scope[name] = (...args: unknown[]) => {
+      const env = { ...scope, ...Object.fromEntries(params.map((param, index) => [param, args[index]])) };
+      const option = /^match (\w+) \{\n\s+case some\((\w+)\) => ([\s\S]*),\n\s+case none => ([\s\S]*)\n\}$/.exec(body);
+      if (!option) return value(body, env);
+      const present = env[option[1]!] !== null && env[option[1]!] !== undefined;
+      return value(option[present ? 3 : 4]!, { ...env, [option[2]!]: env[option[1]!] });
+    };
+  }
+  return scope;
+}
+
+function pairingRoot() {
+  const root = contractComponent('mobile/app.contract', 'App'), functions = pairingFunctions();
+  const initial = functions.pairingUiInitial as () => Env;
+  const commands: unknown[][] = [], preparations: Env[] = [], notices: unknown[][] = [];
+  const state: Env = { pairingUi: initial(), lastOperation: '', targetEnvironment: '', nav: [{ id: 'home', name: 'home' }] };
+  let visit = 0;
+  const scope: Env = { ...functions, taskGuardOwner: 'owner', taskGuardRoute: 'guard-route',
+    top: (nav: Env[]) => nav.at(-1), path: (name: string) => name,
+    push: (nav: Env[], name: string) => [...nav, { name, id: `visit-${++visit}` }],
+    back: (nav: Env[]) => nav.slice(0, -1),
+    command: (...args: unknown[]) => { commands.push(args); },
+    pairingPrefill: (...args: unknown[]) => {
+      const result = answer('pairingPrefill', args);
+      expect(result).not.toBeInstanceOf(Promise);
+      preparations.push(result as Env);
+    },
+    showMobileNotice: (...args: unknown[]) => { notices.push(args); },
+  };
+  const call = (name: string, ...args: unknown[]) => root.call(name, state, scope, args);
+  const ui = () => state.pairingUi as Env;
+  const settle = (prepared = preparations.at(-1)) => { scope.prepared = prepared; call('didPreparePairing'); };
+  const change = (message: string) => { scope.changed = { revision: 0, message }; call('didChange'); };
+  const reopen = () => { call('back'); call('addEnvironment'); };
+  return { state, commands, preparations, notices, call, ui, settle, change, reopen };
+}
+
+describe('mobile pairing visit and retained prefill owners', () => {
+  test('discards manual unsubmitted edits on both entry actions without preparing or sending', () => {
+    const f = pairingRoot(); f.call('addEnvironment');
+    f.call('editHost', '127.0.0.1:1'); f.call('editCode', 'test-local-only');
+    f.ui().scannerOpen = true; f.call('scan');
+    expect(f.ui()).toMatchObject({ host: '127.0.0.1:1', code: 'test-local-only', scannerOpen: false });
+    f.reopen();
+    expect(f.ui()).toMatchObject({ host: '', code: '', prefillHost: '', prefillCode: '' });
+    const connect = contractComponent('mobile/connect.contract', 'Connect');
+    expect(connect.derives({}, { host: f.ui().host, code: f.ui().code, submitting: false }).connectDisabled).toBe(true);
+    f.call('editHost', 'unsubmitted.example'); f.call('editCode', 'discard'); f.call('back');
+    f.call('detailAction', 'route-add', '', 'saved-environment');
+    expect(f.ui()).toMatchObject({ host: '', code: '' });
+    expect(f.state.targetEnvironment).toBe('saved-environment');
+    expect(f.commands).toEqual([]); expect(f.preparations).toEqual([]);
+  });
+  test('retains a scan across visits and restores it after unsubmitted manual edits', () => {
+    const f = pairingRoot(); f.call('addEnvironment');
+    const scan = 'https://scan.example/path#token=scan-code';
+    f.ui().scannerOpen = true; f.call('receiveScan', scan); f.settle();
+    expect(f.ui()).toMatchObject({ host: 'https://scan.example', code: 'scan-code', prefillUrl: scan, scannerOpen: false });
+    f.call('editHost', 'manual.example'); f.call('editCode', 'manual-code');
+    f.reopen();
+    expect(f.ui()).toMatchObject({ host: 'https://scan.example', code: 'scan-code' });
+    f.call('editHost', 'manual.example'); f.call('receiveScan', scan); f.settle();
+    expect(f.ui().host).toBe('https://scan.example');
+    expect(f.commands).toEqual([]);
+  });
+  test('retains normalized failed submit fields independently of later manual edits', () => {
+    const f = pairingRoot(); f.call('addEnvironment');
+    f.call('editHost', '127.0.0.1:1'); f.call('editCode', ' test-local-only '); f.call('connect');
+    expect(f.commands).toEqual([['environment-add', '127.0.0.1:1', ' test-local-only ', '', 'owner', 'guard-route']]);
+    f.settle(); f.change('Synthetic pairing failure');
+    expect(f.ui()).toMatchObject({ host: 'http://127.0.0.1:1', code: 'test-local-only', submitted: false, formError: 'Synthetic pairing failure' });
+    f.call('editHost', 'new-manual.example'); f.call('editCode', 'not-submitted');
+    expect(f.ui().formError).toBe('');
+    f.reopen();
+    expect(f.ui()).toMatchObject({ host: 'http://127.0.0.1:1', code: 'test-local-only', formError: '' });
+  });
+  test('an unchanged submitted URL does not normalize the current raw field edits again', () => {
+    const f = pairingRoot(); f.call('addEnvironment');
+    f.call('editHost', '127.0.0.1:1'); f.call('editCode', 'code'); f.call('connect'); f.settle(); f.change('Failure');
+    const url = f.ui().prefillUrl;
+    f.call('editHost', '127.0.0.1:1'); f.call('editCode', ' code '); f.call('connect'); f.settle();
+    expect(f.ui()).toMatchObject({ host: '127.0.0.1:1', code: ' code ', prefillUrl: url, prefillHost: 'http://127.0.0.1:1', prefillCode: 'code' });
+    expect(f.commands[1]).toEqual(['environment-add', '127.0.0.1:1', ' code ', '', 'owner', 'guard-route']);
+    f.change('Failure'); f.reopen();
+    expect(f.ui()).toMatchObject({ host: 'http://127.0.0.1:1', code: 'code' });
+  });
+  test('success clears retained fields and invalidates a normalizer that completes afterward', () => {
+    const f = pairingRoot(); f.call('detailAction', 'route-add', '', 'saved-environment');
+    f.call('editHost', 'server.example'); f.call('editCode', 'code'); f.call('connect');
+    const prepared = f.preparations.at(-1)!;
+    expect(f.commands).toEqual([['environment-add-route', 'server.example', 'code', 'saved-environment', 'owner', 'guard-route']]);
+    f.change(''); const cleared = { ...f.ui() }; f.settle(prepared);
+    expect(f.ui()).toEqual(cleared);
+    expect(f.ui()).toMatchObject({ host: '', code: '', prefillUrl: '', prefillHost: '', prefillCode: '', submitted: false });
+    expect((f.state.nav as Env[]).at(-1)?.name).toBe('home');
+    f.call('addEnvironment'); expect(f.ui()).toMatchObject({ host: '', code: '' });
+  });
+  test('a newer scan owns retained prefill before an older submit normalization completes', () => {
+    const f = pairingRoot(); f.call('addEnvironment');
+    f.call('editHost', 'old.example'); f.call('editCode', 'old-code'); f.call('connect');
+    const old = f.preparations.at(-1)!;
+    f.call('receiveScan', 'https://new.example/#token=new-code'); f.settle();
+    const scanned = { ...f.ui() }; f.settle(old);
+    expect(f.ui()).toEqual(scanned);
+    f.change('Old request failed'); f.reopen();
+    expect(f.ui()).toMatchObject({ host: 'https://new.example', code: 'new-code' });
+    expect(f.commands).toHaveLength(1);
+  });
+  test('normalization retains the submitted prefill while protecting subsequent live edits and visits', () => {
+    const f = pairingRoot(); f.call('addEnvironment');
+    f.call('editHost', 'server.example'); f.call('editCode', 'code'); f.call('connect');
+    f.call('editHost', 'new-manual.example'); f.call('editCode', 'new-manual-code'); f.settle();
+    expect(f.ui()).toMatchObject({ host: 'new-manual.example', code: 'new-manual-code', prefillHost: 'https://server.example', prefillCode: 'code' });
+    f.change('Failure'); f.reopen();
+    expect(f.ui()).toMatchObject({ host: 'https://server.example', code: 'code' });
+    f.call('editHost', 'later.example'); f.call('connect'); const oldVisit = f.preparations.at(-1)!;
+    f.reopen(); const live = { host: f.ui().host, code: f.ui().code }; f.settle(oldVisit);
+    expect(f.ui()).toMatchObject(live);
+    expect(f.ui().prefillHost).toBe('https://later.example');
+  });
+});
 
 describe('mobile pairing source', () => {
   test('keeps the copied parser identical to its declared immutable source', () => {
