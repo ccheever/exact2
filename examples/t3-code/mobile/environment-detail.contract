@@ -3,6 +3,7 @@
 use ConnectionColors from "./connect.contract"
 use EnvironmentRow, EnvironmentItem from "./environments.contract"
 use ProviderIcon from "./provider-icon.contract"
+use SettingsTextRoles, settingsRootTextBoxHeight from "./settings.contract"
 
 shape EnvironmentDetailRoute
   id: string
@@ -52,7 +53,6 @@ shape EnvironmentDetailData
   targetVersion: string
   showUpdate: bool
   manualUpdate: string
-  routesHeight: number
   routes: EnvironmentDetailRoute[]
   providers: EnvironmentDetailProvider[]
 
@@ -61,6 +61,8 @@ component EnvironmentDetail
     data: EnvironmentDetailData
     connection: EnvironmentRow
     colors: ConnectionColors
+    roles: SettingsTextRoles
+    displayScale: number
     dark: bool
     pending: bool
     toggleConnection: action
@@ -71,6 +73,15 @@ component EnvironmentDetail
     action: action
   state connectionExpanded = false
   state editingRoutes = false
+  // The list viewport is the sum of its single-line rows, including the icon and compact badge.
+  derive routeLabelHeight = settingsRootTextBoxHeight(roles.headline.line, displayScale)
+  derive routeBadgeHeight = settingsRootTextBoxHeight(roles.caption.line, displayScale) + 7
+  derive routeAddressHeight = settingsRootTextBoxHeight(roles.footnote.line, displayScale)
+  derive routePlainHeight = 28 + max(22, routeLabelHeight)
+  derive routeActiveHeight = 28 + max(22, max(routeLabelHeight, routeBadgeHeight))
+  derive routeAddressedHeight = 28 + max(22, routeLabelHeight + 1.75 + routeAddressHeight)
+  derive routeActiveAddressedHeight = 28 + max(22, max(routeLabelHeight, routeBadgeHeight) + 1.75 + routeAddressHeight)
+  derive routesHeight = data.routes.filter(route => not route.active and route.address.length == 0).length * routePlainHeight + data.routes.filter(route => route.active and route.address.length == 0).length * routeActiveHeight + data.routes.filter(route => not route.active and route.address.length > 0).length * routeAddressedHeight + data.routes.filter(route => route.active and route.address.length > 0).length * routeActiveAddressedHeight
   action expandConnection(id: string)
     connectionExpanded = not connectionExpanded
   action reorderRoute(id: string, before: option<string>)
@@ -89,10 +100,10 @@ component EnvironmentDetail
       font-family="DM Sans"
       testId="environment-detail"
       if not data.found
-        text "This environment is no longer saved on this device." font-size=16 color=colors.muted
+        text "This environment is no longer saved on this device." font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.muted
       else
         column gap=7
-          DetailSectionTitle(label="Connection", colors=colors)
+          DetailSectionTitle(label="Connection", colors=colors, roles=roles)
           column border-radius=24 corner-shape="-exact-continuous" background-color=colors.groupedCard overflow="hidden"
             EnvironmentItem(
               environment=connection,
@@ -103,11 +114,13 @@ component EnvironmentDetail
               reconnect=reconnect,
               remove=remove,
               save=save,
-              colors=colors
+              colors=colors,
+              roles=roles,
+              displayScale=displayScale
             )
         column gap=7
           row align-items="center" justify-content="space-between"
-            DetailSectionTitle(label="Routes", colors=colors)
+            DetailSectionTitle(label="Routes", colors=colors, roles=roles)
             if data.routes.length > 1
               button press=editRoutes
                 padding-left=7
@@ -115,15 +128,15 @@ component EnvironmentDetail
                 padding-top=3.5
                 padding-bottom=3.5
                 testId="environment-routes-edit"
-                text (editingRoutes ? "Done" : "Edit") font-size=14
-                  line-height="19px"
+                text (editingRoutes ? "Done" : "Edit") font-size=roles.footnote.size
+                  line-height=`${roles.footnote.line}px`
                   font-weight=500
                   color=colors.foreground
           column border-radius=24 corner-shape="-exact-continuous" background-color=colors.groupedCard overflow="hidden"
             list id="mobile-environment-routes"
               reorderdrop=reorderRoute
               virtualized=true
-              height=data.routesHeight
+              height=routesHeight
               estimated-item-height=71.75
               width="100%"
               overflow-x="hidden"
@@ -157,17 +170,22 @@ component EnvironmentDetail
                       symbol-tint=colors.foreground
                       width=22
                       height=22
+                      flex-shrink=0
                     column flex=1 min-width=0 gap=1.75
                       row gap=7 align-items="center"
-                        text route.label font-size=18
-                          line-height="23px"
+                        text route.label font-size=roles.headline.size
+                          line-height=`${roles.headline.line}px`
+                          min-height=routeLabelHeight
+                          min-width=0
                           color=colors.foreground
                           line-clamp=1
                           text-overflow="ellipsis"
                           flex-shrink=1
                         if route.active
-                          text "In use" font-size=12
-                            line-height="16px"
+                          text "In use" font-size=roles.caption.size
+                            line-height=`${roles.caption.line}px`
+                            min-height=settingsRootTextBoxHeight(roles.caption.line, displayScale)
+                            flex-shrink=0
                             font-weight=700
                             color="light-dark(oklch(50.8% 0.118 165.612), oklch(84.5% 0.143 164.978))"
                             background-color="light-dark(oklch(69.6% 0.17 162.48 / 12%), oklch(69.6% 0.17 162.48 / 16%))"
@@ -177,8 +195,9 @@ component EnvironmentDetail
                             padding-top=3.5
                             padding-bottom=3.5
                       if route.address.length > 0
-                        text (route.learned ? `${route.address} · found automatically` : route.address) font-size=14
-                          line-height="19px"
+                        text (route.learned ? `${route.address} · found automatically` : route.address) font-size=roles.footnote.size
+                          line-height=`${roles.footnote.line}px`
+                          min-height=routeAddressHeight
                           color=colors.muted
                           line-clamp=1
                           text-overflow="ellipsis"
@@ -203,36 +222,38 @@ component EnvironmentDetail
               disabled=pending,
               press=action("route-add", data.key, data.environmentId),
               colors=colors,
+              roles=roles,
               rowId="environment-route-add"
             )
         if data.permissionNote.length > 0
-          DetailMessage(message=data.permissionNote, error=false, colors=colors)
+          DetailMessage(message=data.permissionNote, error=false, colors=colors, roles=roles)
         if data.error.length > 0
-          DetailMessage(message=data.error, error=true, colors=colors)
+          DetailMessage(message=data.error, error=true, colors=colors, roles=roles)
         if data.notice.length > 0
-          DetailMessage(message=data.notice, error=false, colors=colors)
+          DetailMessage(message=data.notice, error=false, colors=colors, roles=roles)
         if data.configPresent
           column gap=7
-            DetailSectionTitle(label="T3 Code", colors=colors)
+            DetailSectionTitle(label="T3 Code", colors=colors, roles=roles)
             column border-radius=24 corner-shape="-exact-continuous" background-color=colors.groupedCard overflow="hidden"
               column padding=14 gap=3.5
-                text `Version ${data.version}` font-size=16
-                  line-height="23px"
+                text `Version ${data.version}` font-size=roles.body.size
+                  line-height=`${roles.body.line}px`
                   color=colors.foreground
                 if data.updateMessage.length > 0
-                  text data.updateMessage font-size=14
-                    line-height="19px"
+                  text data.updateMessage font-size=roles.footnote.size
+                    line-height=`${roles.footnote.line}px`
                     color=(data.updateFailed ? colors.dangerForeground : colors.muted)
                 if data.releaseMessage.length > 0
-                  text data.releaseMessage font-size=14 line-height="19px" color=colors.muted
+                  text data.releaseMessage font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
                 if data.manualUpdate.length > 0
-                  text data.manualUpdate font-size=14 line-height="19px" color=colors.muted
+                  text data.manualUpdate font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
               DetailActionRow(
                 label="Check for updates",
                 icon="arrow.clockwise",
                 disabled=data.disabled or pending,
                 press=action("check-updates", data.key, ""),
                 colors=colors,
+                roles=roles,
                 rowId="environment-check-updates"
               )
               if data.showUpdate
@@ -242,10 +263,11 @@ component EnvironmentDetail
                   disabled=data.disabled or pending,
                   press=action("update-server", data.key, ""),
                   colors=colors,
+                  roles=roles,
                   rowId="environment-update"
                 )
           column gap=7
-            DetailSectionTitle(label="Providers", colors=colors)
+            DetailSectionTitle(label="Providers", colors=colors, roles=roles)
             column border-radius=24 corner-shape="-exact-continuous" background-color=colors.groupedCard overflow="hidden"
               DetailActionRow(
                 label="Refresh providers",
@@ -253,6 +275,7 @@ component EnvironmentDetail
                 disabled=data.refreshDisabled or pending,
                 press=action("refresh-providers", data.key, ""),
                 colors=colors,
+                roles=roles,
                 rowId="environment-refresh-providers"
               )
               for provider in data.providers key = provider.id
@@ -260,22 +283,24 @@ component EnvironmentDetail
                   column padding=14 gap=3.5
                     row align-items="center" gap=7
                       ProviderIcon(driver=provider.driver, size=18, dark=dark, iconUrl="")
-                      text provider.label font-size=16
-                        line-height="23px"
+                      text provider.label font-size=roles.body.size
+                        line-height=`${roles.body.line}px`
+                        min-width=0
+                        flex=1
                         font-weight=500
                         color=colors.foreground
-                    text provider.version font-size=14 line-height="19px" color=colors.muted
+                    text provider.version font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
                     if provider.updateMessage.length > 0
-                      text provider.updateMessage font-size=14
-                        line-height="19px"
+                      text provider.updateMessage font-size=roles.footnote.size
+                        line-height=`${roles.footnote.line}px`
                         color=(provider.updateFailed ? colors.dangerForeground : colors.muted)
                     if provider.compatibility.length > 0
-                      text provider.compatibility font-size=14 line-height="19px" color=colors.muted
+                      text provider.compatibility font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
                     if provider.message.length > 0
-                      text provider.message font-size=14 line-height="19px" color=colors.muted
+                      text provider.message font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
                     if provider.manualUpdate
-                      text "Update this provider on the environment's machine." font-size=14
-                        line-height="19px"
+                      text "Update this provider on the environment's machine." font-size=roles.footnote.size
+                        line-height=`${roles.footnote.line}px`
                         color=colors.muted
                   if provider.canUpdate
                     DetailActionRow(
@@ -284,6 +309,7 @@ component EnvironmentDetail
                       disabled=provider.disabled or pending,
                       press=action("update-provider", data.key, provider.id),
                       colors=colors,
+                      roles=roles,
                       rowId=`environment-update-provider-${provider.id}`
                     )
 
@@ -291,11 +317,12 @@ component DetailSectionTitle
   props
     label: string
     colors: ConnectionColors
+    roles: SettingsTextRoles
   view
     text label padding-left=7
       padding-right=7
-      font-size=14
-      line-height="19px"
+      font-size=roles.footnote.size
+      line-height=`${roles.footnote.line}px`
       font-weight=500
       color=colors.muted
 
@@ -304,11 +331,12 @@ component DetailMessage
     message: string
     error: bool
     colors: ConnectionColors
+    roles: SettingsTextRoles
   view
     text message padding-left=7
       padding-right=7
-      font-size=14
-      line-height="19px"
+      font-size=roles.footnote.size
+      line-height=`${roles.footnote.line}px`
       color=(error ? colors.dangerForeground : colors.muted)
 
 component DetailActionRow
@@ -319,6 +347,7 @@ component DetailActionRow
     press: action
     colors: ConnectionColors
     rowId: string
+    roles: SettingsTextRoles
   view
     button press=press
       disabled=disabled
@@ -332,4 +361,4 @@ component DetailActionRow
           symbol-tint=colors.foreground
           width=22
           height=22
-        text label font-size=18 line-height="23px" color=colors.foreground flex=1
+        text label font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground flex=1
