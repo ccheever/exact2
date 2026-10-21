@@ -1314,8 +1314,8 @@ impl StyleProps {
             width: self.max_width.floor_lpa(env),
             height: self.max_height.floor_lpa(env),
         };
-        s.aspect_ratio = self.aspect_ratio.preferred();
-        s.aspect_ratio_content_box = self.aspect_ratio.content_box();
+        s.aspect_ratio = self.rare.aspect_ratio.preferred();
+        s.aspect_ratio_content_box = self.rare.aspect_ratio.content_box();
 
         s.inset = if self.position_type == PositionType::Sticky {
             let auto = taffy::style::LengthPercentageAuto::auto();
@@ -1452,7 +1452,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // (with or without a fallback ratio, or a degenerate one): CSS sizes an
     // `<img>` with one dimension given from the other by that ratio. Only a
     // plain `<ratio>` overrides it; natural ratios are of the content box.
-    if arena.node_type(slot).is_replaced() && arena.style(slot).aspect_ratio.defers_to_natural() {
+    if arena.node_type(slot).is_replaced()
+        && arena.style(slot).rare.aspect_ratio.defers_to_natural()
+    {
         if let Some((w, h)) = arena.intrinsic(slot) {
             if w > 0.0 && h > 0.0 {
                 s.aspect_ratio = Some(w / h);

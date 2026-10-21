@@ -2761,6 +2761,7 @@
       "bit": 30,
       "field": "aspect_ratio",
       "snapshot": "admit",
+      "rare": true,
       "terminal": "admit",
       "codec": "aspect-ratio",
       "layout": true,
@@ -3923,6 +3924,7 @@
     {
       "bit": 181,
       "field": "column_width",
+      "rare": true,
       "codec": "dimension",
       "admitsAuto": true,
       "refusesPercent": true,
@@ -4106,6 +4108,7 @@
     {
       "bit": 205,
       "field": "placeholder_color",
+      "rare": true,
       "codec": "color",
       "default": 0,
       "_comment": "@ref LLP 1104 D3: CSS `::placeholder { color }`, written as Contract's `::placeholder` part block on a text field (`input` of a text type, `textarea`). An unset mask (the default, 0, is never read) is the platform's own placeholder colour: UIKit's placeholderText, AppKit's placeholderTextColor, the browser's UA `::placeholder`. Its own alpha is the only opacity. Not inherited (it is the field's own part)."

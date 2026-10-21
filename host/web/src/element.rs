@@ -70,7 +70,7 @@ fn content_tall(b: &NodeFacts<'_>, outer: Option<&NodeFacts<'_>>) -> bool {
     };
     let sized = s.height != Dimension::Auto
         || s.min_height != Dimension::Auto
-        || s.aspect_ratio != Default::default()
+        || s.rare.aspect_ratio != Default::default()
         || s.position_type == PositionType::Absolute;
     !sized
         && match (o.display, o.flex_direction) {
@@ -346,7 +346,7 @@ fn canvas_css(node: &NodeFacts<'_>, css: &mut String) {
     if !height {
         css.push_str("contain-intrinsic-size:300px 150px;");
     }
-    if style.aspect_ratio.defers_to_natural() {
+    if style.rare.aspect_ratio.defers_to_natural() {
         css.push_str("aspect-ratio:auto 2/1;");
     }
     if !given(StyleId::MinHeight, style.min_height) {
