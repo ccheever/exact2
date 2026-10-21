@@ -1574,7 +1574,7 @@ Android's reader and the terminal.
     `radius.sm/md/lg/full`, each base value from an existing metric or measured, never a
     multiplier, in px/points with no Dynamic Type scaling; an app may override a base name, a
     package may not; only the listed names are reserved; package components stay stage 12's.
-12. **A component library**: `.contract` packages over Tamber, with params (D15) as their
+12. **A component library** (*closed 2026-10-21; LLP 1139, its gate met, §10 there*): `.contract` packages over Tamber, with params (D15) as their
     tweakable surface and anatomy as checked data, keeping exact1 Facet's rule, "a recipe
     styles parts; it never forecloses slots". Its own RFC. **Gate:** set by that RFC; its
     first consumer is named before it starts.
