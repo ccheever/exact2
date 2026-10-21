@@ -396,6 +396,28 @@ describe('a composer reference is one unit', () => {
     input(outside, 'insertText', end, 'x');
     expect(outside.suppressed).toBe(0);
   });
+  test('text put over a selection that holds it replaces the whole selection, its source included', () => {
+    for (const [inputType, from, to, expected] of [
+      ['insertText', 0, draft.length, 'z'],
+      ['insertText', 2, start + 3, 'sez now'],
+      ['insertText', start - 1, end + 1, 'seeznow'],
+      ['insertFromPaste', 0, draft.length, 'z'],
+      ['insertReplacementText', start, end, 'see z now'],
+      ['insertFromDrop', start, end + 4, 'see z'],
+    ] as const) {
+      const f = fixture(draft, from);
+      f.state.composerSelectionEnd = to;
+      f.call('composerBeforeInput', [{value: draft, selectionStart: from, selectionEnd: to, isComposing: false, cancelable: true, inputType, data: 'z'}], {richComposer: {...f.projection, blocks: []}});
+      expect(f.suppressed).toBe(1);
+      settle(f);
+      expect(f.commands).toHaveLength(1);
+      expect([f.state.draft, f.state.composerSelectionStart]).toEqual([expected, expected.indexOf('z') + 1]);
+    }
+    const plain = fixture(draft, 0);
+    plain.state.composerSelectionEnd = 3;
+    plain.call('composerBeforeInput', [{value: draft, selectionStart: 0, selectionEnd: 3, isComposing: false, cancelable: true, inputType: 'insertText', data: 'z'}], {richComposer: {...plain.projection, blocks: []}});
+    expect(plain.suppressed).toBe(0);
+  });
   test('a caret inside it goes to the nearer edge of its shown label; a range takes it whole', () => {
     const moved = (from: number, to: number, toEnd = to) => {
       const f = fixture(draft, from);
