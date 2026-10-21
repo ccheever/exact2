@@ -1,0 +1,214 @@
+// AddProjectToMachineDialog (T3 Code 74541bab17, MIT; see LICENSE-T3), opened from the
+// Run on menus' "Add to another machine" (composer-controls.contract, shell-details.contract,
+// git.contract). add-project-dialog.ts serves it: the fields are `shelllocal:add-machine-*`,
+// "Clone to <machine>" is `add-machine-submit`; Cancel, Escape and the backdrop close it.
+use AddMachine, AddMachineFile from "./add-project-machine-shapes.contract"
+use ShellIcon from "./shell-icons.contract"
+use CnMachineIcon from "../settings/settings-b-kit.contract"
+use FocusGuard from "../shared/dialog-trap.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
+use CnMenu, CnMenuItem from "../settings/settings-b-kit.contract"
+use KmItem, kmOpenKey, kmTriggerKey, kmTriggerTarget from "../shared/menu-keys.contract"
+use RunOnOption from "../details/git-shapes.contract"
+
+// DialogPopup sm:max-w-xl: the machines either side of "git clone", Clone over, the folder,
+// and the ignored files to copy.
+component AddMachineDialog
+  inject
+    dialogEntered: action
+    dialogFallback: action
+  props
+    dialog: AddMachine
+    viewportWidth: number
+    dark: bool
+    command: action
+  derive width = min(576, viewportWidth - 32)
+  // Base UI's trap order: the machine Select, the protocol toggles, the folder, the file controls, the footer, the X.
+  derive dialogTargets = ["add-machine-target", "add-machine-protocol-ssh", "add-machine-protocol-https", "add-machine-path", "add-machine-cancel", "add-machine-submit", "add-machine-close"]
+  action close
+    command("shelllocal:add-machine-close", "", "", 0)
+  action editPath(value: string)
+    command("shelllocal:add-machine-path", "", value, 0)
+  action pickTarget(value: string)
+    command("shelllocal:add-machine-target", "", value, 0)
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="add-machine-overlay"
+      button press=close aria-label="Close" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="add-machine-backdrop" title=""
+      column width=width max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label="Add to another machine" testId="add-machine-dialog" id="add-machine-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("add-machine-dialog") key=dialogFallback("add-machine-dialog", dialogTargets)
+        FocusGuard(guardId="add-machine-guard-start", targets=dialogTargets, popup="add-machine-dialog")
+        // DialogPopup's initial focus: its first tabbable control.
+        DialogOpenFocus(target=(dialog.targets.length > 1 ? "add-machine-target" : dialog.protocolShown ? "add-machine-protocol-ssh" : "add-machine-path"))
+        column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
+          text "Add to another machine" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text dialog.description font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="add-machine-description"
+        scroll width="100%" min-height=0 flex-shrink=1
+          column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box"
+            // grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]: the source, "git clone" over an arrow (w-28), the target.
+            row gap="0.75rem" align-items="center" testId="add-machine-route"
+              column flex=1 min-width=0 gap="0.25rem"
+                row min-width=0 gap="0.375rem" align-items="center"
+                  CnMachineIcon(kind=dialog.sourceMachine, size=14, color="light-dark(#27272a, #f5f5f5)")
+                  text dialog.sourceLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 testId="add-machine-source"
+                MiddlePath(head=dialog.sourceHead, tail=dialog.sourceTail, full=dialog.sourcePath, testId="add-machine-source-path")
+              column width="7rem" flex-shrink=0 gap="0.125rem" align-items="center"
+                text "git clone" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+                row width="100%" align-items="center"
+                  box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff14)"
+                  box display="flex" margin-left="-0.25rem"
+                    ShellIcon(name="arrow-right", size=14, color="light-dark(#71717b, #818181)")
+                text dialog.fileSummary font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="add-machine-file-summary"
+              column flex=1 min-width=0 gap="0.25rem"
+                if dialog.targets.length > 1
+                  AddMachineTargetSelect(dialog=dialog, command=command)
+                else
+                  row min-width=0 gap="0.375rem" align-items="center"
+                    if dialog.targetShown
+                      CnMachineIcon(kind=dialog.targetMachine, size=14, color="light-dark(#27272a, #f5f5f5)")
+                    text dialog.targetLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 testId="add-machine-target-label"
+                MiddlePath(head=dialog.destinationHead, tail=dialog.destinationTail, full=dialog.destination, testId="add-machine-destination")
+            column gap="0.375rem"
+              text "Clone over" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              if dialog.protocolShown
+                // ToggleGroup "Clone protocol": SSH, HTTPS.
+                row align-self="flex-start" padding="0.125rem" gap="0.125rem" box-sizing="border-box" border-radius="0.5rem" background-color="light-dark(#f4f4f5, #ffffff0a)" role="group" aria-label="Clone protocol" testId="add-machine-protocol"
+                  ProtocolToggle(value="ssh", label="SSH", on=(dialog.protocol == "ssh"), command=command)
+                  ProtocolToggle(value="https", label="HTTPS", on=(dialog.protocol == "https"), command=command)
+              text dialog.remoteUrl font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" testId="add-machine-remote"
+            column gap="0.375rem"
+              text dialog.folderLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              input id="add-machine-path" testId="add-machine-path" value=dialog.destination input=editPath submit=command("add-machine-submit", "", "", 0) aria-label=dialog.folderLabel autocorrect="off" spellcheck="false" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" data-focus-stop="enabled" data-editable="yes"
+            if dialog.canListFiles
+              column gap="0.375rem" testId="add-machine-files"
+                row gap="0.5rem" align-items="center" min-height="1.5rem"
+                  text "Copy ignored files" flex=1 font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                  if dialog.allLabel != ""
+                    text dialog.countLabel font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" testId="add-machine-count"
+                    button press=command("shelllocal:add-machine-all", "", "", 0) testId="add-machine-all" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" align-items="center"
+                      text dialog.allLabel font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+                if dialog.files.length == 0
+                  text dialog.filesNote font-size="0.75rem" line-height="1rem" color=(dialog.filesError ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)") testId="add-machine-files-note"
+                else
+                  scroll max-height="13rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" testId="add-machine-file-list"
+                    for file in dialog.files key=file.path
+                      IgnoredFileRow(file=file, command=command)
+                if dialog.truncatedNote != ""
+                  text dialog.truncatedNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+                text "Files are copied after the clone finishes. Folders git ignores whole, like node_modules, are left out." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+            if dialog.error != ""
+              text dialog.error font-size="0.875rem" line-height="1.25rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="add-machine-error"
+        row gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
+          button id="add-machine-cancel" press=close testId="add-machine-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" data-focus-stop="enabled"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          button id="add-machine-submit" press=command("add-machine-submit", "", "", 0) disabled=(not dialog.canSubmit) testId="add-machine-submit" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(dialog.canSubmit ? 1 : 0.64) background-color="light-dark(#1b4ed8, #346bf1)" data-focus-stop=(dialog.canSubmit ? "enabled" : "")
+            text dialog.submitLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff" white-space="nowrap"
+        button id="add-machine-close" press=close aria-label="Close" testId="add-machine-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+          ShellIcon(name="x", size=16, color="light-dark(#71717b, #818181)")
+        FocusGuard(guardId="add-machine-guard-end", targets=dialogTargets, popup="add-machine-dialog")
+
+// One Toggle of the Clone protocol group.
+component ProtocolToggle
+  props
+    value: string
+    label: string
+    on: bool
+    command: action
+  view
+    button id=`add-machine-protocol-${value}` press=command("shelllocal:add-machine-protocol", "", value, 0) role="radio" aria-checked=on testId=`add-machine-protocol-${value}` data-focus-stop="enabled" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-width=0 border-radius="0.375rem" background-color=(on ? "light-dark(#ffffff, #ffffff14)" : "#00000000") display="flex" align-items="center" justify-content="center"
+      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(on ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+
+// IgnoredFileRow: a checkbox, the path and its size; a file over 1 MB is disabled ("Over 1 MB").
+component IgnoredFileRow
+  props
+    file: AddMachineFile
+    command: action
+  view
+    button press=command("shelllocal:add-machine-file", file.path, (file.checked ? "false" : "true"), 0) disabled=file.disabled role="checkbox" aria-checked=file.checked aria-label=file.path testId=`add-machine-file-${file.path}` width="100%" min-height="2rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.5rem" box-sizing="border-box" border-width=0 border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="#00000000" opacity=(file.disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+      box width="1rem" height="1rem" flex-shrink=0 box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=1 border-color=(file.checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(file.checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff07)") display="flex" align-items="center" justify-content="center"
+        if file.checked
+          ShellIcon(name="check", size=12, color="#ffffff")
+      text file.path flex=1 min-width=0 text-align="left" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      text file.size flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+
+// BranchToolbar's "Add to another machine" MenuSubTrigger and its MenuSubPopup of machines, under the Run on
+// rows of the composer's menu and the details panel's: muted until highlighted (ADD_TO_MACHINE_LABEL_CLASS),
+// opened by hovering it, pressing it, Return, Space or ArrowRight (Base UI's submenu), which focuses the first machine.
+component AddMachineSubmenu
+  inject
+    rem: number
+  props
+    rowId: string
+    targets: RunOnOption[]
+    width: number
+    // Called with a machine's environment id.
+    choose: action
+  state lit = false
+  derive menuId = `${rowId}-menu`
+  derive items = targets.map((target) => KmItem(id=`${rowId}-${target.id}`, label=target.label))
+  action opened
+    showPopover(menuId, source=rowId)
+  action hover(over: bool)
+    if over
+      focus(rowId)
+      showPopover(menuId, source=rowId)
+  action focused(on: bool)
+    lit = on
+  action rowKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and (kmOpenKey(k) or k == "ArrowRight")
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover(menuId, source=rowId)
+        let target = kmTriggerTarget(items, k)
+        if target != ""
+          focus(target)
+  view
+    column position="relative" width="100%"
+      button id=rowId popovertarget=menuId popovertargetaction="show" hover=hover focus=focused(true) blur=focused(false) key=rowKey role="menuitem" aria-haspopup="menu" testId=rowId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        row flex=1 min-width=0 gap="0.375rem" align-items="center" opacity=(lit ? 1 : 0.55)
+          ShellIcon(name="plus", size=12, color="light-dark(#27272a, #f5f5f5)")
+          text "Add to another machine" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" min-width=0 overflow="hidden" text-overflow="ellipsis" text-align="left"
+        ShellIcon(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)")
+      CnMenu(menuId=menuId, invoker=rowId, label="Add to another machine", width=width, area="right span-bottom", items=items, keyed=0)
+        for target in targets key=target.id
+          CnMenuItem(keysId=`${menuId}-keys`, label=target.label, menuId=menuId, itemId=`${rowId}-${target.id}`, destructive=false, disabled=false, radio=false, highlighted=false, note="", icon=target.machine, submenu="", choose=choose(target.id))
+
+// The dialog's machine Select (ui/select size="sm"): the chosen machine's icon and label, its popup listing
+// every machine with its icon, the chosen one highlighted.
+component AddMachineTargetSelect
+  props
+    dialog: AddMachine
+    command: action
+  derive items = dialog.targets.map((target) => KmItem(id=`add-machine-target-${target.id}`, label=target.label))
+  action pick(id: string)
+    command("shelllocal:add-machine-target", "", id, 0)
+  action triggerKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover("add-machine-target-menu", source="add-machine-target")
+        let target = kmTriggerTarget(items, k)
+        if target != ""
+          focus(target)
+  view
+    box position="relative" flex=1 min-width=0
+      button id="add-machine-target" popovertarget="add-machine-target-menu" key=triggerKey role="combobox" aria-label="Machine to add the project to" testId="add-machine-target" display="flex" flex-direction="row" align-items="center" gap="0.375rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" data-focus-stop="enabled"
+        CnMachineIcon(kind=dialog.targetMachine, size=14, color="light-dark(#27272a, #f5f5f5)")
+        text dialog.targetLabel font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 line-clamp=1 text-align="left" color="light-dark(#27272a, #f5f5f5)"
+        ShellIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
+      CnMenu(menuId="add-machine-target-menu", invoker="add-machine-target", label="Machine to add the project to", width=dialog.targetMenuWidth, area="bottom span-right", items=items, keyed=0)
+        for target in dialog.targets key=target.id
+          CnMenuItem(keysId="add-machine-target-menu-keys", label=target.label, menuId="add-machine-target-menu", itemId=`add-machine-target-${target.id}`, destructive=false, disabled=false, radio=false, highlighted=target.selected, note="", icon=target.machine, submenu="", choose=pick(target.id))
+
+// MiddleTruncate: the head ellipsizes and the tail (splitForMiddleTruncate) always shows.
+component MiddlePath
+  props
+    head: string
+    tail: string
+    full: string
+    testId: string
+  view
+    row min-width=0 max-width="100%" overflow="hidden" title=full testId=testId
+      text head font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 flex-shrink=1
+      if tail != ""
+        text tail font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0

@@ -53,6 +53,13 @@ describe('the servers the router sees (prEnvironments)', () => {
     expect(prEnvironments(client).map(environment => [environment.id, environment.permission, environment.local, environment.connected])).toEqual([
       ['env-a', 'read', false, true], ['env-b', 'read-write', true, true]]);
   });
+  // pullRequestRouting.ts routingAllowed (#15052): an unsupported server keeps its switch but routes nothing.
+  test('a server this client does not support is not routed through, though it stays switched on', () => {
+    const { client } = setup('http://10.0.0.5:3773', { a: 'read', b: 'read-write' });
+    fleet.entries.get(KEY_B)!.phase = 'unsupported';
+    expect(prEnvironments(client).find(environment => environment.id === 'env-b')?.enabled).toBe(false);
+    expect(fleet.saved.find(entry => entry.environmentId === 'env-b')?.enabled).toBe(true);
+  });
   test('an address that changed since sharing was set reads "off" (trust belongs to the saved endpoint)', () => {
     const { client } = setup('http://10.0.0.5:3773', { a: 'read', b: 'read-write' });
     fleet.saved = [{ origin: 'http://10.0.0.5:3773', environmentId: 'env-a' }, { origin: 'http://127.0.0.1:16999', environmentId: 'env-b' }];

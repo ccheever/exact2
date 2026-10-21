@@ -1,7 +1,7 @@
 // Tracked project clones (MIT reference, see LICENSE-T3; T3 Code 1e2ecbd975:
-// packages/contracts/src/projectClone.ts projectCloneDisplayName / projectCloneProgressSummary,
-// apps/web/src/components/ProjectCloneToastCoordinator.tsx, the clone banner and send block of
-// components/ChatView.tsx). The toast coordinator and the banner are pure functions of the
+// packages/contracts/src/projectClone.ts projectCloneDisplayName / projectCloneProgressSummary;
+// T3 Code 74541bab17: apps/web/src/components/ProjectCloneToastCoordinator.tsx, the clone and
+// file-copy banner and send block of components/ChatView.tsx). The toast coordinator and the banner are pure functions of the
 // environment's clone list and the viewed draft; the toast queue is reached through a port so
 // the state machine runs in tests. Changes: an action button closes its toast here (toast.ts),
 // so a toast the user did not dismiss with × comes back when its clone changes.
@@ -30,20 +30,30 @@ export function projectCloneProgressSummary(snapshot: Obj): string {
   return parts.join(' · ');
 }
 
-/** ChatView projectCloneSendBlockReason. */
-export function projectCloneSendBlockReason(clone: Obj | null | undefined): string {
-  if (!clone) return '';
-  return clone.phase === 'running' ? 'Cloning repository' : clone.phase === 'done' ? '' : 'Repository not cloned';
+/** What the composer knows of an ignored-file copy owed to the project (add-project-machine.ts ProjectFileCopy). */
+export type FileCopyState = { phase: 'copying' } | { phase: 'failed'; title: string; failures: string[] };
+
+/** ChatView projectCloneSendBlockReason: the clone first, then the ignored files copied after it. */
+export function projectCloneSendBlockReason(clone: Obj | null | undefined, fileCopy: FileCopyState | null = null): string {
+  if (clone?.phase === 'running') return 'Cloning repository';
+  if (clone && clone.phase !== 'done') return 'Repository not cloned';
+  return fileCopy?.phase === 'copying' ? 'Copying files' : '';
 }
 
-export type CloneBanner = { id: string; variant: string; title: string; description: string; action: string; actionLabel: string; action2: string; action2Label: string };
-/** ChatView projectCloneBannerItem: running (Cancel), cancelled / failed (Remove project, Retry). */
-export function projectCloneBanner(clone: Obj | null | undefined): CloneBanner | null {
+export type CloneBanner = { id: string; variant: string; title: string; description: string; action: string; actionLabel: string; action2: string; action2Label: string; dismiss: string; dismissLabel: string };
+/**
+ * ChatView projectCloneBannerItem: a failed file copy (dismissable) leads; then running (Cancel), cancelled /
+ * failed (Remove project, Retry).
+ */
+export function projectCloneBanner(clone: Obj | null | undefined, fileCopy: FileCopyState | null = null, projectId = ''): CloneBanner | null {
+  const none = { action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '' };
+  if (fileCopy?.phase === 'failed') return { ...none, id: `project-file-copy:${projectId}`, variant: 'error', title: fileCopy.title, description: fileCopy.failures.join('\n'),
+    dismiss: 'shelllocal:add-machine-copy-dismiss', dismissLabel: 'Dismiss' };
   if (!clone || clone.phase === 'done') return null;
   const name = projectCloneDisplayName(clone), id = `project-clone:${str(clone.projectId)}`;
-  if (clone.phase === 'running') return { id, variant: 'info', title: `Cloning ${name}`, description: projectCloneProgressSummary(clone), action: 'shell:clone-cancel', actionLabel: 'Cancel', action2: '', action2Label: '' };
+  if (clone.phase === 'running') return { ...none, id, variant: 'info', title: `Cloning ${name}`, description: projectCloneProgressSummary(clone), action: 'shell:clone-cancel', actionLabel: 'Cancel' };
   const cancelled = clone.phase === 'cancelled';
-  return { id, variant: cancelled ? 'warning' : 'error', title: cancelled ? `Cancelled cloning ${name}` : `Failed to clone ${name}`,
+  return { ...none, id, variant: cancelled ? 'warning' : 'error', title: cancelled ? `Cancelled cloning ${name}` : `Failed to clone ${name}`,
     description: cancelled ? 'Retry to bring in the repository.' : str(clone.error), action: 'shell:clone-remove', actionLabel: 'Remove project', action2: 'shell:clone-retry', action2Label: 'Retry' };
 }
 
@@ -73,22 +83,30 @@ export function cloneToast(clone: Obj, environmentId: string): CloneToast {
     action: act('Retry', 'shell:clone-retry'), secondary: act('Remove project', 'shell:clone-remove'), hideCopy: cancelled };
 }
 
+/** The clones whose progress stays out of toasts (add-project-machine.ts silenceProjectCloneToasts). */
+export type Silenced = { has(projectId: string): boolean; add(projectId: string): void };
+const NONE_SILENCED: Silenced = { has: () => false, add: () => {} };
+
 /**
  * EnvironmentCloneToasts' effect, one pass: a toast per clone keyed by project, an identical
- * redraw skipped, the toast stepping aside while that project's draft is viewed, and a clone
+ * redraw skipped, the toast stepping aside while that project's draft is viewed (which silences
+ * its progress for good), a silenced clone's progress and success kept out of toasts, and a clone
  * that leaves the list taking its toast with it unless it settled into the timed success toast.
  */
-export function syncCloneToasts(tracked: Map<string, TrackedToast>, clones: Obj[], environmentId: string, viewingProjectId: string, port: ToastPort): void {
+export function syncCloneToasts(tracked: Map<string, TrackedToast>, clones: Obj[], environmentId: string, viewingProjectId: string, port: ToastPort, silenced: Silenced = NONE_SILENCED): void {
   const seen = new Set<string>();
   for (const clone of clones) {
     const projectId = str(clone.projectId);
     seen.add(projectId);
     const key = renderKey(clone), current = tracked.get(projectId);
+    const closeToast = () => { if (current) { port.close(current.toastId); tracked.delete(projectId); } };
     if (projectId === viewingProjectId) {
-      if (current) { port.close(current.toastId); tracked.delete(projectId); }
+      silenced.add(projectId);
+      closeToast();
       continue;
     }
     if (current?.renderedKey === key) continue;
+    if (silenced.has(projectId) && (clone.phase === 'running' || clone.phase === 'done')) { closeToast(); continue; }
     const toast = cloneToast(clone, environmentId);
     // The entry is the one the toast's onClose holds, so it changes in place.
     if (current && (current.dismissed || port.live(current.toastId))) {

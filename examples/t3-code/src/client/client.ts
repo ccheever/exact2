@@ -25,6 +25,7 @@ import { READ_OPS, WRITE_OPS, runOps, type OpOut, type ProvidersRoute } from './
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from '../connections/settings-b-fleet';
+import { announceHostFreezes } from '../connections/host-freeze';
 import { sessionHasLegacyPermissions, sessionPermissions } from '../connections/remote-scopes';
 import { routedPullRequestRequest } from '../pull-requests/pages-pr-environments';
 import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
@@ -167,6 +168,8 @@ export class T3Client {
       && obj(obj(this.config.environment).capabilities).serverResolvedCommandContext === true;
   }
   /** The server takes `thread.stop` and resolves the run itself (capabilities.threadStop, commands.ts interruptThreadTurn). */
+  /** The connection's label (EnvironmentConnectionTarget.label): the catalog's, else the server's own, else its id. */
+  get environmentLabel(): string { return fleet.catalogLabel(this.environmentId) || str(obj(this.config.environment).label) || this.environmentId; }
   get threadStopOffered(): boolean { return obj(obj(this.config.environment).capabilities).threadStop === true; }
   get pending(): Pending | undefined { return this.local.pending[this.environmentId]; }
   get draftKey(): string { return `${this.environmentId}:${this.threadId || `new:${this.projectId}`}`; }
@@ -411,7 +414,9 @@ export class T3Client {
     } catch (error) {
       if (epoch < this.refreshEpoch) return;
       this.available = true;
-      if (!(error instanceof ClientError && ['stale', 'superseded'].includes(error.kind))) this.error = message(error);
+      // A read whose session went away is asked again once the status moves on, so it shows no failure (runtime.ts
+      // pendingOnceSessionReplaced): the connection's own state says it is reconnecting.
+      if (!(error instanceof ClientError && (['stale', 'superseded'].includes(error.kind) || error.unavailable))) this.error = message(error);
     }
   }
 
@@ -433,6 +438,7 @@ export class T3Client {
     if (incompatible) throw new ClientError(incompatible.message, 'protocol');
     if (str(environment.environmentId) !== this.environmentId) throw new ClientError('This address now belongs to a different T3 environment. Pair again.', 'identity');
     this.config = config; this.configLive = true;
+    announceHostFreezes(this, fleet.freezeSources(this)); // host-freeze.ts: a reconnect after a freeze says why
     const configSub = await this.call(native, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { environmentThemes: true, usageLimitSources: true, usageLimitsCommand: true } }, generation);
     this.subscriptions.config = str(configSub.id);
     if (!this.shellLoaded) {

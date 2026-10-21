@@ -2,11 +2,12 @@
 // 22e9d35613 compatibility.ts, onboarding.ts, outdatedHostUpdate.ts,
 // ServerUpdateAction.tsx OutdatedServerUpdateAction, its failure title as of 9c161462c9, and ConnectionsSettings.tsx).
 // A host whose orchestration protocol is older than this client's cannot open a
-// session. One that can update itself is still paired (saved switched off) and
-// its row offers Update (Retry update after a failure): the transport's
-// OutdatedHosts (transport-outdated.ts) opens a bare socket without the protocol gate, runs the
-// self-update RPCs, waits for the host to answer protocol 2 and switches it back
-// on. Progress lands in the row as "Downloading…" then "Restarting…".
+// session. One that can update itself is still paired (saved switched on; its
+// connection stops as unsupported) and its row offers Update (Retry update after
+// a failure): the transport's OutdatedHosts (transport-outdated.ts) opens a bare
+// socket without the protocol gate, runs the self-update RPCs, waits for the host
+// to answer protocol 2 and connects it again. A host already updated by hand is
+// switched back on at once. Progress lands in the row as "Downloading…" then "Restarting…".
 import { obj, str, type Obj } from '../client/domain';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -103,7 +104,7 @@ export async function startUpdateJob(native: Native, key: string, request: Obj):
   return obj(reply.value);
 }
 
-/** preparePairingRegistration for an outdated host: saved switched off when it can update itself. */
+/** preparePairingRegistration for an outdated host: saved (switched on) when it can update itself. */
 export async function pairOutdated(native: Native, origin: string, credential: string): Promise<Obj> {
   const reply = await bridgeReply(native, { op: 'fleetOutdatedPair', fleet: `${origin.replace(/\/+$/, '')}\n`, ...withStandardScope({ credential }) });
   if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);

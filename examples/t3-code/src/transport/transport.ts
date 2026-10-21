@@ -98,7 +98,8 @@ export class Transport {
   constructor(private readonly host: TransportHost = platformHost) {
     this.catalog = new Catalog(() => this.store);
     this.activity = new ActivityReporter(() => this.catalog.activityClientId(() => this.host.uuid()), now => this.wall(now));
-    this.outdated = new OutdatedHosts({ catalog: this.catalog, http: host.http, now: () => this.clock, wall: now => this.wall(now), changed: () => this.fleetChanged() });
+    this.outdated = new OutdatedHosts({ catalog: this.catalog, http: host.http, now: () => this.clock, wall: now => this.wall(now), changed: () => this.fleetChanged(),
+      compatible: environment => { for (const session of this.sessions) if (str(session.descriptor.environmentId) === environment) session.resumeCompatible(); } });
     this.focused = this.session(FOCUSED, true);
   }
 

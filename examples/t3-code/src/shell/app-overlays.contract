@@ -35,6 +35,7 @@ use ChatDocument from "../timeline/markdown.contract"
 use ResetCreditDialog from "../usage/usage-bars.contract"
 use TableCopyMenu from "../timeline/table-menu.contract"
 use CheckoutDialog from "../composer/pr-checkout.contract"
+use AddMachineDialog from "./add-project-machine.contract"
 use PrDetailView from "../pull-requests/pages-pr-detail.contract"
 use PrActionLayers from "../pull-requests/pages-pr-actions.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
@@ -212,6 +213,11 @@ component WindowOverlays
     DialogFinalFocus(open=shell.prCheckout.open, owner="pr-checkout-dialog")
     if shell.prCheckout.open
       CheckoutDialog(checkout=shell.prCheckout, viewportWidth=viewport.width, viewportHeight=viewport.height, dark=(scheme == "dark"), local=chatLocal, command=command)
+    // The Run on menus' AddProjectToMachineDialog (add-project-machine.contract).
+    DialogFinalFocus(open=shell.addMachine.open, owner="add-machine-dialog")
+    if shell.addMachine.open
+      for opening in [shell.addMachine.key] key=opening
+        AddMachineDialog(dialog=shell.addMachine, viewportWidth=viewport.width, dark=(scheme == "dark"), command=command)
     if titleMenuOpen
       TitleMenu(items=shell.titleMenu, children=shell.titleSubmenu, x=titleMenuX, y=titleMenuY, serial=titleMenuSerial, pick=titleMenuPick, ui=titleUi)
     DialogFinalFocus(open=(data.revertPending != ""), owner="revert-dialog")
