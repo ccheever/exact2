@@ -104,7 +104,8 @@ describe('pooled limits across environments', () => {
     const codex = pooled.pools[0]!.windows[0]!.segments;
     expect(codex).toHaveLength(1); // one account for the shared email
     expect(codex[0]).toMatchObject({ remaining: 60, whereLabel: 'Signed in', where: 'Laptop, Desktop', plan: 'ChatGPT Pro', title: 'Codex', avatar: 'instance', credits: 2,
-      redeemable: true, creditsText: '2 banked · expires in 27d 0h', left: '60%', resets: '↻ 2h 0m', label: 'Codex: 60% left, resets in 2h 0m, 2 reset credits banked', showName: false });
+      redeemable: true, creditsText: '2 banked · expires in 27d 0h', left: '60%', resets: '↻ 2h 0m', label: 'Codex: 60% left, resets in 2h 0m, 40% of the window left, 2 reset credits banked', showName: false,
+      timeLeft: 40, evenPace: '40% left by now' });
     expect(codex[0]!.email).toBe('same@example.com');
     expect(codex[0]!.emailMask).not.toContain('same');
     const hub = pooled.pools[1]!.windows[0]!.segments[0]!;
@@ -171,7 +172,10 @@ describe('pooled limits across environments', () => {
     expect(await rig.command('usage-pool-reset-confirm', segment.id)).toBe(`focus:usage-seg-${segment.id}`);
     const [redeem] = rig.of('provider.consumeResetCredit');
     expect(redeem).toMatchObject({ env: 'env-a', payload: { instanceId: 'codex' } });
-    expect((await rig.page()).pooled.pools[0]!.windows[0]!.segments[0]!.busy).toBe(true);
+    const busy = (await rig.page()).pooled.pools[0]!.windows[0]!;
+    expect(busy.segments[0]!.busy).toBe(true);
+    // The popover closed before the confirm, so the progress shows under the bar too.
+    expect(busy.statuses.map(line => line.text)).toEqual(['Using reset credit…']);
     await rig.reply(redeem!, { outcome: 'reset' });
     const after = (await rig.page()).pooled.pools[0]!.windows[0]!;
     expect(after.segments[0]).toMatchObject({ busy: false, status: 'Reset applied. Your windows have cleared.' });
@@ -197,7 +201,7 @@ describe('pooled limits across environments', () => {
 
 describe('popover sides (Base UI collision flip on an unscrolled page)', () => {
   test('a bar too near the top opens its popover below; one with room above opens above', () => {
-    const segment = () => ({ side: '', email: 'a@b.c', plan: 'Pro', whereLabel: 'Signed in', resetsAt: 'x', restores: '+1% of pool', redeemable: true });
+    const segment = () => ({ side: '', email: 'a@b.c', plan: 'Pro', whereLabel: 'Signed in', resetsAt: 'x', evenPace: '', restores: '+1% of pool', redeemable: true });
     const window = () => ({ count: 2, refill: '↻ +5%', description: '', statuses: [], segments: [segment(), segment()] });
     const pools = [{ cursorBefore: false, windows: [window(), window()] }, { cursorBefore: false, windows: [window(), window()] }];
     popoverSides(pools, { wide: true, md: true, cursorRows: 0 });
@@ -558,5 +562,84 @@ describe('Model prices on every metric', () => {
     }
     await rig.command('usage-prices-close');
     for (const metric of ['limits', 'cost']) expect([metric, (await rig.page({ metric })).prices.open]).toEqual([metric, false]);
+  });
+});
+
+// T3 Code 74541bab17 UsageLimitsPooled.tsx: no reference test (its browser tests were pruned upstream).
+describe('pooled segments at 74541bab17', () => {
+  it('hatches only the share a reset makes usable again, and an exhausted weekly quota empties the session', async () => {
+    const config = laptop();
+    (config.providers as Obj[])[0]!.usageLimits = { checkedAt: iso(-60_000), windows: [session(40), { ...weekly(100), resetsAt: iso(HOUR) }] };
+    const rig = new Rig(config, null);
+    const [sessionRow, weeklyRow] = (await rig.page()).pooled.pools[0]!.windows;
+    // The session resets at +2h, after the weekly quota (+1h): its unspent 60% becomes usable at the weekly reset, and
+    // suppression has no pace clock.
+    expect(sessionRow!.segments[0]).toMatchObject({ remaining: 0, hatch: 60, timeLeft: -1, evenPace: '', resets: '↻ 1h 0m' });
+    expect(weeklyRow!.segments[0]).toMatchObject({ remaining: 0, hatch: 100 });
+  });
+
+  it('draws no plate data for a window that has not started: no reset and no credits', async () => {
+    const config = laptop();
+    (config.providers as Obj[])[0]!.usageLimits = { checkedAt: iso(-60_000), windows: [session(0, { resetsAt: undefined, windowDurationMins: undefined })] };
+    const rig = new Rig(config, null);
+    const segment = (await rig.page()).pooled.pools[0]!.windows[0]!.segments[0]!;
+    expect(segment).toMatchObject({ resets: '', credits: 0, timeLeft: -1, label: 'Codex: 100% left' });
+  });
+
+  it("lists each drawn segment by its account and window, so a popover whose segment is gone can close", async () => {
+    const two = laptop();
+    (two.providers as Obj[]).push(provider({ instanceId: 'codex-work', displayName: 'Work', auth: { status: 'authenticated', email: 'work@example.com' },
+      usageLimits: { checkedAt: iso(-60_000), windows: [session(10, { resetsAt: iso(3 * HOUR) })] } }));
+    const rig = new Rig(two, null);
+    const before = (await rig.page()).pooled;
+    const [first, second] = before.pools[0]!.windows[0]!.segments;
+    expect(before.drawn).toContain(`${second!.id}=${second!.identity}.1`);
+    expect(before.drawn.join('\n')).not.toContain('example.com');
+    // The first account leaves: its column goes, and the id it had now draws another account.
+    (two.providers as Obj[]).shift();
+    const after = (await rig.page({ refresh: 1 })).pooled;
+    const moved = after.pools[0]!.windows[0]!.segments[0]!;
+    expect(moved.id).toBe(first!.id);
+    expect(moved.identity).toBe(second!.identity);
+    expect(after.drawn.some(entry => entry.startsWith(`${first!.id}=${first!.identity}.`))).toBe(false);
+    // The moved account keeps its appearance: only its column changed.
+    expect(after.drawn).toContain(`${moved.id}=${second!.identity}.1`);
+  });
+
+  it('a segment that comes back is a new appearance, so a popover kept for the old one stays closed', async () => {
+    const two = laptop();
+    const work = provider({ instanceId: 'codex-work', displayName: 'Work', auth: { status: 'authenticated', email: 'work@example.com' },
+      usageLimits: { checkedAt: iso(-60_000), windows: [session(10, { resetsAt: iso(3 * HOUR) })] } });
+    (two.providers as Obj[]).push(work);
+    const rig = new Rig(two, null);
+    const entryOf = (drawn: string[], identity: string) => drawn.find(entry => entry.includes(`=${identity}.`));
+    const first = (await rig.page()).pooled;
+    const identity = first.pools[0]!.windows[0]!.segments.find(segment => segment.name === 'Work')!.identity;
+    const opened = entryOf(first.drawn, identity);
+    expect(entryOf((await rig.page()).pooled.drawn, identity)).toBe(opened); // a redraw is the same appearance
+    (two.providers as Obj[]).pop();
+    expect(entryOf((await rig.page({ refresh: 1 })).pooled.drawn, identity)).toBeUndefined();
+    (two.providers as Obj[]).push(work);
+    const back = entryOf((await rig.page({ refresh: 2 })).pooled.drawn, identity);
+    expect(back).toBeDefined();
+    expect(back).not.toBe(opened);
+  });
+});
+
+// The gap fns of usage-bars.contract and usage-pooled.contract (paceMarkStyles' clip-path slot), evaluated as written.
+describe('the even-pace gap', () => {
+  const fnOf = async (file: string, name: string) => {
+    const source = await Bun.file(appPath(file)).text();
+    const match = new RegExp(`fn ${name}\\(width: number, height: number, at: number\\): string = (\`[^\n]*\`)`).exec(source);
+    expect(match).not.toBeNull();
+    return new Function('width', 'height', 'at', `return ${match![1]}`) as (width: number, height: number, at: number) => string;
+  };
+  it('clips one layer to the bar less a 6 px slot at the tick, reaching 1 px past the box', async () => {
+    for (const [file, name] of [['usage-bars.contract', 'barGapClip'], ['usage-pooled.contract', 'segGapClip']] as const) {
+      const clip = await fnOf(file, name);
+      expect(clip(200, 24, 80)).toBe("path('M -1 -1 H 77 V 25 H -1 Z M 83 -1 H 201 V 25 H 83 Z')");
+      const source = await Bun.file(appPath(file)).text();
+      expect(source).not.toContain('-after');
+    }
   });
 });
