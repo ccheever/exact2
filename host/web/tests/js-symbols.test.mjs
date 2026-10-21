@@ -240,6 +240,48 @@ test('a symbol under a bound colour follows whether it has a value', async () =>
   }
 }, 30000);
 
+// A symbol on a button's face draws in its title's colour, which the colour
+// scheme changes without a commit: it follows, as on the web host (glue.js
+// `mediaChanged`).
+test('a symbol on a button follows its title across a colour scheme change', async () => {
+  const root = resolve(import.meta.dir, '../../..');
+  const content = `<button type="button" data-native data-button-style="bordered" style="display:grid;color:light-dark(rgb(1, 2, 3), rgb(4, 5, 6))">
+    <img id="symbol" data-symbol-source="symbol:book" data-symbol-path="M0 0L24 24"><span data-exact-text>Library</span></button>`;
+  const boot = `import { symbols } from '/symbols.js';
+    import { commit } from '/rt.js';
+    symbols({ book: ['M0 0L24 24', false] });
+    commit(() => {});
+    globalThis.ready = true;`;
+  const html = withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8'))
+    .replace('<div id="exact-root"></div>', `<div id="exact-root">${content}</div>`)
+    .replace('<script type="module" src="./glue.js"></script>', `<script type="module">${boot}</script>`);
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const path = new URL(request.url).pathname.slice(1);
+    if (!path) return new Response(html, { headers: { 'content-type': 'text/html' } });
+    if (path === 'names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
+    if (!/^[A-Za-z0-9_.-]+\.js$/.test(path)) return new Response('Not found', { status: 404 });
+    const file = [resolve(root, 'host/web-js', path), resolve(root, 'host/web', path)].find(existsSync);
+    return file ? new Response(Bun.file(file), { headers: { 'content-type': 'text/javascript' } }) : new Response('Not found', { status: 404 });
+  } });
+  let browser;
+  try {
+    browser = await suiteBrowser('chromium', { timeout: 10000 });
+    const page = await browser.newPage({ colorScheme: 'light' });
+    const errors = [];
+    page.on('pageerror', error => errors.push(String(error)));
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => globalThis.ready);
+    const ink = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => done(getComputedStyle(document.getElementById('symbol')).backgroundColor))));
+    expect(await ink()).toBe('rgb(1, 2, 3)');
+    await page.emulateMedia({ colorScheme: 'dark' });
+    // The media query's `change` comes after the emulation's reply.
+    await page.waitForFunction(() => getComputedStyle(document.getElementById('symbol')).backgroundColor === 'rgb(4, 5, 6)', null, { timeout: 2000 });
+    expect(errors).toEqual([]);
+  } finally {
+    try { await browser?.close(); } finally { server.stop(true); }
+  }
+}, 30000);
+
 // The same with the app's modes on (modes.js): a mode boundary (`data-x-b`) under a
 // token colour writes it again as its implied row, no author's, so a symbol under it
 // is the accent, and so is one under a boundary whose own bound colour clears (the

@@ -68,9 +68,12 @@ export function symbols(table) {
   };
   After.push(schedule);
   if (typeof window !== "undefined" && !globalThis.__exactRender) {
-    addEventListener("resize", schedule);
-    // A bare plan need not commit on resize. Projection can follow the resize
+    // A bare plan need not commit on resize, nor when the colour scheme or the
+    // contrast recolours a title, whose colour the symbol on its face takes (as
+    // glue.js `mediaChanged` refreshes too). Projection can follow the resize
     // listener, so observe its published marker rather than repeat its rule.
+    addEventListener("resize", schedule);
+    for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)"]) matchMedia(query).addEventListener("change", schedule);
     new MutationObserver(schedule).observe(document.getElementById("exact-root"), {
       attributes: true, subtree: true, attributeFilter: ["data-exact-sidebar"],
     });
