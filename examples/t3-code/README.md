@@ -592,7 +592,11 @@ above.
   floating preview works.
 - No development web view inspection on Android: the clone does not run on Android yet.
 - A citation or an attached file is a link label in the composer and a chip in the References row
-  below it, not the reference's inline chip: the Markdown editor has no atomic links.
+  below it, not the reference's inline chip: the Markdown editor has no atomic links. The app still
+  treats each reference as one unit, as the chip is: Backspace or Delete at it (⌥ held too) removes all of its
+  source in one undo step, a caret put inside it moves to its nearer edge (an arrow key crosses
+  it), and text typed or pasted inside it goes after it. A citation is known by its
+  `t3-citation:` destination, whatever its label reads.
 - Held Shift or ⌘ does nothing after the focused control unmounts (opening Linked pull requests from
   the panel launcher, or at launch with no thread open) until the next click: with nothing focused,
   the window root hears no keys, where Chromium's `window` listeners hear every key.

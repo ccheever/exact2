@@ -282,7 +282,8 @@ export function promptLengthMessage(prompt: string): string {
   if (excess <= 0) return '';
   return `Prompt is ${excess.toLocaleString('en-US')} ${excess === 1 ? 'character' : 'characters'} over the ${PROMPT_LIMIT.toLocaleString('en-US')}-character limit. Shorten or split it before sending.`;
 }
-const CITATION = /\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)/g;
+// A citation with any label, as the composer reads one (composer-source-chips.ts COMPOSER_CITATION).
+const CITATION = /\[[^\]\n]{0,512}\]\((t3-citation:\/\/v1\/[^\s)]+)\)/g;
 function parseCitation(href: string): Obj | null {
   try {
     const url = new URL(href);
@@ -296,7 +297,7 @@ function parseCitation(href: string): Obj | null {
 }
 /** assistantCitationsToPlainText: titles read a quote as its text (and its comment). */
 export function citationsToPlainText(prompt: string): string {
-  if (!prompt.includes('[Assistant quote](t3-citation:')) return prompt;
+  if (!prompt.includes('](t3-citation:')) return prompt;
   return prompt.replace(CITATION, (source: string, href: string) => {
     const citation = parseCitation(href);
     if (!citation) return source;
@@ -322,7 +323,7 @@ export function stripContextReferences(prompt: string): string {
 }
 /** expandAssistantCitationsForProvider: inline ids plus the quoted JSON block. */
 export function expandCitations(prompt: string): string {
-  if (!prompt.includes('[Assistant quote](t3-citation:')) return prompt;
+  if (!prompt.includes('](t3-citation:')) return prompt;
   const citations: Array<{ id: string; citation: Obj }> = [];
   const ids = new Map<string, string>();
   let cursor = 0, text = '';

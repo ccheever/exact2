@@ -3,7 +3,7 @@ import { codeAt, composerLines, composerMarkdown, emptyFenceAt, parseOpeningFenc
 import { composerBlockInputRule } from './composer-input-rules';
 import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type ComposerEdit, type ComposerKey, type ComposerKeyResult } from './composer-markdown-edit';
 import type { ComposerRange } from './composer-markdown';
-import { composerChips, reconcileComposerChips, type ComposerChip } from './composer-source-chips';
+import { composerChipDeletion, composerChips, composerChipsInBlocks, outsideComposerChips, reconcileComposerChips, type ComposerChip } from './composer-source-chips';
 
 type FenceOrigins = Map<number, string>;
 type SourceOrigins = { chips: readonly ComposerChip[]; blocks: readonly ComposerBlockOrigin[]; fences: ReadonlyMap<number, string> };
@@ -90,6 +90,8 @@ export class ComposerSourceSession {
   input(owner: string, value: string, selection: ComposerRange, text: string, paste = false): ComposerSessionResult {
     if (!this.matches(owner, value)) return { kind: 'stale' };
     const blocks = composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks;
+    // Text typed or pasted inside a reference goes after it.
+    selection = outsideComposerChips(selection, this.sourceChips(value));
     const code = codeAt(blocks, selection) ?? emptyFenceAt(blocks, selection);
     const outcome = composerCodeInput(value, selection, text, blocks);
     if (outcome.kind === 'edit') {
@@ -103,6 +105,12 @@ export class ComposerSourceSession {
 
   key(owner: string, value: string, selection: ComposerRange, key: ComposerKey): ComposerSessionResult {
     if (!this.matches(owner, value)) return { kind: 'stale' };
+    const deletion = key.name === 'Backspace' || key.name === 'Delete' ? composerChipDeletion(selection, this.sourceChips(value), key.name === 'Backspace') : null;
+    if (deletion) {
+      const next = applyComposerEdit(value, deletion);
+      this.pending = { value: next, origins: this.after(deletion), blocks: this.blocksAfter(deletion, next, true) };
+      return { kind: 'edit', edit: deletion };
+    }
     if (this.mode !== 'rich') {
       if (key.name !== 'Enter') return { kind: 'default' };
       if (key.command || !key.shift) return { kind: 'send' };
@@ -124,6 +132,12 @@ export class ComposerSourceSession {
       this.pending = { value: next, origins, blocks };
     }
     return outcome;
+  }
+
+  /** The references the projection draws: none in code or a rule. */
+  private sourceChips(value: string): ComposerChip[] {
+    if (this.mode === 'literal') return [];
+    return composerChipsInBlocks(value, composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks, this.currentChips);
   }
 
   private after(edit: ComposerEdit): FenceOrigins {

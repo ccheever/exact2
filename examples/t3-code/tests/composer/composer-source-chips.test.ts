@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { cancelFreshCitation, composerChips, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, reconcileComposerChips } from '../../src/composer/composer-source-chips';
+import { cancelFreshCitation, composerChipDeletion, composerChips, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, outsideComposerChips, reconcileComposerChips } from '../../src/composer/composer-source-chips';
+import { ComposerSourceSession } from '../../src/composer/composer-source-session';
+import { citationsToPlainText, expandCitations } from '../../src/composer/composer-editor-menu';
+import { citationOfLink } from '../../src/timeline/citation-comment';
 import { applyComposerEdit } from '../../src/composer/composer-markdown-edit';
 import { composerMarkdown } from '../../src/composer/composer-markdown';
 
@@ -111,5 +114,50 @@ describe('fresh citation cancellation space ownership', () => {
     if (!removal) throw new Error('missing rebased citation');
     expect(applyComposerEdit(current, removal)).toBe('prefix xtail');
     expect(cancelFreshCitation(inserted.citation, inserted.citation.value.replace('the+quote', 'other'))).toBeNull();
+  });
+});
+
+describe('a composer reference is one unit (the reference\'s atom chips)', () => {
+  const href = citation.slice('[Assistant quote]('.length, -1);
+  test('a citation is its t3-citation destination, whatever its label reads', () => {
+    for (const label of ['Assistant quo', '', 'x']) {
+      const source = `[${label}](${href})`;
+      expect(composerChips(`a ${source} b`)).toMatchObject([{ kind: 'citation', start: 2, end: 2 + source.length, href, label: 'the quote' }]);
+      expect(citationOfLink(source)?.text).toBe('the quote');
+      expect(citationsToPlainText(`a ${source}`)).toBe('a the quote');
+      expect(expandCitations(`a ${source}`)).toStartWith('a [assistant-quote-1]');
+    }
+    expect(composerChips(`[Assistant quote](https://example.com) `)).toEqual([]);
+  });
+  test('Backspace and Delete remove a whole reference at its edge or inside it; a range is widened over the ones it cuts', () => {
+    const value = `a ${citation} [x.ts](src/x.ts) b`, chips = composerChips(value);
+    const [cite, file] = chips as [typeof chips[0], typeof chips[0]];
+    const removed = (start: number, end: number, backward: boolean) => {
+      const edit = composerChipDeletion({ start, end }, chips, backward);
+      return edit && [edit.start, edit.end, edit.selection.start];
+    };
+    expect(removed(cite.end, cite.end, true)).toEqual([cite.start, cite.end, cite.start]);
+    expect(removed(cite.start, cite.start, false)).toEqual([cite.start, cite.end, cite.start]);
+    expect(removed(cite.start + 3, cite.start + 3, true)).toEqual([cite.start, cite.end, cite.start]);
+    expect(removed(file.end, file.end, true)).toEqual([file.start, file.end, file.start]);
+    expect(removed(cite.start, cite.start, true)).toBeNull();
+    expect(removed(cite.end, cite.end, false)).toBeNull();
+    expect(removed(0, cite.end, true)).toBeNull();
+    expect(removed(1, cite.start + 4, true)).toEqual([1, cite.end, 1]);
+    expect(outsideComposerChips({ start: cite.start + 4, end: cite.start + 4 }, chips)).toEqual({ start: cite.end, end: cite.end });
+    expect(outsideComposerChips({ start: cite.start + 4, end: file.start + 2 }, chips)).toEqual({ start: cite.start, end: file.end });
+  });
+  test('the session removes a citation in one edit and Undo brings it back as a citation', () => {
+    const session = new ComposerSourceSession(), value = `see ${citation} `;
+    session.observe('one', value);
+    const result = session.key('one', value, { start: 4 + citation.length, end: 4 + citation.length }, { name: 'Backspace', shift: false, command: false });
+    if (result.kind !== 'edit') throw new Error(`expected edit, got ${result.kind}`);
+    expect(result.edit).toEqual({ start: 4, end: 4 + citation.length, text: '', selection: { start: 4, end: 4 } });
+    session.observe('one', 'see  ', 'deleteContentBackward');
+    expect(session.chips).toEqual([]);
+    session.observe('one', value, 'historyUndo');
+    expect(session.chips).toMatchObject([{ kind: 'citation', start: 4, end: 4 + citation.length }]);
+    const typed = session.input('one', value, { start: 9, end: 9 }, 'x');
+    expect(typed.kind === 'edit' && typed.edit).toMatchObject({ start: 4 + citation.length, end: 4 + citation.length, text: 'x' });
   });
 });

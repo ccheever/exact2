@@ -27,6 +27,15 @@ shape ComposerSourceChip
   quote: string
   face: ComposerChipFace
 
+// The reference's chips are atoms (ComposerPromptEditorTiptap: atom, contentEditable={false}); here
+// they are source text, so the selection keeps out of them. A selection end strictly inside a
+// reference goes to its nearer edge, or across it when it moved from one of its edges (an arrow key).
+fn composerChipEdge(chips: ComposerSourceChip[], at: number, from: number): number = at + sum(chips.filter((c) => at > c.start and at < c.end).map((c) => (from == c.end ? c.start : from == c.start ? c.end : at - c.start <= c.end - at ? c.start : c.end) - at))
+// Whether either end of a selection falls strictly inside a reference.
+fn composerChipInside(chips: ComposerSourceChip[], start: number, end: number): bool = chips.filter((c) => (start > c.start and start < c.end) or (end > c.start and end < c.end)).length > 0
+// Whether Backspace (`back`) or Delete removes a reference whole: at its edge or inside it (composer-source-chips.ts composerChipDeletion).
+fn composerChipDeletes(chips: ComposerSourceChip[], start: number, end: number, back: bool): bool = composerChipInside(chips, start, end) or (start == end and chips.filter((c) => back ? start == c.end : start == c.start).length > 0)
+
 shape ComposerChipFace
   kind: string
   label: string

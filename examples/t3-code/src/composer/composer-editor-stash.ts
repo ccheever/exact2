@@ -21,7 +21,7 @@ export function adoptStash(next: object, saved: Obj): void {
     .slice(0, MAX_STASH_ENTRIES).map(entry => ({ id: str(entry.id), createdAt: str(entry.createdAt), prompt: str(entry.prompt), environmentId: str(entry.environmentId) })));
 }
 
-const CITATION = /\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)/g;
+const CITATION = /\[[^\]\n]{0,512}\]\((t3-citation:\/\/v1\/[^\s)]+)\)/g;
 /** stashEntrySnippet: one line, citations as their quote, 90 characters. */
 export function stashSnippet(prompt: string): string {
   const plain = prompt.replace(CITATION, (source, href: string) => {

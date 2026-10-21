@@ -20,7 +20,7 @@ import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { ASSISTANT_CITATION_MAX_COMMENT_LENGTH, parseAssistantCitationHref, serializeAssistantCitation, withAssistantCitationComment, type AssistantCitation } from './diff-citations';
 import type { ChipPopover } from '../composer/composer-chip-popover';
 
-const LINK = /^\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)$/;
+const LINK = /^\[[^\]\n]{0,512}\]\((t3-citation:\/\/v1\/[^\s)]+)\)$/;
 
 /** The citation a composer chip's source link holds, or null. */
 export function citationOfLink(link: string) {
