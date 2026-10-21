@@ -1969,6 +1969,10 @@ restart, start another drive on the same `--storage`. See [host commands](contra
   one written in it is still its button's menu, never more bar buttons.
 - The header's `input type="search"` hides when scrolling while it is empty, as UIKit's
   does; `position="sticky" top=0` on it keeps the search field visible.
+- A header's buttons that press, and its disabled ones (dimmed, as UIKit's), are bar
+  items; a readout nothing presses ("● Clock") is a `row` or `text` with `role="status"`
+  ("Tabs and stacks"). Past the subtitle, the first text after the heading, other texts
+  and boxes are hidden on iOS (`lower-header-unplaced`).
 
 ### A horizontal strip in a sheet
 
@@ -2120,8 +2124,9 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   A filled box holding a text or symbol (an avatar, a badge) is drawn without the
   capsule. Leave the font unsaid for an ordinary Edit or Done.
 - A readout nothing presses (a "● Clock" or "Saved" beside the title) is
-  `role="status"` in the header, beside the buttons; not a disabled button, which
-  is no item. It is an item on its side of the heading, a custom view in the bar's
+  `role="status"` in the header, beside the buttons. (A `button disabled=true` is a
+  dimmed bar item, UIKit's disabled one, which VoiceOver reads as a button that cannot
+  be pressed, not as a status.) A readout is an item on its side of the heading, a custom view in the bar's
   glass drawn as written (its fonts, colours, a dot's size and corners, the gap) that
   follows the state in place, read by VoiceOver as static text (its `aria-label`, else
   its words). Its texts are never the subtitle. The web, the Mac and the agent's own
