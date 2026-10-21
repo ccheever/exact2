@@ -389,7 +389,13 @@ impl Lowerer<'_> {
                     };
                     let known = a.name == "animation-timing-function"
                         || names.iter().all(|n| {
-                            Property::from_author_name(n).is_some_and(|p| p != Property::Height)
+                            // A font axis moves by `transition` alone (LLP 1019 §13 D10).
+                            Property::from_author_name(n).is_some_and(|p| {
+                                !matches!(
+                                    p,
+                                    Property::Height | Property::FontWeight | Property::FontStretch
+                                )
+                            })
                         });
                     if let (false, Some(new)) = (known, crate::tags::renamed(&a.name)) {
                         ok = false;

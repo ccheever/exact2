@@ -845,7 +845,35 @@ fields' and Canvas 2D's faces take no stretch. Neither has a consumer yet.
 `font-variation-settings` (any axis by tag) is a list on every text run, where
 these two rows are numbers each host already carries; CSS recommends the
 high-level properties wherever one exists. `font-optical-sizing` stays
-`auto` and is not authorable. Animating any of
-these rows is a layout property per frame, which `rules/DEFERRED.md` §Motion
-keeps out.
+`auto` and is not authorable.
+
+### D10 — `font-weight` and `font-stretch` transition (2026-10-20)
+
+`transition` takes both rows, as CSS does: `font-weight 300ms ease-out`, a
+spring, `all`. Each is a layout property: a weight's glyphs are wider, so
+every frame of the transition lays its text out again. That is admitted for
+these two rows alone (`rules/DEFERRED.md` §Motion). Measured first on an
+iPhone 17 Pro Max with the weight set every frame: the poster and a title
+hold 119 fps and as few late frames as the same screens built in UIKit;
+twelve paragraphs of body text hold the rate with more late frames (QUEUE).
+
+- **The runner plays them** (`runner/src/runner/text_axes.rs`): no
+  compositor can draw a weight it was not given, so no host's engine takes
+  their targets. A commit that changes one under a matching declaration
+  writes the value presented now and starts the transition in an
+  `exact-motion` engine of the runner's own; each frame writes the next
+  value as a presentation-only commit, and layout follows. CSS's
+  before-change value (the computed one, inherited included), interruption
+  and reversing shortening are the engine's, as for every other property.
+- **A spring is its curve from rest**, a `linear()` over its settle time, as
+  for paint (LLP 1062 D3): nothing carries a weight's velocity.
+- **A weight moves in whole steps** of 1 in 1000, the row's own encoding.
+- **The web links none of it.** The row emits as CSS `transition`, and the
+  browser plays it (`RunnerLinks::text_axes` is `None` there); Apple links it
+  by use, when the plan declares any transition.
+- **Settle** folds the runner's end time into each native host's `settle`,
+  and the seekable clock steps its virtual frames while an axis moves.
+- **Not here:** a child that inherits a transitioning parent's weight follows
+  each frame's commit, but a child's own `transition` does not start when
+  only its inherited value changes, which CSS would do.
 

@@ -1070,26 +1070,9 @@ mod writer_tests {
             .map(|n| n.trim_start_matches(','))
             .collect();
         assert_eq!(
-            names,
-            [
-                "opacity 1s ease 0s,stroke-dashoffset",
-                "r",
-                "color",
-                "background-color",
-                "fill",
-                "stroke",
-                "cx",
-                "cy",
-                "x",
-                "y",
-                "rx",
-                "ry",
-                "border-color",
-                "--exact-tint",
-                "box-shadow",
-                "d",
-                ""
-            ]
+            names.join(" "),
+            "opacity 1s ease 0s,stroke-dashoffset r color background-color fill stroke cx cy x y \
+             rx ry border-color --exact-tint box-shadow font-weight font-stretch d "
         );
     }
 }

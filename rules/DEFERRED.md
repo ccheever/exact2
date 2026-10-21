@@ -867,6 +867,11 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   high, the fallback is dropping `-exact-layout-transition` and keeping
   `-exact-exit-animation`. Still out: animating any other layout property, and laying
   out per frame.
+  **Expanded (Charlie, 2026-10-20, "ok do those things pls", of a list naming it;
+  take waived, none offered):** `transition` on `font-weight` and `font-stretch`,
+  the runner laying the text out again each frame (LLP 1019 §13 D10). Unblocks
+  variable type that moves, as the browser and Expo SDK 58 draw it. Every other
+  layout property stays out.
 - **Decay and sequence drivers.** A spring carries release velocity; nothing
   else needs a driver. (`@keyframes` and repeat came off; see below.)
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`

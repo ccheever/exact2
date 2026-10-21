@@ -63,6 +63,7 @@ pub use source::{
 mod delivery;
 mod links;
 pub use links::{CanvasLink, FormatLink, GeometryLink, RouterLink, RunnerLinks, SurfaceAnswer};
+pub use text_axes::TextAxesLink;
 mod device;
 mod device_links;
 mod document;
@@ -98,6 +99,7 @@ pub mod midi;
 mod modules;
 mod split;
 mod surface_record;
+mod text_axes;
 mod time;
 mod transport;
 #[cfg(test)]
@@ -536,6 +538,7 @@ pub struct Runner<D: DataSource> {
     // @ref LLP 1027.000.000 — the date, once the host says it.
     time: crate::time::WallTime,
     live_times: live_time::LiveTimes,
+    text_axes: text_axes::TextAxes,
     place: crate::time::Place,
     surface_records: exact_kernel::SortedMap<String, String>,
     surface_refusals: exact_kernel::SortedMap<String, String>,
@@ -935,6 +938,7 @@ impl<D: DataSource> Runner<D> {
             page: Default::default(),
             time: crate::time::launch_time(),
             live_times: Default::default(),
+            text_axes: Default::default(),
             place: launched_place.clone().unwrap_or_default(),
             surface_records: Default::default(),
             surface_refusals: Default::default(),
