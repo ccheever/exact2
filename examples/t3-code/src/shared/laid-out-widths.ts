@@ -36,3 +36,13 @@ export function alertClip(presentation: Obj): string {
   if (left < 0 || right > wrapper[1] + 0.5 || right <= left) return 'none';
   return `path('M ${left} 0 H ${right} V 4000 H ${left} Z')`;
 }
+
+/**
+ * DraftHeroProjectHeading's fit check: whether "What should we build in <project>?" on one line (its hidden
+ * probe, pages-hero.contract `hero-inline`) fits the heading's width (`hero-heading`). The probe is laid out
+ * apart from the heading, so the heading's own layout cannot make the check oscillate. False until both are laid out.
+ */
+export function heroInline(presentation: Obj): boolean {
+  const inline = anchorFrame(presentation, 'hero-inline'), heading = anchorFrame(presentation, 'hero-heading');
+  return !!inline && !!heading && inline[1] <= heading[1];
+}

@@ -89,6 +89,18 @@ test('a repository link stages its provider/model while preserving an unfinished
   expectNotSent(native);
 });
 
+test('a repository link opened from a thread lands in the project\'s new-thread draft, not that thread', async () => {
+  const { client, native, disk, open, command } = await setup();
+  await command('select-thread', 't1');
+  await client.refresh(native, disk.files);
+  expect(client.threadId).toBe('t1');
+  await open('t3code://new?prompt=Linked+work&repo=me/repo');
+  expect(client).toMatchObject({ projectId: 'p1', threadId: '' });
+  expect(client.local.drafts['env1:new:p1']).toBe('Linked work');
+  expect(client.local.drafts['env1:t1'] ?? '').toBe('');
+  expectNotSent(native);
+});
+
 test('a missing repository requires a clone or No project choice and unavailable providers explain the fallback', async () => {
   const { client, native, open, command } = await setup();
   await open('t3code://new?prompt=Read+me&repo=missing/repo&provider=cursor');

@@ -35,7 +35,7 @@ import { type RequestDraft } from '../composer/requests';
 import { DiffState, DIFF_LOCAL_OPS } from '../diff/diff';
 import { TELEMETRY_KEY, telemetryEvent } from '../settings/settings-a-telemetry';
 import { mostRecentProjectId } from '../pages/pages-home';
-import { landHome, settleHome, type HomeTarget } from '../pages/home-landing';
+import { landHome, settleHome, settleHomeElsewhere, type HomeTarget } from '../pages/home-landing';
 import { adoptPagesPrefs } from '../pages/pages-prefs';
 import { adoptClosedViews } from '../panel/closed-views';
 import { adoptShellPrefs } from '../shell/shell-prefs';
@@ -61,13 +61,16 @@ import { codexHandoffEvent } from '../providers/codex-handoff-events'; // the ha
 import { adoptTerminalPrefs } from '../terminal/terminal-ui-state';
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
-import { ClientError, bridgeReply, providerAvailable, applyConfig, type Native, type Files } from './protocol';
+import { ClientError, bridgeReply, reply, providerAvailable, applyConfig, type BridgeReply, type Native, type Files } from './protocol';
+import { detachDraftLaunch, restoreDetachedLaunch } from '../composer/draft-launch';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { windowAppearanceMode } from '../appearance/settings-appearance-look'; // the window draws in the resolved mode
 
 const localPath = 'app:/data/t3-code.json';
 type Selection = { projectId: string; threadId: string };
-export type Pending = { method: string; payload: Obj; description: string; threadId: string; text: string; uncertain: boolean };
+export type Pending = { method: string; payload: Obj; description: string; threadId: string; text: string; uncertain: boolean;
+  /** A draft's launch a new-thread flow left while it was in flight, with the sent images the composer gave up (draft-launch.ts). */
+  detached?: { images: Obj[] } };
 const uncertainError = (pending: Pending) => `${pending.description} may have reached T3. Check the synchronized thread, then retry only if needed.`;
 /** The types a draft image is kept in: a capture's PNG, an attached image's own (composer-attach-stage.ts). */
 const DRAFT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -96,9 +99,9 @@ export class T3Client {
   projectId = '';
   threadId = '';
   /**
-   * A thread openSelected found missing from the shell (NoActiveThreadState). Its detail is not fetched until the
-   * shell holds it: the server answers 404 for a thread it does not have, which would replace the empty state with
-   * an error banner on the next refresh.
+   * A thread openSelected found missing (NoActiveThreadState): absent from the shell, and its one detail read
+   * (openUnlisted) did not open it. Its detail is not read again until the shell holds it: the server answers 404
+   * for a thread it does not have, which would replace the empty state with an error banner on the next refresh.
    */
   absentThreadId = '';
   /** The launch lands on the index route until its draft's project is picked across every environment (home-landing.ts). */
@@ -171,7 +174,8 @@ export class T3Client {
         const reply = obj(result);
         if (reply.ok === true && typeof reply.generation === 'number' && obj(reply.value).changed === true) settingsChanged();
       }
-      if (!current()) throw new ClientError('This operation was superseded.', 'superseded');
+      // The reply goes with the refusal, so a detached draft launch is still settled (draft-launch.ts).
+      if (!current()) throw Object.assign(new ClientError('This operation was superseded.', 'superseded'), { reply: result });
       return result;
     } };
   }
@@ -362,7 +366,11 @@ export class T3Client {
       await fleet.sync(native, launchFocus(this)); // background environments, the primary among them (settings-b-fleet.ts)
       if (fleet.takeFocusDropped()) primaryTakesFocus(this); // a focused duplicate of the primary went; the primary takes the window (relaunch-reconnect.ts)
       await this.flushSnapshotReleases(native, storage);
-      if (this.connection !== 'connected') { if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage); return; }
+      if (this.connection !== 'connected') {
+        if (await settleHomeElsewhere(this, native)) this.changed(); // the launch's landing does not wait for this environment either
+        if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage);
+        return;
+      }
       if (this.synchronizedGeneration !== this.generation) await this.synchronize(native);
       else if (this.threadId && this.threadSubscription !== this.threadId) await this.openThread(native, this.threadId, this.thread !== null);
       await this.drain(native);
@@ -373,7 +381,7 @@ export class T3Client {
         await this.synchronize(native);
         await this.drain(native);
       }
-      if (await settleHome(this, native)) this.changed(); // the launch's landing, once every environment's shell is in
+      if (await settleHome(this, native)) this.changed(); // the launch's landing, once a shell that is in holds a project
       if (this.reconcilePending()) await this.save(storage);
       await sidebarRefreshed(this, native); // sidebar-commands.ts: a timed provider pill's repaint, new projects' favicons
       if (await takeRowDrops(this, native)) await this.save(storage); // legacy-sidebar-drop.ts: files dropped on the open thread's sidebar row
@@ -635,6 +643,7 @@ export class T3Client {
     const key = pending.method === 'orchestration.launchThread' && pending.payload.reuseExistingThread !== true
       ? `${environmentId}:new:${str(pending.payload.projectId)}` : `${environmentId}:${pending.threadId}`;
     if (pending.text && this.local.drafts[key] === pending.text) delete this.local.drafts[key];
+    for (const image of pending.detached?.images ?? []) this.local.snapshotReleases.push(str(image.id));
     const sent = arr(pending.method === 'orchestration.launchThread' ? obj(pending.payload.initialMessage).attachments : pending.payload.attachments);
     if (sent.length) this.local.snapshotDrafts[key] = (this.local.snapshotDrafts[key] || []).filter(image => {
       if (!sent.some(attachment => attachment.id === image.uploadId)) return true;
@@ -660,7 +669,11 @@ export class T3Client {
       await this.flushSnapshotReleases(native, storage);
       return result;
     } catch (error) {
-      if (error instanceof ClientError && error.kind === 'superseded') throw error;
+      if (error instanceof ClientError && error.kind === 'superseded') {
+        const answer = (error as { reply?: unknown }).reply;
+        if (pending.detached && answer !== undefined && this.local.pending[environmentId] === pending) await this.settleDetached(pending, environmentId, answer, storage);
+        throw error;
+      }
       if (error instanceof ClientError && error.uncertain) {
         pending.uncertain = true;
         this.error = uncertainError(pending);
@@ -671,6 +684,16 @@ export class T3Client {
       await this.save(storage);
       throw error;
     }
+  }
+  /** A detached draft launch's reply: done, or failed and restored to its draft; an uncertain one stays for Retry. */
+  private async settleDetached(pending: Pending, environmentId: string, answer: unknown, storage: Files): Promise<void> {
+    let settled: BridgeReply;
+    try { settled = reply(answer); } catch { return; }
+    if (settled.ok) this.finishPending(pending, environmentId);
+    else if (settled.error!.uncertain) { pending.uncertain = true; this.error = uncertainError(pending); }
+    else { delete this.local.pending[environmentId]; restoreDetachedLaunch(this, environmentId, pending, settled.error!.message); }
+    this.changed();
+    await this.save(storage);
   }
   async dispatch(native: Native, storage: Files, payload: Obj, description: string, beforeRequest?: () => void): Promise<Obj> {
     return this.write(native, storage, { method: 'orchestration.dispatchCommand', payload, description,
@@ -685,7 +708,9 @@ export class T3Client {
     const epoch = local ? this.commandEpoch : ++this.commandEpoch;
     const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
     if (!local) {
-      if (this.busy && this.pending) this.pending.uncertain = true;
+      // A newer command lets the older one's reply go, so its write may have reached T3; a draft's launch that a
+      // new-thread flow leaves is settled from that reply instead (draft-launch.ts).
+      if (this.busy && this.pending && !detachDraftLaunch(this, op)) this.pending.uncertain = true;
       this.busy = true;
       this.historyLoading = false; this.diffLoading = false;
       const settingsChanged = ['local-environment', 'network-access', 'tailscale-serve'].includes(op) ? () => { out.relaunch = true; } : undefined;
@@ -778,10 +803,33 @@ export class T3Client {
   }
   /** Opens a thread as the selection: the row press, keyboard jumps and the sidebar's forward navigation. */
   async openSelected(native: Native, id: string): Promise<void> {
-    if (!this.shell.threads.some(thread => thread.id === id)) { await this.openDraft(native, this.projectId); this.threadId = this.absentThreadId = id; return; } // a missing thread shows NoActiveThreadState
+    if (!this.shell.threads.some(thread => thread.id === id)) {
+      if (await this.openUnlisted(native, id) !== 'missing') return;
+      await this.openDraft(native, this.projectId); this.threadId = this.absentThreadId = id; return; // a missing thread shows NoActiveThreadState
+    }
     this.threadId = id; this.thread = keptThread(this, id); this.diffOpen = false; this.answers = {}; // keep-alive.ts: a running thread's kept detail
     this.ensureSelection(); await this.openThread(native, id, this.thread !== null);
     sidebarOpened(this, native);
+  }
+  /**
+   * resolveThreadRouteRenderState: the shell can list a new thread after it is opened, so a thread it does not list
+   * yet is decided by its own detail; one that is deleted or archived, or does not load, is missing.
+   */
+  private async openUnlisted(native: Native, id: string): Promise<'opened' | 'missing' | 'moved'> {
+    const epoch = this.threadEpoch, generation = this.generation;
+    let detail: ThreadState | null = null;
+    try { detail = threadSnapshot(await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/bounded`, generation)); }
+    catch (error) { if (letGo(error) || (error instanceof ClientError && error.kind === 'stale')) throw error; }
+    if (epoch !== this.threadEpoch || generation !== this.generation) return 'moved'; // another selection took the window meanwhile
+    if (this.shell.threads.some(thread => thread.id === id)) { await this.openSelected(native, id); return 'opened'; } // listed meanwhile
+    const thread = obj(detail?.projection.thread);
+    if (!detail || str(thread.id) !== id || thread.deletedAt || thread.archivedAt) return 'missing';
+    this.projectId = str(thread.projectId, this.projectId);
+    this.threadId = id; this.absentThreadId = ''; this.thread = detail; this.diffOpen = false; this.answers = {};
+    await this.openThread(native, id, true);
+    this.ensureSelection();
+    sidebarOpened(this, native);
+    return 'opened';
   }
   /** A fresh draft in a project: where archiving or parking the open thread lands. */
   async openDraft(native: Native, projectId: string): Promise<void> {

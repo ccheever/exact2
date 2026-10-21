@@ -125,7 +125,7 @@ describe('general rows', () => {
       'Snooze limited threads', 'Working section (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle', 'Thread notifications',
       'In-app notifications', 'Time format', 'Response streaming', 'Hide whitespace changes', 'Default diff file state', 'Diff layout', 'Proactive panels', 'Show skills in slash menu',
       'Rich text composer', 'Collapse composer on scroll', 'Send shortcut', 'Follow-up behavior', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
-      'Start from origin', 'Add project starts in', 'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Text generation model', 'Version', 'Update track', 'Mobile app', 'Diagnostics',
+      'Start from remote', 'Add project starts in', 'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Text generation model', 'Version', 'Update track', 'Mobile app', 'Diagnostics',
       'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
     const row = (id: string) => sections.flatMap(section => section.rows).find(entry => entry.id === id)!;
     expect([row('default-model').label, row('default-model').label2, row('default-model').status]).toEqual(['GPT-5.6-Luna', 'Medium', 'Automatic']);
@@ -368,7 +368,7 @@ describe('navigation and search', () => {
     expect(titles('credits')).toEqual(['Remove agent credits when merging / Source Control']);
     expect(titles('clients')).toEqual(['This machine / Connections']);
     expect(titles('worktree')).toEqual(['Worktree cleanup / Storage', 'Worktree location / Storage', 'Worktree branch naming / Source Control', 'Keep worktrees with local changes / Storage',
-      'New threads / General', 'Submodules / General', 'Start from origin / General', 'Actions / Project']);
+      'New threads / General', 'Submodules / General', 'Start from remote / General', 'Actions / Project']);
     expect(titles('theme')).toEqual(['Themes / Appearance']);
     expect(titles('model')).toEqual(['Default model / General', 'Text generation model / General', 'Source control writer model / Source Control', 'Review guide model / Source Control',
       'Project defaults and overrides / General', 'Providers / Providers', 'Health check interval / Providers']);

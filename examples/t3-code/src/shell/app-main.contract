@@ -301,7 +301,7 @@ component ChatColumn
             ThreadFindBar(find=threadFind, local=chatLocal)
       if hero
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
-          EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
+          EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, wide=(viewport.width >= 1024), command=command, addProject=paletteShow("command", "add-project"))
       if data.messages.length == 0 and data.threadId != ""
         // MessagesTimeline's empty state (no rows, not working): centred in the lane above the composer, which overlays the
         // timeline (contentInsetEndAdjustment: the tail less its 12pt gap); while the thread's detail loads the pane stays

@@ -1,8 +1,9 @@
-// The index route's landing over every environment (T3 Code 1e2ecbd975, MIT, see LICENSE-T3):
-// apps/web/src/routes/_chat.index.tsx IndexDraftLanding waits until every enabled environment's
-// shell has bootstrapped (state/shell.ts allEnvironmentShellsBootstrappedAtom), then opens a draft in
-// the first project of sortScopedProjectsForSidebar(projects, threads, "updated_at")
-// (components/Sidebar.logic.ts), whichever environment holds it. The focused environment is
+// The index route's landing over every environment (T3 Code 74541bab17, MIT, see LICENSE-T3):
+// apps/web/src/routes/_chat.index.tsx IndexDraftLanding opens a draft in the first project of
+// sortScopedProjectsForSidebar(projects, threads, "updated_at") (components/Sidebar.logic.ts) over the
+// environments whose shells are in, as soon as one holds a project; only an empty workspace waits until
+// every enabled environment's shell has bootstrapped (state/shell.ts allEnvironmentShellsBootstrappedAtom),
+// since a pending environment cannot prove it empty. The focused environment is
 // T3Client's connection; every other one is a fleet entry (settings-b-fleet.ts). A draft in a
 // background environment's project focuses that environment, as a clone toast's Open project does.
 import { str, type Obj, type Shell } from '../client/domain';
@@ -56,8 +57,10 @@ export function backgroundShellsBootstrapped(client: Pick<T3Client, 'environment
 
 /**
  * The focused project the landing picks, or '' while it waits or when the pick is another
- * environment's (kept in `homeMove` until settleHome focuses it). After the launch's landing,
- * a project that went away falls back to the focused environment's most recent one.
+ * environment's (kept in `homeMove` until settleHome focuses it). It picks among the shells that
+ * are in, without waiting for the rest; with no project in any of them it waits until every
+ * environment's shell is in. After the launch's landing, a project that went away falls back to
+ * the focused environment's most recent one.
  */
 export function landHome(client: Landing, fallback: () => string, source: EnvironmentFleet = fleet): string {
   // The shell events drained after the synchronize that picked (its completion marker) come before settleHome:
@@ -65,10 +68,12 @@ export function landHome(client: Landing, fallback: () => string, source: Enviro
   if (client.homeMove) return '';
   if (!client.homePending) return fallback();
   if (client.threadId) { client.homePending = false; return fallback(); }
-  if (!backgroundShellsBootstrapped(client, source)) return '';
-  client.homePending = false;
   const target = homeTarget(client, source);
-  if (!target) return '';
+  if (!target) {
+    if (backgroundShellsBootstrapped(client, source)) client.homePending = false;
+    return '';
+  }
+  client.homePending = false;
   if (target.environmentId === client.environmentId) return target.projectId;
   client.homeMove = target;
   return '';
@@ -80,8 +85,8 @@ export function homeWaiting(client: Pick<T3Client, 'threadId' | 'projectId'> & P
 }
 
 /**
- * Each refresh: once the fleet has bootstrapped, the launch's landing picks across every
- * environment; a pick in a background environment focuses it on that project's draft.
+ * Each refresh: the launch's landing picks across the environments whose shells are in; a pick
+ * in a background environment focuses it on that project's draft.
  */
 export async function settleHome(client: T3Client, native: Native, source: EnvironmentFleet = fleet): Promise<boolean> {
   if (client.homePending && client.ready && !client.projectId) {
@@ -95,6 +100,19 @@ export async function settleHome(client: T3Client, native: Native, source: Envir
   const focused = await focusFleetProject(client, native, move.environmentId, move.projectId, source);
   client.adoptStatus(focused.value, focused.generation);
   return true;
+}
+
+/**
+ * Each refresh while the focused environment is not connected (still loading, or failed): its shell cannot hold the
+ * pick, so the launch's landing picks among the background environments whose shells are in and focuses that one.
+ */
+export async function settleHomeElsewhere(client: T3Client, native: Native, source: EnvironmentFleet = fleet): Promise<boolean> {
+  if (!client.homePending || client.homeMove || client.threadId || client.projectId) return false;
+  const target = homeTarget(client, source, { projects: [], threads: [], sequence: 0 });
+  if (!target) return false;
+  client.homePending = false;
+  client.homeMove = target;
+  return settleHome(client, native, source);
 }
 
 /**

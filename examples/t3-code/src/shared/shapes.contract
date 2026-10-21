@@ -391,6 +391,10 @@ shape Snapshot
   composer: ComposerView
   // The AlertStack wrapper's clip to its banners (laid-out-widths.ts alertClip).
   alertClip: string
+  // The draft hero's heading fits on one line (laid-out-widths.ts heroInline).
+  heroInline: bool
+  // The window's draft is sending its launch: the new-thread shortcut opens a fresh one beside it (draft-launch.ts).
+  draftLaunching: bool
   snapshotDrafts: SnapshotDraft[]
   snapshotOwner: string
   // ChatGptWelcomeCoordinator's next "Your ChatGPT plan is connected" (chatgpt-plan.ts).
