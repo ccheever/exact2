@@ -15,14 +15,11 @@ impl Em<'_> {
     /// first value declares no transition. Keep static exit registration.
     pub(super) fn presence(&mut self, i: u32, e: &str, static_decls: &str) {
         let bindings = self.plan.node(NodesId(i)).bindings;
-        let dynamic = bindings
-            .iter()
-            .map(|b| self.plan.binding(b))
-            .any(|b| {
-                b.kind == BindingKind::Style
-                    && b.id == StyleId::LayoutTransition as u16
-                    && style::literal(self.plan, self.plan.code(b.expr)).is_none()
-            });
+        let dynamic = bindings.iter().map(|b| self.plan.binding(b)).any(|b| {
+            b.kind == BindingKind::Style
+                && b.id == StyleId::LayoutTransition as u16
+                && style::literal(self.plan, self.plan.code(b.expr)).is_none()
+        });
         if !static_decls.is_empty() || dynamic {
             let pr = self.uses.rt("pr");
             let _ = write!(self.out, "{pr}({e});");
