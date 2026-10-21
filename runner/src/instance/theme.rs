@@ -236,9 +236,11 @@ impl super::NodeInst {
         // A row it sets passes its text on when that read a token, else
         // nothing; a row it does not set, its implied row's or the one around.
         let inherited = std::array::from_fn(|k| match binding_of(plan, &row, INHERITED[k]) {
-            Some(b) if self.themed.sets(b) => {
-                self.themed.get(b).then(|| self.last[b].clone()).flatten()
-            }
+            Some(b) if self.themed.sets(b) => self
+                .themed
+                .get(b)
+                .then(|| self.emitted(plan, u.sites, b))
+                .flatten(),
             _ => match self.implied.as_ref().and_then(|implied| implied[k].clone()) {
                 Some(text) => Some(text),
                 None => u.theme.inherited[k].clone(),

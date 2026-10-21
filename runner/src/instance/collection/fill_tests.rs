@@ -355,8 +355,7 @@ fn a_rejected_report_s_padding_changes_nothing() {
     assert_eq!(h.collection().padding(), [20.0, 20.0], "the next report");
     // A request after them aligns within the list's style's scroll padding,
     // which no report carries
-    let sites = crate::instance::SiteIndex::new(&h.plan);
-    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut h.ids);
+    let mut u = Update::new(env(&h.plan, &h.slots), &h.sites, &mut h.ids);
     let style = |_| [12.0, 0.0, 0.0, 0.0];
     u.scroll_padding = Some(&style);
     let Child::Node(root) = &mut h.tree.children[0] else {

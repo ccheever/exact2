@@ -12,6 +12,7 @@
 //! preserves its views across reorders.
 
 /// Variable-height viewport collections and their portable host feedback seam.
+mod bound;
 pub mod collection;
 mod deps;
 mod document;
@@ -138,7 +139,8 @@ pub struct NodeInst {
     pub node: NodesId,
     /// The kernel view.
     pub view: ViewId,
-    /// Last emitted value per binding, in binding order.
+    /// Last emitted value per binding that can change, in binding order
+    /// ([`NodeInst::slot`]); a constant binding's is the site index's.
     last: Box<[Option<Value>]>,
     /// Last published surface inputs (a canvas node), by a thin pointer: `Child` fits 128 bytes.
     #[allow(clippy::box_collection)]
@@ -892,7 +894,8 @@ impl NodeInst {
         let mut inst = NodeInst {
             node,
             view,
-            last: vec![None; row.bindings.len as usize].into_boxed_slice(),
+            last: vec![None; Self::slot(u.sites, &row, row.bindings.len as usize)]
+                .into_boxed_slice(),
             last_surface: None,
             children: Vec::new(),
             last_children: Box::default(),
@@ -922,34 +925,6 @@ impl NodeInst {
         })();
         u.theme = saved;
         realized.map(|()| inst)
-    }
-
-    /// The value a style binding last emitted.
-    pub(super) fn bound_style(&self, plan: &Plan, style: exact_kernel::StyleId) -> Option<&Value> {
-        plan.node(self.node)
-            .bindings
-            .iter()
-            .enumerate()
-            .find_map(|(i, b)| {
-                let b = plan.binding(b);
-                (b.kind == BindingKind::Style && b.id == style as u16)
-                    .then(|| self.last[i].as_ref())
-                    .flatten()
-            })
-    }
-
-    /// The value a prop binding last emitted.
-    pub(super) fn bound_prop(&self, plan: &Plan, prop: exact_kernel::PropId) -> Option<&Value> {
-        plan.node(self.node)
-            .bindings
-            .iter()
-            .enumerate()
-            .find_map(|(i, b)| {
-                let b = plan.binding(b);
-                (b.kind == BindingKind::Prop && b.id == prop as u16)
-                    .then(|| self.last[i].as_ref())
-                    .flatten()
-            })
     }
 
     fn emit_bindings(
@@ -986,8 +961,8 @@ impl NodeInst {
         for i in order {
             let b = exact_plan::BindingsId(row.bindings.start + i as u32);
             if !tuned && Some(i) != mode {
-                self.tuple =
-                    theme::tuple_of(plan, mode.and_then(|m| self.last[m].as_ref()), around);
+                let pin = mode.and_then(|m| self.emitted(plan, u.sites, m));
+                self.tuple = theme::tuple_of(plan, pin.as_ref(), around);
                 bridge::set_tuple(self.tuple);
                 force = !fresh && (u.theme.retheme || self.tuple != before);
                 tuned = true;
@@ -1017,9 +992,14 @@ impl NodeInst {
                 u.work.bindings_evaluated += 1;
                 u.eval_binding(b, binding.expr, frames)?
             };
-            let unchanged = self.last[i]
-                .as_ref()
-                .is_some_and(|last| crate::compare::equal(last, &value) == Some(true));
+            // A constant's value is the one it was created with.
+            let slot = (!reads.is_constant()).then(|| Self::slot(u.sites, &row, i));
+            let unchanged = match slot {
+                None => !fresh,
+                Some(slot) => self.last[slot]
+                    .as_ref()
+                    .is_some_and(|last| crate::compare::equal(last, &value) == Some(true)),
+            };
             if u.work.bindings_evaluated != evaluated {
                 u.ids.evaluated(self.node, unchanged);
             }
@@ -1034,7 +1014,9 @@ impl NodeInst {
                 {
                     u.text_styled = true;
                 }
-                self.last[i] = Some(value);
+                if let Some(slot) = slot {
+                    self.last[slot] = Some(value);
+                }
                 continue;
             }
             // A binding is a declaration whose value is computed from state, as a `var()` reference
@@ -1148,10 +1130,13 @@ impl NodeInst {
                     }
                 }
             }
-            self.last[i] = Some(value);
+            if let Some(slot) = slot {
+                self.last[slot] = Some(value);
+            }
         }
         if !tuned {
-            self.tuple = theme::tuple_of(plan, mode.and_then(|m| self.last[m].as_ref()), around);
+            let pin = mode.and_then(|m| self.emitted(plan, u.sites, m));
+            self.tuple = theme::tuple_of(plan, pin.as_ref(), around);
         }
         if themed_plan && theme::boundary(plan, &row) {
             bridge::set_tuple(self.tuple);
@@ -1229,25 +1214,23 @@ impl NodeInst {
         u: &mut Update<'_>,
         frames: &[Frame],
     ) -> Result<(), InstanceError> {
+        let plan = u.env.plan;
+        let follow = self.collection.is_some()
+            && plan
+                .node(self.node)
+                .bindings
+                .iter()
+                .position(|b| {
+                    let b = plan.binding(b);
+                    b.kind == BindingKind::Prop
+                        && b.id == exact_kernel::PropId::ScrollFollowEnd as u16
+                })
+                .is_some_and(|i| self.emitted(plan, u.sites, i) == Some(Value::Bool(true)));
         if let Some(collection) = &mut self.collection {
             collection.around = theme::Around {
                 retheme: false,
                 ..u.theme.clone()
             };
-            let follow = u
-                .env
-                .plan
-                .node(self.node)
-                .bindings
-                .iter()
-                .enumerate()
-                .find_map(|(i, b)| {
-                    let b = u.env.plan.binding(b);
-                    (b.kind == BindingKind::Prop
-                        && b.id == exact_kernel::PropId::ScrollFollowEnd as u16)
-                        .then_some(self.last[i] == Some(Value::Bool(true)))
-                })
-                .unwrap_or(false);
             (u.env.lists.ok_or_else(unlinked)?.update)(collection, u, frames, follow)?;
         } else if update_all(u, &mut self.children, frames)? {
             self.emit_children(u);
