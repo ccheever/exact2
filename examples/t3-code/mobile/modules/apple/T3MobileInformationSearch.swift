@@ -12,7 +12,7 @@ final class T3MobileInformationSearch: ExactNativeInstance {
         let effect: UIVisualEffect
         if #available(iOS 26.0, *) { let glass = UIGlassEffect(); glass.isInteractive = true; effect = glass } else { effect = UIBlurEffect(style: .systemMaterial) }
         let background = UIVisualEffectView(effect: effect); background.translatesAutoresizingMaskIntoConstraints = false; background.layer.cornerRadius = 24; background.clipsToBounds = true; root.addSubview(background)
-        field.placeholder = "Search packages"; field.accessibilityLabel = "Search open-source licenses"; field.autocorrectionType = .no; field.autocapitalizationType = .none; field.returnKeyType = .search
+        field.placeholder = "Search packages"; field.accessibilityLabel = "Search open-source licenses"; field.autocorrectionType = .no; field.autocapitalizationType = .none; field.spellCheckingType = .no
         field.backgroundColor = .clear; field.borderStyle = .none; field.translatesAutoresizingMaskIntoConstraints = false; background.contentView.addSubview(field)
         field.addAction(UIAction { [weak self] _ in guard let self, alive else { return }; events.change(field.text ?? "") }, for: .editingChanged)
         field.addAction(UIAction { [weak self] _ in self?.editing(true) }, for: .editingDidBegin)
