@@ -20,8 +20,10 @@ shape AddMachine
   description: string
   sourceLabel: string
   sourceMachine: string
+  // MiddleTruncate's head and tail of the source's folder (splitForMiddleTruncate; no tail when it fits).
   sourcePath: string
-  sourcePathFull: string
+  sourceHead: string
+  sourceTail: string
   // "no files", or "+ N files" under the arrow.
   fileSummary: string
   // The machine Select when there is more than one.
@@ -30,7 +32,8 @@ shape AddMachine
   targetMachine: string
   targetShown: bool
   destination: string
-  destinationShort: string
+  destinationHead: string
+  destinationTail: string
   // The SSH / HTTPS toggle, when the remote can be written both ways.
   protocolShown: bool
   protocol: string

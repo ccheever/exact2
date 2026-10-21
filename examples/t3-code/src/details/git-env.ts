@@ -155,5 +155,5 @@ export function stripRunOn(client: T3Client, worktree = false): typeof NO_RUN_ON
   // The menu's width from its measured labels (composer-menus.ts); the window caps it in the view.
   return { ...NO_RUN_ON, envShow: true, envMachine: focused.machine, envMachineLabel: focused.label, envOptions: listed, envAdd: add,
     envMenuWidth: runOnMenuWidth(client.presentation, (listed.length ? listed : options).map(option => option.label), workspaceLabels(worktree), 0, add.length > 0),
-    envAddMenuWidth: runOnMenuWidth(client.presentation, add.map(option => option.label), []) };
+    envAddMenuWidth: runOnMenuWidth(client.presentation, add.map(option => option.label), []) + 10 }; // CnMenuItem's 16pt icon, 8pt gap
 }

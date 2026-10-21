@@ -56,7 +56,7 @@ export async function cloneToasts(client: T3Client, native: Native | null | unde
     syncCloneToasts(trackedFor(client, id), environment.clones.value, id, viewing, port(client),
       { has: projectId => isProjectCloneToastSilenced(client, id, projectId), add: projectId => silenceProjectCloneToasts(client, id, projectId) });
   }
-  await fileCopyPass(client, native);
+  void fileCopyPass(client, native).catch(() => undefined); // detached: the shell answer does not wait for the writes
 }
 
 /**

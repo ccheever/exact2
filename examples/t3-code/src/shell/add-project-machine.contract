@@ -7,6 +7,9 @@ use ShellIcon from "./shell-icons.contract"
 use CnMachineIcon from "../settings/settings-b-kit.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
+use CnMenu, CnMenuItem from "../settings/settings-b-kit.contract"
+use KmItem, kmOpenKey, kmTriggerKey, kmTriggerTarget from "../shared/menu-keys.contract"
+use RunOnOption from "../details/git-shapes.contract"
 
 // DialogPopup sm:max-w-xl: the machines either side of "git clone", Clone over, the folder,
 // and the ignored files to copy.
@@ -46,7 +49,7 @@ component AddMachineDialog
                 row min-width=0 gap="0.375rem" align-items="center"
                   CnMachineIcon(kind=dialog.sourceMachine, size=14, color="light-dark(#27272a, #f5f5f5)")
                   text dialog.sourceLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 testId="add-machine-source"
-                text dialog.sourcePath font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 title=dialog.sourcePathFull testId="add-machine-source-path"
+                MiddlePath(head=dialog.sourceHead, tail=dialog.sourceTail, full=dialog.sourcePath, testId="add-machine-source-path")
               column width="7rem" flex-shrink=0 gap="0.125rem" align-items="center"
                 text "git clone" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                 row width="100%" align-items="center"
@@ -56,17 +59,13 @@ component AddMachineDialog
                 text dialog.fileSummary font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="add-machine-file-summary"
               column flex=1 min-width=0 gap="0.25rem"
                 if dialog.targets.length > 1
-                  row min-width=0 gap="0.375rem" align-items="center"
-                    CnMachineIcon(kind=dialog.targetMachine, size=14, color="light-dark(#27272a, #f5f5f5)")
-                    select value=(dialog.targets.filter((t) => t.selected).map((t) => t.id).join("")) change=pickTarget aria-label="Machine to add the project to" testId="add-machine-target" flex=1 min-width=0 height="1.75rem" font-size="0.875rem" id="add-machine-target" data-editable="yes" data-focus-stop="enabled"
-                      for target in dialog.targets key=target.id
-                        option target.label value=target.id
+                  AddMachineTargetSelect(dialog=dialog, command=command)
                 else
                   row min-width=0 gap="0.375rem" align-items="center"
                     if dialog.targetShown
                       CnMachineIcon(kind=dialog.targetMachine, size=14, color="light-dark(#27272a, #f5f5f5)")
                     text dialog.targetLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 testId="add-machine-target-label"
-                text dialog.destinationShort font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 title=dialog.destination testId="add-machine-destination"
+                MiddlePath(head=dialog.destinationHead, tail=dialog.destinationTail, full=dialog.destination, testId="add-machine-destination")
             column gap="0.375rem"
               text "Clone over" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
               if dialog.protocolShown
@@ -129,3 +128,87 @@ component IgnoredFileRow
           ShellIcon(name="check", size=12, color="#ffffff")
       text file.path flex=1 min-width=0 text-align="left" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
       text file.size flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+
+// BranchToolbar's "Add to another machine" MenuSubTrigger and its MenuSubPopup of machines, under the Run on
+// rows of the composer's menu and the details panel's: muted until highlighted (ADD_TO_MACHINE_LABEL_CLASS),
+// opened by hovering it, pressing it, Return, Space or ArrowRight (Base UI's submenu), which focuses the first machine.
+component AddMachineSubmenu
+  inject
+    rem: number
+  props
+    rowId: string
+    targets: RunOnOption[]
+    width: number
+    // Called with a machine's environment id.
+    choose: action
+  state lit = false
+  derive menuId = `${rowId}-menu`
+  derive items = targets.map((target) => KmItem(id=`${rowId}-${target.id}`, label=target.label))
+  action opened
+    showPopover(menuId, source=rowId)
+  action hover(over: bool)
+    if over
+      focus(rowId)
+      showPopover(menuId, source=rowId)
+  action focused(on: bool)
+    lit = on
+  action rowKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and (kmOpenKey(k) or k == "ArrowRight")
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover(menuId, source=rowId)
+        let target = kmTriggerTarget(items, k)
+        if target != ""
+          focus(target)
+  view
+    column position="relative" width="100%"
+      button id=rowId popovertarget=menuId popovertargetaction="show" hover=hover focus=focused(true) blur=focused(false) key=rowKey role="menuitem" aria-haspopup="menu" testId=rowId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        row flex=1 min-width=0 gap="0.375rem" align-items="center" opacity=(lit ? 1 : 0.55)
+          ShellIcon(name="plus", size=12, color="light-dark(#27272a, #f5f5f5)")
+          text "Add to another machine" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" min-width=0 overflow="hidden" text-overflow="ellipsis" text-align="left"
+        ShellIcon(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)")
+      CnMenu(menuId=menuId, invoker=rowId, label="Add to another machine", width=width, area="right span-bottom", items=items, keyed=0)
+        for target in targets key=target.id
+          CnMenuItem(keysId=`${menuId}-keys`, label=target.label, menuId=menuId, itemId=`${rowId}-${target.id}`, destructive=false, disabled=false, radio=false, highlighted=false, note="", icon=target.machine, submenu="", choose=choose(target.id))
+
+// The dialog's machine Select (ui/select size="sm"): the chosen machine's icon and label, its popup listing
+// every machine with its icon, the chosen one highlighted.
+component AddMachineTargetSelect
+  props
+    dialog: AddMachine
+    command: action
+  derive items = dialog.targets.map((target) => KmItem(id=`add-machine-target-${target.id}`, label=target.label))
+  action pick(id: string)
+    command("shelllocal:add-machine-target", "", id, 0)
+  action triggerKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover("add-machine-target-menu", source="add-machine-target")
+        let target = kmTriggerTarget(items, k)
+        if target != ""
+          focus(target)
+  view
+    box position="relative" flex=1 min-width=0
+      button id="add-machine-target" popovertarget="add-machine-target-menu" key=triggerKey role="combobox" aria-label="Machine to add the project to" testId="add-machine-target" display="flex" flex-direction="row" align-items="center" gap="0.375rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" data-focus-stop="enabled"
+        CnMachineIcon(kind=dialog.targetMachine, size=14, color="light-dark(#27272a, #f5f5f5)")
+        text dialog.targetLabel font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 line-clamp=1 text-align="left" color="light-dark(#27272a, #f5f5f5)"
+        ShellIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
+      CnMenu(menuId="add-machine-target-menu", invoker="add-machine-target", label="Machine to add the project to", width=200, area="bottom span-right", items=items, keyed=0)
+        for target in dialog.targets key=target.id
+          CnMenuItem(keysId="add-machine-target-menu-keys", label=target.label, menuId="add-machine-target-menu", itemId=`add-machine-target-${target.id}`, destructive=false, disabled=false, radio=false, highlighted=target.selected, note="", icon=target.machine, submenu="", choose=pick(target.id))
+
+// MiddleTruncate: the head ellipsizes and the tail (splitForMiddleTruncate) always shows.
+component MiddlePath
+  props
+    head: string
+    tail: string
+    full: string
+    testId: string
+  view
+    row min-width=0 max-width="100%" overflow="hidden" title=full testId=testId
+      text head font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 flex-shrink=1
+      if tail != ""
+        text tail font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0

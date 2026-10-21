@@ -351,7 +351,7 @@ component WorkspaceMenu
               CnMachineIcon(kind=option.machine, size=12, color="light-dark(#71717b, #818181)")
               text option.label flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.3125rem" color="light-dark(#18181b, #fafafa)"
           if details.git.envAdd.length > 0
-            AddMachineOption(menu="details-workspace-menu", act=act)
+            AddMachineOption(menu="details-workspace-menu", targets=details.git.envAdd, act=act)
         text "Workspace" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
         WorkspaceOption(label="Current checkout", icon="folder", selected=(details.envMode == "local"), op="cclocal:env-mode", value="local", disabled=(not details.envModeSelect), act=act)
         WorkspaceOption(label="New worktree", icon="folder-git-2", selected=(details.envMode == "worktree"), op="cclocal:env-mode", value="worktree", disabled=(not details.envModeSelect), act=act)

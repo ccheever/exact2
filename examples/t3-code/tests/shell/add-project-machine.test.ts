@@ -9,7 +9,7 @@ import { liveFleetEvent, liveFleetPass, PROJECT_CLONES_KEY } from '../../src/cli
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { addProjectTargets, cloneUrlForProtocol, cloneUrlProtocol, defaultSelection, fileCopyPass, isDefaultCopiedFile, isProjectCloneToastSilenced, projectFileCopy,
   projectSubdirectory } from '../../src/shell/add-project-machine';
-import { addMachineLocal, addMachineView, submitAddMachine } from '../../src/shell/add-project-dialog';
+import { addMachineLocal, addMachineView, splitForMiddleTruncate, submitAddMachine } from '../../src/shell/add-project-dialog';
 import { projectCloneBanner, projectCloneSendBlockReason, syncCloneToasts, type CloneToast, type ToastPort, type TrackedToast } from '../../src/shell/project-clones';
 import { environmentView, stripRunOn } from '../../src/details/git-env';
 import { runConnectionOp, CONNECTION_OPS } from '../../src/connections/connections';
@@ -165,6 +165,29 @@ describe('the dialog (AddProjectToMachineDialog)', () => {
     expect(addMachineView(client).error).toBe('Choose a folder on the other machine.');
   });
 
+  test('Return in the folder field before the ignored files load starts nothing (the button is disabled then)', async () => {
+    primaryAt('http://127.0.0.1:16960', 'env');
+    const { client, native, calls } = harness();
+    await machine('studio', 'Studio');
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const access = client.restAccess();
+    Object.assign(client, { restAccess: () => ({ ...access, request: async (method: string, payload: Obj) => { if (method === 'projects.listIgnoredFiles') await gate; return access.request(method, payload); } }) });
+    const opening = addMachineLocal(client, native, 'open', '', 'studio');
+    await Promise.resolve();
+    expect(addMachineView(client)).toMatchObject({ canSubmit: false, filesNote: 'Finding ignored files…' });
+    expect(await submitAddMachine(client, native)).toEqual({ status: null, generation: -1 });
+    expect(calls.some(call => call.method === 'projectClone.start' || call.method === 'projects.readFile')).toBe(false);
+    release(); await opening;
+    expect(addMachineView(client).canSubmit).toBe(true);
+  });
+
+  test('paths truncate in the middle, keeping the last folder (MiddleTruncate)', () => {
+    expect(splitForMiddleTruncate('/Users/Shared/fixtures/envs/second/repos/empty-project')).toEqual({ head: '/Users/Shared/fixtures/envs/second/repos/', tail: 'empty-project' });
+    expect(splitForMiddleTruncate('/repo/a-very-long-folder-name-indeed')).toEqual({ head: '/repo/a-very-long-folder-n', tail: 'ame-indeed' });
+    expect(splitForMiddleTruncate('~/widgets')).toBeNull();
+  });
+
   test('defaults: env files by name, subdirectories below the repository root', () => {
     expect(['.env', 'a/.env.production', '.envrc', '.dev.vars', '.environment', 'env', '.env/'].map(isDefaultCopiedFile)).toEqual([true, true, true, true, false, false, false]);
     expect([...defaultSelection(files)]).toEqual(['.env', 'apps/web/.env.local']);
@@ -226,6 +249,55 @@ describe('adding the project (addProjectToMachine)', () => {
     const there = Object.assign(client, { environmentId: 'studio', projectId: 'new-0' });
     await addMachineLocal(there, native, 'copy-dismiss', '', '');
     expect(projectFileCopy(client, 'studio', 'new-0')).toBeNull();
+  });
+
+  test('closing the dialog while it starts still lands on the clone; a window that cannot follow puts the draft back', async () => {
+    primaryAt('http://127.0.0.1:16960', 'env');
+    const { client, native } = harness();
+    await machine('studio', 'Studio');
+    await addMachineLocal(client, native, 'open', '', 'studio');
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const slow = { ...native, later: async (input: unknown) => { if (obj(input).method === 'projectClone.start') await gate; return native.later(input); } } as Native;
+    const submitting = submitAddMachine(client, slow);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(addMachineView(client).submitLabel).toBe('Starting…');
+    await addMachineLocal(client, native, 'close', '', '');
+    expect(addMachineView(client).open).toBe(false);
+    release();
+    expect(await submitting).toMatchObject({ generation: 9 });
+    expect(client.local.drafts).toEqual({ 'studio:new:new-0': 'carry me' });
+
+    // The window cannot move: the draft and the machine's selection go back.
+    const { client: other, native: otherNative } = harness();
+    const entry = await machine('studio', 'Studio');
+    await addMachineLocal(other, otherNative, 'open', '', 'studio');
+    const refused = { ...otherNative, later: async (input: unknown) => obj(input).op === 'connect'
+      ? { ok: false, generation: 5, error: { kind: 'transport', message: 'unreachable' } } : otherNative.later(input) } as Native;
+    await expect(submitAddMachine(other, refused)).rejects.toThrow('unreachable');
+    expect(other.local.drafts).toEqual({ 'env:new:p1': 'carry me' });
+    expect((other.local.composerControls as { contexts: Record<string, Obj> }).contexts['env:new:p1']).toMatchObject({ envMode: 'worktree', branch: 'main' });
+    expect(other.local.selections.studio).toBeUndefined();
+    void entry;
+  });
+
+  test('a clone that leaves the list after it was seen drops its copy; one never seen keeps waiting', async () => {
+    primaryAt('http://127.0.0.1:16960', 'env');
+    const { client, native, calls } = harness();
+    const studio = await machine('studio', 'Studio');
+    await addMachineLocal(client, native, 'open', '', 'studio');
+    await submitAddMachine(client, native);
+    fleet.entries.set(studio.key, studio);
+    clones(studio, 2, []);
+    await fileCopyPass(client, native);
+    expect(projectFileCopy(client, 'studio', 'new-0')).toMatchObject({ phase: 'copying' });
+    clones(studio, 2, [{ projectId: 'new-0', phase: 'failed', error: 'boom' }]);
+    await fileCopyPass(client, native);
+    expect(projectFileCopy(client, 'studio', 'new-0')).toMatchObject({ phase: 'copying' });
+    clones(studio, 2, []); // Remove project
+    await fileCopyPass(client, native);
+    expect(projectFileCopy(client, 'studio', 'new-0')).toBeNull();
+    expect(calls.some(call => call.method === 'projects.writeFile')).toBe(false);
   });
 
   test('a clone that does not start keeps the dialog open with its error', async () => {

@@ -14,8 +14,7 @@ import { machineKind } from '../connections/connections';
 import { environmentIndicator } from '../details/shell-details';
 import { cloneDestination, cloneDirectoryName, initialBrowseQuery } from '../palette/palette-add';
 import { formatBytes } from '../settings/storage-maintenance';
-import { middleTruncate } from '../timeline/message-chips';
-import { moveDraftSelection } from '../composer/auto-balance';
+import { draftSelection, moveDraftSelection } from '../composer/auto-balance';
 import { composerNow } from '../composer/composer-controls';
 import { wakeShell } from '../client/command-waits';
 import { letGo } from '../client/let-go';
@@ -43,9 +42,30 @@ function projectOf(client: T3Client, state: DialogState) {
 }
 const canListFiles = (client: T3Client) => obj(obj(client.config.environment).capabilities).ignoredFileListing === true;
 
-export const CLOSED_ADD_MACHINE = { open: false, key: '', description: '', sourceLabel: '', sourceMachine: 'server', sourcePath: '', sourcePathFull: '', fileSummary: '',
+const DEFAULT_TAIL = 10, MAX_SEGMENT_TAIL = 16;
+/**
+ * ui/middle-truncate.tsx splitForMiddleTruncate: the tail that always shows (the last path segment up to 16 characters,
+ * else 10), and the head that ellipsizes; null when the value is short enough to show whole.
+ */
+export function splitForMiddleTruncate(value: string, tail?: number): { head: string; tail: string } | null {
+  const chars = Array.from(value);
+  let keep = tail ?? DEFAULT_TAIL;
+  if (tail === undefined) {
+    const slash = chars.lastIndexOf('/');
+    if (slash > 0 && slash < chars.length - 1) {
+      const segment = chars.length - slash - 1;
+      keep = segment <= MAX_SEGMENT_TAIL ? segment : DEFAULT_TAIL;
+    }
+  }
+  if (keep <= 0 || chars.length <= keep + 4) return null;
+  const cut = chars.length - keep;
+  return { head: chars.slice(0, cut).join(''), tail: chars.slice(cut).join('') };
+}
+const middle = (value: string) => { const split = splitForMiddleTruncate(value); return split ?? { head: value, tail: '' }; };
+
+export const CLOSED_ADD_MACHINE = { open: false, key: '', description: '', sourceLabel: '', sourceMachine: 'server', sourcePath: '', sourceHead: '', sourceTail: '', fileSummary: '',
   targets: [] as { id: string; label: string; machine: string; selected: boolean }[], targetLabel: '', targetMachine: 'server', targetShown: false,
-  destination: '', destinationShort: '', protocolShown: false, protocol: '', remoteUrl: '', folderLabel: '', canListFiles: false, countLabel: '', allLabel: '',
+  destination: '', destinationHead: '', destinationTail: '', protocolShown: false, protocol: '', remoteUrl: '', folderLabel: '', canListFiles: false, countLabel: '', allLabel: '',
   files: [] as { path: string; size: string; checked: boolean; disabled: boolean }[], filesNote: '', filesError: false, truncatedNote: '', error: '', submitLabel: '', canSubmit: false, submitting: false };
 
 /** Everything the dialog shows, as the reference derives it on each render. */
@@ -83,11 +103,11 @@ export function addMachineView(client: T3Client, source: EnvironmentFleet = flee
   return {
     open: true, key: String(state.serial),
     description: `Clone ${str(identity.displayName) || str(project.title)} and bring the local files git does not track.`,
-    sourceLabel: sourceLabel.envLabel || 'This machine', sourceMachine: sourceLabel.envKind, sourcePath: middleTruncate(workspaceRoot, 30), sourcePathFull: workspaceRoot,
+    sourceLabel: sourceLabel.envLabel || 'This machine', sourceMachine: sourceLabel.envKind, sourcePath: workspaceRoot, sourceHead: middle(workspaceRoot).head, sourceTail: middle(workspaceRoot).tail,
     fileSummary: count === 0 ? 'no files' : `+ ${count} ${count === 1 ? 'file' : 'files'}`,
     targets: view.targets.map(target => ({ id: target.environmentId, label: target.label, machine: target.machine, selected: target.environmentId === view.target?.environmentId })),
     targetLabel: view.target?.label ?? 'No machine available', targetMachine: view.target?.machine ?? 'server', targetShown: view.target !== null,
-    destination: view.destinationPath, destinationShort: middleTruncate(view.destinationPath, 30),
+    destination: view.destinationPath, destinationHead: middle(view.destinationPath).head, destinationTail: middle(view.destinationPath).tail,
     protocolShown: !!view.sshUrl && !!view.httpsUrl, protocol: state.protocol ?? '', remoteUrl: view.remoteUrl,
     folderLabel: `Folder on ${view.target?.label ?? 'the other machine'}`, canListFiles: view.listing,
     countLabel: copyable.length > 0 ? `${count} of ${view.files.length}${selectedBytes > 0 ? ` · ${formatBytes(selectedBytes)}` : ''}` : '',
@@ -125,7 +145,9 @@ export async function addMachineLocal(client: T3Client, native: Native, op: stri
     return '';
   }
   if (!state.open) return '';
-  if (op === 'close') { if (!state.submitting) state.open = false; return ''; }
+  // Cancel, Escape and the backdrop close it even while the clone starts; the clone still lands (the reference's
+  // submit goes on after its dialog unmounts).
+  if (op === 'close') { state.open = false; return ''; }
   if (op === 'target') { if (value) state.targetId = value; return ''; }
   if (op === 'protocol') { if (value === 'ssh' || value === 'https') state.protocol = value; return ''; }
   if (op === 'path') { state.pathOverride = value; return ''; }
@@ -151,39 +173,62 @@ export async function submitAddMachine(client: T3Client, native: Native, source:
   const state = stateOf(client);
   if (!state.open || state.submitting) return none;
   const view = derive(client, state, source), project = view.project, target = view.target;
-  if (!project || !target) return none;
+  // The button is disabled until then, and Return in the folder field asks the same: before the file list loads a
+  // clone would skip the default .env copies.
+  if (!project || !target || view.unavailable) return none;
   if (view.destinationPath.trim().length === 0) { state.error = 'Choose a folder on the other machine.'; return none; }
+  const serial = state.serial;
   state.submitting = true; state.error = '';
   await wakeShell(native); // "Starting…"
   const sourceEnvironmentId = state.environmentId, sourceProjectId = state.projectId;
+  const mine = () => state.serial === serial;
+  let projectId = '';
   try {
-    const [projectId] = await client.restAccess(native).ids(1);
+    [projectId = ''] = await client.restAccess(native).ids(1);
     const workspaceRoot = str(project.workspaceRoot);
     await addProjectToMachine(client, native, {
       source: { environmentId: sourceEnvironmentId, cwd: workspaceRoot },
       subdirectory: projectSubdirectory(str(obj(project.repositoryIdentity).rootPath) || undefined, workspaceRoot),
-      target: { environmentId: target.environmentId, label: target.label }, projectId: projectId!, title: str(project.title), remoteUrl: view.remoteUrl,
+      target: { environmentId: target.environmentId, label: target.label }, projectId, title: str(project.title), remoteUrl: view.remoteUrl,
       destinationPath: view.destinationPath.trim(), files: view.files.filter(file => view.selected.has(file.path)).map(file => file.path),
       createdAt: new Date(composerNow(client)).toISOString(),
     });
-    state.open = false; state.submitting = false;
-    if (!client.threadId && client.environmentId === sourceEnvironmentId && client.projectId === sourceProjectId) moveDraft(client, `${target.environmentId}:new:${projectId}`);
-    const focused = await focusFleetProject(client, native, target.environmentId, projectId!, source);
-    return { status: focused.value, generation: focused.generation };
   } catch (error) {
     if (letGo(error)) throw error;
-    if (state.open) { state.error = error instanceof Error && error.message ? error.message : 'Could not start the clone.'; state.submitting = false; return none; }
+    // A dialog closed while it started has nowhere to show the error, as the reference's unmounted one.
+    if (mine()) state.submitting = false;
+    if (mine() && state.open) { state.error = error instanceof Error && error.message ? error.message : 'Could not start the clone.'; }
+    return none;
+  }
+  if (mine()) { state.open = false; state.submitting = false; }
+  // openClonedProject: the draft open on the source project moves over; it moves back if the window cannot follow.
+  const moved = !client.threadId && client.environmentId === sourceEnvironmentId && client.projectId === sourceProjectId
+    ? moveDraft(client, `${target.environmentId}:new:${projectId}`) : null;
+  const before = client.local.selections[target.environmentId];
+  try {
+    const focused = await focusFleetProject(client, native, target.environmentId, projectId, source);
+    return { status: focused.value, generation: focused.generation };
+  } catch (error) {
+    moved?.();
+    if (before) client.local.selections[target.environmentId] = before; else delete client.local.selections[target.environmentId];
     throw error;
   }
 }
 
-/** setDraftThreadContext onto the clone: the draft's text and workspace choices move, its machine choice is manual. */
-function moveDraft(client: T3Client, to: string): void {
+/** setDraftThreadContext onto the clone: the draft's text and workspace choices move, its machine choice is manual. Returns the undo. */
+function moveDraft(client: T3Client, to: string): () => void {
   const from = client.draftKey, text = client.local.drafts[from];
   if (text) { client.local.drafts[to] = text; delete client.local.drafts[from]; }
   const contexts = (client.local.composerControls as { contexts?: Record<string, Record<string, unknown>> }).contexts ??= {};
-  if (contexts[from]) { contexts[to] = { ...contexts[from], worktreePath: '' }; delete contexts[from]; }
+  const context = contexts[from];
+  if (context) { contexts[to] = { ...context, worktreePath: '' }; delete contexts[from]; }
+  const previous = draftSelection(client, from);
   moveDraftSelection(client, from, to, { selection: 'manual', choice: '' });
+  return () => {
+    if (client.local.drafts[to] !== undefined && client.local.drafts[from] === undefined) { client.local.drafts[from] = client.local.drafts[to]!; delete client.local.drafts[to]; }
+    if (context && !contexts[from]) { contexts[from] = context; delete contexts[to]; }
+    moveDraftSelection(client, to, from, previous);
+  };
 }
 
 /** For tests: the dialog's state. */

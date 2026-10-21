@@ -3,9 +3,10 @@
 // pick, the clone start and the ignored-file relay) and hooks/useAddProjectTargets.ts (which
 // machines can take the project). The two servers never talk to each other, so the client reads
 // the chosen ignored files from the source, starts the tracked clone on the target, and writes
-// the files there once the clone is done. The reference waits in a detached promise; here the
+// the files there once the clone is done. The reference waits in a detached promise; here each
 // shell pass checks the target's clone list (project-clones-live.ts cloneToasts calls
-// fileCopyPass), because data sources and commands have no timers.
+// fileCopyPass, which starts the writes without holding the pass), because data sources and
+// commands have no timers.
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
@@ -16,6 +17,7 @@ import { machineKind } from '../connections/connections';
 import { environmentIndicator } from '../details/shell-details';
 import { environmentOptions } from '../details/git-env';
 import { letGo } from '../client/let-go';
+import { wakeShell } from '../client/command-waits';
 
 export type CloneProtocol = 'ssh' | 'https';
 
@@ -204,13 +206,13 @@ export async function addProjectToMachine(client: T3Client, native: Native, inpu
 }
 
 /**
- * The reference's waitForClone and the copy after it, one shell pass: a copy whose clone is done
- * writes its files to the target (awaited here, so its replies arrive); a clone that left the list
- * after it was seen drops its copy. A failed or cancelled clone keeps waiting, since the composer
- * offers a retry.
+ * The reference's waitForClone and the copy after it, checked on each shell pass: a copy whose clone is done
+ * writes its files to the target, detached from the pass (the `writing` guard keeps a later pass from starting it
+ * again), and wakes the shell when it is through; a clone that left the list after it was seen drops its copy. A
+ * failed or cancelled clone keeps waiting, since the composer offers a retry. Resolves when the copies it started end.
  */
-export async function fileCopyPass(client: T3Client, native: Native): Promise<void> {
-  const state = stateOf(client);
+export function fileCopyPass(client: T3Client, native: Native): Promise<void> {
+  const state = stateOf(client), started: Promise<void>[] = [];
   for (const [key, copy] of [...state.copies]) {
     if (copy.phase !== 'copying' || copy.writing || !copy.cwd) continue;
     const environment = liveEnvironment(client, native, copy.environmentId);
@@ -221,18 +223,24 @@ export async function fileCopyPass(client: T3Client, native: Native): Promise<vo
     if (!clone) { if (copy.seen) state.copies.delete(key); continue; }
     if (clone.phase !== 'done') continue;
     copy.writing = true;
-    const failed: string[] = [];
-    for (const read of copy.reads) {
-      if (!('contents' in read)) { failed.push(`${read.relativePath}: ${read.error}`); continue; }
-      try {
-        await environment.request('projects.writeFile', { cwd: copy.cwd, relativePath: copy.subdirectory ? `${copy.subdirectory}/${read.relativePath}` : read.relativePath, contents: read.contents }, true);
-      } catch (error) {
-        if (letGo(error)) { copy.writing = false; throw error; }
-        failed.push(`${read.relativePath}: ${failureMessage(error)}`);
-      }
-    }
-    if (state.copies.get(key) !== copy) continue;
-    if (failed.length === 0) state.copies.delete(key);
-    else state.copies.set(key, { phase: 'failed', title: `Could not copy ${failed.length} ${failed.length === 1 ? 'file' : 'files'} to ${copy.label}`, failures: failed });
+    started.push(writeCopy(client, native, environment, key, copy).finally(() => wakeShell(native)));
   }
+  return Promise.all(started).then(() => undefined);
+}
+
+async function writeCopy(client: T3Client, native: Native, environment: LiveEnvironment, key: string, copy: Extract<ProjectFileCopy, { phase: 'copying' }>): Promise<void> {
+  const state = stateOf(client), failed: string[] = [];
+  for (const read of copy.reads) {
+    if (!('contents' in read)) { failed.push(`${read.relativePath}: ${read.error}`); continue; }
+    try {
+      await environment.request('projects.writeFile', { cwd: copy.cwd, relativePath: copy.subdirectory ? `${copy.subdirectory}/${read.relativePath}` : read.relativePath, contents: read.contents }, true);
+    } catch (error) {
+      // A connection that went away leaves the copy owed; the next pass on a live connection tries again.
+      if (letGo(error)) { copy.writing = false; return; }
+      failed.push(`${read.relativePath}: ${failureMessage(error)}`);
+    }
+  }
+  if (state.copies.get(key) !== copy) return;
+  if (failed.length === 0) state.copies.delete(key);
+  else state.copies.set(key, { phase: 'failed', title: `Could not copy ${failed.length} ${failed.length === 1 ? 'file' : 'files'} to ${copy.label}`, failures: failed });
 }

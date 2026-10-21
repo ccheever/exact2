@@ -86,8 +86,9 @@ export const ADD_TO_MACHINE = 'Add to another machine';
 export function runOnMenuWidth(presentation: Obj, labels: string[], workspace: string[], viewport = 0, addRow = false): number {
   let content = Math.max(measured(presentation, 'Run on', 12, 500), measured(presentation, 'Workspace', 12, 500));
   for (const label of [...labels, ...workspace]) content = Math.max(content, 8 + 6 + measured(presentation, label, 14, 400));
-  // "Add to another machine": the 12pt plus, 6pt, the label, then MenuSubTrigger's 16pt chevron after an 8pt gap.
-  if (addRow) content = Math.max(content, 8 + 6 + measured(presentation, ADD_TO_MACHINE, 14, 400) + 8 + 16);
+  // "Add to another machine" (AddMachineSubmenu): the 12pt plus, 6pt, the label, 6pt and MenuSubTrigger's 16pt chevron,
+  // with 4pt to spare for the label's rounding.
+  if (addRow) content = Math.max(content, 12 + 6 + measured(presentation, ADD_TO_MACHINE, 14, 400) + 6 + 16 + 4);
   return cap(Math.max(MENU_MIN, content + ITEM + CHROME), viewport);
 }
 
