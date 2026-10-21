@@ -324,7 +324,10 @@ export function tasksProgress(client: T3Client) {
   const empty = { tasksTotal: 0, tasksDone: 0, tasksCurrent: '', tasks: [] as TaskStep[] };
   if (!client.threadId) return empty;
   // isLatestRunSettled over deriveThreadActivityRun: a run that stopped working and is not the runtime's active one.
-  const run = activityRun(client.projection), runId = str(run?.id), settled = !!run && !SETTLING.has(str(run.status));
+  // The runtime's active run is the thread shell's (sidebar-model.ts shellRuntime).
+  const run = activityRun(client.projection), runId = str(run?.id);
+  const activeRunId = str(client.shell.threads.find(thread => thread.id === client.threadId)?.activeRunId);
+  const settled = !!run && !SETTLING.has(str(run.status)) && activeRunId !== runId;
   const plan = composerTasksPlan(client.projection, activePlan(client.projection, runId), runId, settled);
   const steps = arr(plan?.steps);
   if (!plan || !steps.length) return empty;

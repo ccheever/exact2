@@ -5,7 +5,8 @@ import { arr, obj, str, type Obj } from '../../src/client/domain';
 import { snapshot } from '../../src/client/presentation';
 import { toasts } from '../../src/shell/toast';
 import { noteComposerTyping } from '../../src/composer/composer-typing-guard';
-import { requestPresentation } from '../../src/composer/requests';
+import { composerInput, requestPresentation } from '../../src/composer/requests';
+import { stageTextAttachment } from '../../src/composer/composer-editor-files';
 import { applyStaged, decodeComposerControls, reconcileStagedModels, stagedFor } from '../../src/composer/composer-controls';
 import { opened } from '../support/composer-controls-fixture';
 import { EnvironmentFleet, fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
@@ -91,6 +92,57 @@ describe('composer during a pending approval', () => {
     native.later = later;
     await command('send', '', 'Use the other file');
     expect(writes(native.committed)).toEqual(['decline a', 'decline ccc', 'message.dispatch Use the other file steer']);
+  });
+  test('with a question pending too, the composer is the thread draft, and Send redirects with it', async () => {
+    const { client, native, command } = await waiting(approval('a'));
+    const projection = client.thread!.projection;
+    projection.runtimeRequests = [...arr(projection.runtimeRequests), { id: 'q1', kind: 'user_input', status: 'pending', createdAt: '2026-10-03T00:00:09Z', responseCapability: { type: 'live' } }];
+    projection.turnItems = [...arr(projection.turnItems), { id: 'item-q', type: 'user_input_request', requestId: 'q1', questions: [{ id: 's', header: 'S', question: 'Which?', options: [{ label: 'X', description: 'x' }] }] }];
+    await command('draft', '', 'redirect text');
+    expect(composerInput(client)).toBeUndefined();
+    expect(client.draft).toBe('redirect text');
+    await command('send', '', 'redirect text');
+    expect(writes(native.committed)).toEqual(['decline a', 'message.dispatch redirect text steer']);
+  });
+  test('an approval answered while the send prepares keeps the draft unsent, and a toast says why', async () => {
+    const { client, native, command } = await waiting(approval('a'));
+    const later = native.later.bind(native);
+    native.later = async input => {
+      // The approval's own Approve press starts while the send takes its ids.
+      if (obj(input).op === 'ids' && !client.local.pending[client.environmentId]) client.local.pending[client.environmentId] = { method: 'orchestration.dispatchCommand',
+        payload: { type: 'runtime-request.respond', requestId: 'a', decision: 'accept' }, description: 'Approval', threadId: 't1', text: '', uncertain: false };
+      return later(input);
+    };
+    await command('send', '', 'Use the other file');
+    expect(writes(native.committed)).toEqual([]);
+    expect(client.draft).toBe('Use the other file');
+    expect(toasts(client).at(-1)?.title).toBe("An approval is already being answered, so your message wasn't sent.");
+  });
+  test('a file attached during the decline counts as a changed draft', async () => {
+    const { client, native, command } = await waiting(approval('a'));
+    const later = native.later.bind(native);
+    native.later = async input => {
+      const reply = await later(input);
+      if (obj(obj(input).payload).type === 'runtime-request.respond') stageTextAttachment(client, 'notes', 'notes.txt', 'text/plain', 'late-file');
+      return reply;
+    };
+    await command('send', '', 'Use the other file');
+    expect(writes(native.committed)).toEqual(['decline a']);
+    expect(toasts(client).at(-1)?.title).toBe("Approval declined. Your message changed, so it wasn't sent.");
+  });
+  test('leaving the thread during the decline ends the send silently', async () => {
+    const { client, native, command } = await waiting(approval('a'), approval('bb'));
+    const later = native.later.bind(native);
+    native.later = async input => {
+      const reply = await later(input);
+      if (obj(obj(input).payload).type === 'runtime-request.respond') client.threadId = 't2';
+      return reply;
+    };
+    const before = toasts(client).length;
+    const result = await command('send', '', 'Use the other file');
+    expect(result.message).toBe('');
+    expect(writes(native.committed)).toEqual(['decline a']);
+    expect(toasts(client).length).toBe(before);
   });
   test('an approval held while the user typed stays pending, and the send follows the setting', async () => {
     const { client, native, command } = await waiting();

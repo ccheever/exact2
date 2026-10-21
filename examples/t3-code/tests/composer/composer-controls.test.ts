@@ -290,6 +290,10 @@ describe('docked banners, activity and the provider control', () => {
     expect(snapshot(client).composer).toMatchObject({ activity: 'tasks', tasksTotal: 2, tasksDone: 1, tasksCurrent: 'Write' });
     expect(tasksProgress(client).tasks.map(step => step.duration)).toEqual(['', '']);
     // A newer run on the same session keeps the list; it is "now" again only for the run that owns it.
+    // A settled run the runtime still names active is live: its step in progress is "now".
+    Object.assign(client.shell.threads[0]!, { activeRunId: 'r1' });
+    expect(tasksProgress(client).tasks[1]!.duration).toBe('now');
+    Object.assign(client.shell.threads[0]!, { activeRunId: null });
     projection.runs = [...arr(projection.runs), { id: 'r2', ordinal: 2, status: 'running', startedAt: '2026-10-03T00:01:00Z', providerThreadId: 'pt' }];
     expect(tasksProgress(client)).toMatchObject({ tasksTotal: 2, tasksCurrent: 'Write' });
     expect(tasksProgress(client).tasks[1]!.duration).toBe('');

@@ -110,9 +110,12 @@ export function composerRequests(client: T3Client): { approvals: PendingApproval
 export async function declinePendingApprovals(approvals: readonly PendingApproval[], respond: (requestId: string) => Promise<void>): Promise<void> {
   for (const approval of approvals) if (approval.live) await respond(approval.requestId);
 }
-/** The question the composer answers, unless it is held. */
+/** The question the composer answers, unless it is held or an approval shows. */
 export function composerInput(client: T3Client) {
-  const input = composerRequests(client).inputs[0];
+  const requests = composerRequests(client);
+  // A shown approval comes first: the composer is the thread's draft, which a send redirects with.
+  if (requests.approvals.length) return undefined;
+  const input = requests.inputs[0];
   return input ? { input, ...progress(client, input) } : undefined;
 }
 
