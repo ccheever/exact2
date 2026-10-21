@@ -793,6 +793,16 @@ fn a_module_tags_text_row_is_not_judged() {
     );
     assert!(w.get("ok").is_some(), "{w}");
     drop(s);
+    // The build still says only the module tag's refusal of the row.
+    let src = std::fs::read_to_string(dir.join("app.contract")).unwrap();
+    let after = contract::compile_path_source_all(&dir.join("app.contract"), &src, false)
+        .err()
+        .unwrap_or_default();
+    assert!(
+        after.iter().any(|e| e.id == "lower-native-attr"),
+        "{after:?}"
+    );
+    assert!(!after.iter().any(|e| e.id == "tamber-kind"), "{after:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -816,6 +826,16 @@ fn a_folded_labels_arms_are_the_builds() {
     let w = transaction(&mut s, &dir, json!({"op": "remove-token", "name": "mute"}));
     assert!(w.get("ok").is_some(), "{w}");
     drop(s);
+    // The build refuses it, at the first arm only.
+    let src = std::fs::read_to_string(dir.join("app.contract")).unwrap();
+    let built: Vec<u32> = contract::compile_path_source_all(&dir.join("app.contract"), &src, false)
+        .err()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.id == "tamber-unknown-token")
+        .map(|e| e.span.line)
+        .collect();
+    assert_eq!(built, [10]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

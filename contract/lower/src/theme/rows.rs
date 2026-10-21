@@ -310,13 +310,38 @@ pub(crate) fn kept(a: &Attr) -> Option<bool> {
 /// types by their form alone in `scope` (a string, a template, a name, a
 /// `?:` of those, a number); `None` for any other (a call, a `match`).
 pub(crate) fn typed(v: &Expr, scope: &contract_types::Scope) -> Option<contract_types::Ty> {
+    use contract_types::Ref;
+    // Every name it reads, a condition's and a hole's too, one `compile`
+    // loads (a state, a derive, a resource or a mutation): a root prop or
+    // an action as a value is lowering's refusal of its own (Grok's D2
+    // round 2).
+    let mut loads = true;
+    scan::exprs(v, &mut |e| {
+        if let Expr::Ident(name, _) = e {
+            loads &= matches!(
+                scope.lookup(name),
+                Some((
+                    Ref::Slot(_) | Ref::Derive(_) | Ref::Resource(_) | Ref::Mutation(_),
+                    _
+                ))
+            );
+        }
+    });
+    if !loads {
+        return None;
+    }
+    shape(v, scope)
+}
+
+/// [`typed`]'s type of `v` by its form, its names loaded.
+fn shape(v: &Expr, scope: &contract_types::Scope) -> Option<contract_types::Ty> {
     use contract_types::Ty;
     match v {
         Expr::Str(..) | Expr::Template(..) => Some(Ty::String),
         Expr::Number(..) => Some(Ty::Number),
         Expr::Ident(name, _) => scope.lookup(name).map(|(_, t)| t.clone()),
         Expr::Ternary(_, yes, no, _) => {
-            let (yes, no) = (typed(yes, scope)?, typed(no, scope)?);
+            let (yes, no) = (shape(yes, scope)?, shape(no, scope)?);
             Some(yes.unify(&no).unwrap_or(Ty::Unknown))
         }
         _ => None,

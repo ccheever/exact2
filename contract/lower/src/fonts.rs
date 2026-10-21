@@ -159,15 +159,16 @@ impl Lowerer<'_> {
                 let axes = std::fs::read(&canonical)
                     .map(|bytes| crate::font_axes::read(&bytes))
                     .unwrap_or_default();
+                // (Unread, it is recorded as no length any file has, so the
+                // write check never trusts its faces: Grok's D1 round 3.)
                 if face.weight.is_none() {
-                    if let Ok(m) = std::fs::metadata(&canonical) {
-                        self.font_files.push((
-                            full.clone(),
-                            canonical.clone(),
-                            m.len(),
-                            m.modified().ok(),
-                        ));
-                    }
+                    let m = std::fs::metadata(&canonical).ok();
+                    self.font_files.push((
+                        full.clone(),
+                        canonical.clone(),
+                        m.as_ref().map_or(u64::MAX, |m| m.len()),
+                        m.and_then(|m| m.modified().ok()),
+                    ));
                 }
                 let weight = face.weight.unwrap_or_else(|| {
                     axes.wght.map_or([400, 400], |[low, high]| {

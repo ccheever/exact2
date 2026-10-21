@@ -122,25 +122,36 @@ fn prepared(
         return false;
     };
     let joined: Vec<Attr>;
-    let rejoined;
+    let rejoined: Vec<Attr>;
+    let reboxed: Vec<Attr>;
     let expanded = match class {
         Some((_, rows)) => {
             joined = rows
                 .into_iter()
                 .chain(attrs.iter().filter(|a| a.name != "class").cloned())
                 .collect();
-            rejoined = crate::svg::coerce_lengths(tag, in_svg, &joined);
-            rejoined.as_deref().unwrap_or(&joined)
+            rejoined =
+                crate::svg::coerce_lengths(tag, in_svg, &joined).unwrap_or_else(|| joined.clone());
+            match crate::box_transform::lower(tag, in_svg, &rejoined) {
+                Ok(Some(rows)) => {
+                    reboxed = rows;
+                    &reboxed
+                }
+                Ok(None) => &rejoined,
+                Err(_) => return false,
+            }
         }
         None => coerced,
     };
-    let refused = |a: &Attr| match a.name.as_str() {
-        "animation" | "-exact-exit-animation" => Err(crate::LowerError {
+    // Motion is checked against the keyframes, and composed before this
+    // (`compose_animation`): any is taken as refused.
+    let refused = |a: &Attr| match a.name.contains("animation") || a.name.contains("transition") {
+        true => Err(crate::LowerError {
             id: "",
             message: String::new(),
             span: a.span,
         }),
-        _ => Ok(()),
+        false => Ok(()),
     };
     crate::svg::check_svg_with(tag, in_svg, parent, expanded, span, &refused).is_ok()
 }
@@ -207,13 +218,23 @@ impl Said {
                     attrs(a);
                     let in_svg = crate::svg::in_svg(svg, parent);
                     let coerced = crate::svg::coerce_lengths(tag, in_svg, a);
+                    // A box's `transform` as the rows lowering checks
+                    // instead (`box_transform::lower`); refused, the build's.
+                    let boxed =
+                        crate::box_transform::lower(tag, in_svg, coerced.as_deref().unwrap_or(a));
                     // An element lowering refuses before its rows (its SVG
                     // content model and attribute placement, its class's rows
                     // with its own, `svg::check_svg_with`; an animation's
                     // names, the keyframes', taken as refused) is the build's,
                     // with everything inside it.
                     let own = coerced.as_deref().unwrap_or(a);
-                    let left = left || !prepared(file, tag, in_svg, parent, a, own, *span);
+                    let own = match &boxed {
+                        Ok(Some(rows)) => rows.as_slice(),
+                        _ => own,
+                    };
+                    let left = left
+                        || boxed.is_err()
+                        || !prepared(file, tag, in_svg, parent, a, own, *span);
                     // An element's own rows, which the build checks where it
                     // lowers the element (a style's are checked where a node
                     // applies it, and may be overridden there).
@@ -253,7 +274,7 @@ impl Said {
                         });
                     }
                     let inside = svg || tag == "svg";
-                    let left = left || crate::grouped::folds(node);
+                    let left = left || (parent == Some("section") && crate::grouped::folds(node));
                     stack.extend(
                         children
                             .iter()
@@ -274,9 +295,9 @@ impl Said {
                     stack.extend(some.1.iter().map(|c| (c, svg, parent, true, left)));
                     stack.extend(none.iter().map(|c| (c, svg, parent, local, left)));
                 }
-                Node::Use { children, .. } => {
-                    stack.extend(children.iter().map(|c| (c, svg, parent, local, left)))
-                }
+                // An uninlined `use` is lowering's refusal, its children
+                // never lowered.
+                Node::Use { .. } => {}
                 Node::Children { .. } => {}
             }
         }
