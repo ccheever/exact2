@@ -183,6 +183,16 @@ describe('the Code tab and its slices (PullRequestCodeTab, POST /api/pull-reques
     // The same first page changes nothing: every file stays, none folds or reloads.
     expect([view.codeTab.phase, view.codeTab.filesLabel, view.codeTab.items.filter(item => item.kind === 'pr-file').length]).toEqual(['files', '310 files', 310]);
   });
+  test('a server refresh reads a first slice that failed again', async () => {
+    let fail = true;
+    const f = fixture({}, payload => { if (fail) throw new ClientError('HTTP 502: GitHub did not answer', 'HTTP'); return SLICES[String(payload.cursor ?? 'first')]; });
+    expect((await f.settle()).codeTab.phase).toBe('error');
+    fail = false;
+    prRefreshEvent(f.client, { key: PR_REFRESH_KEY, subscriptionId: '1-1', value: 1 });
+    prRefreshEvent(f.client, { key: PR_REFRESH_KEY, subscriptionId: '1-1', value: 2 });
+    const view = await f.settle();
+    expect([view.codeTab.phase, view.codeTab.filesLabel]).toEqual(['files', '100 files+']);
+  });
   test('a first slice that fails takes the list\'s place, under the toolbar', async () => {
     const f = fixture({}, () => { throw new ClientError('This pull request diff is too large.', 'PullRequestOperationError'); });
     const view = await f.settle();

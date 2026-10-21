@@ -217,7 +217,7 @@ export async function queueCloseBatch(client: T3Client, native: Native, refs: st
 
 export type PrRowCheck = { key: string; name: string; status: string; label: string; url: string; description: string };
 export function emptyChecksPopover() {
-  return { ref: '', headline: '', loading: false, error: '', empty: false, rows: [] as PrRowCheck[], collapsible: false, expanded: false, labelWidth: 0, details: false };
+  return { ref: '', headline: '', loading: false, error: '', empty: false, rows: [] as PrRowCheck[], collapsible: false, expanded: false, labels: [] as string[], details: false };
 }
 export function emptyStackPopover() {
   return { ref: '', number: 0, label: '', notice: '', noticeText: '', retry: false, layers: [] as StackLayerView[], base: '', message: '' };
@@ -255,7 +255,7 @@ export async function quickPopovers(client: T3Client, native: Native | null, ent
       const all = arr(read.detail.checks);
       checks.empty = all.length === 0;
       const list = checksList(all, state.showAll);
-      checks.rows = list.rows; checks.collapsible = list.collapsible; checks.expanded = state.showAll; checks.labelWidth = list.labelWidth; checks.details = list.details;
+      checks.rows = list.rows; checks.collapsible = list.collapsible; checks.expanded = state.showAll; checks.labels = list.labels; checks.details = list.details;
     }
   }
   const stackEntry = state.stack ? entries.find(entry => refOf(entry) === state.stack) ?? null : null;

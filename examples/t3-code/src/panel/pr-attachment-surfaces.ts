@@ -21,9 +21,12 @@ function upsert(state: PanelState, surface: LinkedSurface): void {
   if (index < 0) state.surfaces.push(surface); else state.surfaces[index] = { ...state.surfaces[index]!, ...surface };
   state.active = surface.id; state.visible = true;
 }
-/** rightPanelStore.openPullRequest: one tab per reference; a known URL refreshes the tab's own. */
-export function openPullRequestIn(state: PanelState, target: PrTarget): LinkedSurface {
-  const surface: LinkedSurface = { id: prSurfaceId(target), kind: 'pull-request', path: '', line: 0, reveal: 0, pr: target };
+/**
+ * rightPanelStore.openPullRequest: one tab per reference; a known URL refreshes the tab's own. `detailTab` opens it on that
+ * tab (and keeps it with the surface); without one an existing surface keeps the tab it was left on.
+ */
+export function openPullRequestIn(state: PanelState, target: PrTarget, detailTab?: string): LinkedSurface {
+  const surface: LinkedSurface = { id: prSurfaceId(target), kind: 'pull-request', path: '', line: 0, reveal: 0, pr: target, ...(detailTab ? { detailTab } : {}) };
   upsert(state, surface);
   return surface;
 }

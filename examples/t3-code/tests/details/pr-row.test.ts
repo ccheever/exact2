@@ -7,7 +7,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { arr } from '../../src/client/domain';
 import { toasts } from '../../src/shell/toast';
-import { checksCount, checksList, describeChecks, width12, summarizeChecks, resolveConflictsPrompt, fixChecksPrompt, handoffPrompt, readableFailure, actionPayload, preparePayload, trailingAction, prCard, rowAction, allowedMergeMethods, selectedMergeMethod } from '../../src/details/pr-row-logic';
+import { checksCount, checksList, describeChecks, summarizeChecks, resolveConflictsPrompt, fixChecksPrompt, handoffPrompt, readableFailure, actionPayload, preparePayload, trailingAction, prCard, rowAction, allowedMergeMethods, selectedMergeMethod } from '../../src/details/pr-row-logic';
 import { readDetail, performAction, askMerge, mergeAsk, confirmMerge, startHandoff, prState, forgetDetails } from '../../src/details/pr-row-actions';
 import { checksTail, checksTrigger, checksTriggerLeft, rowGeometry } from '../../src/details/pr-row';
 import { prRowsView, prRowCommand, prRowLocal, prTabIcon } from '../../src/panel/pr-surface';
@@ -81,16 +81,16 @@ describe('the checks (describePullRequestChecks, summarizePullRequestChecks, Che
   test('attention, then running; completed behind "Show all" when either exists', () => {
     const checks = [check('build', 'success'), check('test (macos)', 'failure'), check('lint', 'success')];
     expect(checksList(checks, false)).toEqual({ collapsible: true, rows: [{ key: '0:test (macos)', name: 'test (macos)', status: 'failure', label: 'Failed', url: checks[1]!.url, description: 'test (macos)' }],
-      labelWidth: Math.ceil(width12('Failed')), details: true });
+      labels: ['Failed'], details: true });
     expect(checksList(checks, true).rows.map(row => [row.name, row.label])).toEqual([['test (macos)', 'Failed'], ['build', 'Passed'], ['lint', 'Passed']]);
     expect(checksList([check('build', 'success')], false)).toMatchObject({ collapsible: false, rows: [{ name: 'build', label: 'Passed' }] });
     expect(checksList([check('test', 'pending')], false).rows[0]!.label).toBe('Running');
   });
   // The rows share one grid, and the trigger counts completed checks while any are incomplete.
-  test('the label column is as wide as the widest label; Details holds its column when any shown row links one', () => {
+  test('each row\'s label cell holds each shown label, so the column is as wide as the widest; Details holds its column when any shown row links one', () => {
     const rows = [check('build', 'success'), { ...check('approve', 'action-required'), url: 'https://example.com/a/b/actions/runs/7' }, { ...check('lint', 'skipped'), url: '' }];
     const list = checksList(rows, true);
-    expect(list.labelWidth).toBe(Math.ceil(width12('Awaiting approval')));
+    expect(list.labels).toEqual(['Awaiting approval', 'Passed', 'Skipped']);
     expect(list.details).toBe(true);
     expect(checksList([{ ...check('lint', 'skipped'), url: '' }], false).details).toBe(false);
   });

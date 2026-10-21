@@ -96,10 +96,11 @@ export const CHECKS_HEADLINE: Record<string, string> = { passing: 'All checks ha
 export type CheckRow = { key: string; name: string; status: string; label: string; url: string; description: string };
 /**
  * ChecksBody: attention, then running, then (behind "Show all" when the first two exist) completed.
- * Its rows share one grid: the status labels end-aligned in a column as wide as the widest
- * (`labelWidth`, 12pt text), and a Details column wherever one shown row links its run (`details`).
+ * Its rows share one grid: the status labels end-aligned in a column as wide as the widest (`labels`,
+ * each shown label once, which every row's label cell holds at no height), and a Details column
+ * wherever one shown row links its run (`details`).
  */
-export function checksList(checks: Obj[], showAll: boolean): { rows: CheckRow[]; collapsible: boolean; labelWidth: number; details: boolean } {
+export function checksList(checks: Obj[], showAll: boolean): { rows: CheckRow[]; collapsible: boolean; labels: string[]; details: boolean } {
   const attention = checks.filter(check => ['failure', 'cancelled', 'action-required'].includes(str(check.status)));
   const running = checks.filter(check => check.status === 'pending');
   const completed = checks.filter(check => ['success', 'skipped', 'neutral'].includes(str(check.status)));
@@ -107,7 +108,7 @@ export function checksList(checks: Obj[], showAll: boolean): { rows: CheckRow[];
   const visible = [...attention, ...running, ...(showAll || !collapsible ? completed : [])];
   const rows = visible.map((check, index) => ({ key: `${index}:${str(check.name)}`, name: str(check.name), status: str(check.status, 'neutral'),
     label: checkStatusLabel(check), url: str(check.url), description: str(check.description) || str(check.name) }));
-  return { collapsible, rows, labelWidth: Math.ceil(Math.max(0, ...rows.map(row => width12(row.label)))), details: rows.some(row => row.url !== '') };
+  return { collapsible, rows, labels: [...new Set(rows.map(row => row.label))], details: rows.some(row => row.url !== '') };
 }
 /** The trigger's count (PullRequestChecksPopover variant "count"): completed of all while any are incomplete, else the failures. */
 export function checksCount(checks: Obj[]): string {

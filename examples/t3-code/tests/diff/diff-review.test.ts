@@ -145,6 +145,17 @@ describe('orphaned drafts (AnnotatableCodeView)', () => {
   });
 });
 
+test('a draft whose file came back as another change (modified, now added) is released too', async () => {
+  const preview = { patch: smallPatch, path: 'a.ts' };
+  const { client, command } = harness(false, preview);
+  await command('diff'); await command('diffreview', 'reveal', 'a.ts');
+  await command('diffreview', 'comment:additions', 'a.ts', 4);
+  expect(client.diffState.draft).toMatchObject({ path: 'a.ts', previous: 'a.ts', status: 'modified' });
+  preview.patch = 'diff --git a/a.ts b/a.ts\nnew file mode 100644\n--- /dev/null\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n';
+  await command('diff-refresh');
+  expect([snapshot(client).diffCommentOpen, client.diffState.draft]).toEqual([false, null]);
+});
+
 describe('the gutter\'s drags in the Diff panel', () => {
   test('a drag on the numbers selects the lines it crosses; a drag from the "+" opens the draft on its range', async () => {
     const { client, command } = harness(false);

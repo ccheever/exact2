@@ -601,7 +601,8 @@ describe('inline confirmation input', () => {
     composer.call('confirmClose', {}, scope(true), []);
     composer.call('closeBlur', {}, scope(true), []);
     composer.call('closeBlur', {}, scope(false), []);
-    expect(calls).toEqual([['local', 'pr-ui-arm', 'pr7', 'comment|close'], ['act', 'comment-close', 'Superseded by #8'], ['local', 'pr-ui-disarm', 'pr7', 'comment|close']]);
+    // The confirming press disarms before it posts, so a refused comment leaves nothing armed.
+    expect(calls).toEqual([['local', 'pr-ui-arm', 'pr7', 'comment|close'], ['local', 'pr-ui-disarm', 'pr7', 'comment|close'], ['act', 'comment-close', 'Superseded by #8'], ['local', 'pr-ui-disarm', 'pr7', 'comment|close']]);
     // An empty comment arms nothing.
     calls.length = 0;
     composer.call('confirmClose', {}, { ...scope(false), comment: '  ' }, []);

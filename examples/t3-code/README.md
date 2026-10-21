@@ -557,11 +557,6 @@ Differences that belong to the app:
 - An image inside a link's text has no tooltip and no keyboard menu key.
 - In the composer, a review comment's popover shows its comment and diff as plain text (the
   reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
-- The pull request checks popover lines its status labels up in a column as wide as the widest
-  label's estimated 12 pt width (`pr-row-logic.ts` `checksList`), where the reference's CSS grid
-  measures them: a label the estimate undercounts by a point pushes its own Details over by that much.
-- The composer's pull request badge tooltip is a hover tip, not a popup to point into: a long list
-  is cut to the window's height above the badge, where the reference's scrolls.
 - Proactive panels is a setting with no effect: no surface opens on its own when a pull request is
   linked or a turn's diff lands (the reference's `useProactivePanels`).
 

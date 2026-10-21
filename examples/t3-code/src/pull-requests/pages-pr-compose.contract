@@ -115,6 +115,8 @@ component PrdComposer
   // closes; the arming lapses as for the header's (app.contract prConfirmLapse, the window's outside press).
   action confirmClose
     if actions.armedControl == "comment" and actions.armedAction == "close"
+      // Disarmed first, so a comment the host refuses does not leave Close armed.
+      local("pr-ui-disarm", selected, "comment|close")
       post("close")
     else if comment.trim() != "" and not locked
       local("pr-ui-arm", selected, "comment|close")

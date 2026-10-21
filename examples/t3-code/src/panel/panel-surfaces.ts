@@ -240,8 +240,9 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (targetKey === panelKey(client)) syncDiff(client, state);
   if (op === 'maximize') { state.maximized = !state.maximized; return ''; }
   if (op === 'move') { moveSurface(state, id, Number(value)); return ''; }
-  // setPullRequestDetailTab: the tab a pull request surface shows, kept with the surface; not the reader's panel choice.
-  if (op === 'pr-tab') { const surface = state.surfaces.find(entry => entry.id === id && entry.kind === 'pull-request'); if (surface && isDetailTab(value)) surface.detailTab = value; return ''; }
+  // setPullRequestDetailTab: the tab a pull request surface shows, kept with the surface.
+  // The revision moves so the panels' save (syncRightPanels) writes the choice now, before a quick quit.
+  if (op === 'pr-tab') { const surface = state.surfaces.find(entry => entry.id === id && entry.kind === 'pull-request'); if (surface && isDetailTab(value) && surface.detailTab !== value) { surface.detailTab = value; state.userRevision++; } return ''; }
   state.userRevision++;
   installTerminalPanelCleanup(client, native, state, parseScopedThreadKey(targetKey)); installBrowserCleanup(client, native);
   if (op.startsWith('terminal-')) return terminalPanelLocal(client, native, op.slice(9), id, value);

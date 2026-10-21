@@ -489,7 +489,7 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
       answer = await prGuideTaskHandoff(client, native, ctx.detail, surface, task, elsewhere);
     }
     if (answer === 'sidebar:new-thread') {
-      openPullRequestIn(panelState(client), { projectId: selection.projectId, host: selection.host, repository: selection.repository, number: selection.number, url: str(ctx.detail.url), environmentId: entry.environmentId });
+      openPullRequestIn(panelState(client), { projectId: selection.projectId, host: selection.host, repository: selection.repository, number: selection.number, url: str(ctx.detail.url), environmentId: entry.environmentId }, 'guide');
       return 'pr-guide:asked';
     }
     return answer;

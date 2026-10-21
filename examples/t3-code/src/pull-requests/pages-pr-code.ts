@@ -118,7 +118,8 @@ export async function readCode(ctx: CodeContext & { native: Native; tab: string;
   // backgroundRefreshToken: a change the server announced (a turn finishing) reads the first slice and
   // the ticks again with the loaded slices kept, so the list keeps its scroll; adoptDiffSlice drops what changed.
   if (ctx.epoch !== undefined && ctx.epoch !== code.epoch) {
-    if (code.epoch !== null && code.mounted && code.slices.length > 0) { code.cursor = null; code.diffDue = true; code.viewed.due = true; }
+    // A first slice that failed is read again too (its error gives way to the answer).
+    if (code.epoch !== null && code.mounted && (code.slices.length > 0 || code.diffError)) { code.cursor = null; code.diffDue = true; code.diffError = ''; code.viewed.due = true; }
     code.epoch = ctx.epoch;
   }
   if (ctx.tab === 'code') code.mounted = true;

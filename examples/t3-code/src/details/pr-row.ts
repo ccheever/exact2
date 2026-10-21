@@ -14,10 +14,10 @@ export type RowExtra = {
   destructive: boolean; suffix: boolean;
   /** The checks popover's transparent tail: the window's width right of the checks trigger. */
   tail: number; popId: string; method: string;
-  checksTitle: string; checksSummary: string; checksList: CheckRow[]; checksLabelWidth: number; checksDetails: boolean; collapsible: boolean; expanded: boolean;
+  checksTitle: string; checksSummary: string; checksList: CheckRow[]; checksLabels: string[]; checksDetails: boolean; collapsible: boolean; expanded: boolean;
   card: PrCard;
 };
-export const emptyExtra = (): RowExtra => ({ destructive: false, suffix: false, tail: 0, popId: '', method: '', checksTitle: '', checksSummary: '', checksList: [], checksLabelWidth: 0, checksDetails: false, collapsible: false, expanded: false, card: emptyCard() });
+export const emptyExtra = (): RowExtra => ({ destructive: false, suffix: false, tail: 0, popId: '', method: '', checksTitle: '', checksSummary: '', checksList: [], checksLabels: [], checksDetails: false, collapsible: false, expanded: false, card: emptyCard() });
 
 /**
  * The details card's rows are 262pt wide inline (the 280pt card 12pt from the canvas edge, 1pt
@@ -59,7 +59,7 @@ export function rowExtra(client: T3Client, detail: Obj, reference: Obj, input: {
   const extra: RowExtra = {
     destructive: trailing?.destructive ?? false, suffix: trailing?.suffix ?? false,
     tail: checksTail(rowRight + rowWidth - checksTriggerLeft(num(detail.number)) - checksTrigger(count), count), popId: `pr-checks-${num(detail.number)}`, method,
-    checksTitle: CHECKS_HEADLINE[rollup] ?? '', checksSummary: summary, checksList: list.rows, checksLabelWidth: list.labelWidth, checksDetails: list.details, collapsible: list.collapsible, expanded: state.showAll.has(input.key),
+    checksTitle: CHECKS_HEADLINE[rollup] ?? '', checksSummary: summary, checksList: list.rows, checksLabels: list.labels, checksDetails: list.details, collapsible: list.collapsible, expanded: state.showAll.has(input.key),
     // The title's line is the whole row wide.
     card: prCard(detail, input.lifecycleKey, rowWidth + rowRight, { width: rowWidth, linkRight: rowWidth }),
   };
