@@ -735,8 +735,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         let nav = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
         // UIKit shows no large title where it places a vertical bar: the iPhone Duo upright or closed
         // holds a 28-point title in a fixed 58-point bar
-        var large = true
-        if #available(iOS 27.1, *) { large = nav.traitCollection.verticalBarEdge == .unspecified }
+        let large = !nav.traitCollection.placesVerticalBar
         let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
         let css = { sv.contentOffset.y + sv.adjustedContentInset.top }
         let expanded = nav.navigationBar.frame.height
