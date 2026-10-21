@@ -299,6 +299,14 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(pixel(&mut p, "unsaid", 3.0, 18.0), [237; 3]);
     p.pointer_cancel(0.0).unwrap();
     assert_eq!(pixel(&mut p, "filled", 3.0, 18.0), blue, "and no other");
+    // Held, a filled button shows UIKit's highlight instead: its fill at 75%
+    // in light, mixed 20% with white in dark.
+    for (name, held) in [("filled", [72, 140, 224]), ("dark-filled", [134, 183, 254])] {
+        let (x, y, _, _) = p.rect_of(id(&p, name)).unwrap();
+        assert!(p.pointer_down(x + 4.0, y + 4.0, 0.0).unwrap());
+        assert_eq!(pixel(&mut p, name, 3.0, 18.0), held, "{name} held");
+        p.pointer_cancel(0.0).unwrap();
+    }
 
     // A list's rows (LLP 1115.000 D16), as the page's sheet draws them: one
     // line in the separator's role inside each row's bottom edge but the

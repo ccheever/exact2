@@ -9,6 +9,8 @@ import { glueDeclarations } from './glue-fixture.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
+// How both runtimes draw a symbol: its mask in its tint, `--exact-tint`.
+const symbolStyle = read('../glue.js').match(/symbolStyle\.textContent = '([^']*)'/)[1];
 // The neutral look alone, its roles the neutral column's: the Apple colours a build lays over it, in every
 // browser, are apple-colors.test.mjs's
 const sheet = () => withLook(shell).match(/<style>([\s\S]*?)<\/style>/)[1].replace(appleColors(), '');
@@ -129,9 +131,9 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'button-tint-alpha': `{ background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); }`,
     'button-hover-tinted': `:hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-tinted')}, transparent) 0 0); }`,
     'button-hover-filled': `:hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-filled')}, transparent) 0 0); }`,
-    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-tinted')}, transparent) 0 0); }`,
-    'button-pressed-filled': `[data-button-style="bordered-prominent"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-filled')}, transparent) 0 0); }`,
-    'button-pressed-plain': `[style*="--exact-press-color:"])::after { opacity: ${alpha('button-pressed-plain')}; }`,
+    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-tinted')}, transparent) 0 0); }`,
+    'button-pressed-alpha': [`{ background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-alpha')}, transparent),`, `& > :not(img), &::after { opacity: ${alpha('button-pressed-alpha')}; }`, `& > img { --exact-tint: color-mix(in srgb, currentColor ${percent('button-pressed-alpha')}, transparent); }`],
+    'button-pressed-lighten': [`color-mix(in srgb, var(--exact-accent, AccentColor), #fff ${percent('button-pressed-lighten')})); background-image: none; }`, `{ background-image: linear-gradient(color-mix(in srgb, #fff ${percent('button-pressed-lighten')}, transparent) 0 0); }`],
     'bar-hover-alpha': `{ opacity: var(--exact-hover-dim, ${alpha('bar-hover-alpha')}); }`,
     'select-line-height-coarse': `select:not([multiple]) { line-height: ${value.get('select-line-height-coarse')}; }`,
     'switch-thumb': `radial-gradient(circle closest-side, currentColor ${percent('switch-thumb')},`,
@@ -142,7 +144,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'symbol-scale': `{ --exact-symbol-scale: ${value.get('symbol-scale')}; }`,
     'button-symbol-scale': `{ --exact-symbol-scale: ${value.get('button-symbol-scale')}; margin: calc(`,
   };
-  for (const [name, spelled] of Object.entries(RATIO)) expect([name, neutral.includes(spelled)]).toEqual([name, true]);
+  for (const [name, spelled] of Object.entries(RATIO)) expect([name, [spelled].flat().every((s) => neutral.includes(s))]).toEqual([name, true]);
   // The one ratio the table does not hold: iOS's large-title line height, about 41 pt for 34 pt, which a bar's
   // level-1 title takes at the large title's size.
   expect(neutral.includes(`margin-block: max(0px, (${largeTitle / 16}rem * 1.2 - 1lh) / 2);`)).toBe(true);
@@ -337,26 +339,67 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // A press with no hover (a finger) dims and comes back at once, as the shell's press does.
       expect([at('bar press'), await press('bar-plain')]).toEqual([at('bar press'), ['0.65', 0, '1', 0]]);
 
-      // A plain or borderless button draws no box: no wash, hovered or held. Its face fades while held, as UIKit's does,
-      // and the button itself, and so its focus ring, keeps its opacity. An authored press (a paint, a scale) replaces
-      // the fade, a disabled button takes none, and a menu's or a chooser's row keeps its own look. In a sheet's bar a
-      // button that is only a symbol shows its name instead (LLP 1116.020 D2), which fades.
-      await page.evaluate(() => {
-        document.getElementById('item').insertAdjacentHTML('afterend', '<button type="button" data-native data-button-style="plain" id="item-plain" style="display:grid"><span data-exact-text>Plain</span></button>');
-        document.getElementById('said').insertAdjacentHTML('beforeend', '<div data-exact-chooser id="choices"><button type="button" data-native data-button-style="plain" data-exact-on="press" id="choice-plain" style="display:grid"><span data-exact-text>Plain</span></button></div>');
+      // Held, a plain, borderless, filled or glass button shows UIKit's highlight. Its face fades: a title, the name a
+      // sheet's bar draws in place of a symbol (LLP 1116.020 D2), and a symbol, by its tint, unless the symbol's colour
+      // is its own, written inline (as the wasm runtime writes it) or in a class (the JS target's). The button itself,
+      // and so its focus ring, keeps its opacity. A plain or borderless button takes no wash, hovered or held. A filled
+      // one's fill is at 75% in light and mixed 20% with white in dark, the same for an opaque accent and a translucent
+      // one, with no wash, hovered or not; glass takes a white wash. An authored press (a paint, a scale) adds to the
+      // highlight, as on iOS (NativeButtonsIOS.swift highlights whatever press is written); a disabled button takes
+      // none, and a menu's or a chooser's row keeps its own look.
+      await page.evaluate((symbols) => {
+        document.head.insertAdjacentHTML('beforeend', `<style>${symbols} #exact-root#exact-root .own-tint { --exact-tint: rgb(52, 199, 89); }</style>`);
+        const symbol = (id, own = '') => `<img data-symbol-path="M0 0h1v1H0z" alt="" id="${id}" ${own}>`;
+        document.getElementById('item').insertAdjacentHTML('afterend', '<button type="button" data-native data-button-style="plain" id="item-plain" style="display:grid"><span data-exact-text>Plain</span></button><button type="button" data-native data-button-style="filled" id="item-filled" style="display:grid"><span data-exact-text>Filled</span></button>');
+        document.getElementById('said').insertAdjacentHTML('beforeend', `<div data-exact-chooser id="choices"><button type="button" data-native data-button-style="plain" data-exact-on="press" id="choice-plain" style="display:grid"><span data-exact-text>Plain</span></button></div><div id="held-looks"><button type="button" data-native data-button-style="filled" id="opaque" style="display:grid;--exact-accent:var(--exact-secondary-grouped-background)"><span data-exact-text>Lock</span></button><button type="button" data-native data-button-style="filled" id="translucent" style="display:grid;--exact-accent:var(--exact-quaternary-fill)"><span data-exact-text>Lock Trunk</span>${symbol('unsaid')}${symbol('own-inline', 'style="--exact-tint:rgb(52, 199, 89)"')}${symbol('own-class', 'class="own-tint"')}</button><button type="button" data-native data-button-style="glass" id="glass" style="display:grid"><span data-exact-text>Last Parked</span></button><button type="button" data-native data-button-style="filled" id="filled-own" style="display:grid;--exact-accent:var(--exact-secondary-grouped-background);--exact-press-opacity:.5"><span data-exact-text>Own</span></button><button type="button" data-native data-button-style="tinted" id="tinted" style="display:grid"><span data-exact-text>Tinted</span></button></div>`);
         document.querySelector('#sheet > header').insertAdjacentHTML('beforeend', '<button type="button" data-native data-button-style="plain" aria-label="Cancel" id="sheet-cancel"><img data-symbol-source="symbol:sf/xmark" alt=""></button>');
-      });
-      // A button's wash, its opacity and its face's (its first child's, or the name its `::after` draws), at rest and held.
-      const plain = (id, pseudo) => page.evaluate(([id, pseudo]) => { const b = document.getElementById(id), seen = []; for (const on of [false, true]) { b.toggleAttribute('data-pressed', on); seen.push([css(id, 'backgroundImage'), css(id, 'opacity'), getComputedStyle(pseudo ? b : b.firstElementChild, pseudo).opacity]); } b.removeAttribute('data-pressed'); return seen; }, [id, pseudo]);
+      }, symbolStyle);
+      // A button's fill, its image's colour ('none' for none), its opacity and its face's (its first child's, or the
+      // name its `::after` draws), and its symbols' ink, at rest and held.
+      const highlight = (id, pseudo) => page.evaluate(([id, pseudo]) => {
+        const b = document.getElementById(id), seen = [];
+        for (const on of [false, true]) {
+          b.toggleAttribute('data-pressed', on);
+          const image = css(id, 'backgroundImage');
+          seen.push([color(id, 'backgroundColor'), image === 'none' ? image : rgba(image.match(/rgba?\([^)]*\)|color\([^)]*\)/)[0]), css(id, 'opacity'), getComputedStyle(pseudo ? b : b.firstElementChild, pseudo).opacity, [...b.querySelectorAll('img')].map((img) => [rgba(getComputedStyle(img).backgroundColor), getComputedStyle(img).opacity])]);
+        }
+        b.removeAttribute('data-pressed');
+        return seen;
+      }, [id, pseudo]);
+      const NONE = [0, 0, 0, 0];
       for (const id of ['plain', 'borderless']) {
-        expect([at(id), await plain(id)]).toEqual([at(id), [['none', '1', '1'], ['none', '1', '0.75']]]);
+        expect([at(id), await highlight(id)]).toEqual([at(id), [[NONE, 'none', '1', '1', []], [NONE, 'none', '1', '0.75', []]]]);
         await page.hover(`#${id}`);
-        expect([at(`${id} hover`), (await plain(id))[0]]).toEqual([at(`${id} hover`), ['none', '1', '1']]);
+        expect([at(`${id} hover`), (await highlight(id))[0]]).toEqual([at(`${id} hover`), [NONE, 'none', '1', '1', []]]);
       }
       await page.mouse.move(1, 1);
-      for (const id of ['plain-paint', 'plain-scale', 'plain-off', 'item-plain', 'choice-plain']) expect([at(id), (await plain(id))[1][2]]).toEqual([at(id), '1']);
-      expect([at('sheet symbol'), (await plain('sheet-cancel', '::after')).map((face) => face[2])]).toEqual([at('sheet symbol'), ['1', '0.75']]);
-      await page.evaluate(() => { for (const id of ['item-plain', 'choices', 'sheet-cancel']) document.getElementById(id).remove(); });
+      expect([at('sheet symbol'), (await highlight('sheet-cancel', '::after')).map((seen) => seen[3])]).toEqual([at('sheet symbol'), ['1', '0.75']]);
+      // The highlight of a fill: the same colour at 75% in light; in dark a fifth white over it.
+      const lit = ([r, g, b, a]) => page.evaluate((c) => rgba(c), scheme === 'light' ? `rgb(${r} ${g} ${b} / ${a * 0.75})`
+        : `rgb(${[r, g, b].map((v) => (0.8 * a * v + 0.2 * 255) / (0.8 * a + 0.2)).join(' ')} / ${0.8 * a + 0.2})`);
+      for (const id of ['opaque', 'translucent', 'filled-own']) {
+        const [rest, down] = await highlight(id);
+        expect([at(id), rest.slice(1, 4), down.slice(0, 4)]).toEqual([at(id), ['none', '1', '1'], [await lit(rest[0]), 'none', '1', '0.75']]);
+        await page.hover(`#${id}`);
+        expect([at(`${id} hovered`), (await highlight(id))[1]]).toEqual([at(`${id} hovered`), down]);
+        await page.mouse.move(1, 1);
+      }
+      // Its symbols, each its ink and opacity: one in the button's ink fades with the title, and one in a colour of its
+      // own keeps it.
+      const OWN = [[52, 199, 89, 1], '1'], [inks, heldInks] = (await highlight('translucent')).map((seen) => seen[4]);
+      expect([at('symbols'), inks, heldInks]).toEqual([at('symbols'), [[inks[0][0], '1'], OWN, OWN], [[[...inks[0][0].slice(0, 3), 0.75], '1'], OWN, OWN]]);
+      // A tinted button held shows its stronger wash under a pointer too.
+      await page.hover('#tinted');
+      expect([at('tinted hovered'), (await highlight('tinted')).map((seen) => seen[1][3])]).toEqual([at('tinted hovered'), [0.08, 0.16]]);
+      await page.mouse.move(1, 1);
+      const glass = await highlight('glass');
+      expect([at('glass'), glass.map((seen) => seen.slice(1, 4))]).toEqual([at('glass'), [['none', '1', '1'], [[255, 255, 255, 0.2], '1', '0.75']]]);
+      for (const id of ['plain-paint', 'plain-scale']) expect([at(id), (await highlight(id))[1][3]]).toEqual([at(id), '0.75']);
+      for (const id of ['plain-off', 'item-plain', 'choice-plain']) expect([at(id), (await highlight(id))[1][3]]).toEqual([at(id), '1']);
+      const [rest, down] = await highlight('disabled');
+      expect([at('disabled'), down]).toEqual([at('disabled'), rest]);
+      expect([at('menu row'), (await highlight('item-filled'))[1].slice(0, 2)]).toEqual([at('menu row'), [NONE, scheme === 'light' ? [0, 0, 0, 0.14] : [255, 255, 255, 0.16]]]);
+      await page.evaluate(() => { for (const id of ['item-plain', 'item-filled', 'choices', 'held-looks', 'sheet-cancel']) document.getElementById(id).remove(); });
 
       // A list's rows (LLP 1115.000 D16): under each row but the last one line in the separator's role, inside the
       // row's box (a row keeps its height); none beside a row whose author wrote its own top or bottom edge; a
