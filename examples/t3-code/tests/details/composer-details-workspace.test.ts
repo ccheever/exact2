@@ -65,7 +65,7 @@ describe('the details Workspace row', () => {
     expect(client.snapshotDrafts).toEqual([]);
   });
 
-  test('Start from origin is the thread\'s own and outlives a workspace switch and a thread change', async () => {
+  test('Start from remote is the thread\'s own and outlives a workspace switch and a thread change', async () => {
     const { client, native, command } = await opened();
     await command('cclocal:env-mode', '', 'worktree');
     expect(startFromOrigin(client)).toBe(true); // newWorktreesStartFromOrigin

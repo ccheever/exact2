@@ -581,7 +581,7 @@ component ComposerMenus
     branches: ComposerBranches
     branchQuery: string
     searchBranches: action
-    // chatLocal, for the Start from origin switch (it keeps the picker open).
+    // chatLocal, for the Start from remote switch (it keeps the picker open).
     local: action
   // Child state outlives the menu (it is the root's slots), so each opening
   // is a session: focus and hover from an earlier one never highlight a row.
@@ -756,10 +756,10 @@ component ComposerMenus
                     text (branches.loading ? "Loading refs..." : "No refs found.") font-size="0.875rem" line-height="1.25rem" padding="0.5rem" text-align="center" color="light-dark(#71717a, #818181)"
               // BranchPicker's originControl while choosing a new worktree's base.
               if branches.originShown
-                button press=local("git-origin", "", "") role="switch" aria-checked=branches.originOn aria-label="Start worktree from origin" testId="branch-origin" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.75rem" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="space-between"
+                button press=local("git-origin", "", "") role="switch" aria-checked=branches.originOn aria-label="Start worktree from remote" testId="branch-origin" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.75rem" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="space-between"
                   row min-width=0 gap="0.375rem" align-items="center"
                     ExtraGlyph(name="refresh-cw", size=12, color="light-dark(#71717a, #818181)")
-                    text "Start from origin" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)" white-space="nowrap"
+                    text "Start from remote" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)" white-space="nowrap"
                   row width="1.625rem" height="1rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" flex-shrink=0 align-items="center" justify-content=(branches.originOn ? "flex-end" : "flex-start") background-color=(branches.originOn ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") aria-hidden=true
                     box width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#ffffff, #0a0a0a)" box-shadow="0 1px 2px #0000000d"
               if branches.status != ""

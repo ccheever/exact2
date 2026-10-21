@@ -342,9 +342,13 @@ when it was the last focus, else to the last switched-on saved environment with 
 credential, else to the primary while the Local environment switch is on (`relaunch-reconnect.ts`);
 while the server starts, the window shows the connecting state (the host opens the first window
 before the server is ready, exact2 #117). A launch reopens no thread: the reference's window loads `/`
-every time (DesktopWindow.ts, ElectronProtocol.ts `getDesktopUrl`), whose IndexDraftLanding waits until
-every switched-on environment's shell is in and opens a new draft in the most recently active project of
-any environment (by latest user message; a visit is not activity). The clone does the same
+every time (DesktopWindow.ts, ElectronProtocol.ts `getDesktopUrl`), whose IndexDraftLanding opens a new
+draft in the most recently active project (by latest user message; a visit is not activity) of the
+environments whose shells are in, without waiting for a slow one; only a workspace with no project yet
+waits until every switched-on environment's shell is in. This machine is always in that first pick: with the
+Local environment switch on, the reference creates its window only once the local backend is ready
+(DesktopWindow.ts `createMainIfBackendReady`), so the clone's landing waits for the local environment while
+its backend is starting or its shell is not in yet. The clone does the same
 (`home-landing.ts`), focusing that project's environment when it is not the one the launch reconnected.
 The window keeps its frame across launches (the host's frame autosave, restored after the window's final
 style since exact2 #113). Settings ›
