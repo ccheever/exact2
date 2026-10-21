@@ -1,4 +1,4 @@
-// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 74541bab17 (MIT); see LICENSE-T3.
 import { instanceIconUrl } from '../providers/acp-icons';
 // The sidebar's projection into the snapshot (Sidebar.tsx render): the rows in
 // paint order (collapsed shelves contribute only the open thread, as the

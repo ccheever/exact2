@@ -161,10 +161,13 @@ function undoChords(client: T3Client, context: DispatchContext): string[] {
   const winners = chordWinners(arr(client.config.keybindings), claimed ? { ...context, editableFocus: false } : context);
   return [...winners].filter(([, command]) => command === 'thread.undo').map(([chord]) => chord);
 }
-/** The physical key of a chord's last key (`KeyboardEvent.code`), which a held key's repeats carry: '' for a named key. */
-export function chordCode(chord: string): string {
+/**
+ * A chord's character key, lowercased, which a held chord's repeats carry as `KeyboardEvent.key` with ⌘ held, whatever
+ * the layout puts under it; '' for a named key.
+ */
+export function chordKey(chord: string): string {
   const key = chord.slice(chord.lastIndexOf('+', chord.length - 2) + 1);
-  return /^[a-z]$/i.test(key) ? `Key${key.toUpperCase()}` : /^\d$/.test(key) ? `Digit${key}` : '';
+  return key.length === 1 ? key.toLowerCase() : '';
 }
 
 /** The confirm ops of a terminal close (the drawer's and a panel terminal's, and a Terminal surface's tab). */
@@ -256,7 +259,7 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
   // pullRequest.copyNumber: the open pull request detail panel copies its "#N" (PullRequestDetailPanel copyFromShortcut).
   if (context.prNumber) add('pullRequest.copyNumber', 'pr-copy', 'PR number', 'Copy PR Number', context.prNumber);
   // thread.undo: the sidebar's live Undo notice (sidebar-commands.ts undoLatest), never under the model picker.
-  if ((context.undoShown ?? undoLive(client)) && !context.modelPickerOpen) for (const chord of undoChords(client, context)) add.chord('thread.undo', chord, 'command', 'sidebar:undo', 'Undo', chordCode(chord));
+  if ((context.undoShown ?? undoLive(client)) && !context.modelPickerOpen) for (const chord of undoChords(client, context)) add.chord('thread.undo', chord, 'command', 'sidebar:undo', 'Undo', chordKey(chord));
   const project = (client.shell?.projects ?? []).find(candidate => candidate.id === client.projectId);
   if (project && favoriteEditor(client.config) && openFavoriteEnabled(client, str(project.title))) add('editor.openFavorite', 'flow', 'open-favorite', 'Open in Editor', str(thread?.worktreePath, str(project.workspaceRoot)));
 }
