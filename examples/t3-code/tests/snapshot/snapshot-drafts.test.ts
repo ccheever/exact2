@@ -8,6 +8,7 @@ function fixture() {
   Object.assign(client, { generation: 1, environmentId: 'env', projectId: 'p', threadId: 't', connection: 'connected', configLive: true, shellLive: true, threadLive: true, providerId: 'fixture', modelId: 'fixture-model', scopes: ['orchestration:read', 'orchestration:operate'] });
   client.config = { environment: { capabilities: { serverResolvedCommandContext: true } }, providers: [{ instanceId: 'fixture', enabled: true, installed: true, availability: 'available', auth: { status: 'authenticated' }, models: [{ slug: 'fixture-model' }] }] };
   client.shell = { sequence: 1, projects: [{ id: 'p' }], threads: [{ id: 't', projectId: 'p' }] };
+  client.local.deviceSettings.snapShotEnabled = true; // the refresh adopts captures only while SnapShots are on
   const calls: Obj[] = [], events: string[] = [];
   let failSave = false, persisted = '';
   const files: Files = { fs: { async mkdir() {}, async readFile() { return new TextEncoder().encode(persisted).buffer; }, async atomicWriteFile(_path, bytes) { events.push('persist'); if (failSave) throw new Error('disk full'); persisted = new TextDecoder().decode(bytes); } } };
@@ -336,4 +337,21 @@ test('destination deletion while durable association awaits compensates before o
   expect(order.indexOf('snapshotDraftRemove')).toBeLessThan(order.indexOf('snapshotDismiss'));
   expect(f.calls.some(call => call.op === 'snapshotAcknowledge')).toBe(false);
   expect(f.client.local.drafts).toEqual({});
+});
+
+// SnapShotCoordinator (74541bab17, d5fb0b16f2 "keep snapshots quiet while disabled"): off, a refresh leaves captures
+// pending and says nothing; turned off mid-delivery, a failure that follows shows no error.
+test('SnapShots turned off leave captures pending and report no failure', async () => {
+  const off = fixture(); off.client.local.deviceSettings.snapShotEnabled = false;
+  await off.client.adoptSnapshots(off.native, off.files);
+  expect(off.calls.some(call => ['snapshotRead', 'snapshotDismiss', 'snapshotAcknowledge'].includes(String(call.op)))).toBe(false);
+  expect(off.client.error).toBe('');
+  const f = fixture(), later = f.native.later;
+  f.native.later = async request => {
+    if (obj(request).op === 'snapshotRead') { f.client.local.deviceSettings.snapShotEnabled = false; throw new Error('read failed'); }
+    return later(request);
+  };
+  await f.client.adoptSnapshots(f.native, f.files);
+  expect(f.client.error).toBe('');
+  expect(f.client.local.snapshotDrafts).toEqual({});
 });

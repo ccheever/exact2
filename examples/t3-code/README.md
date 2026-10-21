@@ -285,8 +285,8 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   the shell at once, as T3 Code's window listener does.
 - Browser surface: a right-panel Browser tab on a `WKWebView` in the module
   (`T3BrowserSession*.swift`, `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not
-  offer, #100): tabs and the chrome row, history and local servers, zoom, appearance, the
-  device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
+  offer, #100): tabs and the chrome row, history and local servers, the address bar's search
+  engine, zoom, appearance, the device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
   floating player, profiles and cookie import, and an agent's `previewAutomation` requests.
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
@@ -542,7 +542,7 @@ Differences that belong to the app:
   different `--seed` each launch, or the server takes a repeated command id for the command it
   already ran and does nothing.
 - The Browser surface is WebKit, not Chromium (#100 was closed as not planned). Pages get no
-  Notification API or geolocation.
+  geolocation. A page's notification permission request is denied, as in the reference.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but

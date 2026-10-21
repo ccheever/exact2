@@ -17,6 +17,26 @@
 // the host's `setTimeout` (the module's sleep in production); the time comes from the host's `now`.
 
 // ── Errors (Schema.TaggedError in the reference; `_tag` and the fields kept) ──────────────────────
+/** contracts previewCapture.ts PreviewCaptureFailure (74541bab17): a native capture failure, classified where it happens
+ *  (browser-capture.ts `captureFailure`), whose message names what to check before retrying. */
+export type PreviewCaptureFailureReason = 'renderer-unavailable' | 'capture-unavailable' | 'capture-timeout' | 'recording-conflict' | 'capture-failed';
+export type PreviewCaptureFailureStage = 'screenshot' | 'capture-page' | 'recording-start';
+export class PreviewCaptureFailure extends Error {
+  readonly _tag = 'PreviewCaptureFailure';
+  constructor(readonly reason: PreviewCaptureFailureReason, readonly stage: PreviewCaptureFailureStage) {
+    super(previewCaptureFailureMessage(reason, stage));
+    this.name = 'PreviewCaptureFailure';
+  }
+}
+function previewCaptureFailureMessage(reason: PreviewCaptureFailureReason, stage: PreviewCaptureFailureStage): string {
+  switch (reason) {
+    case 'renderer-unavailable': return 'The preview renderer is unavailable. Reopen the preview tab before retrying.';
+    case 'capture-unavailable': return 'The preview capture surface is unavailable. Present the target tab and check that the preview host is unlocked, its display is on and its window is restored before retrying.';
+    case 'capture-timeout': return `Preview capture timed out during ${stage}. Check the preview host's lock, display and window state before retrying.`;
+    case 'recording-conflict': return 'A recording capture is already starting, stopping or active. Wait for it to settle, or stop the active recording before retrying.';
+    case 'capture-failed': return `Preview capture failed during ${stage}. Check the preview host and target tab before retrying.`;
+  }
+}
 export class BrowserRecordingError extends Error {
   readonly _tag: string;
   constructor(tag: string, message: string) { super(message); this._tag = tag; this.name = tag; }
@@ -51,7 +71,8 @@ export type BrowserRecordingOperation = 'initialize-media-recorder' | 'capture-m
   | 'wait-startup' | 'stop-media-recorder' | 'save-artifact' | 'cleanup';
 export class BrowserRecordingOperationError extends BrowserRecordingError {
   constructor(readonly fields: { operation: BrowserRecordingOperation; tabId: string; cause: unknown }) {
-    super('BrowserRecordingOperationError', `Browser recording operation ${fields.operation} failed for tab ${fields.tabId}.`);
+    // A classified native failure says what to do (browserRecording.ts at 74541bab17).
+    super('BrowserRecordingOperationError', fields.cause instanceof PreviewCaptureFailure ? fields.cause.message : `Browser recording operation ${fields.operation} failed for tab ${fields.tabId}.`);
   }
   get operation() { return this.fields.operation; }
   get tabId() { return this.fields.tabId; }
