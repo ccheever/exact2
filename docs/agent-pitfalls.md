@@ -370,6 +370,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   dismissal refused: …" and why). Cause: the sheet declares the root's `navigationBack`
   control and it is disabled, or the sheet has `closedby="none"`; a sheet with no such
   control always swipes down (LLP 1115 D5). (`ModalIOS.swift`, `refusesDismissal`.)
+- **A sheet's swipe down throws away the edit.** Cause: its Cancel is the root's
+  `navigationBack` control (`id="back"`, as the examples name it), which a swipe down and
+  the agent's `back` press, and this Cancel reverts. Fix: when a swipe down keeps the
+  edits (the original's does), give Cancel another `id`; the swipe down then dismisses
+  without pressing it, and on the Mac Cancel leaves the sheet's Cancel slot for its header
+  (euxy port).
 - **The app looks like an imitation of iOS.** Cause: controls built from boxes
   (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
   grouped list), and values copied from a screenshot: Apple's system colours as hex

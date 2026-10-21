@@ -1452,7 +1452,11 @@ the bar's scroller with nothing written (`navigationScroll` names another; "Rout
 and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
 route's enabled control whose `id` is the root's `navigationBack`, or, when the route
 has none, one outside every route (a header the screens share), which is optional: a
-root with a `navigationKey` alone is the navigation root and names no control. A route with no such
+root with a `navigationKey` alone is the navigation root and names no control. The agent's
+`back` presses it too, as Escape does on a Mac sheet. When a sheet's swipe down should not do what its
+Cancel does (Cancel reverts the edits, a swipe down keeps them), give Cancel another `id`:
+a swipe down then dismisses without pressing it, and on the Mac Cancel stays in the header,
+out of the sheet's Cancel slot. A route with no such
 control still has the platform's back button, edge swipe and swipe down (and the
 browser's Back): they go back through the root's `navigate` handler with the location
 beneath (`nav = go(nav, url)` pops to it), or, with no handler, the runner pops the
@@ -1530,7 +1534,8 @@ column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset
   scroll id="list" flex=1 min-height=0
     …
 
-// A sheet's bar: Cancel is the root's navigationBack control, Done trails.
+// A sheet's bar: Cancel is the root's navigationBack control, which a swipe down and the
+// agent's `back` press; Done trails.
 column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="form" position="absolute" inset=0 display="flex" flex-direction="column"
   header
     button id="back" press=back
