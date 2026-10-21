@@ -709,6 +709,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         // D2); the browser mixes premultiplied, as CSS says (LLP 1066).
         RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => out.push_str(&g.css()),
         RowValue::TextShadow(s) => out.push_str(&s.css()),
+        RowValue::FontVariations(v) => out.push_str(&v.css()),
         RowValue::BoxShadow(s) => out.push_str(&s.css()),
         RowValue::CornerShape(c) => out.push_str(&c.css()),
         RowValue::RotateAxis(_) | RowValue::SymbolPalette(_) => {}

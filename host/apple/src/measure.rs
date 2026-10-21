@@ -49,6 +49,12 @@ pub struct CRun {
     pub font_variant_numeric: u8,
     /// CSS `font-stretch`, percent of normal width (LLP 1019 D8).
     pub font_stretch: f32,
+    /// CSS `font-variation-settings` (LLP 1019 D9): how many axes are set.
+    pub variation_count: u8,
+    /// Their tags, big-endian (`'wght'` is `0x77676874`).
+    pub variation_tags: [u32; 8],
+    /// Their values, in each axis's units.
+    pub variation_values: [f32; 8],
 }
 
 /// One request, as the callback sees it.
@@ -344,6 +350,13 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
         letter_spacing: style.letter_spacing,
         font_variant_numeric: style.font_variant_numeric,
         font_stretch: style.font_stretch,
+        variation_count: style.font_variations.axes().len() as u8,
+        variation_tags: std::array::from_fn(|i| {
+            style.font_variations.axes().get(i).map_or(0, |a| a.0)
+        }),
+        variation_values: std::array::from_fn(|i| {
+            style.font_variations.axes().get(i).map_or(0.0, |a| a.1)
+        }),
     }
 }
 

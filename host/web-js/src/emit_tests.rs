@@ -60,6 +60,22 @@ fn a_state_family_is_applied_as_css_when_it_changes() {
     assert!(js.contains("\"font-family\""), "{js}");
 }
 
+/// LLP 1019 D9: `font-variation-settings` is the property, literal or bound.
+#[test]
+fn font_variation_settings_are_written_literal_and_bound() {
+    let plan = contract::compile(
+        "component App\n  state bold = false\n  view\n    column\n      text \"a\" font-variation-settings=`'GRAD' 150, 'wdth' 60`\n      text \"b\" font-variation-settings=(bold ? `\"wght\" 800` : \"normal\")\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let all = format!("{}{}", out.css, out.js);
+    assert!(
+        all.contains(r#"font-variation-settings:"GRAD" 150, "wdth" 60;"#),
+        "{all}"
+    );
+    assert!(out.js.contains("\"font-variation-settings\""), "{}", out.js);
+}
+
 #[test]
 fn a_constant_template_family_emits_as_a_literal_stack() {
     let plan = contract::compile(

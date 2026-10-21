@@ -836,16 +836,49 @@ fontique's synthesis (`text::shaping::push_style`), which Android's
 | Apple | `RegisteredFace` holds both ranges; `matched` is §5.2 over them; `drawn` sets `wght` and `wdth` on the descriptor per request (one declared weight stays pinned at registration). |
 | Linux, Android | fontique's `FontInfo::with_declared_ranges` (`vendor/fontique/EXACT-PATCHES.md` §5): matching takes a range at its value nearest the request, and synthesis always emits the clamped coordinate. Android draws the axes fontique chose. |
 
-A platform family (`system-ui`) draws at its normal width on Apple: San
-Francisco's widths are `UIFont.Width`, which this change does not map. Text
-fields' and Canvas 2D's faces take no stretch. Neither has a consumer yet.
+### D9 — `font-variation-settings`, and the width everywhere
+
+`font_variation_settings` is a kernel row (bit 217): inherited, `normal` or a
+list of quoted four-character tags with numbers, as CSS Fonts 4 §7.2 writes it.
+A repeated tag keeps its last value; a tag the face lacks does nothing.
+
+- **The value is a fixed array of eight axes**, not an interned list.
+  `TextStyle` stays `Copy` and crosses the C ABI by value (`ExactTextRun`
+  carries a count and two arrays of eight), so no host keeps a table in step
+  with the kernel, and two values of the same tags interpolate axis by axis
+  when motion takes text rows. Eight covers every registered axis and the
+  parametric ones a face like Roboto Flex names together; a ninth distinct tag
+  is refused at compile.
+- **It draws last.** §7 orders the axes: weight, width and optical size first,
+  then each tag the settings name, which wins for its own axis.
+  `"wdth" 50` draws as `font-stretch: 50%` does.
+- **A platform family stretches.** `font-stretch` on `system-ui` (and the
+  generics Apple draws with San Francisco) sets SF's `wdth` axis (30–150) to
+  the percentage, as Chrome and WebKit draw it; `UIFont.Width` and
+  `NSFont.Width` are points on that axis. Once a variation is set CoreText
+  stops choosing `opsz`, so it is set to the size (`TextEngine.cssAxes`).
+- **Fields and Canvas 2D take the width.** Apple's native fields draw the
+  field's stretch and settings through the same font call as text. Android's
+  fields set `Typeface.Builder.setFontVariationSettings` from the weight,
+  width and settings for a declared family; the device's default family is
+  `Typeface.create`, which takes no axes. Canvas 2D's `font` shorthand and
+  `fontStretch` were parsed already; Apple now draws them, as Linux and the
+  browser did. A canvas takes no `font-variation-settings`: the HTML canvas
+  has none.
+
+### How each host draws the settings
+
+| Host | `font-variation-settings` |
+|---|---|
+| Web | The property itself. |
+| Apple | `RegisteredFace.drawn` and `TextEngine.cssAxes` set the tags on the descriptor after `wght`, `wdth` and `opsz`. |
+| Linux, Android | Parley's style variations, after `opsz` and after fontique's synthesis; Android's `FONT_AXES` carries them to the reader. |
 
 ### Not here
 
-`font-variation-settings` (any axis by tag) is a list on every text run, where
-these two rows are numbers each host already carries; CSS recommends the
-high-level properties wherever one exists. `font-optical-sizing` stays
-`auto` and is not authorable.
+`font-optical-sizing` stays `auto` and is not authorable.
+`font-variation-settings` takes no transition (D10 is the weight and the
+width alone); its eight pairs would interpolate axis by axis.
 
 ### D10 — `font-weight` and `font-stretch` transition (2026-10-20)
 

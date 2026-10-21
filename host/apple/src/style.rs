@@ -25,6 +25,7 @@ use exact_kernel::{
 use exact_motion::Property;
 use std::fmt::Write as _;
 
+mod axes;
 #[cfg(test)]
 mod crossing_tests;
 mod kept;
@@ -268,6 +269,7 @@ pub(crate) fn style_json_rows(
                 out.push(']');
                 true
             }
+            RowValue::FontVariations(v) => axes::font_axes_json(&mut out, v),
             // @ref LLP 1077 D3 — `{"o":[x,y],"b":blur,"c":colour}`; no `c`
             // is currentcolor, the text's own.
             RowValue::TextShadow(t) => match t.shadow() {

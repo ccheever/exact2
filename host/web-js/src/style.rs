@@ -1156,6 +1156,7 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleCodec::BackdropFilter
             | StyleCodec::BoxShadow
             | StyleCodec::TextShadow
+            | StyleCodec::FontVariations
             | StyleCodec::CornerShape
     ) {
         return Ok((css_property(row), String::new()));

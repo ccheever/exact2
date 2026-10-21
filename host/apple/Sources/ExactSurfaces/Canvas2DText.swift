@@ -33,20 +33,20 @@ final class CanvasText {
         let key = "\(f.families.joined(separator: ","))/\(f.size)/\(f.weight)/\(f.style)/\(f.stretch)/\(f.caps)"
         if let hit = fonts[key] { return hit }
         let size = CGFloat(max(0, f.size))
-        let italic = f.style != 0
+        let italic = f.style != 0, stretch = CGFloat(f.stretch)
         var chosen: CTFont?
         for name in f.families {
             let trimmed = name.trimmingCharacters(in: .whitespaces)
             if let id = CanvasText.generics[trimmed.lowercased()] ?? engine.stack(named: trimmed) {
-                chosen = engine.font(size: size, weight: f.weight, family: id, italic: italic) as CTFont
+                chosen = engine.font(size: size, weight: f.weight, family: id, italic: italic, stretch: stretch) as CTFont
                 break
             }
             if let installed = CanvasText.installed(trimmed, size: size, weight: f.weight, italic: italic) {
-                chosen = installed
+                chosen = TextEngine.cssAxes(installed, stretch: stretch, variations: [], size: size) as CTFont
                 break
             }
         }
-        var font = chosen ?? engine.font(size: size, weight: f.weight, family: 4, italic: italic) as CTFont
+        var font = chosen ?? engine.font(size: size, weight: f.weight, family: 4, italic: italic, stretch: stretch) as CTFont
         var features: [[CFString: Any]] = []
         if f.caps == 1 || f.caps == 2 { features.append([kCTFontOpenTypeFeatureTag: "smcp", kCTFontOpenTypeFeatureValue: 1]) }
         if f.caps == 2 { features.append([kCTFontOpenTypeFeatureTag: "c2sc", kCTFontOpenTypeFeatureValue: 1]) }

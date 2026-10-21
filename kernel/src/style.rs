@@ -53,8 +53,10 @@ pub mod space;
 pub(crate) mod stroke;
 pub mod symbols;
 pub mod theme;
+mod variations;
 pub mod wide;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
+pub use variations::FontVariations;
 
 /// Largest explicit grid Taffy lays out on one axis.
 pub const MAX_GRID_TRACKS: usize = 10_000;
@@ -903,6 +905,8 @@ pub enum RowValue<'a> {
     BackdropFilter(&'a BackdropFilter),
     /// CSS `text-shadow` (LLP 1077 D3).
     TextShadow(&'a TextShadow),
+    /// CSS `font-variation-settings` (LLP 1019 D9).
+    FontVariations(&'a FontVariations),
     /// CSS `mask-image`: `none` or one gradient (LLP 1077 D2).
     MaskImage(&'a crate::gradient::BackgroundImage),
     /// CSS `corner-shape` (LLP 1077 D1).
@@ -966,6 +970,7 @@ impl RowValue<'_> {
             | RowValue::TimelineScope(_)
             | RowValue::BackgroundImage(_)
             | RowValue::TextShadow(_)
+            | RowValue::FontVariations(_)
             | RowValue::BoxShadow(_)
             | RowValue::MaskImage(_)
             | RowValue::CornerShape(_)
@@ -1481,18 +1486,13 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
 }
 
 #[cfg(test)]
-mod tests;
-
-#[cfg(test)]
 mod finite_tests;
-
-// A `touch-action` value's pinch and pan parts.
-mod touch_action;
-
 #[cfg(test)]
-mod touch_action_tests;
-
+mod tests;
+// A `touch-action` value's pinch and pan parts.
 mod decoration;
-
 #[cfg(test)]
 mod decoration_tests;
+mod touch_action;
+#[cfg(test)]
+mod touch_action_tests;

@@ -25,7 +25,8 @@
 //! - `41 FONT_AXES key index weight n (tag value)×n len utf8-path(padded to 4)` — `FONT` for a
 //!   face drawn at variation settings fontique chose (`tag` an OpenType axis tag as a big-endian
 //!   `u32`, `value` in the axis's units: `ital` 1 for Roboto's italic, `wght`, `slnt`, `wdth`),
-//!   and `opsz` the size, where the face has the axis (`font-optical-sizing: auto`).
+//!   and `opsz` the size, where the face has the axis (`font-optical-sizing: auto`), then the
+//!   run's `font-variation-settings`, each replacing an axis already named (LLP 1019 D9).
 //!   The reader sets them on its `Font`; `wght`, when absent, is `weight` as for `FONT`. In
 //!   place of `FONT` for such a face, so a reader that predates it stops rather than drawing
 //!   the default instance at the instance's advances. GLYPHS' `skew` stays for an oblique
@@ -296,8 +297,8 @@ pub struct Recorder {
 type SlotRecording = (u32, Vec<u32>, Option<[f32; 6]>, Vec<bool>);
 
 /// A face as the reader makes it: file, collection index, weight, and up to
-/// three axes as (tag, value bits), unused ones zero.
-type FontKey = (Arc<str>, u32, u16, [(u32, u32); 4]);
+/// twelve axes as (tag, value bits), unused ones zero.
+type FontKey = (Arc<str>, u32, u16, [(u32, u32); 12]);
 
 struct RowRecording {
     clips: Vec<clip::Clip>,

@@ -110,6 +110,9 @@ typedef struct ExactTextRun {
     float letter_spacing;  /* points per glyph */
     uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums (the face's tnum) */
     float font_stretch;    /* CSS font-stretch, percent of normal width */
+    uint8_t variation_count;      /* CSS font-variation-settings: axes set */
+    uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
+    float variation_values[8];    /* in the axis's own units */
 } ExactTextRun;
 
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
