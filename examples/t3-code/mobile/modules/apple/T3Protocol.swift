@@ -99,6 +99,11 @@ enum T3Wire {
         let tag = error["_tag"] as? String ?? error["name"] as? String ?? "RPC"
         let text = { (key: String) -> String in (error[key] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? "" }
         var message = text("message")
+        if tag == "GitCommandError" {
+            message = T3GitCommandMessage.message(
+                explicit: message, operation: error["operation"] as? String ?? "",
+                cwd: error["cwd"] as? String ?? "", detail: error["detail"] as? String ?? "", reason: text("reason"))
+        }
         // PullRequestOperationError's message is a getter, not a wire field.
         if message.isEmpty, tag == "PullRequestOperationError", !text("detail").isEmpty {
             message = "Pull request operation \(text("operation")) failed: \(text("detail"))"
