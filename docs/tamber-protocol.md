@@ -629,6 +629,12 @@ tuple:
   strings, each once, in no promised order (parallel to `names`, which is as wide; a client looks
   each up in `describe`'s `base`). A base name read from a file that is not the design's, or
   a design that is refused, is refused as any token is.
+  Beside it, `bases_by_tuple` (*1.16*, stage 13 D4): one `{modes, light, dark}` a tuple, in
+  `resolve`'s tuple order with its `modes`, each side the base names that tuple's own line reaches
+  (the `when` holding most, one naming an axis `under scheme=dark` on the dark side alone) and
+  those the tokens it names reach in the same tuple and side, a branch no tuple selects left out
+  (`label.gap = 4px` / `when density=roomy: card.pad`, with `card.pad`'s `when density=tight:
+  space.sm`, reaches `space.sm` in no tuple, though `bases` lists it).
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its

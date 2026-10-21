@@ -153,6 +153,28 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
         json!(["space.md", "space.sm"]),
         "{label}"
     );
+    // Per tuple (stage 13 D4, *1.16*): each tuple's own line and the lines
+    // of the tokens it names there, each side. label.gap reaches card.pad
+    // only where density is roomy, where card.pad is space.md: space.sm,
+    // card.pad's tight line, is in `bases` and in no tuple.
+    assert_eq!(
+        label["ok"]["bases_by_tuple"],
+        json!([
+            {"modes": {"density": "roomy"}, "light": ["space.md"], "dark": ["space.md"]},
+            {"modes": {"density": "tight"}, "light": [], "dark": []},
+        ]),
+        "{label}"
+    );
+    assert_eq!(
+        pad["ok"]["bases_by_tuple"],
+        json!([
+            {"modes": {"density": "roomy"}, "light": ["space.md"], "dark": ["space.md"]},
+            {"modes": {"density": "tight"}, "light": ["space.sm"], "dark": ["space.sm"]},
+        ]),
+        "{pad}"
+    );
+    // A token reaching no base has neither field.
+    assert!(face["ok"]["bases_by_tuple"].is_null(), "{face}");
     // An overridden base that names another base says so too.
     let (xl, _) = s.ask(json!({"method": "explain", "token": "space.xl"}));
     assert_eq!(xl["ok"]["kind"], "base");

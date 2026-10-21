@@ -240,6 +240,57 @@ fn bases_of(folding: &exact_tamber::Folding, name: &str) -> Vec<String> {
     out
 }
 
+/// The base names `name` reaches in each tuple, on its light and dark side
+/// (stage 13 D4, *1.16*), as `resolve` walks a tuple: its line there
+/// (`tamber_levels::line_in`: the `when` holding most, one naming an axis
+/// under `scheme=dark` on the dark side alone), the base names that line
+/// names (an unset one bare, a set one as the token it names), and those
+/// each token it names reaches in the same tuple and side; never a word in
+/// a string. One `{modes, light, dark}` a tuple, in `resolve`'s order.
+fn bases_by_tuple(folding: &exact_tamber::Folding, name: &str) -> Vec<Value> {
+    let design = &folding.design;
+    let token = |n: &str| design.tokens.iter().find(|t| t.name.value == n);
+    let reach = |tuple: usize, dark: bool| {
+        let mut out: Vec<String> = Vec::new();
+        let mut seen: Vec<&str> = Vec::new();
+        let mut stack = vec![name];
+        while let Some(n) = stack.pop() {
+            if seen.contains(&n) {
+                continue;
+            }
+            seen.push(n);
+            let Some(t) = token(n) else { continue };
+            let line = contract::tamber_levels::line_in(t, &design.axes, tuple, dark);
+            let words = named_words(line);
+            for w in &words {
+                if scale::is_base(w) && !out.iter().any(|b| b == w) {
+                    out.push(w.to_string());
+                }
+            }
+            // (named tokens next, in the order written)
+            stack.extend(words.iter().rev().filter(|w| token(w).is_some()));
+        }
+        out
+    };
+    (0..folding.tuples)
+        .map(|tuple| {
+            json!({"modes": modes_of(&design.axes, tuple), "light": reach(tuple, false), "dark": reach(tuple, true)})
+        })
+        .collect()
+}
+
+/// The words a value text writes outside its quoted strings, as names are
+/// written (a family's `"space.md"` names nothing).
+fn named_words(text: &str) -> Vec<&str> {
+    text.split('"')
+        .step_by(2)
+        .flat_map(|part| {
+            part.split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
+                .filter(|w| !w.is_empty())
+        })
+        .collect()
+}
+
 /// `describe`'s base rows and targets, from the design it describes.
 fn base_rows(
     s: &Server,
@@ -537,6 +588,7 @@ impl Server {
         let with = |mut out: Value| {
             if !bases.is_empty() {
                 out["bases"] = json!(bases);
+                out["bases_by_tuple"] = json!(bases_by_tuple(&folding, &name));
             }
             if let Some(base) = &base {
                 out["kind"] = json!("base");

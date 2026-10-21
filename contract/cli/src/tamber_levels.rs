@@ -169,33 +169,7 @@ impl<'a> Designs<'a> {
     /// dark side's alone (the checker's `under_value`): the light side
     /// takes the most specific holding `when` naming none.
     fn value_in<'t>(&self, t: &'t exact_tamber::Token, tuple: usize, dark: bool) -> &'t str {
-        let axes = self.axes();
-        let mut rest = tuple;
-        let mut chosen = vec![""; axes.len()];
-        for (i, a) in axes.iter().enumerate().rev() {
-            chosen[i] = &a.values[rest % a.values.len()];
-            rest /= a.values.len();
-        }
-        let holds = |(axis, v): &(String, String)| {
-            axes.iter()
-                .position(|a| &a.name.value == axis)
-                .is_some_and(|i| chosen[i] == v)
-        };
-        let under = |(axis, _): &(String, String)| {
-            axes.iter().any(|a| &a.name.value == axis && a.under_dark)
-        };
-        let holding: Vec<usize> = (0..t.whens.len())
-            .filter(|&i| t.whens[i].conds.iter().all(holds))
-            .filter(|&i| dark || !t.whens[i].conds.iter().any(under))
-            .collect();
-        let most = holding.iter().map(|&i| t.whens[i].conds.len()).max();
-        match holding
-            .into_iter()
-            .find(|&i| Some(t.whens[i].conds.len()) == most)
-        {
-            Some(i) => &t.whens[i].value.value,
-            None => &t.value.value,
-        }
+        line_in(t, self.axes(), tuple, dark)
     }
 
     /// The walk of param `p` in `tuple`'s light or `dark` side.
@@ -346,4 +320,40 @@ pub fn bare(text: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
         && text.starts_with(|c: char| c.is_ascii_alphabetic() || c == '-' || c == '_')
+}
+
+/// The value text token `t`'s line has in `tuple`'s light or `dark` side
+/// under `axes` ([`Designs::value_in`]'s rule): `explain`'s per-tuple
+/// bases walk the same lines (stage 13 D4).
+pub fn line_in<'t>(
+    t: &'t exact_tamber::Token,
+    axes: &[exact_tamber::Axis],
+    tuple: usize,
+    dark: bool,
+) -> &'t str {
+    let mut rest = tuple;
+    let mut chosen = vec![""; axes.len()];
+    for (i, a) in axes.iter().enumerate().rev() {
+        chosen[i] = &a.values[rest % a.values.len()];
+        rest /= a.values.len();
+    }
+    let holds = |(axis, v): &(String, String)| {
+        axes.iter()
+            .position(|a| &a.name.value == axis)
+            .is_some_and(|i| chosen[i] == v)
+    };
+    let under =
+        |(axis, _): &(String, String)| axes.iter().any(|a| &a.name.value == axis && a.under_dark);
+    let holding: Vec<usize> = (0..t.whens.len())
+        .filter(|&i| t.whens[i].conds.iter().all(holds))
+        .filter(|&i| dark || !t.whens[i].conds.iter().any(under))
+        .collect();
+    let most = holding.iter().map(|&i| t.whens[i].conds.len()).max();
+    match holding
+        .into_iter()
+        .find(|&i| Some(t.whens[i].conds.len()) == most)
+    {
+        Some(i) => &t.whens[i].value.value,
+        None => &t.value.value,
+    }
 }
