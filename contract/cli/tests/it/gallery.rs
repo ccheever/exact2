@@ -229,3 +229,155 @@ fn a_shape_the_package_does_not_export_refuses_the_cells_that_build_it_not_the_g
     assert!(!text.contains("use Info"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn write(dir: &Path, files: &[(&str, &str)]) {
+    for (path, text) in files {
+        let at = dir.join(path);
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::fs::write(at, text).unwrap();
+    }
+}
+
+fn package(name: &str, exports: &str) -> String {
+    format!(r#"{{"name":"{name}","version":"1.0.0","private":true,"exports":{exports}}}"#)
+}
+
+#[test]
+fn the_gallery_never_writes_over_the_apps_sources_nor_where_another_install_is_reached() {
+    let dir = fixture("destination");
+    let app = dir.join("app.contract");
+    // The app's own directory, a directory among its sources, a file this didn't write.
+    for (out, why) in [
+        (dir.clone(), "the app's own directory"),
+        (dir.join("src"), "never among its sources"),
+    ] {
+        let e = contract::gallery::generate(&app, &out).unwrap_err();
+        assert!(e.contains(why), "{e}");
+    }
+    let foreign = dir.join("target/mine");
+    write(
+        &foreign,
+        &[("app.contract", "component Mine\n  view\n    text \"m\"\n")],
+    );
+    let e = contract::gallery::generate(&app, &foreign).unwrap_err();
+    assert!(e.contains("not a gallery this wrote"), "{e}");
+    assert_eq!(
+        std::fs::read_to_string(foreign.join("app.contract")).unwrap(),
+        "component Mine\n  view\n    text \"m\"\n"
+    );
+    assert_eq!(std::fs::read_to_string(&app).unwrap(), APP);
+    // A cache no node_modules of the app's reaches.
+    let away = std::env::temp_dir().join(format!("exact2-gallery-away-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&away);
+    let e = contract::gallery::generate(&app, &away).unwrap_err();
+    assert!(e.contains("can't reach the app's packages"), "{e}");
+    let _ = std::fs::remove_dir_all(&away);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn each_component_is_the_declaration_the_apps_use_reaches_spelled_as_the_app_spells_it() {
+    let dir = std::env::temp_dir().join(format!("exact2-gallery-names-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let card = "component Card\n  props\n    tone: enum<\"plain\", \"quiet\">\n  parts\n    face: paint\n  view\n    text tone part=\"face\" opacity=(tone == \"quiet\" ? 0.5 : 1)\n";
+    write(
+        &dir,
+        &[
+            // A re-export's rename (`Fancy`), and a component an exports subpath reaches (`Pill`).
+            ("node_modules/@acme/lib/package.json", &package("@acme/lib", r#"{".":"./index.contract","./pill":"./pill.contract"}"#)),
+            ("node_modules/@acme/lib/lib.tamber", "tamber lib\n\ntheme\n  lib.pad = 4px\n"),
+            ("node_modules/@acme/lib/card.contract", card),
+            ("node_modules/@acme/lib/pill.contract", "component Pill\n  parts\n    face: paint\n  view\n    text \"p\" part=\"face\"\n"),
+            ("node_modules/@acme/lib/index.contract", "use Card as Fancy from \"./card.contract\"\nuse Pill from \"./pill.contract\"\n"),
+            // A second package with a `Card` and a `Gallery` of its own.
+            ("node_modules/@other/kit/package.json", &package("@other/kit", r#"{".":"./index.contract"}"#)),
+            ("node_modules/@other/kit/kit.tamber", "tamber kit\n\ntheme\n  kit.pad = 2px\n"),
+            ("node_modules/@other/kit/index.contract", "component Card\n  parts\n    face: paint\n  view\n    text \"k\" part=\"face\"\n\ncomponent Gallery\n  parts\n    face: paint\n  view\n    text \"g\" part=\"face\"\n"),
+            ("app.contract", "use Fancy from \"@acme/lib\"\nuse Pill from \"@acme/lib/pill\"\nuse Card as KitCard, Gallery from \"@other/kit\"\n\ncomponent App\n  view\n    column\n      Fancy(tone=\"plain\")\n      Pill()\n      KitCard()\n      Gallery()\n"),
+            ("app.tamber", "tamber app\n\ntheme\n  lib.pad = 6px\n"),
+        ],
+    );
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let names: Vec<(&str, &str, bool)> = g
+        .cells
+        .iter()
+        .map(|c| {
+            (
+                c.component.as_str(),
+                c.identity.as_str(),
+                c.refused.is_none(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            ("Fancy", "@acme/lib/card.contract#Card", true),
+            ("Fancy", "@acme/lib/card.contract#Card", true),
+            ("Pill", "@acme/lib/pill.contract#Pill", true),
+            ("Card", "@other/kit/index.contract#Card", true),
+            ("Gallery_2", "@other/kit/index.contract#Gallery", true),
+        ]
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    for line in [
+        "use Fancy from \"@acme/lib\"",
+        "use Pill from \"@acme/lib/pill\"",
+        "use Card from \"@other/kit\"",
+        "use Gallery as Gallery_2 from \"@other/kit\"",
+    ] {
+        assert!(text.contains(line), "{line}\n{text}");
+    }
+    // A manifest of the app's defaults when it has no app.json.
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("app.json")).unwrap()).unwrap();
+    assert!(
+        manifest["app"]["id"]
+            .as_str()
+            .unwrap()
+            .ends_with(".gallery"),
+        "{manifest}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_shape_the_loader_renamed_is_brought_by_its_own_name_and_a_refusal_at_a_librarys_span_is_that_cells(
+) {
+    let dir = fixture("renamed");
+    let lib = dir.join("node_modules/@acme/lib");
+    // A component whose placeholder the library refuses at its own span (a string as an alignment).
+    let index = format!("{LIB}\ncomponent Align\n  props\n    align: string\n  parts\n    face: paint\n  view\n    text \"a\" part=\"face\" text-align=align\n");
+    std::fs::write(lib.join("index.contract"), index).unwrap();
+    // The app declares its own `Info`, so the loader renames the package's.
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card, Needs, Align from \"@acme/lib\"\n\nshape Info\n  mine: bool\n\ncomponent App\n  provide\n    theme = \"t\"\n  view\n    column\n      Needs()\n",
+    )
+    .unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let refused: Vec<(&str, bool)> = g
+        .cells
+        .iter()
+        .map(|c| (c.component.as_str(), c.refused.is_some()))
+        .collect();
+    assert_eq!(
+        refused,
+        vec![
+            ("Card", false),
+            ("Card", false),
+            ("Card", false),
+            ("Needs", true),
+            ("Align", true)
+        ]
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    assert!(
+        text.contains("use Info from \"@acme/lib\"")
+            && text.contains("info=Info(title=\"title\", n=0)"),
+        "{text}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
