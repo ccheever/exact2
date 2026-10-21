@@ -251,7 +251,7 @@ struct HeaderShape: Equatable {
 }
 
 /// A bar item's face drawn from a button whose one child is a filled box
-/// holding a text or a symbol (an avatar, a badge): CSS's colours and
+/// holding text, a symbol or a photo (an avatar, a badge): CSS's colours and
 /// corners at the bar's image size, light and dark, as UIKit draws a
 /// raster item image (`.alwaysOriginal`).
 struct BadgeFace: Equatable {
@@ -261,27 +261,35 @@ struct BadgeFace: Equatable {
     let text: String, symbol: String?
     let light: [[Double]], dark: [[Double]]
     let corners: [CGSize]
+    let photo: CGImage?
+    let photoKey: String
+    var glass = false
     init?(_ button: NodeView) {
         let kids = button.container.subviews.compactMap { $0 as? NodeView }
         guard kids.count == 1, let box = kids.first else { return nil }
-        self.init(box: box)
+        let glass = Materials.glass(button.props["backgroundMaterial"])
+        self.init(box: box, authored: glass)
+        self.glass = glass
     }
-    /// The face of a filled box holding a text or a symbol (a title's
+    /// The face of a filled box holding text, a symbol or a photo (a title's
     /// avatar, §9.10, too). `authored`: draw it at the size the author gave
     /// the box (`faceBoxSize`, the authored points a replaced header has no frame for), between 20
     /// and 44, as a title's avatar is; otherwise at a bar item's 36.
     init?(box: NodeView, authored: Bool = false) {
         guard box.channels("background_color") != nil else { return nil }
-        var text = "", symbol: String?, ink: NodeView?
+        var text = "", symbol: String?, ink: NodeView?, pictured: NodeView?
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
                 if child.kind == "image", let name = child.faceSymbol { symbol = symbol ?? name; ink = ink ?? child }
+                else if child.kind == "image", let source = child.imageSource ?? child.props["imageSource"], !source.hasPrefix("symbol:") { pictured = pictured ?? child }
                 else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? child }
                 else { walk(child) }
             }
         }
         walk(box)
-        guard !text.isEmpty || symbol != nil else { return nil }
+        guard !text.isEmpty || symbol != nil || pictured != nil else { return nil }
+        photo = pictured?.raster?.image.image
+        photoKey = pictured.map { "\($0.imageSource ?? $0.props["imageSource"] ?? "")|\($0.raster.map { ObjectIdentifier($0.image).hashValue } ?? 0)" } ?? ""
         let key = symbol == nil ? "text_color" : "tint_color"
         func colours(_ dark: Bool) -> [[Double]] {
             [box.channels("background_color", dark: dark) ?? [0, 0, 0, 0], ink?.channels(key, dark: dark) ?? (dark ? [1, 1, 1, 1] : [0, 0, 0, 1])]
@@ -299,21 +307,27 @@ struct BadgeFace: Equatable {
     // every batch builds each route's source.
     var source: String {
         let rgba = { (c: [[Double]]) in c.map { $0.map { String($0) }.joined(separator: ",") }.joined(separator: ";") }
-        return "\(text)|\(symbol ?? "")|\(rgba(light))|\(rgba(dark))|\(corners.map { "\($0.width)x\($0.height)" }.joined(separator: ","))|\(size)"
+        return "\(text)|\(symbol ?? "")|\(rgba(light))|\(rgba(dark))|\(corners.map { "\($0.width)x\($0.height)" }.joined(separator: ","))|\(size)|\(photoKey)|\(glass)"
     }
 
     var image: UIImage {
         let light = draw(self.light).withRenderingMode(.alwaysOriginal)
-        light.imageAsset?.register(draw(self.dark).withRenderingMode(.alwaysOriginal), with: UITraitCollection(userInterfaceStyle: .dark))
+        let dark = draw(self.dark).withRenderingMode(.alwaysOriginal)
+        light.imageAsset?.register(dark, with: UITraitCollection(traitsFrom: [UITraitCollection(displayScale: dark.scale), UITraitCollection(userInterfaceStyle: .dark)]))
         return light
     }
     private func draw(_ c: [[Double]]) -> UIImage {
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
         return UIGraphicsImageRenderer(size: rect.size).image { _ in
             TextEngine.color(c[0]).setFill()
-            UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil)).fill()
+            let outline = UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil))
+            outline.fill()
             let ink = TextEngine.color(c[1])
-            if let symbol, let glyph = FaceSymbol.image(symbol, points: size * 0.42, configuration: UIImage.SymbolConfiguration(pointSize: size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
+            if let photo {
+                let w = CGFloat(photo.width), h = CGFloat(photo.height), scale = max(rect.width / w, rect.height / h)
+                outline.addClip()
+                UIImage(cgImage: photo).draw(in: CGRect(x: (rect.width - w * scale) / 2, y: (rect.height - h * scale) / 2, width: w * scale, height: h * scale))
+            } else if let symbol, let glyph = FaceSymbol.image(symbol, points: size * 0.42, configuration: UIImage.SymbolConfiguration(pointSize: size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
                 glyph.draw(at: CGPoint(x: (rect.width - glyph.size.width) / 2, y: (rect.height - glyph.size.height) / 2))
             } else {
                 let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: size * 0.42, weight: .medium), .foregroundColor: ink]
@@ -1242,9 +1256,9 @@ extension NavigationHost {
         }
         if #available(iOS 26.0, tvOS 26.0, *) {
             if i.prominent { item.style = .prominent }
-            // A drawn face is its own shape: no glass capsule around it.
+            // An opaque face supplies its shape; authored glass keeps UIKit's capsule.
             #if !os(tvOS)
-            if i.badge != nil { item.hidesSharedBackground = true }
+            if let badge = i.badge, !badge.glass { item.hidesSharedBackground = true }
             else if i.ownGlass { item.sharesBackground = false }
             #endif
         }

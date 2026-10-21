@@ -337,6 +337,49 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(aim["hit"] as? Int, TouchLog.landing(hit)["node"] as? Int, "the dispatch log must see it land where the bar is: \(aim)")
     }
 
+    func testAPhotoBadgeRefreshesAfterItsImageLoads() throws {
+        let session = try fixture("bar-photo", module: false), p = session.presenter
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let button = try node(session, "compose-home")
+        let box = (p.views.keys.max() ?? 0) + 1, picture = box + 1
+        p.apply(wireBatch([
+            ["op": "props", "id": button.id, "set": ["backgroundMaterial": "glass"]],
+            ["op": "create", "id": box, "kind": "view", "props": ["faceBoxSize": "32x32"], "style": ["background_color": [100, 100, 100, 255], "border_top_left_radius": 16]],
+            ["op": "create", "id": picture, "kind": "image", "props": ["imageSource": "avatar.png"]],
+            ["op": "children", "id": box, "ids": [picture]],
+            ["op": "children", "id": button.id, "ids": [box]],
+        ]))
+        let placeholder = try XCTUnwrap(route.navigationItem.rightBarButtonItems?.first?.image)
+        XCTAssertEqual(placeholder.size, CGSize(width: 32, height: 32), "a photo has its authored face before its bitmap arrives")
+        XCTAssertEqual(placeholder.renderingMode, .alwaysOriginal)
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-bar-photo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        let loader = RasterLoader(), resolver = AssetResolver(root: root)
+        let image = try XCTUnwrap(p.views[picture])
+        defer { loader.shutdown(); image.raster = nil; try? FileManager.default.removeItem(at: root); withExtendedLifetime(resolver) {} }
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 32)).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 64, height: 32))
+        }
+        try XCTUnwrap(photo.pngData()).write(to: root.appendingPathComponent("avatar.png"))
+        image.frame = CGRect(x: 0, y: 0, width: 32, height: 32)
+        image.loadGeneration += 1
+        loader.load(image, source: "avatar.png", resolver: resolver)
+        until("the loaded photo replaces the projected bar item without a data batch") {
+            image.raster != nil && route.navigationItem.rightBarButtonItems?.first?.image !== placeholder
+        }
+        let item = try XCTUnwrap(route.navigationItem.rightBarButtonItems?.first)
+        let drawn = try XCTUnwrap(item.image?.cgImage)
+        var pixel = [UInt8](repeating: 0, count: 4)
+        try pixel.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(drawn, in: CGRect(x: -16, y: -16, width: 32, height: 32))
+        }
+        XCTAssertGreaterThan(pixel[0], 230); XCTAssertLessThan(pixel[1], 20); XCTAssertLessThan(pixel[2], 20)
+        if #available(iOS 26.0, *) { XCTAssertFalse(item.hidesSharedBackground, "the photo keeps the button's authored glass") }
+    }
+
     /// A bar item takes the colour its author wrote on its button, or the
     /// tint written on its symbol (LLP 1115.000 D2): a header's Cancel in the
     /// app's accent, a Delete in the platform's red. A colour the button

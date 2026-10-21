@@ -695,6 +695,26 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         presenter.session?.natives.routeHatch(.ended, controller: c, navigation: nil, scroll: nil, key: c.key, dataset: c.node.props["dataset"])
     }
 
+    /// A header's asynchronously loaded image refreshes its projected item
+    /// after any transition, without waiting for an app data change.
+    func headerImageLoaded(_ image: NodeView) {
+        guard controllers.values.contains(where: { c in
+            c.lifted.map { image.isDescendant(of: $0) } == true || c.barNodes.contains { image.isDescendant(of: $0) }
+        }) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            for nav in allNavigations {
+                let refresh = { [weak self, weak nav] in
+                    guard let self, let nav else { return }
+                    self.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+                }
+                if let coordinator = nav.transitionCoordinator {
+                    coordinator.animate(alongsideTransition: nil) { _ in refresh() }
+                } else { refresh() }
+            }
+        }
+    }
+
     /// At a cold launch the module loads a turn after first pixel (LLP
     /// 1075.003 Q3 (c)): each hatch runs once for every object already live,
     /// stacks first, in the order they were built.
