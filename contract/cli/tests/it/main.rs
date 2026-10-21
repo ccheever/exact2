@@ -111,6 +111,7 @@ mod persist;
 mod picker;
 mod placeholder;
 mod pointer;
+mod popover_surface;
 mod post_message;
 mod presence;
 mod queue;
