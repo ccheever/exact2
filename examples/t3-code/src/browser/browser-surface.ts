@@ -31,7 +31,7 @@ import { describePreviewError, previewErrorLabel, previewHost, previewPdfAssetUr
 import { adoptCaptureNative, browserAutoShowFloatingPreview, floatingTabOf, toggleFloat, applyCaptureResults, artifactLocal, browserCaptureView, browserMiniLocal, cancelHiddenPicks, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
 import { annotationAttachedToDraft } from './browser-annotation';
 import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, nativeProfileBridge, tabProfile, type BrowserDefaults } from './browser-profiles';
-import { resolveBrowserOpenDefaults } from './browser-defaults';
+import { addressBarSearchTemplate, resolveBrowserOpenDefaults } from './browser-defaults';
 // History, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
 import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, readTabNavigation, showPreview, type BrowserNavigationView } from './browser-navigation';
 import { browserHistory } from './browser-history';
@@ -510,7 +510,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   if (snapshot?.runtime === 'server') {
     if (op === 'float') { toggleFloat(client, state, { ref, tabId: snapshot.tabId, runtimeId }); return ''; }
     if (op === 'navigate' || op === 'open-url') {
-      let url: string; try { url = resolveAddressBarInput(value); } catch { return ''; }
+      let url: string; try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
       if (sendServerCommand(client, runtimeId, { type: 'navigate', url })) {
         host.store.rememberUrl(ref, url); browserHistory(client.local).recordVisitForThread(ref, url, navigationNow(client), environmentHostname(client));
       }
@@ -525,10 +525,10 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   } else if (await captureLocal(client, native, state, op, { ref, tabId: surface.browser.tabId, runtimeId }, value)) return '';
   switch (op) {
     case 'navigate': {
-      // handleSubmitUrl: text that is not an address searches for it; only empty input or an unsupported scheme does
-      // nothing (the field keeps the text). The URL loads in this tab's web view and is remembered.
+      // handleSubmitUrl: text that is not an address searches the chosen engine for it; only empty input or an unsupported
+      // scheme does nothing (the field keeps the text). The URL loads in this tab's web view and is remembered.
       let url: string;
-      try { url = resolveAddressBarInput(value); } catch { return ''; }
+      try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
       await nativeOp(client, native, { op: 'browserNavigate', tab: runtimeId, url, profile, environment: ref.environmentId });
       host.store.rememberUrl(ref, url);
       browserHistory(client.local).recordVisitForThread(ref, url, navigationNow(client), environmentHostname(client));

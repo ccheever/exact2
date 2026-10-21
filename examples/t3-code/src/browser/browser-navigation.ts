@@ -1,7 +1,7 @@
 // The Browser tab's navigation aids (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
 // apps/web/src/components/preview/{PreviewView,PreviewEmptyState,PreviewRecentUrlCard,PreviewLocalServerCard,
 // PreviewMoreMenu,ZoomIndicator}.tsx, openDiscoveredPort.ts; apps/web/src/browser/{HostedBrowserWebview,
-// BrowserDeviceToolbar,useBrowserViewportResize}.tsx; apps/web/src/routes/_chat.tsx and ChatView.tsx
+// BrowserDeviceToolbar,useBrowserViewportResize}.tsx, useBrowserLayoutZoomFactor.ts (74541bab17); apps/web/src/routes/_chat.tsx and ChatView.tsx
 // `preview.toggle`/`togglePreviewPanel`; packages/shared/src/keybindings.ts `previewFocus`).
 //
 // The data module's half: the empty state's Recently used (at most 8, from browser-history.ts) and
@@ -26,7 +26,7 @@ import { discoveredServers, environmentHostname, getConfiguredPreviewUrls, prepa
 import {
   FILL_PREVIEW_VIEWPORT, PREVIEW_VIEWPORT_PRESETS, browserResponsiveViewportForToggle, browserViewportSettingKey, commitViewportAndAspectRatio, isValidViewport,
   normalizeZoomFactor, nextZoomLevel, resizeBrowserViewportFromRail, resizeFreeformViewport, resolveBrowserDeviceViewportArea, resolveBrowserDeviceViewportLayout, resolvePreviewViewport,
-  runBrowserViewportMutation, zoomLabel, type BrowserViewportResizeDirection,
+  readWindowZoom, resolveBrowserLayoutZoomFactor, runBrowserViewportMutation, zoomLabel, type BrowserViewportResizeDirection,
 } from './browser-viewport';
 import { addBrowserSurface, browserHost, browserTabFavicon, effectiveNav, nativeTabs, openBrowserIn, type NativeTab } from './browser-surface';
 import { browserOpenDefaults } from './browser-defaults';
@@ -41,6 +41,8 @@ function nav(client: T3Client): Nav {
   return value;
 }
 
+/** The main window's zoom (View › Zoom In), 1 until the module reports it. */
+export const windowZoomFactor = (client: T3Client): number => readWindowZoom(client.presentation);
 /** The module's zoom and appearance for a tab (desktopOverlay.zoomFactor/colorScheme); 100% and System until it reports. */
 export const tabZoom = (tab: NativeTab | null): number => normalizeZoomFactor(tab?.zoomFactor ?? 1);
 export const tabColorScheme = (tab: NativeTab | null): 'system' | 'light' | 'dark' => tab?.colorScheme === 'light' || tab?.colorScheme === 'dark' ? tab.colorScheme : 'system';
@@ -74,13 +76,14 @@ export type BrowserRecent = { url: string; title: string; subtitle: string; favi
 export type BrowserServer = { key: string; title: string; description: string; url: string; favicon: string; fallback: string };
 export type BrowserPresetChoice = { id: string; label: string; detail: string };
 export type BrowserNavigationView = {
-  zoomFactor: number; zoomLabel: string; zoomSerial: number; colorScheme: string;
+  /** windowZoom: the main window's zoom, which a desktop tab's layout divides its own by (useBrowserLayoutZoomFactor). */
+  zoomFactor: number; zoomLabel: string; zoomSerial: number; colorScheme: string; windowZoom: number;
   viewportMode: string; viewportWidth: number; viewportHeight: number; viewportKey: string; viewportSerial: number; presetId: string; presetLabel: string; aspectLocked: boolean;
   presets: BrowserPresetChoice[]; keys: string; recents: BrowserRecent[]; servers: BrowserServer[];
 };
 const PRESET_CHOICES: BrowserPresetChoice[] = PREVIEW_VIEWPORT_PRESETS.map(preset => ({ id: preset.id, label: preset.label, detail: preset.detail }));
 export const emptyNavigationView = (): BrowserNavigationView => ({
-  zoomFactor: 1, zoomLabel: '100%', zoomSerial: 0, colorScheme: 'system', viewportMode: 'fill', viewportWidth: 0, viewportHeight: 0, viewportKey: 'fill', viewportSerial: 0,
+  zoomFactor: 1, zoomLabel: '100%', zoomSerial: 0, colorScheme: 'system', windowZoom: 1, viewportMode: 'fill', viewportWidth: 0, viewportHeight: 0, viewportKey: 'fill', viewportSerial: 0,
   presetId: '', presetLabel: 'Responsive', aspectLocked: false, presets: PRESET_CHOICES.map(choice => ({ ...choice })), keys: '', recents: [], servers: [],
 });
 
@@ -115,6 +118,7 @@ export function navigationView(client: T3Client, ref: ScopedThreadRef, runtimeId
   const preset = viewport._tag === 'preset' ? PREVIEW_VIEWPORT_PRESETS.find(candidate => candidate.id === viewport.presetId) : undefined;
   const view: BrowserNavigationView = {
     ...emptyNavigationView(), zoomFactor: zoom, zoomLabel: zoomLabel(zoom), zoomSerial: state.zoomSerial.get(runtimeId) ?? 0, colorScheme: snapshot?.runtime === 'server' ? snapshot.colorScheme ?? 'system' : tabColorScheme(tab),
+    windowZoom: windowZoomFactor(client),
     viewportMode: viewport._tag, viewportWidth: viewport._tag === 'fill' ? 0 : viewport.width, viewportHeight: viewport._tag === 'fill' ? 0 : viewport.height,
     viewportKey: browserViewportSettingKey(viewport), viewportSerial: state.viewportSerial.get(runtimeId) ?? 0, presetId: preset?.id ?? '', presetLabel: preset?.label ?? 'Responsive',
     aspectLocked: viewport._tag !== 'fill' && state.aspectLocked.has(runtimeId), keys: previewKeys(client),
@@ -181,6 +185,8 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
   if (!ref || !surface.browser) return null;
   const tabId = surface.browser.tabId, { runtimeId, tab, snapshot } = effectiveNav(client, ref, tabId), history = browserHistory(client.local);
   const viewport = viewportOf(snapshot), zoom = snapshot?.runtime === 'server' ? normalizeZoomFactor(snapshot.zoomFactor) : tabZoom(tab), locked = nav(client).aspectLocked.has(runtimeId);
+  // The viewport's layout: a desktop tab's zoom over the window's (a server tab streams, unaffected by it).
+  const layoutZoom = snapshot?.runtime === 'server' ? zoom : resolveBrowserLayoutZoomFactor(zoom, windowZoomFactor(client));
   const aspect = locked && viewport._tag !== 'fill' ? viewport.width / viewport.height : undefined;
   if (snapshot?.runtime === 'server' && ['zoom-in', 'zoom-out', 'zoom-reset', 'color-scheme'].includes(op)) {
     const change = op === 'color-scheme' ? (['system', 'light', 'dark'].includes(value) ? { colorScheme: value } : null)
@@ -209,7 +215,7 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
       // Settings › Integrations › Browser row), else the panel's framed area.
       if (viewport._tag !== 'fill') { await commitViewport(client, native, ref, tabId, runtimeId, FILL_PREVIEW_VIEWPORT); return ''; }
       const [width = 0, height = 0] = numbers(value);
-      await commitViewport(client, native, ref, tabId, runtimeId, browserResponsiveViewportForToggle({ defaults: browserOpenDefaults(client), panelRect: width > 0 && height > 0 ? { width, height } : null, zoomFactor: zoom }));
+      await commitViewport(client, native, ref, tabId, runtimeId, browserResponsiveViewportForToggle({ defaults: browserOpenDefaults(client), panelRect: width > 0 && height > 0 ? { width, height } : null, zoomFactor: layoutZoom }));
       return '';
     }
   }
@@ -246,8 +252,8 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
       const [direction = '', ...rest] = value.split('|');
       const [dx = 0, dy = 0, panelWidth = 0, panelHeight = 0] = rest.map(Number);
       if (!DIRECTIONS.has(direction) || !(panelWidth > 0 && panelHeight > 0)) return '';
-      const container = { width: panelWidth, height: panelHeight }, layout = resolveBrowserDeviceViewportLayout(container, viewport, zoom);
-      const next = resizeBrowserViewportFromRail(viewport, { x: dx, y: dy }, resolveBrowserDeviceViewportArea(container), zoom * layout.viewportScale, direction as BrowserViewportResizeDirection, aspect);
+      const container = { width: panelWidth, height: panelHeight }, layout = resolveBrowserDeviceViewportLayout(container, viewport, layoutZoom);
+      const next = resizeBrowserViewportFromRail(viewport, { x: dx, y: dy }, resolveBrowserDeviceViewportArea(container), layoutZoom * layout.viewportScale, direction as BrowserViewportResizeDirection, aspect);
       if (next.width !== viewport.width || next.height !== viewport.height) await commitViewport(client, native, ref, tabId, runtimeId, { _tag: 'freeform', ...next });
       else settleViewport(client, runtimeId); // the view stops holding the size it drew
       return '';
@@ -257,11 +263,11 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
       const [direction = '', key = '', shift = ''] = value.split('|');
       if (!DIRECTIONS.has(direction)) return '';
       const controlsWidth = direction.includes('east') || direction.includes('west'), controlsHeight = direction.includes('north') || direction.includes('south');
-      const step = (shift === 'true' ? 50 : 10) * zoom;
+      const step = (shift === 'true' ? 50 : 10) * layoutZoom;
       const delta = key === 'ArrowLeft' && controlsWidth ? { x: -step, y: 0 } : key === 'ArrowRight' && controlsWidth ? { x: step, y: 0 }
         : key === 'ArrowUp' && controlsHeight ? { x: 0, y: -step } : key === 'ArrowDown' && controlsHeight ? { x: 0, y: step } : null;
       if (!delta) return '';
-      const next = resizeFreeformViewport(viewport, delta, zoom, direction as BrowserViewportResizeDirection, aspect);
+      const next = resizeFreeformViewport(viewport, delta, layoutZoom, direction as BrowserViewportResizeDirection, aspect);
       if (next.width !== viewport.width || next.height !== viewport.height) await commitViewport(client, native, ref, tabId, runtimeId, { _tag: 'freeform', ...next });
       else settleViewport(client, runtimeId);
       return '';

@@ -4,7 +4,8 @@ import { requestComposerField } from '../composer/composer-field-request';
 // see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/PreviewView.tsx `handlePickElement`,
 // `handleCapture`, `handlePictureInPicture`, `handleNativePictureInPicture`; PreviewChromeRow.tsx;
 // ThreadPreviewMiniPlayer.tsx BrowserMiniPlayer; ChatView.tsx `closePreviewPanel` and `shouldRenderPreviewMiniPlayer`;
-// apps/web/src/browser/annotationTheme.ts).
+// apps/web/src/browser/annotationTheme.ts; T3 Code 74541bab17: apps/desktop/src/preview/captureErrors.ts, which words a
+// failed screenshot or recording start).
 //
 // The module does the work (T3BrowserAnnotate.swift, T3BrowserRecorder.swift, T3BrowserCapture.swift); this file
 // asks it, keeps the client's recordings (browser-recording.ts) and turns the results into the composer's chip, the
@@ -23,7 +24,8 @@ import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from '../
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { serverStreamUrl, serverStreamFrame } from './server-browser-runtime';
 import { previewRuntimeTabId } from './browser-state';
-import { BrowserRecordings, type RecordingArtifact, type RecordingBlob, type RecordingHost, type RecordingRecorder, type RecordingStream } from './browser-recording';
+import { readWindowZoom } from './browser-viewport';
+import { BrowserRecordings, PreviewCaptureFailure, type PreviewCaptureFailureStage, type RecordingArtifact, type RecordingBlob, type RecordingHost, type RecordingRecorder, type RecordingStream } from './browser-recording';
 import { isPreviewAnnotationPayload, previewAnnotationLink, savePreviewAnnotation, type PreviewAnnotationPayload } from './browser-annotation';
 import { composerFieldOwner } from '../composer/auto-balance-owner';
 import { composerFieldCurrent, composerFieldInputSerial } from '../composer/composer-field-bridge';
@@ -85,12 +87,25 @@ export function adoptCaptureNative(client: T3Client, native: Native): void { cap
 /** A module op through the newest answer's native (the agent's recordings, browser-automation-recording.ts). */
 export const captureNativeCall = (client: T3Client, request: Obj): Promise<Obj> => nativeCall(captureHost(client), request);
 
-async function nativeCall(host: Host, request: Obj): Promise<Obj> {
+async function nativeCall(host: Host, request: Obj, stage?: PreviewCaptureFailureStage): Promise<Obj> {
   const native = host.native;
-  if (!native?.available) throw new ClientError('The browser is unavailable in this window.');
+  if (!native?.available) {
+    if (stage) throw new PreviewCaptureFailure('renderer-unavailable', stage);
+    throw new ClientError('The browser is unavailable in this window.');
+  }
   const reply = await bridgeReply(native, request);
-  if (!reply.ok) throw new ClientError(str(obj(reply.error).message, 'The browser could not do that.'));
+  if (!reply.ok) {
+    if (stage) throw captureFailure(str(obj(reply.error).kind), stage);
+    throw new ClientError(str(obj(reply.error).message, 'The browser could not do that.'));
+  }
   return obj(reply.value);
+}
+/** captureErrors.ts normalizeCaptureFailure over the module's refusals (T3BrowserCapture.swift): a tab that is gone, a
+ *  snapshot WebKit did not give (`CapturePage`), or a failure at the stage the call names. */
+export function captureFailure(kind: string, stage: PreviewCaptureFailureStage): PreviewCaptureFailure {
+  if (kind === 'NotFound') return new PreviewCaptureFailure('renderer-unavailable', stage);
+  if (kind === 'CapturePage') return new PreviewCaptureFailure('capture-failed', 'capture-page');
+  return new PreviewCaptureFailure('capture-failed', stage);
 }
 /** The module's sleep (timelineSleep): the data module has no timers. A sleep whose answer was let go sleeps on through the newest native. */
 async function sleep(host: Host, ms: number): Promise<void> {
@@ -145,8 +160,8 @@ function nativeRecordingHost(client: T3Client, host: Host): RecordingHost {
     bridge: {
       startScreencast: async tabId => {
         const settings = recordingSettings(client);
-        await record(tabId, 'arm', { showKeyPresses: settings.browserRecordingShowKeyPresses, showMousePresses: settings.browserRecordingShowMousePresses,
-          theme: annotationTheme(host.scheme), controller: 'none' });
+        await nativeCall(host, { op: 'browserRecord', tab: tabId, action: 'arm', showKeyPresses: settings.browserRecordingShowKeyPresses,
+          showMousePresses: settings.browserRecordingShowMousePresses, theme: annotationTheme(host.scheme), controller: 'none' }, 'recording-start');
         // The armed module hands the stream to this tab only (the reference's capture trigger).
         host.recordings.triggerTabMediaCapture(tabId);
       },
@@ -292,7 +307,7 @@ async function capture(client: T3Client, host: Host, target: CaptureTarget, reco
   }
   let artifact: RecordingArtifact;
   try {
-    const value = await nativeCall(host, { op: 'browserScreenshot', tab: target.runtimeId });
+    const value = await nativeCall(host, { op: 'browserScreenshot', tab: target.runtimeId }, 'screenshot');
     artifact = { id: str(value.id), tabId: target.runtimeId, path: str(value.path), mimeType: 'image/png', sizeBytes: num(value.sizeBytes), createdAt: str(value.createdAt) };
   } catch (error) {
     if (letGo(error)) throw error;
@@ -449,9 +464,11 @@ async function insertAnnotationChip(client: T3Client, native: Native, origin: An
 export type BrowserMiniView = {
   show: boolean; key: string; sourceKey: string; tabId: string; runtimeId: string; server: boolean; streamUrl: string; pdfUrl: string; url: string; profileId: string; environment: string;
   hasWebContents: boolean; recording: boolean; separateWindow: boolean; width: number; height: number;
+  /** The main window's zoom, which the module undoes for the page it shows (T3BrowserView.swift `window-zoom`). */
+  windowZoom: number;
 };
 export const emptyBrowserMini = (): BrowserMiniView => ({ show: false, key: '', sourceKey: '', tabId: '', runtimeId: '', server: false, streamUrl: '', pdfUrl: '', url: '', profileId: 'default', environment: '',
-  hasWebContents: false, recording: false, separateWindow: false, width: 1280, height: 800 });
+  hasWebContents: false, recording: false, separateWindow: false, width: 1280, height: 800, windowZoom: 1 });
 
 /** The page's last laid-out size (resolveFittedBrowserViewport with the fill viewport): its box, else 1280×800. */
 export function browserMiniSourceSize(client: T3Client, runtimeId: string): { width: number; height: number } {
@@ -472,7 +489,8 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
   captureHost(client).miniSize = { key, ...size };
   return { show: true, key, sourceKey: key, tabId, runtimeId, server: session.server === true, streamUrl: session.server ? serverStreamUrl(client, runtimeId) : '',
     pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', url: str(tab.url) || session.url, profileId: session.profileId, environment: ref.environmentId,
-    hasWebContents: session.server === true || Object.keys(tab).length > 0, recording: recordingOf(client, ref, tabId, runtimeId), separateWindow: tab.pip === true, ...size };
+    hasWebContents: session.server === true || Object.keys(tab).length > 0, recording: recordingOf(client, ref, tabId, runtimeId), separateWindow: tab.pip === true, ...size,
+    windowZoom: readWindowZoom(client.presentation) };
 }
 
 /** `surface-browser-mini-*` (id = the floating tab's runtime id): Open in right panel, Pop into separate window, Close. */

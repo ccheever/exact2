@@ -58,7 +58,9 @@ component BrowserStage
   state heldH = 0
   state over = ""
   derive fixed = view.viewportMode != "fill"
-  derive z = view.zoomFactor > 0 ? view.zoomFactor : 1
+  // The layout zoom (resolveBrowserLayoutZoomFactor): a desktop tab's own over the window's, so the window's zoom leaves a
+  // fixed viewport's size on screen alone; a server tab's stream is laid out at its own.
+  derive z = (view.zoomFactor > 0 ? view.zoomFactor : 1) / (view.server or view.windowZoom <= 0 ? 1 : view.windowZoom)
   derive aw = max(1, round(pw - 20))
   derive ah = max(1, round(ph - 42))
   derive scale0 = view.viewportWidth > 0 and view.viewportHeight > 0 ? min(1, min(aw / (view.viewportWidth * z), ah / (view.viewportHeight * z))) : 1
@@ -125,7 +127,7 @@ component BrowserStage
         box position="absolute" left=vx top=vy width=vw height=vh
           ServerBrowserPage(runtimeId=view.runtimeId, url=view.streamUrl, pdfUrl=view.pdfUrl, pageWidth=vw, pageHeight=vh, followSize=(not fixed), mini=false)
       else
-        t3-browser tab=view.runtimeId url=view.url profile=view.profileId environment=view.environment fit-scale=`${scale}` page-size=pageSize keys=view.keys chrome-focus=(urlFocused ? "true" : "false") key=pageKey aria-label="Browser page" testId="browser-page" position="absolute" left=vx top=vy width=vw height=vh box-shadow=(fixed ? "0 0 0 1px light-dark(#e4e4e7b3, #ffffff1a), 0 1px 2px #0000000d" : "none")
+        t3-browser tab=view.runtimeId url=view.url profile=view.profileId environment=view.environment fit-scale=`${scale}` page-size=pageSize window-zoom=`${view.windowZoom}` keys=view.keys chrome-focus=(urlFocused ? "true" : "false") key=pageKey aria-label="Browser page" testId="browser-page" position="absolute" left=vx top=vy width=vw height=vh box-shadow=(fixed ? "0 0 0 1px light-dark(#e4e4e7b3, #ffffff1a), 0 1px 2px #0000000d" : "none")
       if fixed
         BrowserRail(direction="west", label="Resize browser viewport from left edge", kind="vertical", cursor="ew-resize", x=(vx - 10), y=vy, w=10, h=vh, active=(dragDir == "west" or over == "west"), drag=drag, release=release, railKey=railKey, hover=hover)
         BrowserRail(direction="east", label="Resize browser viewport from right edge", kind="vertical", cursor="ew-resize", x=(vx + vw), y=vy, w=10, h=vh, active=(dragDir == "east" or over == "east"), drag=drag, release=release, railKey=railKey, hover=hover)
