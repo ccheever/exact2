@@ -96,6 +96,9 @@ for (const host of hosts.length ? hosts : ['macos', 'ios']) {
       const moved = await until(s, 'spot', (t) => t === '51.5074,-0.1278');
       check(where, 'a move asks the reader again', moved === '51.5074,-0.1278', moved);
     }
+    // Each fix asks the reader again; while it does, its module request is what reads the watch.
+    const kept = JSON.stringify(await s.logs());
+    check(where, 'the watch is kept while its reader is asked again', !kept.includes('release geolocation.watchPosition'));
     await s.tap('watch');
     const off = await until(s, 'spot', (t) => t === 'off');
     const logs = JSON.stringify(await s.logs());
