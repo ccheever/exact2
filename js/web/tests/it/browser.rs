@@ -151,7 +151,8 @@ fn grant_sets() -> String {
         "net.fetch https://fixture.exact.test\n",
         "secret.keep dpop\n",
         "net.fetch https://api.castle.xyz\nsecret.keep castle.session\n",
-        "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n",
+        // js/tests/fixtures/storage.ts's, as it declares them (its widget cache writes since 5363e50241).
+        "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n",
         "fs.read app:/\nfs.write app:/\nsqlite.open app:/data",
         "fs.read app:/data/move\nfs.write app:/data/move",
         "fs.read app:/data",
@@ -342,7 +343,8 @@ try {
     const answer=(source,args=[])=>call({op:'answer',id:module.id,source,args,store:[['token','old']],grants:['token']});
     const results=[];
     for(const name of ['alias','random','constructor','intl'])results.push(await checkpoint(answer(name)));
-    if(!results.every(r=>r.message?.includes('pass time or a random seed')))throw new Error(JSON.stringify(results));
+    // Each refused with its way out (Math.random's names crypto.getRandomValues since 24bf4fc341).
+    if(!results.every(r=>r.kind==='Unavailable'&&r.message?.includes('is unavailable in data sources')&&/pass (time or )?a (random )?seed/.test(r.message)))throw new Error(JSON.stringify(results));
     if((await checkpoint(answer('explicit',[0]))).value!==1970)throw new Error('explicit date arithmetic changed');
     const written=await checkpoint(answer('write'));
     if(written.value!=='old'||written.reads[0]!=='token'||written.writes[0][1]!=='next')throw new Error('store seam changed');
@@ -572,7 +574,7 @@ try {
     };
     // The fixture's own grants (js/tests/fixtures/storage.ts, js/tests/it/storage.rs GRANTS): its module declares
     // them, and admission refuses a module whose declaration differs from the admitted one.
-    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'});
+    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'});
     const beforeStorage=(await indexedDB.databases()).length;
     let storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
     if((await indexedDB.databases()).length!==beforeStorage)throw new Error('prepare opened storage');
