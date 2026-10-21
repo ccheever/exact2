@@ -2,8 +2,10 @@
 // `--exact-layout-transition` row the web host writes (css.rs
 // `layout_transition_css`): a spring there is the private `spring(k, c, m)`
 // (LLP 1081 D5 keeps it), whose commas must not split it, lowered to `linear()`.
-import { test, expect } from 'bun:test';
-import { curve } from '../../web-js/shared.js';
+import { test, expect, mock } from 'bun:test';
+
+mock.module('../../web-js/navigation.js', () => import('../navigation.js'));
+const { curve } = await import('../../web-js/shared.js');
 
 const row = text => ({ style: { getPropertyValue: name => (name === '--exact-layout-transition' ? text : '') } });
 
