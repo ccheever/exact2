@@ -286,6 +286,19 @@ describe('Linked pull requests', () => {
     const lines = listLines(resolveChains([lone, top, base]));
     expect(lines.map(line => [line.link.number, line.depth, line.stack?.size ?? 0])).toEqual([[1, 0, 2], [2, 1, 0], [3, 0, 0]]);
   });
+  // threadPullRequests.test.ts at 74541bab17: stale saved layer lists.
+  const nativeStack = (id: string, numbers: number[]) => ({ kind: 'native', id, number: Number(id), url: `https://github.com/o/r/stacks/${id}`, base: 'main', layers: numbers.map(number => ({ number, headBranch: `pr-${number}`, state: 'open' })) });
+  test('uses a later complete native snapshot for layer order and the current pull request', async () => {
+    const links = [18, 20, 83, 84].map(number => link(number, { state: 'open', headBranch: `pr-${number}`, baseBranch: 'main' }, { linkedAt: '2026-01-01T00:00:00.000Z',
+      stack: nativeStack('80', number < 83 ? [79, 37, 38, 39, 76, 18, 20] : [79, 37, 38, 39, 76, 18, 20, 83, 84]) }));
+    expect(resolveChains(links).map(chain => chain.layers.map(layer => layer.number))).toEqual([[18, 20, 83, 84]]);
+    const { resolveThreadCurrentPullRequestLink } = await import('../../src/sidebar/thread-reference');
+    expect(resolveThreadCurrentPullRequestLink(links)?.number).toBe(84);
+  });
+  test('uses the earliest longest partial snapshot and appends missing members in stored order', () => {
+    const links = [[3, 2], [9, 2, 3], [9, 3, 2], [9, 3, 2]].map((numbers, index) => link(index + 1, null, { stack: nativeStack('1', numbers) }));
+    expect(resolveChains(links).map(chain => chain.layers.map(layer => layer.number))).toEqual([[2, 3, 1, 4]]);
+  });
   test('siblings stay under their parent, and deeper layers precede a later shallow sibling for the current PR', async () => {
     const make = (number: number, headBranch: string, baseBranch: string) => link(number, { state: 'open', headBranch, baseBranch });
     const links = [make(1, 'base', 'main'), make(2, 'first', 'base'), make(3, 'deep', 'first'), make(4, 'sibling', 'base')];
