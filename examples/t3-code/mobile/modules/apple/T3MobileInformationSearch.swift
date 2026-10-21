@@ -36,7 +36,10 @@ final class T3MobileInformationSearch: ExactNativeInstance {
             close.isHidden = !active
         }
     }
-    override func setProps(_ props: [String: String]) throws { let query = props["query"] ?? ""; if field.text != query { field.text = query } }
+    override func setProps(_ props: [String: String]) throws {
+        let query = props["query"] ?? ""; if field.text != query { field.text = query }
+        if props["dismiss-keyboard"] == "true" { field.resignFirstResponder() }
+    }
     override func destroy() { alive = false; field.resignFirstResponder() }
 }
 #endif
