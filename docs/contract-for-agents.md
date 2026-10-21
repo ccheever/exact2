@@ -2737,7 +2737,8 @@ browser drivers refuse that override, so test real fullscreen transitions. This 
 queries; `fine` and `hover` on macOS, Linux and Windows, and `coarse` and `none`
 on Android's touch screen and on a Linux one with no mouse or touchpad, read once
 at launch; on iOS `coarse` and `none`, or `fine` and
-`hover` while an iPad has a trackpad or mouse attached; `none` and `none` on tvOS.
+`hover` while an iPad has a trackpad or mouse attached; `none` and `none` on tvOS
+and on Android TV.
 They change while the app runs. Show a game's on-screen stick under `coarse`
 (the starter does, `game/recipes/touch-controls.md`), never by platform. The web's
 neutral look sizes its own controls for a touch device instead (`any-pointer:

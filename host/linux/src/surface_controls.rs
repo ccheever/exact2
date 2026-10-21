@@ -461,7 +461,8 @@ impl<D: DataSource> Presenter<D> {
             let _ = self.type_key(id, code, key, down, repeat);
         } else if down {
             // With nothing focused the root's handlers hear the key; then Tab
-            // takes the first stop (LLP 1088 D7.3) and a Back key goes back
+            // takes the first stop (LLP 1088 D7.3), a remote's arrow moves
+            // toward one (LLP 1115.001.003 D4) and a Back key goes back
             // (LLP 1115.000 D5.4).
             let name = match key {
                 "Space" => " ",

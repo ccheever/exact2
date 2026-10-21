@@ -522,6 +522,7 @@ fn the_largest_font_scale_clips_neither_bar() {
         bold_text: false,
         high_contrast: false,
         touch: true,
+        tv: false,
         touch_slop: 8.0,
         dates: String::new(),
     };

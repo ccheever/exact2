@@ -19,6 +19,8 @@ pub use byte_arrays::{bytes, utf8};
 pub mod jni_extensions;
 #[path = "jni_pad.rs"]
 mod pad;
+#[path = "jni_keys.rs"]
+mod jni_keys;
 
 /// Define the JNI for an app over `CanvasHost<$data>` with the plan and
 /// compat the app's build script writes to `OUT_DIR` (`app.plan`,
@@ -94,6 +96,7 @@ macro_rules! canvas_jni {
             }
 
             $crate::canvas_jni_extensions!();
+            $crate::canvas_jni_keys!();
 
             fn flag(b: bool) -> jboolean {
                 if b {
@@ -285,6 +288,7 @@ macro_rules! canvas_jni {
                 bold_text: jboolean,
                 high_contrast: jboolean,
                 touch: jboolean,
+                tv: jboolean,
                 touch_slop: jfloat,
                 dates: jstring,
             ) {
@@ -298,6 +302,7 @@ macro_rules! canvas_jni {
                     bold_text: bold_text == JNI_TRUE,
                     high_contrast: high_contrast == JNI_TRUE,
                     touch: touch == JNI_TRUE,
+                    tv: tv == JNI_TRUE,
                     touch_slop,
                     dates: string(env, dates),
                 };
@@ -1028,19 +1033,6 @@ macro_rules! canvas_jni {
                 $crate::canvas::jni::release_window(window as *mut c_void);
             }
 
-            /// A key typed at the focused field: `code` a Unicode scalar, or 0
-            /// with `backspace` set; `'\n'` is Enter.
-            #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_key(
-                _env: *mut JNIEnv,
-                _class: jclass,
-                code: jint,
-                backspace: jboolean,
-            ) {
-                let ch = char::from_u32(code as u32).filter(|_| code > 0);
-                with(|h| h.key(ch, backspace == JNI_TRUE));
-            }
-
             $crate::canvas_jni_pad!();
 
             /// Pictures announced and not yet fetched, as id, width, height triples:
@@ -1165,14 +1157,6 @@ macro_rules! canvas_jni {
                 $crate::canvas::field::java(env, &reply)
             }
 
-            /// System Back: whether the app took it.
-            #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_back(
-                _env: *mut JNIEnv,
-                _class: jclass,
-            ) -> jboolean {
-                flag(with(|h| h.back()).unwrap_or(false))
-            }
         }
     };
 }
