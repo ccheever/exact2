@@ -720,6 +720,45 @@ and record; Linux's `capture_precedes_target_and_bubble_and_controls_the_default
 `KeyUpMacTests` and `PressFocusIOSTests` hold the native order and stop; the
 `capture-keys` web conformance plan drives both browser runtimes in Chrome.
 
+**Keys with nothing focused** (2026-10-21; implementer Claude Opus 5.5).
+With no focused node, at launch or after the focused node unmounts, a key's
+path is the session's first root: after the `aria-keyshortcuts` shortcuts,
+its `keycapture`, `key` and `keyup` handlers hear it, in that order, and a
+`preventDefault()` cancels the key's default (Tab's move to the first stop).
+This is the DOM's: with nothing focused Chrome targets `<body>` and the key
+reaches `window` listeners, and HTML's focus fixup moves the focus to
+`<body>` when the focused element is removed. The root takes no focus: no
+`focus` event, no ring, no Tab stop. No name, fact or Tab stop is added, so
+held modifiers stay `keyup` plus `exactPage().hasFocus` (2026-10-11, above).
+A cut, copy or paste with nothing focused goes to the root's handler too, as
+the DOM's goes to `<body>`.
+
+- **Web** (`rt.js` `atBody`, `glue.js` `attach`): a `window` listener takes
+  each keydown, keyup and clipboard event whose target is outside
+  `#exact-root` (`<body>`, the document) to the first root's handlers, its
+  capture before its `key`; the shortcuts' capture listener at the document
+  runs before it.
+- **macOS** (`KeyEvents.swift` `keyPath`): a key at a window that is its own
+  first responder, or whose first responder is the session's view or
+  viewport, starts at the root; Edit's Cut, Copy, Paste and Paste and Match
+  Style reach `RootEdits`, which follows the window in its responder chain
+  and enables the item while the root hears it.
+- **iOS** (`ExactView`, the first responder while nothing else is, again
+  once the focused node unmounts): a hardware key's presses, and the edit
+  actions, at the root; the agent's key with nothing focused likewise.
+- **Linux and Windows** (`key_event`, `hardware_key`): the root is the key's
+  target with no focus; Tab then moves to the first stop unless prevented.
+- **Terminal** (`keys.rs`): the root's `key` handler hears the key before its
+  default, the scroll.
+- **Android:** unchanged; keys reach only a focused field.
+
+Tests: `KeyUpMacTests` (at launch and after the focused field unmounts),
+`FieldClipboardMacTests` (the root's paste), `FieldClipboardIOSTests` (the
+root's edit actions and key), Linux's
+`with_nothing_focused_the_root_hears_keys`, the terminal's
+`with_nothing_focused_the_root_hears_keys`, and the `body-keys` conformance
+plan (Chrome, JS against wasm, and the Linux host).
+
 **A chord during an input method's composition, and held modifiers**
 (2026-10-07, #140). Chrome hands the page a ⌘ chord's keydown while the text
 is still composed (`isComposing`; CDP's `Input.imeSetComposition` then the
