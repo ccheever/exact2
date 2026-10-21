@@ -128,6 +128,24 @@ test('project actions add, edit, import, delete and reset through the project ov
   expect((await projectActions(client, native, client.shell.projects)).t3Invalid).toBe(true);
 });
 
+// useProjectScriptSettings (T3 Code 74541bab17, #18412): an edit that leaves the shortcut as the editor opened it
+// writes no keybinding, so a shortcut the editor did not show (another environment's) survives a rename.
+test('editing an action\'s name or command keeps its shortcut; a changed or cleared one is written', async () => {
+  const server = new FakeServer(), client = fakeClient(server);
+  const run = async (value: string) => { server.calls = []; await runActionOp(client, native, 'action-save', 'p1', value); };
+  await runActionOp(client, native, 'action-add', 'p1', 'name=Lint&command=vp%20lint&icon=lint&setup=false&wait=false&keybinding=mod%2Bshift%2Bk&preview=&auto=false');
+  expect(server.keybindings.map(binding => binding.command)).toEqual(['script.lint.run']);
+  // The editor opened without the shortcut (initial "") and saved without one: no remove.
+  await run('id=lint&name=Lint%20and%20fix&command=vp%20lint%20--fix&icon=lint&setup=false&wait=false&keybinding=&initial=&preview=&auto=false');
+  expect(server.calls.map(call => call.method)).toEqual(['server.getConfig', 'server.updateSettings', 'server.getConfig']);
+  expect(server.keybindings.map(binding => binding.command)).toEqual(['script.lint.run']);
+  await run('id=lint&name=Lint&command=vp%20lint&icon=lint&setup=false&wait=false&keybinding=mod%2Bshift%2Bl&initial=mod%2Bshift%2Bk&preview=&auto=false');
+  expect(server.calls.find(call => call.method === 'server.upsertKeybinding')?.payload).toEqual({ key: 'mod+shift+l', command: 'script.lint.run', replace: { key: 'mod+shift+k', command: 'script.lint.run' } });
+  await run('id=lint&name=Lint&command=vp%20lint&icon=lint&setup=false&wait=false&keybinding=&initial=mod%2Bshift%2Bl&preview=&auto=false');
+  expect(server.calls.some(call => call.method === 'server.removeKeybinding')).toBe(true);
+  expect(server.keybindings).toEqual([]);
+});
+
 test('Providers is single-environment: the machine defaults to the connected environment, with its icon', () => {
   const client = { environmentId: 'env1', config: { environment: { platform: { machine: 'laptop' } }, settings: {} } } as unknown as T3Client;
   expect(scopeMachine(client, 'providers', '')).toBe('env1');

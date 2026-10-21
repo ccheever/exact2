@@ -1,4 +1,5 @@
-// Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts).
+// Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts),
+// with 74541bab17's synchronized output render gate and its key and paste state (surface.ts).
 // This part holds the surface's options and state, and the methods that select, track the hovered
 // link, scroll, render and encode the mouse. The reference keeps all of surface.ts in one file.
 // Changes from the reference:
@@ -13,6 +14,7 @@ import { terminalFontSize, type GhosttyTerminalFont } from "./surfaceFont";
 import {
   CONTENT_PADDING,
   CURSOR_BLINK_INTERVAL_MS,
+  SYNCHRONIZED_OUTPUT_RENDER_TIMEOUT_MS,
   shouldBlinkTerminalCursor,
   terminalContentOriginY,
   terminalGridCellAt,
@@ -68,6 +70,7 @@ export class GhosttyTerminalSurfaceBase {
   protected readonly scrollbarThumb: HTMLDivElement;
   protected snapshot: GhosttySnapshot | null = null;
   protected frame = 0;
+  protected synchronizedRenderTimer: number | null = null;
   protected cursorTimer: number | null = null;
   protected compositionInputToSuppress: string | null = null;
   protected compositionSuppressionTimer: number | null = null;
@@ -112,9 +115,19 @@ export class GhosttyTerminalSurfaceBase {
   protected focused = false;
   protected resizeNotified = false;
   protected canvasConfigured = false;
+  protected canvasDevicePixelRatio = 0;
+  protected pendingCanvasConfiguration: {
+    readonly width: number;
+    readonly height: number;
+    readonly ratio: number;
+  } | null = null;
   protected theme: GhosttyTheme;
-  protected readonly suppressedKeyCodes = new Set<string>();
+  // App capture can hide keydowns, so only encoded presses qualify for Kitty releases.
+  protected readonly encodedKeyCodes = new Set<string>();
   protected pasteShortcutToken = 0;
+  // Chromium can deliver native paste after the clipboard read resolves.
+  // Suppress its duplicate only for the current shortcut gesture.
+  protected pasteShortcutGesture: { code: string; readText: string } | null = null;
   protected copyShortcutToken = 0;
   protected clearSelectionAfterCopy = false;
   protected primedCopySelection = "";
@@ -337,7 +350,8 @@ export class GhosttyTerminalSurfaceBase {
   }
 
   protected requestRender(): void {
-    if (this.disposed || !this.visible || !this.hasSize || this.frame !== 0) return;
+    if (this.disposed || !this.visible || !this.hasSize) return;
+    if (this.deferSynchronizedRender() || this.frame !== 0) return;
     this.frame = window.requestAnimationFrame(() => {
       this.frame = 0;
       this.renderFrame();
@@ -345,6 +359,7 @@ export class GhosttyTerminalSurfaceBase {
   }
 
   protected cancelRender(): void {
+    this.cancelSynchronizedRenderTimer();
     if (this.frame !== 0) {
       window.cancelAnimationFrame(this.frame);
       this.frame = 0;
@@ -353,6 +368,36 @@ export class GhosttyTerminalSurfaceBase {
       window.clearTimeout(this.cursorTimer);
       this.cursorTimer = null;
     }
+  }
+
+  protected cancelSynchronizedRenderTimer(): void {
+    if (this.synchronizedRenderTimer === null) return;
+    window.clearTimeout(this.synchronizedRenderTimer);
+    this.synchronizedRenderTimer = null;
+  }
+
+  protected deferSynchronizedRender(): boolean {
+    if (!this.core.isSynchronizedOutput()) {
+      this.cancelSynchronizedRenderTimer();
+      return false;
+    }
+    // A frame queued before the opening marker would now consume partial rows.
+    if (this.frame !== 0) {
+      window.cancelAnimationFrame(this.frame);
+      this.frame = 0;
+    }
+    if (this.cursorTimer !== null) {
+      window.clearTimeout(this.cursorTimer);
+      this.cursorTimer = null;
+    }
+    if (this.synchronizedRenderTimer === null) {
+      this.synchronizedRenderTimer = window.setTimeout(() => {
+        this.synchronizedRenderTimer = null;
+        this.core.endSynchronizedOutput();
+        this.renderFrame();
+      }, SYNCHRONIZED_OUTPUT_RENDER_TIMEOUT_MS);
+    }
+    return true;
   }
 
   protected renderFrame(): void {
@@ -369,6 +414,16 @@ export class GhosttyTerminalSurfaceBase {
       this.forceFullRender = true;
       this.cancelRender();
       return;
+    }
+    if (this.deferSynchronizedRender()) return;
+    const canvasConfiguration = this.pendingCanvasConfiguration;
+    if (canvasConfiguration !== null) {
+      this.pendingCanvasConfiguration = null;
+      this.canvas.width = canvasConfiguration.width;
+      this.canvas.height = canvasConfiguration.height;
+      this.context.setTransform(canvasConfiguration.ratio, 0, 0, canvasConfiguration.ratio, 0, 0);
+      this.canvasConfigured = true;
+      this.canvasDevicePixelRatio = canvasConfiguration.ratio;
     }
     this.snapshot = this.core.snapshot();
     // A cursor that is not blinking right now must be drawn, never caught in an
