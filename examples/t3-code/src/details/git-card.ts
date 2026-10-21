@@ -23,7 +23,7 @@ export const EMPTY_GIT: Awaited<ReturnType<typeof gitDetails>> = {
   writable: false, repo: true, initLabel: 'Initialize Git', initPending: false, quickLabel: 'Commit', quickIcon: 'git-commit', quickDisabled: true, quickHint: '',
   progress: false, progressStatus: '', progressOutput: '', progressElapsed: '', success: false, successTitle: '', successDescription: '',
   menuDisabled: false, menuOpen: false, menu: [], menuPublish: false, notes: [], dialog: '', dialogFrom: '', sourceMark: 'github', commitBranch: '', commitDefault: false, editing: false,
-  files: [], fileCount: 0, selectedCount: 0, allSelected: true, noneSelected: true, someSelected: false, selectedInsertions: 0, selectedDeletions: 0,
+  files: [], fileCount: 0, selectedCount: 0, filesOpenable: false, allSelected: true, noneSelected: true, someSelected: false, selectedInsertions: 0, selectedDeletions: 0,
   confirmTitle: '', confirmDescription: '', confirmContinue: '', publishStep: 0, publishProviders: [], publishRows: [], publishProvider: 'github', publishProviderLabel: 'GitHub',
   publishHost: 'github.com', publishPlaceholder: 'owner/repo', publishRepository: '', publishVisibility: 'private', publishRemote: 'origin', publishProtocol: 'ssh',
   publishAdvanced: false, publishPending: false, publishError: '', publishAnyReady: false, publishCanNext: false, publishCanSubmit: false, publishPushed: false,

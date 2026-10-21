@@ -155,6 +155,8 @@ export function progressPresentation(state: { running: boolean; operation: strin
     output: !pull && output ? output : '', startedAt: pull ? state.phaseAt : (state.hookAt || state.phaseAt) };
 }
 
+/** workingTree.rootPath: the absolute worktree root every changed file's path is relative to ('' when the server could not resolve it). */
+export function workingTreeRoot(status: Obj | null): string { return str(obj(status?.workingTree).rootPath); }
 /** The working tree's files for the commit dialog (StartTruncatedPath shows the whole path). */
 export function workingFiles(status: Obj | null): { path: string; insertions: number; deletions: number }[] {
   return arr(obj(status?.workingTree).files).map(file => ({ path: str(file.path), insertions: num(file.insertions), deletions: num(file.deletions) })).filter(file => file.path);
