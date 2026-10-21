@@ -115,8 +115,8 @@ const failedItem = (entry: Entry): Obj | null => {
 const messageEnd = (entry: Entry) => entry.kind === 'message' ? str(entry.item.updatedAt, entry.createdAt) : entry.createdAt;
 const latestIso = (a: string | null, b: string | null) => !a ? b : !b ? a : Date.parse(b) > Date.parse(a) ? b : a;
 
-/** deriveMessagesTimelineRows, without T3's tool catalogue, worktree setup or created-thread summaries. */
-export function deriveRows(input: RowInput): Row[] {
+/** The turn folds over `input`'s rows (deriveTimelineTurnFolds) and what deriveRows reads beside them. */
+function foldState(input: RowInput) {
   const entries = withoutDelegationRows(settleReasoning(timelineEntries(input)));
   const latestRun = input.latestRun;
   const unsettled = input.runningRunId || (latestRun && !(latestRun.completedAt && !['running', 'starting', 'waiting'].includes(str(latestRun.status))) ? str(latestRun.id) : '');
@@ -131,8 +131,33 @@ export function deriveRows(input: RowInput): Row[] {
     terminal.set(entry.item.runId ? `turn:${str(entry.item.runId)}` : `unkeyed:${responseIndex}`, entry.id);
   }
   const terminalIds = new Set(terminal.values());
-  // Superseded attempts the steer cut off: one whose reply had already finished stays like any turn output.
   const liveSubagents = liveSubagentCardIds(entries), completeReplies = completeSupersededReplyIds(entries);
+  // Runs still forming the visible response.
+  const boundary = findLastIndex(entries, startsResponse);
+  const activeRuns = new Set<string>();
+  if (unsettled) {
+    activeRuns.add(unsettled);
+    if (input.isWorking) for (const entry of entries.slice(boundary + 1)) { const run = runOf(entry); if (run) activeRuns.add(run); }
+  }
+  const runlessWorkActive = input.isWorking && input.runlessWorkActive === true;
+  const folds = turnFolds(entries, terminalIds, latestRun, new Set([...activeRuns, ...failedRuns]), runlessWorkActive, new Set([...liveSubagents, ...completeReplies]));
+  return { entries, latestRun, unsettled, failedRuns, terminalIds, liveSubagents, completeReplies, boundary, activeRuns, runlessWorkActive, folds };
+}
+
+/**
+ * timelineTurnFoldRunIdsByEntryId: the fold each hidden entry is under, by the fold's run key. An imported or
+ * runless turn folds under a key of its own (`runless:<prompt>`), not its entries' run id.
+ */
+export function turnFoldRunIds(input: RowInput): Map<string, string> {
+  const byEntry = new Map<string, string>();
+  for (const fold of foldState(input).folds.values()) for (const id of fold.hidden) byEntry.set(id, fold.runId);
+  return byEntry;
+}
+
+/** deriveMessagesTimelineRows, without T3's tool catalogue, worktree setup or created-thread summaries. */
+export function deriveRows(input: RowInput): Row[] {
+  const { entries, latestRun, unsettled, failedRuns, terminalIds, liveSubagents, completeReplies, boundary, activeRuns, runlessWorkActive, folds } = foldState(input);
+  // Superseded attempts the steer cut off: one whose reply had already finished stays like any turn output.
   const completeAttempts = new Set(entries.flatMap(entry => entry.attempt && completeReplies.has(entry.id) ? [entry.attempt.id] : []));
   const attemptGroups = new Map<string, Entry[]>();
   for (const entry of entries) {
@@ -145,15 +170,6 @@ export function deriveRows(input: RowInput): Row[] {
     const first = group[0]!;
     attemptFolds.set(first.id, { runId: first.attempt!.runId, attemptId: first.attempt!.id, createdAt: first.createdAt, hidden: new Set(group.map(entry => entry.id)) });
   }
-  // Runs still forming the visible response.
-  const boundary = findLastIndex(entries, startsResponse);
-  const activeRuns = new Set<string>();
-  if (unsettled) {
-    activeRuns.add(unsettled);
-    if (input.isWorking) for (const entry of entries.slice(boundary + 1)) { const run = runOf(entry); if (run) activeRuns.add(run); }
-  }
-  const runlessWorkActive = input.isWorking && input.runlessWorkActive === true;
-  const folds = turnFolds(entries, terminalIds, latestRun, new Set([...activeRuns, ...failedRuns]), runlessWorkActive, new Set([...liveSubagents, ...completeReplies]));
   const collapsed = new Set<string>();
   for (const fold of folds.values()) if (!input.expandedRuns.has(fold.runId)) fold.hidden.forEach(id => collapsed.add(id));
   const collapsedAttempts = new Set<string>();

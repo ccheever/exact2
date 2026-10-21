@@ -5,7 +5,7 @@ import { noteTranscriptFacts } from '../../src/timeline/transcript-facts';
 
 // Window-space frames [x, top, width, height] as T3ComposerFrames reports them.
 const frames = (height: number, card = 118, extra: Obj = {}): Obj => ({ overlay: [276, 840 - height, 736, height], card: [276, 840 - height, 736, card], ...extra });
-const input = (over: Partial<{ owner: string; frames: Obj; atEnd: boolean; pulls: number; content: string }>) =>
+const input = (over: Partial<{ owner: string; frames: Obj; atEnd: boolean; pulls: number; content: string; rem: number }>) =>
   ({ owner: 'o:p:t', frames: frames(170), atEnd: true, pulls: 0, content: '3:m3:10:0', ...over });
 
 describe('composer overlay reservation (resolveComposerTimelineInset, TimelineListFooter)', () => {
@@ -43,6 +43,19 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
     composerOverlay(hold, input({ atEnd: false }));
     expect(composerOverlay(hold, input({ frames: frames(100, 48), atEnd: false })).transcriptTail).toBe(182);
     expect(composerOverlay(hold, input({ frames: frames(170), atEnd: false })).transcriptTail).toBe(182);
+  });
+  // resolveComposerTimelineInset's expandedNoticesHeight (T3 Code 74541bab17, #20086): opened notices cover the transcript.
+  test('opening and closing the stacked notices keeps the reservation, working or resting', () => {
+    const hold = newOverlayHold();
+    const stack = (height: number, notices: number, card = 118) => ({ ...frames(height, card), notices: [276, 840 - height, 736, notices] });
+    // A working thread: every snapshot has new content, so a growth would apply at once.
+    expect(composerOverlay(hold, input({ frames: stack(172, 12), content: '1' })).transcriptTail).toBe(172 + 12);
+    expect(composerOverlay(hold, input({ frames: stack(532, 372), content: '2' })).transcriptTail).toBe(172 + 12);
+    expect(composerOverlay(hold, input({ frames: stack(470, 372, 48), content: '3' })).transcriptTail).toBe(172 + 12);
+    expect(composerOverlay(hold, input({ frames: stack(110, 12, 48), content: '4' })).transcriptTail).toBe(172 + 12);
+    // A larger interface font: the collapsed peek is 0.75rem of it.
+    const large = newOverlayHold();
+    expect(composerOverlay(large, input({ frames: stack(531.6, 375.2), content: '1', rem: 20 })).transcriptTail).toBe(Math.ceil(531.6 - 360.2) + 12);
   });
   test('another thread rebuilds the reservation from its own composer', () => {
     const hold = newOverlayHold();

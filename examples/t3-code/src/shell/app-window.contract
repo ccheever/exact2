@@ -51,7 +51,7 @@ use WorkflowMemberCard from "../details/lineage-workflows.contract"
 use PrLinkPreviewCard from "../pull-requests/pages-pr-links.contract"
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-chip-popover.contract" // a skill chip's details
 use CitationCommentLayer from "../timeline/citation-comment.contract" // a citation chip's comment
-use CiteAction, CiteOffer, citeLineFrame from "../timeline/diff-cite.contract" // Cite over the timeline
+use CiteAction, CiteOffer, citeLineFrame, citeLineShown, citeRestored from "../timeline/diff-cite.contract" // Cite over the timeline
 use AppConfirm from "./shell-panels.contract"
 use DialogFocusFrame, dialogFrame, dialogReturn, dialogLineage from "../shared/dialog-trap.contract"
 use PromptLinkPage, PromptLinkView from "../prompt-links/prompt-links.contract"
@@ -64,6 +64,9 @@ component T3Window
     // and its count of dismissals on focus loss or a changed transcript context.
     citeWaitDone: number
     citeWaitAsk: action
+    // The root's 50 ms after a scroll's end before a parked Cite shows again (done to `citeSettleDone`).
+    citeSettleDone: number
+    citeSettleAsk: action
     citeDismissals: number
     themeInspecting: bool
     setThemeInspecting: action
@@ -388,6 +391,7 @@ component T3Window
     citeHold
     citeHolding = (citeWaits > citeWaitDone)
     citeScrolled
+    citeSettled
     // The dialogs the focus has entered since they opened: each is `aria-modal` only from then (dialog-trap.contract).
     dialogSeated
     prSpeedMode = speedModeHeld
@@ -563,8 +567,9 @@ component T3Window
     if keybindingField != "" and e.buttons == 1 and not (e.clientX >= frame(keybindingField).x and e.clientX < frame(keybindingField).x + frame(keybindingField).width and e.clientY >= frame(keybindingField).y and e.clientY < frame(keybindingField).y + frame(keybindingField).height)
       blur(keybindingField)
       keybindingField = ""
-    // A press anywhere but on Cite hides it (observeSelectionActions' capture-phase pointerdown);
-    // the selection stays where the press leaves it.
+    // A press anywhere but on Cite hides it (observeSelectionActions' capture-phase pointerdown), one a scroll hid
+    // included; the selection stays where the press leaves it.
+    citeParked = ""
     if citeFor != "" and not (e.clientX >= frame("cite-action").x and e.clientX < frame("cite-action").x + frame("cite-action").width and e.clientY >= frame("cite-action").y and e.clientY < frame("cite-action").y + frame("cite-action").height)
       citeFor = ""
     // A skill chip's details close on a primary press outside them (Base UI's outside press); a press in
@@ -601,18 +606,23 @@ component T3Window
   // as the reference portals it to the body; shown on the thread it was offered on, under no page, Settings or dialog.
   // It hides as the timeline scrolls or the window is resized (observeSelectionActions' scroll and resize), and the press
   // sends the quote with the window frame of the selection's last line, measured again, then clears the selection
-  // (`removeAllRanges()` after `onCite`).
+  // (`removeAllRanges()` after `onCite`). A scroll only parks it (`citeParked`, restoreAfterScroll at 74541bab17): once the
+  // timeline stops (`scrollend`) it comes back at the selection's last line, measured again, while that line is still in the
+  // timeline, and shows after the root's 50 ms more (`citeSettles`); a press, a withdrawal or a new offer forgets it.
   state citeOffer = CiteOffer(source="", ranges="", stream="", size=0, x=0, y=0, end="", lx=0, ly=0, lw=-1, lh=0)
   state citeFor = ""
+  state citeParked = ""
+  state citeSettles = 0
   state citeThread = ""
   state citeViewport = ""
   // A double-click's wait (`citeWaits` asked, the root's `citeWaitDone` over) and the dismissal count at the offer.
   state citeWaits = 0
   state citeDismissedAt = 0
-  derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not settingsOpen and not modal
+  derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not settingsOpen and not modal and citeSettles <= citeSettleDone
   action citeOfferSet(offer: CiteOffer)
     citeOffer = offer
     citeFor = offer.source
+    citeParked = ""
     citeThread = data.threadId
     citeViewport = `${viewport.width}x${viewport.height}`
     citeDismissedAt = citeDismissals
@@ -624,14 +634,28 @@ component T3Window
   action citeWithdraw(source: string)
     if citeFor == source
       citeFor = ""
+    if citeParked == source
+      citeParked = ""
   action citeScrolled(left: number, top: number)
     if citeFor != ""
+      citeParked = citeFor
       citeFor = ""
+  action citeSettled
+    let box = frame(citeOffer.end)
+    let bounds = frame("transcript")
+    let next = citeSettles + 1
+    if citeParked != "" and citeParked == citeOffer.source and citeLineShown(citeOffer, box, bounds)
+      citeOffer = citeRestored(citeOffer, box, bounds)
+      citeFor = citeParked
+      citeSettles = next
+      citeSettleAsk(next)
+    citeParked = ""
   action citePress
     let end = frame(citeOffer.end)
     command("diffreview", `cite:${citeOffer.source}`, `${citeOffer.ranges}|${citeLineFrame(citeOffer, end)}|${citeOffer.stream}`, 0)
     removeAllRanges()
     citeFor = ""
+    citeParked = ""
   // The newest skill chip press (composer-chip-popover.ts), hidden at
   // once when the window closes it or Settings or a page covers it; `instructions` opens the skill's file first (View instructions).
   state chipClosed = 0
