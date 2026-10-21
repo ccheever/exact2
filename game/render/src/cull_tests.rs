@@ -4,6 +4,9 @@ use crate::WorldSurface;
 use exact_game::*;
 use exact_gpu::{fixture, Frame, Surface};
 
+const PASS_ALL: [[[f32; 4]; 6]; crate::shadows::MAX_CASCADES] =
+    [[crate::shadows::PASS_ALL; 6]; crate::shadows::MAX_CASCADES];
+
 #[path = "../../bake/tests/samples.rs"]
 mod samples;
 
@@ -161,6 +164,27 @@ impl Game for Field {
     fn tick(w: &mut World, _: &Input, _: &FieldArgs) {
         emitter::step(w);
         drift(w);
+    }
+}
+
+/// The field under PCF-soft with a normal bias of a metre, which moves where
+/// a receiver reads further than any cascade's texels.
+struct BiasedField;
+impl Game for BiasedField {
+    const ID: &'static str = "cull-field-biased";
+    type Args = FieldArgs;
+    fn setup(w: &mut World, args: &FieldArgs) {
+        Field::setup(w, args);
+        w.insert_resource(Shadows {
+            filter: ShadowFilter::PcfSoft {
+                depth_bias: 0.0004,
+                normal_bias: 1.1,
+            },
+            ..Shadows::default()
+        });
+    }
+    fn tick(w: &mut World, input: &Input, args: &FieldArgs) {
+        Field::tick(w, input, args);
     }
 }
 
@@ -328,8 +352,52 @@ fn culling_changes_no_pixels_in_a_moving_primitive_field() {
             // The shadow cascades keep casters towards the sun, but not the field.
             assert!(views[1] > 0 && views[1] < items, "{views:?} of {items}");
             assert!(views[3] < items, "{views:?} of {items}");
+            // Nor, under the perspective camera, casters beside its view: the
+            // cascade's box alone keeps over half the field in the last one.
+            assert!(ortho || views[3] < items / 2, "{views:?} of {items}");
         }
     }
+}
+
+#[test]
+fn culling_changes_no_pixels_under_a_metre_normal_bias() {
+    let Some(gpu) = gpu() else { return };
+    let mut surface = WorldSurface::<BiasedField>::default();
+    surface.bind(&[Value::Bool(false)], None).unwrap();
+    let (totals, _) = identical(&gpu, &mut surface, &TIMES, "biased-field");
+    let items = surface.renderer_for_test().unwrap().slot_list.len() as u64;
+    assert!(
+        totals.iter().all(|v| v[3] < items / 2),
+        "{totals:?} of {items}"
+    );
+}
+
+/// The field in one sample a pixel, where every receiver shades on its
+/// pixel's ray inside its cascade's slice.
+struct SingleSampleField;
+impl Game for SingleSampleField {
+    const ID: &'static str = "cull-field-single";
+    const SAMPLES: SceneSamples = SceneSamples::One;
+    type Args = FieldArgs;
+    fn setup(w: &mut World, args: &FieldArgs) {
+        Field::setup(w, args);
+    }
+    fn tick(w: &mut World, input: &Input, args: &FieldArgs) {
+        Field::tick(w, input, args);
+    }
+}
+
+#[test]
+fn culling_changes_no_pixels_in_one_sample_a_pixel() {
+    let Some(gpu) = gpu() else { return };
+    let mut surface = WorldSurface::<SingleSampleField>::default();
+    surface.bind(&[Value::Bool(false)], None).unwrap();
+    let (totals, _) = identical(&gpu, &mut surface, &TIMES, "single-field");
+    let items = surface.renderer_for_test().unwrap().slot_list.len() as u64;
+    assert!(
+        totals.iter().all(|v| v[3] < items / 2),
+        "{totals:?} of {items}"
+    );
 }
 
 #[test]
@@ -572,7 +640,13 @@ fn cull_lists_preserve_model_slots_across_many_draw_groups() {
         None,
         None,
     );
-    cull.write_views(queue, &[glam::Mat4::IDENTITY; 4], slots.len() as u32, false);
+    cull.write_views(
+        queue,
+        &[glam::Mat4::IDENTITY; 4],
+        &PASS_ALL,
+        slots.len() as u32,
+        false,
+    );
     for iteration in 0..3 {
         let mut encoder = device.create_command_encoder(&Default::default());
         assert!(cull.encode(&mut encoder, 0, None));
@@ -729,7 +803,13 @@ fn posed_palettes_and_cull_slots_match_cpu_reference() {
         Some(&skin.palette.raw),
         None,
     );
-    cull.write_views(queue, &[Mat4::from_scale(Vec3::splat(0.1)); 4], 72, false);
+    cull.write_views(
+        queue,
+        &[Mat4::from_scale(Vec3::splat(0.1)); 4],
+        &PASS_ALL,
+        72,
+        false,
+    );
     let mut encoder = device.create_command_encoder(&Default::default());
     skin.encode(&mut encoder, None);
     assert!(cull.encode(&mut encoder, 0, None));

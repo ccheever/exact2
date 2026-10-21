@@ -809,7 +809,7 @@ fn group_word(
         return (
             format!("outside-cascade {}", facts.cascades - 1),
             format!(
-                "drawn, beyond every sun shadow cascade (0–{})",
+                "drawn, in no sun shadow cascade's list (0–{}): past them, or casting where the camera reads none",
                 facts.cascades - 1
             ),
         );
