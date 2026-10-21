@@ -111,17 +111,20 @@ struct Around<'a> {
     left: bool,
     within: Option<std::sync::Arc<Vec<super::rows::Fonts>>>,
     grouped: Grouped,
+    /// The nodes of the section row around it that lowering styles as the
+    /// grouped row (`grouped::row`, which yields a marked node's look), by
+    /// where they are written.
+    yielding: Option<std::sync::Arc<Vec<Span>>>,
 }
 
 /// Where a node sits in a grouped list: among its sections, in a section's
-/// body, inside a swipe written there by hand, or neither.
+/// body, or neither.
 #[derive(Clone, Copy, Default, PartialEq)]
 enum Grouped {
     #[default]
     No,
     Sections,
     Row,
-    Swipe,
 }
 
 /// Whether `list` with `attrs` (its class's rows with its own) is a
@@ -268,6 +271,7 @@ impl Said {
                 left,
                 within,
                 grouped,
+                yielding,
             } = around.clone();
             match node {
                 Node::Element {
@@ -299,8 +303,24 @@ impl Said {
                     // `grouped::row`: a grouped list's section's body, not
                     // its header or footer): never kept. Elsewhere the
                     // marker goes and the look is judged (`swipe_rows::stray`).
-                    let yields = (grouped == Grouped::Swipe
-                        || grouped == Grouped::Row && !matches!(tag.as_str(), "header" | "footer"))
+                    // A section's body row: the nodes lowering styles as the
+                    // grouped row, it or the content a swipe written by hand
+                    // names (`swipe_rows::grouped` asked, recording whom it
+                    // gives `row`).
+                    let yielding = match grouped == Grouped::Row
+                        && !matches!(tag.as_str(), "header" | "footer")
+                    {
+                        true => {
+                            let styled = std::cell::RefCell::new(Vec::new());
+                            crate::swipe_rows::grouped(node, &|n, _| {
+                                styled.borrow_mut().push(n.span());
+                                n.clone()
+                            });
+                            Some(std::sync::Arc::new(styled.into_inner()))
+                        }
+                        false => yielding,
+                    };
+                    let yields = yielding.as_ref().is_some_and(|y| y.contains(span))
                         && a.iter().any(|a| a.name == crate::row_look::ROW_LOOK);
                     // An `audio`'s `display` is lowering's to write
                     // (`media::audio_rows`, from its class's rows with its
@@ -373,15 +393,8 @@ impl Said {
                     let left = left || (parent == Some("section") && crate::grouped::folds(node));
                     // A grouped list's sections, and a section's body there
                     // (`grouped::style`, `grouped::sections`).
-                    // A swipe written by hand in a section's body (a `scroll`
-                    // naming its `swipeContent`): the row it names, at any
-                    // depth, yields as the row would (`swipe_rows::grouped`).
                     let grouped = match grouped {
                         Grouped::Sections if tag == "section" => Grouped::Row,
-                        Grouped::Row if a.iter().any(|a| a.name == "swipeContent") => {
-                            Grouped::Swipe
-                        }
-                        Grouped::Swipe => Grouped::Swipe,
                         _ if tag == "list" && grouped_list(file, tag, a) => Grouped::Sections,
                         _ => Grouped::No,
                     };
@@ -392,6 +405,7 @@ impl Said {
                         left,
                         within,
                         grouped,
+                        yielding,
                     };
                     stack.extend(children.iter().map(|c| (c, inner.clone())));
                 }

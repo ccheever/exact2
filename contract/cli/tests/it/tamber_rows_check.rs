@@ -1127,3 +1127,20 @@ fn a_hand_written_swipes_row_yields_its_look() {
     contract::compile_path(&dir.join("app.contract")).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A wrapper in a hand-written swipe (a row holding the content and its
+/// action) is no grouped row: its look is judged, first in source order, in
+/// the build's words, while the content it holds yields its own (Astra's
+/// re-check of 53c45e6877).
+#[test]
+fn a_marked_wrapper_in_a_swipe_keeps_its_look() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  gap = 8px\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  state z = 0\n  action noop\n    z = 1\n  view\n    column\n      list appearance=\"auto\" height=300\n        section\n          scroll swipeContent=\"row-1\" swipeTrailing=\"del-1\" overflow-x=\"scroll\" overflow-y=\"hidden\" height=50 display=\"flex\" flex-direction=\"row\"\n            row -exact-row-look=\"platform\" padding-left=\"gap\" margin-left=\"gap\"\n              row id=\"row-1\" width=\"100%\" flex-shrink=0 -exact-row-look=\"platform\" padding-left=\"gap\"\n                text \"x\"\n              button id=\"del-1\" width=40 press=noop\n                text \"d\"\n      Card()\n";
+    same_words(
+        &reading("rows-row-look-wrapper"),
+        design,
+        contract,
+        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
+        &design.replace("gap = 8px", "gap = #444444"),
+    );
+}
