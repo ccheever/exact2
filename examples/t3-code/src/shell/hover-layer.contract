@@ -48,7 +48,7 @@ fn hoverDelay(kind: string): number = kind == "scopes" or kind == "pr-badge" ? 1
 // the freshness card's delay={0}; PolicyTooltip's delay={200} (kind "policy", settings-kit.contract PolicyTip, drawn as a
 // tip); a Tooltip with no provider Base UI's 600 (kind "tooltip": ThreadAutomationsPanel's, thread-automations.contract); a
 // tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
-fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" or kind == "workflow-member" ? 200 : (kind == "tooltip" or kind == "code" or kind == "pr-badge" ? 600 : 0)))
+fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" or kind == "workflow-member" ? 200 : (kind == "tooltip" or kind == "model-name" or kind == "code" or kind == "pr-badge" ? 600 : 0)))
 
 fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
 
@@ -80,7 +80,7 @@ component HoverLayer
   derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem)
   derive top = max(titlebar + 5, tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem))
   derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
-  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip" and tip.kind != "code"
+  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip" and tip.kind != "model-name" and tip.kind != "code"
   view
     if place == "bottom"
       row position="absolute" left=left top=(tip.y + tip.height) width=(span * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"
@@ -135,6 +135,17 @@ component HoverText
       text tip.text font-size="0.75rem" line-height="1rem" font-weight=(tip.lines.length > 0 ? 500 : 400) white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
       for line in tip.lines key=line
         text line font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
+
+// ProviderModelsSection's model name TooltipPopup (kind "model-name", Base UI's 600 ms): the name, then the slug in
+// muted 2xs monospace when it differs.
+component HoverModelName
+  props
+    tip: HoverTip
+  view
+    column max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" testId=tip.testId
+      text tip.text font-size="0.75rem" line-height="1rem" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+      for line in tip.lines key=line
+        text line font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
 
 // MediaActions' TooltipPopup (variant code: monospace 11px with relaxed leading, up to
 // 30rem, breaking anywhere), the media's full path, URL or name. The code variant keeps the base `text-balance`.

@@ -125,6 +125,8 @@ describe("a drive", () => {
   test("passes --epoch to the driver with the size and the store", () => {
     expect(driverFlags(["--local", "--epoch", "now", "--storage", "s1"])).toEqual(["--size", "1280x840", "--storage", "s1", "--epoch", "now"]);
     expect(driverFlags(["--size", "900x700", "--json"])).toEqual(["--size", "900x700", "--storage", "t3-fixtures", "--json"]);
+    // A drive against a server an earlier drive used takes a new seed (clone/issues/command-receipt-relaunch.md).
+    expect(driverFlags(["--pair", "second", "--seed", "48211", "--storage", "s2"])).toEqual(["--size", "1280x840", "--storage", "s2", "--seed", "48211"]);
   });
   test("prints no pairing token", () => {
     expect(redact('typed #448 "welcome-pairing-link" · value="http://127.0.0.1:16510/pair#token=LEY3T64Y3TVC"')).toBe('typed #448 "welcome-pairing-link" · value="http://127.0.0.1:16510/pair#token=<redacted>"');

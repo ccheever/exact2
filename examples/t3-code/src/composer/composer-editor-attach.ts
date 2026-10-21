@@ -9,6 +9,8 @@ import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
 import { contextId, contextLabel, contextLink, contextReferences, stripContextReferences } from './composer-editor-menu';
+import { composerInput } from './requests';
+import { questionDraftKey } from './question-attachments';
 import { MAX_FILE_BYTES, draftFiles, fileChipLink, fileStagingLimit, formatAttachmentSize, holdDraftFiles, referencedFiles, setDraftFiles, type DraftFile } from './composer-editor-files';
 
 /** fileAttachmentStagingLimit: unknown capabilities stage up to 50 MB (the send then waits); 0 when the server takes no files. */
@@ -98,9 +100,16 @@ export function imageContextRecords(client: T3Client): Obj[] {
     label: contextLabel(str(image.name), 'image'), attachmentId: str(image.uploadId), name: str(image.name), mimeType: str(image.mimeType, 'image/png'), sizeBytes: Number(image.sizeBytes) || 0 }));
 }
 
-/** countReservedAttachments: the draft's shelf images and the files its prompt references. */
+/**
+ * countReservedAttachments: the draft's shelf images and the files its prompt references; while the composer answers a
+ * question, every question of its request, whose answer takes them together: their shelves and the files their answers reference.
+ */
 export function reservedAttachments(client: T3Client): number {
-  return client.snapshotDrafts.length + referencedFiles(client.local, client.draftKey, client.draft).length;
+  const question = client.attachmentKey === client.draftKey ? undefined : composerInput(client);
+  if (!question) return client.snapshotDrafts.length + referencedFiles(client.local, client.draftKey, client.draft).length;
+  const { environmentId, threadId } = client, requestId = question.input.requestId;
+  return question.input.questions.reduce((total, entry) => total + (client.local.snapshotDrafts[questionDraftKey(environmentId, threadId, requestId, entry.id)] ?? []).length
+    + referencedFiles(client.local, client.draftKey, client.answers[`${requestId}::${entry.id}`]?.custom ?? '').length, 0);
 }
 
 /** A staged copy no draft will reference (a pick past the attachment limit). */

@@ -31,6 +31,19 @@ export function usagePriceForm(model = '', price?: Price): PriceForm {
     cacheWriteCostPerMillionTokens: price?.cacheWriteCostPerMillionTokens?.toString() ?? '',
   };
 }
+/**
+ * Whether a price cell may change from `previous` to `next` while typing:
+ * digits with an optional decimal point, plus the exponent form saved rates can
+ * stringify to. Deleting a run of characters is always allowed so a mid-value
+ * delete such as `1e-7` to `e-7` is not stuck; saving still validates the result.
+ */
+export function isUsagePriceEdit(previous: string, next: string): boolean {
+  if (/^\s*(?:\d*\.?\d*|(?:\d+\.?\d*|\.\d+)e[+-]?\d*)\s*$/i.test(next)) return true;
+  if (next.length >= previous.length) return false;
+  let start = 0;
+  while (start < next.length && next[start] === previous[start]) start++;
+  return next.slice(start) === previous.slice(previous.length - (next.length - start));
+}
 /** Blank cache prices use the input rate; explicit zero means free. */
 export function parseUsagePriceForm(form: PriceForm): { model: string; price: Price } | null {
   const model = form.model.trim();
@@ -324,6 +337,8 @@ export function usagePricesLocal(client: T3Client, op: string, id: string, value
       updateOrDrop(matches(aliasCell(selected, row.model)) ? rest : { ...rest, alias: value });
       return '';
     }
+    // The field refuses such an edit as it is typed (UsagePriceInput's beforeinput); this keeps the draft to the same rule.
+    if (!isUsagePriceEdit(row.values[field as PriceField] ?? (row.isNew ? '' : priceCell(selected, row.model, field as PriceField).value), value)) return '';
     const values = { ...row.values, [field]: value } as Draft['values'];
     if (matches(priceCell(selected, row.model, field as PriceField))) delete values[field as PriceField];
     updateOrDrop({ ...row, values });

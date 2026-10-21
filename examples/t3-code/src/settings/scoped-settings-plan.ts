@@ -1,4 +1,4 @@
-// MIT T3 Code 9c161462c9 (LICENSE-T3): apps/web/src/components/settings/scopedSettings.ts,
+// MIT T3 Code 74541bab17 (LICENSE-T3): apps/web/src/components/settings/scopedSettings.ts,
 // with the parts of packages/shared/src/projectSettings.ts it calls (resolveProjectSettings,
 // clearProjectSettingsOverrides, resolveWorktreeCleanup) and the key lists of
 // packages/contracts/src/settings.ts. Changes: settings are plain JSON objects (the clone
@@ -19,7 +19,7 @@ export const PROJECT_FILE_BACKED_SETTINGS: Record<string, { field: string; built
 const SERVER_KEYS = new Set(['worktreesDirectory', 'favorites', 'providerModelPreferences', 'worktreeCleanup', 'storageCleanup', 'responseStreamingMode', 'enableProviderUpdateChecks', 'continueThreadsAfterServerUpdate', 'enableAgentBrowserAccess',
   'projectAgentBrowserAccessOverrides', 'defaultAutoPull', 'defaultProjectScripts', 'projectScriptOverrides', 'projectAutoPullOverrides', 'defaultModelSelection', 'defaultRuntimeMode',
   'projectSettingsOverrides', 'projectSettingsFolded', 'enableAgentDeviceAccess', 'enableDeviceSupport', 'deviceOnboardingCompleted', 'deviceHosts', 'easDeviceHosts', 'sidebarAutoSettleAfterDays',
-  'snoozeLimitedThreads', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'sidebarAutoSettleKeepPullRequests', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',
+  'snoozeLimitedThreads', 'compactIdleThreads', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'sidebarAutoSettleKeepPullRequests', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',
   'backgroundActivityProfile', 'defaultTheme', 'defaultThemeSetAt', 'environmentIcon', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
   'addProjectBaseDirectory', 'textGenerationModelSelection', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'sourceControlWritingStyle',
   'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'reviewGuideInstructions', 'reviewGuidesEnabled', 'pullRequestMergeMethod', 'providers', 'providerInstances', 'observability', 'bitbucket', 'sourceControlHosts', 'usageLimitSources',
@@ -34,6 +34,7 @@ const PROJECT_SCOPED_KEYS = new Set<string>(PROJECT_SCOPED_SERVER_SETTING_KEYS);
 
 export const isProjectScopedSettingKey = (key: string) => PROJECT_SCOPED_KEYS.has(key);
 export const isNullableProjectSettingsOverride = (key: string) => NULLABLE_PROJECT_SETTINGS_OVERRIDES.has(key);
+const MODEL_SELECTION_KEYS = new Set(['defaultModelSelection', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'textGenerationModelSelection']);
 const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const hasOwn = (value: Obj, key: string) => Object.prototype.hasOwnProperty.call(value, key);
 // Effect's Equal.equals on decoded settings: structural, independent of key order.
@@ -202,6 +203,11 @@ export function planScopedSettingsPatch(scope: ResolvedSettingsScope, environmen
         // A picker's "Inherit" sends null; for keys whose override cannot store null that means remove the override.
         if (value === null && !isNullableProjectSettingsOverride(key)) { delete next[key]; continue; }
         const base = effective[key];
+        // A new model must not inherit the previous model's options.
+        if (isPlainObject(value) && isPlainObject(base) && MODEL_SELECTION_KEYS.has(key) && (value.instanceId !== undefined || value.model !== undefined)) {
+          next[key] = { instanceId: base.instanceId, model: base.model, ...value } as Json;
+          continue;
+        }
         next[key] = isPlainObject(value) && isPlainObject(base) ? { ...base, ...value } : value;
       }
       return next;

@@ -10,6 +10,7 @@ use Activity from "../shared/shapes.contract"
 use Message from "../shared/shapes.contract"
 use InspectorResult from "../shared/shapes.contract"
 use DriverMark from "../providers/provider-icons-kit.contract"
+use providerAccentInk from "../shared/accent-ink.contract"
 use CodeHighlight from "./markdown.contract"
 use ChatDocument, MarkdownEnv, EnvBlocks from "./markdown.contract"
 use synColor from "./markdown.contract"
@@ -560,7 +561,7 @@ component HandoffEndpoint
             DriverMark(driver=endpoint.detail, size=14, initials=endpoint.initials, icon=endpoint.driverIcon)
           if endpoint.badge != ""
             box position="absolute" right="-0.1875rem" bottom="-0.1875rem" min-width="0.75rem" height="0.75rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="1.25rem" border-width=1 border-style="solid" border-color="light-dark(#ffffff, #0a0a0a)" background-color=(endpoint.badgeColor != "" ? endpoint.badgeColor : "light-dark(#ffffff, #111111)") display="flex" flex-direction="row" align-items="center" justify-content="center" testId=`handoff-badge-${endpoint.id}`
-              text endpoint.badge font-size="0.4375rem" font-weight=600 line-height=1 color=(endpoint.badgeColor != "" ? "#ffffff" : "light-dark(#71717b, #a3a3a3)")
+              text endpoint.badge font-size="0.4375rem" font-weight=600 line-height=1 color=(endpoint.badgeColor != "" ? providerAccentInk(endpoint.badgeColor) : "light-dark(#71717b, #a3a3a3)")
         text endpoint.label min-width=0 line-clamp=1 font-size="0.6875rem" font-weight=500 line-height="0.9375rem" color=(endpoint.iconLight != "" ? `light-dark(${endpoint.iconLight}, ${endpoint.iconDark})` : danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
 
 // AgentElapsed's formatElapsedSeconds: "0s", "12s", "1m 05s", "1h 02m".

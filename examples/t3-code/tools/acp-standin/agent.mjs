@@ -16,6 +16,9 @@
 //   "Ask before editing the notes"  asks first (`session/request_permission`, an `edit` tool call), so a
 //                                   thread in the runtime mode "approval-required" waits on an approval;
 //                                   allowed, it writes notes/approved.md
+//   "Ask a question"                asks one free-text question (`elicitation/create`, a form with one string
+//                                   field), which the server shows as a pending question; the reply repeats the
+//                                   answer and names each attachment the server appended to it, without its path
 //   "Read the thread <id> [for <n>s]"
 //                                   thinks ("**Checking the other thread**"), then holds a running
 //                                   `t3_thread_read` tool call on that thread id for n seconds (0 by
@@ -121,6 +124,16 @@ if (process.argv.includes("--fixture-login")) {
         if (allowed) { mkdirSync(join(cwd, "notes"), { recursive: true }); writeFileSync(path, "# Approved\n\nWritten after the approval.\n"); }
         update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: toolCall.toolCallId, status: allowed ? "completed" : "failed" });
         text = allowed ? "Stand-in reply: wrote notes/approved.md" : "Stand-in reply: left the notes as they were";
+      } else if (/^ask a question/i.test(first)) {
+        const reply = await request("elicitation/create", { sessionId, mode: "form", message: "Which window shows the problem?",
+          requestedSchema: { type: "object", properties: { answer: { type: "string", title: "Window" } }, required: ["answer"] } });
+        const accepted = reply?.result?.action === "accept", answer = accepted ? String(reply.result.content?.answer ?? "") : "";
+        // The server appends one `Attached <type> "<name>": "<path>"` line per attachment (userInputAttachments.ts).
+        const line = /^Attached (image|file) ("(?:[^"\\]|\\.)*"): ("(?:[^"\\]|\\.)*")$/gm;
+        const attached = [...answer.matchAll(line)].map(([, type, name, path]) => `${type} ${JSON.parse(name)}${existsSync(JSON.parse(path)) ? "" : " (missing)"}`);
+        const typed = answer.replace(line, "").trim();
+        text = !accepted ? "Stand-in reply: the question was cancelled"
+          : `Stand-in reply: answer "${typed}"${attached.length ? ` with ${attached.length} attachment${attached.length === 1 ? "" : "s"}: ${attached.join(", ")}` : ""}`;
       } else if (/^read the thread\s+\S+/i.test(first)) {
         const [, threadId, seconds] = /^read the thread\s+(\S+)(?:\s+for\s+(\d+)s)?/i.exec(first) ?? [];
         update(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "**Checking the other thread**\n\nIt holds the plan this turn follows." } });
