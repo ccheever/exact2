@@ -1,6 +1,8 @@
 // Harmony's own colours: six avatar hues (a person's colour follows them
 // everywhere), the ink on them, and the wash behind a message that mentions
-// you. Everything else is the platform's.
+// you, and the fill of the popovers Exact paints (the emoji picker, pins,
+// members), raised in dark as UIKit's popovers are. Everything else is the
+// platform's.
 tamber harmony
 
 theme
@@ -13,6 +15,7 @@ theme
   ink.light = light-dark(#ffffff, #15151a)
   mention.wash = light-dark(#fff3cf, #3a2f12)
   mention.edge = light-dark(#f0b429, #f5c54a)
+  popover.fill = light-dark(#ffffff, #2c2c2e)
 
 icons
   icon.emoji = icon(sf "face.smiling", svg "icons/smile.svg")

@@ -125,6 +125,11 @@ shape World
   threadMissing: bool
   hits: Hit[]
 
+// Snapback's change feed for the persona: `seq` moves when anything they can
+// see changes (-1 before the first event or after an error).
+shape Live
+  seq: number
+  state: string
 shape EmojiShape
   name: string
   path: string
@@ -169,7 +174,16 @@ component Harmony
   derive roomId = (top(nav).name == "room" or top(nav).name == "dm") ? top(nav).params.id : ""
   // The clock and zone ride after `with`: the kept answer then shows at the
   // next launch before the first round (its arguments match without them).
-  resource world = snapshot(persona, roomId) with query.trim(), now, time.utcOffset as shape World else empty()
+  // Pushed, not polled: each change Snapback reports (`live.seq`) reads the
+  // world again, so another person's message, reaction or typing shows at once.
+  // The read follows the feed through `seenSeq`, moved only between reads:
+  // natively a read whose arguments change mid-round is superseded, and its
+  // round's next device call, outside any answer, is refused.
+  resource live = live(persona) with liveEpoch as shape Live else empty()
+  // A feed that ends (the network, a backend restart) opens again.
+  state liveEpoch = 0
+  state seenSeq = -1
+  resource world = snapshot(persona, roomId) with query.trim(), now, time.utcOffset, seenSeq as shape World else empty()
   derive people = world.people
   derive emoji = world.emoji
   derive hits = world.hits
@@ -204,17 +218,30 @@ component Harmony
   mutation emojiRemoved as shape Ack refreshes world
   derive writing = pending(sent) or pending(edited) or pending(removed) or pending(reacted) or pending(pinToggled) or pending(typed) or pending(readMarked) or pending(channelCreated) or pending(dmOpened) or pending(profileSaved) or pending(emojiCreated) or pending(emojiRemoved)
 
-  // Live: the world every few seconds, between writes (a write's own
-  // `refreshes` reads it again); what the open room shows is read as soon
-  // as it is seen.
-  task live when not writing
-    every(3000, tick)
+  // Changes arrive through `live`; the clock still moves every ten seconds,
+  // between writes, for what changes with time alone (a typing line that
+  // expires, "Today"), and as a fallback should the feed drop.
+  task clock when not writing
+    every(10000, tick)
+  // The open room is read as soon as it is seen, and again as messages arrive.
+  task follow when live.seq != seenSeq and not pending(world) key=live.seq
+    after(1, catchUp)
+  task relive when live.state == "error" key=liveEpoch
+    after(2000, reconnect)
+  task readOpen when roomId != "" and shown.unread > 0 and not pending(world) key=roomId
+    after(300, markOpen)
   task fillStatus when world.loaded key=persona
     after(1, loadStatus)
   action tick
     if not pending(world)
       sampledAt = performanceNow()
-    if roomId != "" and shown.unread > 0 and not pending(world)
+  action reconnect
+    liveEpoch = liveEpoch + 1
+  action catchUp
+    if not pending(world)
+      seenSeq = live.seq
+  action markOpen
+    if roomId != "" and shown.unread > 0 and not pending(readMarked)
       send readMarked = markRead(persona, roomId)
   action loadStatus
     statusDraft = me.status
@@ -301,6 +328,13 @@ component Harmony
     send reacted = react(persona, id, emoji)
   action pickFor(id: string)
     pickerFor = id
+  // From the message menu, the picker opens beside the message, not from the
+  // menu's row: a popover a row of a menu opens is nested in that menu, and on
+  // the Mac and iPhone the menu is the platform's, which closes as its row is
+  // chosen and would take the picker with it.
+  action pickFromMenu
+    pickerFor = aimed
+    showPopover("emoji-picker", source=`message-${aimed}`)
   action pickForComposer
     pickerFor = ""
   action pickEmoji(e: string)
@@ -615,7 +649,7 @@ component Harmony
             text "❤️ Heart"
           button press=react(aimed, "😂") popovertarget="message-menu" popovertargetaction="hide" testId="menu-laugh"
             text "😂 Laugh"
-          button press=pickFor(aimed) popovertarget="emoji-picker" testId="menu-add-reaction"
+          button press=pickFromMenu popovertarget="message-menu" popovertargetaction="hide" testId="menu-add-reaction"
             image "symbol:icon.add-reaction"
             text "Add Reaction…"
           button press=startReply(aimed) popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
@@ -632,7 +666,7 @@ component Harmony
               image "symbol:delete"
               text "Delete Message"
         // The emoji picker: for the composer (`pickerFor` empty) or a message's reaction.
-        column id="emoji-picker" popover="auto" testId="emoji-picker" padding=12 gap=10 width="19rem" max-width="92vw" max-height="70vh" overflow-y="auto"
+        column id="emoji-picker" popover="auto" testId="emoji-picker" padding=12 gap=10 width="19rem" max-width="92vw" max-height="70vh" overflow-y="auto" background-color="popover.fill" border-width=0 border-radius=16 box-shadow="0 8px 32px rgba(0, 0, 0, 0.22)"
           text (pickerFor == "" ? "Emoji" : "Add Reaction") role="heading" aria-level=3 font="-exact-headline"
           if emoji.length > 0
             text "Harmony" font="-exact-caption1" font-weight=600 color="-exact-secondary-label"
@@ -737,7 +771,7 @@ component RoomScreen
           button press=post disabled=(draft.trim() == "" or sending or thread.id == "") buttonStyle="filled" retainFocus=true
             aria-label=(editing != "" ? "Save" : "Send") title=(editing != "" ? "Save" : "Send") testId="send"
             image (editing != "" ? "symbol:checkmark" : "symbol:send")
-      column id=`pins-${routeKey}` popover="auto" testId="pins-popover" padding=12 gap=8 width="22rem" max-width="92vw" max-height="70vh" overflow-y="auto"
+      column id=`pins-${routeKey}` popover="auto" testId="pins-popover" padding=12 gap=8 width="22rem" max-width="92vw" max-height="70vh" overflow-y="auto" background-color="popover.fill" border-width=0 border-radius=16 box-shadow="0 8px 32px rgba(0, 0, 0, 0.22)"
         text "Pinned Messages" role="heading" aria-level=3 font="-exact-headline"
         if thread.pins.length == 0
           text "No pinned messages yet. Long-press a message (or right-click it) to pin it." color="-exact-secondary-label" font="-exact-footnote"
@@ -747,7 +781,7 @@ component RoomScreen
               text p.author font-weight=600 font="-exact-footnote" flex=1 min-width=0 line-clamp=1
               text formatDay(p.at, now, offset, "list") font="-exact-caption1" color="-exact-secondary-label"
             text p.body line-clamp=3
-      column id=`members-${routeKey}` popover="auto" testId="members-popover" padding=12 gap=10 width="18rem" max-width="92vw" max-height="70vh" overflow-y="auto"
+      column id=`members-${routeKey}` popover="auto" testId="members-popover" padding=12 gap=10 width="18rem" max-width="92vw" max-height="70vh" overflow-y="auto" background-color="popover.fill" border-width=0 border-radius=16 box-shadow="0 8px 32px rgba(0, 0, 0, 0.22)"
         text (thread.members.length == 1 ? "1 Member" : `${thread.members.length} Members`) role="heading" aria-level=3 font="-exact-headline"
         for p in thread.members key=p.key
           row gap=10 align-items="center"
@@ -770,7 +804,7 @@ component MessageRow
     hover: action
     reply: action
   view
-    column testId=`message-${m.id}` position="relative" padding=(m.head ? "6px 16px 2px 14px" : "1px 16px 1px 14px") hover=hover(m.id) contextmenu=aim(m.id) contextPopover="message-menu"
+    column id=`message-${m.id}` testId=`message-${m.id}` position="relative" padding=(m.head ? "6px 16px 2px 14px" : "1px 16px 1px 14px") hover=hover(m.id) contextmenu=aim(m.id) contextPopover="message-menu"
       background-color=(m.mentionsMe ? "mention.wash" : "transparent") border-left=(m.mentionsMe ? "2px solid mention.edge" : "2px solid transparent")
       if m.newDay
         row align-items="center" gap=12 padding-top=10 padding-bottom=8 aria-hidden=true

@@ -145,8 +145,25 @@ async function threadOf(db: Db, roomId: string, now: number, offset: number, me:
     members: members.sort((a, b) => a.name.localeCompare(b.name)) };
 }
 
+// Live: Snapback's change feed (GET /changes?since&wait, the long-poll its own
+// clients hold) as server-sent events from the backend's front, `/live`, which
+// an Exact stream resource holds without holding an answer: each change the
+// persona can see moves `seq`, and the view reads `snapshot` again. Natively the
+// device serves one answer at a time, so the long-poll itself cannot be awaited
+// in a source (snapback4/README.md, "Live updates").
+function live(persona: string): Result<'live'> {
+  return fetch(`${origin}/live?as=${encodeURIComponent(persona)}`, {
+    exactStream: (event: { type: string; data?: unknown }) => {
+      if (event.type !== 'message' || typeof event.data !== 'string') return { seq: -1, state: event.type };
+      try { return { seq: Number((JSON.parse(event.data) as { seq: number }).seq), state: 'open' }; }
+      catch { return { seq: -1, state: 'malformed' }; }
+    },
+  } as RequestInit) as unknown as Result<'live'>;
+}
+
 const sources: Sources = {
-  snapshot: ([persona, roomId, q, now, offset], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'snapshot'>> => {
+  live: ([persona, _epoch]) => live(persona),
+  snapshot: ([persona, roomId, q, now, offset, _seq], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'snapshot'>> => {
     const round = unshown.delete(persona) ? { ok: lastOnline } : await db.sync();
     lastOnline = round.ok;
     const who = await directory(db, now);
