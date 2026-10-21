@@ -17,10 +17,10 @@ pub use byte_arrays::{bytes, utf8};
 
 #[path = "jni_extensions.rs"]
 pub mod jni_extensions;
-#[path = "jni_pad.rs"]
-mod pad;
 #[path = "jni_keys.rs"]
 mod jni_keys;
+#[path = "jni_pad.rs"]
+mod pad;
 
 /// Define the JNI for an app over `CanvasHost<$data>` with the plan and
 /// compat the app's build script writes to `OUT_DIR` (`app.plan`,
