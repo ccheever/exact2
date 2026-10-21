@@ -3,7 +3,8 @@
 // ChatComposer.tsx (footer blocks, provider-unavailable control, activity row),
 // composerFooterLayout.ts (icon-only before overflow), TraitsPicker.tsx
 // (buildTraitsTriggerDisplay), ChatView.tsx (background and child-input banners,
-// the Compact chip, tasks progress), threadSync.ts and ComposerTasksBadge.tsx.
+// the Compact chip, tasks progress), threadSync.ts and ComposerTasksBadge.tsx; the tasks
+// plan follows session-logic.ts at 74541bab17 (deriveActivePlanState, selectComposerTasksPlan).
 import { providerGoal, presentProviderGoal, providerGoalWorking } from './provider-goal';
 import { branchMismatchNotice } from './composer-controls-branch';
 import { projectCloneBlock, projectCloneNotice } from '../shell/project-clones-live';
@@ -12,6 +13,7 @@ import { autoBalanceState } from './auto-balance';
 import { autoBalanceNotices, type MachineRow } from './auto-balance-banner';
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import { activeRun } from '../client/protocol';
+import { activityRun } from '../timeline/worktree-card-run';
 import { antigravitySendBlockReason, composerSelection } from './composer-provider-selection'; // one provider rule
 import { fanoutSelections } from './composer-controls-fanout';
 import type { T3Client } from '../client/client';
@@ -289,22 +291,51 @@ function durationLabel(milliseconds: number): string {
   const seconds = Math.round(milliseconds / 1000), minutes = Math.floor(seconds / 60);
   return minutes < 60 ? `${minutes}m ${seconds % 60}s`.replace(/ 0s$/, '') : `${Math.floor(minutes / 60)}h ${minutes % 60}m`.replace(/ 0m$/, '');
 }
-/** deriveActivePlanState for the running turn's own todo list (activeComposerTasksProgress). */
+const SETTLING = new Set(['preparing', 'queued', 'starting', 'running', 'waiting']);
+/**
+ * deriveActivePlanState: the activity run's last todo list that no newer list superseded, else the one of the latest
+ * run by ordinal.
+ */
+function activePlan(projection: Obj, runId: string): Obj | null {
+  const plans = arr(projection.plans).filter(plan => plan.kind === 'todo_list' && plan.status !== 'superseded');
+  const ordinals = new Map(arr(projection.runs).map(run => [str(run.id), num(run.ordinal)]));
+  const rank = (plan: Obj) => ordinals.get(str(plan.runId)) ?? -1;
+  return plans.findLast(plan => !!runId && plan.runId === runId)
+    ?? plans.reduce<Obj | null>((latest, plan) => latest === null || rank(plan) >= rank(latest) ? plan : latest, null);
+}
+/**
+ * selectComposerTasksPlan (session-logic.ts): the activity run's own plan while it works; after it, a Claude todo
+ * list with unfinished steps stays while the latest started run is on the same provider thread, since Claude's tasks
+ * belong to its session rather than the turn.
+ */
+export function composerTasksPlan(projection: Obj, plan: Obj | null, runId: string, settled: boolean): Obj | null {
+  if (!plan) return null;
+  if (runId && !settled && plan.runId === runId) return plan;
+  if (arr(plan.steps).every(step => step.status === 'completed')) return null;
+  const providerThreadId = arr(projection.runs).find(run => run.id === plan.runId)?.providerThreadId;
+  if (providerThreadId == null) return null;
+  if (arr(projection.providerThreads).find(thread => thread.id === providerThreadId)?.driver !== 'claudeAgent') return null;
+  let latest: Obj | null = null;
+  for (const run of arr(projection.runs)) if (run.startedAt != null && run.providerThreadId != null && (!latest || num(run.ordinal) > num(latest.ordinal))) latest = run;
+  return latest?.providerThreadId === providerThreadId ? plan : null;
+}
+/** ChatView activeComposerTasksProgress: "now" marks the step in progress only while its run works (`live`). */
 export function tasksProgress(client: T3Client) {
   const empty = { tasksTotal: 0, tasksDone: 0, tasksCurrent: '', tasks: [] as TaskStep[] };
-  const run = activeRun(client.projection);
-  if (!client.threadId || !run) return empty;
-  const plans = arr(client.projection.plans).filter(plan => plan.kind === 'todo_list');
-  const plan = [...plans].reverse().find(candidate => candidate.runId === run.id);
+  if (!client.threadId) return empty;
+  // isLatestRunSettled over deriveThreadActivityRun: a run that stopped working and is not the runtime's active one.
+  const run = activityRun(client.projection), runId = str(run?.id), settled = !!run && !SETTLING.has(str(run.status));
+  const plan = composerTasksPlan(client.projection, activePlan(client.projection, runId), runId, settled);
   const steps = arr(plan?.steps);
   if (!plan || !steps.length) return empty;
+  const live = !settled && !!runId && plan.runId === runId;
   const status = (value: unknown) => value === 'running' || value === 'inProgress' ? 'inProgress' : value === 'completed' ? 'completed' : 'pending';
   const seen = new Map<string, number>();
   const tasks = steps.map(step => {
     const text = str(step.text), occurrence = seen.get(text) ?? 0; seen.set(text, occurrence + 1);
     const state = status(step.status);
     return { key: `${text}:${occurrence}`, text, status: state,
-      duration: typeof step.durationMs === 'number' ? durationLabel(num(step.durationMs)) : state === 'inProgress' ? 'now' : '' };
+      duration: typeof step.durationMs === 'number' ? durationLabel(num(step.durationMs)) : state === 'inProgress' && live ? 'now' : '' };
   });
   const current = tasks.find(task => task.status === 'inProgress') ?? tasks.find(task => task.status === 'pending') ?? tasks[tasks.length - 1]!;
   return { tasksTotal: tasks.length, tasksDone: tasks.filter(task => task.status === 'completed').length, tasksCurrent: current.text, tasks };

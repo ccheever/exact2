@@ -39,7 +39,6 @@ use TimelineAnchor, anchorOf, anchorKept, anchorKey from "../timeline/timeline-a
 use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
 use RequestBanner from "../composer/requests.contract"
 use RequestActions from "../composer/requests.contract"
-use ApprovalComposer from "../composer/requests.contract"
 use DiffPanel from "../diff/diff.contract"
 use ShellView from "./shell-shapes.contract"
 use SurfacePanel from "./shell-panels.contract"
@@ -306,7 +305,7 @@ component ChatColumn
         // The hero's lane is the chat width setting's (46rem, 72rem or full), at most 64rem, inside EmptyThread's 1.25rem
         // gutters; its project heading sits on one line on an lg window when the probe fits it, and until the probe is laid out.
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
-          EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, inline=(viewport.width >= 1024 and data.heroInlineWidth <= min(min(data.look.chatMax, 64 * rem), conversationWidth - laneInset - 2.5 * rem)), cap=min(data.look.chatMax, 64 * rem), command=command, addProject=paletteShow("command", "add-project"))
+          EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0), busy=commandPending, inline=(viewport.width >= 1024 and data.heroInlineWidth <= min(min(data.look.chatMax, 64 * rem), conversationWidth - laneInset - 2.5 * rem)), cap=min(data.look.chatMax, 64 * rem), command=command, addProject=paletteShow("command", "add-project"))
       if data.messages.length == 0 and data.threadId != ""
         // MessagesTimeline's empty state (no rows, not working): centred in the lane above the composer, which overlays the
         // timeline (emptyPlaceholderInset: the composer's reserved height, held while it rests); while the thread's detail
@@ -340,17 +339,15 @@ component ChatColumn
             column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? "-1.125rem" : "0px") hatch="t3-frame" data-frame="dock"
               if editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)
                 ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
-            if editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and data.requestMode != "approval" and not data.composer.subagent
+            if editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and not data.composer.subagent
               StashBadge(stash=editor.stash, op=editorOp)
           RequestBanner(data=data, command=command, busy=commandPending, scheme=scheme, compact=(min(data.look.chatMax, conversationWidth - 6 * rem) - 4.25 * rem <= 35 * rem), maximumHeight=min(384, viewport.height * 0.4))
         // A resting card keeps the transcript's reservation instead of the stack's height (resolveComposerTimelineInset).
         column padding-bottom=(resting ? "3.25rem" : "1.25rem") justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" hatch="t3-frame" data-frame="stack"
           column width="100%" max-width=data.look.chatMax position="relative"
-            if data.requestMode == "approval" or data.composer.subagent
-              if data.composer.subagent
-                SubagentBar(data=data, busy=commandPending, openParent=selectThread)
-              else
-                ApprovalComposer(placeholder=data.composer.placeholder)
+            // A pending approval leaves the composer usable: a send declines it and redirects the agent.
+            if data.composer.subagent
+              SubagentBar(data=data, busy=commandPending, openParent=selectThread)
             else
               ComposerEditorDock(editor=editor, dark=(scheme == "dark"), op=editorOp, openModels=openModels)
               ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, resting=resting, busy=commandPending, narrow=(conversationWidth < 620), keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)

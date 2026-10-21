@@ -11,6 +11,7 @@ import { triggerModelName } from '../composer/composer-controls-model';
 import { resolveProviderInstanceAcpRegistryIconUrl } from '../providers/acp-icons';
 import { instanceDisplayName } from '../sidebar/subagent-card';
 import { instanceInitials } from '../usage/usage-pooled-view';
+import { providerBadge } from '../client/presentation';
 import { formatElapsedSeconds, subagentElapsedMs, workActive } from './timeline-work-rows';
 
 const STATUS: Record<string, string> = {
@@ -71,6 +72,7 @@ const PROVIDER_TEXT_COLOR: Record<string, [string, string]> = {
 /**
  * HandoffEndpoint: the provider's icon (`detail` the driver, `initials`, `driverIcon`) and the model's trigger name, else the
  * reported model, else the instance's name, in the provider's colour (`iconLight`, `iconDark`); `result` is its tooltip.
+ * Between two accounts of one provider, the icon carries the instance's badge (`badge`, `badgeColor`; 74541bab17).
  */
 export function handoffEndpoint(endpoint: HandoffEndpoint, providers: Obj[], index: number): Activity {
   const entry = providers.find(provider => provider.instanceId === endpoint.instanceId);
@@ -82,6 +84,7 @@ export function handoffEndpoint(endpoint: HandoffEndpoint, providers: Obj[], ind
   const [light, dark] = PROVIDER_TEXT_COLOR[driver] ?? ['', ''];
   return { id: `${index}:${endpoint.instanceId}:${endpoint.model ?? ''}`, label, body: '', icon: '', output: '', result: `${displayName} · ${label}`,
     failed: false, timestamp: '', detail: driver, iconLight: light, iconDark: dark, initials: instanceInitials(displayName),
+    ...(entry ? { badge: providerBadge(entry, providers).providerBadge, badgeColor: providerBadge(entry, providers).providerBadgeColor } : {}),
     driverIcon: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: driver, iconUrl: str(entry?.iconUrl) || undefined }) ?? '' };
 }
 

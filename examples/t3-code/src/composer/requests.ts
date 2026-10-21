@@ -1,5 +1,5 @@
 // Pending approvals and questions, adapted from T3 Code (MIT); see LICENSE-T3.
-// Sources at 9c161462c9: packages/client-runtime/src/state/threadRequests.ts, apps/web/src/pendingUserInput.ts,
+// Sources at 74541bab17: packages/client-runtime/src/state/threadRequests.ts, apps/web/src/pendingUserInput.ts,
 // apps/web/src/components/chat/ComposerPendingApproval{Panel,Actions}.tsx,
 // ComposerPendingUserInputPanel.tsx, ComposerPrimaryActions.tsx and
 // packages/client-runtime/src/work-log/userInput.ts. The server owns every answer.
@@ -102,6 +102,14 @@ export function composerRequests(client: T3Client): { approvals: PendingApproval
   const held = heldRequestIds(client, client.draftKey, [...pending.approvals.map(entry => entry.requestId), ...pending.inputs.map(entry => entry.requestId)]);
   return { approvals: pending.approvals.filter(entry => !held.has(entry.requestId)), inputs: pending.inputs.filter(entry => !held.has(entry.requestId)) };
 }
+/**
+ * declinePendingApprovals (threadRequests.ts): a message sent while approvals are pending redirects the agent, so
+ * every approval it replaces is declined first; one still pending would block the agent. A request the provider can
+ * no longer answer has nothing to decline. A refused decline stops at that approval and is rethrown.
+ */
+export async function declinePendingApprovals(approvals: readonly PendingApproval[], respond: (requestId: string) => Promise<void>): Promise<void> {
+  for (const approval of approvals) if (approval.live) await respond(approval.requestId);
+}
 /** The question the composer answers, unless it is held. */
 export function composerInput(client: T3Client) {
   const input = composerRequests(client).inputs[0];
@@ -121,8 +129,18 @@ function responseReason(client: T3Client, resumable: boolean): string {
 /** canOperateThread: without orchestration:operate a request card shows with its answers and decisions disabled. */
 const operable = (client: T3Client) => client.scopes.includes('orchestration:operate');
 
+/**
+ * pruneResolvedUserInputDrafts: the open thread's answer drafts for requests no longer pending go. A thread whose
+ * detail has not arrived keeps them: missing detail is not resolution.
+ */
+function pruneAnswers(client: T3Client): void {
+  if (!client.threadId || str(obj(client.projection.thread).id) !== client.threadId) return;
+  const pending = new Set(pendingRequests(client.projection).inputs.map(input => input.requestId)), answers = client.answers;
+  for (const key of Object.keys(answers)) if (!pending.has(key.split('::')[0]!)) delete answers[key];
+}
 /** The composer shows the first pending approval, else the first pending question (ChatComposer). */
 export function requestPresentation(client: T3Client) {
+  pruneAnswers(client);
   const { approvals: pendingApprovals } = composerRequests(client);
   const pending = client.pending;
   const responding = (id: string) => !!pending && str(pending.payload.requestId) === id;

@@ -280,6 +280,29 @@ describe('docked banners, activity and the provider control', () => {
     client.thread!.projection.runs = [];
     expect(tasksProgress(client).tasksTotal).toBe(0);
   });
+  test('a Claude task list stays between turns of its session, without "now" (1ba3c781d0)', async () => {
+    const { client } = await opened();
+    const projection = client.thread!.projection;
+    projection.providerThreads = [{ id: 'pt', driver: 'claudeAgent' }, { id: 'px', driver: 'codex' }];
+    projection.runs = [{ id: 'r1', ordinal: 1, status: 'completed', startedAt: '2026-10-03T00:00:00Z', providerThreadId: 'pt' }];
+    projection.plans = [{ id: 'old', kind: 'todo_list', runId: 'r1', status: 'superseded', steps: [{ text: 'Old', status: 'pending' }] },
+      { id: 'todo', kind: 'todo_list', runId: 'r1', steps: [{ text: 'Read', status: 'completed' }, { text: 'Write', status: 'running' }] }];
+    expect(snapshot(client).composer).toMatchObject({ activity: 'tasks', tasksTotal: 2, tasksDone: 1, tasksCurrent: 'Write' });
+    expect(tasksProgress(client).tasks.map(step => step.duration)).toEqual(['', '']);
+    // A newer run on the same session keeps the list; it is "now" again only for the run that owns it.
+    projection.runs = [...arr(projection.runs), { id: 'r2', ordinal: 2, status: 'running', startedAt: '2026-10-03T00:01:00Z', providerThreadId: 'pt' }];
+    expect(tasksProgress(client)).toMatchObject({ tasksTotal: 2, tasksCurrent: 'Write' });
+    expect(tasksProgress(client).tasks[1]!.duration).toBe('');
+    // A finished list, another provider's session, or another driver drops it.
+    projection.runs = [arr(projection.runs)[0]!, { id: 'r2', ordinal: 2, status: 'completed', startedAt: '2026-10-03T00:01:00Z', providerThreadId: 'px' }];
+    expect(tasksProgress(client).tasksTotal).toBe(0);
+    projection.runs = [arr(projection.runs)[0]!];
+    arr(projection.providerThreads)[0]!.driver = 'codex';
+    expect(tasksProgress(client).tasksTotal).toBe(0);
+    arr(projection.providerThreads)[0]!.driver = 'claudeAgent';
+    arr(arr(projection.plans)[1]!.steps)[1]!.status = 'completed';
+    expect(tasksProgress(client).tasksTotal).toBe(0);
+  });
   test('an urgent or warning notice stays attached ahead of the activity strip, which waits in the stack', async () => {
     const { client } = await opened();
     running(client);
