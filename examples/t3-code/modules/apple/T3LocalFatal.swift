@@ -3,8 +3,9 @@
 // server finds no port (`DesktopBackendPortUnavailableError`, stage "bootstrap") — logs, shows
 // "T3 Code failed to start" with "Stage: <stage>" and the message, then quits. A server that
 // crashes is not fatal: it backs off and the primary reads "Reconnecting: <reason>"
-// instead. A server that exits because another one owns the T3 home (reference 9c161462c9,
-// backend/DesktopBackendPool.ts `onStateDirOwned`) shows "This T3 home is unavailable", then quits.
+// instead. A server that exits because another one owns the T3 home, or because an older background service
+// is set up for it (reference 74541bab17, backend/DesktopBackendPool.ts `onStateDirOwned`), shows "This T3
+// home is unavailable", then quits.
 // Return and Escape both dismiss the alert.
 import AppKit
 import Foundation
@@ -48,7 +49,7 @@ enum T3LocalFatal {
 
     /// `onStateDirOwned`'s error box (DesktopBackendPool.ts), then the quit, as the reference's.
     static let homeUnavailableTitle = "This T3 home is unavailable"
-    static let homeUnavailableMessage = "Another T3 Code server, such as the background service, is using this data directory. Stop that server and reopen T3 Code, or set a separate T3CODE_HOME and pair with the running server."
+    static let homeUnavailableMessage = "Another T3 Code server, such as the background service, is using this data directory, or an older background service is set up for it. Stop that server or try `t3 update`. If the older launcher cannot update, run `t3 service uninstall` and optionally reinstall with `t3 service install` from a current CLI. Use `npx t3@latest` if `t3` is missing or outdated, and pass `--base-dir` with the service's T3 home to each command. Then reopen T3 Code. You can also set a separate T3CODE_HOME and pair with the running server."
     static func homeUnavailable(title: String, message: String) {
         lock.lock(); let first = !quitting; quitting = true; lock.unlock()
         FileHandle.standardError.write(Data("t3.local: \(title)\n".utf8))

@@ -57,7 +57,15 @@ export function pendingApproval(thread: Obj): boolean {
   const request = thread.pendingRuntimeRequest;
   return request != null && !['user_input', 'auth_refresh'].includes(str(obj(request).kind));
 }
-export const pendingInput = (thread: Obj): boolean => thread.pendingRuntimeRequest != null && obj(thread.pendingRuntimeRequest).kind === 'user_input';
+/**
+ * models.ts presentThreadShell hasPendingUserInput: an async question (`blocking: false`) leaves a working run
+ * Working; it asks for input once the run stops working. Waiting runs have ended their provider turn.
+ */
+export function pendingInput(thread: Obj): boolean {
+  const request = obj(thread.pendingRuntimeRequest);
+  if (thread.pendingRuntimeRequest == null || request.kind !== 'user_input') return false;
+  return request.blocking !== false || !['preparing', 'starting', 'running'].includes(shellRuntime(thread)?.status ?? '');
+}
 
 /** Sidebar.logic.ts resolveSidebarThreadStatus: its own request, else a hidden subagent's below it (subagent-requests.ts). */
 export function sidebarStatus(thread: Obj): SidebarStatus {
@@ -81,16 +89,19 @@ export function hasQueuedTurnStart(thread: Obj, now: number): boolean {
   if (!run) return true;
   return [run.requestedAt, run.startedAt, run.completedAt].every(value => value == null || parse(value) < messageAt);
 }
-/** canSnooze: not while the agent or one of its subagents is blocked on the user, nor with a queued turn start. */
+/**
+ * canSnooze: not while the agent or one of its subagents is blocked on the user, nor with a queued turn start. Any
+ * pending request counts, a nonblocking question too: the server rejects snoozing then.
+ */
 export function canSnooze(thread: Obj, now: number): boolean {
-  return !pendingApproval(thread) && !pendingInput(thread) && pendingSubagentRequest(thread) === null && !hasQueuedTurnStart(thread, now);
+  return thread.pendingRuntimeRequest == null && !pendingApproval(thread) && !pendingInput(thread) && pendingSubagentRequest(thread) === null && !hasQueuedTurnStart(thread, now);
 }
 /**
  * threadRaisedHandWhileSnoozed: it or a subagent is blocked on the user, or a run failed after the snooze. A completed
  * run never wakes it: a snoozed thread that keeps waking itself for background work stays hidden until its timer.
  */
 export function raisedHand(thread: Obj): boolean {
-  if (pendingApproval(thread) || pendingInput(thread) || pendingSubagentRequest(thread) !== null) return true;
+  if (thread.pendingRuntimeRequest != null || pendingApproval(thread) || pendingInput(thread) || pendingSubagentRequest(thread) !== null) return true;
   const failedAt = failureEdgeAt(thread), snoozedAt = thread.snoozedAt == null ? null : str(thread.snoozedAt);
   return failedAt !== undefined && (snoozedAt == null || (failedAt != null && parse(failedAt) > parse(snoozedAt)));
 }

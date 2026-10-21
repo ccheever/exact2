@@ -118,8 +118,8 @@ async function readProjectFile(client: T3Client, native: Native, member: Obj): P
   if (fileCache.has(key)) return fileCache.get(key)!;
   let contents: string | null = null;
   try {
-    const result = await client.rpc(native, 'projects.readFile', { cwd: str(member.workspaceRoot), relativePath: 't3.json' });
-    contents = result.truncated === true ? null : typeof result.contents === 'string' ? result.contents : null;
+    const result = await client.rpc(native, 'projects.readFile', { cwd: str(member.workspaceRoot), relativePath: 't3.json', allowMissing: true });
+    contents = result.exists === false || result.truncated === true ? null : typeof result.contents === 'string' ? result.contents : null;
   } catch { contents = null; }
   fileCache.set(key, contents);
   return contents;
