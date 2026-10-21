@@ -1,5 +1,5 @@
-// @ref LLP 1126 D10 — the watch window runs the app live (spike); its
-// toolbar opens the entries' placeholders (LLP 1126.001 WP17).
+// @ref LLP 1126.002 D4, D6 — the watch app runs the app's watch entry live; an app
+// with none shows its complications' placeholders (LLP 1126.001 WP17).
 #if os(watchOS)
 import ExactCore
 import ExactSnapshot
@@ -70,31 +70,40 @@ private func processStart() -> Date {
 /// The launch's phases for the startup budget (`rules/RULES.md`: an interactive
 /// first frame at 100 ms p50), each in ms after the kernel started the process.
 enum LaunchPhases {
+    // The early boot marks from its own queue.
+    private static let lock = NSLock()
     nonisolated(unsafe) private static var stamps: [(String, Date)] = []
     nonisolated(unsafe) private static var reported = false
-    static func mark(_ phase: String) { stamps.append((phase, Date())) }
+    static func mark(_ phase: String) { lock.withLock { stamps.append((phase, Date())) } }
     static func report() {
-        guard !reported else { return }
-        reported = true
+        let taken: [(String, Date)]? = lock.withLock {
+            guard !reported else { return nil }
+            reported = true
+            return stamps
+        }
+        guard let taken else { return }
         let exec = processStart()
-        let line = stamps.map { "\($0.0) \(Int(($0.1.timeIntervalSince(exec) * 1000).rounded()))" }.joined(separator: ", ")
-        print("exact-watch phases exec 0, \(line); footprint \(String(format: "%.1f", footprintMiB())) MiB")
+        let line = taken.map { "\($0.0) \(Int(($0.1.timeIntervalSince(exec) * 1000).rounded()))" }.joined(separator: ", ")
+        Logger(subsystem: "dev.exact.watch", category: "launch")
+            .notice("phases exec 0, \(line, privacy: .public); footprint \(footprintMiB(), format: .fixed(precision: 1)) MiB")
     }
 }
 
 /// The watch entry booted while SwiftUI sets up its scene (the startup budget,
 /// LLP 1126.002 §4): `App.init` starts it at the screen's size on a background
 /// queue (the session's work runs on Exact's owner thread); the root view takes
-/// it at its first layout and resizes it to the size it was given.
-final class EarlyBoot: @unchecked Sendable {
-    private static let shared = EarlyBoot()
-    private let done = DispatchSemaphore(value: 0)
-    private var result: Result<(HeadlessSession, TimeInterval), Error>?
-    private var taken = false
+/// it at its first layout, on the main queue once it is booted, never waiting
+/// there, and resizes it to the size it was given.
+@MainActor
+final class EarlyBoot {
+    typealias Booted = Result<(session: HeadlessSession, start: TimeInterval, rootFontSize: Double), Error>
+    private static var result: Booted?
+    private static var waiting: ((Booted) -> Void)?
+    private static var taken = false
 
     /// The app's watch entry (`ExactWatchPlan`, LLP 1126.002 D4): its own live plan, booted
     /// from its bytes, which opens no update store.
-    static func session(size: CGSize, facts: SessionFacts) throws -> HeadlessSession {
+    nonisolated static func session(size: CGSize, facts: SessionFacts) throws -> HeadlessSession {
         guard let name = Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") as? String else {
             throw HeadlessSession.Failure(description: "this app declares no watch entry (app.json `watch`)")
         }
@@ -108,25 +117,32 @@ final class EarlyBoot: @unchecked Sendable {
         DispatchQueue.global(qos: .userInteractive).async {
             LaunchPhases.mark("session")
             let start = liveUptime()
-            // The watch draws dark; the reader's text size arrives with the first layout, which resizes.
-            let facts = SessionFacts(displayScale: scale, preferences: [.dark],
-                                     rootFontSize: Double(SnapshotDriver.rootFontSize(for: .large)), date: Date(), clock: HeadlessSession.liveNow())
-            shared.result = Result { (try session(size: size, facts: facts), start) }
+            // The watch draws dark. The reader's text size is not known before the scene:
+            // the default's root size here, reconciled when the root takes the session.
+            let rootFontSize = Double(SnapshotDriver.rootFontSize(for: .large))
+            let facts = SessionFacts(displayScale: scale, preferences: [.dark], rootFontSize: rootFontSize,
+                                     date: Date(), clock: HeadlessSession.liveNow())
+            let booted = Booted { (try session(size: size, facts: facts), start, rootFontSize) }
             LaunchPhases.mark("booted")
-            shared.done.signal()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if let waiting { self.waiting = nil; waiting(booted) } else { result = booted }
+                }
+            }
         }
     }
 
-    /// The early session, waiting for it if it is still booting; nil after a failure or once taken.
-    static func take() throws -> (HeadlessSession, TimeInterval)? {
-        guard !shared.taken, Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") != nil else { return nil }
-        shared.taken = true
-        shared.done.wait()
-        return try? shared.result?.get()
+    /// Calls `then` with the early session once it is booted, or its failure; false when
+    /// there is none to take (no watch entry, or taken already).
+    static func take(then: @escaping (Booted) -> Void) -> Bool {
+        guard !taken, Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") != nil else { return false }
+        taken = true
+        if let result { self.result = nil; then(result) } else { waiting = then }
+        return true
     }
 }
 
-/// The app itself, live (LLP 1126 D10): the linked plan booted at the
+/// The app's watch entry, live (LLP 1126.002 D4): its plan booted at the
 /// screen's safe size, drawn by the live driver.
 private struct LiveRoot: View {
     @State private var model: LiveModel?
@@ -160,48 +176,57 @@ private struct LiveRoot: View {
             }
         }
         .onChange(of: phase, initial: true) { _, phase in model?.setActive(phase == .active) }
-        .onChange(of: dimmed) { _, dimmed in print("exact-watch luminance reduced \(dimmed)") }
+        .onChange(of: textSize) { _, size in model?.setRootFontSize(SnapshotDriver.rootFontSize(for: size)) }
+        .onChange(of: dimmed) { _, dimmed in log.debug("luminance reduced \(dimmed, privacy: .public)") }
     }
 
+    /// Takes the session `App.init` booted while SwiftUI set up its scene, else boots one now.
     private func boot(size: CGSize) {
-        guard model == nil, failure == nil else { return }
+        guard model == nil, failure == nil, !booting else { return }
+        booting = true
+        let taken = EarlyBoot.take { booted in
+            do {
+                let early = try booted.get()
+                // The early boot guessed the default text size; the reader's wins.
+                let rootFontSize = Double(SnapshotDriver.rootFontSize(for: textSize))
+                if rootFontSize != early.rootFontSize { try early.session.setRootFontSize(CGFloat(rootFontSize)) }
+                start(early.session, at: size, since: early.start)
+            } catch { fail(error) }
+        }
+        guard !taken else { return }
         do {
-            // The session `App.init` booted while SwiftUI set up its scene, else one booted now.
-            let session: HeadlessSession, start: TimeInterval
-            if let early = try EarlyBoot.take() {
-                (session, start) = early
-            } else {
-                LaunchPhases.mark("session")
-                start = liveUptime()
-                let facts = SessionFacts(displayScale: scale, preferences: scheme == .dark ? [.dark] : [],
-                                         rootFontSize: Double(SnapshotDriver.rootFontSize(for: textSize)), date: Date(), clock: HeadlessSession.liveNow())
-                session = try EarlyBoot.session(size: size, facts: facts)
-                LaunchPhases.mark("booted")
-            }
+            LaunchPhases.mark("session")
+            let since = liveUptime()
+            let facts = SessionFacts(displayScale: scale, preferences: scheme == .dark ? [.dark] : [],
+                                     rootFontSize: Double(SnapshotDriver.rootFontSize(for: textSize)), date: Date(), clock: HeadlessSession.liveNow())
+            let session = try EarlyBoot.session(size: size, facts: facts)
+            LaunchPhases.mark("booted")
+            start(session, at: size, since: since)
+        } catch { fail(error) }
+    }
+    @State private var booting = false
+
+    private func start(_ session: HeadlessSession, at size: CGSize, since: TimeInterval) {
+        do {
             if try session.snapshot().size != size { try session.resize(to: size) }
             LaunchPhases.mark("sized")
             let live = try LiveModel(session: session, active: phase == .active)
             LaunchPhases.mark("first batch")
             live.onCommand = { command in
-                print("exact-watch command \(command.name) \(command.args)")
                 switch command.name {
                 case "haptic": Self.haptic(command.args.first as? String ?? "")
                 default: log.notice("command \(command.name, privacy: .public) has no watch arm")
                 }
             }
-            var ticks = 0
-            live.onTurn = { label in
-                ticks += 1
-                if label == "press" || ticks % 10 == 0 { print("exact-watch footprint \(String(format: "%.1f", footprintMiB())) MiB after \(ticks) turns") }
-            }
             model = live
-            let ms = (liveUptime() - start) * 1000
+            let ms = (liveUptime() - since) * 1000
             log.notice("boot \(ms, format: .fixed(precision: 1)) ms at \(size.width, format: .fixed(precision: 0))x\(size.height, format: .fixed(precision: 0)) pt")
-            print("exact-watch boot \(String(format: "%.1f", ms)) ms at \(Int(size.width))x\(Int(size.height)) pt")
-        } catch {
-            failure = "\(error)"
-            log.error("boot failed: \(String(describing: error), privacy: .public)")
-        }
+        } catch { fail(error) }
+    }
+
+    private func fail(_ error: Error) {
+        failure = "\(error)"
+        log.error("boot failed: \(String(describing: error), privacy: .public)")
     }
 
     /// `haptic(kind)` (iOS's kinds, `ExactKit` Haptics) as the watch's nearest
@@ -229,7 +254,6 @@ private struct LiveRoot: View {
         LaunchPhases.mark("main")
         if Bundle.main.object(forInfoDictionaryKey: "ExactWatchPlan") != nil { EarlyBoot.start() }
         WidgetContainer.configure()
-        setvbuf(stdout, nil, _IOLBF, 0) // the measurement lines reach `devicectl --console` as they are written
     }
     var body: some Scene {
         WindowGroup {

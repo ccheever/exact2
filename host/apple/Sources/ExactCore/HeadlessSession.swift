@@ -76,6 +76,9 @@ public final class HeadlessSession {
         public fileprivate(set) var handlers: Set<String> = []
         /// A scroller's content size (a `content` op), in points.
         public fileprivate(set) var scrollContent: CGSize?
+        /// A native control's title (`exact_press_face`, LLP 1069.011.000 D1), read when
+        /// the node changes: a `button` the kernel made a platform control has no text child.
+        public fileprivate(set) var controlTitle: String?
         /// Computed on first access for this node version, then shared by snapshots.
         public var lines: [Line] { textLines?.value.lines ?? [] }
         public var runs: [Run] { textLines?.value.runs ?? [] }
@@ -292,21 +295,16 @@ public final class HeadlessSession {
         try turn { core.runtime.advance(now: now) }
     }
 
-    /// The safe area around the viewport (`env(safe-area-inset-*)`), in points.
-    @discardableResult
-    public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) throws -> Snapshot {
-        try turn { core.runtime.insets(top: top, right: right, bottom: bottom, left: left) }
-    }
-
     /// A scroller's offset, which the runner reads for its `scroll` handlers and `scrollTop`.
     public func scrolled(_ node: UInt32, left: Double, top: Double) {
         core.runtime.scrolled(node, left: left, top: top)
     }
 
-    /// A field's text, as a live host's text input reports it (`ExactKit` FieldInput's wire).
+    /// A field's whole text replaced, as a platform sheet returns it on submit: one
+    /// `input` (`insertReplacementText`, kind 54) with the caret at its end.
     @discardableResult
-    public func fieldEvent(_ node: UInt32, kind: UInt32, payload: String, at now: Double) throws -> Snapshot {
-        try turn { core.runtime.fieldEvent(node, kind, payload, now: now) }
+    public func replaceText(_ node: UInt32, with text: String, at now: Double) throws -> Snapshot {
+        try turn { core.runtime.fieldEvent(node, 54, FieldWire.replacement(text), now: now) }
     }
 
     /// The platform's Back from the route keyed `key` under the navigation root `root`,
@@ -340,20 +338,28 @@ public final class HeadlessSession {
                                   beneath: { core.runtime.locationBeneath(key) })
     }
 
+    /// A link the reader followed, as `ExactSession.follow` takes it (LLP 1038 §7): a
+    /// path naming one of the app's routes goes to the navigation root's `navigate`.
+    /// Nil for anything else, which is the host's to open, or with no such root.
+    @discardableResult
+    public func follow(_ href: String, at now: Double) throws -> Snapshot? {
+        guard href.hasPrefix("/"), !href.hasPrefix("//"), core.runtime.routeMatches(href) else { return nil }
+        let root = Owner.shared.sync {
+            nodes.values.filter { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }.map(\.id).min()
+        }
+        guard let root else { return nil }
+        return try turn { core.runtime.navigate(root, href, now: now) }
+    }
+
     /// Whether `node` is `ancestor` or in its subtree.
     private func holds(_ ancestor: UInt32, _ node: UInt32) -> Bool {
         ancestor == node || (nodes[ancestor]?.children.contains { holds($0, node) } ?? false)
     }
 
-    /// A native control's title (`exact_press_face`, LLP 1069.011.000 D1): a
-    /// `button` the kernel made a platform control has no text child.
-    public func controlTitle(_ node: UInt32) -> String? {
-        let runtime = core.runtime
-        let face = runtime.on(busy: Data()) { () -> Data in
-            guard !runtime.destroyed else { return Data() }
-            let length = exact_press_face(runtime.rt, node)
-            return Data(bytes: exact_out(runtime.rt), count: Int(length))
-        }
+    /// On the owner thread, after a turn applied the node.
+    private func pressFaceTitle(_ node: UInt32) -> String? {
+        let length = exact_press_face(core.runtime.rt, node)
+        let face = Data(bytes: exact_out(core.runtime.rt), count: Int(length))
         let object = (try? JSONSerialization.jsonObject(with: face)) as? [String: Any]
         return object?["title"] as? String ?? object?["label"] as? String
     }
@@ -441,6 +447,12 @@ public final class HeadlessSession {
         }
         // The callback refuses before shaping raw Markdown. Inspect unmeasured
         // nodes too (for example display:none) so boot never returns a partial tree.
+        // A face reads the control and its subtree: read again when either changed.
+        if !changed.isEmpty {
+            for (id, node) in nodes where node.kind == "control" && (changed.contains(id) || changed.contains { holds(id, $0) }) {
+                nodes[id]?.controlTitle = pressFaceTitle(id)
+            }
+        }
         for id in changed {
             // A `time` is a paragraph the platform may draw live (LLP 1126 D6):
             // its runs carry the font the kernel measured it in.

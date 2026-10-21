@@ -1,6 +1,7 @@
-// @ref LLP 1126 D10 — the live driver (spike): SwiftUI over a live headless
-// session. Layout is the kernel's, drawn by the snapshot driver's nodes; the
-// session's turns (presses, timers, replies) replace the snapshot the view reads.
+// @ref LLP 1126.002 D1, D3, D5, D6 — the live driver: SwiftUI over a live
+// headless session. Layout is the kernel's, drawn with the snapshot driver's
+// leaves; the session's turns (presses, timers, replies) replace the snapshot
+// the view reads.
 #if canImport(WidgetKit)
 import SwiftUI
 import ExactCore
@@ -18,8 +19,6 @@ public final class LiveModel {
     @ObservationIgnored public let session: HeadlessSession
     /// Runs each command a turn sent (`haptic`, …), in order, after the turn.
     @ObservationIgnored public var onCommand: ((HeadlessSession.Command) -> Void)?
-    /// Called after each turn with its label (`press`, `timer`, `reply`, …): the host's measurements.
-    @ObservationIgnored public var onTurn: ((String) -> Void)?
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var active: Bool
     @ObservationIgnored private let log = Logger(subsystem: "dev.exact.watch", category: "live")
@@ -49,11 +48,10 @@ public final class LiveModel {
         run("press") { try $0.session.press(node, at: $0.now()) }
     }
 
-    /// A field's whole text, as the watch's input sheet returns it on submit: one `input`
-    /// event (kind 54). A dismissed sheet sends nothing; the app's own writes to `value`
-    /// reach the field as its prop.
+    /// A field's whole text, as the watch's input sheet returns it on submit. A dismissed
+    /// sheet sends nothing; the app's own writes to `value` reach the field as its prop.
     public func edit(_ node: UInt32, text: String) {
-        run("input") { try $0.session.fieldEvent(node, kind: 54, payload: FieldWire.replacement(text), at: $0.now()) }
+        run("input") { try $0.session.replaceText(node, with: text, at: $0.now()) }
     }
 
     /// The platform's Back from each route in `keys`, the top first, as a pop of
@@ -68,6 +66,18 @@ public final class LiveModel {
         }
     }
 
+    /// A link the reader followed: true when it was one of the app's routes, which
+    /// the session took; otherwise the host opens it.
+    public func follow(_ href: String) -> Bool {
+        var taken = false
+        run("follow") { model in
+            guard let next = try model.session.follow(href, at: model.now()) else { return model.snapshot }
+            taken = true
+            return next
+        }
+        return taken
+    }
+
     public func scrolled(_ node: UInt32, to offset: CGPoint) {
         session.scrolled(node, left: offset.x, top: offset.y)
     }
@@ -77,13 +87,17 @@ public final class LiveModel {
         run("resize") { try $0.session.resize(to: size) }
     }
 
+    /// The reader's text size changed: the root size its Dynamic Type step gives.
+    public func setRootFontSize(_ px: CGFloat) {
+        run("text size") { try $0.session.setRootFontSize(px) }
+    }
+
     /// Timers stop while the app is not active (a lowered wrist, Always On); the clock
     /// catches up once when it is again.
     public func setActive(_ active: Bool) {
         guard active != self.active else { return }
         self.active = active
         log.notice("active \(active, privacy: .public) at \(self.now(), format: .fixed(precision: 0)) ms")
-        print("exact-watch active \(active) at \(Int(now())) ms")
         if active { run("resume") { try $0.session.advance(at: $0.now()) } } else { timer?.invalidate(); timer = nil }
     }
 
@@ -96,10 +110,8 @@ public final class LiveModel {
             log.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
         }
         let ms = (liveUptime() - start) * 1000
-        log.notice("turn \(label, privacy: .public) \(ms, format: .fixed(precision: 2)) ms at \(self.now(), format: .fixed(precision: 0))")
-        print("exact-watch turn \(label) \(String(format: "%.2f", ms)) ms at \(Int(now()))")
+        log.debug("turn \(label, privacy: .public) \(ms, format: .fixed(precision: 2)) ms at \(self.now(), format: .fixed(precision: 0))")
         for command in session.takeCommands() { onCommand?(command) }
-        onTurn?("\(label)")
         schedule()
     }
 
@@ -107,7 +119,7 @@ public final class LiveModel {
         timer?.invalidate(); timer = nil
         guard active, let due = session.timerDue else { return }
         let delay = max(0, due - now()) / 1000
-        print("exact-watch deadline \(Int(due)) in \(Int(delay * 1000)) ms")
+        log.debug("deadline \(due, format: .fixed(precision: 0)) in \(delay * 1000, format: .fixed(precision: 0)) ms")
         // In the common modes, so a deadline fires while the Crown scrolls a list.
         let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.run("timer") { try $0.session.advance(at: $0.now()) } }
@@ -122,6 +134,7 @@ public final class LiveModel {
 public struct LiveView: View {
     let model: LiveModel
     let rootFontSize: CGFloat
+    @Environment(\.openURL) private var openURL
 
     public init(model: LiveModel, rootFontSize: CGFloat) {
         self.model = model; self.rootFontSize = rootFontSize
@@ -133,8 +146,11 @@ public struct LiveView: View {
         // The leaves read the environment's clock and root font size; its family and links are a widget's.
         let environment = SnapshotEnvironment(family: .systemLarge, entryName: "app", rootFontSize: rootFontSize, entryDate: .now)
         let input = LiveInput(press: { model.press($0) }, scrolled: { model.scrolled($0, to: $1) },
-                              title: { model.session.controlTitle($0) }, edited: { model.edit($0, text: $1) },
-                              back: { model.back(root: $0, routes: $1) })
+                              edited: { model.edit($0, text: $1) },
+                              back: { model.back(root: $0, routes: $1) },
+                              follow: { href in
+                                  if !model.follow(href), let url = URL(string: href), url.scheme != nil { openURL(url) }
+                              })
         return FrameLayout(frames: roots.map(\.frame), size: snapshot.size) {
             ForEach(roots, id: \.id) { LiveNodeView(node: $0, tree: snapshot, environment: environment, input: input) }
         }
@@ -148,10 +164,11 @@ public struct LiveView: View {
 struct LiveInput {
     var press: (UInt32) -> Void
     var scrolled: (UInt32, CGPoint) -> Void
-    var title: (UInt32) -> String?
     var edited: (UInt32, String) -> Void
     /// The platform's Back from a navigation root's routes, the top first: (root, route keys).
     var back: (UInt32, [String]) -> Void
+    /// A link's `href`: one of the app's routes, else a URL the system opens.
+    var follow: (String) -> Void
 }
 
 /// One live node: the snapshot driver's box and leaves, which a widget's
@@ -163,11 +180,15 @@ struct LiveNodeView: View {
     let tree: HeadlessSession.Snapshot
     let environment: SnapshotEnvironment
     let input: LiveInput
+    /// The nearest ancestor's `data-privacy`; an app's content is not private unless it says so.
+    var privacy: String?
     @Environment(\.colorScheme) private var scheme
 
     private var style: SnapshotStyle { SnapshotStyle(node) }
     private var paint: SnapshotPaint { SnapshotPaint(style: style, dark: scheme == .dark) }
     private var bounds: CGRect { CGRect(origin: .zero, size: node.frame.size) }
+    private var ownPrivacy: String? { SnapshotData.words(node)["privacy"] ?? privacy }
+    private var leaf: Bool { ["text", "time", "image", "control", "input"].contains(node.kind) || node.props["type"] == "progress" }
 
     var body: some View {
         if style.string("display") != "none" {
@@ -178,7 +199,10 @@ struct LiveNodeView: View {
                 .overlay { paint.border(in: bounds) }
                 .modifier(PathClip(path: style.clipPath("clip_path")))
                 .opacity(style.number("opacity").map { Double(max(0, min(1, $0))) } ?? 1)
+                // Redacted in Always On when private (D6), at leaves as a widget's are.
+                .modifier(Privacy(word: leaf ? ownPrivacy : nil))
                 .modifier(Pressed(node: node.id, input: node.handlers.contains("press") ? input : nil))
+                .modifier(Followed(href: node.handlers.contains("press") ? nil : node.props["href"], input: input))
                 .modifier(Semantics(node: node))
         }
     }
@@ -198,7 +222,7 @@ struct LiveNodeView: View {
                 let children = node.children.compactMap { tree.nodes[$0] }
                 // A scroller's children are laid out over its content (`content` op), not its box.
                 let layout = FrameLayout(frames: children.map(\.frame), size: node.scrollContent ?? node.frame.size) {
-                    ForEach(children, id: \.id) { LiveNodeView(node: $0, tree: tree, environment: environment, input: input) }
+                    ForEach(children, id: \.id) { LiveNodeView(node: $0, tree: tree, environment: environment, input: input, privacy: ownPrivacy) }
                 }
                 if ["scroll", "auto"].contains(style.string("overflow_y") ?? "") {
                     ScrollView(.vertical) { layout }.modifier(ScrollReport(node: node.id, input: input))
@@ -258,15 +282,23 @@ private struct LiveLeaf: View {
     let node: HeadlessSession.Node
     let input: LiveInput
     @State private var text = ""
+    @State private var submitted = false
+    @FocusState private var editing: Bool
 
     var body: some View {
         if node.kind == "input" {
             TextField(node.props["placeholder"] ?? "", text: $text)
+                .focused($editing)
                 .onAppear { text = node.props["value"] ?? "" }
                 .onChange(of: node.props["value"] ?? "") { _, value in if value != text { text = value } }
-                .onSubmit { input.edited(node.id, text) }
+                .onSubmit { submitted = true; input.edited(node.id, text) }
+                // A sheet dismissed without submit sends nothing; the field shows the app's value again.
+                .onChange(of: editing) { _, now in
+                    guard !now else { submitted = false; return }
+                    DispatchQueue.main.async { if !submitted { text = node.props["value"] ?? "" } }
+                }
         } else {
-            Text(input.title(node.id) ?? node.props["accessibilityLabel"] ?? "")
+            Text(node.controlTitle ?? node.props["accessibilityLabel"] ?? "")
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Capsule().fill(.secondary.opacity(0.25)))
@@ -281,6 +313,17 @@ private struct Pressed: ViewModifier {
     func body(content: Content) -> some View {
         if let input {
             Button { input.press(node) } label: { content }.buttonStyle(.plain)
+        } else { content }
+    }
+}
+
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
+private struct Followed: ViewModifier {
+    let href: String?
+    let input: LiveInput
+    func body(content: Content) -> some View {
+        if let href, !href.isEmpty {
+            Button { input.follow(href) } label: { content }.buttonStyle(.plain).accessibilityAddTraits(.isLink)
         } else { content }
     }
 }

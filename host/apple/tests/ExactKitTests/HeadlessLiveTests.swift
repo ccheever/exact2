@@ -35,6 +35,27 @@ final class HeadlessLiveTests: XCTestCase {
         XCTAssertEqual(try text("ticks", in: seek.advance(at: 5_000)), "5", "the seek clock fires each beat")
     }
 
+    /// The field wire the UIKit and AppKit fields sent before it moved to ExactCore,
+    /// byte for byte (`runner/src/runner/field.rs` reads it), and the watch's replacement.
+    func testTheFieldWireIsTheFieldsPayloads() {
+        XCTAssertEqual(FieldWire.selection(start: 1, end: 3, direction: "forward", value: "a,b"), "1,3,forward,a,b")
+        XCTAssertEqual(FieldWire.input(type: "insertText", data: "é", value: "xé", start: 2, end: 2),
+                       "insertText,1,0,2,é2,2,none,xé")
+        XCTAssertEqual(FieldWire.input(type: "deleteContentBackward", data: nil, cancelable: false, composing: true, value: "", start: 0, end: 0),
+                       "deleteContentBackward,0,1,-1,0,0,none,")
+        XCTAssertEqual(FieldWire.replacement("Palo 😀"), "insertReplacementText,0,0,9,Palo 😀7,7,none,Palo 😀")
+    }
+
+    /// A native control's title is read as the turn applies it, so a view's body
+    /// reads a value, not the runtime.
+    func testANativeControlCarriesItsTitle() throws {
+        let s = try session("BUTTONS", live: false)
+        defer { s.close() }
+        let controls = try s.snapshot().nodes.values.filter { $0.kind == "control" }
+        XCTAssertFalse(controls.isEmpty)
+        XCTAssertTrue(controls.contains { !($0.controlTitle ?? "").isEmpty })
+    }
+
     /// Two routes each hold an `id="back"`: Back from the pushed one presses its
     /// own, not the base route's, whose view id is lower.
     func testBackPressesTheActiveRoutesOwnControl() throws {

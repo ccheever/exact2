@@ -109,7 +109,7 @@ struct PathClip: ViewModifier {
 /// Apply it at leaves: an ancestor marked public must not remove the privacy
 /// redaction reason before a private descendant receives it. The placeholder
 /// carries no modifier, since any value would undo its redaction.
-private struct Privacy: ViewModifier {
+struct Privacy: ViewModifier {
     let word: String?
     func body(content: Content) -> some View {
         switch word {
