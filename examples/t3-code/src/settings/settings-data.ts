@@ -165,7 +165,7 @@ export function lastRunSummary(entries: readonly { label: string; counts: string
 export async function storageSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine: string | undefined = undefined, projectKey = '', checkout = '', now = 0) {
   const modeLabels: Record<string, string> = { inherit: 'Inherit', off: 'Off', custom: 'Custom' };
   const empty = { writeScope: `${machine ?? environmentId}|${projectKey}|${checkout}`, cleanupAvailable: false, cleanupDisabled: true, cleanupDescription: '', databaseNotices: [] as DatabaseNotice[], directory: '', directoryMixed: false, directorySupported: false, keepSupported: false, keepValue: '', keepDescription: '', keepOptions: [] as { value: string; label: string; selected: boolean }[],
-    available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], artifacts: [] as StorageRuleView[], cleanupSummary: '', cleanupReports: [] as { id: string; label: string; counts: string; entries: CleanupEntry[]; omitted: string; empty: string }[] };
+    available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], artifacts: [] as StorageRuleView[], cleanupSummary: '', cleanupReports: [] as { id: string; label: string; counts: string; entries: CleanupEntry[]; omitted: string; omittedFirst: boolean; empty: string; emptyFirst: boolean }[] };
 
 
   if (!active) return empty;
@@ -195,13 +195,12 @@ export async function storageSettings(client: T3Client, native: Native | null | 
     const environments = liveEnvironments(client, native).filter(environment => scope.selected.some(selected => selected.environmentId === environment.environmentId)
       && environment.connected && obj(obj(environment.config.environment).capabilities).storageCleanupRun === true);
     if (!project) await Promise.all([watchStorageReports(client, native, environments.map(environment => environment.environmentId)), watchDatabaseStorage(client, native, selected.filter(environment => obj(obj(environment.config.environment).capabilities).databaseStorage === true).map(environment => environment.environmentId))]);
-    const cleanupReports = project ? [] : environments.flatMap(environment => {
-      const report = environment.cleanup.value?.[0];
-      if (!report) return [];
+    const cleanupReports = project ? [] : environments.filter(environment => environment.cleanup.value?.[0]).map((environment, index) => {
+      const report = environment.cleanup.value![0]!;
       const counts = obj(report.counts), selected = scope.environments.find(selected => selected.environmentId === environment.environmentId);
       const label = selected ? settingsScopeEnvironmentLabel(selected, scope.environments) : environment.label;
-      return [{ id: environment.environmentId, label, counts: `${num(counts.removed)} removed, ${num(counts.kept)} kept${num(counts.failed) > 0 ? `, ${num(counts.failed)} failed` : ''}`,
-        ...cleanupEntries(report, label) }];
+      return { id: environment.environmentId, label, counts: `${num(counts.removed)} removed, ${num(counts.kept)} kept${num(counts.failed) > 0 ? `, ${num(counts.failed)} failed` : ''}`,
+        ...cleanupEntries(report, label, index === 0) };
     });
     const showRules = !project || mode === 'custom';
     const databaseNotices = project ? [] : databaseCompactionNotices(selected.filter(environment => obj(obj(environment.config.environment).capabilities).databaseStorage === true)

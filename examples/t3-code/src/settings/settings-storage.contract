@@ -7,7 +7,7 @@ use SettingsSwitch from "./settings-kit.contract"
 use SettingsSelect from "./settings-kit.contract"
 use SettingsNotice from "./settings-kit.contract"
 use SelectOption from "./settings-kit.contract"
-use LucideChevronRight from "./settings-icons.contract"
+use CnFolded from "./settings-b-kit.contract"
 use LucideMinus from "./settings-icons.contract"
 use LucidePlus from "./settings-icons.contract"
 
@@ -34,13 +34,17 @@ shape CleanupEntry
   failed: bool
   details: CleanupDetail[]
   size: string
+  // The fold's first line takes its divider from the header (the reference's [&>*+*]:border-t).
+  first: bool
 shape CleanupReport
   id: string
   label: string
   counts: string
   entries: CleanupEntry[]
   omitted: string
+  omittedFirst: bool
   empty: string
+  emptyFirst: bool
 shape DatabaseNotice
   environmentId: string
   title: string
@@ -122,6 +126,8 @@ component StoragePanel
       if data.cleanupReports.length > 0
         CleanupLastRun(summary=data.cleanupSummary, reports=data.cleanupReports)
 
+// FoldedSettingsSection id="storage-cleanup-last-run" (headerPlacement inside): Last run and its summary in the
+// trigger; each machine's results below it.
 component CleanupLastRun
   props
     summary: string
@@ -130,26 +136,21 @@ component CleanupLastRun
   action toggle
     open = not open
   view
-    column width="100%" border-radius="0.875rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" testId="storage-cleanup-last-run"
-      button press=toggle aria-expanded=open width="100%" box-sizing="border-box" padding="1rem" gap="0.75rem" display="flex" align-items="center" background-color="#00000000" border-width=0
-        LucideChevronRight(size=14, color="light-dark(#71717b, #818181)")
-        text "Last run" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-        text summary title=summary flex=1 min-width=0 line-clamp=1 text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" font-variant-numeric="tabular-nums"
-      if open
-        for report in reports key=report.id
-          for entry in report.entries key=entry.id
-            CleanupResultRow(entry=entry)
-          if report.omitted != ""
-            text report.omitted font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)"
-          if report.empty != ""
-            text report.empty font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)"
+    CnFolded(title="Last run", summary=summary, open=open, sectionId="storage-cleanup-last-run", toggle=toggle, hasSwitch=false, switchOn=false, switchLabel="", flip=toggle, busy=false)
+      for report in reports key=report.id
+        for entry in report.entries key=entry.id
+          CleanupResultRow(entry=entry)
+        if report.omitted != ""
+          text report.omitted font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-top-width=(report.omittedFirst ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)"
+        if report.empty != ""
+          text report.empty font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-top-width=(report.emptyFirst ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)"
 
 // CleanupResults' row: the folder, then the reason over a Machine / Project / Folder / Thread list, and what it freed.
 component CleanupResultRow
   props
     entry: CleanupEntry
   view
-    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-width=1 border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" testId=`storage-cleanup-entry-${entry.id}`
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-width=(entry.first ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" testId=`storage-cleanup-entry-${entry.id}`
       column flex=1 min-width=0 gap="0.25rem"
         text entry.name font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" overflow-wrap="anywhere" user-select="text" role="heading" aria-level=3
         column max-width="36rem" gap="0.5rem"

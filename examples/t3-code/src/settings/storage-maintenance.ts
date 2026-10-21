@@ -32,15 +32,15 @@ export function databaseCompactionNotices(environments: readonly { environmentId
     .filter(({ environmentId }) => !dismissed.includes(environmentId))
     .map(({ environmentId, label, reclaimable, command }) => ({ environmentId, title: `${(reclaimable / GIB).toFixed(1)} GiB on ${label}`, command }));
 }
-export const DATABASE_NOTICE_DESCRIPTION = 'Old history is cleaned up automatically, but these databases still hold the freed space. Run the command on each machine to return it to disk; it pauses and restarts the background service. Quit the desktop app first if it hosts the environment.';
 
 export type CleanupDetail = { key: string; label: string; value: string; code: boolean };
-export type CleanupEntry = { id: string; name: string; reason: string; failed: boolean; details: CleanupDetail[]; size: string };
+export type CleanupEntry = { id: string; name: string; reason: string; failed: boolean; details: CleanupDetail[]; size: string; first: boolean };
 /**
  * CleanupResults: each entry named by its folder (a thread's worktree by its last path segment), its reason, then the
- * machine, project, folder and thread it concerns; the files and bytes it freed or would free on the right.
+ * machine, project, folder and thread it concerns; the files and bytes it freed or would free on the right. `leading`:
+ * this report opens the fold, so its first line draws no divider of its own.
  */
-export function cleanupEntries(report: Obj, machine: string): { entries: CleanupEntry[]; omitted: string; empty: string } {
+export function cleanupEntries(report: Obj, machine: string, leading = false): { entries: CleanupEntry[]; omitted: string; omittedFirst: boolean; empty: string; emptyFirst: boolean } {
   const entries = arr(report.entries).map((entry, index): CleanupEntry => {
     const path = typeof entry.path === 'string' ? entry.path : null, projectPath = typeof entry.projectPath === 'string' ? entry.projectPath : null;
     const threadTitle = typeof entry.threadTitle === 'string' ? entry.threadTitle : '';
@@ -54,11 +54,11 @@ export function cleanupEntries(report: Obj, machine: string): { entries: Cleanup
     const sized = entry.outcome === 'removed' || (entry.outcome === 'kept' && freed !== null);
     const size = !sized ? '' : [entry.kind !== 'worktree' && filesCount !== null ? `${filesCount.toLocaleString()} ${filesCount === 1 ? 'file' : 'files'}` : null,
       freed !== null ? formatBytes(freed) : null].filter(Boolean).join(' · ');
-    return { id: `${path ?? str(entry.kind)}:${str(entry.threadId) || index}`, name, reason: str(entry.reason), failed: entry.outcome === 'failed', details, size };
+    return { id: `${path ?? str(entry.kind)}:${str(entry.threadId) || index}`, name, reason: str(entry.reason), failed: entry.outcome === 'failed', details, size, first: leading && index === 0 };
   });
   const omitted = num(report.omittedCount);
-  return { entries, omitted: omitted > 0 ? `${machine}: ${omitted.toLocaleString()} more results.` : '',
-    empty: entries.length === 0 && omitted === 0 ? `${machine}: Nothing needed cleanup.` : '' };
+  return { entries, omitted: omitted > 0 ? `${machine}: ${omitted.toLocaleString()} more results.` : '', omittedFirst: leading && entries.length === 0,
+    empty: entries.length === 0 && omitted === 0 ? `${machine}: Nothing needed cleanup.` : '', emptyFirst: leading && entries.length === 0 };
 }
 export function cleanupHasRules(settings: Obj): boolean {
   const enabled = (rules: Obj) => typeof rules.worktreeAfterDays === 'number' || typeof rules.worktreeSettledAfterDays === 'number' || rules.worktreeOnDelete === true || rules.worktreeOnMerge === true || rules.worktreeUnchanged === true;

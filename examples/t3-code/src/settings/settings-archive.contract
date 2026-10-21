@@ -65,7 +65,7 @@ component ArchivedPanel
               ArchivedRow(thread=thread, busy=(busy or not data.available), menu=(menu == thread.scope), raw=raw, open=open, showMenu=showMenu(thread.scope), close=close, menuFor=menuFor)
 
 // The row's Unarchive button is named by its text, "Unarchive", as the reference's Button (no aria-label); it is
-// Button size="sm" (ArchivedThreadsPanel.tsx at 74541bab17): 28pt tall, 14pt text, the icon 6pt from its label.
+// Button size="sm" (ArchivedThreadsPanel.tsx at 74541bab17): 28pt tall, 14pt text, the icon 4pt from its label (gap-1.5 less the icon's -mx-0.5).
 component ArchivedRow
   props
     thread: ArchiveThreadView

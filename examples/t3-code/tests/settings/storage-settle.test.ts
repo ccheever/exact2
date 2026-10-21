@@ -163,6 +163,22 @@ test('cleanup results name the machine, project, folder and thread of each entry
   expect(cleanupEntries({ entries: [{ ...report.entries[0], projectPath: undefined }], omittedCount: 1234 }, 'Lane Mac')).toMatchObject({ omitted: 'Lane Mac: 1,234 more results.', empty: '' });
   expect(cleanupEntries({ entries: [], omittedCount: 0 }, 'Lane Mac')).toMatchObject({ entries: [], omitted: '', empty: 'Lane Mac: Nothing needed cleanup.' });
   expect([formatBytes(512), formatBytes(10.5 * 1024), formatBytes(150 * 1024 ** 3)]).toEqual(['512 B', '10.5 KB', '150 GB']);
+  // The fold's first line takes its divider from the header: the first report's first entry, or its empty line.
+  expect(cleanupEntries(report, 'Lane Mac', true).entries.map(entry => entry.first)).toEqual([true, false, false, false]);
+  expect(cleanupEntries(report, 'Lane Mac').entries.some(entry => entry.first)).toBe(false);
+  expect(cleanupEntries({ entries: [], omittedCount: 0 }, 'Lane Mac', true)).toMatchObject({ emptyFirst: true, omittedFirst: true });
+});
+
+test('the Last run fold is FoldedSettingsSection: its title and summary in the trigger, a chevron that turns when open', async () => {
+  const source = await Bun.file(appPath('settings-storage.contract')).text();
+  const fold = source.slice(source.indexOf('component CleanupLastRun'), source.indexOf('component CleanupResultRow'));
+  expect(fold).toContain('CnFolded(title="Last run", summary=summary, open=open, sectionId="storage-cleanup-last-run", toggle=toggle');
+  const kit = await Bun.file(appPath('settings-b-kit.contract')).text();
+  const folded = kit.slice(kit.indexOf('component CnFolded'), kit.indexOf('component CnSelect'));
+  // The title never shrinks away and the summary truncates after it (FoldedSettingsSection's shrink-0 / min-w-0 truncate).
+  expect(folded).toContain('text title font-size="0.875rem" line-height="1.25rem" font-weight=500 flex-shrink=0');
+  expect(folded).toContain('text summary font-size="0.75rem" line-height="1rem" min-width=0 line-clamp=1');
+  expect(folded).toContain('CnGlyph(name=(open ? "chevron-down" : "chevron-right")');
 });
 
 
