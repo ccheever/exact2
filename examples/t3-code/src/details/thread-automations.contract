@@ -1,4 +1,4 @@
-// ThreadAutomationsPanel (MIT reference, see LICENSE-T3; T3 Code 1e2ecbd975:
+// ThreadAutomationsPanel (MIT reference, see LICENSE-T3; T3 Code 74541bab17:
 // components/chat/ThreadAutomationsPanel.tsx in ThreadDetailsSection): the 11pt "Automations"
 // heading with its "Manage scheduled tasks" icon button, the load error, and one row per task
 // bound to the thread: CalendarClock with its status dot (never muted, running sky and
@@ -73,6 +73,22 @@ component AutomationButton
     button id=testKey press=pressed hover=hover focus=show(true) blur=show(false) disabled=disabled aria-label=label testId=testKey width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-width=0 border-radius="0.5rem" background-color=(hovered and not disabled ? "light-dark(#0000000e, #ffffff13)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       AutomationGlyph(name=icon, size=14, color="light-dark(#71717b, #818181)")
 
+// The task's title and schedule line, truncated; hovering them shows both in full in a Tooltip (side left, Base UI's
+// 600 ms), drawn by the window's hover layer as AutomationButton's are. Agent mode hovers it with `tap <testKey> hover`.
+component AutomationSummary
+  inject
+    rem: number
+    hoverTipAt: action
+  props
+    task: AutomationRowView
+  derive testKey = `details-automation-summary-${task.id}`
+  action hover(over: bool)
+    hoverTipAt(hoverTipAtFrame(testKey, "tooltip", task.title, [task.line], "left", "center", frame(testKey), 20.25 * rem, `${testKey}-tooltip`), "trigger", over)
+  view
+    column id=testKey hover=hover flex=1 min-width=0 gap=0 testId=testKey
+      text task.title white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId=`details-automation-title-${task.id}`
+      text task.line white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b, #818181)" testId=`details-automation-line-${task.id}`
+
 component ThreadAutomationsSection
   props
     automations: AutomationsView
@@ -91,9 +107,7 @@ component ThreadAutomationsSection
             box position="relative" width="1rem" height="1rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
               AutomationGlyph(name="calendar-clock", size=16, color="light-dark(#71717b, #818181)")
               box position="absolute" right="-0.25rem" top="-0.25rem" width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color=(task.status == "running" ? "#00a6f4" : task.status == "succeeded" ? "#00bc7d" : task.status == "failed" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b66, #81818166)") animation=(task.status == "running" and not still ? "taPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite" : "none") aria-hidden=true testId=`details-automation-dot-${task.id}`
-            column flex=1 min-width=0 gap=0
-              text task.title white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId=`details-automation-title-${task.id}`
-              text task.line white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b, #818181)" testId=`details-automation-line-${task.id}`
+            AutomationSummary(task=task)
             AutomationButton(icon="pencil", label=task.editLabel, tip="Edit automation", align="center", disabled=false, testKey=`details-automation-edit-${task.id}`, press=act("ui:scheduled-tasks", task.id, automations.environmentId))
             AutomationButton(icon="play", label=task.runLabel, tip="Run now", align="center", disabled=task.runDisabled, testKey=`details-automation-run-${task.id}`, press=act("shell:automation-run", task.id, automations.environmentId))
             SettingsSwitch(checked=task.enabled, label=task.switchLabel, disabled=task.switchDisabled, switchId=`details-automation-switch-${task.id}`, toggle=act("shell:automation-toggle", task.id, `${automations.environmentId}|${task.enabled ? "false" : "true"}`))

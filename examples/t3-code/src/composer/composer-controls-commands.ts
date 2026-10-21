@@ -9,6 +9,7 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { visiblePullRequests } from '../panel/shell-pr';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
+import { wokeAt as sidebarWokeAt } from '../sidebar/sidebar-model';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
 import { branchMenu, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
 import { attachIncoming, type IncomingFiles } from './composer-controls-attach';
@@ -77,17 +78,9 @@ export function lockedProviderReason(client: T3Client, providerId: string): stri
 // ── Woke acknowledgment ────────────────────────────────────────────────────
 
 const prefs = (client: T3Client): ComposerControlsPrefs => client.local.composerControls;
-/** threadWokeAt for an unsnoozed timer wake or an early raised hand (threadSettled.ts). */
+/** threadWokeAt for an unsnoozed timer wake or an early raised hand, as the sidebar computes it (threadSettled.ts). */
 export function wokeAt(shell: Obj, now: number): string {
-  const until = Date.parse(str(shell.snoozedUntil));
-  if (!str(shell.snoozedUntil) || !Number.isFinite(until)) return '';
-  const run = obj(shell.latestRun), snoozedAt = Date.parse(str(shell.snoozedAt));
-  const failed = ['error', 'failed'].includes(str(obj(shell.runtime ?? shell.session).status))
-    && (!Number.isFinite(snoozedAt) || Date.parse(str(obj(shell.runtime ?? shell.session).updatedAt)) > snoozedAt);
-  const completedAfter = Number.isFinite(snoozedAt) && run.status === 'completed' && Date.parse(str(run.completedAt)) > snoozedAt;
-  const raised = !!shell.pendingRuntimeRequest || shell.hasPendingApprovals === true || shell.hasPendingUserInput === true || failed || completedAfter;
-  if (raised) return completedAfter ? str(run.completedAt) : str(obj(shell.runtime ?? shell.session).updatedAt) || str(shell.snoozedAt);
-  return until <= now ? str(shell.snoozedUntil) : '';
+  return sidebarWokeAt(shell, now) ?? '';
 }
 /**
  * useAcknowledgeThreadWoke: a visit at the wake time clears Woke. Servers with

@@ -29,7 +29,7 @@ final class T3Notifications: NSObject, UNUserNotificationCenterDelegate {
     private(set) var opened = ""
     private(set) var openedThread = ""
     private var openedSeq = 0
-    private var sound: NSSound?
+    private var sounds: [String: NSSound] = [:]
     private lazy var center: UNUserNotificationCenter? = Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
 
     init(agent: Bool, changed: @escaping (String) -> Void) {
@@ -85,9 +85,13 @@ final class T3Notifications: NSObject, UNUserNotificationCenterDelegate {
         return candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) })
     }
 
-    private func play(_ kind: String) -> Bool {
+    /// Threads that finish together each ask for their sound; one playback stands for the burst, as the reference's
+    /// `playingUntil` keeps full-volume copies from summing into clipping. Each kind keeps its own slot, so an input
+    /// alert is still heard over a completion.
+    func play(_ kind: String) -> Bool {
+        if sounds[kind]?.isPlaying == true { return false }
         guard let path = Self.soundURL(kind), let next = NSSound(contentsOf: path, byReference: false) else { return false }
-        sound?.stop(); sound = next
+        sounds[kind] = next
         return next.play()
     }
 

@@ -5,7 +5,7 @@ import XCTest
 // in a bundle-less test binary: no notification center exists here, so the
 // module reports "unavailable" and never asks for permission. Covers the
 // module requests, the Dock badge of pending posts and its clearing on focus,
-// a clicked notification's open request, and the two sound files.
+// a clicked notification's open request, the two sound files and one playback per kind in a burst.
 final class T3NotificationsTests: XCTestCase {
     func request(_ module: T3Notifications, _ body: [String: Any]) -> [String: Any] {
         var response: [String: Any] = [:]
@@ -80,6 +80,18 @@ final class T3NotificationsTests: XCTestCase {
         if let url = T3Notifications.soundURL("completion", assets: app, resources: nil) {
             XCTAssertNotNil(NSSound(contentsOf: url, byReference: false), "the completion sound decodes")
         }
+    }
+}
+
+extension T3NotificationsTests {
+    /// Threads finishing together play their sound once; an input alert still plays over a completion.
+    func testABurstPlaysOneSoundPerKind() {
+        _ = NSApplication.shared
+        let module = T3Notifications(agent: true) { _ in }
+        XCTAssertTrue(module.play("completion"))
+        XCTAssertFalse(module.play("completion"), "a second completion while the first plays stands in the same burst")
+        XCTAssertTrue(module.play("input"), "the other kind keeps its own slot")
+        module.destroy()
     }
 }
 

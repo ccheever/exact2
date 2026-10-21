@@ -61,8 +61,8 @@ describe('shortcutModifierState', () => {
 
 const root = contractComponent('app.contract', 'T3Code');
 const window = contractComponent('src/shell/app-window.contract', 'T3Window');
-const scope = (): Env => ({ ...fns, ShortcutModifierState: (record: State) => record });
-const rootState = (): Env => ({ shortcutModifiers: emptyState(), speedModifierState: emptyState(), threadJumpHintsShown: false });
+const scope = (): Env => ({ ...fns, ShortcutModifierState: (record: State) => record, releaseUndoClaim: () => {} });
+const rootState = (): Env => ({ shortcutModifiers: emptyState(), speedModifierState: emptyState(), threadJumpHintsShown: false, undoHeldKey: '' });
 
 describe('the window tracks held modifiers from its key events', () => {
   test('Shift alone at a row is speed mode until it comes up; ⌘ joining ends it', () => {
