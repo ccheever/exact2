@@ -12,8 +12,8 @@
      - Shape: 8 px corners on a control, 12 px on a surface that floats or groups, 4 px on a mark.
      - Size: a control is 36 px tall at the body size, and 44 px on a touch device (`any-pointer: coarse`: any
        coarse input, normally a touch screen, whichever pointer it uses now, so nothing resizes as a mouse comes or
-       goes); a checkbox, a radio and a switch are the line's height (20 px), and a checkbox or a radio 24 px on a
-       touch device.
+       goes), except a mini or small button, which keeps its own height there as UIKit's does; a checkbox, a radio
+       and a switch are the line's height (20 px), and a checkbox or a radio 24 px on a touch device.
      - Elevation has three steps: a bar or a card is flat, with a 1 px line; a menu or popover is raised, a line and
        a short shadow; a dialog or a sheet's card is modal, a line and a long shadow over a 40% scrim.
      - Emphasis is a fill, never a weight: filled, tinted, gray, bordered (the unsaid button, an outline), plain.
@@ -48,7 +48,10 @@
      or a grey button takes red ink. */
   #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
   #exact-root button[data-button-style]:has(> img:only-child):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
-  @media (any-pointer: coarse) { #exact-root button[data-button-style] { min-height: 44px; min-width: 44px; } }
+  /* A mini or small button writes `--exact-touch-floor: 0px` (LLP 1069.011.001 D8), so on a touch device it keeps the
+     floor it has under a mouse, as UIKit's does. The look takes that answer on Android too, where Material keeps a
+     48 dp target; at a 16 px root the button is 32 px, which meets WCAG 2.5.8's 24 px minimum. */
+  @media (any-pointer: coarse) { #exact-root button[data-button-style] { min-height: max(2.25em, var(--exact-touch-floor, 44px)); min-width: max(2.25em, var(--exact-touch-floor, 44px)); } }
   /* The floor and the padding are the look's, and a size the author wrote is the author's (LLP 1115: what is written
      wins). In CSS a minimum outranks a size, and a border box is never narrower than its padding, so the host names a
      written `width` or `height` (`data-exact-said`, D2's bit) and on that axis the look steps aside: the minimum is

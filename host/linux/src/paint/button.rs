@@ -16,9 +16,9 @@ pub(crate) fn look(name: &str) -> &'static str {
 
 /// The neutral look's button type (LLP 1115.000 D17), as the page's sheet
 /// sets it: the size the button inherits, or the one its `controlSize`
-/// names (CSS's `x-small`, `small`, `medium` and `large`, which is what a
-/// page writes for it), at weight 500 on a line 1.25 of it. A size or weight
-/// the author wrote is theirs.
+/// names (what a page writes for it at a 16 px root: the subheadline's 14
+/// for mini and small, the body's 16 for medium, 18 for large), at weight
+/// 500 on a line 1.25 of it. A size or weight the author wrote is theirs.
 fn neutral_typography(style: &StyleProps, size: Option<f32>) -> StyleProps {
     let mut out = style.clone();
     out.font_family = 0;
@@ -165,8 +165,7 @@ fn face_layout(
             .mask
             .has(StyleId::ControlSize)
             .then_some(match rows.button.control_size {
-                ControlSize::Mini => 10.0,
-                ControlSize::Small => 13.0,
+                ControlSize::Mini | ControlSize::Small => 14.0,
                 ControlSize::Medium => 16.0,
                 ControlSize::Large => 18.0,
             });

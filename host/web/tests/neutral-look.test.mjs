@@ -168,6 +168,9 @@ const fixture = `
     <button type="button" data-native data-button-style="filled" id="filled" style="display:grid"><span data-exact-text>Button</span></button>
     <button type="button" data-native data-button-style="gray" id="gray" style="display:grid"><span data-exact-text>Button</span></button>
     <button type="button" data-native data-button-style="plain" id="plain" style="display:grid"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="borderless" id="borderless" style="display:grid"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="plain" id="plain-paint" style="display:grid;--exact-press-opacity-to:.5"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="plain" id="plain-scale" style="display:grid;--exact-press:.9"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="plain" disabled id="plain-off" style="display:grid"><span data-exact-text>Manage</span></button>
+    <button type="button" data-native data-button-style="gray" id="small" style="display:grid;--exact-control-font-size:0.875rem;--exact-touch-floor:0px"><span data-exact-text>Small</span></button>
+    <button type="button" data-native data-button-style="gray" id="medium" style="display:grid;--exact-control-font-size:1rem"><span data-exact-text>Medium</span></button>
+    <button type="button" data-native data-button-style="gray" id="large" style="display:grid;--exact-control-font-size:1.125rem"><span data-exact-text>Large</span></button>
     <button type="button" data-native data-button-style="bordered" data-destructive="true" id="destructive" style="display:grid"><span data-exact-text>Delete</span></button>
     <button type="button" data-native data-button-style="filled" disabled id="disabled" style="display:grid"><span data-exact-text>Button</span></button>
     <div style="accent-color:rgb(255, 221, 0);--exact-accent:rgb(255, 221, 0)"><button type="button" data-native data-button-style="filled" id="authored" style="display:grid"><span data-exact-text>Button</span></button></div>
@@ -228,6 +231,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
         page: [color('exact-root'), rgba(getComputedStyle(document.documentElement).backgroundColor)],
         bordered: [color('bordered'), color('bordered', 'backgroundColor'), color('bordered', 'borderTopColor'), css('bordered', 'borderTopWidth'), box('bordered')[3]],
         gray: [color('gray'), css('gray', 'borderTopStyle'), box('gray')[3]],
+        small: [css('small', 'fontSize'), Math.round(box('small')[3])],
         destructive: color('destructive'),
         accent: [color('filled', 'backgroundColor'), color('filled'), color('tab')],
         authored: [color('authored', 'backgroundColor'), color('authored')],
@@ -249,6 +253,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // The unsaid button: an outline in the label's ink, whatever the page's `color`; 36 px.
       expect([at('bordered'), got.bordered]).toEqual([at('bordered'), [INK[scheme], [0, 0, 0, 0], LINE[scheme], '1px', 36]]);
       expect([at('gray'), got.gray]).toEqual([at('gray'), [INK[scheme], 'solid', 36]]);
+      // A small control: the subheadline's 14 px on a 31.75 px box (Firefox's is 31.77: it lays out in 60ths of a
+      // pixel). The fixture writes css.rs's properties inline, so this checks the sheet; css_tests.rs checks the mapping.
+      expect([at('small'), got.small]).toEqual([at('small'), ['14px', 32]]);
       expect([at('destructive'), got.destructive]).toEqual([at('destructive'), RED[scheme]]);
       // The accent is the browser's hue, so its numbers are each engine's own; what holds in all of them is that it
       // reads as text on the page (a selected tab's label) and that the ink on a fill of it reads.
@@ -425,11 +432,15 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', '12px', SURFACE[scheme], 178, 178, true, false]]);
       await context.close();
     }
-    // A touch device: a control is 44 px. (A narrow window's sheet is below.)
+    // A touch device: a control is 44 px, but for a small one, which keeps its own box as UIKit's does. (A narrow
+    // window's sheet is below.)
     const narrow = await browser.newContext({ viewport: { width: 390, height: 700 }, hasTouch: true, ...(engine === 'chromium' ? { isMobile: true } : {}) });
     const page = await narrow.newPage();
     await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>${sheet()}</style>${fixture}<script>${helpers}</script>`);
-    expect([engine, await page.evaluate(() => [matchMedia('(any-pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3], box('check')[3]])]).toEqual([engine, [true, 44, 44, 44, 24]]);
+    expect([engine, await page.evaluate(() => [matchMedia('(any-pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3], box('check')[3], Math.round(box('small')[3]), css('small', 'minWidth')])]).toEqual([engine, [true, 44, 44, 44, 24, 32, '31.5px']]);
+    // A control size's title follows the root as a text style does, so small, medium and large keep their order at a
+    // root the app (`setRootFontSize`) or the agent (`prefer root-font-size`) sets.
+    expect([engine, await page.evaluate(() => { document.documentElement.style.fontSize = '24px'; return ['small', 'medium', 'large'].map((id) => css(id, 'fontSize')); })]).toEqual([engine, ['21px', '24px', '27px']]);
   } finally { await browser.close(); }
 }, 90000);
 
