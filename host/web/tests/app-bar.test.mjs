@@ -1,7 +1,7 @@
 // LLP 1116.000 D4 in a real browser: a default build's stylesheet and the
 // navigation glue's projection (navigation.js, which both web targets run)
 // over nodes as the hosts write them. A pushed route's app bar draws Back,
-// in the bar's own ink (a route above its stack's root, not a sheet), for the
+// in the app's accent (a route above its stack's root, not a sheet), for the
 // root's `navigationBack` control, which a header holding it does not show, and a block `link` of
 // text is in the accent with the pointing hand while an authored colour, a
 // row inside it, a `role` or a `buttonStyle` keeps the author's look. The
@@ -109,8 +109,8 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
   expect(await evaluate(`const busy = document.getElementById('exact-root'); busy.setAttribute('aria-busy', 'true'); document.querySelector('#r3 #back').disabled = true; select('2'); const n = backs().length; busy.removeAttribute('aria-busy'); document.querySelector('#r3 #back').disabled = false; n`)).toBe(4);
   // The renderer's children stay its own: the button is the header's shadow root's, before its slot, at the leading edge.
   expect(await evaluate(`[document.querySelector('#r2 > header').children.length, document.querySelector('#r2 > header').shadowRoot.querySelector('button').getBoundingClientRect().right <= document.getElementById('title2').getBoundingClientRect().left]`)).toEqual([1, true]);
-  // It is one of the bar's buttons, so in the bar's ink, the label's (LLP 1116 D1's look drew it in the accent, as UIKit does).
-  expect(await evaluate(`[getComputedStyle(document.querySelector('#r2 > header').shadowRoot.querySelector('button')).color === getComputedStyle(document.getElementById('ink')).color, getComputedStyle(document.getElementById('ink')).color === getComputedStyle(document.getElementById('links')).color]`)).toEqual([true, false]);
+  // It is in the app's accent, not the bar's label ink, as UIKit tints its Back.
+  expect(await evaluate(`[getComputedStyle(document.querySelector('#r2 > header').shadowRoot.querySelector('button')).color === getComputedStyle(document.getElementById('accent')).color, getComputedStyle(document.getElementById('accent')).color === getComputedStyle(document.getElementById('ink')).color]`)).toEqual([true, false]);
 
   // Keyboard: the first Tab stop of the shown route; Enter goes back (the runner's own, with no entry beneath known).
   await evaluate('document.activeElement.blur()');
