@@ -46,6 +46,7 @@ export function menuProbes(traits: Trait[], runtimes: Runtime[], runOn: string[]
   if (traits.some(item => item.isDefault)) list.push(probe('Default', 10, 500));
   for (const option of runtimes) list.push(probe(option.label, 14, 500), probe(option.description, 12, 400));
   if (runOn.length) for (const text of ['Run on', 'Workspace']) list.push(probe(text, 12, 500));
+  if (runOn.length) list.push(probe(ADD_TO_MACHINE, 14, 400));
   for (const text of runOn) list.push(probe(text, 14, 400));
   return uniqueProbes(list);
 }
@@ -76,14 +77,18 @@ export function runtimeMenuWidth(presentation: Obj, runtimes: Runtime[], viewpor
   return cap(Math.max(MENU_MIN, content + ITEM + CHROME), viewport);
 }
 
+export const ADD_TO_MACHINE = 'Add to another machine';
 /**
  * MobileRunContextSelector with its "Run on" group: rows are a 12pt icon (its
  * -2pt margins), 6pt and the label; the group labels and the Workspace rows
  * ("Current checkout" / "Current worktree", "New worktree") join the widest.
  */
-export function runOnMenuWidth(presentation: Obj, labels: string[], workspace: string[], viewport = 0): number {
+export function runOnMenuWidth(presentation: Obj, labels: string[], workspace: string[], viewport = 0, addRow = false): number {
   let content = Math.max(measured(presentation, 'Run on', 12, 500), measured(presentation, 'Workspace', 12, 500));
   for (const label of [...labels, ...workspace]) content = Math.max(content, 8 + 6 + measured(presentation, label, 14, 400));
+  // "Add to another machine" (AddMachineSubmenu): the 12pt plus, 6pt, the label, 6pt and MenuSubTrigger's 16pt chevron,
+  // with 4pt to spare for the label's rounding.
+  if (addRow) content = Math.max(content, 12 + 6 + measured(presentation, ADD_TO_MACHINE, 14, 400) + 6 + 16 + 4);
   return cap(Math.max(MENU_MIN, content + ITEM + CHROME), viewport);
 }
 

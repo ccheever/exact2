@@ -17,6 +17,7 @@ import { runSshOp, sshTargets, formatSshTarget, SSH_OPS, type SshTarget } from '
 import type { T3Client } from '../client/client';
 import { forgetProbes, jobFor, outdatedRow, pairOutdated, probeDescriptors, probedDescriptor, readJobs, startOutdatedUpdate } from './settings-b-outdated';
 import { runOnEnvironment } from '../details/git-env';
+import { submitAddMachine } from '../shell/add-project-dialog';
 import { balanceSources, balanceSubtitle } from './machine-list';
 import { environmentRows } from './environment-list';
 import { withStandardScope } from './remote-scopes';
@@ -347,6 +348,8 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
   }
   // "Run on" moves a draft to another connected environment (git-env.ts).
   if (op === 'environment-run-on') { if (!client) throw new ClientError('Open a draft first.'); return runOnEnvironment(client, native, value); }
+  // "Add to another machine" clones the project there and moves the window to it (add-project-dialog.ts).
+  if (op === 'add-machine-submit') { if (!client) throw new ClientError('Open a project first.'); return submitAddMachine(client, native); }
   if (op === 'environment-add' || op === 'welcome-pair') {
     const host = id.trim(), code = value.trim();
     const welcome = op === 'welcome-pair';
@@ -585,7 +588,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
   throw new ClientError(`Unknown action: ${op}`);
 }
 export const CONNECTION_OPS = ['environment-add', 'welcome-pair', 'environment-switch', 'environment-enabled', 'environment-forget', 'environment-trace', 'environment-icon',
-  'environment-update', 'environment-update-outdated', 'environment-update-all', 'environment-ssh-add', 'environment-ssh-pick', 'load-balancing', 'load-weight', 'github-routing', 'environment-run-on',
+  'environment-update', 'environment-update-outdated', 'environment-update-all', 'environment-ssh-add', 'environment-ssh-pick', 'load-balancing', 'load-weight', 'github-routing', 'environment-run-on', 'add-machine-submit',
   'environment-route-add', 'environment-route-move', 'environment-route-remove', 'local-environment',
   // connections-network.ts NETWORK_OPS (spelled out: the two modules import each other)
   'network-access', 'tailscale-serve', 'endpoint-default', 'pairing-create', 'pairing-revoke', 'client-revoke', 'clients-revoke-others', 'pairing-copy', 'pairing-reveal-close'];

@@ -88,7 +88,7 @@ describe('one Run on and Workspace keyboard order', () => {
   const source = Bun.file(appPath('composer-controls.contract')).text();
   const item = (id: string, label: string) => ({ id, label });
   const primary = item('primary', 'This Mac'), remote = item('remote', 'Studio'), auto = item('auto', 'Auto balance');
-  const base = { envOptions: [primary, remote], gitless: false, forceWorktree: false, previous: true, envIcon: 'folder' };
+  const base = { envOptions: [primary, remote], envAdd: [] as { id: string; label: string }[], gitless: false, forceWorktree: false, previous: true, envIcon: 'folder' };
   const derive = async (name: string, scope: Record<string, unknown>) => {
     const { value } = await import('../support/contract-action-fixture');
     const expression = new RegExp(`^  derive ${name} = (.+)$`, 'm').exec(await source)?.[1];
@@ -107,6 +107,9 @@ describe('one Run on and Workspace keyboard order', () => {
     expect(await items({ ...base, envOptions: [auto, primary, remote], gitless: true })).toEqual([
       item('run-on-auto', 'Auto balance'), item('run-on-primary', 'This Mac'), item('run-on-remote', 'Studio')]);
     expect(await items({ ...base, envOptions: [], gitless: true })).toEqual([]);
+    // "Add to another machine" follows the Run on rows (74541bab17).
+    expect(await items({ ...base, envOptions: [primary], envAdd: [remote], previous: false })).toEqual([item('run-on-primary', 'This Mac'),
+      item('run-on-add', 'Add to another machine'), item('workspace-local', 'Current checkout'), item('workspace-worktree', 'New worktree')]);
   });
 
   test('arrows wrap both ends, Home/End and typeahead follow hover, and a new session forgets the old row', async () => {
@@ -121,7 +124,7 @@ describe('one Run on and Workspace keyboard order', () => {
     let workspaceItems = await items(base);
     const calls: unknown[][] = [];
     let focused = 'composer-menu';
-    const scope = async () => ({ which: 'workspace', session: 7, workspaceItems, kmTarget, kmReturn,
+    const scope = async () => ({ which: 'workspace', session: 7, workspaceItems, kmTarget, kmReturn, branches: base,
       workspaceCurrent: await derive('workspaceCurrent', { ...state, session: 7 }),
       focus: (id: string) => { calls.push(['focus', id]); focused = id; },
       preventDefault: () => calls.push(['prevent']), stopPropagation: () => calls.push(['stop']) });
@@ -168,9 +171,15 @@ describe('one Run on and Workspace keyboard order', () => {
   test('disabled and absent rows cannot be hovered or keyed, and branch focus still reaches its dialog owner', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
     const component = contractComponent('composer-controls.contract', 'ComposerMenus'), state = component.state(), calls: unknown[][] = [];
-    component.call('workspaceHover', state, { workspaceItems: await items({ ...base, forceWorktree: true }), workspaceCurrent: '',
+    component.call('workspaceHover', state, { workspaceItems: await items({ ...base, forceWorktree: true }), workspaceCurrent: '', branches: base,
       focus: (id: string) => calls.push(['focus', id]) }, ['workspace-local', true]);
     expect(calls).toEqual([]);
+    // A sibling row taking the pointer closes "Add to another machine"'s submenu (74541bab17).
+    const adding = { ...base, envOptions: [primary], envAdd: [remote] };
+    component.call('workspaceHover', state, { workspaceItems: await items(adding), workspaceCurrent: '', branches: adding,
+      focus: (id: string) => calls.push(['focus', id]), hidePopover: (id: string) => calls.push(['hide', id]) }, ['workspace-local', true]);
+    expect(calls).toEqual([['hide', 'run-on-add-menu'], ['focus', 'workspace-local']]);
+    calls.length = 0;
     const event = { target: 'branch-search' };
     component.call('menuEntered', state, { which: 'branch', dialogMenuEntered: (...args: unknown[]) => calls.push(args) }, [event]);
     expect(calls).toEqual([['composer-menu', 'branch-selector', event]]);
