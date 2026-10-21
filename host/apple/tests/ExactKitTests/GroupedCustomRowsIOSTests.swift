@@ -5,10 +5,8 @@ import XCTest
 @testable import ExactGroupedLists
 
 /// A custom grouped row, its views carried into a list cell, drawn as a
-/// standard cell beside it is (Harmony, 2026-10-21: a row with a badge
-/// before its chevron was custom, its symbol a fifth smaller than the
-/// standard row's and its line running from the card's edge). UIKit, so a
-/// simulator runs it.
+/// standard cell beside it is (Harmony, 2026-10-21). UIKit, so a simulator
+/// runs it.
 final class GroupedCustomRowsIOSTests: GroupedListFixture {
     /// A custom row first, a standard row of the same symbol after it.
     func customFirst() -> GroupedListModel {
@@ -26,7 +24,7 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         // The kernel's boxes for a row of a leading symbol (the sheet's 24 by
         // 20, 16 in), its content inset 56 past it, spanning its card.
         p.apply(wireBatch([
-            ["op": "create", "id": 30, "kind": "image", "props": ["imageSource": "symbol:person", "symbolName": "person.circle"], "style": ["font_size": 17.0]],
+            ["op": "create", "id": 30, "kind": "image", "props": ["imageSource": "symbol:person", "symbolName": "person.circle"], "style": ["font_size": 17.0, "object_fit": "contain"]],
             ["op": "create", "id": 31, "kind": "image", "props": ["imageSource": "symbol:forward-chevron", "symbolName": "chevron.forward"], "style": ["font_size": 17.0]],
             ["op": "children", "id": 21, "ids": [30, 31]],
             ["op": "frame", "id": 21, "x": 0.0, "y": 0.0, "w": 370.0, "h": 61.0],
@@ -35,8 +33,10 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         ]))
         let row = try XCTUnwrap(p.views[21]), leaf = try XCTUnwrap(p.views[30])
         row.kernelContentBox = CGRect(x: 56, y: 0, width: 298, height: 61)
+        // The next batch carries the row again, which notes its line and lays
+        // the list out again for it.
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "custom"]]]))
         let l = try list(p)
-        l.collection.collectionViewLayout.invalidateLayout()
         l.collection.layoutIfNeeded()
         let custom = try cell(p, 21), standard = try cell(p, 10)
         XCTAssertTrue(row.superview === custom.contentView)
@@ -66,6 +66,34 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         let theirLine = try XCTUnwrap(under(standard), "a line under the standard row")
         XCTAssertEqual(mine.minX, 56, accuracy: 0.5, "under its content")
         XCTAssertEqual(mine.minX, theirLine.minX, accuracy: 0.5, "as the standard row's")
+        // Its content moves in a batch that keeps its height: the line follows.
+        row.kernelContentBox = CGRect(x: 16, y: 0, width: 338, height: 61)
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "moved"]]]))
+        l.collection.layoutIfNeeded()
+        let moved = lines(l.collection).map { $0.convert($0.bounds, to: l.collection) }
+        let frame = custom.convert(custom.bounds, to: l.collection)
+        let line = try XCTUnwrap(moved.first { abs($0.maxY - frame.maxY) < 1.5 })
+        XCTAssertEqual(line.minX - frame.minX, 16, accuracy: 0.5, "the line where the content now starts")
+    }
+
+    /// An image its author sized or fitted is left as laid out, and a mark
+    /// goes with the list.
+    func testAnAuthoredImageIsLeftAsLaidOutAndAMarkGoesWithTheList() throws {
+        let p = presenter { self.customFirst() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "image", "props": ["imageSource": "symbol:person", "symbolName": "person.circle"], "style": ["font_size": 17.0, "object_fit": "cover"]],
+            ["op": "children", "id": 21, "ids": [30]],
+            ["op": "frame", "id": 30, "x": 16.0, "y": 20.5, "w": 24.0, "h": 20.0],
+        ]))
+        let image = try XCTUnwrap(p.views[30])
+        XCTAssertFalse(image.listSymbol, "its author's fit")
+        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]],
+                           ["op": "frame", "id": 30, "x": 16.0, "y": 14.0, "w": 32.0, "h": 32.0]]))
+        XCTAssertFalse(image.listSymbol, "its author's size")
+        p.apply(wireBatch([["op": "frame", "id": 30, "x": 16.0, "y": 20.5, "w": 24.0, "h": 20.0]]))
+        XCTAssertTrue(image.listSymbol, "the sheet's slot")
+        host(p).lists[1]?.remove()
+        XCTAssertFalse(image.listSymbol, "gone with the list")
     }
 }
 #endif

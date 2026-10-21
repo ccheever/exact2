@@ -480,7 +480,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// The row whose switch's action is running.
     private var flipping: UInt32?
     /// A custom cell's height changed since the list was last laid out.
-    private var resized = false
+    var resized = false
     /// How far the collection reaches past the list's box at its left and
     /// right: over the window's side safe area where the list's edge meets
     /// it, as a hand-built list spans the screen (iPhone landscape).
@@ -499,6 +499,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// height, so never configures it again to learn the row's later size:
     /// once the row has one, `remeasure` has UIKit measure it anew.
     private var unsized: Set<UInt32> = []
+    /// Each custom row's marked leading symbol and line start (`GroupedCustomRowsIOS.swift`).
+    var customLooks: [UInt32: CustomLook] = [:]
     #if os(iOS)
     /// The list's background past the viewport's edges (`hem`), and the
     /// list's colours it was painted from.
@@ -603,7 +605,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
                 }
                 if owned(path.item) { separator.bottomSeparatorVisibility = .hidden }
                 if owned(path.item - 1) { separator.topSeparatorVisibility = .hidden }
-                if path.item < rows.count, rows[path.item].custom, let x = self?.separatorLeading(rows[path.item].view) { separator.bottomSeparatorInsets.leading = x }
+                if path.item + 1 < rows.count, rows[path.item].custom, let x = self?.customLooks[rows[path.item].view]?.line { separator.bottomSeparatorInsets.leading = x }
                 return separator
             }
             #endif
@@ -1039,6 +1041,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             return
         }
         for case let carried as NodeView in cell.contentView.subviews { carried.removeFromSuperview() }
+        forgetLook(id)
         cell.height = nil
         var c: UIListContentConfiguration = row.subtitle ? .subtitleCell() : row.secondary != nil ? .valueCell() : .cell()
         c.image = row.symbol.flatMap { FaceSymbol.image($0, points: GroupedCell.pathPoints(cell.traitCollection)) }
@@ -1232,7 +1235,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
-        markLeadingSymbol(row)
+        look(id, row: row)
         // At its layout x on the cell's grid, at the size it is drawn at
         // home. Its children keep their places in it: carried and put back
         // in every batch, a row placed afresh in the cell would place them
@@ -1291,6 +1294,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func remove() {
         restore()
+        for id in Array(customLooks.keys) { forgetLook(id) }
         owner.mountNativeScrollView(nil)
         #if os(iOS)
         skirt?.removeFromSuperview()

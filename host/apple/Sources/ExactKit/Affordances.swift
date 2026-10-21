@@ -61,10 +61,6 @@ extension NodeView {
         #endif
     }
 
-    /// What the symbol's look reads from its style, for the image's key: a
-    /// change makes it again. Its colours are resolved into the
-    /// configuration, so every trait they resolve by is here too, and the
-    /// system colours' generation (LLP 1095 D5).
     /// Whether it is drawn as a list cell's image (iOS's custom grouped row).
     var drawsListSymbol: Bool {
         #if os(iOS) || os(tvOS)
@@ -73,6 +69,10 @@ extension NodeView {
         false
         #endif
     }
+    /// What the symbol's look reads from its style, for the image's key: a
+    /// change makes it again. Its colours are resolved into the
+    /// configuration, so every trait they resolve by is here too, and the
+    /// system colours' generation (LLP 1095 D5).
     var symbolLookKey: String {
         [style["symbol_rendering"]?.string ?? "", (style["symbol_palette"] ?? .null).key,
          "\(number("symbol_value", -1))", (style["tint_color"] ?? .null).key, "\(drawsDark)",
