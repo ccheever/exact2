@@ -32,6 +32,16 @@ describe('provider update pill (getProviderUpdateSidebarPillView)', () => {
     expect(providerPillView([provider('codex', { status: 'succeeded', finishedAt: '2026-10-04T10:07:00.000Z' })], '2026-10-04T10:00:00.000Z', new Set()))
       .toMatchObject({ tone: 'success', title: 'Codex updated: v0.160.0', description: 'New sessions will use the updated provider.', dismissAfterMs: SUCCESS_VISIBLE_MS });
   });
+  test('an update on a non-default instance shows (upstream #14745)', () => {
+    const work = (update: Obj, extra: Obj = {}) => provider('claudeAgent', update, { instanceId: 'claude_work', ...extra });
+    expect(providerPillView([provider('claudeAgent', null), work({ status: 'running', finishedAt: null })], undefined, new Set()))
+      .toMatchObject({ key: 'loading:claudeAgent:running', tone: 'loading', title: 'Updating Claude', description: 'Claude update in progress.' });
+    // The latest terminal outcome across a driver's instances leads, not the default instance's older one.
+    const failed = provider('claudeAgent', { status: 'failed', finishedAt: '2026-10-04T10:00:30.000Z', message: 'Update command exited with code 1.' });
+    const succeeded = work({ status: 'succeeded', finishedAt: '2026-10-04T10:01:00.000Z', message: 'Provider updated.' }, { version: '1.1.0' });
+    expect(providerPillView([failed, succeeded], '2026-10-04T10:00:00.000Z', new Set()))
+      .toMatchObject({ key: 'succeeded:claudeAgent:2026-10-04T10:01:00.000Z:Provider updated.', tone: 'success', title: 'Claude updated: v1.1.0' });
+  });
   test('outcomes from before the window first looked never show; no update, no pill', () => {
     expect(providerPillView([provider('codex', { status: 'failed', finishedAt: '2026-10-04T09:00:00.000Z' })], '2026-10-04T10:00:00.000Z', new Set())).toBeNull();
     expect(providerPillView([provider('codex', null)], undefined, new Set())).toBeNull();

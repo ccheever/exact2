@@ -37,7 +37,7 @@ function fixture(initial = 'word', caret = initial.length) {
       composerIntent: (...args: unknown[]) => {requests.push(args); const reply = composerIntentAnswer(client, args); replies.push(reply); return reply;},
       setRangeText: (...args: unknown[]) => commands.push(args), setSelectionRange: (...args: unknown[]) => selections.push(args), send: () => sends++,
       format: (...args: unknown[]) => formats.push(args),
-      preventDefault: () => suppressed++, stopPropagation: () => {}, ...chipFns,
+      preventDefault: () => suppressed++, stopPropagation: () => {}, releaseUndoClaim: () => {}, ...chipFns,
       ...state,
     };
     for (const name of ['composerRichCurrent', 'composerSelectionCurrent', 'composerFieldSnapshot',

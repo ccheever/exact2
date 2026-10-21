@@ -305,9 +305,9 @@ component ChatColumn
           EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
       if data.messages.length == 0 and data.threadId != ""
         // MessagesTimeline's empty state (no rows, not working): centred in the lane above the composer, which overlays the
-        // timeline (contentInsetEndAdjustment: the tail less its 12pt gap); while the thread's detail loads the pane stays
-        // blank (hideEmptyPlaceholder: threadDetailLoading).
-        column flex=1 min-height=0 width="100%" padding-right=laneInset padding-bottom=(overlaid ? max(0, data.transcriptTail - 12) : 0) box-sizing="border-box" align-items="center" justify-content="center" testId="empty-timeline"
+        // timeline (emptyPlaceholderInset: the composer's reserved height, held while it rests); while the thread's detail
+        // loads the pane stays blank (hideEmptyPlaceholder: threadDetailLoading).
+        column flex=1 min-height=0 width="100%" padding-right=laneInset padding-bottom=(overlaid ? data.composerReserved : 0) box-sizing="border-box" align-items="center" justify-content="center" testId="empty-timeline"
           if not data.threadLoading and not data.running
             text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #8181814d)" testId="empty-timeline-hint"
       if data.messages.length > 0
@@ -351,7 +351,7 @@ component ChatColumn
               ComposerEditorDock(editor=editor, dark=(scheme == "dark"), op=editorOp, openModels=openModels)
               ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, resting=resting, busy=commandPending, narrow=(conversationWidth < 620), keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)
               if branches.show and not resting
-                ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768))
+                ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768), compact=data.composer.stripCompact)
             if data.requestMode == "question" and not resting
               RequestActions(data=data, command=command, busy=commandPending, scheme=scheme)
       ComposerDrawerLayer(editor=editor, dark=(scheme == "dark"), op=editorOp)

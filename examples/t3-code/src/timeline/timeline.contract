@@ -19,6 +19,7 @@ use LiveLabel from "./timeline-work.contract"
 use SystemDivider from "./timeline-work.contract"
 use HandoffDivider from "./timeline-work.contract"
 use SubagentRow from "./timeline-work.contract"
+use SubagentGroup from "./timeline-work.contract"
 use WorkflowOpening from "./timeline-workflow.contract"
 use CopyButton from "./timeline-work.contract"
 use PlanCard from "./timeline-plan.contract"
@@ -446,7 +447,9 @@ component TimelineContent
                             if message.kind == "status"
                               ThreadStatusLine(message=message, command=command)
                             else
-                              if message.kind == "subagent" or message.kind == "subagents"
+                              if message.kind == "subagents"
+                                SubagentGroup(message=message, command=command, local=local, now=now)
+                              else if message.kind == "subagent"
                                 column width="100%"
                                   for agent in message.activities key=`${agent.id}\t${agent.label}\t${agent.body}\t${agent.result}`
                                     SubagentRow(agent=agent, command=command, now=now)

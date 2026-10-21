@@ -10,8 +10,9 @@
 // - apps/web/src/hooks/useLiveRefresh.ts: when each view last read (kept outside the panel, so a
 //   view reopened later is an arrival, not a first read), and the reader's last interaction (the
 //   module's input monitor, T3ActivityInput.swift, asked through `activityLastInteraction`).
-// - pullRequestDetail.logic.ts read/writePullRequestDetailSnapshot: the snapshots live in the
-//   app's versioned preference file (t3-code.json, `prDetailSnapshots`), bounded to the 24 newest.
+// - pullRequestDetail.logic.ts read/writePullRequestDetailSnapshot (74541bab17): the snapshots live in
+//   the app's versioned preference file (t3-code.json, `prDetailSnapshots`), bounded to the 20 most
+//   recently written.
 // The stream rides T3Client's transport (one dispatch line in client.ts drain, as shell-vcs.ts);
 // the newest subscription since the latest subscribe is the one counted (shell-vcs.ts explains
 // the request-id order). A new connection carries no streams, so the next read subscribes again.
@@ -129,15 +130,16 @@ export function liveRefreshAsked(client: object, view: string, input: { now: num
 
 // ── Snapshot storage (t3-code.json) ─────────────────────────────────────────
 
-const SNAPSHOT_LIMIT = 24;
-/** `prDetailSnapshots` on the preference record, as Storage's getItem/setItem; the newest are kept. */
+const SNAPSHOT_LIMIT = 20;
+/** `prDetailSnapshots` on the preference record, as Storage's getItem/setItem; the most recently written are kept. */
 export function snapshotStorage(owner: { local: object }): SnapshotStorage & { changed: boolean } {
   const local = owner.local as { prDetailSnapshots?: Record<string, string> };
   const store = { changed: false,
     getItem: (key: string) => { const held = local.prDetailSnapshots?.[key]; return typeof held === 'string' ? held : null; },
     setItem: (key: string, value: string) => {
       const held = { ...(local.prDetailSnapshots ?? {}) };
-      if (held[key] === value) return;
+      // The key order is the write order, oldest first: an unchanged write still counts as the most recent.
+      if (held[key] === value && Object.keys(held).at(-1) === key) return;
       delete held[key]; held[key] = value;
       const keys = Object.keys(held);
       for (const old of keys.slice(0, Math.max(0, keys.length - SNAPSHOT_LIMIT))) delete held[old];
@@ -145,7 +147,7 @@ export function snapshotStorage(owner: { local: object }): SnapshotStorage & { c
     } };
   return store;
 }
-/** load(): carry the saved snapshots into a fresh preference record (strings only, the newest 24). */
+/** load(): carry the saved snapshots into a fresh preference record (strings only, the 20 most recent). */
 export function adoptPrSnapshots(next: object, saved: Obj): void {
   const held = Object.entries(obj(saved.prDetailSnapshots)).filter((entry): entry is [string, string] => entry[0].startsWith('t3.pullRequests.detail:') && typeof entry[1] === 'string' && entry[1].length <= 200_000);
   (next as { prDetailSnapshots?: Record<string, string> }).prDetailSnapshots = Object.fromEntries(held.slice(-SNAPSHOT_LIMIT));

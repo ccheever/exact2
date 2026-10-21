@@ -5,7 +5,7 @@ import { noticeTitleDetails } from '../../src/composer/composer-presentation';
 import { probeKey } from '../../src/composer/composer-menus';
 
 const notice = (title: string, extra: Partial<Parameters<typeof noticeTitleDetails>[1]> = {}) =>
-  ({ id: 'background', title, tip: '', sep: false, description: '', redact: '', segments: [], machines: [], ...extra });
+  ({ id: 'background', title, tip: '', description: '', redact: '', segments: [], machines: [], details: false, ...extra });
 const presentation = (title: string, natural: number, content: number) => ({ anchors: { [probeKey(title, 12, 500)]: [0, natural], 'notice-content:background': [28, content] } });
 
 describe('notice title details', () => {
@@ -14,9 +14,11 @@ describe('notice title details', () => {
     expect(noticeTitleDetails(presentation(title, 420, 300), notice(title))).toBe(true);
     expect(noticeTitleDetails(presentation(title, 280, 300), notice(title))).toBe(false);
   });
-  test('the "·" and the description start after it', () => {
-    expect(noticeTitleDetails(presentation(title, 290, 300), notice(title, { sep: true, description: 'running for 3m' }))).toBe(true);
+  test('the description, and its details button while it shows, start after it', () => {
     expect(noticeTitleDetails(presentation(title, 290, 300), notice(title, { description: 'running for 3m' }))).toBe(false);
+    expect(noticeTitleDetails(presentation(title, 290, 300), notice(title, { description: 'running for 3m', details: true }))).toBe(true);
+    // At a larger interface font the probe's width scales with it.
+    expect(noticeTitleDetails(presentation(title, 280, 300), notice(title), 18)).toBe(true);
   });
   test('nothing before both have been laid out, and never for a title that has its own tooltip', () => {
     expect(noticeTitleDetails({ anchors: {} }, notice(title))).toBe(false);

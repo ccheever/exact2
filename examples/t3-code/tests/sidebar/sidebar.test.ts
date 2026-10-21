@@ -15,6 +15,7 @@ import { recordTerminalFocus } from '../../src/terminal/terminal-focus';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, undoLatest, visitOpenThread } from '../../src/sidebar/sidebar-commands';
 import { localDate, localTime, resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from '../../src/sidebar/sidebar-state';
 import { titleMenu } from '../../src/shell/shell';
+import { resolveSidebarRowThreadId } from '../../src/sidebar/sidebar-lineage';
 import { contractComponent } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
 
@@ -137,12 +138,24 @@ describe('sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/t
     expect(sidebarVisible(shell('a', { archivedAt: iso(-1) }))).toBe(false);
   });
 
-  test('a snoozed thread raises its hand on approval or a newer completion, and wakes as Woke until visited', () => {
+  test('a snoozed thread raises its hand on approval or a newer failure, and wakes as Woke until visited', () => {
     const snoozed = shell('a', { snoozedUntil: iso(3_600_000), snoozedAt: iso(-600_000) });
     expect(effectiveSnoozed(snoozed, NOW)).toBe(true);
     expect(effectiveSnoozed({ ...snoozed, pendingRuntimeRequest: { kind: 'command_approval' } }, NOW)).toBe(false);
-    const completed = { ...snoozed, latestRunId: 'r', status: 'completed', latestRunCompletedAt: iso(-60_000) };
-    expect(wokeAt(completed, NOW)).toBe(iso(-60_000));
+    // A background wake that completes keeps the thread snoozed until its timer.
+    const completed = { ...snoozed, latestRunId: 'r', status: 'completed', latestRunRequestedAt: iso(-120_000), latestRunCompletedAt: iso(-60_000), updatedAt: iso(-60_000) };
+    expect(effectiveSnoozed(completed, NOW)).toBe(true);
+    expect(wokeAt(completed, NOW)).toBeNull();
+    // A failure wakes it at the failed run's completion, not at a later metadata write.
+    const failed = { ...snoozed, latestRunId: 'r', status: 'failed', latestRunCompletedAt: iso(-60_000), updatedAt: iso(-1_000) };
+    expect(effectiveSnoozed(failed, NOW)).toBe(false);
+    expect(wokeAt(failed, NOW)).toBe(iso(-60_000));
+    // A failure from before the snooze does not wake it, even after a later metadata write.
+    const oldFailure = { ...failed, latestRunCompletedAt: iso(-900_000), updatedAt: iso(-1_000) };
+    expect(effectiveSnoozed(oldFailure, NOW)).toBe(true);
+    // An approval wake keeps the runtime's activity time, which an old failure does not replace.
+    const asked = { ...oldFailure, pendingRuntimeRequest: { kind: 'command_approval' } };
+    expect(wokeAt(asked, NOW)).toBe(iso(-1_000));
     const timer = shell('a', { snoozedUntil: iso(-120_000), snoozedAt: iso(-600_000) });
     expect(wokeAt(timer, NOW)).toBe(iso(-120_000));
     expect(isWoke(timer, wokeAt(timer, NOW), iso(-300_000))).toBe(true);
@@ -286,6 +299,25 @@ describe('the rows\' context popover (sidebar-row.contract ThreadMenu, DraftMenu
 });
 
 describe('sidebar projection (sidebar-view.ts)', () => {
+  test('an open subagent keeps its nearest listed ancestor\'s row highlighted (resolveSidebarRowThreadId)', () => {
+    const sub = (id: string, parent: string | null) => shell(id, { lineage: { relationshipToParent: 'subagent', parentThreadId: parent } });
+    const settled = Array.from({ length: 14 }, (_, index) => shell(`s${index}`, { settledOverride: 'settled', settledAt: iso(-index * 60_000) }));
+    const threads = [shell('a'), ...settled, sub('child', 's12'), sub('grandchild', 'child'), sub('orphan', 'missing'), sub('loop1', 'loop2'), sub('loop2', 'loop1')];
+    expect(resolveSidebarRowThreadId('grandchild', threads)).toBe('s12');
+    expect(resolveSidebarRowThreadId('a', threads)).toBe('a');
+    expect(resolveSidebarRowThreadId('orphan', threads)).toBe('orphan');
+    expect(resolveSidebarRowThreadId('loop1', threads)).toBe('loop1');
+    const { client } = fake(threads, { threadId: 'grandchild' });
+    sidebarPrefs(client).settledExpanded = false;
+    client.local.drafts['env:s12'] = 'unsent';
+    const rows = sidebarSnapshot(client, NOW, helpers).threads;
+    // The collapsed settled shelf keeps the ancestor's row, highlighted, with its draft dot: it is not the open composer.
+    const parent = rows.find(row => row.id === 's12')!;
+    expect(parent).toMatchObject({ selected: true, routeThread: false, draft: true });
+    expect(rows.filter(row => row.selected).map(row => row.id)).toEqual(['s12']);
+    client.threadId = 's12';
+    expect(sidebarSnapshot(client, NOW, helpers).threads.find(row => row.id === 's12')).toMatchObject({ selected: true, routeThread: true, draft: false });
+  });
   test('rows paint pinned, active, then shelves; collapsed shelves keep only the open thread; the tail pages', () => {
     const settled = Array.from({ length: 14 }, (_, index) => shell(`s${index}`, { settledOverride: 'settled', settledAt: iso(-index * 60_000) }));
     const threads = [shell('a'), shell('p', { pinnedAt: iso(-1) }), shell('z', { snoozedUntil: iso(7_200_000) }), ...settled];

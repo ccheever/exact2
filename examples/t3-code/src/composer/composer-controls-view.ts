@@ -152,8 +152,8 @@ export type ComposerNotice = { id: string; variant: string; icon: string; title:
   action: string; actionLabel: string; action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[];
   /** Why the action is disabled (its tooltip), '' when it is enabled; the ids the action and dismiss commands receive. */
   actionReason: string; actionId: string; dismissId: string; segments: NoticeSegment[];
-  /** The server-update banner: the title's and the actions' tooltips, a red icon, a "·" before the description, the title's live role. */
-  tip: string; actionTip: string; action2Tip: string; iconTone: string; sep: boolean; liveRole: string;
+  /** The title's and the actions' tooltips, a red icon; `details`: the description is clipped (composer-presentation.ts). */
+  tip: string; actionTip: string; action2Tip: string; iconTone: string; details: boolean;
   /** Auto balance: the multi-machine banner's popover rows and its title's accessible name. */
   machines: MachineRow[]; menuLabel: string;
   /** A description that is an account address (RedactedSensitiveText, then `redactAfter`), and the /usage-limits body. */
@@ -162,7 +162,7 @@ export type ComposerNotice = { id: string; variant: string; icon: string; title:
   titleDetails?: boolean };
 const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ variant: 'info', icon: '', description: '',
   action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', actionId: '', dismissId: '', segments: [],
-  tip: '', actionTip: '', action2Tip: '', iconTone: '', sep: false, liveRole: '', machines: [], menuLabel: '', redact: '', redactMask: '', redactAfter: '', usage: [], ...value });
+  tip: '', actionTip: '', action2Tip: '', iconTone: '', details: false, machines: [], menuLabel: '', redact: '', redactMask: '', redactAfter: '', usage: [], ...value });
 
 const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural: string }> = {
   subagent: { order: 0, singular: 'subagent', plural: 'subagents' }, command: { order: 1, singular: 'command', plural: 'commands' },
@@ -173,7 +173,7 @@ const joinWithAnd = (parts: string[]) => parts.length <= 1 ? parts.join('') : `$
  * Subagent descriptions read as display names; only work that wakes the agent
  * (anything but a command, backgroundWorkHoldsCompletion) is "waiting".
  */
-export type NoticeSegment = { key: string; label: string; threadId: string; last: boolean };
+export type NoticeSegment = { key: string; label: string; threadId: string; aria: string; last: boolean };
 export function presentBackgroundWork(tasks: Obj[]): { title: string; description: string; waiting: boolean; segments: NoticeSegment[] } | null {
   if (!tasks.length) return null;
   const waiting = tasks.some(task => task.kind !== 'command');
@@ -183,12 +183,14 @@ export function presentBackgroundWork(tasks: Obj[]): { title: string; descriptio
     return { kind: str(task.kind), meta: kind(task), label: label || kind(task).singular, child: task.kind === 'subagent' ? str(task.childThreadId) : '' };
   }).sort((a, b) => a.meta.order - b.meta.order);
   // The description lists every item; a subagent with its own thread is an inline "Open subagent …" link.
-  const segments = (list: typeof items) => list.map((item, index) => ({ key: `${index}:${item.label}`, label: item.label, threadId: item.child, last: index === list.length - 1 }));
+  const segments = (list: typeof items) => list.map((item, index) => ({ key: `${index}:${item.label}`, label: item.label, threadId: item.child,
+    aria: `Open subagent ${item.label}`, last: index === list.length - 1 }));
   if (items.length === 1) {
     const only = items[0]!, noun = only.meta.singular, named = only.label !== noun;
     const title = waiting ? (named ? `${only.kind === 'monitor' ? '' : `Waiting on ${noun} `}${only.label}` : `Waiting on a ${noun}`) : named ? `Running: ${only.label}` : `Running a ${noun}`;
-    // A single named item is already in the title.
-    return { title, description: only.child ? only.label : '', waiting, segments: only.child ? segments(items) : [] };
+    // A single named item is already in the title, so a lone subagent's link reads "Show".
+    return { title, description: only.child ? 'Show' : '', waiting,
+      segments: only.child ? [{ key: `0:${only.label}`, label: 'Show', threadId: only.child, aria: `Show subagent ${only.label}`, last: true }] : [] };
   }
   const counts = new Map<string, number>();
   for (const item of items) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
@@ -216,7 +218,7 @@ function childInputNotice(client: T3Client): ComposerNotice | null {
   const parentAwaiting = requests.approvals.length > 0 || requests.inputs.length > 0 || obj(shell?.pendingRuntimeRequest).kind === 'user_input';
   if (!first || parentAwaiting) return null;
   return notice({ id: `child-input:${first.id}`, priority: 0, icon: first.approval ? 'shield-question' : 'message-circle', title: childThreadInputsTitle(children),
-    segments: children.map((entry, index) => ({ key: entry.id, label: entry.title, threadId: entry.id, last: index === children.length - 1 })),
+    segments: children.map((entry, index) => ({ key: entry.id, label: entry.title, threadId: entry.id, aria: `Open subagent ${entry.title}`, last: index === children.length - 1 })),
     action: 'select-thread', actionId: first.id, actionLabel: first.approval ? 'Open approval' : 'Open question' });
 }
 function goalNotice(client: T3Client): ComposerNotice | null {
@@ -252,10 +254,15 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
   if (mismatch) items.push(notice(mismatch));
   return rankNotices(items);
 }
-/** bannerPriority: activity stays attached; urgency (priority 1), warnings and errors order the notices behind it. */
+/**
+ * bannerPriority: urgency (priority 1), warnings and errors lead, so they stay attached ahead of activity
+ * (priority 0, and the activity strip, composer-presentation.ts); other notices follow.
+ */
+export function noticeRank(item: Pick<ComposerNotice, 'priority' | 'variant'>): number {
+  return item.priority === 1 || item.variant === 'error' || item.variant === 'warning' ? 0 : item.priority === 0 ? 1 : 2;
+}
 function rankNotices(items: ComposerNotice[]): ComposerNotice[] {
-  const rank = (item: ComposerNotice) => item.priority === 0 ? 0 : item.priority === 1 || item.variant === 'error' || item.variant === 'warning' ? 1 : 2;
-  return items.map((item, order) => ({ item, order })).sort((a, b) => rank(a.item) - rank(b.item) || a.order - b.order).map(entry => entry.item);
+  return items.map((item, order) => ({ item, order })).sort((a, b) => noticeRank(a.item) - noticeRank(b.item) || a.order - b.order).map(entry => entry.item);
 }
 
 // ── Activity row: thread sync and tasks ────────────────────────────────────

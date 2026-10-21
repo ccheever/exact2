@@ -24,7 +24,8 @@ shape HoverTip
   key: string
   // "tip" (TooltipPopup: words, takes no pointer, closes with its trigger; "policy" is one after a 200 ms delay, "tooltip" one
   // after Base UI's default 600 ms), "scopes" (AccessScopeSummary's
-  // card), "freshness" (PullRequestBaseFreshnessWarning's card, drawn by T3Window from the open PR).
+  // card), "freshness" (PullRequestBaseFreshnessWarning's card, drawn by T3Window from the open PR), "pr-badge" (the
+  // composer badge's ThreadPullRequestsMiniList, a tooltip whose rows take the pointer: 600 ms open, 100 ms close).
   kind: string
   text: string
   lines: string[]
@@ -41,13 +42,13 @@ shape HoverTip
 // Base UI's closeDelay after the pointer leaves a hover card or its trigger, on the root's 10 ms hover clock: the
 // scopes' 100, the freshness card's 120; the Usage segment's popover has none, but safePolygon lets the pointer
 // cross the 6 pt gap into it, so it gets 50. A TooltipPopup closes with its trigger.
-fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))
+fn hoverDelay(kind: string): number = kind == "scopes" or kind == "pr-badge" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))
 
 // Base UI's open delay before a hover popover shows: AccessScopeSummary's delay={250}, the Usage segment's default 300;
 // the freshness card's delay={0}; PolicyTooltip's delay={200} (kind "policy", settings-kit.contract PolicyTip, drawn as a
 // tip); a Tooltip with no provider Base UI's 600 (kind "tooltip": ThreadAutomationsPanel's, thread-automations.contract); a
 // tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
-fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" or kind == "workflow-member" ? 200 : (kind == "tooltip" or kind == "code" ? 600 : 0)))
+fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" or kind == "workflow-member" ? 200 : (kind == "tooltip" or kind == "code" or kind == "pr-badge" ? 600 : 0)))
 
 fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
 
@@ -124,13 +125,16 @@ fn hoverFlip(side: string, other: string, room: number, otherRoom: number, need:
 
 // TooltipPopup (CnTooltip's look): the words, max-w-80 wrap-anywhere, taking no pointer. A word wider than the bubble (a
 // commit link's URL) breaks inside the bubble, as the reference's does, instead of running past it and the window.
-// TooltipPopup's base `text-balance` balances the words.
+// TooltipPopup's base `text-balance` balances the words. With `lines`, the text is a medium title over them in muted
+// ink (ThreadAutomationsPanel's task title and schedule).
 component HoverText
   props
     tip: HoverTip
   view
     column max-width="20rem" text-wrap="balance" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=tip.testId
-      text tip.text font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+      text tip.text font-size="0.75rem" line-height="1rem" font-weight=(tip.lines.length > 0 ? 500 : 400) white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+      for line in tip.lines key=line
+        text line font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
 
 // MediaActions' TooltipPopup (variant code: monospace 11px with relaxed leading, up to
 // 30rem, breaking anywhere), the media's full path, URL or name. The code variant keeps the base `text-balance`.

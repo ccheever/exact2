@@ -10,7 +10,8 @@ import type { T3Client } from '../../src/client/client';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { EnvironmentFleet, fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
-import { shouldShowComposerContextStrip, shouldShowEnvironmentIndicator, gitlessStrip } from '../../src/composer/context-strip';
+import { shouldShowComposerContextStrip, shouldShowEnvironmentIndicator, gitlessStrip, noteStripLayout, resolveContextStripLabelsCompact, stripLabelsCompact, stripLabelTexts } from '../../src/composer/context-strip';
+import { probeKey } from '../../src/composer/composer-menus';
 import { composerBranches } from '../../src/composer/composer-controls-branch';
 import { NO_RUN_ON } from '../../src/details/git-env';
 import { connected } from '../support/composer-controls-fixture';
@@ -140,5 +141,36 @@ describe('openScratch', () => {
     const native = { available: true, watch() {}, later: async (input: unknown) => { slept.push(Number((input as Obj).ms)); return { ok: true, value: {}, generation: 0 }; } } as Native;
     await expect(awaitScratchProject(native, () => false, async () => {})).rejects.toThrow(SCRATCH_NOT_LOADED);
     expect(slept.reduce((sum, ms) => sum + ms, 0)).toBe(10_000);
+  });
+});
+
+describe('the strip labels give way to icons when they do not fit (useLabelsOverflow)', () => {
+  test('resolveContextStripLabelsCompact expands again only with 16pt to spare', () => {
+    expect(resolveContextStripLabelsCompact({ compact: false, neededWidth: 300, availableWidth: 300 })).toBe(false);
+    expect(resolveContextStripLabelsCompact({ compact: false, neededWidth: 301, availableWidth: 300 })).toBe(true);
+    expect(resolveContextStripLabelsCompact({ compact: true, neededWidth: 290, availableWidth: 300 })).toBe(true);
+    expect(resolveContextStripLabelsCompact({ compact: true, neededWidth: 284, availableWidth: 300 })).toBe(false);
+  });
+  test('the strip\'s padding is not free space; a squeezed label counts at its natural width', () => {
+    const client = { presentation: { frames: {}, anchors: {} } } as unknown as T3Client;
+    const view = { show: true, gitless: false, envLocked: false, envShow: false, envLabel: 'Current checkout', envMachineLabel: '', branchLabel: 'feature/a-long-branch-name', prShow: false };
+    noteStripLayout(client, view);
+    expect(stripLabelTexts(client)).toEqual(['Current checkout', 'feature/a-long-branch-name']);
+    // Unmeasured: labels stay.
+    expect(stripLabelsCompact(client, 16)).toBe(false);
+    // A control is its icons and padding (44pt and 60pt here) plus its label as laid out.
+    const lay = (stripWidth: number, workspace: number, branch: number) => {
+      client.presentation = { frames: { strip: [0, 0, stripWidth, 32] }, anchors: {
+        'sc:workspace': [8, 44 + workspace], 'sl:workspace': [40, workspace], [probeKey('Current checkout', 12, 400)]: [0, 96],
+        'sc:branch': [200, 60 + branch], 'sl:branch': [220, branch], [probeKey('feature/a-long-branch-name', 12, 400)]: [0, 160] } };
+      return stripLabelsCompact(client, 16);
+    };
+    // Controls 140 + 220 and a 4pt gap need 364; a 380pt strip's padding and border leave exactly that.
+    expect(lay(380, 96, 160)).toBe(false);
+    // The branch label squeezed to 120 of its 160 still needs its 160.
+    expect(lay(376, 96, 120)).toBe(true);
+    // Compact, the labels are gone; they come back only with 16pt to spare.
+    expect(lay(390, 0, 0)).toBe(true);
+    expect(lay(396, 0, 0)).toBe(false);
   });
 });

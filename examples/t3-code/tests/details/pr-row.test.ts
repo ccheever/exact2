@@ -7,7 +7,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { arr } from '../../src/client/domain';
 import { toasts } from '../../src/shell/toast';
-import { checksList, describeChecks, summarizeChecks, resolveConflictsPrompt, fixChecksPrompt, handoffPrompt, readableFailure, actionPayload, preparePayload, trailingAction, prCard, rowAction, allowedMergeMethods, selectedMergeMethod } from '../../src/details/pr-row-logic';
+import { checksCount, checksList, describeChecks, summarizeChecks, resolveConflictsPrompt, fixChecksPrompt, handoffPrompt, readableFailure, actionPayload, preparePayload, trailingAction, prCard, rowAction, allowedMergeMethods, selectedMergeMethod } from '../../src/details/pr-row-logic';
 import { readDetail, performAction, askMerge, mergeAsk, confirmMerge, startHandoff, prState, forgetDetails } from '../../src/details/pr-row-actions';
 import { checksTail, checksTrigger, checksTriggerLeft, rowGeometry } from '../../src/details/pr-row';
 import { prRowsView, prRowCommand, prRowLocal, prTabIcon } from '../../src/panel/pr-surface';
@@ -80,10 +80,25 @@ describe('the checks (describePullRequestChecks, summarizePullRequestChecks, Che
   });
   test('attention, then running; completed behind "Show all" when either exists', () => {
     const checks = [check('build', 'success'), check('test (macos)', 'failure'), check('lint', 'success')];
-    expect(checksList(checks, false)).toEqual({ collapsible: true, rows: [{ key: '0:test (macos)', name: 'test (macos)', status: 'failure', label: 'Failed', url: checks[1]!.url, description: 'test (macos)' }] });
+    expect(checksList(checks, false)).toEqual({ collapsible: true, rows: [{ key: '0:test (macos)', name: 'test (macos)', status: 'failure', label: 'Failed', url: checks[1]!.url, description: 'test (macos)' }],
+      labels: ['Failed'], details: true });
     expect(checksList(checks, true).rows.map(row => [row.name, row.label])).toEqual([['test (macos)', 'Failed'], ['build', 'Passed'], ['lint', 'Passed']]);
     expect(checksList([check('build', 'success')], false)).toMatchObject({ collapsible: false, rows: [{ name: 'build', label: 'Passed' }] });
     expect(checksList([check('test', 'pending')], false).rows[0]!.label).toBe('Running');
+  });
+  // The rows share one grid, and the trigger counts completed checks while any are incomplete.
+  test('each row\'s label cell holds each shown label, so the column is as wide as the widest; Details holds its column when any shown row links one', () => {
+    const rows = [check('build', 'success'), { ...check('approve', 'action-required'), url: 'https://example.com/a/b/actions/runs/7' }, { ...check('lint', 'skipped'), url: '' }];
+    const list = checksList(rows, true);
+    expect(list.labels).toEqual(['Awaiting approval', 'Passed', 'Skipped']);
+    expect(list.details).toBe(true);
+    expect(checksList([{ ...check('lint', 'skipped'), url: '' }], false).details).toBe(false);
+  });
+  test('the trigger counts completed checks, awaiting action among the incomplete ones', () => {
+    expect(checksCount([check('a', 'success'), check('b', 'pending'), check('c', 'pending')])).toBe('1/3');
+    expect(checksCount([check('a', 'success'), check('b', 'action-required'), check('c', 'failure')])).toBe('2/3');
+    expect(checksCount([check('a', 'success'), check('b', 'failure')])).toBe('1 failed');
+    expect(checksCount([check('a', 'success')])).toBe('');
   });
   test('the popover lands end-aligned through its tail unless it fits start-aligned', () => {
     const inline = rowGeometry(true, 0);
@@ -234,7 +249,7 @@ describe('the split row, its card and the tab icon', () => {
     expect(row.extra.card).toMatchObject({ show: true, title: 'Update README badges', number: '#104', stateLabel: 'Open', branches: 'main ← feature/clean', checksShown: true, checksStatus: 'success', checksText: 'All checks passed', files: '3 files', additions: '+24', deletions: '-6', conflictText: '', flipped: false });
     expect(view.merge.open).toBe(false);
   });
-  test('failing checks read as a count on the second line; running ones as running/total', async () => {
+  test('failing checks read as a count on the second line; incomplete ones as completed/total', async () => {
     const { client, replies } = fakeClient();
     const failing = [check('build', 'success'), check('test', 'failure'), check('lint', 'cancelled')];
     replies['pullRequests.detail'] = () => detail({ checks: failing }); replies['pullRequests.checks'] = () => ({ state: 'open', checks: failing });
@@ -243,7 +258,7 @@ describe('the split row, its card and the tab icon', () => {
     forgetDetails(client);
     const running = [check('build', 'pending'), check('test', 'failure'), check('lint', 'success')];
     replies['pullRequests.detail'] = () => detail({ checks: running }); replies['pullRequests.checks'] = () => ({ state: 'open', checks: running });
-    expect((await prRowsView(client, native, { status: null, threadId: 't1', now: 2, projectId: 'p1', rightGap: 0, inline: true })).rows[0]!.checksCount).toBe('1/3');
+    expect((await prRowsView(client, native, { status: null, threadId: 't1', now: 2, projectId: 'p1', rightGap: 0, inline: true })).rows[0]!.checksCount).toBe('2/3');
     forgetDetails(client);
   });
   test('a hand-off draft shows its branch\'s pull request, as the reference card does after Resolve', async () => {

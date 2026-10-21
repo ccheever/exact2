@@ -177,9 +177,10 @@ component PrdCandidatePicker
     if value
       highlight = index
   view
+    // aria-disabled, not disabled: the button keeps its keyboard stop, so its focus shows why.
     if not picker.allowed
       Tip(label=disabledReason, side="bottom", align="center", offset=28)
-        button disabled=true aria-label=label testId=`pull-request-${which}-picker` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=0.64 display="flex" align-items="center" justify-content="center" title=""
+        button aria-disabled=true aria-label=label testId=`pull-request-${which}-picker` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=0.64 display="flex" align-items="center" justify-content="center" title=""
           PgIcon(name=icon, size=14, color=prmMuted())
     else
       column position="relative" flex-shrink=0
