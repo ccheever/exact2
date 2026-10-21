@@ -110,6 +110,38 @@ struct Around<'a> {
     local: bool,
     left: bool,
     within: Option<std::sync::Arc<Vec<super::rows::Fonts>>>,
+    grouped: Grouped,
+}
+
+/// Where a node sits in a grouped list: among its sections, in a section's
+/// body, or neither.
+#[derive(Clone, Copy, Default, PartialEq)]
+enum Grouped {
+    #[default]
+    No,
+    Sections,
+    Row,
+}
+
+/// Whether `list` with `attrs` (its class's rows with its own) is a
+/// grouped list (`grouped::style`); an unknown class or a refusal is no.
+fn grouped_list(file: &File, tag: &str, attrs: &[Attr]) -> bool {
+    let style = |name: &str| {
+        file.styles
+            .iter()
+            .rfind(|s| s.name == name)
+            .map(|s| s.attrs.as_slice())
+    };
+    let Ok(class) = crate::class::rows(attrs, &style) else {
+        return false;
+    };
+    let expanded: Vec<Attr> = class
+        .map(|(_, rows)| rows)
+        .unwrap_or_default()
+        .into_iter()
+        .chain(attrs.iter().filter(|a| a.name != "class").cloned())
+        .collect();
+    matches!(crate::grouped::style(tag, &expanded), Ok(Some(_)))
 }
 
 /// Whether `attrs`' class gives the element a `font-family`.
@@ -234,6 +266,7 @@ impl Said {
                 local,
                 left,
                 within,
+                grouped,
             } = around.clone();
             match node {
                 Node::Element {
@@ -262,19 +295,16 @@ impl Said {
                     };
                     // A look a marked section row yields to a grouped list's
                     // is dropped there (`row_look::yielded`, from
-                    // `grouped::row`: a section's body, not its header or
-                    // footer): never kept. Elsewhere the marker goes and the
-                    // look is judged (`swipe_rows::stray`).
-                    let yields = parent == Some("section")
+                    // `grouped::row`: a grouped list's section's body, not
+                    // its header or footer): never kept. Elsewhere the
+                    // marker goes and the look is judged (`swipe_rows::stray`).
+                    let yields = grouped == Grouped::Row
                         && !matches!(tag.as_str(), "header" | "footer")
                         && a.iter().any(|a| a.name == crate::row_look::ROW_LOOK);
-                    // An `audio`'s rows as lowering gives them
-                    // (`media::audio_rows`: a `display` it replaces).
+                    // An `audio`'s `display` is lowering's to write
+                    // (`media::audio_rows`, from its class's rows with its
+                    // own): never kept; one it refuses is the build's.
                     let audio = crate::media::audio_rows(tag, own, *span);
-                    let own = match &audio {
-                        Ok(Some(rows)) => rows.as_slice(),
-                        _ => own,
-                    };
                     let left = left
                         || boxed.is_err()
                         || audio.is_err()
@@ -310,6 +340,7 @@ impl Said {
                     // (`native::refused`, before any check of it).
                     for r in own.iter().filter(|r| {
                         !left
+                            && !(tag == "audio" && r.name == "display")
                             && !(yields && crate::row_look::look(r))
                             && crate::native::refused(tag, r).is_none()
                     }) {
@@ -339,12 +370,20 @@ impl Said {
                     }
                     let inside = svg || tag == "svg";
                     let left = left || (parent == Some("section") && crate::grouped::folds(node));
+                    // A grouped list's sections, and a section's body there
+                    // (`grouped::style`, `grouped::sections`).
+                    let grouped = match grouped {
+                        Grouped::Sections if tag == "section" => Grouped::Row,
+                        _ if tag == "list" && grouped_list(file, tag, a) => Grouped::Sections,
+                        _ => Grouped::No,
+                    };
                     let inner = Around {
                         svg: inside,
                         parent: Some(tag.as_str()),
                         local,
                         left,
                         within,
+                        grouped,
                     };
                     stack.extend(children.iter().map(|c| (c, inner.clone())));
                 }

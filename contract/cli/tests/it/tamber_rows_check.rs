@@ -1026,7 +1026,15 @@ fn a_write_fixing_the_failing_row_is_accepted_before_and_after_the_verdict() {
         std::fs::write(dir.join("app.tamber"), design).unwrap();
         std::fs::write(dir.join("app.contract"), contract).unwrap();
         assert!(contract::compile_path(&dir.join("app.contract")).is_err());
-        let mut s = Serve::start(&dir, &[]);
+        // Before the verdict for certain: the background build held at its
+        // gate until the fixing write is answered.
+        let gate = std::path::PathBuf::from(format!("{}.gate", dir.display()));
+        let _ = std::fs::remove_file(&gate);
+        let env: Vec<(&str, &str)> = match wait {
+            false => vec![("EXACT_TAMBER_CHECK_GATE", gate.to_str().unwrap())],
+            true => Vec::new(),
+        };
+        let mut s = Serve::start(&dir, &env);
         s.ask(ink.clone());
         if wait {
             let mut said = false;
@@ -1041,8 +1049,53 @@ fn a_write_fixing_the_failing_row_is_accepted_before_and_after_the_verdict() {
         }
         let w = transaction(&mut s, &dir, fix.clone());
         assert!(w.get("ok").is_some(), "wait {wait}: {w}");
+        std::fs::write(&gate, "").unwrap();
         drop(s);
+        let _ = std::fs::remove_file(&gate);
         contract::compile_path(&dir.join("app.contract")).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// An `audio`'s `display` is lowering's to write from its class's rows and
+/// its own: never judged, whatever its class says (Astra's re-check of
+/// 27657b9615).
+#[test]
+fn an_audios_display_with_a_class_is_the_builds() {
+    let dir = reading("rows-audio-class");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\nstyle Hidden\n  display = \"none\"\ncomponent App\n  state on = false\n  view\n    column\n      audio \"https://example.com/a.mp3\" class=Hidden controls=on\n      Card()\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "add-token", "name": "block", "value": "4px"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A marked box in a `section` outside a grouped list keeps its look: the
+/// build judges it first, and the write is refused there in its words
+/// (Astra's re-check of 08e003cbc2).
+#[test]
+fn a_marked_box_in_a_plain_section_keeps_its_look() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  gap = 8px\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      section\n        column -exact-row-look=\"platform\" padding-left=\"gap\" margin-left=\"gap\"\n      Card()\n";
+    same_words(
+        &reading("rows-row-look-section"),
+        design,
+        contract,
+        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
+        &design.replace("gap = 8px", "gap = #444444"),
+    );
 }
