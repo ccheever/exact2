@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.16`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.17`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.16"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.17"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -159,6 +159,10 @@ on macOS and Linux.
   page whose selection moved while the frame was on its way reports its selection as it is now;
   `unsupported` with `what: "inspect"` is only a page that can't step at all (none of the shipped hosts now: the web pages and Apple's step),
   which a client takes as no `select` there, not as no inspect.
+- `tamber/1.17` (stage 14, after stage 13 closed) adds `import`'s kind `pen`, Pencil's `.pen` file
+  (stage 13 B, carried into stage 14 A), and every import's `notes` (in the held proposal's `review`
+  when it has any): what decided a choice the source didn't say, a Pencil number's kind; and an
+  import's `prefix` is at most 128 characters, for every kind (a correction: a longer one is refused).
 
 ## Where it runs
 
@@ -1090,8 +1094,26 @@ list is unchanged: it keeps its own.
 - **The source.** `source` is the file's text. `name` is its file name; a Figma export's
   `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files, and only for
   `dtcg`: a stylesheet's importer reads one sheet, and several are refused (400, *1.1*).
-- **`kind`** is `shadcn`, `tailwind` or `dtcg`. `prefix` is the token prefix, by default
-  `shadcn`, `tw` or `dtcg`.
+- **`kind`** is `shadcn`, `tailwind`, `dtcg` or `pen` (*1.17*). `prefix` is the token prefix, by
+  default `shadcn`, `tw`, `dtcg` or `pen`, at most 128 characters (*1.17*).
+- **`pen`** (*1.17*, stage 13 B) is a Pencil `.pen` file (version 2.x), read into DTCG's layers:
+  - **Axes.** Its `themes` are its axes, each one's first value the default. An axis of two
+    values, `dark` and `light` or `default` in any case, is the scheme; any other is a proposed axis.
+  - **Values.** Each entry of a variable's `value` (a scalar is one) is a layer active where its
+    `theme` holds, every axis it names at once. Later entries win, as Pencil's "the last whose
+    theme is satisfied" does. `"$name"` is an alias.
+  - **Kinds.** A `color` is a colour. A `number` is a length (px) when every node reading it
+    reads it as a pixel property (`cornerRadius`, `gap`, `padding`, `fontSize`, `letterSpacing`,
+    `strokeWidth`, `width`, `height`), else a number (`lineHeight` is a multiplier); each number's
+    `notes` line names the properties that decided it. A `string` every node reads as `fontFamily`
+    is a family.
+  - **Reported.** Any other string, a boolean, an unknown `type`, an entry whose `theme` names an
+    axis or value `themes` doesn't declare, and each of `imports` (another `.pen`: a client's upload
+    has no directory to find it in) are in `unmapped`. A leading `--` (the shadcn kit's spelling) is
+    no part of a name.
+  - **Re-import.** There is no `.pen` export, so a re-import has no `baseline`. Its `pins` are still
+    marked against the design as it is (a literal over a line that followed another). Its budget,
+    process and size limit are every import's.
 - **Every kind** (stage 6 H): a length, number, type, family, shadow, duration or easing
   is proposed as its kind's token, the `add-token` naming its `kind`, when it folds as that
   kind beside the import's other tokens; one that does not, or that has a value per side of
@@ -1102,7 +1124,8 @@ list is unchanged: it keeps its own.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
   resolving its package needs a Bun install.
 - **The import is held as a proposal** whose `review` is `{importer, counted, unmapped, offers,
-  tokens, dials?, pins?}` (the last two a re-import's, below):
+  tokens, notes?, dials?, pins?}` (`notes` *1.17*, what decided a choice the source didn't say; the
+  last two a re-import's, below):
   - `counted` is `{source, mapped, reported}`;
   - `unmapped` is `[{block, name, value, why, token}]`;
   - `offers` is `[{role, token, items, note}]`;

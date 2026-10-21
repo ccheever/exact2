@@ -67,7 +67,7 @@ them; it's a client like any other, so every check holds:
 - **Back:** read the tool's variables, write them into that export, and send `import` with the export as
   `baseline`. A person accepts the proposal in the design tool.
 
-A `pen` importer that reads Pencil's `.pen` files directly is in `QUEUE.md`.
+Pencil's `.pen` files, kept in the repo, also import directly (*tamber/1.16*): `bun exact.mjs tamber import pen design.pen <url>`, or `import {kind: "pen"}` from a client. Their themes become axes and their variables tokens (`docs/tamber-protocol.md`, `import`).
 
 ## Tests
 

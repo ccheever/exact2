@@ -46,6 +46,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 mod kinds;
+pub mod pen;
 pub(crate) use kinds::colour;
 
 /// Where a layer applies.
@@ -56,6 +57,18 @@ enum Scope {
     Scheme(bool),
     /// One value of a proposed axis.
     Axis(String, String),
+    /// Every one of these at once (a Pencil entry's theme of several axes).
+    All(Vec<Scope>),
+}
+
+impl Scope {
+    /// It and the scopes it holds (an `All`'s), each once, flat.
+    fn flat(&self) -> Vec<&Scope> {
+        match self {
+            Scope::All(all) => all.iter().flat_map(Scope::flat).collect(),
+            s => vec![s],
+        }
+    }
 }
 
 /// One token as a source declares it.
@@ -1018,9 +1031,20 @@ pub fn import_with(
     design: &Design,
     vocab: &crate::Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
-    let refuse = |id: &'static str, m: String| vec![Diagnostic::new(id, m, 1, 1)];
     let _work = crate::budget::Work::begin(crate::budget::IMPORT);
-    let read = read(files).map_err(|m| refuse("tamber-import-source", m))?;
+    let read = read(files).map_err(|m| vec![Diagnostic::new("tamber-import-source", m, 1, 1)])?;
+    planned(read, prefix, design, vocab)
+}
+
+/// The import a source's layers make (DTCG's, or another format read into
+/// them: `pen`), planned against `design`; inside the caller's budget.
+fn planned(
+    read: Read,
+    prefix: &str,
+    design: &Design,
+    vocab: &crate::Vocab,
+) -> Result<Import, Vec<Diagnostic>> {
+    let refuse = |id: &'static str, m: String| vec![Diagnostic::new(id, m, 1, 1)];
     let defs = &read.defs;
     // The dimensions: the scheme, and each axis with its values in order.
     // Two axes, or two values of one, written differently but one
@@ -1041,13 +1065,15 @@ pub fn import_with(
             ));
         }
     }
-    let has_scheme = read
-        .layers
-        .iter()
-        .any(|l| l.scopes.iter().any(|s| matches!(s, Scope::Scheme(_))));
+    let has_scheme = read.layers.iter().any(|l| {
+        l.scopes
+            .iter()
+            .flat_map(Scope::flat)
+            .any(|s| matches!(s, Scope::Scheme(_)))
+    });
     let mut axes: Vec<(String, Vec<String>)> = read.dims.clone();
     for l in &read.layers {
-        for scope in &l.scopes {
+        for scope in l.scopes.iter().flat_map(Scope::flat) {
             if let Scope::Axis(a, v) = scope {
                 match axes.iter_mut().find(|(n, _)| n == a) {
                     Some((_, vs)) if !vs.contains(v) => vs.push(v.clone()),
@@ -1148,16 +1174,18 @@ pub fn import_with(
     }
     // Each tuple's winners: its layers merged in order, a later one winning
     // whatever its kind.
-    let active = |t: &Tuple, scopes: &[Scope]| {
-        scopes.iter().any(|scope| match scope {
+    fn holds(t: &Tuple, scope: &Scope, axes: &[(String, Vec<String>)]) -> bool {
+        match scope {
             Scope::Base => true,
             Scope::Scheme(dark) => *dark == t.0,
             Scope::Axis(a, v) => axes
                 .iter()
                 .position(|(n, _)| n == a)
                 .is_some_and(|i| t.1[i] == *v),
-        })
-    };
+            Scope::All(all) => all.iter().all(|s| holds(t, s, axes)),
+        }
+    }
+    let active = |t: &Tuple, scopes: &[Scope]| scopes.iter().any(|scope| holds(t, scope, &axes));
     let unused: BTreeSet<usize> = read.unused.iter().map(|(i, _)| *i).collect();
     let winners: Vec<BTreeMap<&str, usize>> = tuples
         .iter()
@@ -1466,5 +1494,6 @@ pub fn import_with(
         counted,
         dials: Vec::new(),
         pins: Vec::new(),
+        notes: Vec::new(),
     })
 }

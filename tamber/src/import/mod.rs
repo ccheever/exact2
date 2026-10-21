@@ -21,7 +21,7 @@ pub mod shadcn;
 pub mod tailwind;
 
 /// An import, ready to propose.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Import {
     /// The transaction: the tokens (and any axis) the source maps to.
     pub ops: Vec<Op>,
@@ -37,6 +37,9 @@ pub struct Import {
     pub dials: Vec<DialChange>,
     /// A re-import's literals over lines that followed others (D14's mark).
     pub pins: Vec<Pin>,
+    /// What decided a choice the import made that the source didn't say
+    /// (a Pencil number's kind, by the properties that read it).
+    pub notes: Vec<String>,
 }
 
 /// One offered choice: what it means and its operations (none where the

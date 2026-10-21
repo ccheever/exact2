@@ -1422,11 +1422,11 @@ pub fn reimport_against(
     let pins = crate::export_dials::marks(&cur, current, &ops, &mut dials, vocab, &under, &branch);
     Ok(Import {
         ops,
-        offers: Vec::new(),
         unmapped,
         counted,
         dials,
         pins,
+        ..Import::default()
     })
 }
 

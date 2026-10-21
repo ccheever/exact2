@@ -18,7 +18,8 @@ export function importReview(imported) {
     ops.push(...o.ops);
     return { role: o.role, token: o.token, items, note: o.note };
   });
-  return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length, ...marked(ops, imported.dials, imported.pins) } };
+  // (a choice the source didn't say, and what decided it: a Pencil number's kind, *1.16*)
+  return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length, ...(imported.notes?.length ? { notes: imported.notes } : {}), ...marked(ops, imported.dials, imported.pins) } };
 }
 
 /** A re-import's dial changes and marked pins (stage 10b), when it has any,
@@ -55,6 +56,7 @@ export async function importTheme(argv) {
   const { source: n, mapped, reported } = imported.counted;
   console.log(`${kind}: ${n} source values, ${mapped} mapped, ${reported} reported`);
   for (const u of imported.unmapped) console.log(`  unmapped ${u.block} ${u.name}: ${u.value || '(empty)'} (${u.why}${u.token ? `; would be ${u.token}` : ''})`);
+  for (const note of imported.notes ?? []) console.log(`  note ${note}`);
   const { ops, review } = importReview(imported);
   const { offers } = review;
   const offered = offers.flatMap(o => o.items);

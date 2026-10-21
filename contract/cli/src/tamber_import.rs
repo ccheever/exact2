@@ -13,7 +13,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or directory> | astryx <resolved theme json> [--app <app dir>] [--prefix <prefix>]";
+    "usage: contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or directory> | pen <file.pen> | astryx <resolved theme json> [--app <app dir>] [--prefix <prefix>]";
 
 /// A request the serve may plan: a held re-import's marks, and nothing of
 /// a source (a source is read alone, `plan_alone`).
@@ -180,6 +180,26 @@ fn import_with(
         "tailwind" => tailwind::import_with(text, prefix.unwrap_or("tw"), design, &vocab),
         "dtcg" => dtcg::import_with(files, prefix.unwrap_or("dtcg"), design, &vocab),
         "astryx" => astryx::import(text, prefix.unwrap_or("astryx"), design, &vocab),
+        // Pencil's `.pen` (stage 13 B): no Tamber export to compare against, so
+        // its re-import's dials and pins are marked against the design as it is.
+        "pen" => {
+            let name = files.first().map_or("source.pen", |(n, _)| n.as_str());
+            exact_tamber::import::dtcg::pen::import_with(
+                name,
+                text,
+                prefix.unwrap_or("pen"),
+                design,
+                &vocab,
+            )
+            .map(|mut import| {
+                if let Some((dials, pins)) =
+                    exact_tamber::import::marks_of(current, &import.ops, &vocab)
+                {
+                    (import.dials, import.pins) = (dials, pins);
+                }
+                import
+            })
+        }
         _ => return None,
     })
 }
@@ -218,7 +238,7 @@ pub fn plan(request: &Value, design: Option<&str>, kept: &[String]) -> Result<Va
             json!({"dials": dials_json(&dials), "pins": pins_json(&pins), "digest": digest}),
         );
     }
-    let kind = field("kind")?.ok_or_else(|| bad("`kind` is shadcn, tailwind or dtcg"))?;
+    let kind = field("kind")?.ok_or_else(|| bad("`kind` is shadcn, tailwind, dtcg or pen"))?;
     // Astryx's theme resolved by a Bun install on this machine (`resolved`,
     // which only `bun exact.mjs tamber import` sets; the wire never forwards it).
     if kind == "astryx" && request["resolved"] != true {
@@ -304,7 +324,7 @@ pub fn plan(request: &Value, design: Option<&str>, kept: &[String]) -> Result<Va
         explicit,
     ) {
         None => Err(bad(&format!(
-            "no importer `{kind}` (shadcn, tailwind, dtcg; astryx through its CLI)"
+            "no importer `{kind}` (shadcn, tailwind, dtcg, pen; astryx through its CLI)"
         ))),
         // Each diagnostic in the shape the wire gives a checker's: named by
         // the source file when there is one, else by its message alone (an
@@ -391,6 +411,8 @@ fn import_json(kind: &str, import: &Import) -> Value {
         // A re-import's dial changes and marked pins (LLP 1121 D14, stage 10b).
         "dials": dials_json(&import.dials),
         "pins": pins_json(&import.pins),
+        // What decided a choice the source didn't say (a Pencil number's kind; *1.16*).
+        "notes": import.notes,
     })
 }
 
