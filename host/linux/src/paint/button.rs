@@ -423,7 +423,8 @@ impl Painter {
     /// on it; `soft` and `text` are the accent as ink, on a tint of it or on
     /// nothing. A destructive button's accent is the red. Where a pointer
     /// hovers a wash of the ink lies over the fill, and a stronger one while
-    /// pressed; disabled, the ink is the grey and an accent fill a neutral.
+    /// pressed, but for `fill`, which shows UIKit's highlight (neutral.css);
+    /// disabled, the ink is the grey and an accent fill a neutral.
     fn neutral_face(
         &mut self,
         node: &NodeRef<'_>,
@@ -477,13 +478,19 @@ impl Painter {
         let line = look::px(metric::CONTROL_LINE, super::neutral::em(node));
         let (fill, edge, wash, ink) = match style {
             "fill" if disabled => (Some(role("-exact-tertiary-fill", dark)), None, None, label),
+            "fill" if pressed => {
+                let alpha = number(metric::BUTTON_PRESSED_ALPHA);
+                let ink = fade(look::ink_on(accent), alpha);
+                if dark {
+                    let white = fade([255; 4], number(metric::BUTTON_PRESSED_LIGHTEN));
+                    (Some(accent), None, Some(white), ink)
+                } else {
+                    (Some(fade(accent, alpha)), None, None, ink)
+                }
+            }
             "fill" => {
                 let ink = look::ink_on(accent);
-                let wash = ink_wash(
-                    ink,
-                    metric::BUTTON_PRESSED_FILLED,
-                    metric::BUTTON_HOVER_FILLED,
-                );
+                let wash = hover.then(|| fade(ink, number(metric::BUTTON_HOVER_FILLED)));
                 (Some(accent), None, wash, ink)
             }
             "soft" if disabled => (Some(role("-exact-tertiary-fill", dark)), None, None, label),

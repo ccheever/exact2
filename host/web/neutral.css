@@ -19,8 +19,8 @@
      - Emphasis is a fill, never a weight: filled, tinted, gray, bordered (the unsaid button, an outline), plain.
      - A state adds one thing: hover a wash of the control's ink (`-exact-quaternary-fill`, where a pointer hovers),
        pressed a stronger one, keyboard focus the browser's own ring, disabled the grey ink (`GrayText`'s), invalid
-       the red line, selected the accent or a raised chip. A button that draws no box, plain or borderless, takes no
-       wash: held, it fades.
+       the red line, selected the accent or a raised chip. Held, a plain, borderless, filled or glass button shows
+       UIKit's highlight instead (below).
 
      Every length and ratio below is a row of the schema's `metrics`, in its neutral column: the kernel sizes a control
      by those rows, and a host that paints its own controls (the Linux desktop, Windows) draws from them (LLP 1115.000
@@ -100,26 +100,39 @@
     #exact-root, #exact-root * { --exact-accent-text: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
   }
-  /* Hover and pressed: a wash of the button's own ink over its fill, as an image, so the fill beneath is whatever
-     the style or the accent made it. */
+  /* Hover, and a bordered, gray or tinted button's press: a wash of the button's own ink over its fill, as an image,
+     so the fill beneath is whatever the style or the accent made it. */
   @media (hover: hover) {
     #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: transparent; background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
     #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"], :disabled):hover { background-color: var(--exact-secondary-fill); }
     #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor 8%, transparent) 0 0); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
   }
+  /* Each press ties its hover's specificity and wins by coming after it, so these stay below the hover block. */
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
   #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"])[data-pressed] { background-color: var(--exact-secondary-fill); }
-  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor 16%, transparent) 0 0); }
-  #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor 22%, transparent) 0 0); }
-  /* A plain or borderless button draws no box, as UIKit's do, so it takes no wash, hovered or held (the Mac's
-     borderless button shows no hover either). Held, its face fades as theirs does: `UIButton.Configuration.plain()`
-     and `.borderless()` draw their ink at 75% while highlighted (measured on iOS 27). The face is its children, and
-     the name a sheet's bar draws in place of a symbol (`::after`, below), not the button, so the focus ring keeps its
-     ink. An authored press replaces the fade, as it replaces the shell's dim (index.html); a disabled button takes
-     none, and a menu's or a chooser's row keeps its own look. */
-  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"])[data-pressed]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *, [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-opacity-to:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"]) > *,
-  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"])[data-pressed]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *, [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-opacity-to:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"])::after { opacity: .75; }
+  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(color-mix(in srgb, currentColor 16%, transparent) 0 0); }
+  /* Held, a plain, borderless, filled or glass button shows UIKit's highlight, whatever its accent (measured on iOS 27):
+     - Its face is at 75%, as `UIButton.Configuration` draws a highlighted button's ink. The face is the button's
+       children, and the name a sheet's bar draws in place of a symbol (`::after`, below), so the focus ring keeps its
+       ink. A symbol fades by its tint, so one with a colour of its own (`-exact-tint-color`, which outranks this)
+       keeps it, as UIKit keeps a symbol its `imageColorTransformer` colours; a raster image, which takes no tint, keeps
+       its own.
+     - A plain or borderless button draws no box, as UIKit's do: no wash, hovered or held (the Mac's borderless button
+       shows no hover either).
+     - A filled one's fill is at 75% in light and mixed 20% with white in dark, as `.filled()` draws it.
+     - Glass takes a 20% white wash over its material, in light and dark, as `.glass()` brightens under a finger (it
+       also grows, which the web does not draw).
+     An authored press (a scale, a pressed paint) adds to this, as on iOS, where UIKit highlights a native button
+     whatever press its author wrote (NativeButtonsIOS.swift's `isHighlighted`; `authorsPress` in PressFeedback.swift
+     gates only the dim of a pressable that is no control). A disabled button takes none, and a menu's or a chooser's
+     row keeps its own look. */
+  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"])[data-pressed]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *) {
+    &:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) 75%, transparent), color-mix(in srgb, var(--exact-accent, AccentColor), #fff 20%)); background-image: none; }
+    &[data-button-style$="glass"] { background-image: linear-gradient(color-mix(in srgb, #fff 20%, transparent) 0 0); }
+    & > :not(img), &::after { opacity: .75; }
+    & > img { --exact-tint: color-mix(in srgb, currentColor 75%, transparent); }
+  }
   /* Disabled, in every style (LLP 1116.005 D8): the grey ink, and the neutral fill where the style filled with the
      accent; an outline fades to a divider. */
   #exact-root button[data-button-style]:disabled { color: var(--exact-gray-text); background-image: none; }
