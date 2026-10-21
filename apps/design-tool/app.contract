@@ -214,6 +214,8 @@ shape AppAxes
 // why it is read-only.
 shape SelRow
   name: string
+  // Nothing sets it (its initial value): folded in the Inspector.
+  initial: bool
   value: string
   source: string
   rung: string
@@ -807,6 +809,8 @@ component DesignTool
   // vary, its larger text size, how many copies, and whether a copy moved
   // leads the others. The copies frame the dev loop's page (paired: the
   // gateway's, once entered), and are read each second while shown.
+  // The selection whose rows nothing sets are shown (folded again for the next).
+  state initialFor = ""
   state canvasView = "one"
   // The variant gallery (the JS dev loop's /__dev/gallery/) in the canvas and the grid, in place of the app.
   state galleryOn = false
@@ -1112,6 +1116,8 @@ component DesignTool
   action toggleInspect
     if not pending(inspectSent)
       send inspectSent = sendInspect(client, not inspected.inspecting)
+  action showInitial(key: string)
+    initialFor = key
   action editState(target: string, value: string)
     // A style's state part row (T4): `set-state`, which rebuilds, so no scrub.
     if scrubShown
@@ -1718,7 +1724,7 @@ component DesignTool
                           text ""
                       if inspected.heldNote != ""
                         text inspected.heldNote color="-exact-system-orange" font="-exact-footnote" testId="held-note"
-                      for r in inspected.heldRows key=r.name
+                      for r in inspected.heldRows.filter(r => not r.initial or initialFor == inspected.key or (editTarget != "" and (editTarget == r.edit or editTarget == r.state))) key=r.name
                         row gap=8 align-items="center" flex-wrap="wrap" testId=`heldrow-${r.name}`
                           text r.name font="-exact-footnote" width="9rem"
                           text r.value font="-exact-caption1" font-family="ui-monospace, monospace" flex=1 min-width=0
@@ -1734,7 +1740,11 @@ component DesignTool
                               text r.editLabel
                           if r.reason != ""
                             text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`heldrow-reason-${r.name}`
-                  for r in inspected.rows key=r.name
+                      if initialFor != inspected.key and inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length > 0
+                        button press=showInitial(inspected.key) aria-label=`Show ${inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length} more held rows nothing sets (initial values)` testId="heldrow-initial"
+                          text `${inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length} more rows nothing sets (initial values)`
+                  // Rows nothing sets, folded behind one control, but never the row being edited.
+                  for r in inspected.rows.filter(r => not r.initial or initialFor == inspected.key or (editTarget != "" and (editTarget == r.edit or editTarget == r.state))) key=r.name
                     row gap=8 align-items="center" flex-wrap="wrap" testId=`selrow-${r.name}`
                       text r.name font="-exact-footnote" width="9rem"
                       text r.value font="-exact-caption1" font-family="ui-monospace, monospace" flex=1 min-width=0
@@ -1771,6 +1781,9 @@ component DesignTool
                           text "Detach to this template"
                       if r.rung == "" and r.reason != ""
                         text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
+                  if initialFor != inspected.key and inspected.rows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length > 0
+                    button press=showInitial(inspected.key) aria-label=`Show ${inspected.rows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length} more rows nothing sets (initial values)` testId="selrow-initial"
+                      text `${inspected.rows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length} more rows nothing sets (initial values)`
               if impactToken != ""
                 column gap=2 testId="impact"
                   row gap=8 align-items="center"
@@ -1911,18 +1924,6 @@ component DesignTool
                               text "Exact's base, per platform" font="-exact-caption1" color="-exact-secondary-label" testId=`token-source-${t.name}`
                             else if t.source == "package"
                               text `From the ${t.package} package` font="-exact-caption1" color="-exact-secondary-label" testId=`token-source-${t.name}`
-                            for c in t.columns.filter(c => c.ships or openedBase.includes(t.name)) key=c.name
-                              text `${c.label} ${c.value}${c.stretch ? " (a stretch)" : ""} · ${c.from}` font="-exact-caption2" color="-exact-secondary-label" testId=`token-base-${t.name}-${c.name}`
-                            if t.columns.filter(c => not c.ships).length > 0 and not openedBase.includes(t.name)
-                              button press=openBase(t.name) testId=`token-base-more-${t.name}`
-                                text "Other platforms"
-                            if t.source != "app"
-                              button press=setForApp(t.name, t.start, t.startFrom) disabled=(not canPropose) testId=`set-for-app-${t.name}`
-                                text "Set for this app"
-                            if t.over != ""
-                              text t.over font="-exact-caption1" color="-exact-secondary-label" testId=`token-over-${t.name}`
-                              button press=backToBase(t.name) disabled=(not canPropose) testId=`back-${t.name}`
-                                text t.back
                             if lit.names.includes(t.name)
                               text `changed by ${lit.whos.filter((w, i) => lit.names.indexOf(t.name) == i).join("")}` font="-exact-caption1" color=lit.tints.filter((c, i) => lit.names.indexOf(t.name) == i).join("") testId=`changed-by-${t.name}`
                             if t.follows != ""
@@ -1943,6 +1944,23 @@ component DesignTool
                               text (cell.residual ? cell.note : cell.css) font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 testId=`cell-text-${t.name}-${cell.column}`
                               for b in cell.pairs key=b.name
                                 text `${b.ratio} on ${b.name}` font="-exact-caption2" color=(b.low ? "-exact-system-red" : "-exact-secondary-label") line-clamp=1 testId=`pair-${t.name}-${cell.column}-${b.name}`
+                          // A base or package value per platform, a cell each across the grid (not wrapped in the name
+                          // column), then what may be done with it: name, columns, controls, in reading order.
+                          for c in t.columns.filter(c => c.ships or openedBase.includes(t.name)) key=c.name
+                            column width=160 flex-shrink=0 testId=`token-base-cell-${t.name}-${c.name}`
+                              text `${c.label} ${c.value}${c.stretch ? " (a stretch)" : ""} · ${c.from}` font="-exact-caption2" color="-exact-secondary-label" testId=`token-base-${t.name}-${c.name}`
+                          if (t.columns.filter(c => not c.ships).length > 0 and not openedBase.includes(t.name)) or t.source != "app" or t.over != ""
+                            row gap=8 align-items="center" flex-shrink=0
+                              if t.columns.filter(c => not c.ships).length > 0 and not openedBase.includes(t.name)
+                                button press=openBase(t.name) testId=`token-base-more-${t.name}`
+                                  text "Other platforms"
+                              if t.source != "app"
+                                button press=setForApp(t.name, t.start, t.startFrom) disabled=(not canPropose) testId=`set-for-app-${t.name}`
+                                  text "Set for this app"
+                              if t.over != ""
+                                text t.over font="-exact-caption1" color="-exact-secondary-label" testId=`token-over-${t.name}`
+                                button press=backToBase(t.name) disabled=(not canPropose) testId=`back-${t.name}`
+                                  text t.back
               if design.icons.length > 0
                 column gap=4 testId="icons"
                   text "Icons" font="-exact-subheadline" padding="8px 0 2px"

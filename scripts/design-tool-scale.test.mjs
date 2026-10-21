@@ -49,7 +49,7 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
     const measure = described.ir.tokens.find(t => t.name === 'reading.measure'), pkgName = measure?.package;
     expect(pkgName).toBeTruthy();
     const replies = await drive(tool.url, `design-tool-scale-${process.pid}`, [
-      'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'tree',
+      'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'tree', 'layout',
       'tap token-base-more-space.md', 'tap token-base-more-radius.md', 'tree',
       // Set for this app: space.md, from the first shipped column's value.
       'tap set-for-app-space.md', 'clock data', 'clock +1', 'clock data', 'state', 'tree', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tree',
@@ -70,6 +70,15 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
       'tap cell-radius.md-0-light', 'clock data', 'tree',
     ]);
     const trees = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {})));
+    // A base row reads across the grid, as it is laid out: its name, then each shipped column's cell side by side
+    // (not stacked in the name column), then its controls (finding #3 of the clone's pass).
+    const laid = replies.find(r => r.nodes && 'x' in (r.nodes[0] ?? {}));
+    const box = id => laid.nodes.find(n => (n.props?.testId ?? n.testId) === id);
+    const cells = shipped.map(c => box(`token-base-cell-space.md-${c}`));
+    expect(cells.every(Boolean)).toBe(true);
+    for (let i = 1; i < cells.length; i++) { expect(cells[i].x).toBeGreaterThan(cells[i - 1].x); expect(cells[i].y).toBeLessThan(cells[0].y + cells[0].h); expect(cells[0].y).toBeLessThan(cells[i].y + cells[i].h); }
+    expect(cells[0].x).toBeGreaterThan(box('token-source-space.md').x);
+    expect(box('set-for-app-space.md').x).toBeGreaterThan(cells.at(-1).x);
     const node = (t, id) => t.nodes.find(n => n.props.testId === id);
     const text = (t, id) => node(t, id)?.props.text;
     const [first, expanded, setAsked, setDone, setCell, backDone, undone, pkgCell, pkgSet, pkgBack, aliasCell, overCell] = trees;
