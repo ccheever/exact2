@@ -498,7 +498,8 @@ async function drive(t, report, fail, dir, ws, js) {
     // Linux), `mediasession <target> <action> [seconds]` (the platform's
     // media session action, LLP 1098 D10) — each compared after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
-    const settle = async () => { await pair(() => W.clock('settle'), () => J.clock('settle')); await onLinux('settle', L => L.clock('settle')); };
+    // A page whose settle still owes a list's reader a scroll event is compared too soon: that fails the step.
+    const settle = async () => { const replies = await pair(() => W.clock('settle'), () => J.clock('settle')); for (const [side, r] of [['wasm', replies[0]], ['js', replies[1]]]) if (r?.reason === 'scroll-event') fail(driveAt, `${side}: clock settle still owes a list's reader a scroll event`); await onLinux('settle', L => L.clock('settle')); };
     driveAt = 'boot settle';
     await settle();
     // Each step's bound refusals, on every target (the journals read from here on).

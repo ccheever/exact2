@@ -462,9 +462,10 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           });
           port.addEventListener('scroll', s.scrolled, { passive: true });
           // A scroll event acknowledged before any reader's handler (capture runs
-          // first at the target), so a jump that handler makes stays owed; the
+          // first at the target), so a jump that handler makes stays owed; only
+          // the port's own (a descendant's passes through capture too); the
           // viewport's scroll events fire at the document.
-          s.acked = () => { s.owesScroll = false; scrollsFired++; };
+          s.acked = e => { if (e.target !== s.ackTarget) return; s.owesScroll = false; scrollsFired++; };
           s.ackTarget = port === doc.scrollingElement ? doc : port;
           s.ackTarget.addEventListener('scroll', s.acked, { passive: true, capture: true });
           // A smooth correction that ended short of its target (clamped, or

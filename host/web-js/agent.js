@@ -371,6 +371,7 @@ export function install(exact) {
           const end = performance.now() + 20000;
           // A hatch whose acts keep causing acts never settles (LLP 1075.003.000.001 §2.5): 16 drains of its queue, then say so.
           const drained = exact.hatchActs?.drains() ?? 0, looping = () => exact.hatchActs && exact.hatchActs.drains() - drained > 16 && exact.hatchActs.queued() > 0;
+          let lastScroll = -1;
           for (let round = 0; round < 16; round++) {
             // A held request is in flight until the agent answers it: never waited on.
             do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end && !looping());
@@ -384,7 +385,7 @@ export function install(exact) {
             // at a rendering step; its reader's handler runs then (collection-glue
             // `owedScrolls`): wait those frames, then go round again for what it did.
             const scrolls = await exact.lists?.fireOwedScrolls();
-            if (scrolls?.fired || scrolls?.owed) continue;
+            if (scrolls?.fired || scrolls?.owed) { lastScroll = round; continue; }
             if (exact.inflight.n > holds().length) continue;
             // Animations (and springs, `settleAt`) that end later move the clock there; an
             // armed `then` runs now, and what it starts is settled in the next round.
@@ -409,8 +410,9 @@ export function install(exact) {
           if (gpuPending.length) return gpuPendingReply(req, gpuPending);
           const waiting = holds();
           if (waiting.length) return { clock: exact.clock.now, settled: false, reason: 'device', tickets: waiting.map(h => h.ticket) };
-          // A list still owing a scroll event its reader hasn't had is not settled.
-          if (exact.lists?.owedScrolls?.()) return { clock: exact.clock.now, settled: false, reason: 'scroll' };
+          // A list still owing a scroll event its reader hasn't had, or one whose
+          // handler ran in the last round with no quiet round after, is not settled.
+          if (exact.lists?.owedScrolls?.() || lastScroll === 15) return { clock: exact.clock.now, settled: false, reason: 'scroll-event' };
           return { clock: exact.clock.now, settled: !exact.inflight.n };
         }
         // A jump that crosses timers stops after each timer whose commit
